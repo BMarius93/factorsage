@@ -6,19 +6,32 @@
     "start:dev": "nest start --watch",
     "build": "nest build",
     "start:prod": "node dist/main.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && vitest run",
+    "seed:admin": "tsx src/seed.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
+    "@intrinsic/contracts": "workspace:*",
+    "@intrinsic/database": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.2",
     "@nestjs/platform-express": "^11.0.0",
+    "argon2": "^0.45.1",
+    "cookie": "^1.1.1",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
+    "@nestjs/testing": "^11.2.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
-    "typescript": "^5.9.0"
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9"
   }
 }

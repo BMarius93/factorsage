@@ -178,6 +178,53 @@ Default URLs:
 - PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
 
+## Authentication foundation
+
+The current vertical slice provides local password authentication and `USER` / `ADMIN` role
+authorization. `User` is the product identity, emails are normalized before storage and lookup,
+and PostgreSQL enforces email uniqueness. Passwords use Argon2id and only a nullable
+`passwordHash` is stored. The nullable field preserves compatibility with future external-only
+identities without adding provider tables now.
+
+Browser auth uses a signed JWT stored only in an HttpOnly cookie. The cookie uses `SameSite=Lax`,
+path `/`, an eight-hour default lifetime, and `Secure` in production. Browser requests include
+credentials and the API allows credentialed CORS only for configured origins. The frontend uses
+`/auth/me` as its identity authority; backend guards remain authoritative for authorization. Auth
+tokens are not stored in `localStorage` or `sessionStorage`.
+
+Implemented endpoints:
+
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+- `GET /admin/health` (ADMIN authorization proof only)
+
+Required auth settings are documented in `.env.example`:
+
+- `AUTH_JWT_SECRET` (at least 32 characters; use a unique random production secret)
+- `AUTH_TOKEN_TTL_SECONDS`
+- `AUTH_COOKIE_NAME`
+- `CORS_ORIGINS`
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD` (required only for bootstrap seeding)
+
+Create or update the first administrator explicitly:
+
+```bash
+ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='<temporary-value>' pnpm db:seed
+```
+
+The command has no default credentials, hashes the supplied password, normalizes the email, and is
+idempotent. Do not put real credentials in committed files.
+
+`CookieAuthGuard` resolves the current database user, while `Roles` metadata and `RolesGuard`
+enforce `USER` / `ADMIN`. Future ADMIN endpoints, such as a future Security sync endpoint, must
+reuse these primitives. Security sync itself is not implemented.
+
+Google OAuth is intentionally deferred. This slice does not include Google packages, OAuth
+callbacks, provider identifiers, an `OAuthAccount` table, or account linking. It also does not
+include public registration, password reset, email verification, refresh tokens, or product
+features.
+
 ## Full Docker stack
 
 The starter also includes simple whole-repository Dockerfiles:
@@ -199,7 +246,8 @@ pnpm test
 pnpm build
 ```
 
-Feature-specific E2E tests will be added when the first vertical slice is implemented.
+The auth slice includes PostgreSQL-backed API integration tests. Start infrastructure before
+running the full test gate locally.
 
 ## Rewrite order
 

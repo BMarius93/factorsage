@@ -7,8 +7,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
@@ -16,6 +17,8 @@
     "typecheck": "tsc --noEmit",
     "prisma:generate": "dotenv -e ../../.env -- prisma generate",
     "prisma:validate": "dotenv -e ../../.env -- prisma validate",
+    "prisma:migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "prisma:migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "prisma:migrate:status": "dotenv -e ../../.env -- prisma migrate status",
     "prisma:db:pull": "dotenv -e ../../.env -- prisma db pull",
     "prisma:studio": "dotenv -e ../../.env -- prisma studio"
