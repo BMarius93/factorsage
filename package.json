@@ -20,7 +20,10 @@
     "stack:up": "docker compose --profile app up --build",
     "stack:down": "docker compose --profile app down",
     "db:generate": "pnpm --filter @intrinsic/database prisma:generate",
-    "db:validate": "pnpm --filter @intrinsic/database prisma:validate"
+    "db:validate": "pnpm --filter @intrinsic/database prisma:validate",
+    "db:status": "pnpm --filter @intrinsic/database prisma:migrate:status",
+    "db:pull": "pnpm --filter @intrinsic/database prisma:db:pull",
+    "db:studio": "pnpm --filter @intrinsic/database prisma:studio"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

@@ -14,13 +14,17 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:generate": "dotenv -e ../../.env -- prisma generate",
+    "prisma:validate": "dotenv -e ../../.env -- prisma validate",
+    "prisma:migrate:status": "dotenv -e ../../.env -- prisma migrate status",
+    "prisma:db:pull": "dotenv -e ../../.env -- prisma db pull",
+    "prisma:studio": "dotenv -e ../../.env -- prisma studio"
   },
   "dependencies": {
     "@prisma/client": "6.19.2"
   },
   "devDependencies": {
+    "dotenv-cli": "^8.0.0",
     "prisma": "6.19.2",
     "typescript": "^5.9.0"
   }
