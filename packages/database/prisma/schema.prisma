@@ -1,0 +1,12 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Business models are intentionally deferred.
+// The V2 schema should be designed deliberately from the two old schemas,
+// not copied wholesale.

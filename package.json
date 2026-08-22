@@ -1,0 +1,29 @@
+{
+  "name": "intrinsic-value",
+  "private": true,
+  "scripts": {
+    "dev:web": "pnpm --filter @intrinsic/web dev",
+    "dev:api": "pnpm --filter @intrinsic/api start:dev",
+    "dev:worker": "pnpm --filter @intrinsic/worker dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check .",
+    "format": "prettier --write .",
+    "infra:up": "docker compose up -d mysql redis",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f mysql redis",
+    "stack:up": "docker compose --profile app up --build",
+    "stack:down": "docker compose --profile app down",
+    "db:generate": "pnpm --filter @intrinsic/database prisma:generate",
+    "db:validate": "pnpm --filter @intrinsic/database prisma:validate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}
