@@ -13,6 +13,9 @@ For substantial work:
 5. `workflows/validation.md`
 6. Relevant ADRs in `../docs/decisions/`.
 
+For authentication and role authorization work, also read
+`architecture/authentication.md`.
+
 ## Source-of-truth rule
 
 The old repository is historical reference only.

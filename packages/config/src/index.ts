@@ -73,6 +73,44 @@ function commaSeparated(value: string | undefined, fallback: string[]): string[]
   return values.length > 0 ? values : fallback;
 }
 
+function corsOrigins(env: Environment): string[] {
+  const values = commaSeparated(optional(env, "CORS_ORIGINS"), [
+    "http://localhost:3000",
+  ]);
+
+  return values.map((value) => {
+    if (value === "*") {
+      throw new Error(
+        "Invalid application configuration: CORS_ORIGINS cannot contain '*' when credentials are enabled",
+      );
+    }
+
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new Error(
+        `Invalid application configuration: CORS_ORIGINS contains invalid origin '${value}'`,
+      );
+    }
+
+    if (
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(
+        `Invalid application configuration: CORS_ORIGINS contains invalid origin '${value}'`,
+      );
+    }
+
+    return url.origin;
+  });
+}
+
 /**
  * Loads the single repository-root .env file when it exists.
  *
@@ -111,7 +149,41 @@ export function getApiConfig(env: Environment = process.env) {
   return {
     ...getAppConfig(env),
     port: integer(env, ["PORT", "API_PORT"], 3001),
-    corsOrigins: commaSeparated(optional(env, "CORS_ORIGINS"), ["http://localhost:3000"]),
+    corsOrigins: corsOrigins(env),
+  } as const;
+}
+
+export function getAuthConfig(env: Environment = process.env) {
+  const environment = runtimeEnvironment(env);
+  const jwtSecret = required(env, "AUTH_JWT_SECRET");
+
+  if (jwtSecret.length < 32) {
+    throw new Error(
+      "Invalid application configuration: AUTH_JWT_SECRET must be at least 32 characters",
+    );
+  }
+
+  return {
+    jwtSecret,
+    tokenTtlSeconds: integer(env, ["AUTH_TOKEN_TTL_SECONDS"], 8 * 60 * 60),
+    cookieName: optional(env, "AUTH_COOKIE_NAME") ?? "intrinsic_auth",
+    cookieSecure: environment === "production",
+    cookieSameSite: "lax" as const,
+  } as const;
+}
+
+export function getAdminBootstrapConfig(env: Environment = process.env) {
+  const password = required(env, "ADMIN_PASSWORD");
+
+  if (password.length < 12) {
+    throw new Error(
+      "Invalid application configuration: ADMIN_PASSWORD must be at least 12 characters",
+    );
+  }
+
+  return {
+    email: required(env, "ADMIN_EMAIL"),
+    password,
   } as const;
 }
 

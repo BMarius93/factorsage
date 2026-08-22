@@ -7,3 +7,10 @@ API and worker may both depend on `@intrinsic/database`, but they do not share a
 Do not put Prisma in `apps/web`.
 
 Initial engine: PostgreSQL. Do not change database engine as part of unrelated rewrite work.
+
+## Current product model
+
+Migration `20260822183050_add_user_auth` adds the first product table: the minimal `User` identity
+model and `UserRole` enum (`USER`, `ADMIN`). PostgreSQL owns the unique email constraint. Email is
+normalized by application write/lookup paths, and `passwordHash` is nullable for future external
+identity compatibility.

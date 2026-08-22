@@ -6,7 +6,7 @@
   },
   "scripts": {
     "dev:web": "pnpm --filter @intrinsic/web dev",
-    "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/api start:dev",
+    "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api start:dev",
     "dev:worker": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/worker dev",
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
@@ -21,9 +21,12 @@
     "stack:down": "docker compose --profile app down",
     "db:generate": "pnpm --filter @intrinsic/database prisma:generate",
     "db:validate": "pnpm --filter @intrinsic/database prisma:validate",
+    "db:migrate:dev": "pnpm --filter @intrinsic/database prisma:migrate:dev",
+    "db:migrate:deploy": "pnpm --filter @intrinsic/database prisma:migrate:deploy",
     "db:status": "pnpm --filter @intrinsic/database prisma:migrate:status",
     "db:pull": "pnpm --filter @intrinsic/database prisma:db:pull",
-    "db:studio": "pnpm --filter @intrinsic/database prisma:studio"
+    "db:studio": "pnpm --filter @intrinsic/database prisma:studio",
+    "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
