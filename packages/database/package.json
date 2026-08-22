@@ -15,19 +15,18 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "prisma:generate": "dotenv -e ../../.env -- prisma generate",
-    "prisma:validate": "dotenv -e ../../.env -- prisma validate",
-    "prisma:migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
-    "prisma:migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
-    "prisma:migrate:status": "dotenv -e ../../.env -- prisma migrate status",
-    "prisma:db:pull": "dotenv -e ../../.env -- prisma db pull",
-    "prisma:studio": "dotenv -e ../../.env -- prisma studio"
+    "prisma:generate": "node ./scripts/prisma-command.mjs generate",
+    "prisma:validate": "node ./scripts/prisma-command.mjs validate",
+    "prisma:migrate:dev": "node ./scripts/prisma-command.mjs migrate dev",
+    "prisma:migrate:deploy": "node ./scripts/prisma-command.mjs migrate deploy",
+    "prisma:migrate:status": "node ./scripts/prisma-command.mjs migrate status",
+    "prisma:db:pull": "node ./scripts/prisma-command.mjs db pull",
+    "prisma:studio": "node ./scripts/prisma-command.mjs studio"
   },
   "dependencies": {
     "@prisma/client": "6.19.2"
   },
   "devDependencies": {
-    "dotenv-cli": "^8.0.0",
     "prisma": "6.19.2",
     "typescript": "^5.9.0"
   }

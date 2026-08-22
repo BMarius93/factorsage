@@ -8,6 +8,26 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intrinsic_ci
+          POSTGRES_PASSWORD: intrinsic_ci_password
+          POSTGRES_DB: intrinsic_value_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U intrinsic_ci -d intrinsic_value_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://intrinsic_ci:intrinsic_ci_password@localhost:5432/intrinsic_value_ci
+      AUTH_JWT_SECRET: ci-test-only-secret-at-least-32-characters-long
+      AUTH_TOKEN_TTL_SECONDS: 3600
+      AUTH_COOKIE_NAME: ci_auth
+      CORS_ORIGINS: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +41,11 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm db:validate
+      - run: pnpm db:migrate:deploy
       - run: pnpm lint
+      - run: pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/database build
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
