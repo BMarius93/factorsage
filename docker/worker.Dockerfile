@@ -6,6 +6,6 @@ WORKDIR /repo
 COPY . .
 RUN pnpm install --no-frozen-lockfile
 
-RUN pnpm --filter @intrinsic/worker build
+RUN pnpm --filter @intrinsic/worker... build
 
 CMD ["pnpm", "--filter", "@intrinsic/worker", "start"]
