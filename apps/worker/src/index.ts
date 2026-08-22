@@ -1,7 +1,12 @@
+import { getWorkerConfig, loadRootEnv } from "@intrinsic/config";
 import pino from "pino";
+
+loadRootEnv();
+const config = getWorkerConfig();
 
 const logger = pino({
   name: "intrinsic-worker",
+  level: config.logLevel,
 });
 
 let stopping = false;
