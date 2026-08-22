@@ -3,8 +3,8 @@
   "private": true,
   "scripts": {
     "dev:web": "pnpm --filter @intrinsic/web dev",
-    "dev:api": "pnpm --filter @intrinsic/api start:dev",
-    "dev:worker": "pnpm --filter @intrinsic/worker dev",
+    "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/api start:dev",
+    "dev:worker": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/worker dev",
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
