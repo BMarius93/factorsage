@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VALUATION_PACKAGE_NAME } from "./index";
+import { VALUATION_PACKAGE_NAME } from "./index.js";
 
 describe("valuation package", () => {
   it("loads without infrastructure dependencies", () => {
