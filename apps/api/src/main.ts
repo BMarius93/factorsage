@@ -1,17 +1,20 @@
 import "reflect-metadata";
+import { getApiConfig, loadRootEnv } from "@intrinsic/config";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
+  loadRootEnv();
+  const config = getApiConfig();
+
   const app = await NestFactory.create(AppModule);
   app.enableShutdownHooks();
   app.enableCors({
-    origin: ["http://localhost:3000"],
+    origin: config.corsOrigins,
     credentials: true,
   });
 
-  const port = Number(process.env.PORT ?? 3001);
-  await app.listen(port);
+  await app.listen(config.port);
 }
 
 void bootstrap();
