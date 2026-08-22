@@ -18,7 +18,7 @@ apps/api
   | \
   |  \--> packages/fmp
   |
-  +----> packages/database --> MySQL
+  +----> packages/database --> PostgreSQL
   |
   +----> enqueue durable work
              |
@@ -31,7 +31,7 @@ apps/api
              +--> packages/fmp
 
 Redis = disposable cache / locks / coordination.
-MySQL = durable source of truth.
+PostgreSQL = durable source of truth.
 ```
 
 ## Repository layout
@@ -71,7 +71,8 @@ docker/         Container definitions
 
 ## Prerequisites
 
-- Node.js 22+
+- nvm
+- Node.js 22.23.2 (via `.nvmrc`)
 - Corepack
 - pnpm
 - Docker Desktop
@@ -84,17 +85,74 @@ corepack enable
 
 ## First setup
 
+1. Install and select the pinned Node.js version:
+
+```bash
+nvm install
+nvm use
+```
+
+2. Verify the runtime:
+
+```bash
+node --version
+```
+
+3. Enable Corepack if needed:
+
+```bash
+corepack enable
+```
+
+4. Create local environment defaults:
+
 ```bash
 cp .env.example .env
+```
+
+5. Install dependencies:
+
+```bash
 pnpm install
+```
+
+6. Start infrastructure:
+
+```bash
 pnpm infra:up
+```
+
+7. Validate Prisma setup:
+
+```bash
+pnpm db:generate
 pnpm db:validate
+```
+
+8. Run repository quality checks:
+
+```bash
+pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
 
-After the first install, commit `pnpm-lock.yaml`.
+9. Start local applications in separate terminals:
+
+```bash
+pnpm dev:web
+pnpm dev:api
+pnpm dev:worker
+```
+
+10. Verify pnpm is available in your selected Node runtime:
+
+```bash
+pnpm --version
+```
+
+After dependency changes, keep `pnpm-lock.yaml` committed.
 
 ## Local development
 
@@ -115,8 +173,9 @@ pnpm dev:worker
 Default URLs:
 
 - Web: `http://localhost:3000`
+- API: `http://localhost:3001`
 - API health: `http://localhost:3001/health`
-- MySQL: `localhost:3306`
+- PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
 
 ## Full Docker stack
@@ -127,7 +186,7 @@ The starter also includes simple whole-repository Dockerfiles:
 pnpm stack:up
 ```
 
-For normal development, prefer running MySQL/Redis in Docker and the Node applications locally for easier debugging.
+For normal development, prefer running PostgreSQL/Redis in Docker and the Node applications locally for easier debugging.
 
 ## Validation contract
 

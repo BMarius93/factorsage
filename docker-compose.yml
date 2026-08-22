@@ -1,18 +1,17 @@
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-intrinsic_value}
-      MYSQL_USER: ${MYSQL_USER:-intrinsic}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-intrinsic_dev_password}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-intrinsic_value}
+      POSTGRES_USER: ${POSTGRES_USER:-intrinsic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intrinsic_dev_password}
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -51,12 +50,12 @@ services:
       dockerfile: docker/api.Dockerfile
     environment:
       PORT: 3001
-      DATABASE_URL: mysql://${MYSQL_USER:-intrinsic}:${MYSQL_PASSWORD:-intrinsic_dev_password}@mysql:3306/${MYSQL_DATABASE:-intrinsic_value}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-intrinsic}:${POSTGRES_PASSWORD:-intrinsic_dev_password}@postgres:5432/${POSTGRES_DB:-intrinsic_value}
       REDIS_URL: redis://redis:6379
     ports:
       - "${API_PORT:-3001}:3001"
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -67,14 +66,14 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-intrinsic}:${MYSQL_PASSWORD:-intrinsic_dev_password}@mysql:3306/${MYSQL_DATABASE:-intrinsic_value}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-intrinsic}:${POSTGRES_PASSWORD:-intrinsic_dev_password}@postgres:5432/${POSTGRES_DB:-intrinsic_value}
       REDIS_URL: redis://redis:6379
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
 volumes:
-  mysql_data:
+  postgres_data:
   redis_data:

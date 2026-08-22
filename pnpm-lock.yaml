@@ -26,6 +26,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@intrinsic/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
@@ -79,6 +82,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@intrinsic/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       pino:
         specifier: ^9.14.0
         version: 9.14.0
@@ -89,6 +95,15 @@ importers:
       tsx:
         specifier: ^4.20.0
         version: 4.23.12
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+
+  packages/config:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

@@ -18,7 +18,7 @@
 
 ## Data ownership
 
-MySQL owns durable state.
+PostgreSQL owns durable state.
 
 Redis may be used for:
 - cache,

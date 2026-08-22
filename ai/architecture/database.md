@@ -6,4 +6,4 @@ API and worker may both depend on `@intrinsic/database`, but they do not share a
 
 Do not put Prisma in `apps/web`.
 
-Initial engine: MySQL. Do not change database engine as part of unrelated rewrite work.
+Initial engine: PostgreSQL. Do not change database engine as part of unrelated rewrite work.

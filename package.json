@@ -1,6 +1,9 @@
 {
   "name": "intrinsic-value",
   "private": true,
+  "engines": {
+    "node": "22.23.2"
+  },
   "scripts": {
     "dev:web": "pnpm --filter @intrinsic/web dev",
     "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/api start:dev",
@@ -11,9 +14,9 @@
     "lint": "eslint . --max-warnings=0",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "infra:up": "docker compose up -d mysql redis",
+    "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
-    "infra:logs": "docker compose logs -f mysql redis",
+    "infra:logs": "docker compose logs -f postgres redis",
     "stack:up": "docker compose --profile app up --build",
     "stack:down": "docker compose --profile app down",
     "db:generate": "pnpm --filter @intrinsic/database prisma:generate",

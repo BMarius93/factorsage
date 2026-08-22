@@ -4,7 +4,7 @@ Recommended development topology:
 
 ```text
 Docker:
-  MySQL
+  PostgreSQL
   Redis
 
 Host:

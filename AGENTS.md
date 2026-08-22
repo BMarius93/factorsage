@@ -12,7 +12,7 @@ Read `ai/README.md` before substantial work.
 4. Fundamental and intrinsic-value historical calculations must remain point-in-time correct and must not use future information.
 5. Backtests are asynchronous long-running work.
 6. API and worker are different processes, not different business implementations.
-7. MySQL is the durable source of truth.
+7. PostgreSQL is the durable source of truth.
 8. Redis is disposable infrastructure and must not be the only store for completed/user-owned state.
 
 ## Dependency rules
