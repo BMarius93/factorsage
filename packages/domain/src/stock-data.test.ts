@@ -48,19 +48,19 @@ describe("stock data foundation", () => {
 
   it("keeps DDM out of non-dividend default blends", () => {
     expect(
-      INTRINSIC_VALUE_BLENDS.BALANCED.components.some(
-        (component) => component.model === "DDM",
+      INTRINSIC_VALUE_BLENDS.BALANCED.components.map(
+        (component) => component.model,
       ),
-    ).toBe(false);
+    ).not.toContain("DDM");
     expect(
-      INTRINSIC_VALUE_BLENDS.CONSERVATIVE.components.some(
-        (component) => component.model === "DDM",
+      INTRINSIC_VALUE_BLENDS.CONSERVATIVE.components.map(
+        (component) => component.model,
       ),
-    ).toBe(false);
+    ).not.toContain("DDM");
     expect(
-      INTRINSIC_VALUE_BLENDS.DIVIDEND.components.some(
-        (component) => component.model === "DDM",
+      INTRINSIC_VALUE_BLENDS.DIVIDEND.components.map(
+        (component) => component.model,
       ),
-    ).toBe(true);
+    ).toContain("DDM");
   });
 });
