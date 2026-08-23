@@ -15,6 +15,10 @@ export class IoredisCacheClient implements RedisCacheClient {
     return this.redis.get(key);
   }
 
+  mget(...keys: string[]): Promise<Array<string | null>> {
+    return this.redis.mget(...keys);
+  }
+
   set(key: string, value: string): Promise<unknown> {
     return this.redis.set(key, value);
   }
@@ -25,6 +29,10 @@ export class IoredisCacheClient implements RedisCacheClient {
 
   smembers(key: string): Promise<string[]> {
     return this.redis.smembers(key);
+  }
+
+  incr(key: string): Promise<number> {
+    return this.redis.incr(key);
   }
 
   zadd(key: string, score: number, member: string): Promise<unknown> {
@@ -61,5 +69,13 @@ export class IoredisCacheClient implements RedisCacheClient {
 
   del(...keys: string[]): Promise<unknown> {
     return this.redis.del(...keys);
+  }
+
+  eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: string[]
+  ): Promise<unknown> {
+    return this.redis.call("EVAL", script, String(numberOfKeys), ...args);
   }
 }

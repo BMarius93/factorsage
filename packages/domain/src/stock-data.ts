@@ -126,7 +126,8 @@ export type DailyTechnical = {
  * week is complete; callers may then observe the same latest eligible weekly value on multiple
  * subsequent daily dates without duplicating that weekly snapshot in durable storage.
  */
-export const WEEKLY_TECHNICAL_BACKTEST_POLICY = "COMPLETED_PERIODS_ONLY" as const;
+export const WEEKLY_TECHNICAL_BACKTEST_POLICY =
+  "COMPLETED_PERIODS_ONLY" as const;
 
 export const INTRINSIC_VALUE_MODELS = [
   "DCF_FCFF",
@@ -194,7 +195,10 @@ export const INTRINSIC_VALUE_BLENDS = {
       { model: "RESIDUAL_INCOME", weight: 0.2 },
     ],
   },
-} as const satisfies Record<IntrinsicValueBlendId, IntrinsicValueBlendDefinition>;
+} as const satisfies Record<
+  IntrinsicValueBlendId,
+  IntrinsicValueBlendDefinition
+>;
 
 export type IntrinsicValueBlendPoint = {
   securityId: SecurityId;
@@ -221,7 +225,7 @@ export const STOCK_DATASETS = [
 ] as const;
 export type StockDataset = (typeof STOCK_DATASETS)[number];
 
-/** Per-security dataset watermark used to make range-aware loading decisions. */
+/** Per-security dataset watermark used to make canonical delta/freshness decisions. */
 export type StockDatasetState = {
   securityId: SecurityId;
   dataset: StockDataset;
@@ -259,7 +263,10 @@ export interface StockDataService {
   getSecurity(symbol: string): Promise<Security>;
   getStockDetails(symbol: string, range?: DateRange): Promise<StockDetails>;
   getDailyPrices(symbol: string, range: DateRange): Promise<DailyPrice[]>;
-  getDailyTechnicals(symbol: string, range: DateRange): Promise<DailyTechnical[]>;
+  getDailyTechnicals(
+    symbol: string,
+    range: DateRange,
+  ): Promise<DailyTechnical[]>;
   getIntrinsicValues(
     symbol: string,
     query: IntrinsicValueQuery,
@@ -294,10 +301,10 @@ export interface StockDataRepository {
   ): Promise<IntrinsicValueBlendPoint[]>;
 }
 
-/** Symbol-level LRU residency control for disposable Redis cache. */
+/** Complete-stock LRU residency control for disposable Redis cache. */
 export interface StockCache {
-  hasResidentSymbol(symbol: string): Promise<boolean>;
-  touch(symbol: string): Promise<void>;
-  /** Evict every cached dataset for the symbol as one logical operation. */
-  evict(symbol: string): Promise<void>;
+  hasResidentStock(securityId: SecurityId): Promise<boolean>;
+  touch(securityId: SecurityId): Promise<void>;
+  /** Evict every cached dataset for the security as one logical operation. */
+  evict(securityId: SecurityId): Promise<void>;
 }

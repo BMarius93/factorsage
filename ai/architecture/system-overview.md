@@ -31,9 +31,15 @@ Redis may be used for:
 
 A Redis flush must not destroy completed executions or user-owned data.
 
-`@intrinsic/stock-data` owns Redis -> PostgreSQL -> missing coverage -> FMP/derived calculation ->
-PostgreSQL -> Redis orchestration. Process adapters construct their own Prisma and Redis clients;
-they do not reimplement loading behavior.
+`@intrinsic/stock-data` owns canonical full-stock hydration: Redis READY check -> PostgreSQL
+canonical-horizon coverage -> missing FMP deltas -> versioned derived calculation -> PostgreSQL ->
+yearly Redis chunks. Requested ranges are read projections, not hydration boundaries. Process
+adapters construct their own Prisma and Redis clients; they do not reimplement loading behavior.
+
+One distributed lock coordinates hydration of a complete security across API and worker. A
+provider-wide Redis gate separately limits concurrent/rate traffic and shares 429 cooldown state
+across processes. Recent mutable EOD data is refreshed as a bounded tail without rebuilding closed
+historical years.
 
 ## Main boundary
 

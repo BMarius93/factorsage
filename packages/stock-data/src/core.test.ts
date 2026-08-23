@@ -151,6 +151,23 @@ describe("daily moving averages", () => {
     expect(rows[19]?.sma20d).toBe(10.5);
     expect(rows[19]).not.toHaveProperty("sma20");
   });
+
+  it("produces identical canonical history regardless of price delta order", () => {
+    const ascending = closes.map((close, index) =>
+      price(
+        `2020-${String(Math.floor(index / 28) + 1).padStart(2, "0")}-${String((index % 28) + 1).padStart(2, "0")}`,
+        close,
+      ),
+    );
+    const shuffled = [
+      ...ascending.filter((_, index) => index % 2 === 1),
+      ...ascending.filter((_, index) => index % 2 === 0),
+    ];
+
+    expect(calculateDailyTechnicals(shuffled)).toEqual(
+      calculateDailyTechnicals(ascending),
+    );
+  });
 });
 
 describe("weekly semantics", () => {
@@ -207,6 +224,27 @@ describe("weekly semantics", () => {
     expect(latestCompletedWeeklyBar(bars, "2026-08-17")?.weekStartDate).toBe(
       "2026-08-10",
     );
+  });
+
+  it("handles an IPO mid-week and a week crossing calendar years", () => {
+    const bars = aggregateCompletedWeeks(
+      [
+        price("2025-12-30", 10, { open: 9 }),
+        price("2025-12-31", 11),
+        price("2026-01-02", 12),
+      ],
+      "2026-01-05",
+    );
+
+    expect(bars).toEqual([
+      expect.objectContaining({
+        weekStartDate: "2025-12-29",
+        weekEndDate: "2026-01-02",
+        eligibleDate: "2026-01-05",
+        open: 9,
+        close: 12,
+      }),
+    ]);
   });
 });
 
@@ -282,6 +320,27 @@ describe("point-in-time intrinsic values and blends", () => {
       expect(result.point.valuePerShare).toBe(86);
       expect(result.point.blendVersion).toBe(1);
       expect(result.point.sourceDataAsOf).toBe("2025-01-11T01:00:00.000Z");
+    }
+  });
+
+  it("selects the highest version shared by every blend component", () => {
+    const result = calculateBlend(
+      INTRINSIC_VALUE_BLENDS.BALANCED,
+      [
+        ...points,
+        {
+          ...points[0]!,
+          valuePerShare: 1_000,
+          calculationVersion: 2,
+        },
+      ],
+      "2025-01-11",
+    );
+
+    expect(result.status).toBe("AVAILABLE");
+    if (result.status === "AVAILABLE") {
+      expect(result.point.calculationVersion).toBe(1);
+      expect(result.point.valuePerShare).toBe(86);
     }
   });
 });

@@ -40,13 +40,19 @@ export interface StockDataStore {
     variant: string,
     range: Required<DateRange>,
   ): Promise<Required<DateRange>[]>;
+  getLatestCoverageSyncContainingDate(
+    securityId: string,
+    dataset: PersistedStockDataset,
+    variant: string,
+    date: string,
+  ): Promise<string | null>;
   getDailyPrices(securityId: string, range: DateRange): Promise<DailyPrice[]>;
   saveDailyPriceSync(input: {
     securityId: string;
     prices: readonly DailyPrice[];
     successfulCoverage: readonly Required<DateRange>[];
     syncedAt: string;
-  }): Promise<void>;
+  }): Promise<{ earliestChangedDate?: string }>;
   getDailyTechnicals(
     securityId: string,
     range: DateRange,
@@ -60,7 +66,16 @@ export interface StockDataStore {
     syncedAt: string;
     calculationVersion: number;
   }): Promise<void>;
+  getWeeklyPrices(
+    securityId: string,
+    range: DateRange,
+    calculationVersion: number,
+  ): Promise<WeeklyPrice[]>;
   getIntrinsicValues(
+    securityId: string,
+    query: IntrinsicValueQuery,
+  ): Promise<IntrinsicValuePoint[]>;
+  getIntrinsicValuesForBlend(
     securityId: string,
     query: IntrinsicValueQuery,
   ): Promise<IntrinsicValuePoint[]>;

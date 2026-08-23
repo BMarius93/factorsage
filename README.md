@@ -35,6 +35,11 @@ Redis = disposable cache / locks / coordination.
 PostgreSQL = durable source of truth.
 ```
 
+`@intrinsic/stock-data` hydrates one canonical stock history (up to the configured 30-year
+horizon) for API and worker callers. Requested dates only project reads from yearly Redis chunks.
+PostgreSQL coverage prevents historical refetches, one stock-level Redlock prevents duplicate
+same-stock hydration, and a separate Redis provider gate coordinates FMP rate/cooldown behavior.
+
 ## Repository layout
 
 ```text

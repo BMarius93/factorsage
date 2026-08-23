@@ -17,6 +17,7 @@ Use dedicated accessors for server-side integrations:
 - `getDatabaseConfig()`
 - `getRedisConfig()`
 - `getFmpConfig()`
+- `getFmpTrafficConfig()` for non-secret provider limiter/retry settings
 - `getStripeConfig()`
 - `getApiConfig()`
 - `getWorkerConfig()`

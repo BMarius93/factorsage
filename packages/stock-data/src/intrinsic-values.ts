@@ -12,7 +12,7 @@ export function selectIntrinsicValues(
   query: IntrinsicValueQuery,
 ): IntrinsicValuePoint[] {
   const asOfInstant = query.asOf ? endOfLocalDate(query.asOf) : undefined;
-  return points
+  const eligible = points
     .filter((point) => !query.from || point.valuationDate >= query.from)
     .filter((point) => !query.to || point.valuationDate <= query.to)
     .filter((point) => !query.asOf || point.valuationDate <= query.asOf)
@@ -24,6 +24,24 @@ export function selectIntrinsicValues(
         left.model.localeCompare(right.model) ||
         left.sourceDataAsOf.localeCompare(right.sourceDataAsOf),
     );
+  const current = new Map<string, IntrinsicValuePoint>();
+  for (const point of eligible) {
+    const key = `${point.valuationDate}:${point.model}`;
+    const selected = current.get(key);
+    if (
+      !selected ||
+      point.calculationVersion > selected.calculationVersion ||
+      (point.calculationVersion === selected.calculationVersion &&
+        point.sourceDataAsOf > selected.sourceDataAsOf)
+    ) {
+      current.set(key, point);
+    }
+  }
+  return [...current.values()].sort(
+    (left, right) =>
+      left.valuationDate.localeCompare(right.valuationDate) ||
+      left.model.localeCompare(right.model),
+  );
 }
 
 export function validateBlendDefinition(
@@ -51,14 +69,38 @@ export function calculateBlend(
   definition: IntrinsicValueBlendDefinition,
   points: readonly IntrinsicValuePoint[],
   valuationDate: string,
-  calculationVersion = 1,
+  calculationVersion?: number,
 ): BlendCalculationResult {
   validateBlendDefinition(definition);
-  const eligible = selectIntrinsicValues(points, { asOf: valuationDate });
+  const eligible = points.filter(
+    (point) =>
+      point.valuationDate <= valuationDate &&
+      point.sourceDataAsOf <= endOfLocalDate(valuationDate),
+  );
+  const versions =
+    calculationVersion === undefined
+      ? [...new Set(eligible.map((point) => point.calculationVersion))].sort(
+          (left, right) => right - left,
+        )
+      : [calculationVersion];
+  const selectedVersion = versions.find((version) =>
+    definition.components.every((component) =>
+      eligible.some(
+        (point) =>
+          point.calculationVersion === version &&
+          point.model === component.model,
+      ),
+    ),
+  );
+  const candidateVersion = selectedVersion ?? versions[0];
   const selected = definition.components.map((component) => ({
     component,
     point: eligible
-      .filter((point) => point.model === component.model)
+      .filter(
+        (point) =>
+          point.calculationVersion === candidateVersion &&
+          point.model === component.model,
+      )
       .sort(
         (left, right) =>
           right.valuationDate.localeCompare(left.valuationDate) ||
@@ -101,7 +143,7 @@ export function calculateBlend(
         0,
       ),
       currency: firstPoint.currency,
-      calculationVersion,
+      calculationVersion: selectedVersion ?? firstPoint.calculationVersion,
       blendVersion: definition.version,
     },
   };

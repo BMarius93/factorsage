@@ -1,5 +1,6 @@
 import {
   getFmpConfig,
+  getFmpTrafficConfig,
   getRedisConfig,
   getStockDataConfig,
 } from "@intrinsic/config";
@@ -10,7 +11,8 @@ import {
   createStockDataRedisClient,
   IoredisCacheClient,
   PrismaStockDataStore,
-  RedisSymbolStockCache,
+  RedisFmpRequestGate,
+  RedisStockDataCache,
   RedlockLoadCoordinator,
   type LoadCoordinator,
   type StockDataCache,
@@ -58,8 +60,20 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     {
       provide: STOCK_DATA_PROVIDER,
-      useFactory: (): FmpStockProviderPort =>
-        new FmpClient(() => getFmpConfig()),
+      inject: [STOCK_DATA_REDIS],
+      useFactory: (redis: StockDataRedisClient): FmpStockProviderPort => {
+        const config = getFmpTrafficConfig();
+        return new FmpClient(() => getFmpConfig(), fetch, {
+          gate: new RedisFmpRequestGate(redis, {
+            maxConcurrentRequests: config.maxConcurrentRequests,
+            rateLimitPerWindow: config.rateLimitPerWindow,
+            rateWindowMs: config.rateWindowMs,
+            maxQueueDepth: config.maxQueueDepth,
+            maxQueueWaitMs: config.maxQueueWaitMs,
+            requestLeaseMs: config.timeoutMs * 2,
+          }),
+        });
+      },
     },
     {
       provide: STOCK_DATA_REDIS,
@@ -70,9 +84,9 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
       provide: STOCK_DATA_CACHE,
       inject: [STOCK_DATA_REDIS],
       useFactory: (redis: StockDataRedisClient): StockDataCache =>
-        new RedisSymbolStockCache(
+        new RedisStockDataCache(
           new IoredisCacheClient(redis),
-          getStockDataConfig().maxResidentSymbols,
+          getStockDataConfig().maxResidentStocks,
         ),
     },
     {
@@ -100,6 +114,9 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
       ): StockDataService =>
         new CanonicalStockDataService(store, provider, cache, coordinator, {
           defaultHistoryDays: getStockDataConfig().defaultHistoryDays,
+          historyYears: getStockDataConfig().historyYears,
+          recentPriceFreshnessMs: getStockDataConfig().recentPriceFreshnessMs,
+          recentTailCalendarDays: getStockDataConfig().recentTailCalendarDays,
         }),
     },
     StockDataRedisLifecycle,

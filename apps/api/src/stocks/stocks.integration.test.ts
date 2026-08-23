@@ -24,6 +24,13 @@ import {
   STOCK_DATA_PROVIDER,
 } from "./stock-data.tokens";
 
+const runtimeToday = new Date().toISOString().slice(0, 10);
+const runtimeHistoryStart = (() => {
+  const date = new Date(`${runtimeToday}T00:00:00.000Z`);
+  date.setUTCFullYear(date.getUTCFullYear() - 30);
+  return date.toISOString().slice(0, 10);
+})();
+
 class FakeFmpProvider implements FmpStockProviderPort {
   allowedSymbol = "";
   readonly dailyCalls: DateRange[] = [];
@@ -49,20 +56,26 @@ class FakeFmpProvider implements FmpStockProviderPort {
 
   async getDailyPrices(_symbol: string, securityId: string, range: DateRange) {
     this.dailyCalls.push(range);
-    const date = range.to ?? range.from;
-    return date
-      ? [
-          {
-            securityId,
-            date,
-            open: 100,
-            high: 101,
-            low: 99,
-            close: 100.5,
-            volume: 1_000,
-          },
-        ]
-      : [];
+    return [
+      {
+        securityId,
+        date: "2019-12-31",
+        open: 90,
+        high: 91,
+        low: 89,
+        close: 90.5,
+        volume: 900,
+      },
+      {
+        securityId,
+        date: "2020-01-03",
+        open: 100,
+        high: 101,
+        low: 99,
+        close: 100.5,
+        volume: 1_000,
+      },
+    ];
   }
 }
 
@@ -155,17 +168,17 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: "split-adjusted-eod-full",
-          earliestDate: new Date("2020-01-01T00:00:00.000Z"),
-          latestDate: new Date("2026-08-23T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-23T01:00:00.000Z"),
+          earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+          lastSuccessfulSyncAt: new Date(),
         },
         {
           securityId: security.id,
           dataset: StockDataset.DAILY_TECHNICAL,
           variant: "1D:v1",
-          earliestDate: new Date("2020-01-01T00:00:00.000Z"),
-          latestDate: new Date("2026-08-23T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-23T01:00:00.000Z"),
+          earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+          lastSuccessfulSyncAt: new Date(),
           calculationVersion: 1,
         },
       ],
@@ -176,17 +189,17 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: "split-adjusted-eod-full",
-          fromDate: new Date("2020-01-01T00:00:00.000Z"),
-          toDate: new Date("2026-08-23T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-23T01:00:00.000Z"),
+          fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+          lastSuccessfulSyncAt: new Date(),
         },
         {
           securityId: security.id,
           dataset: StockDataset.DAILY_TECHNICAL,
           variant: "1D:v1",
-          fromDate: new Date("2020-01-01T00:00:00.000Z"),
-          toDate: new Date("2026-08-23T00:00:00.000Z"),
-          lastSuccessfulSyncAt: new Date("2026-08-23T01:00:00.000Z"),
+          fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
+          lastSuccessfulSyncAt: new Date(),
         },
       ],
     });
@@ -198,6 +211,24 @@ describe("Stock Details API", () => {
           sourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
           model: IntrinsicValueModel.DCF_FCFF,
           valuePerShare: 140,
+          currency: "USD",
+          calculationVersion: 1,
+        },
+        {
+          securityId: security.id,
+          valuationDate: new Date("2025-10-01T00:00:00.000Z"),
+          sourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
+          model: IntrinsicValueModel.DCF_FCFF,
+          valuePerShare: 141,
+          currency: "USD",
+          calculationVersion: 2,
+        },
+        {
+          securityId: security.id,
+          valuationDate: new Date("2025-11-01T00:00:00.000Z"),
+          sourceDataAsOf: new Date("2025-08-01T14:00:00.000Z"),
+          model: IntrinsicValueModel.GRAHAM,
+          valuePerShare: 125,
           currency: "USD",
           calculationVersion: 1,
         },
@@ -219,6 +250,30 @@ describe("Stock Details API", () => {
         sourceDataAsOf: new Date("2025-10-01T15:00:00.000Z"),
         blendId: IntrinsicValueBlendId.BALANCED,
         valuePerShare: 135,
+        currency: "USD",
+        calculationVersion: 1,
+        blendVersion: 1,
+      },
+    });
+    await prisma.intrinsicValueBlend.create({
+      data: {
+        securityId: security.id,
+        valuationDate: new Date("2025-10-01T00:00:00.000Z"),
+        sourceDataAsOf: new Date("2025-10-01T15:00:00.000Z"),
+        blendId: IntrinsicValueBlendId.BALANCED,
+        valuePerShare: 136,
+        currency: "USD",
+        calculationVersion: 2,
+        blendVersion: 2,
+      },
+    });
+    await prisma.intrinsicValueBlend.create({
+      data: {
+        securityId: security.id,
+        valuationDate: new Date("2025-11-01T00:00:00.000Z"),
+        sourceDataAsOf: new Date("2025-08-01T15:00:00.000Z"),
+        blendId: IntrinsicValueBlendId.CONSERVATIVE,
+        valuePerShare: 125,
         currency: "USD",
         calculationVersion: 1,
         blendVersion: 1,
@@ -314,6 +369,24 @@ describe("Stock Details API", () => {
       response.body.map((point: { model: string }) => point.model),
     ).toEqual(["DCF_FCFF"]);
     expect(response.body[0].sourceDataAsOf).toBe("2025-10-01T14:00:00.000Z");
+    expect(response.body[0].calculationVersion).toBe(2);
+    expect(response.body[0].valuePerShare).toBe(141);
+  });
+
+  it("clamps intrinsic and blend valuation dates to asOf when to is later", async () => {
+    const intrinsic = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/intrinsic-values?to=2025-12-31&asOf=2025-09-01&models=GRAHAM`,
+      )
+      .expect(200);
+    const blends = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/intrinsic-value-blends?to=2025-12-31&asOf=2025-09-01&blendIds=CONSERVATIVE`,
+      )
+      .expect(200);
+
+    expect(intrinsic.body).toEqual([]);
+    expect(blends.body).toEqual([]);
   });
 
   it("filters blend IDs and returns version metadata", async () => {
@@ -326,27 +399,25 @@ describe("Stock Details API", () => {
     expect(response.body).toEqual([
       expect.objectContaining({
         blendId: "BALANCED",
-        blendVersion: 1,
-        calculationVersion: 1,
+        blendVersion: 2,
+        calculationVersion: 2,
+        valuePerShare: 136,
       }),
     ]);
   });
 
-  it("reuses persisted data and requests only a later missing prefix", async () => {
+  it("hydrates one canonical horizon and reuses it for later projections", async () => {
     const initial = `/stocks/${loadedSymbol}/prices?from=2020-01-01&to=2020-01-03`;
     await request(app.getHttpServer()).get(initial).expect(200);
     await request(app.getHttpServer()).get(initial).expect(200);
     expect(provider.dailyCalls).toEqual([
-      { from: "2020-01-01", to: "2020-01-03" },
+      { from: runtimeHistoryStart, to: runtimeToday },
     ]);
 
     const response = await request(app.getHttpServer())
       .get(`/stocks/${loadedSymbol}/prices?from=2019-12-30&to=2020-01-03`)
       .expect(200);
-    expect(provider.dailyCalls.at(-1)).toEqual({
-      from: "2019-12-30",
-      to: "2019-12-31",
-    });
+    expect(provider.dailyCalls).toHaveLength(1);
     expect(response.body.map((row: { date: string }) => row.date)).toEqual([
       "2019-12-31",
       "2020-01-03",
