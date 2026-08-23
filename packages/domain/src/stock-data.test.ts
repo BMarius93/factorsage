@@ -3,6 +3,8 @@ import {
   DAILY_MOVING_AVERAGES,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
+  TECHNICAL_TIMEFRAMES,
+  WEEKLY_TECHNICAL_BACKTEST_POLICY,
 } from "./stock-data.js";
 
 describe("stock data foundation", () => {
@@ -16,6 +18,11 @@ describe("stock data foundation", () => {
       { type: "EMA", period: 50, timeframe: "1D" },
       { type: "EMA", period: 200, timeframe: "1D" },
     ]);
+  });
+
+  it("keeps timeframe explicit and reserves weekly indicators", () => {
+    expect(TECHNICAL_TIMEFRAMES).toEqual(["1D", "1W"]);
+    expect(WEEKLY_TECHNICAL_BACKTEST_POLICY).toBe("COMPLETED_PERIODS_ONLY");
   });
 
   it("defines only the agreed V1 intrinsic-value models", () => {

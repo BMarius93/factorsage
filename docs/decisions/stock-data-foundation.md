@@ -19,7 +19,7 @@ The durable daily price series is split-adjusted OHLCV from FMP's normal histori
 
 Dividend-adjusted prices are not the canonical trading/backtest series. Dividends remain separate events so total-return behavior can be modeled explicitly.
 
-V1 stores daily data only. Weekly/monthly bars and indicators may be derived later.
+Daily bars are the canonical persisted market-data granularity in V1. Weekly/monthly bars are derived from daily data rather than fetched/stored as an independent source of truth.
 
 Provider ordering is not a domain contract. Even if FMP returns newest-first, repository/service historical reads should expose ascending chronological order unless a future endpoint explicitly documents another order.
 
@@ -35,11 +35,52 @@ Persist these daily derived values:
 - EMA 50D
 - EMA 200D
 
-The application will calculate these from the canonical daily price series. FMP technical-indicator endpoints may later be used as an external validation oracle, not as the production calculation dependency.
+The persisted/API field names make the timeframe explicit:
 
-Indicator period means number of bars, not calendar days. `SMA(50, 1D)` and `SMA(50, 1W)` are different indicators. The type system reserves weekly timeframe support, but V1 persists daily technical values only.
+- `sma20d`
+- `sma50d`
+- `sma100d`
+- `sma200d`
+- `ema20d`
+- `ema50d`
+- `ema200d`
+
+The application calculates these from canonical daily closes. FMP technical-indicator endpoints may be used as an external validation oracle, not as the production calculation dependency.
+
+Indicator period means number of source bars, not calendar days. `SMA(20, 1D)` and `SMA(20, 1W)` are different indicators.
 
 Insufficient warm-up history produces an unavailable/absent derived value, not zero. EMA seed/warm-up semantics must be documented and locked by tests before historical values are materialized.
+
+## Weekly technical semantics
+
+Weekly indicators are derived entirely from canonical `DailyPrice`; they are not a second market-data source.
+
+The calculation path is:
+
+```text
+DailyPrice
+  -> aggregate completed trading weeks
+  -> weekly OHLCV bars
+  -> calculate weekly SMA/EMA
+```
+
+A weekly bar uses:
+
+- open = first trading-day open of the week
+- high = maximum daily high in the week
+- low = minimum daily low in the week
+- close = last trading-day close of the week
+- volume = sum of daily volume in the week
+
+Do not calculate weekly moving averages by averaging daily moving-average values.
+
+For point-in-time/backtest behavior, only completed weekly periods are eligible. A Monday-Thursday backtest date must not see a weekly indicator that depends on the close of the upcoming Friday. The V1 backtest policy is therefore `COMPLETED_PERIODS_ONLY`.
+
+Weekly snapshots should be persisted at most once per completed week when weekly persistence is introduced. Do not duplicate the same weekly value into every daily row. At retrieval time, a daily `asOf` request may resolve to the latest eligible completed weekly snapshot, so the same weekly value can legitimately appear effective across several daily dates until a new week completes.
+
+A future Stock Details/UI feature may explicitly introduce a provisional week-to-date indicator based on the current partial week. Such a value must be clearly distinguished from completed-period historical values and must never leak into backtest/PIT calculations.
+
+The exact V1 weekly SMA/EMA period catalog is intentionally not fixed by this PR. `1W` is reserved in the type system so a later product decision can add weekly periods without redefining timeframe semantics.
 
 ## V1 intrinsic-value models
 
@@ -105,79 +146,75 @@ Expected service capabilities:
 
 The implementation may internally use cache, repository, upstream provider, and calculation-engine ports, but callers must not depend directly on Redis, Prisma, or FMP.
 
-A Stock Details page load and a worker backtest asking for the same symbol/range must ultimately receive equivalent canonical domain data. Differences in caller/process must not create two business implementations.
+A Stock Details page load and a worker backtest asking for the same symbol/range must ultimately receive equivalent canonical domain data.
 
 ## Implementation guardrails for coding agents
 
-These constraints are intentionally explicit so a coding agent can implement the next slice without re-deciding the architecture:
-
 1. Read `AGENTS.md`, `ai/README.md`, this decision, and relevant architecture docs before changing code.
-2. Do not map FMP JSON directly into API contracts or Prisma models. Keep provider DTOs/quirks inside `@intrinsic/fmp` and map them into domain values deliberately.
+2. Do not map FMP JSON directly into API contracts or Prisma models. Keep provider DTOs/quirks inside `@intrinsic/fmp` and map them deliberately into domain values.
 3. Do not put Prisma, Redis clients, HTTP calls, environment access, or FMP DTOs into `@intrinsic/domain` or `@intrinsic/valuation`.
-4. Do not duplicate loader orchestration in `apps/api` and `apps/worker`. They are callers of the same business implementation.
-5. The current package map does not yet define an infrastructure-aware shared application package for this orchestration. If the implementation introduces one (for example a dedicated stock-data/application package), update the architecture/dependency documentation explicitly in the same PR instead of hiding the dependency change.
-6. PostgreSQL is authoritative. Redis is a performance layer and must be safely rebuildable from durable/upstream data.
-7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol, not an arbitrary subset of its datasets.
-8. Cache misses and partial DB ranges must not trigger full-history FMP reloads when a bounded missing delta can be identified.
-9. Historical reads exposed by the domain/service should be deterministic and ascending by effective date even when provider payload order differs.
-10. Derived values are persisted for performance but remain reproducible from canonical inputs plus a documented calculation version.
+4. Do not duplicate loader orchestration in `apps/api` and `apps/worker`.
+5. If a new shared application package is introduced for loader orchestration, update architecture/dependency documentation explicitly.
+6. PostgreSQL is authoritative. Redis is disposable and rebuildable.
+7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol.
+8. Cache misses and partial DB ranges must not trigger full-history FMP reloads when only a bounded delta is missing.
+9. Historical reads are deterministic and ascending by effective date.
+10. Derived values are persisted for performance but reproducible from canonical inputs plus calculation version.
 11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
-12. Point-in-time correctness is a hard invariant: use filing/publication availability, not only fiscal period end dates, and never let a future filing affect an earlier backtest date.
-13. Do not invent authentication/entitlement behavior for Stock Details in this slice. Follow the product/auth decision that exists when HTTP endpoints are implemented.
-14. Keep the next PR reviewable: infrastructure, formula changes, and UI behavior should not be mixed unless the task explicitly asks for them together.
+12. Point-in-time correctness is a hard invariant.
+13. Daily technical names must retain their `d` suffix. Do not introduce ambiguous `sma20`/`ema50` fields once timeframe-aware contracts exist.
+14. Weekly indicators must be derived from weekly bars aggregated from daily bars, not from daily indicator values.
+15. Backtests may only use completed weekly periods. Do not expose a Friday-complete value to earlier dates in that same week.
+16. Do not duplicate a weekly snapshot across every day in durable storage; resolve the latest eligible weekly snapshot during retrieval.
+17. Keep the next PR reviewable and avoid unrelated product changes.
 
 ## Redis direction
 
 The later Redis implementation should maintain a configurable maximum number of resident symbols and evict complete symbols using LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
 
-The Redis memory limit/eviction configuration may be used as a safety net, but product residency semantics belong to the application-level symbol cache policy. Do not rely on Redis key-level eviction alone to preserve complete-symbol cache behavior.
+Redis memory-limit/eviction configuration may be used as a safety net, but product residency semantics belong to the application-level symbol cache policy.
 
 ## Required implementation tests
 
 ### Unit tests
 
-1. FMP DTO -> domain mapping keeps provider quirks outside the domain (nullable identifiers, employee-count string conversion, timestamps, percentage semantics).
+1. FMP DTO -> domain mapping keeps provider quirks outside the domain.
 2. Daily EOD mapping preserves split-adjusted OHLCV semantics.
-3. Date-range gap detection handles:
-   - empty dataset,
-   - full hit,
-   - missing prefix,
-   - missing suffix,
-   - bounded historical request.
+3. Date-range gap detection covers empty, full-hit, missing-prefix, missing-suffix, and bounded historical requests.
 4. Dataset-state updates are monotonic and calculation-version aware.
-5. SMA calculations for 20/50/100/200 periods are deterministic and have correct warm-up behavior.
-6. EMA calculations for 20/50/200 periods use one documented seed/warm-up convention.
+5. SMA 20D/50D/100D/200D calculations are deterministic with correct warm-up behavior.
+6. EMA 20D/50D/200D calculations use one documented seed/warm-up convention.
 7. Moving-average outputs are compared against trusted FMP fixtures within an explicit numeric tolerance.
-8. Historical intrinsic-value selection never returns a snapshot whose `sourceDataAsOf` is after the requested as-of time.
-9. Blend calculation:
-   - validates weights,
-   - uses only eligible component snapshots,
-   - preserves blend/calculation versions,
-   - handles DDM-not-applicable cases explicitly rather than silently substituting future/missing values.
-10. Redis symbol LRU evicts a complete symbol and never partial datasets for the selected symbol.
-11. Loader cache-hit, DB-hit, DB-partial, and upstream-delta paths return equivalent domain results.
-12. Concurrent requests for the same missing symbol/range are single-flight/deduplicated when coordination is implemented.
-13. Historical service/repository rows are normalized to ascending effective-date order even when provider fixtures are newest-first.
-14. Failed/partial syncs do not falsely advance dataset-state success watermarks.
+8. Daily technical serialization uses `sma20d`/`ema20d`-style timeframe-explicit names and never ambiguous names.
+9. Weekly aggregation from daily bars correctly derives open/high/low/close/volume for normal and holiday-shortened weeks.
+10. Weekly indicator tests prove a Monday-Thursday `asOf` cannot observe a value requiring the future week-ending close.
+11. Weekly `asOf` retrieval resolves the latest completed snapshot and can return the same snapshot for multiple subsequent daily dates without duplicated storage rows.
+12. Historical intrinsic-value selection never returns a snapshot whose `sourceDataAsOf` is after the requested as-of time.
+13. Blend calculation validates weights, uses only eligible components, preserves versions, and handles DDM-not-applicable explicitly.
+14. Redis symbol LRU evicts a complete symbol and never partial datasets.
+15. Loader cache-hit, DB-hit, DB-partial, and upstream-delta paths return equivalent domain results.
+16. Concurrent requests for the same missing symbol/range are single-flight/deduplicated when coordination is implemented.
+17. Failed/partial syncs do not falsely advance dataset-state success watermarks.
 
 ### API integration tests
 
-Stock Details endpoints are not added in this foundation PR. When implemented, add PostgreSQL-backed Nest/Supertest integration tests following the existing auth integration-test style.
+When Stock Details endpoints are implemented, add PostgreSQL-backed Nest/Supertest integration tests following the existing auth integration-test style.
 
-Minimum API test matrix:
+Minimum matrix:
 
-1. `GET /stocks/:symbol` returns the agreed Stock Details contract for a valid stock.
+1. `GET /stocks/:symbol` returns the agreed bounded Stock Details contract.
 2. Unknown/unsupported symbol returns the agreed not-found response without leaking provider errors.
-3. Historical price endpoint accepts `from`/`to`, validates malformed/inverted ranges, and returns only requested dates.
-4. Technical endpoint accepts the same date-range semantics and exposes only the V1 indicator catalog.
-5. Intrinsic-value endpoint filters by model and range and supports point-in-time `asOf` retrieval.
-6. Blend endpoint filters by blend ID and returns blend version metadata.
-7. Repeating the same request after persistence produces the same API response without requiring FMP again.
-8. A partial persisted range requests only the missing delta from the provider.
-9. A Stock Details request and a worker/backtest request for the same historical dataset resolve through the same service contract.
-10. Point-in-time fixture test proves a filing published after the requested date cannot affect that historical response.
-11. Historical arrays are returned in documented ascending date order regardless of FMP fixture ordering.
-12. Warm-up/unavailable derived values are represented as absent/null according to the final HTTP serialization decision, never fabricated as zero.
+3. Historical price endpoint validates and applies `from`/`to`.
+4. Technical endpoint exposes only agreed daily fields with `d` suffixes.
+5. Intrinsic-value endpoint filters by model/range and supports point-in-time `asOf`.
+6. Blend endpoint filters by blend ID and returns version metadata.
+7. Repeating a persisted request returns the same response without requiring FMP again.
+8. A partial persisted range requests only the missing provider delta.
+9. Stock Details and worker/backtest resolve the same historical data through the same service contract.
+10. A filing published after the requested date cannot affect that historical response.
+11. Historical arrays are ascending regardless of FMP fixture order.
+12. Warm-up/unavailable derived values are absent/null according to final serialization, never fabricated as zero.
+13. When weekly endpoints are later added, historical `asOf` behavior must prove completed-period-only visibility.
 
 ## Explicitly out of scope for this PR
 
@@ -185,6 +222,7 @@ Minimum API test matrix:
 - Redis client/LRU implementation
 - live FMP client implementation
 - SMA/EMA calculation implementation
+- weekly technical implementation or weekly period catalog
 - intrinsic-value formulas
 - blend calculation implementation
 - Stock Details controllers/routes
