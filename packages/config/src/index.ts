@@ -3,7 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
 export type RuntimeEnvironment = "development" | "test" | "production";
-export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+export type LogLevel =
+  "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 
 type Environment = NodeJS.ProcessEnv;
 
@@ -59,10 +60,15 @@ function logLevel(env: Environment): LogLevel {
   if (allowed.includes(value as LogLevel)) {
     return value as LogLevel;
   }
-  throw new Error(`Invalid application configuration: unsupported LOG_LEVEL '${value}'`);
+  throw new Error(
+    `Invalid application configuration: unsupported LOG_LEVEL '${value}'`,
+  );
 }
 
-function commaSeparated(value: string | undefined, fallback: string[]): string[] {
+function commaSeparated(
+  value: string | undefined,
+  fallback: string[],
+): string[] {
   if (!value) {
     return fallback;
   }
@@ -117,7 +123,9 @@ function corsOrigins(env: Environment): string[] {
  * Local development uses this file. Deployed environments normally do not
  * contain it; the platform injects the same variables into process.env.
  */
-export function loadRootEnv(startDirectory = process.cwd()): string | undefined {
+export function loadRootEnv(
+  startDirectory = process.cwd(),
+): string | undefined {
   let directory = resolve(startDirectory);
 
   while (true) {
@@ -212,6 +220,14 @@ export function getFmpConfig(env: Environment = process.env) {
   } as const;
 }
 
+export function getStockDataConfig(env: Environment = process.env) {
+  return {
+    maxResidentSymbols: integer(env, ["STOCK_CACHE_MAX_RESIDENT_SYMBOLS"], 100),
+    defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
+    loadLockDurationMs: integer(env, ["STOCK_DATA_LOAD_LOCK_MS"], 30_000),
+  } as const;
+}
+
 /** Server-only Stripe configuration. Never expose this object to browser code. */
 export function getStripeConfig(env: Environment = process.env) {
   return {
@@ -226,7 +242,8 @@ export function getStripeConfig(env: Environment = process.env) {
  */
 export function getWebPublicConfig(env: Environment = process.env) {
   return {
-    apiBaseUrl: optional(env, "NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:3001",
+    apiBaseUrl:
+      optional(env, "NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:3001",
     stripePublishableKey: optional(env, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"),
   } as const;
 }

@@ -1,0 +1,631 @@
+import type {
+  DailyPrice,
+  DailyTechnical,
+  DateRange,
+  IntrinsicValueBlendPoint,
+  IntrinsicValueBlendQuery,
+  IntrinsicValuePoint,
+  IntrinsicValueQuery,
+  Security,
+  SecurityProfile,
+} from "@intrinsic/domain";
+import type { MappedFmpProfile } from "@intrinsic/fmp";
+import {
+  IntrinsicValueBlendId,
+  IntrinsicValueModel,
+  PrismaClient,
+  SecurityType,
+  StockDataset,
+} from "@intrinsic/database";
+import { endOfLocalDate } from "./dates.js";
+import type {
+  PersistedDatasetState,
+  PersistedStockDataset,
+  StockDataStore,
+} from "./ports.js";
+
+function toDatabaseDate(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function fromDatabaseDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function rangeWhere(range: DateRange) {
+  return {
+    ...(range.from ? { gte: toDatabaseDate(range.from) } : {}),
+    ...(range.to ? { lte: toDatabaseDate(range.to) } : {}),
+  };
+}
+
+function mapSecurity(row: {
+  id: string;
+  symbol: string;
+  name: string;
+  exchangeCode: string;
+  exchangeName: string | null;
+  currency: string;
+  cik: string | null;
+  isin: string | null;
+  cusip: string | null;
+  country: string | null;
+  sector: string | null;
+  industry: string | null;
+  ipoDate: Date | null;
+  type: SecurityType;
+  isAdr: boolean;
+  isActivelyTrading: boolean;
+}): Security {
+  return {
+    id: row.id,
+    symbol: row.symbol,
+    name: row.name,
+    exchangeCode: row.exchangeCode,
+    ...(row.exchangeName ? { exchangeName: row.exchangeName } : {}),
+    currency: row.currency,
+    ...(row.cik ? { cik: row.cik } : {}),
+    ...(row.isin ? { isin: row.isin } : {}),
+    ...(row.cusip ? { cusip: row.cusip } : {}),
+    ...(row.country ? { country: row.country } : {}),
+    ...(row.sector ? { sector: row.sector } : {}),
+    ...(row.industry ? { industry: row.industry } : {}),
+    ...(row.ipoDate ? { ipoDate: fromDatabaseDate(row.ipoDate) } : {}),
+    type: row.type,
+    isAdr: row.isAdr,
+    isActivelyTrading: row.isActivelyTrading,
+  };
+}
+
+function datasetEnum(dataset: PersistedStockDataset): StockDataset {
+  return StockDataset[dataset];
+}
+
+export class PrismaStockDataStore implements StockDataStore {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async findSecurityByProviderSymbol(symbol: string): Promise<Security | null> {
+    const row = await this.prisma.security.findUnique({
+      where: { providerSymbol: symbol.trim().toUpperCase() },
+    });
+    return row ? mapSecurity(row) : null;
+  }
+
+  async saveSecurityProfile(
+    mapped: MappedFmpProfile,
+    syncedAt: string,
+  ): Promise<{ security: Security; profile: SecurityProfile }> {
+    return this.prisma.$transaction(async (transaction) => {
+      const security = await transaction.security.upsert({
+        where: { providerSymbol: mapped.providerSymbol },
+        create: {
+          providerSymbol: mapped.providerSymbol,
+          ...mapped.security,
+          ...(mapped.security.ipoDate
+            ? { ipoDate: toDatabaseDate(mapped.security.ipoDate) }
+            : {}),
+          type: SecurityType[mapped.security.type],
+        },
+        update: {
+          ...mapped.security,
+          ipoDate: mapped.security.ipoDate
+            ? toDatabaseDate(mapped.security.ipoDate)
+            : null,
+          type: SecurityType[mapped.security.type],
+        },
+      });
+      const address = mapped.profile.address;
+      const profile = await transaction.securityProfile.upsert({
+        where: { securityId: security.id },
+        create: {
+          securityId: security.id,
+          description: mapped.profile.description,
+          website: mapped.profile.website,
+          logoUrl: mapped.profile.logoUrl,
+          ceo: mapped.profile.ceo,
+          employees: mapped.profile.employees,
+          addressStreet: address?.street,
+          addressCity: address?.city,
+          addressState: address?.state,
+          postalCode: address?.postalCode,
+          addressCountry: address?.country,
+        },
+        update: {
+          description: mapped.profile.description,
+          website: mapped.profile.website,
+          logoUrl: mapped.profile.logoUrl,
+          ceo: mapped.profile.ceo,
+          employees: mapped.profile.employees,
+          addressStreet: address?.street,
+          addressCity: address?.city,
+          addressState: address?.state,
+          postalCode: address?.postalCode,
+          addressCountry: address?.country,
+        },
+      });
+      await transaction.stockDatasetState.upsert({
+        where: {
+          securityId_dataset_variant: {
+            securityId: security.id,
+            dataset: StockDataset.SECURITY_PROFILE,
+            variant: "",
+          },
+        },
+        create: {
+          securityId: security.id,
+          dataset: StockDataset.SECURITY_PROFILE,
+          variant: "",
+          lastSuccessfulSyncAt: new Date(syncedAt),
+        },
+        update: { lastSuccessfulSyncAt: new Date(syncedAt) },
+      });
+      return {
+        security: mapSecurity(security),
+        profile: {
+          securityId: security.id,
+          ...(profile.description ? { description: profile.description } : {}),
+          ...(profile.website ? { website: profile.website } : {}),
+          ...(profile.logoUrl ? { logoUrl: profile.logoUrl } : {}),
+          ...(profile.ceo ? { ceo: profile.ceo } : {}),
+          ...(profile.employees === null
+            ? {}
+            : { employees: profile.employees }),
+          address: {
+            ...(profile.addressStreet ? { street: profile.addressStreet } : {}),
+            ...(profile.addressCity ? { city: profile.addressCity } : {}),
+            ...(profile.addressState ? { state: profile.addressState } : {}),
+            ...(profile.postalCode ? { postalCode: profile.postalCode } : {}),
+            ...(profile.addressCountry
+              ? { country: profile.addressCountry }
+              : {}),
+          },
+        },
+      };
+    });
+  }
+
+  async getProfile(securityId: string): Promise<SecurityProfile | null> {
+    const row = await this.prisma.securityProfile.findUnique({
+      where: { securityId },
+    });
+    if (!row) {
+      return null;
+    }
+    return {
+      securityId,
+      ...(row.description ? { description: row.description } : {}),
+      ...(row.website ? { website: row.website } : {}),
+      ...(row.logoUrl ? { logoUrl: row.logoUrl } : {}),
+      ...(row.ceo ? { ceo: row.ceo } : {}),
+      ...(row.employees === null ? {} : { employees: row.employees }),
+      address: {
+        ...(row.addressStreet ? { street: row.addressStreet } : {}),
+        ...(row.addressCity ? { city: row.addressCity } : {}),
+        ...(row.addressState ? { state: row.addressState } : {}),
+        ...(row.postalCode ? { postalCode: row.postalCode } : {}),
+        ...(row.addressCountry ? { country: row.addressCountry } : {}),
+      },
+    };
+  }
+
+  async getDatasetState(
+    securityId: string,
+    dataset: PersistedStockDataset,
+    variant = "",
+  ): Promise<PersistedDatasetState | null> {
+    const row = await this.prisma.stockDatasetState.findUnique({
+      where: {
+        securityId_dataset_variant: {
+          securityId,
+          dataset: datasetEnum(dataset),
+          variant,
+        },
+      },
+    });
+    return row
+      ? {
+          securityId,
+          dataset,
+          variant,
+          ...(row.earliestDate
+            ? { earliestDate: fromDatabaseDate(row.earliestDate) }
+            : {}),
+          ...(row.latestDate
+            ? { latestDate: fromDatabaseDate(row.latestDate) }
+            : {}),
+          ...(row.lastSuccessfulSyncAt
+            ? { lastSyncedAt: row.lastSuccessfulSyncAt.toISOString() }
+            : {}),
+          ...(row.calculationVersion === null
+            ? {}
+            : { calculationVersion: row.calculationVersion }),
+        }
+      : null;
+  }
+
+  async getDatasetCoverage(
+    securityId: string,
+    dataset: PersistedStockDataset,
+    variant: string,
+    range: Required<DateRange>,
+  ): Promise<Required<DateRange>[]> {
+    const rows = await this.prisma.stockDatasetCoverage.findMany({
+      where: {
+        securityId,
+        dataset: datasetEnum(dataset),
+        variant,
+        fromDate: { lte: toDatabaseDate(range.to) },
+        toDate: { gte: toDatabaseDate(range.from) },
+      },
+      orderBy: { fromDate: "asc" },
+    });
+    return rows.map((row) => ({
+      from: fromDatabaseDate(row.fromDate),
+      to: fromDatabaseDate(row.toDate),
+    }));
+  }
+
+  async getDailyPrices(
+    securityId: string,
+    range: DateRange,
+  ): Promise<DailyPrice[]> {
+    const rows = await this.prisma.dailyPrice.findMany({
+      where: { securityId, date: rangeWhere(range) },
+      orderBy: { date: "asc" },
+    });
+    return rows.map((row) => ({
+      securityId,
+      date: fromDatabaseDate(row.date),
+      open: row.open.toNumber(),
+      high: row.high.toNumber(),
+      low: row.low.toNumber(),
+      close: row.close.toNumber(),
+      volume: Number(row.volume),
+      ...(row.vwap === null ? {} : { vwap: row.vwap.toNumber() }),
+    }));
+  }
+
+  async saveDailyPriceSync(input: {
+    securityId: string;
+    prices: readonly DailyPrice[];
+    successfulCoverage: readonly Required<DateRange>[];
+    syncedAt: string;
+  }): Promise<void> {
+    if (input.successfulCoverage.length === 0) {
+      return;
+    }
+    await this.prisma.$transaction(async (transaction) => {
+      for (const price of input.prices) {
+        await transaction.dailyPrice.upsert({
+          where: {
+            securityId_date: {
+              securityId: input.securityId,
+              date: toDatabaseDate(price.date),
+            },
+          },
+          create: {
+            securityId: input.securityId,
+            date: toDatabaseDate(price.date),
+            open: price.open,
+            high: price.high,
+            low: price.low,
+            close: price.close,
+            volume: BigInt(price.volume),
+            vwap: price.vwap,
+          },
+          update: {
+            open: price.open,
+            high: price.high,
+            low: price.low,
+            close: price.close,
+            volume: BigInt(price.volume),
+            vwap: price.vwap,
+          },
+        });
+      }
+      if (input.prices.length > 0) {
+        await transaction.dailyTechnical.deleteMany({
+          where: { securityId: input.securityId },
+        });
+        await transaction.weeklyTechnical.deleteMany({
+          where: { securityId: input.securityId },
+        });
+        await transaction.weeklyPrice.deleteMany({
+          where: { securityId: input.securityId },
+        });
+        const derivedDatasets = [
+          StockDataset.DAILY_TECHNICAL,
+          StockDataset.WEEKLY_PRICE,
+          StockDataset.WEEKLY_TECHNICAL,
+        ];
+        await transaction.stockDatasetCoverage.deleteMany({
+          where: {
+            securityId: input.securityId,
+            dataset: { in: derivedDatasets },
+          },
+        });
+        await transaction.stockDatasetState.deleteMany({
+          where: {
+            securityId: input.securityId,
+            dataset: { in: derivedDatasets },
+          },
+        });
+      }
+      for (const coverage of input.successfulCoverage) {
+        await this.advanceState(transaction, {
+          securityId: input.securityId,
+          dataset: "DAILY_PRICE",
+          variant: "split-adjusted-eod-full",
+          from: coverage.from,
+          to: coverage.to,
+          syncedAt: input.syncedAt,
+        });
+      }
+    });
+  }
+
+  async getDailyTechnicals(
+    securityId: string,
+    range: DateRange,
+    calculationVersion: number,
+  ): Promise<DailyTechnical[]> {
+    const rows = await this.prisma.dailyTechnical.findMany({
+      where: { securityId, calculationVersion, date: rangeWhere(range) },
+      orderBy: { date: "asc" },
+    });
+    return rows.map((row) => ({
+      securityId,
+      date: fromDatabaseDate(row.date),
+      ...(row.sma20d ? { sma20d: row.sma20d.toNumber() } : {}),
+      ...(row.sma50d ? { sma50d: row.sma50d.toNumber() } : {}),
+      ...(row.sma100d ? { sma100d: row.sma100d.toNumber() } : {}),
+      ...(row.sma200d ? { sma200d: row.sma200d.toNumber() } : {}),
+      ...(row.ema20d ? { ema20d: row.ema20d.toNumber() } : {}),
+      ...(row.ema50d ? { ema50d: row.ema50d.toNumber() } : {}),
+      ...(row.ema200d ? { ema200d: row.ema200d.toNumber() } : {}),
+      calculationVersion,
+    }));
+  }
+
+  async saveDerivedTechnicals(
+    input: Parameters<StockDataStore["saveDerivedTechnicals"]>[0],
+  ): Promise<void> {
+    await this.prisma.$transaction(async (transaction) => {
+      for (const technical of input.technicals) {
+        await transaction.dailyTechnical.upsert({
+          where: {
+            securityId_date_calculationVersion: {
+              securityId: input.securityId,
+              date: toDatabaseDate(technical.date),
+              calculationVersion: input.calculationVersion,
+            },
+          },
+          create: { ...technical, date: toDatabaseDate(technical.date) },
+          update: {
+            sma20d: technical.sma20d,
+            sma50d: technical.sma50d,
+            sma100d: technical.sma100d,
+            sma200d: technical.sma200d,
+            ema20d: technical.ema20d,
+            ema50d: technical.ema50d,
+            ema200d: technical.ema200d,
+          },
+        });
+      }
+      for (const weekly of input.weeklyPrices) {
+        await transaction.weeklyPrice.upsert({
+          where: {
+            securityId_weekStartDate_calculationVersion: {
+              securityId: input.securityId,
+              weekStartDate: toDatabaseDate(weekly.weekStartDate),
+              calculationVersion: weekly.calculationVersion,
+            },
+          },
+          create: {
+            ...weekly,
+            weekStartDate: toDatabaseDate(weekly.weekStartDate),
+            weekEndDate: toDatabaseDate(weekly.weekEndDate),
+            eligibleDate: toDatabaseDate(weekly.eligibleDate),
+            volume: BigInt(weekly.volume),
+          },
+          update: {
+            weekEndDate: toDatabaseDate(weekly.weekEndDate),
+            eligibleDate: toDatabaseDate(weekly.eligibleDate),
+            open: weekly.open,
+            high: weekly.high,
+            low: weekly.low,
+            close: weekly.close,
+            volume: BigInt(weekly.volume),
+          },
+        });
+      }
+      await this.advanceState(transaction, {
+        securityId: input.securityId,
+        dataset: "DAILY_TECHNICAL",
+        variant: `1D:v${input.calculationVersion}`,
+        from: input.successfulCoverage.from,
+        to: input.successfulCoverage.to,
+        syncedAt: input.syncedAt,
+        calculationVersion: input.calculationVersion,
+      });
+      if (input.weeklyPrices.length > 0) {
+        await this.advanceState(transaction, {
+          securityId: input.securityId,
+          dataset: "WEEKLY_PRICE",
+          variant: `1W:v${input.calculationVersion}`,
+          from:
+            input.weeklyPrices[0]?.weekStartDate ??
+            input.successfulCoverage.from,
+          to:
+            input.weeklyPrices.at(-1)?.weekEndDate ??
+            input.successfulCoverage.to,
+          syncedAt: input.syncedAt,
+          calculationVersion: input.calculationVersion,
+        });
+      }
+    });
+  }
+
+  async getIntrinsicValues(
+    securityId: string,
+    query: IntrinsicValueQuery,
+  ): Promise<IntrinsicValuePoint[]> {
+    const rows = await this.prisma.intrinsicValue.findMany({
+      where: {
+        securityId,
+        valuationDate: rangeWhere({
+          from: query.from,
+          to: query.to ?? query.asOf,
+        }),
+        ...(query.models
+          ? {
+              model: {
+                in: query.models.map((model) => IntrinsicValueModel[model]),
+              },
+            }
+          : {}),
+        ...(query.asOf
+          ? { sourceDataAsOf: { lte: new Date(endOfLocalDate(query.asOf)) } }
+          : {}),
+      },
+      orderBy: [
+        { valuationDate: "asc" },
+        { model: "asc" },
+        { sourceDataAsOf: "asc" },
+      ],
+    });
+    return rows.map((row) => ({
+      securityId,
+      valuationDate: fromDatabaseDate(row.valuationDate),
+      sourceDataAsOf: row.sourceDataAsOf.toISOString(),
+      model: row.model,
+      valuePerShare: row.valuePerShare.toNumber(),
+      currency: row.currency,
+      calculationVersion: row.calculationVersion,
+    }));
+  }
+
+  async getIntrinsicValueBlends(
+    securityId: string,
+    query: IntrinsicValueBlendQuery,
+  ): Promise<IntrinsicValueBlendPoint[]> {
+    const rows = await this.prisma.intrinsicValueBlend.findMany({
+      where: {
+        securityId,
+        valuationDate: rangeWhere({
+          from: query.from,
+          to: query.to ?? query.asOf,
+        }),
+        ...(query.blendIds
+          ? {
+              blendId: {
+                in: query.blendIds.map((blend) => IntrinsicValueBlendId[blend]),
+              },
+            }
+          : {}),
+        ...(query.asOf
+          ? { sourceDataAsOf: { lte: new Date(endOfLocalDate(query.asOf)) } }
+          : {}),
+      },
+      orderBy: [
+        { valuationDate: "asc" },
+        { blendId: "asc" },
+        { sourceDataAsOf: "asc" },
+      ],
+    });
+    return rows.map((row) => ({
+      securityId,
+      valuationDate: fromDatabaseDate(row.valuationDate),
+      sourceDataAsOf: row.sourceDataAsOf.toISOString(),
+      blendId: row.blendId,
+      valuePerShare: row.valuePerShare.toNumber(),
+      currency: row.currency,
+      calculationVersion: row.calculationVersion,
+      blendVersion: row.blendVersion,
+    }));
+  }
+
+  private async advanceState(
+    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    input: {
+      securityId: string;
+      dataset: PersistedStockDataset;
+      variant: string;
+      from: string;
+      to: string;
+      syncedAt: string;
+      calculationVersion?: number;
+    },
+  ): Promise<void> {
+    const dataset = datasetEnum(input.dataset);
+    await transaction.stockDatasetCoverage.upsert({
+      where: {
+        securityId_dataset_variant_fromDate_toDate: {
+          securityId: input.securityId,
+          dataset,
+          variant: input.variant,
+          fromDate: toDatabaseDate(input.from),
+          toDate: toDatabaseDate(input.to),
+        },
+      },
+      create: {
+        securityId: input.securityId,
+        dataset,
+        variant: input.variant,
+        fromDate: toDatabaseDate(input.from),
+        toDate: toDatabaseDate(input.to),
+        lastSuccessfulSyncAt: new Date(input.syncedAt),
+      },
+      update: { lastSuccessfulSyncAt: new Date(input.syncedAt) },
+    });
+    const existing = await transaction.stockDatasetState.findUnique({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset,
+          variant: input.variant,
+        },
+      },
+    });
+    const earliestDate = existing?.earliestDate
+      ? new Date(
+          Math.min(
+            existing.earliestDate.valueOf(),
+            toDatabaseDate(input.from).valueOf(),
+          ),
+        )
+      : toDatabaseDate(input.from);
+    const latestDate = existing?.latestDate
+      ? new Date(
+          Math.max(
+            existing.latestDate.valueOf(),
+            toDatabaseDate(input.to).valueOf(),
+          ),
+        )
+      : toDatabaseDate(input.to);
+    await transaction.stockDatasetState.upsert({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset,
+          variant: input.variant,
+        },
+      },
+      create: {
+        securityId: input.securityId,
+        dataset,
+        variant: input.variant,
+        earliestDate,
+        latestDate,
+        lastSuccessfulSyncAt: new Date(input.syncedAt),
+        calculationVersion: input.calculationVersion,
+      },
+      update: {
+        earliestDate,
+        latestDate,
+        lastSuccessfulSyncAt: new Date(input.syncedAt),
+        calculationVersion: input.calculationVersion,
+      },
+    });
+  }
+}

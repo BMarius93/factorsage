@@ -12,6 +12,45 @@ enum UserRole {
   ADMIN
 }
 
+enum SecurityType {
+  STOCK
+  ETF
+  FUND
+}
+
+enum StockDataset {
+  SECURITY_PROFILE
+  DAILY_PRICE
+  DAILY_TECHNICAL
+  WEEKLY_PRICE
+  WEEKLY_TECHNICAL
+  INCOME_STATEMENT
+  BALANCE_SHEET
+  CASH_FLOW
+  DIVIDEND
+  STOCK_SPLIT
+  INTRINSIC_VALUE
+  INTRINSIC_VALUE_BLEND
+}
+
+enum MovingAverageType {
+  SMA
+  EMA
+}
+
+enum IntrinsicValueModel {
+  DCF_FCFF
+  RESIDUAL_INCOME
+  DDM
+  GRAHAM
+}
+
+enum IntrinsicValueBlendId {
+  BALANCED
+  CONSERVATIVE
+  DIVIDEND
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -19,4 +58,175 @@ model User {
   role         UserRole @default(USER)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Security {
+  id                String       @id @default(uuid())
+  providerSymbol    String       @unique
+  symbol            String
+  name              String
+  exchangeCode      String
+  exchangeName      String?
+  currency          String
+  cik               String?
+  isin              String?
+  cusip             String?
+  country           String?
+  sector            String?
+  industry          String?
+  ipoDate           DateTime?    @db.Date
+  type              SecurityType
+  isAdr             Boolean
+  isActivelyTrading Boolean
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  profile           SecurityProfile?
+  datasetStates     StockDatasetState[]
+  datasetCoverage   StockDatasetCoverage[]
+  dailyPrices       DailyPrice[]
+  dailyTechnicals   DailyTechnical[]
+  weeklyPrices      WeeklyPrice[]
+  weeklyTechnicals  WeeklyTechnical[]
+  intrinsicValues   IntrinsicValue[]
+  intrinsicBlends   IntrinsicValueBlend[]
+
+  @@unique([symbol, exchangeCode])
+  @@index([symbol])
+}
+
+model SecurityProfile {
+  securityId    String   @id
+  description   String?
+  website       String?
+  logoUrl       String?
+  ceo           String?
+  employees     Int?
+  addressStreet String?
+  addressCity   String?
+  addressState  String?
+  postalCode    String?
+  addressCountry String?
+  updatedAt     DateTime @updatedAt
+  security      Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+}
+
+model StockDatasetState {
+  securityId             String
+  dataset                StockDataset
+  variant                String       @default("")
+  earliestDate           DateTime?    @db.Date
+  latestDate             DateTime?    @db.Date
+  lastSuccessfulSyncAt   DateTime?
+  calculationVersion     Int?
+  security               Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([securityId, dataset, variant])
+}
+
+model StockDatasetCoverage {
+  id                       String       @id @default(uuid())
+  securityId               String
+  dataset                  StockDataset
+  variant                  String       @default("")
+  fromDate                 DateTime     @db.Date
+  toDate                   DateTime     @db.Date
+  lastSuccessfulSyncAt     DateTime
+  security                 Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, dataset, variant, fromDate, toDate], map: "StockDatasetCoverage_range_key")
+  @@index([securityId, dataset, variant, fromDate, toDate], map: "StockDatasetCoverage_lookup_idx")
+}
+
+model DailyPrice {
+  securityId String
+  date       DateTime @db.Date
+  open       Decimal  @db.Decimal(20, 8)
+  high       Decimal  @db.Decimal(20, 8)
+  low        Decimal  @db.Decimal(20, 8)
+  close      Decimal  @db.Decimal(20, 8)
+  volume     BigInt
+  vwap       Decimal? @db.Decimal(20, 8)
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([securityId, date])
+  @@index([securityId, date])
+}
+
+model DailyTechnical {
+  securityId        String
+  date              DateTime @db.Date
+  sma20d            Decimal? @db.Decimal(20, 8)
+  sma50d            Decimal? @db.Decimal(20, 8)
+  sma100d           Decimal? @db.Decimal(20, 8)
+  sma200d           Decimal? @db.Decimal(20, 8)
+  ema20d            Decimal? @db.Decimal(20, 8)
+  ema50d            Decimal? @db.Decimal(20, 8)
+  ema200d           Decimal? @db.Decimal(20, 8)
+  calculationVersion Int
+  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([securityId, date, calculationVersion])
+  @@index([securityId, calculationVersion, date])
+}
+
+model WeeklyPrice {
+  securityId        String
+  weekStartDate     DateTime @db.Date
+  weekEndDate       DateTime @db.Date
+  eligibleDate      DateTime @db.Date
+  open              Decimal  @db.Decimal(20, 8)
+  high              Decimal  @db.Decimal(20, 8)
+  low               Decimal  @db.Decimal(20, 8)
+  close             Decimal  @db.Decimal(20, 8)
+  volume            BigInt
+  calculationVersion Int
+  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([securityId, weekStartDate, calculationVersion])
+  @@index([securityId, eligibleDate])
+}
+
+model WeeklyTechnical {
+  securityId        String
+  weekStartDate     DateTime @db.Date
+  eligibleDate      DateTime @db.Date
+  type              MovingAverageType
+  period            Int
+  value             Decimal  @db.Decimal(20, 8)
+  calculationVersion Int
+  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([securityId, weekStartDate, type, period, calculationVersion])
+  @@index([securityId, type, period, eligibleDate])
+}
+
+model IntrinsicValue {
+  id                 String                 @id @default(uuid())
+  securityId         String
+  valuationDate      DateTime               @db.Date
+  sourceDataAsOf     DateTime
+  model               IntrinsicValueModel
+  valuePerShare      Decimal                @db.Decimal(20, 8)
+  currency           String
+  calculationVersion Int
+  security           Security               @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, valuationDate, sourceDataAsOf, model, calculationVersion])
+  @@index([securityId, model, valuationDate, sourceDataAsOf])
+}
+
+model IntrinsicValueBlend {
+  id                 String                  @id @default(uuid())
+  securityId         String
+  valuationDate      DateTime                @db.Date
+  sourceDataAsOf     DateTime
+  blendId            IntrinsicValueBlendId
+  valuePerShare      Decimal                 @db.Decimal(20, 8)
+  currency           String
+  calculationVersion Int
+  blendVersion       Int
+  security           Security                @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, valuationDate, sourceDataAsOf, blendId, blendVersion, calculationVersion])
+  @@index([securityId, blendId, blendVersion, valuationDate, sourceDataAsOf])
 }

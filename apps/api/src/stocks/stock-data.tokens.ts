@@ -1,0 +1,6 @@
+export const STOCK_DATA_STORE = Symbol("STOCK_DATA_STORE");
+export const STOCK_DATA_PROVIDER = Symbol("STOCK_DATA_PROVIDER");
+export const STOCK_DATA_CACHE = Symbol("STOCK_DATA_CACHE");
+export const STOCK_DATA_COORDINATOR = Symbol("STOCK_DATA_COORDINATOR");
+export const STOCK_DATA_REDIS = Symbol("STOCK_DATA_REDIS");
+export const STOCK_DATA_SERVICE = Symbol("STOCK_DATA_SERVICE");

@@ -15,10 +15,11 @@ apps/web
   | HTTP contracts
   v
 apps/api
-  | \
-  |  \--> packages/fmp
   |
-  +----> packages/database --> PostgreSQL
+  +----> packages/stock-data
+             |--> packages/fmp
+             |--> packages/database --> PostgreSQL
+             +--> Redis
   |
   +----> enqueue durable work
              |
@@ -28,7 +29,7 @@ apps/api
              +--> packages/database
              +--> packages/domain
              +--> packages/valuation
-             +--> packages/fmp
+             +--> packages/stock-data
 
 Redis = disposable cache / locks / coordination.
 PostgreSQL = durable source of truth.
@@ -48,6 +49,7 @@ packages/
   contracts/    API and execution contracts
   database/     One Prisma schema, one migration history
   fmp/          Financial Modeling Prep adapter
+  stock-data/   Canonical stock-data loading/cache/persistence orchestration
   observability/ Logging / tracing contracts
   testing/      Shared test utilities
 

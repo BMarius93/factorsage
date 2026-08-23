@@ -22,11 +22,12 @@ Allowed direction:
 ```text
 web -> contracts
 
-api -> contracts/domain/valuation/database/fmp/observability
-worker -> contracts/domain/valuation/database/fmp/observability
+api -> contracts/domain/stock-data/database/fmp/observability
+worker -> contracts/domain/stock-data/database/fmp/observability
 
 database -> Prisma
-fmp -> external FMP API
+fmp -> domain/external FMP API
+stock-data -> domain/database/fmp/Redis
 ```
 
 Forbidden:
@@ -40,6 +41,7 @@ Forbidden:
 - `domain -> process.env`
 - `valuation -> database`
 - `valuation -> process.env`
+- `stock-data -> process.env`
 
 ## Database rules
 

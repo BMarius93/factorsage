@@ -6,7 +6,7 @@
   },
   "scripts": {
     "dev:web": "pnpm --filter @intrinsic/web dev",
-    "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api start:dev",
+    "dev:api": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/api start:dev",
     "dev:worker": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/worker dev",
     "build": "pnpm -r --if-present build",
     "typecheck": "pnpm -r --if-present typecheck",
