@@ -21,6 +21,8 @@ Dividend-adjusted prices are not the canonical trading/backtest series. Dividend
 
 V1 stores daily data only. Weekly/monthly bars and indicators may be derived later.
 
+Provider ordering is not a domain contract. Even if FMP returns newest-first, repository/service historical reads should expose ascending chronological order unless a future endpoint explicitly documents another order.
+
 ## V1 moving averages
 
 Persist these daily derived values:
@@ -35,6 +37,10 @@ Persist these daily derived values:
 
 The application will calculate these from the canonical daily price series. FMP technical-indicator endpoints may later be used as an external validation oracle, not as the production calculation dependency.
 
+Indicator period means number of bars, not calendar days. `SMA(50, 1D)` and `SMA(50, 1W)` are different indicators. The type system reserves weekly timeframe support, but V1 persists daily technical values only.
+
+Insufficient warm-up history produces an unavailable/absent derived value, not zero. EMA seed/warm-up semantics must be documented and locked by tests before historical values are materialized.
+
 ## V1 intrinsic-value models
 
 - `DCF_FCFF`
@@ -44,7 +50,11 @@ The application will calculate these from the canonical daily price series. FMP 
 
 Each historical intrinsic-value point is effective at a `valuationDate` and records `sourceDataAsOf`. Implementations must only use information that was public by that point in time.
 
+`sourceDataAsOf` is the latest publication/availability instant among the inputs actually used by the calculation. It is an audit/no-look-ahead field, not merely the fiscal period end date.
+
 Intrinsic values are snapshots, not necessarily one duplicated row per trading day. An `asOf` query resolves the latest eligible valuation snapshot at or before the requested date.
+
+The implementation must define a consistent market-time cutoff for when a newly published filing becomes eligible in a backtest. A valuation may never become historically visible before every source input used by it was public.
 
 ## V1 blends
 
@@ -55,6 +65,8 @@ Blend definitions are versioned product methodology:
 - `DIVIDEND` v1: 40% DCF FCFF, 40% DDM, 20% Residual Income
 
 Blend weights must sum to 1. A change to weights creates a new blend version rather than silently changing historical interpretation.
+
+A missing/not-applicable component must be handled explicitly. For example, DDM may be unavailable for a company that does not pay a meaningful dividend. The implementation must not silently pull a future component value, substitute another model, or renormalize weights unless a later product decision explicitly defines that behavior.
 
 ## Dataset state
 
@@ -70,6 +82,10 @@ The persistence implementation should use a dataset-state model conceptually equ
 - calculation version for derived datasets
 
 This enables range-aware delta loading: Redis -> PostgreSQL -> determine missing range -> FMP/calculation -> persist delta -> refresh cache.
+
+`earliestDate`/`latestDate` are watermarks, not proof that there can never be an internal data gap. Missing-range logic must remain aware of trading calendars/provider availability and must not infer that every calendar day between the bounds should contain a market row.
+
+`lastSyncedAt` means the last successful persistence/sync operation. Failed/partial upstream attempts must not advance it as if data had been committed successfully.
 
 No Prisma migration is included in this foundation PR. The implementation PR must add the schema through an explicit migration and migration note.
 
@@ -89,9 +105,32 @@ Expected service capabilities:
 
 The implementation may internally use cache, repository, upstream provider, and calculation-engine ports, but callers must not depend directly on Redis, Prisma, or FMP.
 
+A Stock Details page load and a worker backtest asking for the same symbol/range must ultimately receive equivalent canonical domain data. Differences in caller/process must not create two business implementations.
+
+## Implementation guardrails for coding agents
+
+These constraints are intentionally explicit so a coding agent can implement the next slice without re-deciding the architecture:
+
+1. Read `AGENTS.md`, `ai/README.md`, this decision, and relevant architecture docs before changing code.
+2. Do not map FMP JSON directly into API contracts or Prisma models. Keep provider DTOs/quirks inside `@intrinsic/fmp` and map them into domain values deliberately.
+3. Do not put Prisma, Redis clients, HTTP calls, environment access, or FMP DTOs into `@intrinsic/domain` or `@intrinsic/valuation`.
+4. Do not duplicate loader orchestration in `apps/api` and `apps/worker`. They are callers of the same business implementation.
+5. The current package map does not yet define an infrastructure-aware shared application package for this orchestration. If the implementation introduces one (for example a dedicated stock-data/application package), update the architecture/dependency documentation explicitly in the same PR instead of hiding the dependency change.
+6. PostgreSQL is authoritative. Redis is a performance layer and must be safely rebuildable from durable/upstream data.
+7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol, not an arbitrary subset of its datasets.
+8. Cache misses and partial DB ranges must not trigger full-history FMP reloads when a bounded missing delta can be identified.
+9. Historical reads exposed by the domain/service should be deterministic and ascending by effective date even when provider payload order differs.
+10. Derived values are persisted for performance but remain reproducible from canonical inputs plus a documented calculation version.
+11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
+12. Point-in-time correctness is a hard invariant: use filing/publication availability, not only fiscal period end dates, and never let a future filing affect an earlier backtest date.
+13. Do not invent authentication/entitlement behavior for Stock Details in this slice. Follow the product/auth decision that exists when HTTP endpoints are implemented.
+14. Keep the next PR reviewable: infrastructure, formula changes, and UI behavior should not be mixed unless the task explicitly asks for them together.
+
 ## Redis direction
 
 The later Redis implementation should maintain a configurable maximum number of resident symbols and evict complete symbols using LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
+
+The Redis memory limit/eviction configuration may be used as a safety net, but product residency semantics belong to the application-level symbol cache policy. Do not rely on Redis key-level eviction alone to preserve complete-symbol cache behavior.
 
 ## Required implementation tests
 
@@ -118,6 +157,8 @@ The later Redis implementation should maintain a configurable maximum number of 
 10. Redis symbol LRU evicts a complete symbol and never partial datasets for the selected symbol.
 11. Loader cache-hit, DB-hit, DB-partial, and upstream-delta paths return equivalent domain results.
 12. Concurrent requests for the same missing symbol/range are single-flight/deduplicated when coordination is implemented.
+13. Historical service/repository rows are normalized to ascending effective-date order even when provider fixtures are newest-first.
+14. Failed/partial syncs do not falsely advance dataset-state success watermarks.
 
 ### API integration tests
 
@@ -135,6 +176,8 @@ Minimum API test matrix:
 8. A partial persisted range requests only the missing delta from the provider.
 9. A Stock Details request and a worker/backtest request for the same historical dataset resolve through the same service contract.
 10. Point-in-time fixture test proves a filing published after the requested date cannot affect that historical response.
+11. Historical arrays are returned in documented ascending date order regardless of FMP fixture ordering.
+12. Warm-up/unavailable derived values are represented as absent/null according to the final HTTP serialization decision, never fabricated as zero.
 
 ## Explicitly out of scope for this PR
 
