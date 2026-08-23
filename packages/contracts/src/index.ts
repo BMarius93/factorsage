@@ -22,3 +22,5 @@ export type AdminHealthResponse = {
   status: "ok";
   role: "ADMIN";
 };
+
+export * from "./stock-data.js";
