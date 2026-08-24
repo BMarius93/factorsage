@@ -92,11 +92,13 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     {
       provide: STOCK_DATA_COORDINATOR,
       inject: [STOCK_DATA_REDIS],
-      useFactory: (redis: StockDataRedisClient): LoadCoordinator =>
-        new RedlockLoadCoordinator(
-          redis,
-          getStockDataConfig().loadLockDurationMs,
-        ),
+      useFactory: (redis: StockDataRedisClient): LoadCoordinator => {
+        const config = getStockDataConfig();
+        return new RedlockLoadCoordinator(redis, {
+          lockDurationMs: config.loadLockDurationMs,
+          lockWaitMs: config.loadLockWaitMs,
+        });
+      },
     },
     {
       provide: STOCK_DATA_SERVICE,

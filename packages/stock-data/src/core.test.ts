@@ -234,6 +234,8 @@ describe("weekly semantics", () => {
         price("2026-01-02", 12),
       ],
       "2026-01-05",
+      1,
+      { historyStart: "2025-12-30", historyStartOrigin: "LISTING" },
     );
 
     expect(bars).toEqual([
@@ -245,6 +247,28 @@ describe("weekly semantics", () => {
         close: 12,
       }),
     ]);
+  });
+
+  it("drops only the artificial partial first week at the history horizon", () => {
+    const prices = [
+      price("2026-08-12", 10),
+      price("2026-08-13", 11),
+      price("2026-08-14", 12),
+      ...normalWeek.map((row) => ({ ...row, date: addDays(row.date, 7) })),
+    ];
+
+    expect(
+      aggregateCompletedWeeks(prices, "2026-08-24", 1, {
+        historyStart: "2026-08-12",
+        historyStartOrigin: "HORIZON",
+      }).map((bar) => bar.weekStartDate),
+    ).toEqual(["2026-08-17"]);
+    expect(
+      aggregateCompletedWeeks(prices.slice(0, 3), "2026-08-17", 1, {
+        historyStart: "2026-08-12",
+        historyStartOrigin: "LISTING",
+      }).map((bar) => bar.weekStartDate),
+    ).toEqual(["2026-08-10"]);
   });
 });
 

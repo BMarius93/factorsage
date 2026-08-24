@@ -15,6 +15,7 @@ export type FmpClientConfig = {
   maxRetries?: number;
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
+  maxRetryWaitMs?: number;
 };
 
 export interface FmpRequestGate {
@@ -121,6 +122,7 @@ export class FmpClient implements FmpStockProviderPort {
     const maxRetries = config.maxRetries ?? 3;
     const retryBaseDelayMs = config.retryBaseDelayMs ?? 500;
     const retryMaxDelayMs = config.retryMaxDelayMs ?? 30_000;
+    const maxRetryWaitMs = config.maxRetryWaitMs ?? 30_000;
     const url = new URL(
       path,
       config.baseUrl ?? "https://financialmodelingprep.com/stable/",
@@ -130,25 +132,38 @@ export class FmpClient implements FmpStockProviderPort {
     }
     url.searchParams.set("apikey", config.apiKey);
 
+    let retryWaitedMs = 0;
     for (let attempt = 0; ; attempt += 1) {
       let error: FmpProviderError;
+      let cooldownPublished = false;
       try {
-        const response = await this.gate.run(() =>
-          this.fetchImplementation(url, {
+        return await this.gate.run(async () => {
+          const response = await this.fetchImplementation(url, {
             signal: AbortSignal.timeout(config.timeoutMs),
             headers: { accept: "application/json" },
-          }),
-        );
-        if (!response.ok) {
-          throw this.classifyResponse(response);
-        }
-        const payload: unknown = await response.json();
-        if (!Array.isArray(payload)) {
-          throw new FmpProviderError(
-            "Stock data provider returned invalid data",
-          );
-        }
-        return payload as T;
+          });
+          if (!response.ok) {
+            const classified = this.classifyResponse(response);
+            if (classified instanceof FmpRateLimitError) {
+              const delayMs = this.retryDelay(
+                classified,
+                attempt,
+                retryBaseDelayMs,
+                retryMaxDelayMs,
+              );
+              await this.gate.publishCooldown(delayMs);
+              cooldownPublished = true;
+            }
+            throw classified;
+          }
+          const payload: unknown = await response.json();
+          if (!Array.isArray(payload)) {
+            throw new FmpProviderError(
+              "Stock data provider returned invalid data",
+            );
+          }
+          return payload as T;
+        });
       } catch (caught) {
         error =
           caught instanceof FmpProviderError ? caught : new FmpTransientError();
@@ -157,12 +172,16 @@ export class FmpClient implements FmpStockProviderPort {
       const delayMs = error.retryable
         ? this.retryDelay(error, attempt, retryBaseDelayMs, retryMaxDelayMs)
         : 0;
-      if (error instanceof FmpRateLimitError) {
+      if (error instanceof FmpRateLimitError && !cooldownPublished) {
         await this.gate.publishCooldown(delayMs);
       }
       if (!error.retryable || attempt >= maxRetries) {
         throw error;
       }
+      if (retryWaitedMs + delayMs > maxRetryWaitMs) {
+        throw error;
+      }
+      retryWaitedMs += delayMs;
       await this.sleep(delayMs);
     }
   }
@@ -191,11 +210,16 @@ export class FmpClient implements FmpStockProviderPort {
     baseDelayMs: number,
     maxDelayMs: number,
   ): number {
-    const base =
-      error instanceof FmpRateLimitError && error.retryAfterMs !== undefined
-        ? error.retryAfterMs
-        : baseDelayMs * 2 ** attempt;
-    const bounded = Math.min(base, maxDelayMs);
+    if (
+      error instanceof FmpRateLimitError &&
+      error.retryAfterMs !== undefined
+    ) {
+      const jitter = Math.floor(
+        this.random() * Math.min(Math.max(error.retryAfterMs * 0.05, 1), 1_000),
+      );
+      return error.retryAfterMs + jitter;
+    }
+    const bounded = Math.min(baseDelayMs * 2 ** attempt, maxDelayMs);
     const jitter = Math.floor(
       this.random() * Math.min(Math.max(bounded * 0.2, 1), 1_000),
     );

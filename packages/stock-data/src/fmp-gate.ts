@@ -37,11 +37,15 @@ return {0, redis.call('PTTL', KEYS[1])}
 `;
 
 const PUBLISH_COOLDOWN = `
-local current = redis.call('PTTL', KEYS[1])
-if current < tonumber(ARGV[1]) then
-  redis.call('SET', KEYS[1], '1', 'PX', ARGV[1])
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+local proposed = now + tonumber(ARGV[1])
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+if proposed > current then
+  redis.call('PSETEX', KEYS[1], ARGV[1], tostring(proposed))
+  return proposed
 end
-return redis.call('PTTL', KEYS[1])
+return current
 `;
 
 export class RedisFmpRequestGate implements FmpRequestGate {
@@ -106,15 +110,12 @@ export class RedisFmpRequestGate implements FmpRequestGate {
   }
 
   async publishCooldown(delayMs: number): Promise<void> {
-    const bounded = Math.min(
-      Math.max(Math.ceil(delayMs), 1),
-      this.options.maxQueueWaitMs,
-    );
+    const providerDelayMs = Math.max(Math.ceil(delayMs), 1);
     await this.redis.eval(
       PUBLISH_COOLDOWN,
       1,
       this.cooldownKey(),
-      String(bounded),
+      String(providerDelayMs),
     );
   }
 

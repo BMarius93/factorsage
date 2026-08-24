@@ -82,17 +82,53 @@ class FakeRedis implements RedisCacheClient {
   async eval(script: string, numberOfKeys: number, ...values: string[]) {
     const keys = values.slice(0, numberOfKeys);
     const args = values.slice(numberOfKeys);
+    if (script.includes("begin-hydration")) {
+      const current = this.values.get(keys[0]!);
+      if (args[1] === "0" && current !== undefined) return 0;
+      if (args[1] === "1" && current !== args[2]) return 0;
+      await this.del(...(this.sets.get(keys[1]!) ?? []));
+      await this.del(keys[1]!);
+      await this.zrem(keys[2]!, args[0]!);
+      this.values.set(keys[0]!, args[3]!);
+      await this.sadd(keys[1]!, keys[0]!);
+      return 1;
+    }
     if (script.includes("begin-refresh")) {
+      if (this.values.get(keys[0]!) !== args[1]) return 0;
       if (!this.sortedSets.get(keys[2]!)?.has(args[0]!)) return 0;
-      this.values.set(keys[0]!, args[1]!);
+      this.values.set(keys[0]!, args[2]!);
       await this.sadd(keys[1]!, keys[0]!);
       await this.zrem(keys[2]!, args[0]!);
       return 1;
     }
-    if (script.includes("set-hydrating")) {
-      this.values.set(keys[0]!, args[1]!);
+    if (script.includes("set-registered")) {
+      if (args[1] && this.values.get(keys[2]!) !== args[1]) return 0;
+      this.values.set(keys[0]!, args[0]!);
       await this.sadd(keys[1]!, keys[0]!);
-      await this.zrem(keys[2]!, args[0]!);
+      return 1;
+    }
+    if (script.includes("touch-ready")) {
+      const manifest = this.values.get(keys[0]!);
+      if (!manifest || JSON.parse(manifest).status !== "READY") return 0;
+      const sequence = await this.incr();
+      await this.zadd(keys[1]!, sequence, args[0]!);
+      return 1;
+    }
+    if (script.includes("publish-ready")) {
+      const current = this.values.get(keys[0]!);
+      if (args[4] ? current !== args[4] : current !== undefined) return 0;
+      this.values.set(keys[0]!, args[0]!);
+      await this.sadd(keys[1]!, keys[0]!);
+      const sequence = await this.incr();
+      await this.zadd(keys[2]!, sequence, args[1]!);
+      while ((await this.zcard(keys[2]!)) > Number(args[2])) {
+        const victim = (await this.zrange(keys[2]!, 0, 0))[0];
+        if (!victim) break;
+        const registry = `${args[3]}:security:${victim}:keys`;
+        await this.del(...(this.sets.get(registry) ?? []));
+        await this.del(registry);
+        await this.zrem(keys[2]!, victim);
+      }
       return 1;
     }
     if (script.includes("invalidate-manifest")) {
@@ -148,11 +184,45 @@ function readyManifest(securityId: string): StockManifest {
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
     priceDatasetVersion: 1,
     dailyTechnicalVersion: 1,
-    weeklyVersion: 1,
+    weeklyVersion: 2,
   };
 }
 
 describe("canonical yearly stock cache", () => {
+  it("rejects writes and READY publication from a stale hydration generation", async () => {
+    const redis = new FakeRedis();
+    const cache = new RedisStockDataCache(redis, 2, "stock-data:v2:test");
+    const ready = readyManifest(security.id);
+    const first = {
+      ...ready,
+      status: "HYDRATING" as const,
+      hydrationId: "first",
+      hydratingAt: "2026-08-24T12:01:00.000Z",
+    };
+    const successor = {
+      ...first,
+      hydrationId: "successor",
+      hydratingAt: "2026-08-24T12:02:00.000Z",
+    };
+    await cache.setManifest(ready);
+    await expect(cache.beginRefresh(ready, first)).resolves.toBe(true);
+    await expect(cache.beginHydration(first, successor)).resolves.toBe(true);
+
+    await expect(
+      cache.writeDailyPriceYears(
+        security.id,
+        [price("2026-08-24", 5)],
+        [2026],
+        first,
+      ),
+    ).rejects.toThrow("generation changed");
+    await expect(cache.setSecurity(security, first)).rejects.toThrow(
+      "generation changed",
+    );
+    await expect(cache.completeHydration(first, ready)).resolves.toBe(false);
+    await expect(cache.getManifest(security.id)).resolves.toEqual(successor);
+  });
+
   it("does not invalidate a successor manifest", async () => {
     const redis = new FakeRedis();
     const cache = new RedisStockDataCache(redis, 2, "stock-data:v2:test");
@@ -162,7 +232,19 @@ describe("canonical yearly stock cache", () => {
       lastPriceRefreshAt: "2026-08-24T13:00:00.000Z",
     };
     await cache.setManifest(observed);
-    await cache.setManifest(successor);
+    const hydrating = {
+      ...observed,
+      status: "HYDRATING" as const,
+      hydrationId: "successor",
+      hydratingAt: "2026-08-24T12:30:00.000Z",
+    };
+    await expect(cache.beginRefresh(observed, hydrating)).resolves.toBe(true);
+    await expect(cache.completeHydration(hydrating, successor)).resolves.toBe(
+      true,
+    );
+    await expect(cache.setManifest(observed)).rejects.toThrow(
+      "generation changed",
+    );
 
     await expect(cache.invalidateManifest(observed)).resolves.toBe(false);
     await expect(cache.getManifest(security.id)).resolves.toEqual(successor);

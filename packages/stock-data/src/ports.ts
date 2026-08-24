@@ -22,6 +22,10 @@ export type PersistedDatasetState = Omit<StockDatasetState, "dataset"> & {
   variant: string;
 };
 
+export const DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
+export const DAILY_PRICE_FRESHNESS_VARIANT =
+  "split-adjusted-eod-full:recent-tail";
+
 export interface StockDataStore {
   findSecurityByProviderSymbol(symbol: string): Promise<Security | null>;
   saveSecurityProfile(
@@ -52,6 +56,9 @@ export interface StockDataStore {
     prices: readonly DailyPrice[];
     successfulCoverage: readonly Required<DateRange>[];
     syncedAt: string;
+    tailDate: string;
+    freshThrough?: string;
+    assertOwned?: () => void;
   }): Promise<{ earliestChangedDate?: string }>;
   getDailyTechnicals(
     securityId: string,
@@ -65,6 +72,7 @@ export interface StockDataStore {
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
     calculationVersion: number;
+    assertOwned?: () => void;
   }): Promise<void>;
   getWeeklyPrices(
     securityId: string,

@@ -18,6 +18,8 @@ export type StockManifest = {
   canonicalHistoryEnd?: string;
   hydratedAt?: string;
   lastPriceRefreshAt?: string;
+  hydrationId?: string;
+  hydratingAt?: string;
   priceDatasetVersion: number;
   dailyTechnicalVersion: number;
   weeklyVersion: number;
@@ -45,10 +47,21 @@ export interface RedisCacheClient {
 
 export interface StockDataCache {
   getSecurity(symbol: string): Promise<Security | null>;
-  setSecurity(security: Security): Promise<void>;
+  setSecurity(security: Security, hydrating?: StockManifest): Promise<void>;
   getManifest(securityId: string): Promise<StockManifest | null>;
   setManifest(manifest: StockManifest): Promise<void>;
-  beginRefresh(manifest: StockManifest): Promise<boolean>;
+  beginHydration(
+    observed: StockManifest | null,
+    hydrating: StockManifest,
+  ): Promise<boolean>;
+  beginRefresh(
+    observed: StockManifest,
+    hydrating: StockManifest,
+  ): Promise<boolean>;
+  completeHydration(
+    hydrating: StockManifest,
+    ready: StockManifest,
+  ): Promise<boolean>;
   invalidateManifest(manifest: StockManifest | null): Promise<boolean>;
   readDailyPrices(
     securityId: string,
@@ -58,6 +71,7 @@ export interface StockDataCache {
     securityId: string,
     prices: readonly DailyPrice[],
     years: readonly number[],
+    hydrating?: StockManifest,
   ): Promise<void>;
   readDailyTechnicals(
     securityId: string,
@@ -69,12 +83,14 @@ export interface StockDataCache {
     technicals: readonly DailyTechnical[],
     years: readonly number[],
     calculationVersion: number,
+    hydrating?: StockManifest,
   ): Promise<void>;
   writeWeeklyPriceYears(
     securityId: string,
     prices: readonly WeeklyPrice[],
     years: readonly number[],
     calculationVersion: number,
+    hydrating?: StockManifest,
   ): Promise<void>;
   hasResidentStock(securityId: string): Promise<boolean>;
   touch(securityId: string): Promise<void>;
@@ -96,10 +112,17 @@ export class RedisStockDataCache implements StockDataCache {
     return this.readJson<Security>(this.symbolSecurityKey(symbol));
   }
 
-  async setSecurity(security: Security): Promise<void> {
+  async setSecurity(
+    security: Security,
+    hydrating?: StockManifest,
+  ): Promise<void> {
     const key = this.symbolSecurityKey(security.symbol);
-    await this.redis.set(key, JSON.stringify(security));
-    await this.register(security.id, key);
+    await this.setRegistered(
+      security.id,
+      key,
+      JSON.stringify(security),
+      hydrating,
+    );
   }
 
   async getManifest(securityId: string): Promise<StockManifest | null> {
@@ -107,36 +130,60 @@ export class RedisStockDataCache implements StockDataCache {
   }
 
   async setManifest(manifest: StockManifest): Promise<void> {
-    const key = this.manifestKey(manifest.securityId);
     if (manifest.status === "READY") {
-      await this.redis.set(key, JSON.stringify(manifest));
-      await this.register(manifest.securityId, key);
-      await this.touch(manifest.securityId);
-      await this.enforceLimit();
-    } else {
-      await this.redis.eval(
-        SET_HYDRATING,
-        3,
-        key,
-        this.registryKey(manifest.securityId),
-        this.residentKey(),
-        manifest.securityId,
-        JSON.stringify(manifest),
-      );
+      if (!(await this.publishReady(null, manifest))) {
+        throw new Error("Stock cache hydration generation changed");
+      }
+      return;
+    }
+    const observed = await this.getManifest(manifest.securityId);
+    if (!(await this.beginHydration(observed, manifest))) {
+      throw new Error("Stock cache hydration generation changed");
     }
   }
 
-  async beginRefresh(manifest: StockManifest): Promise<boolean> {
+  async beginHydration(
+    observed: StockManifest | null,
+    hydrating: StockManifest,
+  ): Promise<boolean> {
+    const result = await this.redis.eval(
+      BEGIN_HYDRATION,
+      3,
+      this.manifestKey(hydrating.securityId),
+      this.registryKey(hydrating.securityId),
+      this.residentKey(),
+      hydrating.securityId,
+      observed ? "1" : "0",
+      observed ? JSON.stringify(observed) : "",
+      JSON.stringify(hydrating),
+      String(HYDRATING_MANIFEST_TTL_MS),
+    );
+    return result === 1;
+  }
+
+  async beginRefresh(
+    observed: StockManifest,
+    hydrating: StockManifest,
+  ): Promise<boolean> {
     const result = await this.redis.eval(
       BEGIN_REFRESH,
       3,
-      this.manifestKey(manifest.securityId),
-      this.registryKey(manifest.securityId),
+      this.manifestKey(observed.securityId),
+      this.registryKey(observed.securityId),
       this.residentKey(),
-      manifest.securityId,
-      JSON.stringify({ ...manifest, status: "HYDRATING" }),
+      observed.securityId,
+      JSON.stringify(observed),
+      JSON.stringify(hydrating),
+      String(HYDRATING_MANIFEST_TTL_MS),
     );
     return result === 1;
+  }
+
+  async completeHydration(
+    hydrating: StockManifest,
+    ready: StockManifest,
+  ): Promise<boolean> {
+    return this.publishReady(hydrating, ready);
   }
 
   async invalidateManifest(manifest: StockManifest | null): Promise<boolean> {
@@ -176,6 +223,7 @@ export class RedisStockDataCache implements StockDataCache {
     securityId: string,
     prices: readonly DailyPrice[],
     years: readonly number[],
+    hydrating?: StockManifest,
   ): Promise<void> {
     await this.writeYearly(
       securityId,
@@ -183,6 +231,7 @@ export class RedisStockDataCache implements StockDataCache {
       years,
       (row) => row.date,
       (year) => this.priceYearKey(securityId, year),
+      hydrating,
     );
   }
 
@@ -210,6 +259,7 @@ export class RedisStockDataCache implements StockDataCache {
     technicals: readonly DailyTechnical[],
     years: readonly number[],
     calculationVersion: number,
+    hydrating?: StockManifest,
   ): Promise<void> {
     await this.writeYearly(
       securityId,
@@ -217,6 +267,7 @@ export class RedisStockDataCache implements StockDataCache {
       years,
       (row) => row.date,
       (year) => this.technicalYearKey(securityId, calculationVersion, year),
+      hydrating,
     );
   }
 
@@ -225,6 +276,7 @@ export class RedisStockDataCache implements StockDataCache {
     prices: readonly WeeklyPrice[],
     years: readonly number[],
     calculationVersion: number,
+    hydrating?: StockManifest,
   ): Promise<void> {
     await this.writeYearly(
       securityId,
@@ -232,6 +284,7 @@ export class RedisStockDataCache implements StockDataCache {
       years,
       (row) => row.weekStartDate,
       (year) => this.weeklyYearKey(securityId, calculationVersion, year),
+      hydrating,
     );
   }
 
@@ -240,8 +293,14 @@ export class RedisStockDataCache implements StockDataCache {
   }
 
   async touch(securityId: string): Promise<void> {
-    const sequence = await this.redis.incr(this.accessSequenceKey());
-    await this.redis.zadd(this.residentKey(), sequence, securityId);
+    await this.redis.eval(
+      TOUCH_READY,
+      3,
+      this.manifestKey(securityId),
+      this.residentKey(),
+      this.accessSequenceKey(),
+      securityId,
+    );
   }
 
   async evict(securityId: string): Promise<void> {
@@ -281,6 +340,7 @@ export class RedisStockDataCache implements StockDataCache {
     years: readonly number[],
     dateOf: (row: T) => string,
     keyForYear: (year: number) => string,
+    hydrating?: StockManifest,
   ): Promise<void> {
     const byYear = new Map<number, T[]>();
     for (const year of years) {
@@ -296,25 +356,54 @@ export class RedisStockDataCache implements StockDataCache {
     for (const [year, values] of byYear) {
       values.sort((left, right) => dateOf(left).localeCompare(dateOf(right)));
       const key = keyForYear(year);
-      await this.redis.set(key, JSON.stringify(values));
-      await this.register(securityId, key);
+      await this.setRegistered(
+        securityId,
+        key,
+        JSON.stringify(values),
+        hydrating,
+      );
     }
   }
 
-  private async register(securityId: string, key: string): Promise<void> {
-    await this.redis.sadd(this.registryKey(securityId), key);
+  private async setRegistered(
+    securityId: string,
+    key: string,
+    value: string,
+    hydrating?: StockManifest,
+  ): Promise<void> {
+    const result = await this.redis.eval(
+      SET_REGISTERED,
+      3,
+      key,
+      this.registryKey(securityId),
+      this.manifestKey(securityId),
+      value,
+      hydrating ? JSON.stringify(hydrating) : "",
+      String(HYDRATING_MANIFEST_TTL_MS),
+    );
+    if (result !== 1) {
+      throw new Error("Stock cache hydration generation changed");
+    }
   }
 
-  private async enforceLimit(): Promise<void> {
-    const excess =
-      (await this.redis.zcard(this.residentKey())) - this.maxResidentStocks;
-    if (excess <= 0) {
-      return;
-    }
-    const victims = await this.redis.zrange(this.residentKey(), 0, excess - 1);
-    for (const securityId of victims) {
-      await this.evict(securityId);
-    }
+  private async publishReady(
+    hydrating: StockManifest | null,
+    ready: StockManifest,
+  ): Promise<boolean> {
+    const result = await this.redis.eval(
+      PUBLISH_READY,
+      4,
+      this.manifestKey(ready.securityId),
+      this.registryKey(ready.securityId),
+      this.residentKey(),
+      this.accessSequenceKey(),
+      JSON.stringify(ready),
+      ready.securityId,
+      String(this.maxResidentStocks),
+      this.namespace,
+      hydrating ? JSON.stringify(hydrating) : "",
+    );
+    return result === 1;
   }
 
   private symbolSecurityKey(symbol: string): string {
@@ -362,13 +451,31 @@ export class NullStockDataCache implements StockDataCache {
   async getSecurity(_symbol: string): Promise<Security | null> {
     return null;
   }
-  async setSecurity(_security: Security): Promise<void> {}
+  async setSecurity(
+    _security: Security,
+    _hydrating?: StockManifest,
+  ): Promise<void> {}
   async getManifest(_securityId: string): Promise<StockManifest | null> {
     return null;
   }
   async setManifest(_manifest: StockManifest): Promise<void> {}
-  async beginRefresh(_manifest: StockManifest): Promise<boolean> {
+  async beginHydration(
+    _observed: StockManifest | null,
+    _hydrating: StockManifest,
+  ): Promise<boolean> {
+    return true;
+  }
+  async beginRefresh(
+    _observed: StockManifest,
+    _hydrating: StockManifest,
+  ): Promise<boolean> {
     return false;
+  }
+  async completeHydration(
+    _hydrating: StockManifest,
+    _ready: StockManifest,
+  ): Promise<boolean> {
+    return true;
   }
   async invalidateManifest(_manifest: StockManifest | null): Promise<boolean> {
     return false;
@@ -383,6 +490,7 @@ export class NullStockDataCache implements StockDataCache {
     _securityId: string,
     _prices: readonly DailyPrice[],
     _years: readonly number[],
+    _hydrating?: StockManifest,
   ): Promise<void> {}
   async readDailyTechnicals(
     _securityId: string,
@@ -396,12 +504,14 @@ export class NullStockDataCache implements StockDataCache {
     _technicals: readonly DailyTechnical[],
     _years: readonly number[],
     _calculationVersion: number,
+    _hydrating?: StockManifest,
   ): Promise<void> {}
   async writeWeeklyPriceYears(
     _securityId: string,
     _prices: readonly WeeklyPrice[],
     _years: readonly number[],
     _calculationVersion: number,
+    _hydrating?: StockManifest,
   ): Promise<void> {}
   async hasResidentStock(_securityId: string): Promise<boolean> {
     return false;
@@ -416,20 +526,73 @@ export function yearsInRange(range: Required<DateRange>): number[] {
   return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
-const SET_HYDRATING = `
--- set-hydrating
-redis.call('SET', KEYS[1], ARGV[2])
-redis.call('SADD', KEYS[2], KEYS[1])
+const HYDRATING_MANIFEST_TTL_MS = 15 * 60 * 1_000;
+
+const BEGIN_HYDRATION = `
+-- begin-hydration
+local current = redis.call('GET', KEYS[1])
+if ARGV[2] == '0' and current ~= false then return 0 end
+if ARGV[2] == '1' and current ~= ARGV[3] then return 0 end
+local keys = redis.call('SMEMBERS', KEYS[2])
+for _, key in ipairs(keys) do redis.call('DEL', key) end
+redis.call('DEL', KEYS[2])
 redis.call('ZREM', KEYS[3], ARGV[1])
+redis.call('SET', KEYS[1], ARGV[4], 'PX', ARGV[5])
+redis.call('SADD', KEYS[2], KEYS[1])
 return 1
 `;
 
 const BEGIN_REFRESH = `
 -- begin-refresh
+if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
 if redis.call('ZSCORE', KEYS[3], ARGV[1]) == false then return 0 end
-redis.call('SET', KEYS[1], ARGV[2])
+redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
 redis.call('SADD', KEYS[2], KEYS[1])
 redis.call('ZREM', KEYS[3], ARGV[1])
+return 1
+`;
+
+const SET_REGISTERED = `
+-- set-registered
+if ARGV[2] ~= '' and redis.call('GET', KEYS[3]) ~= ARGV[2] then return 0 end
+redis.call('SET', KEYS[1], ARGV[1])
+redis.call('SADD', KEYS[2], KEYS[1])
+if ARGV[2] ~= '' then redis.call('PEXPIRE', KEYS[3], ARGV[3]) end
+return 1
+`;
+
+const TOUCH_READY = `
+-- touch-ready
+local manifest = redis.call('GET', KEYS[1])
+if manifest == false then return 0 end
+local ok, value = pcall(cjson.decode, manifest)
+if not ok or value.status ~= 'READY' then return 0 end
+local sequence = redis.call('INCR', KEYS[3])
+redis.call('ZADD', KEYS[2], sequence, ARGV[1])
+return 1
+`;
+
+const PUBLISH_READY = `
+-- publish-ready
+local current = redis.call('GET', KEYS[1])
+if ARGV[5] ~= '' then
+  if current ~= ARGV[5] then return 0 end
+elseif current ~= false then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[1])
+redis.call('SADD', KEYS[2], KEYS[1])
+local sequence = redis.call('INCR', KEYS[4])
+redis.call('ZADD', KEYS[3], sequence, ARGV[2])
+while redis.call('ZCARD', KEYS[3]) > tonumber(ARGV[3]) do
+  local victim = redis.call('ZRANGE', KEYS[3], 0, 0)[1]
+  if victim == nil then break end
+  local registry = ARGV[4] .. ':security:' .. victim .. ':keys'
+  local keys = redis.call('SMEMBERS', registry)
+  for _, key in ipairs(keys) do redis.call('DEL', key) end
+  redis.call('DEL', registry)
+  redis.call('ZREM', KEYS[3], victim)
+end
 return 1
 `;
 

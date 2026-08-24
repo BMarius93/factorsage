@@ -18,10 +18,12 @@ import {
   StockDataset,
 } from "@intrinsic/database";
 import { endOfLocalDate } from "./dates.js";
-import type {
-  PersistedDatasetState,
-  PersistedStockDataset,
-  StockDataStore,
+import {
+  DAILY_PRICE_FRESHNESS_VARIANT,
+  DAILY_PRICE_VARIANT,
+  type PersistedDatasetState,
+  type PersistedStockDataset,
+  type StockDataStore,
 } from "./ports.js";
 
 function toDatabaseDate(value: string): Date {
@@ -300,6 +302,20 @@ export class PrismaStockDataStore implements StockDataStore {
     date: string,
   ): Promise<string | null> {
     const target = toDatabaseDate(date);
+    if (dataset === "DAILY_PRICE" && variant === DAILY_PRICE_VARIANT) {
+      const freshness = await this.prisma.stockDatasetState.findUnique({
+        where: {
+          securityId_dataset_variant: {
+            securityId,
+            dataset: StockDataset.DAILY_PRICE,
+            variant: DAILY_PRICE_FRESHNESS_VARIANT,
+          },
+        },
+      });
+      return freshness?.latestDate && freshness.latestDate >= target
+        ? (freshness.lastSuccessfulSyncAt?.toISOString() ?? null)
+        : null;
+    }
     const row = await this.prisma.stockDatasetCoverage.findFirst({
       where: {
         securityId,
@@ -333,12 +349,9 @@ export class PrismaStockDataStore implements StockDataStore {
     }));
   }
 
-  async saveDailyPriceSync(input: {
-    securityId: string;
-    prices: readonly DailyPrice[];
-    successfulCoverage: readonly Required<DateRange>[];
-    syncedAt: string;
-  }): Promise<{ earliestChangedDate?: string }> {
+  async saveDailyPriceSync(
+    input: Parameters<StockDataStore["saveDailyPriceSync"]>[0],
+  ): Promise<{ earliestChangedDate?: string }> {
     if (input.successfulCoverage.length === 0) {
       return {};
     }
@@ -364,6 +377,7 @@ export class PrismaStockDataStore implements StockDataStore {
       .map((price) => price.date)
       .sort()[0];
     await this.prisma.$transaction(async (transaction) => {
+      await this.lockStockWrite(transaction, input.securityId);
       for (const price of input.prices) {
         await transaction.dailyPrice.upsert({
           where: {
@@ -396,12 +410,20 @@ export class PrismaStockDataStore implements StockDataStore {
         await this.advanceState(transaction, {
           securityId: input.securityId,
           dataset: "DAILY_PRICE",
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           from: coverage.from,
           to: coverage.to,
           syncedAt: input.syncedAt,
         });
       }
+      if (input.freshThrough && input.freshThrough >= input.tailDate) {
+        await this.advanceFreshnessState(transaction, {
+          securityId: input.securityId,
+          tailDate: input.tailDate,
+          syncedAt: input.syncedAt,
+        });
+      }
+      input.assertOwned?.();
     });
     return earliestChangedDate ? { earliestChangedDate } : {};
   }
@@ -433,6 +455,7 @@ export class PrismaStockDataStore implements StockDataStore {
     input: Parameters<StockDataStore["saveDerivedTechnicals"]>[0],
   ): Promise<void> {
     await this.prisma.$transaction(async (transaction) => {
+      await this.lockStockWrite(transaction, input.securityId);
       for (const technical of input.technicals) {
         await transaction.dailyTechnical.upsert({
           where: {
@@ -505,6 +528,7 @@ export class PrismaStockDataStore implements StockDataStore {
           calculationVersion: input.calculationVersion,
         });
       }
+      input.assertOwned?.();
     });
   }
 
@@ -687,25 +711,65 @@ export class PrismaStockDataStore implements StockDataStore {
     },
   ): Promise<void> {
     const dataset = datasetEnum(input.dataset);
-    await transaction.stockDatasetCoverage.upsert({
+    const lockKey = `${input.securityId}:${dataset}:${input.variant}`;
+    await transaction.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+    `;
+    const existingCoverage = await transaction.stockDatasetCoverage.findMany({
       where: {
-        securityId_dataset_variant_fromDate_toDate: {
-          securityId: input.securityId,
-          dataset,
-          variant: input.variant,
-          fromDate: toDatabaseDate(input.from),
-          toDate: toDatabaseDate(input.to),
-        },
-      },
-      create: {
         securityId: input.securityId,
         dataset,
         variant: input.variant,
+      },
+      orderBy: { fromDate: "asc" },
+    });
+    const intervals = [
+      ...existingCoverage.map((coverage) => ({
+        fromDate: coverage.fromDate,
+        toDate: coverage.toDate,
+        lastSuccessfulSyncAt: coverage.lastSuccessfulSyncAt,
+      })),
+      {
         fromDate: toDatabaseDate(input.from),
         toDate: toDatabaseDate(input.to),
         lastSuccessfulSyncAt: new Date(input.syncedAt),
       },
-      update: { lastSuccessfulSyncAt: new Date(input.syncedAt) },
+    ].sort((left, right) => left.fromDate.valueOf() - right.fromDate.valueOf());
+    const compacted: typeof intervals = [];
+    for (const interval of intervals) {
+      const previous = compacted.at(-1);
+      if (
+        previous &&
+        interval.fromDate.valueOf() <=
+          previous.toDate.valueOf() + 24 * 60 * 60 * 1_000
+      ) {
+        previous.toDate = new Date(
+          Math.max(previous.toDate.valueOf(), interval.toDate.valueOf()),
+        );
+        previous.lastSuccessfulSyncAt = new Date(
+          Math.max(
+            previous.lastSuccessfulSyncAt.valueOf(),
+            interval.lastSuccessfulSyncAt.valueOf(),
+          ),
+        );
+      } else {
+        compacted.push({ ...interval });
+      }
+    }
+    await transaction.stockDatasetCoverage.deleteMany({
+      where: {
+        securityId: input.securityId,
+        dataset,
+        variant: input.variant,
+      },
+    });
+    await transaction.stockDatasetCoverage.createMany({
+      data: compacted.map((coverage) => ({
+        securityId: input.securityId,
+        dataset,
+        variant: input.variant,
+        ...coverage,
+      })),
     });
     const existing = await transaction.stockDatasetState.findUnique({
       where: {
@@ -732,6 +796,14 @@ export class PrismaStockDataStore implements StockDataStore {
           ),
         )
       : toDatabaseDate(input.to);
+    const lastSuccessfulSyncAt = existing?.lastSuccessfulSyncAt
+      ? new Date(
+          Math.max(
+            existing.lastSuccessfulSyncAt.valueOf(),
+            new Date(input.syncedAt).valueOf(),
+          ),
+        )
+      : new Date(input.syncedAt);
     await transaction.stockDatasetState.upsert({
       where: {
         securityId_dataset_variant: {
@@ -746,15 +818,73 @@ export class PrismaStockDataStore implements StockDataStore {
         variant: input.variant,
         earliestDate,
         latestDate,
-        lastSuccessfulSyncAt: new Date(input.syncedAt),
+        lastSuccessfulSyncAt,
         calculationVersion: input.calculationVersion,
       },
       update: {
         earliestDate,
         latestDate,
-        lastSuccessfulSyncAt: new Date(input.syncedAt),
+        lastSuccessfulSyncAt,
         calculationVersion: input.calculationVersion,
       },
     });
+  }
+
+  private async advanceFreshnessState(
+    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    input: { securityId: string; tailDate: string; syncedAt: string },
+  ): Promise<void> {
+    const tailDate = toDatabaseDate(input.tailDate);
+    const existing = await transaction.stockDatasetState.findUnique({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset: StockDataset.DAILY_PRICE,
+          variant: DAILY_PRICE_FRESHNESS_VARIANT,
+        },
+      },
+    });
+    if (existing?.latestDate && existing.latestDate > tailDate) {
+      return;
+    }
+    const lastSuccessfulSyncAt = existing?.lastSuccessfulSyncAt
+      ? new Date(
+          Math.max(
+            existing.lastSuccessfulSyncAt.valueOf(),
+            new Date(input.syncedAt).valueOf(),
+          ),
+        )
+      : new Date(input.syncedAt);
+    await transaction.stockDatasetState.upsert({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset: StockDataset.DAILY_PRICE,
+          variant: DAILY_PRICE_FRESHNESS_VARIANT,
+        },
+      },
+      create: {
+        securityId: input.securityId,
+        dataset: StockDataset.DAILY_PRICE,
+        variant: DAILY_PRICE_FRESHNESS_VARIANT,
+        earliestDate: tailDate,
+        latestDate: tailDate,
+        lastSuccessfulSyncAt,
+      },
+      update: {
+        latestDate: tailDate,
+        lastSuccessfulSyncAt,
+      },
+    });
+  }
+
+  private async lockStockWrite(
+    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    securityId: string,
+  ): Promise<void> {
+    const lockKey = `stock-data-write:${securityId}`;
+    await transaction.$executeRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+    `;
   }
 }

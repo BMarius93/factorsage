@@ -72,6 +72,10 @@ A weekly bar uses:
 - close = last trading-day close of the week
 - volume = sum of daily volume in the week
 
+The implementation distinguishes why canonical history starts mid-week. A first week truncated
+only by the configured historical horizon is omitted because its opening daily rows are missing. A
+known IPO/listing that genuinely starts mid-week remains a valid completed week.
+
 Do not calculate weekly moving averages by averaging daily moving-average values.
 
 For point-in-time/backtest behavior, only completed weekly periods are eligible. A Monday-Thursday backtest date must not see a weekly indicator that depends on the close of the upcoming Friday. The V1 backtest policy is therefore `COMPLETED_PERIODS_ONLY`.

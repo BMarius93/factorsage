@@ -219,6 +219,7 @@ export function getFmpTrafficConfig(env: Environment = process.env) {
     maxRetries: integer(env, ["FMP_MAX_RETRIES"], 3),
     retryBaseDelayMs: integer(env, ["FMP_RETRY_BASE_DELAY_MS"], 500),
     retryMaxDelayMs: integer(env, ["FMP_RETRY_MAX_DELAY_MS"], 30_000),
+    maxRetryWaitMs: integer(env, ["FMP_MAX_RETRY_WAIT_MS"], 30_000),
     maxConcurrentRequests: integer(env, ["FMP_MAX_CONCURRENT_REQUESTS"], 4),
     rateLimitPerWindow: integer(env, ["FMP_RATE_LIMIT_PER_WINDOW"], 20),
     rateWindowMs: integer(env, ["FMP_RATE_WINDOW_MS"], 1_000),
@@ -254,6 +255,7 @@ export function getStockDataConfig(env: Environment = process.env) {
       10,
     ),
     loadLockDurationMs: integer(env, ["STOCK_DATA_LOAD_LOCK_MS"], 30_000),
+    loadLockWaitMs: integer(env, ["STOCK_DATA_LOCK_WAIT_MS"], 120_000),
   } as const;
 }
 

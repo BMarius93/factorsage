@@ -7,7 +7,7 @@ import type {
 import { addDays, compareDates } from "./dates.js";
 import { movingAverage } from "./technicals.js";
 
-export const WEEKLY_AGGREGATION_CALCULATION_VERSION = 1;
+export const WEEKLY_AGGREGATION_CALCULATION_VERSION = 2;
 
 export type WeeklyPrice = {
   securityId: SecurityId;
@@ -32,6 +32,11 @@ export type WeeklyTechnical = {
   calculationVersion: number;
 };
 
+export type WeeklyHistoryContext = {
+  historyStart: LocalDate;
+  historyStartOrigin: "HORIZON" | "LISTING";
+};
+
 export function startOfIsoWeek(value: LocalDate): LocalDate {
   const date = new Date(`${value}T00:00:00.000Z`);
   const day = date.getUTCDay();
@@ -42,14 +47,23 @@ export function aggregateCompletedWeeks(
   prices: readonly DailyPrice[],
   asOf: LocalDate,
   calculationVersion = WEEKLY_AGGREGATION_CALCULATION_VERSION,
+  history?: WeeklyHistoryContext,
 ): WeeklyPrice[] {
   const currentWeekStart = startOfIsoWeek(asOf);
+  const artificialFirstWeek =
+    history?.historyStartOrigin === "HORIZON" &&
+    startOfIsoWeek(history.historyStart) !== history.historyStart
+      ? startOfIsoWeek(history.historyStart)
+      : undefined;
   const groups = new Map<LocalDate, DailyPrice[]>();
   for (const price of [...prices].sort((left, right) =>
     left.date.localeCompare(right.date),
   )) {
     const weekStart = startOfIsoWeek(price.date);
-    if (compareDates(weekStart, currentWeekStart) >= 0) {
+    if (
+      compareDates(weekStart, currentWeekStart) >= 0 ||
+      weekStart === artificialFirstWeek
+    ) {
       continue;
     }
     const group = groups.get(weekStart) ?? [];

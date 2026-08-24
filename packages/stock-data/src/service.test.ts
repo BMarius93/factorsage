@@ -61,7 +61,7 @@ class MemoryCache implements StockDataCache {
   async getSecurity(symbol: string) {
     return this.securities.get(symbol) ?? null;
   }
-  async setSecurity(value: Security) {
+  async setSecurity(value: Security, _hydrating?: StockManifest) {
     this.securities.set(value.symbol, value);
   }
   async getManifest(securityId: string) {
@@ -70,14 +70,39 @@ class MemoryCache implements StockDataCache {
   async setManifest(manifest: StockManifest) {
     this.manifests.set(manifest.securityId, manifest);
   }
-  async beginRefresh(manifest: StockManifest) {
-    if (this.manifests.get(manifest.securityId)?.status !== "READY") {
+  async beginHydration(
+    observed: StockManifest | null,
+    hydrating: StockManifest,
+  ) {
+    const current = this.manifests.get(hydrating.securityId) ?? null;
+    if (JSON.stringify(current) !== JSON.stringify(observed)) {
       return false;
     }
-    this.manifests.set(manifest.securityId, {
-      ...manifest,
-      status: "HYDRATING",
-    });
+    this.manifests.set(hydrating.securityId, hydrating);
+    this.prices.delete(hydrating.securityId);
+    this.technicals.delete(hydrating.securityId);
+    this.weekly.delete(hydrating.securityId);
+    return true;
+  }
+  async beginRefresh(observed: StockManifest, hydrating: StockManifest) {
+    if (
+      JSON.stringify(this.manifests.get(observed.securityId)) !==
+        JSON.stringify(observed) ||
+      observed.status !== "READY"
+    ) {
+      return false;
+    }
+    this.manifests.set(observed.securityId, hydrating);
+    return true;
+  }
+  async completeHydration(hydrating: StockManifest, ready: StockManifest) {
+    if (
+      JSON.stringify(this.manifests.get(hydrating.securityId)) !==
+      JSON.stringify(hydrating)
+    ) {
+      return false;
+    }
+    this.manifests.set(ready.securityId, ready);
     return true;
   }
   async invalidateManifest(manifest: StockManifest | null) {
@@ -96,6 +121,7 @@ class MemoryCache implements StockDataCache {
     securityId: string,
     rows: readonly DailyPrice[],
     years: readonly number[],
+    _hydrating?: StockManifest,
   ) {
     this.priceYearWrites.push([...years]);
     this.prices.set(
@@ -122,6 +148,7 @@ class MemoryCache implements StockDataCache {
     rows: readonly DailyTechnical[],
     years: readonly number[],
     _version: number,
+    _hydrating?: StockManifest,
   ) {
     this.technicals.set(
       securityId,
@@ -138,6 +165,7 @@ class MemoryCache implements StockDataCache {
     rows: readonly WeeklyPrice[],
     years: readonly number[],
     _version: number,
+    _hydrating?: StockManifest,
   ) {
     this.weekly.set(
       securityId,
@@ -232,6 +260,14 @@ class FakeStore implements StockDataStore {
     variant: string,
     date: string,
   ) {
+    if (dataset === "DAILY_PRICE" && variant === "split-adjusted-eod-full") {
+      const freshness = this.states.get(
+        "DAILY_PRICE:split-adjusted-eod-full:recent-tail",
+      );
+      return freshness?.latestDate && freshness.latestDate >= date
+        ? (freshness.lastSyncedAt ?? null)
+        : null;
+    }
     const key = `${dataset}:${variant}`;
     const explicit = this.coverageSyncs.get(key);
     if (explicit) {
@@ -258,7 +294,11 @@ class FakeStore implements StockDataStore {
     prices: readonly DailyPrice[];
     successfulCoverage: readonly Required<DateRange>[];
     syncedAt: string;
+    tailDate: string;
+    freshThrough?: string;
+    assertOwned?: () => void;
   }) {
+    input.assertOwned?.();
     this.priceSaves += 1;
     const existing = new Map(this.prices.map((row) => [row.date, row]));
     const earliestChangedDate = input.prices
@@ -300,6 +340,16 @@ class FakeStore implements StockDataStore {
         .at(-1),
       lastSyncedAt: input.syncedAt,
     });
+    if (input.freshThrough && input.freshThrough >= input.tailDate) {
+      this.states.set("DAILY_PRICE:split-adjusted-eod-full:recent-tail", {
+        securityId: security.id,
+        dataset: "DAILY_PRICE",
+        variant: "split-adjusted-eod-full:recent-tail",
+        earliestDate: input.tailDate,
+        latestDate: input.tailDate,
+        lastSyncedAt: input.syncedAt,
+      });
+    }
     return earliestChangedDate ? { earliestChangedDate } : {};
   }
   async getDailyTechnicals(_id: string, range: DateRange, version: number) {
@@ -316,7 +366,9 @@ class FakeStore implements StockDataStore {
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
     calculationVersion: number;
+    assertOwned?: () => void;
   }) {
+    input.assertOwned?.();
     this.derivedWrites.push({
       technicalDates: input.technicals.map((row) => row.date),
       weeklyDates: input.weeklyPrices.map((row) => row.weekStartDate),
@@ -417,6 +469,21 @@ function createService(
   });
 }
 
+function setTailFreshness(
+  store: FakeStore,
+  syncedAt = NOW,
+  tailDate = CANONICAL_RANGE.to,
+) {
+  store.states.set("DAILY_PRICE:split-adjusted-eod-full:recent-tail", {
+    securityId: security.id,
+    dataset: "DAILY_PRICE",
+    variant: "split-adjusted-eod-full:recent-tail",
+    earliestDate: tailDate,
+    latestDate: tailDate,
+    lastSyncedAt: syncedAt,
+  });
+}
+
 describe("canonical full-stock hydration", () => {
   it("deduplicates identical concurrent requests into one stock hydration", async () => {
     const store = new FakeStore();
@@ -453,6 +520,7 @@ describe("canonical full-stock hydration", () => {
         syncedAt: NOW,
       },
     ]);
+    setTailFreshness(store);
     provider.rowsByRange.set("1996-08-24:2014-12-31", [
       price("2010-01-04", 30),
     ]);
@@ -500,6 +568,7 @@ describe("canonical full-stock hydration", () => {
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
     });
+    setTailFreshness(store);
     const loader = createService(
       store,
       provider,
@@ -538,17 +607,18 @@ describe("canonical full-stock hydration", () => {
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
     });
+    setTailFreshness(store);
     store.states.set("DAILY_TECHNICAL:1D:v1", {
       securityId: security.id,
       dataset: "DAILY_TECHNICAL",
       variant: "1D:v1",
       calculationVersion: 1,
     });
-    store.states.set("WEEKLY_PRICE:1W:v1", {
+    store.states.set("WEEKLY_PRICE:1W:v2", {
       securityId: security.id,
       dataset: "WEEKLY_PRICE",
-      variant: "1W:v1",
-      calculationVersion: 1,
+      variant: "1W:v2",
+      calculationVersion: 2,
     });
     store.coverage.set("DAILY_TECHNICAL:1D:v1", [
       { from: CANONICAL_RANGE.from, to: "2025-12-31" },
@@ -583,6 +653,7 @@ describe("canonical full-stock hydration", () => {
         syncedAt: NOW,
       },
     ]);
+    setTailFreshness(store);
     const loader = createService(
       store,
       provider,
@@ -632,6 +703,7 @@ describe("canonical full-stock hydration", () => {
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: staleTailSync,
     });
+    setTailFreshness(store, staleTailSync);
     const loader = createService(
       store,
       provider,
@@ -666,6 +738,7 @@ describe("canonical full-stock hydration", () => {
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
     });
+    setTailFreshness(store, "2026-08-23T01:00:00.000Z");
     await cache.setSecurity(security);
     await cache.writeDailyPriceYears(
       security.id,
@@ -684,7 +757,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       dailyTechnicalVersion: 1,
-      weeklyVersion: 1,
+      weeklyVersion: 2,
     });
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
       price("2026-08-20", 200),
@@ -725,7 +798,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       dailyTechnicalVersion: 1,
-      weeklyVersion: 1,
+      weeklyVersion: 2,
     });
     provider.failure = new Error("provider failed");
     const loader = createService(
@@ -772,7 +845,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       dailyTechnicalVersion: 1,
-      weeklyVersion: 1,
+      weeklyVersion: 2,
     });
     const loader = createService(
       store,
@@ -840,7 +913,7 @@ describe("canonical full-stock hydration", () => {
       lastPriceRefreshAt: NOW,
       priceDatasetVersion: 1,
       dailyTechnicalVersion: 1,
-      weeklyVersion: 1,
+      weeklyVersion: 2,
     };
     provider.beforeReturn = async () => cache.setManifest(successor);
     let ownershipChecks = 0;

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_BLEND_IDS,
@@ -20,7 +21,11 @@ import {
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
 import { addDays, assertDateRange, missingCoverageRanges } from "./dates.js";
 import { calculateBlend } from "./intrinsic-values.js";
-import type { PersistedDatasetState, StockDataStore } from "./ports.js";
+import {
+  DAILY_PRICE_VARIANT,
+  type PersistedDatasetState,
+  type StockDataStore,
+} from "./ports.js";
 import {
   calculateDailyTechnicals,
   DAILY_TECHNICAL_CALCULATION_VERSION,
@@ -31,7 +36,6 @@ import {
   WEEKLY_AGGREGATION_CALCULATION_VERSION,
 } from "./weekly.js";
 
-const DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
 const DAILY_TECHNICAL_VARIANT = `1D:v${DAILY_TECHNICAL_CALCULATION_VERSION}`;
 const WEEKLY_PRICE_VARIANT = `1W:v${WEEKLY_AGGREGATION_CALCULATION_VERSION}`;
 
@@ -159,7 +163,8 @@ export class CanonicalStockDataService implements StockDataService {
         return;
       }
       lease.assertOwned();
-      if (!(await this.cache.beginRefresh(lockedManifest))) {
+      const hydrating = this.hydratingManifest(security, lockedManifest);
+      if (!(await this.cache.beginRefresh(lockedManifest, hydrating))) {
         await this.hydrateWithinLease(security, lease);
         return;
       }
@@ -188,11 +193,19 @@ export class CanonicalStockDataService implements StockDataService {
         prices: loaded,
         successfulCoverage: [refreshRange],
         syncedAt: this.nowInstant(),
+        tailDate: target.to,
+        freshThrough: target.to,
+        assertOwned: lease.assertOwned,
       });
       lease.assertOwned();
 
       const allPrices = await this.store.getDailyPrices(security.id, target);
-      const weeklyPrices = aggregateCompletedWeeks(allPrices, target.to);
+      const weeklyPrices = aggregateCompletedWeeks(
+        allPrices,
+        target.to,
+        WEEKLY_AGGREGATION_CALCULATION_VERSION,
+        this.weeklyHistoryContext(security, target),
+      );
       const weeklyRefreshStart = startOfIsoWeek(addDays(refreshRange.from, -7));
       let recalculationStart: string | undefined;
       if (change.earliestChangedDate) {
@@ -222,6 +235,7 @@ export class CanonicalStockDataService implements StockDataService {
           },
           syncedAt: this.nowInstant(),
           calculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+          assertOwned: lease.assertOwned,
         });
       }
       lease.assertOwned();
@@ -236,6 +250,7 @@ export class CanonicalStockDataService implements StockDataService {
           security.id,
           await this.store.getDailyPrices(security.id, affectedRange),
           affectedYears,
+          hydrating,
         );
         await this.cache.writeDailyTechnicalYears(
           security.id,
@@ -246,6 +261,7 @@ export class CanonicalStockDataService implements StockDataService {
           ),
           affectedYears,
           DAILY_TECHNICAL_CALCULATION_VERSION,
+          hydrating,
         );
       }
       const affectedWeeklyYears = yearsInRange(
@@ -256,17 +272,23 @@ export class CanonicalStockDataService implements StockDataService {
         weeklyPrices,
         affectedWeeklyYears,
         WEEKLY_AGGREGATION_CALCULATION_VERSION,
+        hydrating,
       );
       lease.assertOwned();
-      await this.cache.setManifest(
-        this.readyManifest(
-          security,
-          target,
-          allPrices,
-          lockedManifest.hydratedAt ?? this.nowInstant(),
-          this.nowInstant(),
-        ),
-      );
+      if (
+        !(await this.cache.completeHydration(
+          hydrating,
+          this.readyManifest(
+            security,
+            target,
+            allPrices,
+            lockedManifest.hydratedAt ?? this.nowInstant(),
+            this.nowInstant(),
+          ),
+        ))
+      ) {
+        throw new Error("Stock cache hydration generation changed");
+      }
     });
   }
 
@@ -349,17 +371,15 @@ export class CanonicalStockDataService implements StockDataService {
       return;
     }
     const target = this.canonicalTarget(security);
+    const hydrating = this.hydratingManifest(security, afterLock, target);
     lease.assertOwned();
-    await this.cache.setManifest({
-      securityId: security.id,
-      status: "HYDRATING",
-      historyYears: this.historyYears,
-      coverageStart: target.from,
-      coverageEnd: target.to,
-      priceDatasetVersion: PRICE_DATASET_VERSION,
-      dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-      weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
-    });
+    if (!(await this.cache.beginHydration(afterLock, hydrating))) {
+      const current = await this.cache.getManifest(security.id);
+      if (this.isReady(current)) {
+        return;
+      }
+      throw new Error("Stock cache hydration generation changed");
+    }
 
     const previousPriceState = await this.store.getDatasetState(
       security.id,
@@ -394,6 +414,13 @@ export class CanonicalStockDataService implements StockDataService {
             prices: loaded,
             successfulCoverage: missing,
             syncedAt: this.nowInstant(),
+            tailDate: target.to,
+            ...(missing.some(
+              (range) => range.from <= target.to && range.to >= target.to,
+            )
+              ? { freshThrough: target.to }
+              : {}),
+            assertOwned: lease.assertOwned,
           });
     lease.assertOwned();
 
@@ -437,7 +464,12 @@ export class CanonicalStockDataService implements StockDataService {
       const technicals = calculateDailyTechnicals(prices).filter(
         (row) => row.date >= recalculationStart,
       );
-      const weeklyPrices = aggregateCompletedWeeks(prices, target.to).filter(
+      const weeklyPrices = aggregateCompletedWeeks(
+        prices,
+        target.to,
+        WEEKLY_AGGREGATION_CALCULATION_VERSION,
+        this.weeklyHistoryContext(security, target),
+      ).filter(
         (row) => row.weekStartDate >= startOfIsoWeek(recalculationStart),
       );
       lease.assertOwned();
@@ -448,6 +480,7 @@ export class CanonicalStockDataService implements StockDataService {
         successfulCoverage: { from: recalculationStart, to: target.to },
         syncedAt: this.nowInstant(),
         calculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+        assertOwned: lease.assertOwned,
       });
     }
 
@@ -471,30 +504,42 @@ export class CanonicalStockDataService implements StockDataService {
     ]);
     lease.assertOwned();
     const years = yearsInRange(target);
-    await this.cache.setSecurity(security);
-    await this.cache.writeDailyPriceYears(security.id, prices, years);
+    await this.cache.setSecurity(security, hydrating);
+    await this.cache.writeDailyPriceYears(
+      security.id,
+      prices,
+      years,
+      hydrating,
+    );
     await this.cache.writeDailyTechnicalYears(
       security.id,
       technicals,
       years,
       DAILY_TECHNICAL_CALCULATION_VERSION,
+      hydrating,
     );
     await this.cache.writeWeeklyPriceYears(
       security.id,
       weeklyPrices,
       years,
       WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      hydrating,
     );
     lease.assertOwned();
-    await this.cache.setManifest(
-      this.readyManifest(
-        security,
-        target,
-        prices,
-        this.nowInstant(),
-        tailRefreshAt ?? undefined,
-      ),
-    );
+    if (
+      !(await this.cache.completeHydration(
+        hydrating,
+        this.readyManifest(
+          security,
+          target,
+          prices,
+          this.nowInstant(),
+          tailRefreshAt ?? undefined,
+        ),
+      ))
+    ) {
+      throw new Error("Stock cache hydration generation changed");
+    }
   }
 
   private async readDailyPriceProjection(
@@ -627,6 +672,26 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  private hydratingManifest(
+    security: Security,
+    previous: StockManifest | null,
+    target = this.canonicalTarget(security),
+  ): StockManifest {
+    return {
+      ...(previous ?? {}),
+      securityId: security.id,
+      status: "HYDRATING",
+      historyYears: this.historyYears,
+      coverageStart: target.from,
+      coverageEnd: target.to,
+      hydrationId: randomUUID(),
+      hydratingAt: this.nowInstant(),
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+      weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
+    };
+  }
+
   private isReady(manifest: StockManifest | null): manifest is StockManifest {
     return (
       manifest?.status === "READY" &&
@@ -675,6 +740,19 @@ export class CanonicalStockDataService implements StockDataService {
         ? maxDate(horizonStart, security.ipoDate)
         : horizonStart,
       to: today,
+    };
+  }
+
+  private weeklyHistoryContext(
+    security: Security,
+    target: Required<DateRange>,
+  ) {
+    return {
+      historyStart: target.from,
+      historyStartOrigin:
+        security.ipoDate && security.ipoDate >= target.from
+          ? ("LISTING" as const)
+          : ("HORIZON" as const),
     };
   }
 
