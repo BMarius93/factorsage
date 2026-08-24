@@ -454,6 +454,21 @@ export class PrismaStockDataStore implements StockDataStore {
   async saveDerivedTechnicals(
     input: Parameters<StockDataStore["saveDerivedTechnicals"]>[0],
   ): Promise<void> {
+    if (
+      input.technicals.some(
+        (row) =>
+          row.calculationVersion !== input.dailyTechnicalCalculationVersion,
+      )
+    ) {
+      throw new Error("Daily technical calculation version mismatch");
+    }
+    if (
+      input.weeklyPrices.some(
+        (row) => row.calculationVersion !== input.weeklyCalculationVersion,
+      )
+    ) {
+      throw new Error("Weekly aggregation calculation version mismatch");
+    }
     await this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
       for (const technical of input.technicals) {
@@ -462,7 +477,7 @@ export class PrismaStockDataStore implements StockDataStore {
             securityId_date_calculationVersion: {
               securityId: input.securityId,
               date: toDatabaseDate(technical.date),
-              calculationVersion: input.calculationVersion,
+              calculationVersion: input.dailyTechnicalCalculationVersion,
             },
           },
           create: { ...technical, date: toDatabaseDate(technical.date) },
@@ -507,27 +522,23 @@ export class PrismaStockDataStore implements StockDataStore {
       await this.advanceState(transaction, {
         securityId: input.securityId,
         dataset: "DAILY_TECHNICAL",
-        variant: `1D:v${input.calculationVersion}`,
+        variant: `1D:v${input.dailyTechnicalCalculationVersion}`,
         from: input.successfulCoverage.from,
         to: input.successfulCoverage.to,
         syncedAt: input.syncedAt,
-        calculationVersion: input.calculationVersion,
+        calculationVersion: input.dailyTechnicalCalculationVersion,
       });
-      if (input.weeklyPrices.length > 0) {
-        await this.advanceState(transaction, {
-          securityId: input.securityId,
-          dataset: "WEEKLY_PRICE",
-          variant: `1W:v${input.calculationVersion}`,
-          from:
-            input.weeklyPrices[0]?.weekStartDate ??
-            input.successfulCoverage.from,
-          to:
-            input.weeklyPrices.at(-1)?.weekEndDate ??
-            input.successfulCoverage.to,
-          syncedAt: input.syncedAt,
-          calculationVersion: input.calculationVersion,
-        });
-      }
+      await this.advanceState(transaction, {
+        securityId: input.securityId,
+        dataset: "WEEKLY_PRICE",
+        variant: `1W:v${input.weeklyCalculationVersion}`,
+        from:
+          input.weeklyPrices[0]?.weekStartDate ?? input.successfulCoverage.from,
+        to:
+          input.weeklyPrices.at(-1)?.weekEndDate ?? input.successfulCoverage.to,
+        syncedAt: input.syncedAt,
+        calculationVersion: input.weeklyCalculationVersion,
+      });
       input.assertOwned?.();
     });
   }

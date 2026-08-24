@@ -102,9 +102,13 @@ export class RedisStockDataCache implements StockDataCache {
     private readonly redis: RedisCacheClient,
     private readonly maxResidentStocks: number,
     private readonly namespace = "stock-data:v2",
+    private readonly hydrationTtlMs = DEFAULT_HYDRATION_TTL_MS,
   ) {
     if (!Number.isInteger(maxResidentStocks) || maxResidentStocks <= 0) {
       throw new Error("maxResidentStocks must be a positive integer");
+    }
+    if (!Number.isInteger(hydrationTtlMs) || hydrationTtlMs <= 0) {
+      throw new Error("hydrationTtlMs must be a positive integer");
     }
   }
 
@@ -156,7 +160,7 @@ export class RedisStockDataCache implements StockDataCache {
       observed ? "1" : "0",
       observed ? JSON.stringify(observed) : "",
       JSON.stringify(hydrating),
-      String(HYDRATING_MANIFEST_TTL_MS),
+      String(this.hydrationTtlMs),
     );
     return result === 1;
   }
@@ -174,7 +178,7 @@ export class RedisStockDataCache implements StockDataCache {
       observed.securityId,
       JSON.stringify(observed),
       JSON.stringify(hydrating),
-      String(HYDRATING_MANIFEST_TTL_MS),
+      String(this.hydrationTtlMs),
     );
     return result === 1;
   }
@@ -379,7 +383,7 @@ export class RedisStockDataCache implements StockDataCache {
       this.manifestKey(securityId),
       value,
       hydrating ? JSON.stringify(hydrating) : "",
-      String(HYDRATING_MANIFEST_TTL_MS),
+      String(this.hydrationTtlMs),
     );
     if (result !== 1) {
       throw new Error("Stock cache hydration generation changed");
@@ -526,7 +530,7 @@ export function yearsInRange(range: Required<DateRange>): number[] {
   return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
-const HYDRATING_MANIFEST_TTL_MS = 15 * 60 * 1_000;
+const DEFAULT_HYDRATION_TTL_MS = 15 * 60 * 1_000;
 
 const BEGIN_HYDRATION = `
 -- begin-hydration
@@ -539,6 +543,7 @@ redis.call('DEL', KEYS[2])
 redis.call('ZREM', KEYS[3], ARGV[1])
 redis.call('SET', KEYS[1], ARGV[4], 'PX', ARGV[5])
 redis.call('SADD', KEYS[2], KEYS[1])
+redis.call('PEXPIRE', KEYS[2], ARGV[5])
 return 1
 `;
 
@@ -548,16 +553,38 @@ if redis.call('GET', KEYS[1]) ~= ARGV[2] then return 0 end
 if redis.call('ZSCORE', KEYS[3], ARGV[1]) == false then return 0 end
 redis.call('SET', KEYS[1], ARGV[3], 'PX', ARGV[4])
 redis.call('SADD', KEYS[2], KEYS[1])
+local keys = redis.call('SMEMBERS', KEYS[2])
+for _, key in ipairs(keys) do redis.call('PEXPIRE', key, ARGV[4]) end
+redis.call('PEXPIRE', KEYS[2], ARGV[4])
 redis.call('ZREM', KEYS[3], ARGV[1])
 return 1
 `;
 
 const SET_REGISTERED = `
 -- set-registered
-if ARGV[2] ~= '' and redis.call('GET', KEYS[3]) ~= ARGV[2] then return 0 end
-redis.call('SET', KEYS[1], ARGV[1])
+local temporaryTtl = 0
+local manifest = redis.call('GET', KEYS[3])
+if ARGV[2] ~= '' then
+  if manifest ~= ARGV[2] then return 0 end
+  temporaryTtl = tonumber(ARGV[3])
+elseif manifest ~= false then
+  local ok, value = pcall(cjson.decode, manifest)
+  if ok and value.status == 'HYDRATING' then
+    temporaryTtl = redis.call('PTTL', KEYS[3])
+    if temporaryTtl <= 0 then return 0 end
+  end
+end
+if temporaryTtl > 0 then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', temporaryTtl)
+else
+  redis.call('SET', KEYS[1], ARGV[1])
+end
 redis.call('SADD', KEYS[2], KEYS[1])
-if ARGV[2] ~= '' then redis.call('PEXPIRE', KEYS[3], ARGV[3]) end
+if temporaryTtl > 0 then
+  local keys = redis.call('SMEMBERS', KEYS[2])
+  for _, key in ipairs(keys) do redis.call('PEXPIRE', key, temporaryTtl) end
+  redis.call('PEXPIRE', KEYS[2], temporaryTtl)
+end
 return 1
 `;
 
@@ -580,6 +607,9 @@ if ARGV[5] ~= '' then
 elseif current ~= false then
   return 0
 end
+local registered = redis.call('SMEMBERS', KEYS[2])
+for _, key in ipairs(registered) do redis.call('PERSIST', key) end
+redis.call('PERSIST', KEYS[2])
 redis.call('SET', KEYS[1], ARGV[1])
 redis.call('SADD', KEYS[2], KEYS[1])
 local sequence = redis.call('INCR', KEYS[4])

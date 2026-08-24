@@ -13,7 +13,7 @@ import {
   FmpTransientError,
   type FmpStockProviderPort,
 } from "@intrinsic/fmp";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
@@ -220,6 +220,144 @@ describeRedis("real Redis stock-data infrastructure", () => {
     }
   });
 
+  it("expires an abandoned HYDRATING generation without another stock access", async () => {
+    const ttlNamespace = `${namespace}:abandoned-hydration`;
+    const ttlSecurityId = `${securityId}-abandoned`;
+    const symbol = "ABANDONED";
+    const hydrationTtlMs = 300;
+    const cache = new RedisStockDataCache(
+      new IoredisCacheClient(redisA),
+      2,
+      ttlNamespace,
+      hydrationTtlMs,
+    );
+    const hydrating = hydratingManifest(ttlSecurityId, "abandoned");
+    const keys = hydrationKeys(ttlNamespace, ttlSecurityId, symbol);
+
+    await expect(cache.beginHydration(null, hydrating)).resolves.toBe(true);
+    await cache.setSecurity(cacheSecurity(ttlSecurityId, symbol));
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 180);
+    });
+    await writeRepresentativeHydration(cache, ttlSecurityId, hydrating);
+    expect(await redisA.pttl(keys.registry)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 150);
+    });
+
+    expect(await redisA.get(keys.manifest)).not.toBeNull();
+    expect(await redisA.get(keys.security)).not.toBeNull();
+    expect(await redisA.get(keys.price)).not.toBeNull();
+    expect(await redisA.get(keys.technical)).not.toBeNull();
+    expect(await redisA.get(keys.weekly)).not.toBeNull();
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 200);
+    });
+
+    expect(await redisA.get(keys.manifest)).toBeNull();
+    expect(await redisA.exists(keys.registry)).toBe(0);
+    expect(await redisA.get(keys.security)).toBeNull();
+    expect(await redisA.get(keys.price)).toBeNull();
+    expect(await redisA.get(keys.technical)).toBeNull();
+    expect(await redisA.get(keys.weekly)).toBeNull();
+    await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
+  });
+
+  it("persists a successful READY generation beyond the hydration TTL", async () => {
+    const ttlNamespace = `${namespace}:ready-hydration`;
+    const ttlSecurityId = `${securityId}-ready`;
+    const symbol = "READYTTL";
+    const hydrationTtlMs = 300;
+    const cache = new RedisStockDataCache(
+      new IoredisCacheClient(redisA),
+      2,
+      ttlNamespace,
+      hydrationTtlMs,
+    );
+    const hydrating = hydratingManifest(ttlSecurityId, "successful");
+    const keys = hydrationKeys(ttlNamespace, ttlSecurityId, symbol);
+    try {
+      await expect(cache.beginHydration(null, hydrating)).resolves.toBe(true);
+      await cache.setSecurity(cacheSecurity(ttlSecurityId, symbol), hydrating);
+      await writeRepresentativeHydration(cache, ttlSecurityId, hydrating);
+      await expect(
+        cache.completeHydration(hydrating, readyManifest(ttlSecurityId)),
+      ).resolves.toBe(true);
+      expect(await redisA.pttl(keys.manifest)).toBe(-1);
+      expect(await redisA.pttl(keys.registry)).toBe(-1);
+      expect(await redisA.pttl(keys.security)).toBe(-1);
+      expect(await redisA.pttl(keys.price)).toBe(-1);
+      expect(await redisA.pttl(keys.technical)).toBe(-1);
+      expect(await redisA.pttl(keys.weekly)).toBe(-1);
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, hydrationTtlMs + 100);
+      });
+
+      expect(await redisA.get(keys.manifest)).not.toBeNull();
+      expect(await redisA.exists(keys.registry)).toBe(1);
+      expect(await redisA.get(keys.security)).not.toBeNull();
+      expect(await redisA.get(keys.price)).not.toBeNull();
+      expect(await redisA.get(keys.technical)).not.toBeNull();
+      expect(await redisA.get(keys.weekly)).not.toBeNull();
+      await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(true);
+    } finally {
+      await cache.evict(ttlSecurityId);
+      await redisA.del(`${ttlNamespace}:access-sequence`);
+    }
+  });
+
+  it("does not persist successor keys from a stale hydration generation", async () => {
+    const ttlNamespace = `${namespace}:stale-hydration`;
+    const ttlSecurityId = `${securityId}-stale`;
+    const symbol = "STALETTL";
+    const hydrationTtlMs = 500;
+    const cache = new RedisStockDataCache(
+      new IoredisCacheClient(redisA),
+      2,
+      ttlNamespace,
+      hydrationTtlMs,
+    );
+    const first = hydratingManifest(ttlSecurityId, "first");
+    const successor = hydratingManifest(ttlSecurityId, "successor");
+    const keys = hydrationKeys(ttlNamespace, ttlSecurityId, symbol);
+    try {
+      await expect(cache.beginHydration(null, first)).resolves.toBe(true);
+      await writeRepresentativeHydration(cache, ttlSecurityId, first);
+      await expect(cache.beginHydration(first, successor)).resolves.toBe(true);
+      await cache.setSecurity(cacheSecurity(ttlSecurityId, symbol), successor);
+      await writeRepresentativeHydration(cache, ttlSecurityId, successor);
+
+      await expect(
+        cache.completeHydration(first, readyManifest(ttlSecurityId)),
+      ).resolves.toBe(false);
+
+      await expect(cache.getManifest(ttlSecurityId)).resolves.toEqual(
+        successor,
+      );
+      expect(await redisA.pttl(keys.registry)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+      await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
+    } finally {
+      const registered = await redisA.smembers(keys.registry);
+      if (registered.length > 0) await redisA.del(...registered);
+      await redisA.del(
+        keys.registry,
+        `${ttlNamespace}:resident-stocks`,
+        `${ttlNamespace}:access-sequence`,
+      );
+    }
+  });
+
   it("coordinates separate instances so the second caller rechecks READY", async () => {
     const options = { lockDurationMs: 2_000, lockWaitMs: 5_000 };
     const coordinatorA = new RedlockLoadCoordinator(redisA, options);
@@ -335,6 +473,10 @@ describeRedis("real Redis stock-data infrastructure", () => {
       return 1;
     });
     await started;
+    const remainingRateWindow = await redisA.pttl(
+      `${namespace}:gate:rate-window`,
+    );
+    expect(remainingRateWindow).toBeGreaterThan(0);
     const secondStartedAt = Date.now();
     const second = gateB.run(async () => {
       active += 1;
@@ -345,7 +487,9 @@ describeRedis("real Redis stock-data infrastructure", () => {
     releaseFirst();
     await expect(Promise.all([first, second])).resolves.toEqual([1, 2]);
     expect(maximumActive).toBe(1);
-    expect(Date.now() - secondStartedAt).toBeGreaterThanOrEqual(40);
+    expect(Date.now() - secondStartedAt).toBeGreaterThanOrEqual(
+      Math.max(1, remainingRateWindow - 20),
+    );
 
     await gateA.publishCooldown(120);
     const cooldownStartedAt = Date.now();
@@ -356,6 +500,66 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.zcard(`${namespace}:gate:concurrent`)).toBe(0);
     await cooldownRequest;
     expect(Date.now() - cooldownStartedAt).toBeGreaterThanOrEqual(100);
+  });
+
+  it("admits backlog starts against the rate window in which they actually begin", async () => {
+    const backlogNamespace = `${namespace}:backlog-gate`;
+    const rateWindowMs = 200;
+    const options = {
+      maxConcurrentRequests: 1,
+      rateLimitPerWindow: 2,
+      rateWindowMs,
+      maxQueueDepth: 10,
+      maxQueueWaitMs: 2_000,
+      requestLeaseMs: 1_000,
+      namespace: backlogNamespace,
+      random: () => 0,
+      sleep: (delayMs: number) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, Math.min(delayMs, 5));
+        }),
+    };
+    const gateA = new RedisFmpRequestGate(redisA, options);
+    const gateB = new RedisFmpRequestGate(redisB, options);
+    let releaseFirst = (): void => {};
+    const blocker = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let markFirstStarted = (): void => {};
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const queuedStarts: number[] = [];
+    try {
+      const first = gateA.run(async () => {
+        markFirstStarted();
+        await blocker;
+      });
+      await firstStarted;
+      const queued = [gateB, gateA, gateB].map((gate) =>
+        gate.run(async () => {
+          queuedStarts.push(Date.now());
+        }),
+      );
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, rateWindowMs + 50);
+      });
+      releaseFirst();
+      await Promise.all([first, ...queued]);
+
+      expect(queuedStarts).toHaveLength(3);
+      expect(queuedStarts[2]! - queuedStarts[0]!).toBeGreaterThanOrEqual(
+        rateWindowMs - 25,
+      );
+    } finally {
+      releaseFirst();
+      await redisA.del(
+        `${backlogNamespace}:concurrent`,
+        `${backlogNamespace}:rate-window`,
+        `${backlogNamespace}:cooldown-until`,
+      );
+    }
   });
 
   it("shares the full monotonic provider cooldown across clients", async () => {
@@ -421,6 +625,67 @@ describeRedis("real Redis stock-data infrastructure", () => {
 });
 
 describeInfrastructure("cross-process canonical hydration", () => {
+  it("records current daily and weekly state when derived output is empty", async () => {
+    const suffix = randomUUID();
+    const symbol = `E${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prisma = new PrismaClient();
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Empty Derived State Integration Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+      const store = new PrismaStockDataStore(prisma);
+
+      await store.saveDerivedTechnicals({
+        securityId: security.id,
+        technicals: [],
+        weeklyPrices: [],
+        successfulCoverage: { from: "2026-08-24", to: "2026-08-24" },
+        syncedAt: "2026-08-24T12:00:00.000Z",
+        dailyTechnicalCalculationVersion: 1,
+        weeklyCalculationVersion: 2,
+      });
+
+      await expect(
+        prisma.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.DAILY_TECHNICAL,
+              variant: "1D:v1",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 1 });
+      await expect(
+        prisma.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.WEEKLY_PRICE,
+              variant: "1W:v2",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 2 });
+    } finally {
+      if (securityId) {
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await prisma.$disconnect();
+    }
+  });
+
   it("compacts durable coverage transactionally without advancing historical-only freshness", async () => {
     const suffix = randomUUID();
     const symbol = `C${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
@@ -662,10 +927,19 @@ describeInfrastructure("cross-process canonical hydration", () => {
       provider.rows.set("1996-08-24:2014-12-31", [
         integrationPrice(security.id, "2010-01-04", 30),
       ]);
+      const storeA = new PrismaStockDataStore(prismaA);
+      const storeB = new PrismaStockDataStore(prismaB);
+      const derivedWritesA = vi.spyOn(storeA, "saveDerivedTechnicals");
+      const derivedWritesB = vi.spyOn(storeB, "saveDerivedTechnicals");
+      const cacheA = new RedisStockDataCache(
+        new IoredisCacheClient(redisA),
+        10,
+        namespace,
+      );
       const serviceA = new CanonicalStockDataService(
-        new PrismaStockDataStore(prismaA),
+        storeA,
         provider,
-        new RedisStockDataCache(new IoredisCacheClient(redisA), 10, namespace),
+        cacheA,
         new RedlockLoadCoordinator(redisA, {
           lockDurationMs: 2_000,
           lockWaitMs: 6_000,
@@ -673,7 +947,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
       const serviceB = new CanonicalStockDataService(
-        new PrismaStockDataStore(prismaB),
+        storeB,
         provider,
         new RedisStockDataCache(new IoredisCacheClient(redisB), 10, namespace),
         new RedlockLoadCoordinator(redisB, {
@@ -702,6 +976,63 @@ describeInfrastructure("cross-process canonical hydration", () => {
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
       expect(newer.map((row) => row.date)).toEqual(["2022-01-03"]);
+      await expect(
+        prismaA.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.DAILY_TECHNICAL,
+              variant: "1D:v1",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 1 });
+      await expect(
+        prismaA.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.WEEKLY_PRICE,
+              variant: "1W:v2",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 2 });
+      expect(
+        new Set(
+          (
+            await prismaA.dailyTechnical.findMany({
+              where: { securityId: security.id },
+              select: { calculationVersion: true },
+            })
+          ).map((row) => row.calculationVersion),
+        ),
+      ).toEqual(new Set([1]));
+      expect(
+        new Set(
+          (
+            await prismaA.weeklyPrice.findMany({
+              where: { securityId: security.id },
+              select: { calculationVersion: true },
+            })
+          ).map((row) => row.calculationVersion),
+        ),
+      ).toEqual(new Set([2]));
+      expect(
+        derivedWritesA.mock.calls.length + derivedWritesB.mock.calls.length,
+      ).toBe(1);
+
+      await cacheA.evict(security.id);
+      provider.ranges.length = 0;
+      await serviceA.getDailyPrices(symbol, {
+        from: "2021-01-01",
+        to: "2025-12-31",
+      });
+
+      expect(provider.ranges).toEqual([]);
+      expect(
+        derivedWritesA.mock.calls.length + derivedWritesB.mock.calls.length,
+      ).toBe(1);
     } finally {
       if (securityId) {
         const cache = new RedisStockDataCache(
@@ -970,6 +1301,83 @@ function stockPrice(securityId: string, date: string, close: number) {
     close,
     volume: 100,
   };
+}
+
+function hydratingManifest(
+  securityId: string,
+  hydrationId: string,
+): StockManifest {
+  return {
+    ...readyManifest(securityId),
+    status: "HYDRATING",
+    hydrationId,
+    hydratingAt: "2026-08-24T12:00:00.000Z",
+  };
+}
+
+function hydrationKeys(namespace: string, securityId: string, symbol: string) {
+  const prefix = `${namespace}:security:${securityId}`;
+  return {
+    manifest: `${prefix}:manifest`,
+    registry: `${prefix}:keys`,
+    security: `${namespace}:symbol:${symbol}:security`,
+    price: `${prefix}:prices:1D:2021`,
+    technical: `${prefix}:technicals:1D:v1:2021`,
+    weekly: `${prefix}:weekly:1W:v2:2021`,
+  };
+}
+
+function cacheSecurity(securityId: string, symbol: string) {
+  return {
+    id: securityId,
+    symbol,
+    name: `${symbol} Corp`,
+    exchangeCode: "NASDAQ",
+    currency: "USD",
+    type: "STOCK" as const,
+    isAdr: false,
+    isActivelyTrading: true,
+  };
+}
+
+async function writeRepresentativeHydration(
+  cache: RedisStockDataCache,
+  securityId: string,
+  hydrating: StockManifest,
+) {
+  await cache.writeDailyPriceYears(
+    securityId,
+    [stockPrice(securityId, "2021-01-04", 3)],
+    [2021],
+    hydrating,
+  );
+  await cache.writeDailyTechnicalYears(
+    securityId,
+    [{ securityId, date: "2021-01-04", calculationVersion: 1 }],
+    [2021],
+    1,
+    hydrating,
+  );
+  await cache.writeWeeklyPriceYears(
+    securityId,
+    [
+      {
+        securityId,
+        weekStartDate: "2021-01-04",
+        weekEndDate: "2021-01-08",
+        eligibleDate: "2021-01-11",
+        open: 3,
+        high: 3,
+        low: 3,
+        close: 3,
+        volume: 100,
+        calculationVersion: 2,
+      },
+    ],
+    [2021],
+    2,
+    hydrating,
+  );
 }
 
 function readyManifest(securityId: string): StockManifest {

@@ -15,25 +15,29 @@ export type RedisFmpRequestGateOptions = {
   namespace?: string;
 };
 
-const ACQUIRE_CONCURRENCY = `
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-local count = redis.call('ZCARD', KEYS[1])
-if count < tonumber(ARGV[3]) then
-  redis.call('ZADD', KEYS[1], ARGV[2], ARGV[4])
-  return {1, 0}
-end
-local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
-return {0, tonumber(first[2]) - tonumber(ARGV[1])}
-`;
+const ACQUIRE_START = `
+-- acquire-start
+local cooldown = redis.call('PTTL', KEYS[3])
+if cooldown > 0 then return {0, cooldown} end
 
-const ACQUIRE_RATE = `
-local current = tonumber(redis.call('GET', KEYS[1]) or '0')
-if current < tonumber(ARGV[1]) then
-  current = redis.call('INCR', KEYS[1])
-  if current == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
-  return {1, redis.call('PTTL', KEYS[1])}
+local clock = redis.call('TIME')
+local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then
+  local first = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+  return {0, math.max(1, tonumber(first[2]) - now)}
 end
-return {0, redis.call('PTTL', KEYS[1])}
+
+local current = tonumber(redis.call('GET', KEYS[2]) or '0')
+if current >= tonumber(ARGV[2]) then
+  return {0, math.max(1, redis.call('PTTL', KEYS[2]))}
+end
+
+redis.call('ZADD', KEYS[1], now + tonumber(ARGV[4]), ARGV[5])
+current = redis.call('INCR', KEYS[2])
+if current == 1 then redis.call('PEXPIRE', KEYS[2], ARGV[3]) end
+return {1, 0}
 `;
 
 const PUBLISH_COOLDOWN = `
@@ -92,13 +96,8 @@ export class RedisFmpRequestGate implements FmpRequestGate {
     try {
       while (true) {
         await this.waitForCooldown(deadline);
-        await this.acquireRate(deadline);
-        await this.waitForCooldown(deadline);
-        await this.acquireConcurrency(token, deadline);
+        await this.acquireStart(token, deadline);
         try {
-          if ((await this.redis.pttl(this.cooldownKey())) > 0) {
-            continue;
-          }
           return await request();
         } finally {
           await this.redis.zrem(this.concurrentKey(), token);
@@ -119,41 +118,21 @@ export class RedisFmpRequestGate implements FmpRequestGate {
     );
   }
 
-  private async acquireConcurrency(
-    token: string,
-    deadline: number,
-  ): Promise<void> {
-    while (true) {
-      const now = this.now();
-      this.assertBeforeDeadline(deadline, now);
-      const result = asNumberPair(
-        await this.redis.eval(
-          ACQUIRE_CONCURRENCY,
-          1,
-          this.concurrentKey(),
-          String(now),
-          String(now + this.options.requestLeaseMs),
-          String(this.options.maxConcurrentRequests),
-          token,
-        ),
-      );
-      if (result[0] === 1) {
-        return;
-      }
-      await this.boundedSleep(result[1], deadline);
-    }
-  }
-
-  private async acquireRate(deadline: number): Promise<void> {
+  private async acquireStart(token: string, deadline: number): Promise<void> {
     while (true) {
       this.assertBeforeDeadline(deadline, this.now());
       const result = asNumberPair(
         await this.redis.eval(
-          ACQUIRE_RATE,
-          1,
+          ACQUIRE_START,
+          3,
+          this.concurrentKey(),
           this.rateKey(),
+          this.cooldownKey(),
+          String(this.options.maxConcurrentRequests),
           String(this.options.rateLimitPerWindow),
           String(this.options.rateWindowMs),
+          String(this.options.requestLeaseMs),
+          token,
         ),
       );
       if (result[0] === 1) {

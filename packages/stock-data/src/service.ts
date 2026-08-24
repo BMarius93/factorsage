@@ -234,7 +234,8 @@ export class CanonicalStockDataService implements StockDataService {
             to: target.to,
           },
           syncedAt: this.nowInstant(),
-          calculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+          dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+          weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
           assertOwned: lease.assertOwned,
         });
       }
@@ -479,7 +480,8 @@ export class CanonicalStockDataService implements StockDataService {
         weeklyPrices,
         successfulCoverage: { from: recalculationStart, to: target.to },
         syncedAt: this.nowInstant(),
-        calculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+        dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+        weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
         assertOwned: lease.assertOwned,
       });
     }

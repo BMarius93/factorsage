@@ -71,7 +71,8 @@ export interface StockDataStore {
     weeklyPrices: readonly WeeklyPrice[];
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
-    calculationVersion: number;
+    dailyTechnicalCalculationVersion: number;
+    weeklyCalculationVersion: number;
     assertOwned?: () => void;
   }): Promise<void>;
   getWeeklyPrices(

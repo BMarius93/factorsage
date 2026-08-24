@@ -90,10 +90,15 @@ The manifest contains status, configured horizon years, attempted coverage bound
 and last available price dates when present, hydration/freshness instants, dataset calculation
 versions, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
 the distributed lock is authoritative. Every chunk, symbol mapping, and READY publication compares
-the active generation, so a stale owner cannot overwrite or register keys under a successor.
-READY is written only after all required chunks. A later lock owner atomically replaces stale
-HYDRATING or orphaned registry state and deletes every registered key without `SCAN` before
-reconstructing the cache from PostgreSQL/provider deltas.
+the active generation, so a stale owner cannot overwrite or register keys under a successor. A
+concurrent generation-less symbol lookup atomically joins the currently active HYDRATING lifetime
+rather than creating a persistent orphan. While HYDRATING, the manifest, registry, and every
+registered key share a renewable temporary expiry. Generation-checked READY publication atomically
+removes those expiries before resident admission. A crashed generation therefore self-cleans
+without another stock access, while normal READY chunks never expire independently. READY is
+written only after all required chunks. A later lock owner atomically replaces stale HYDRATING or
+orphaned registry state and deletes every registered key without `SCAN` before reconstructing the
+cache from PostgreSQL/provider deltas.
 
 Complete-stock LRU uses a Redis `INCR` access sequence shared by API and worker. Every key is
 registered under the security ID. READY publication, resident admission, oldest-victim selection,
@@ -111,12 +116,15 @@ absent. `FMP_MAX_RETRY_WAIT_MS` may make the current caller fail instead of slee
 cooldown and is enforced across cumulative retry sleep. Retries remain finite; 401/403 and other
 invalid 4xx requests are not aggressively retried.
 
-Every attempt passes through `RedisFmpRequestGate`. The gate uses a leased distributed concurrency
-semaphore, fixed-window rate permit, bounded per-process queue/wait, and shared cooldown. A 429
-atomically publishes an absolute provider boundary under `stock-data:v2:fmp:cooldown-until` using
-Redis time. A shorter later publication cannot reduce that boundary. The current caller's bounded
-queue/retry wait does not cap the shared cooldown, and the credential is never part of a Redis key.
-API and worker observe the same backpressure.
+Every attempt passes through `RedisFmpRequestGate`. After waiting outside concurrency for any
+provider cooldown, one Redis Lua admission atomically checks cooldown, distributed concurrency,
+and the current fixed rate window immediately before the outbound callback starts. It consumes
+both permits together, so a rate permit cannot be carried while waiting for concurrency. Redis
+server time defines concurrency lease timestamps across API and worker hosts. A 429 atomically
+publishes an absolute provider boundary under `stock-data:v2:fmp:cooldown-until` using Redis time.
+A shorter later publication cannot reduce that boundary. The current caller's bounded queue/retry
+wait does not cap the shared cooldown, and the credential is never part of a Redis key. API and
+worker observe the same backpressure.
 
 ## Derived data
 
@@ -137,6 +145,10 @@ the 30-year canonical horizon begins mid-week, that artificially truncated first
 a known IPO/listing that genuinely begins mid-week remains a valid completed week. There is one
 durable weekly row per completed week, never one duplicate per day. This boundary rule is weekly
 aggregation calculation version 2, so previously persisted v1 bars are not reused.
+
+Derived persistence carries daily technical and weekly aggregation versions independently. A
+successful current hydration records `DAILY_TECHNICAL / 1D:v1 / calculationVersion=1` and
+`WEEKLY_PRICE / 1W:v2 / calculationVersion=2`; neither state version is inferred from the other.
 
 ## Point-in-time and versions
 
@@ -160,5 +172,7 @@ Normal tests use deterministic providers. Real Redis/PostgreSQL tests cover year
 slicing, current-year replacement, generation-safe stale HYDRATING recovery, atomic complete-stock
 LRU ordering, separate Redlock coordinators waiting beyond the old short retry window, exception
 release, monotonic 120-second provider cooldown, transactional coverage compaction/concurrency, and
-two service instances performing one canonical FMP delta. Live AAPL profile, split-adjusted
-history, SMA, and EMA checks remain opt-in through `test:live`.
+rate-window-boundary backlog admission. They also prove abandoned HYDRATING generations self-clean,
+READY generations persist, exact daily/weekly durable versions survive Redis re-admission without
+another derived rebuild, and two service instances perform one canonical FMP delta. Live AAPL
+profile, split-adjusted history, SMA, and EMA checks remain opt-in through `test:live`.

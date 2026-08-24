@@ -365,7 +365,8 @@ class FakeStore implements StockDataStore {
     weeklyPrices: readonly WeeklyPrice[];
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
-    calculationVersion: number;
+    dailyTechnicalCalculationVersion: number;
+    weeklyCalculationVersion: number;
     assertOwned?: () => void;
   }) {
     input.assertOwned?.();
@@ -383,23 +384,23 @@ class FakeStore implements StockDataStore {
       input.weeklyPrices,
       (row) => `${row.weekStartDate}:${row.calculationVersion}`,
     );
-    const technicalKey = `DAILY_TECHNICAL:1D:v${input.calculationVersion}`;
+    const technicalKey = `DAILY_TECHNICAL:1D:v${input.dailyTechnicalCalculationVersion}`;
     this.states.set(technicalKey, {
       securityId: security.id,
       dataset: "DAILY_TECHNICAL",
-      variant: `1D:v${input.calculationVersion}`,
+      variant: `1D:v${input.dailyTechnicalCalculationVersion}`,
       earliestDate: input.successfulCoverage.from,
       latestDate: input.successfulCoverage.to,
       lastSyncedAt: input.syncedAt,
-      calculationVersion: input.calculationVersion,
+      calculationVersion: input.dailyTechnicalCalculationVersion,
     });
     this.coverage.set(technicalKey, [input.successfulCoverage]);
-    this.states.set(`WEEKLY_PRICE:1W:v${input.calculationVersion}`, {
+    this.states.set(`WEEKLY_PRICE:1W:v${input.weeklyCalculationVersion}`, {
       securityId: security.id,
       dataset: "WEEKLY_PRICE",
-      variant: `1W:v${input.calculationVersion}`,
+      variant: `1W:v${input.weeklyCalculationVersion}`,
       lastSyncedAt: input.syncedAt,
-      calculationVersion: input.calculationVersion,
+      calculationVersion: input.weeklyCalculationVersion,
     });
   }
   async getWeeklyPrices(_id: string, range: DateRange, version: number) {
