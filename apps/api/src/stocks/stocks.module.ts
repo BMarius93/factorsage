@@ -1,4 +1,5 @@
 import {
+  getApiConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -6,6 +7,10 @@ import {
 } from "@intrinsic/config";
 import type { StockDataService } from "@intrinsic/domain";
 import { FmpClient, type FmpStockProviderPort } from "@intrinsic/fmp";
+import {
+  createLogger,
+  type StructuredLogger,
+} from "@intrinsic/observability";
 import {
   CanonicalStockDataService,
   createStockDataRedisClient,
@@ -25,6 +30,7 @@ import {
   type OnApplicationShutdown,
 } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { LoggedStockDataService } from "./logged-stock-data.service";
 import {
   STOCK_DATA_CACHE,
   STOCK_DATA_COORDINATOR,
@@ -36,6 +42,7 @@ import {
 import { StocksController } from "./stocks.controller";
 
 type StockDataRedisClient = ReturnType<typeof createStockDataRedisClient>;
+const STOCK_DATA_LOGGER = Symbol("STOCK_DATA_LOGGER");
 
 @Injectable()
 class StockDataRedisLifecycle implements OnApplicationShutdown {
@@ -52,6 +59,18 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
 @Module({
   controllers: [StocksController],
   providers: [
+    {
+      provide: STOCK_DATA_LOGGER,
+      useFactory: (): StructuredLogger => {
+        const config = getApiConfig();
+        return createLogger({
+          service: "api",
+          level: config.logLevel,
+          environment: config.environment,
+          base: { component: "stock-data" },
+        });
+      },
+    },
     {
       provide: STOCK_DATA_STORE,
       inject: [PrismaService],
@@ -107,19 +126,31 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         STOCK_DATA_PROVIDER,
         STOCK_DATA_CACHE,
         STOCK_DATA_COORDINATOR,
+        STOCK_DATA_LOGGER,
       ],
       useFactory: (
         store: StockDataStore,
         provider: FmpStockProviderPort,
         cache: StockDataCache,
         coordinator: LoadCoordinator,
-      ): StockDataService =>
-        new CanonicalStockDataService(store, provider, cache, coordinator, {
-          defaultHistoryDays: getStockDataConfig().defaultHistoryDays,
-          historyYears: getStockDataConfig().historyYears,
-          recentPriceFreshnessMs: getStockDataConfig().recentPriceFreshnessMs,
-          recentTailCalendarDays: getStockDataConfig().recentTailCalendarDays,
-        }),
+        logger: StructuredLogger,
+      ): StockDataService => {
+        const service = new CanonicalStockDataService(
+          store,
+          provider,
+          cache,
+          coordinator,
+          {
+            defaultHistoryDays: getStockDataConfig().defaultHistoryDays,
+            historyYears: getStockDataConfig().historyYears,
+            recentPriceFreshnessMs:
+              getStockDataConfig().recentPriceFreshnessMs,
+            recentTailCalendarDays:
+              getStockDataConfig().recentTailCalendarDays,
+          },
+        );
+        return new LoggedStockDataService(service, logger);
+      },
     },
     StockDataRedisLifecycle,
   ],

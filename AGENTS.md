@@ -64,6 +64,17 @@ Forbidden:
 - Add dependencies only when there is a concrete use.
 - Never commit secrets or real `.env` files.
 
+## Agent efficiency
+
+- Keep investigation and implementation within the explicit task scope.
+- Search and read narrowly; do not repeatedly reread unchanged files or dump large files/logs without a concrete need.
+- Prefer existing tests and logs over ad-hoc diagnostic scripts. Temporary probes must not remain in the final diff.
+- During iteration, run targeted validation for the code being changed. Run the full repository validation gate once after the implementation is settled.
+- Do not repeat successful command output; summarize pass/fail. On failure, preserve the relevant error evidence.
+- For review/validate/commit/push-only tasks, do not modify implementation. If validation fails, stop and report unless the task explicitly includes fixing failures.
+- If the task requires investigation before implementation, establish the root cause before changing code and stop exploring unrelated alternatives once it is confirmed.
+- Keep status updates and final reports concise and non-repetitive.
+
 ## Observability rules
 
 - Read `ai/architecture/observability.md` for server-side API, worker, stock-data, FMP, database, cache, queue, or integration work.
@@ -75,11 +86,12 @@ Forbidden:
 - Crossing a process boundary is explicit: queue/job payloads must carry the relevant correlation fields, and the receiving worker must recreate the logging context.
 - Never log passwords, cookies, authorization headers, JWTs, API keys, secrets, credentials, or complete sensitive request/response payloads.
 - Do not swallow, replace, or change business errors merely to add logging. Log with context and preserve the original error semantics.
+- When a caught exception is translated into a generic error, log the original error object before translation so its name, message, and stack are retained.
 - New integrations and long-running flows must include enough structured logging to identify the operation, owner/caller when available, external dependency, outcome, and elapsed time without enabling `trace`.
 
 ## Validation
 
-Before marking a task complete, run the relevant subset and normally all of:
+During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:
 
 ```bash
 pnpm lint
