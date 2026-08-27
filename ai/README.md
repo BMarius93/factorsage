@@ -16,6 +16,9 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`.
 
+For server-side API, worker, stock-data, FMP, database, cache, queue, or integration work, also read
+`architecture/observability.md`.
+
 ## Source-of-truth rule
 
 The old repository is historical reference only.

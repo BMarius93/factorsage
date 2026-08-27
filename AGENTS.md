@@ -27,7 +27,7 @@ worker -> contracts/domain/stock-data/database/fmp/observability
 
 database -> Prisma
 fmp -> domain/external FMP API
-stock-data -> domain/database/fmp/Redis
+stock-data -> domain/database/fmp/observability/Redis
 ```
 
 Forbidden:
@@ -63,6 +63,19 @@ Forbidden:
 - Do not introduce a generic `shared/utils.ts` dumping ground.
 - Add dependencies only when there is a concrete use.
 - Never commit secrets or real `.env` files.
+
+## Observability rules
+
+- Read `ai/architecture/observability.md` for server-side API, worker, stock-data, FMP, database, cache, queue, or integration work.
+- Application runtime logging must use `@intrinsic/observability`; do not add ad-hoc `console.log`, `console.warn`, or `console.error` calls.
+- Respect the configured `LOG_LEVEL`. Use `info` for meaningful lifecycle boundaries, `debug` for operational detail, and `trace` only for high-volume diagnostics.
+- Important operations must emit stable searchable events for relevant `started`, `completed`, and `failed` boundaries. Include `durationMs` on completed/failed operations when meaningful.
+- Preserve correlation context through the call chain. Standard fields are `requestId`, `correlationId`, `actorUserId`, `runId`, `jobId`, `symbol`, and `component` when applicable.
+- Use the internal user ID as `actorUserId`; do not use email as the normal user correlation key.
+- Crossing a process boundary is explicit: queue/job payloads must carry the relevant correlation fields, and the receiving worker must recreate the logging context.
+- Never log passwords, cookies, authorization headers, JWTs, API keys, secrets, credentials, or complete sensitive request/response payloads.
+- Do not swallow, replace, or change business errors merely to add logging. Log with context and preserve the original error semantics.
+- New integrations and long-running flows must include enough structured logging to identify the operation, owner/caller when available, external dependency, outcome, and elapsed time without enabling `trace`.
 
 ## Validation
 
