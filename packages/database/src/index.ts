@@ -1,2 +1,10 @@
-export { PrismaClient, UserRole } from "@prisma/client";
+export {
+  IntrinsicValueBlendId,
+  IntrinsicValueModel,
+  MovingAverageType,
+  PrismaClient,
+  SecurityType,
+  StockDataset,
+  UserRole,
+} from "@prisma/client";
 export type { Prisma, User } from "@prisma/client";

@@ -1,0 +1,144 @@
+import type { DateRange, StockDatasetState } from "@intrinsic/domain";
+
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isLocalDate(value: string): boolean {
+  if (!LOCAL_DATE_PATTERN.test(value)) {
+    return false;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+export function addDays(value: string, days: number): string {
+  if (!isLocalDate(value)) {
+    throw new Error(`Invalid local date '${value}'`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function compareDates(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
+export function assertDateRange(range: DateRange): void {
+  if (range.from && !isLocalDate(range.from)) {
+    throw new Error(`Invalid from date '${range.from}'`);
+  }
+  if (range.to && !isLocalDate(range.to)) {
+    throw new Error(`Invalid to date '${range.to}'`);
+  }
+  if (range.from && range.to && compareDates(range.from, range.to) > 0) {
+    throw new Error("The from date must not be after the to date");
+  }
+}
+
+export function missingDateRanges(
+  requested: DateRange,
+  state: Pick<StockDatasetState, "earliestDate" | "latestDate"> | null,
+): DateRange[] {
+  assertDateRange(requested);
+  if (!state?.earliestDate || !state.latestDate) {
+    return [{ ...requested }];
+  }
+
+  const missing: DateRange[] = [];
+  if (requested.from && compareDates(requested.from, state.earliestDate) < 0) {
+    const prefixTo = addDays(state.earliestDate, -1);
+    missing.push({
+      from: requested.from,
+      to:
+        requested.to && compareDates(requested.to, prefixTo) < 0
+          ? requested.to
+          : prefixTo,
+    });
+  }
+
+  if (requested.to && compareDates(requested.to, state.latestDate) > 0) {
+    const suffixFrom = addDays(state.latestDate, 1);
+    missing.push({
+      from:
+        requested.from && compareDates(requested.from, suffixFrom) > 0
+          ? requested.from
+          : suffixFrom,
+      to: requested.to,
+    });
+  }
+
+  return missing;
+}
+
+export function missingCoverageRanges(
+  requested: Required<DateRange>,
+  coverage: readonly Required<DateRange>[],
+): Required<DateRange>[] {
+  assertDateRange(requested);
+  const relevant = coverage
+    .map((range) => {
+      assertDateRange(range);
+      return range;
+    })
+    .filter((range) => range.to >= requested.from && range.from <= requested.to)
+    .sort((left, right) => left.from.localeCompare(right.from));
+
+  const missing: Required<DateRange>[] = [];
+  let cursor = requested.from;
+  for (const covered of relevant) {
+    if (covered.from > cursor) {
+      missing.push({ from: cursor, to: addDays(covered.from, -1) });
+    }
+    if (covered.to >= cursor) {
+      cursor = addDays(covered.to, 1);
+    }
+    if (cursor > requested.to) {
+      break;
+    }
+  }
+  if (cursor <= requested.to) {
+    missing.push({ from: cursor, to: requested.to });
+  }
+  return missing;
+}
+
+export function advanceDatasetState(
+  current: StockDatasetState | null,
+  successfulCoverage: DateRange,
+  lastSyncedAt: string,
+  calculationVersion?: number,
+): StockDatasetState {
+  if (!successfulCoverage.from || !successfulCoverage.to) {
+    throw new Error("Successful dataset coverage must be bounded");
+  }
+  assertDateRange(successfulCoverage);
+
+  const versionChanged =
+    calculationVersion !== undefined &&
+    current?.calculationVersion !== undefined &&
+    current.calculationVersion !== calculationVersion;
+
+  return {
+    securityId: current?.securityId ?? "",
+    dataset: current?.dataset ?? "DAILY_PRICE",
+    earliestDate:
+      !current?.earliestDate || versionChanged
+        ? successfulCoverage.from
+        : [current.earliestDate, successfulCoverage.from].sort()[0],
+    latestDate:
+      !current?.latestDate || versionChanged
+        ? successfulCoverage.to
+        : [current.latestDate, successfulCoverage.to].sort()[1],
+    lastSyncedAt,
+    ...(calculationVersion === undefined ? {} : { calculationVersion }),
+  };
+}
+
+export function endOfLocalDate(value: string): string {
+  if (!isLocalDate(value)) {
+    throw new Error(`Invalid local date '${value}'`);
+  }
+  return `${value}T23:59:59.999Z`;
+}

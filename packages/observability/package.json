@@ -2,20 +2,22 @@
   "name": "@intrinsic/observability",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pretest": "pnpm build",
+    "test": "node --test test/*.test.mjs"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "typescript": "^5.9.0"
   }
 }

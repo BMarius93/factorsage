@@ -3,7 +3,8 @@ import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
 export type RuntimeEnvironment = "development" | "test" | "production";
-export type LogLevel = "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
+export type LogLevel =
+  "fatal" | "error" | "warn" | "info" | "debug" | "trace" | "silent";
 
 type Environment = NodeJS.ProcessEnv;
 
@@ -59,10 +60,15 @@ function logLevel(env: Environment): LogLevel {
   if (allowed.includes(value as LogLevel)) {
     return value as LogLevel;
   }
-  throw new Error(`Invalid application configuration: unsupported LOG_LEVEL '${value}'`);
+  throw new Error(
+    `Invalid application configuration: unsupported LOG_LEVEL '${value}'`,
+  );
 }
 
-function commaSeparated(value: string | undefined, fallback: string[]): string[] {
+function commaSeparated(
+  value: string | undefined,
+  fallback: string[],
+): string[] {
   if (!value) {
     return fallback;
   }
@@ -117,7 +123,9 @@ function corsOrigins(env: Environment): string[] {
  * Local development uses this file. Deployed environments normally do not
  * contain it; the platform injects the same variables into process.env.
  */
-export function loadRootEnv(startDirectory = process.cwd()): string | undefined {
+export function loadRootEnv(
+  startDirectory = process.cwd(),
+): string | undefined {
   let directory = resolve(startDirectory);
 
   while (true) {
@@ -205,10 +213,49 @@ export function getRedisConfig(env: Environment = process.env) {
   } as const;
 }
 
+export function getFmpTrafficConfig(env: Environment = process.env) {
+  return {
+    timeoutMs: integer(env, ["FMP_TIMEOUT_MS"], 15_000),
+    maxRetries: integer(env, ["FMP_MAX_RETRIES"], 3),
+    retryBaseDelayMs: integer(env, ["FMP_RETRY_BASE_DELAY_MS"], 500),
+    retryMaxDelayMs: integer(env, ["FMP_RETRY_MAX_DELAY_MS"], 30_000),
+    maxRetryWaitMs: integer(env, ["FMP_MAX_RETRY_WAIT_MS"], 30_000),
+    maxConcurrentRequests: integer(env, ["FMP_MAX_CONCURRENT_REQUESTS"], 4),
+    rateLimitPerWindow: integer(env, ["FMP_RATE_LIMIT_PER_WINDOW"], 20),
+    rateWindowMs: integer(env, ["FMP_RATE_WINDOW_MS"], 1_000),
+    maxQueueDepth: integer(env, ["FMP_MAX_QUEUE_DEPTH"], 100),
+    maxQueueWaitMs: integer(env, ["FMP_MAX_QUEUE_WAIT_MS"], 30_000),
+  } as const;
+}
+
 export function getFmpConfig(env: Environment = process.env) {
   return {
     apiKey: required(env, "FMP_API_KEY"),
-    timeoutMs: integer(env, ["FMP_TIMEOUT_MS"], 15_000),
+    ...getFmpTrafficConfig(env),
+  } as const;
+}
+
+export function getStockDataConfig(env: Environment = process.env) {
+  return {
+    maxResidentStocks: integer(
+      env,
+      ["STOCK_CACHE_MAX_RESIDENT_STOCKS", "STOCK_CACHE_MAX_RESIDENT_SYMBOLS"],
+      100,
+    ),
+    defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
+    historyYears: integer(env, ["STOCK_HISTORY_YEARS"], 30),
+    recentPriceFreshnessMs: integer(
+      env,
+      ["STOCK_RECENT_PRICE_FRESHNESS_MS"],
+      6 * 60 * 60 * 1000,
+    ),
+    recentTailCalendarDays: integer(
+      env,
+      ["STOCK_RECENT_TAIL_CALENDAR_DAYS"],
+      10,
+    ),
+    loadLockDurationMs: integer(env, ["STOCK_DATA_LOAD_LOCK_MS"], 30_000),
+    loadLockWaitMs: integer(env, ["STOCK_DATA_LOCK_WAIT_MS"], 120_000),
   } as const;
 }
 
@@ -226,7 +273,8 @@ export function getStripeConfig(env: Environment = process.env) {
  */
 export function getWebPublicConfig(env: Environment = process.env) {
   return {
-    apiBaseUrl: optional(env, "NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:3001",
+    apiBaseUrl:
+      optional(env, "NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:3001",
     stripePublishableKey: optional(env, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"),
   } as const;
 }

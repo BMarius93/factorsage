@@ -1,0 +1,35 @@
+{
+  "name": "@intrinsic/stock-data",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && vitest run --exclude src/live-fmp.integration.test.ts",
+    "test:redis": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && vitest run src/redis.integration.test.ts",
+    "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/fmp build && vitest run src/live-fmp.integration.test.ts"
+  },
+  "dependencies": {
+    "@intrinsic/database": "workspace:*",
+    "@intrinsic/domain": "workspace:*",
+    "@intrinsic/fmp": "workspace:*",
+    "ioredis": "^6.0.0",
+    "redlock": "5.0.0-beta.2"
+  },
+  "devDependencies": {
+    "@intrinsic/config": "workspace:*",
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9"
+  }
+}

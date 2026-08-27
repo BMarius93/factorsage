@@ -1,12 +1,13 @@
 import { getWorkerConfig, loadRootEnv } from "@intrinsic/config";
-import pino from "pino";
+import { createLogger } from "@intrinsic/observability";
 
 loadRootEnv();
 const config = getWorkerConfig();
 
-const logger = pino({
-  name: "intrinsic-worker",
+const logger = createLogger({
+  service: "worker",
   level: config.logLevel,
+  environment: config.environment,
 });
 
 let stopping = false;
@@ -16,7 +17,7 @@ function shutdown(signal: string) {
     return;
   }
   stopping = true;
-  logger.info({ signal }, "worker stopping");
+  logger.info({ event: "worker.stopping", signal });
   process.exitCode = 0;
   clearInterval(keepAlive);
 }
@@ -24,8 +25,11 @@ function shutdown(signal: string) {
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-logger.info("worker foundation started; no job processors are registered yet");
+logger.info(
+  { event: "worker.started" },
+  "worker foundation started; no job processors are registered yet",
+);
 
 const keepAlive = setInterval(() => {
-  logger.debug("worker foundation heartbeat");
+  logger.debug({ event: "worker.heartbeat" });
 }, 60_000);

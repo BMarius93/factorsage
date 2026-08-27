@@ -2,7 +2,7 @@
 
 ## Status
 
-Foundation decision for the next implementation slice. This document defines contracts and test expectations only; it does not implement FMP loading, Redis caching, Prisma persistence, technical calculations, intrinsic-value formulas, or Stock Details HTTP endpoints.
+Foundation decision for the next implementation slice. This document defines contracts and test expectations only; it does not implement FMP loading, Redis caching, Prisma persistence, technical calculations, intrinsic-value formulas, or Stock Details HTTP endpoints. The later `stock-data-loader-implementation.md` decision supersedes this document wherever this foundation describes requested ranges as hydration boundaries.
 
 ## Goals
 
@@ -10,7 +10,7 @@ Foundation decision for the next implementation slice. This document defines con
 - PostgreSQL remains the durable source of truth.
 - Redis is a disposable symbol-level cache with LRU residency management in a later implementation PR.
 - FMP is upstream data, not the product domain model.
-- Date-range queries are first-class so callers can request only the historical interval they need.
+- Date-range queries are first-class read projections. They do not bound canonical hydration.
 - Historical fundamentals and intrinsic values remain point-in-time correct and cannot use future filings/data.
 
 ## Canonical historical price series
@@ -72,6 +72,10 @@ A weekly bar uses:
 - close = last trading-day close of the week
 - volume = sum of daily volume in the week
 
+The implementation distinguishes why canonical history starts mid-week. A first week truncated
+only by the configured historical horizon is omitted because its opening daily rows are missing. A
+known IPO/listing that genuinely starts mid-week remains a valid completed week.
+
 Do not calculate weekly moving averages by averaging daily moving-average values.
 
 For point-in-time/backtest behavior, only completed weekly periods are eligible. A Monday-Thursday backtest date must not see a weekly indicator that depends on the close of the upcoming Friday. The V1 backtest policy is therefore `COMPLETED_PERIODS_ONLY`.
@@ -122,7 +126,7 @@ The persistence implementation should use a dataset-state model conceptually equ
 - last successful sync timestamp
 - calculation version for derived datasets
 
-This enables range-aware delta loading: Redis -> PostgreSQL -> determine missing range -> FMP/calculation -> persist delta -> refresh cache.
+This enables delta-aware canonical hydration: Redis -> PostgreSQL -> determine missing canonical-horizon coverage -> FMP/calculation -> persist delta -> refresh yearly cache chunks.
 
 `earliestDate`/`latestDate` are watermarks, not proof that there can never be an internal data gap. Missing-range logic must remain aware of trading calendars/provider availability and must not infer that every calendar day between the bounds should contain a market row.
 
@@ -157,7 +161,7 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 5. If a new shared application package is introduced for loader orchestration, update architecture/dependency documentation explicitly.
 6. PostgreSQL is authoritative. Redis is disposable and rebuildable.
 7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol.
-8. Cache misses and partial DB ranges must not trigger full-history FMP reloads when only a bounded delta is missing.
+8. Cache misses hydrate the configured canonical horizon, but PostgreSQL coverage ensures FMP receives only missing canonical deltas. Caller ranges only slice reads.
 9. Historical reads are deterministic and ascending by effective date.
 10. Derived values are persisted for performance but reproducible from canonical inputs plus calculation version.
 11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
@@ -180,7 +184,7 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 
 1. FMP DTO -> domain mapping keeps provider quirks outside the domain.
 2. Daily EOD mapping preserves split-adjusted OHLCV semantics.
-3. Date-range gap detection covers empty, full-hit, missing-prefix, missing-suffix, and bounded historical requests.
+3. Canonical-horizon gap detection covers empty, full-hit, missing-prefix, missing-suffix, and internal coverage gaps.
 4. Dataset-state updates are monotonic and calculation-version aware.
 5. SMA 20D/50D/100D/200D calculations are deterministic with correct warm-up behavior.
 6. EMA 20D/50D/200D calculations use one documented seed/warm-up convention.
@@ -192,8 +196,8 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 12. Historical intrinsic-value selection never returns a snapshot whose `sourceDataAsOf` is after the requested as-of time.
 13. Blend calculation validates weights, uses only eligible components, preserves versions, and handles DDM-not-applicable explicitly.
 14. Redis symbol LRU evicts a complete symbol and never partial datasets.
-15. Loader cache-hit, DB-hit, DB-partial, and upstream-delta paths return equivalent domain results.
-16. Concurrent requests for the same missing symbol/range are single-flight/deduplicated when coordination is implemented.
+15. Loader cache-hit, DB re-admission, DB-partial, and upstream-delta paths return equivalent domain projections.
+16. Concurrent requests for the same stock, including different requested ranges, share one full-stock hydration.
 17. Failed/partial syncs do not falsely advance dataset-state success watermarks.
 
 ### API integration tests
@@ -209,7 +213,7 @@ Minimum matrix:
 5. Intrinsic-value endpoint filters by model/range and supports point-in-time `asOf`.
 6. Blend endpoint filters by blend ID and returns version metadata.
 7. Repeating a persisted request returns the same response without requiring FMP again.
-8. A partial persisted range requests only the missing provider delta.
+8. Partial canonical-horizon coverage requests only the missing provider delta, independent of the HTTP projection.
 9. Stock Details and worker/backtest resolve the same historical data through the same service contract.
 10. A filing published after the requested date cannot affect that historical response.
 11. Historical arrays are ascending regardless of FMP fixture order.

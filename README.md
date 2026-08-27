@@ -15,10 +15,11 @@ apps/web
   | HTTP contracts
   v
 apps/api
-  | \
-  |  \--> packages/fmp
   |
-  +----> packages/database --> PostgreSQL
+  +----> packages/stock-data
+             |--> packages/fmp
+             |--> packages/database --> PostgreSQL
+             +--> Redis
   |
   +----> enqueue durable work
              |
@@ -28,11 +29,16 @@ apps/api
              +--> packages/database
              +--> packages/domain
              +--> packages/valuation
-             +--> packages/fmp
+             +--> packages/stock-data
 
 Redis = disposable cache / locks / coordination.
 PostgreSQL = durable source of truth.
 ```
+
+`@intrinsic/stock-data` hydrates one canonical stock history (up to the configured 30-year
+horizon) for API and worker callers. Requested dates only project reads from yearly Redis chunks.
+PostgreSQL coverage prevents historical refetches, one stock-level Redlock prevents duplicate
+same-stock hydration, and a separate Redis provider gate coordinates FMP rate/cooldown behavior.
 
 ## Repository layout
 
@@ -48,6 +54,7 @@ packages/
   contracts/    API and execution contracts
   database/     One Prisma schema, one migration history
   fmp/          Financial Modeling Prep adapter
+  stock-data/   Canonical stock-data loading/cache/persistence orchestration
   observability/ Logging / tracing contracts
   testing/      Shared test utilities
 

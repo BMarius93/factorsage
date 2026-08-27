@@ -5,6 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+import { setLogContext } from "@intrinsic/observability";
 import { parse } from "cookie";
 import { AUTH_CONFIG, type AuthConfig } from "../config/configuration.module";
 import { AuthService } from "./auth.service";
@@ -35,6 +36,7 @@ export class CookieAuthGuard implements CanActivate {
     }
 
     request.authUser = await this.auth.authenticateToken(token);
+    setLogContext({ actorUserId: request.authUser.id });
     return true;
   }
 }

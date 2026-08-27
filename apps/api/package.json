@@ -7,13 +7,17 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && vitest run",
+    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && vitest run",
     "seed:admin": "tsx src/seed.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
     "@intrinsic/contracts": "workspace:*",
     "@intrinsic/database": "workspace:*",
+    "@intrinsic/domain": "workspace:*",
+    "@intrinsic/fmp": "workspace:*",
+    "@intrinsic/observability": "workspace:*",
+    "@intrinsic/stock-data": "workspace:*",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/jwt": "^11.0.2",
