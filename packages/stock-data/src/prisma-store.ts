@@ -111,6 +111,10 @@ function datasetEnum(dataset: PersistedStockDataset): StockDataset {
   return StockDataset[dataset];
 }
 
+type PrismaTransaction = Parameters<
+  Parameters<PrismaClient["$transaction"]>[0]
+>[0];
+
 export class PrismaStockDataStore implements StockDataStore {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -378,15 +382,16 @@ export class PrismaStockDataStore implements StockDataStore {
       .sort()[0];
     await this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
-      for (const price of input.prices) {
-        await transaction.dailyPrice.upsert({
+      const affectedDates = [...new Set(input.prices.map((price) => toDatabaseDate(price.date)))];
+      if (affectedDates.length > 0) {
+        await transaction.dailyPrice.deleteMany({
           where: {
-            securityId_date: {
-              securityId: input.securityId,
-              date: toDatabaseDate(price.date),
-            },
+            securityId: input.securityId,
+            date: { in: affectedDates },
           },
-          create: {
+        });
+        await transaction.dailyPrice.createMany({
+          data: input.prices.map((price) => ({
             securityId: input.securityId,
             date: toDatabaseDate(price.date),
             open: price.open,
@@ -395,15 +400,7 @@ export class PrismaStockDataStore implements StockDataStore {
             close: price.close,
             volume: BigInt(price.volume),
             vwap: price.vwap,
-          },
-          update: {
-            open: price.open,
-            high: price.high,
-            low: price.low,
-            close: price.close,
-            volume: BigInt(price.volume),
-            vwap: price.vwap,
-          },
+          })),
         });
       }
       for (const coverage of input.successfulCoverage) {
@@ -471,52 +468,59 @@ export class PrismaStockDataStore implements StockDataStore {
     }
     await this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
+
+      const byDate = new Map<string, (typeof input.technicals)[number]>();
       for (const technical of input.technicals) {
-        await transaction.dailyTechnical.upsert({
+        const existing = byDate.get(technical.date);
+        if (!existing) {
+          byDate.set(technical.date, technical);
+          continue;
+        }
+        const existingHasValues = [
+          existing.sma20d,
+          existing.sma50d,
+          existing.sma100d,
+          existing.sma200d,
+          existing.ema20d,
+          existing.ema50d,
+          existing.ema200d,
+        ].some((value) => value !== undefined);
+        const incomingHasValues = [
+          technical.sma20d,
+          technical.sma50d,
+          technical.sma100d,
+          technical.sma200d,
+          technical.ema20d,
+          technical.ema50d,
+          technical.ema200d,
+        ].some((value) => value !== undefined);
+        if (!existingHasValues && incomingHasValues) {
+          byDate.set(technical.date, technical);
+        }
+      }
+      const persistedDailyTechnicals = [...byDate.values()];
+      const affectedTechnicalDates = [
+        ...new Set(
+          persistedDailyTechnicals.map((technical) =>
+            toDatabaseDate(technical.date),
+          ),
+        ),
+      ];
+      if (affectedTechnicalDates.length > 0) {
+        await transaction.dailyTechnical.deleteMany({
           where: {
-            securityId_date_calculationVersion: {
-              securityId: input.securityId,
-              date: toDatabaseDate(technical.date),
-              calculationVersion: input.dailyTechnicalCalculationVersion,
-            },
-          },
-          create: { ...technical, date: toDatabaseDate(technical.date) },
-          update: {
-            sma20d: technical.sma20d,
-            sma50d: technical.sma50d,
-            sma100d: technical.sma100d,
-            sma200d: technical.sma200d,
-            ema20d: technical.ema20d,
-            ema50d: technical.ema50d,
-            ema200d: technical.ema200d,
+            securityId: input.securityId,
+            calculationVersion: input.dailyTechnicalCalculationVersion,
+            date: { in: affectedTechnicalDates },
           },
         });
       }
-      for (const weekly of input.weeklyPrices) {
-        await transaction.weeklyPrice.upsert({
-          where: {
-            securityId_weekStartDate_calculationVersion: {
-              securityId: input.securityId,
-              weekStartDate: toDatabaseDate(weekly.weekStartDate),
-              calculationVersion: weekly.calculationVersion,
-            },
-          },
-          create: {
-            ...weekly,
-            weekStartDate: toDatabaseDate(weekly.weekStartDate),
-            weekEndDate: toDatabaseDate(weekly.weekEndDate),
-            eligibleDate: toDatabaseDate(weekly.eligibleDate),
-            volume: BigInt(weekly.volume),
-          },
-          update: {
-            weekEndDate: toDatabaseDate(weekly.weekEndDate),
-            eligibleDate: toDatabaseDate(weekly.eligibleDate),
-            open: weekly.open,
-            high: weekly.high,
-            low: weekly.low,
-            close: weekly.close,
-            volume: BigInt(weekly.volume),
-          },
+      if (persistedDailyTechnicals.length > 0) {
+        await transaction.dailyTechnical.createMany({
+          data: persistedDailyTechnicals.map((technical) => ({
+            ...technical,
+            date: toDatabaseDate(technical.date),
+          })),
         });
       }
       await this.advanceState(transaction, {
@@ -528,6 +532,35 @@ export class PrismaStockDataStore implements StockDataStore {
         syncedAt: input.syncedAt,
         calculationVersion: input.dailyTechnicalCalculationVersion,
       });
+
+      if (input.weeklyPrices.length > 0) {
+        const affectedWeeklyStarts = [
+          ...new Set(
+            input.weeklyPrices.map((weekly) =>
+              toDatabaseDate(weekly.weekStartDate),
+            ),
+          ),
+        ];
+        if (affectedWeeklyStarts.length > 0) {
+          await transaction.weeklyPrice.deleteMany({
+            where: {
+              securityId: input.securityId,
+              calculationVersion: input.weeklyCalculationVersion,
+              weekStartDate: { in: affectedWeeklyStarts },
+            },
+          });
+          await transaction.weeklyPrice.createMany({
+            data: input.weeklyPrices.map((weekly) => ({
+              ...weekly,
+              weekStartDate: toDatabaseDate(weekly.weekStartDate),
+              weekEndDate: toDatabaseDate(weekly.weekEndDate),
+              eligibleDate: toDatabaseDate(weekly.eligibleDate),
+              volume: BigInt(weekly.volume),
+            })),
+          });
+        }
+      }
+
       await this.advanceState(transaction, {
         securityId: input.securityId,
         dataset: "WEEKLY_PRICE",
@@ -710,7 +743,7 @@ export class PrismaStockDataStore implements StockDataStore {
   }
 
   private async advanceState(
-    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    transaction: PrismaTransaction,
     input: {
       securityId: string;
       dataset: PersistedStockDataset;
@@ -722,10 +755,6 @@ export class PrismaStockDataStore implements StockDataStore {
     },
   ): Promise<void> {
     const dataset = datasetEnum(input.dataset);
-    const lockKey = `${input.securityId}:${dataset}:${input.variant}`;
-    await transaction.$executeRaw`
-      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-    `;
     const existingCoverage = await transaction.stockDatasetCoverage.findMany({
       where: {
         securityId: input.securityId,
@@ -842,7 +871,7 @@ export class PrismaStockDataStore implements StockDataStore {
   }
 
   private async advanceFreshnessState(
-    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    transaction: PrismaTransaction,
     input: { securityId: string; tailDate: string; syncedAt: string },
   ): Promise<void> {
     const tailDate = toDatabaseDate(input.tailDate);
@@ -890,9 +919,12 @@ export class PrismaStockDataStore implements StockDataStore {
   }
 
   private async lockStockWrite(
-    transaction: Parameters<Parameters<PrismaClient["$transaction"]>[0]>[0],
+    transaction: PrismaTransaction,
     securityId: string,
   ): Promise<void> {
+    // The advisory lock is scoped to the active Prisma transaction and must be
+    // acquired once at the outer boundary. Nested state helpers operate on the
+    // same transaction client and must not re-enter the Prisma transaction layer.
     const lockKey = `stock-data-write:${securityId}`;
     await transaction.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))

@@ -449,36 +449,65 @@ export class CanonicalStockDataService implements StockDataService {
       target,
       technicalCoverage,
     );
-    const derivedRepairStart =
+    const firstTechnicalGapStart = technicalCoverageGaps[0]?.from ?? target.from;
+    const technicalRepairStart =
       technicalState?.calculationVersion !==
         DAILY_TECHNICAL_CALCULATION_VERSION ||
+      technicalCoverageGaps.length > 0
+        ? firstTechnicalGapStart
+        : undefined;
+    const weeklyRepairStart =
       weeklyState?.calculationVersion !== WEEKLY_AGGREGATION_CALCULATION_VERSION
         ? target.from
-        : technicalCoverageGaps[0]?.from;
-    if (derivedRepairStart || priceChange.earliestChangedDate) {
-      const recalculationStart = this.recalculationStart(
-        target,
-        previousPriceState,
-        priceChange.earliestChangedDate,
-        derivedRepairStart,
-      );
-      const technicals = calculateDailyTechnicals(prices).filter(
-        (row) => row.date >= recalculationStart,
-      );
-      const weeklyPrices = aggregateCompletedWeeks(
-        prices,
-        target.to,
-        WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        this.weeklyHistoryContext(security, target),
-      ).filter(
-        (row) => row.weekStartDate >= startOfIsoWeek(recalculationStart),
-      );
+        : undefined;
+    const technicalRecalculationStart =
+      technicalRepairStart ??
+      (priceChange.earliestChangedDate
+        ? this.recalculationStart(
+            target,
+            previousPriceState,
+            priceChange.earliestChangedDate,
+            undefined,
+          )
+        : undefined);
+    const weeklyRecalculationStart =
+      weeklyRepairStart ??
+      (priceChange.earliestChangedDate
+        ? this.recalculationStart(
+            target,
+            previousPriceState,
+            priceChange.earliestChangedDate,
+            undefined,
+          )
+        : undefined);
+    const recalculatedTechnicals = technicalRecalculationStart
+      ? calculateDailyTechnicals(prices).filter(
+          (row) => row.date >= technicalRecalculationStart,
+        )
+      : [];
+    const recalculatedWeeklyPrices = weeklyRecalculationStart
+      ? aggregateCompletedWeeks(
+          prices,
+          target.to,
+          WEEKLY_AGGREGATION_CALCULATION_VERSION,
+          this.weeklyHistoryContext(security, target),
+        ).filter(
+          (row) => row.weekStartDate >= startOfIsoWeek(weeklyRecalculationStart),
+        )
+      : [];
+    if (recalculatedTechnicals.length > 0 || recalculatedWeeklyPrices.length > 0) {
       lease.assertOwned();
       await this.store.saveDerivedTechnicals({
         securityId: security.id,
-        technicals,
-        weeklyPrices,
-        successfulCoverage: { from: recalculationStart, to: target.to },
+        technicals: recalculatedTechnicals,
+        weeklyPrices: recalculatedWeeklyPrices,
+        successfulCoverage: {
+          from: minDate(
+            technicalRecalculationStart ?? target.from,
+            weeklyRecalculationStart ?? target.from,
+          ),
+          to: target.to,
+        },
         syncedAt: this.nowInstant(),
         dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
         weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
@@ -486,24 +515,25 @@ export class CanonicalStockDataService implements StockDataService {
       });
     }
 
-    const [technicals, weeklyPrices, tailRefreshAt] = await Promise.all([
-      this.store.getDailyTechnicals(
-        security.id,
-        target,
-        DAILY_TECHNICAL_CALCULATION_VERSION,
-      ),
-      this.store.getWeeklyPrices(
-        security.id,
-        target,
-        WEEKLY_AGGREGATION_CALCULATION_VERSION,
-      ),
-      this.store.getLatestCoverageSyncContainingDate(
-        security.id,
-        "DAILY_PRICE",
-        DAILY_PRICE_VARIANT,
-        target.to,
-      ),
-    ]);
+    const [persistedTechnicals, persistedWeeklyPrices, tailRefreshAt] =
+      await Promise.all([
+        this.store.getDailyTechnicals(
+          security.id,
+          target,
+          DAILY_TECHNICAL_CALCULATION_VERSION,
+        ),
+        this.store.getWeeklyPrices(
+          security.id,
+          target,
+          WEEKLY_AGGREGATION_CALCULATION_VERSION,
+        ),
+        this.store.getLatestCoverageSyncContainingDate(
+          security.id,
+          "DAILY_PRICE",
+          DAILY_PRICE_VARIANT,
+          target.to,
+        ),
+      ]);
     lease.assertOwned();
     const years = yearsInRange(target);
     await this.cache.setSecurity(security, hydrating);
@@ -515,14 +545,14 @@ export class CanonicalStockDataService implements StockDataService {
     );
     await this.cache.writeDailyTechnicalYears(
       security.id,
-      technicals,
+      persistedTechnicals,
       years,
       DAILY_TECHNICAL_CALCULATION_VERSION,
       hydrating,
     );
     await this.cache.writeWeeklyPriceYears(
       security.id,
-      weeklyPrices,
+      persistedWeeklyPrices,
       years,
       WEEKLY_AGGREGATION_CALCULATION_VERSION,
       hydrating,
@@ -577,7 +607,20 @@ export class CanonicalStockDataService implements StockDataService {
       projection,
       DAILY_TECHNICAL_CALCULATION_VERSION,
     );
-    if (result) {
+    if (
+      result &&
+      result.some((row) =>
+        [
+          row.sma20d,
+          row.sma50d,
+          row.sma100d,
+          row.sma200d,
+          row.ema20d,
+          row.ema50d,
+          row.ema200d,
+        ].some((value) => value !== undefined),
+      )
+    ) {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
@@ -587,13 +630,26 @@ export class CanonicalStockDataService implements StockDataService {
       projection,
       DAILY_TECHNICAL_CALCULATION_VERSION,
     );
-    return (
-      result ??
-      this.store.getDailyTechnicals(
-        security.id,
-        projection,
-        DAILY_TECHNICAL_CALCULATION_VERSION,
+    if (
+      result &&
+      result.some((row) =>
+        [
+          row.sma20d,
+          row.sma50d,
+          row.sma100d,
+          row.sma200d,
+          row.ema20d,
+          row.ema50d,
+          row.ema200d,
+        ].some((value) => value !== undefined),
       )
+    ) {
+      return result;
+    }
+    return this.store.getDailyTechnicals(
+      security.id,
+      projection,
+      DAILY_TECHNICAL_CALCULATION_VERSION,
     );
   }
 

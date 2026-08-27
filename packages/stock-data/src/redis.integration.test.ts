@@ -686,6 +686,207 @@ describeInfrastructure("cross-process canonical hydration", () => {
     }
   });
 
+  it("keeps derived technical state writes on a single valid transaction client", async () => {
+    const suffix = randomUUID();
+    const symbol = `V${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prisma = new PrismaClient();
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Transaction Lifecycle Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+      const store = new PrismaStockDataStore(prisma);
+
+      await expect(
+        store.saveDailyPriceSync({
+          securityId: security.id,
+          prices: [
+            {
+              securityId: security.id,
+              date: "2026-08-20",
+              open: 100,
+              high: 110,
+              low: 95,
+              close: 105,
+              volume: 2500,
+            },
+          ],
+          successfulCoverage: [{ from: "2026-08-20", to: "2026-08-20" }],
+          syncedAt: "2026-08-24T12:00:00.000Z",
+          tailDate: "2026-08-24",
+          freshThrough: "2026-08-24",
+        }),
+      ).resolves.toEqual({ earliestChangedDate: "2026-08-20" });
+
+      await expect(
+        store.saveDerivedTechnicals({
+          securityId: security.id,
+          technicals: [
+            {
+              securityId: security.id,
+              date: "2026-08-20",
+              sma20d: 102,
+              sma50d: 101,
+              sma100d: 100,
+              sma200d: 99,
+              ema20d: 104,
+              ema50d: 103,
+              ema200d: 102,
+              calculationVersion: 1,
+            },
+          ],
+          weeklyPrices: [
+            {
+              securityId: security.id,
+              weekStartDate: "2026-08-17",
+              weekEndDate: "2026-08-21",
+              eligibleDate: "2026-08-21",
+              open: 101,
+              high: 108,
+              low: 96,
+              close: 104,
+              volume: 3000,
+              calculationVersion: 1,
+            },
+          ],
+          successfulCoverage: { from: "2026-08-17", to: "2026-08-21" },
+          syncedAt: "2026-08-24T12:00:00.000Z",
+          dailyTechnicalCalculationVersion: 1,
+          weeklyCalculationVersion: 1,
+        }),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        prisma.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.DAILY_TECHNICAL,
+              variant: "1D:v1",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 1 });
+      await expect(
+        prisma.stockDatasetState.findUnique({
+          where: {
+            securityId_dataset_variant: {
+              securityId: security.id,
+              dataset: StockDataset.WEEKLY_PRICE,
+              variant: "1W:v1",
+            },
+          },
+        }),
+      ).resolves.toMatchObject({ calculationVersion: 1 });
+    } finally {
+      if (securityId) {
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await prisma.$disconnect();
+    }
+  });
+
+  it("persists multi-year derived datasets with a short per-dataset transaction", async () => {
+    const suffix = randomUUID();
+    const symbol = `W${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prisma = new PrismaClient();
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Multi Year Hydration Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+      const store = new PrismaStockDataStore(prisma);
+
+      const technicals = Array.from({ length: 5_000 }, (_, index) => {
+        const date = new Date(Date.UTC(2021, 0, 1 + index));
+        return {
+          securityId: security.id,
+          date: date.toISOString().slice(0, 10),
+          sma20d: 100 + index * 0.01,
+          sma50d: 101 + index * 0.01,
+          sma100d: 102 + index * 0.01,
+          sma200d: 103 + index * 0.01,
+          ema20d: 104 + index * 0.01,
+          ema50d: 105 + index * 0.01,
+          ema200d: 106 + index * 0.01,
+          calculationVersion: 1,
+        };
+      });
+
+      const weeklyPrices = Array.from({ length: 1_000 }, (_, index) => {
+        const start = new Date(Date.UTC(2021, 0, 4 + index * 7));
+        const end = new Date(Date.UTC(2021, 0, 10 + index * 7));
+        const eligible = new Date(Date.UTC(2021, 0, 11 + index * 7));
+        return {
+          securityId: security.id,
+          weekStartDate: start.toISOString().slice(0, 10),
+          weekEndDate: end.toISOString().slice(0, 10),
+          eligibleDate: eligible.toISOString().slice(0, 10),
+          open: 100 + index,
+          high: 110 + index,
+          low: 90 + index,
+          close: 105 + index,
+          volume: 1_000 + index,
+          calculationVersion: 2,
+        };
+      });
+
+      await expect(
+        store.saveDerivedTechnicals({
+          securityId: security.id,
+          technicals,
+          weeklyPrices,
+          successfulCoverage: { from: "2021-01-01", to: "2026-08-21" },
+          syncedAt: "2026-08-24T12:00:00.000Z",
+          dailyTechnicalCalculationVersion: 1,
+          weeklyCalculationVersion: 2,
+        }),
+      ).resolves.toBeUndefined();
+
+      await expect(
+        prisma.dailyTechnical.count({
+          where: {
+            securityId: security.id,
+            calculationVersion: 1,
+          },
+        }),
+      ).resolves.toBe(technicals.length);
+      await expect(
+        prisma.weeklyPrice.count({
+          where: {
+            securityId: security.id,
+            calculationVersion: 2,
+          },
+        }),
+      ).resolves.toBe(weeklyPrices.length);
+    } finally {
+      if (securityId) {
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await prisma.$disconnect();
+    }
+  });
+
   it("compacts durable coverage transactionally without advancing historical-only freshness", async () => {
     const suffix = randomUUID();
     const symbol = `C${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
