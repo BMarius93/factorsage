@@ -1,3 +1,8 @@
+import type {
+  FinancialStatement,
+  FinancialStatementQuery,
+} from "./financial-statements.js";
+
 /** Calendar date in canonical `YYYY-MM-DD` form. No timezone is attached. */
 export type LocalDate = string;
 
@@ -267,6 +272,10 @@ export interface StockDataService {
     symbol: string,
     range: DateRange,
   ): Promise<DailyTechnical[]>;
+  getFinancialStatements(
+    symbol: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]>;
   getIntrinsicValues(
     symbol: string,
     query: IntrinsicValueQuery,
@@ -291,6 +300,10 @@ export interface StockDataRepository {
     securityId: SecurityId,
     range: DateRange,
   ): Promise<DailyTechnical[]>;
+  getFinancialStatements(
+    securityId: SecurityId,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]>;
   getIntrinsicValues(
     securityId: SecurityId,
     query: IntrinsicValueQuery,

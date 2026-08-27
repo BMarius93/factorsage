@@ -3,6 +3,8 @@ import {
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_BLEND_IDS,
   type DateRange,
+  type FinancialStatement,
+  type FinancialStatementQuery,
   type IntrinsicValueBlendPoint,
   type IntrinsicValueBlendQuery,
   type IntrinsicValuePoint,
@@ -339,6 +341,17 @@ export class CanonicalStockDataService implements StockDataService {
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
     return this.readDailyTechnicalProjection(security, bounded);
+  }
+
+  async getFinancialStatements(
+    symbol: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]> {
+    assertDateRange(query);
+    const security = await this.getSecurity(symbol);
+    await this.ensureStockHydrated(security);
+    await this.ensureStockFresh(security);
+    return this.store.getFinancialStatements(security.id, query);
   }
 
   async getIntrinsicValues(

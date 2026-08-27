@@ -1,5 +1,7 @@
 import type {
   DateRange,
+  FinancialStatement,
+  FinancialStatementQuery,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
@@ -46,6 +48,15 @@ export class LoggedStockDataService implements StockDataService {
   ): Promise<DailyTechnical[]> {
     return this.execute("getDailyTechnicals", symbol, () =>
       this.delegate.getDailyTechnicals(symbol, range),
+    );
+  }
+
+  getFinancialStatements(
+    symbol: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]> {
+    return this.execute("getFinancialStatements", symbol, () =>
+      this.delegate.getFinancialStatements(symbol, query),
     );
   }
 

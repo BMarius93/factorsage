@@ -51,6 +51,20 @@ enum IntrinsicValueBlendId {
   DIVIDEND
 }
 
+enum FinancialStatementType {
+  INCOME
+  BALANCE_SHEET
+  CASH_FLOW
+}
+
+enum FinancialPeriod {
+  FY
+  Q1
+  Q2
+  Q3
+  Q4
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
@@ -87,6 +101,7 @@ model Security {
   dailyTechnicals   DailyTechnical[]
   weeklyPrices      WeeklyPrice[]
   weeklyTechnicals  WeeklyTechnical[]
+  financialStatements FinancialStatement[]
   intrinsicValues   IntrinsicValue[]
   intrinsicBlends   IntrinsicValueBlend[]
 
@@ -108,6 +123,27 @@ model SecurityProfile {
   addressCountry String?
   updatedAt     DateTime @updatedAt
   security      Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+}
+
+model FinancialStatement {
+  id                    String                 @id @default(uuid())
+  securityId            String
+  statementType         FinancialStatementType
+  fiscalDate            DateTime               @db.Date
+  fiscalYear            Int
+  period                FinancialPeriod
+  reportedCurrency      String
+  filingDate            DateTime               @db.Date
+  availableFromDate     DateTime               @db.Date
+  providerAcceptedDate  String?
+  contentHash           String
+  observedAt            DateTime               @default(now())
+  values                Json
+  security              Security               @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, statementType, fiscalDate, period, filingDate, contentHash])
+  @@index([securityId, statementType, period, fiscalDate])
+  @@index([securityId, statementType, period, availableFromDate])
 }
 
 model StockDatasetState {

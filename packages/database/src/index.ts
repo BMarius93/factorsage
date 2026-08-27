@@ -1,4 +1,6 @@
 export {
+  FinancialPeriod,
+  FinancialStatementType,
   IntrinsicValueBlendId,
   IntrinsicValueModel,
   MovingAverageType,

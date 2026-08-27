@@ -1478,6 +1478,16 @@ class IntegrationProvider implements FmpStockProviderPort {
     }
     return this.rows.get(`${range.from}:${range.to}`) ?? [];
   }
+
+  async getFinancialStatements(
+    _symbol: string,
+    _securityId: string,
+    _statementType: "INCOME" | "BALANCE_SHEET" | "CASH_FLOW",
+    _cadence: "QUARTERLY" | "ANNUAL",
+    _limit: number,
+  ) {
+    return [];
+  }
 }
 
 function integrationPrice(securityId: string, date: string, close: number) {

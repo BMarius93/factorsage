@@ -77,6 +77,16 @@ class FakeFmpProvider implements FmpStockProviderPort {
       },
     ];
   }
+
+  async getFinancialStatements(
+    _symbol: string,
+    _securityId: string,
+    _statementType: "INCOME" | "BALANCE_SHEET" | "CASH_FLOW",
+    _cadence: "QUARTERLY" | "ANNUAL",
+    _limit: number,
+  ) {
+    return [];
+  }
 }
 
 describe("Stock Details API", () => {

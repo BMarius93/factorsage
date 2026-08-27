@@ -1,18 +1,27 @@
+import { createHash } from "node:crypto";
 import type {
   DailyPrice,
   DailyTechnical,
   DateRange,
+  FinancialStatement,
+  FinancialStatementDraft,
+  FinancialStatementQuery,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
   IntrinsicValueQuery,
+  FinancialStatement as DomainFinancialStatement,
   Security,
   SecurityProfile,
 } from "@intrinsic/domain";
+import { selectFinancialStatements } from "@intrinsic/domain";
 import type { MappedFmpProfile } from "@intrinsic/fmp";
 import {
+  FinancialPeriod as FinancialPeriodEnum,
+  FinancialStatementType as FinancialStatementTypeEnum,
   IntrinsicValueBlendId,
   IntrinsicValueModel,
+  type Prisma,
   PrismaClient,
   SecurityType,
   StockDataset,
@@ -39,6 +48,111 @@ function rangeWhere(range: DateRange) {
     ...(range.from ? { gte: toDatabaseDate(range.from) } : {}),
     ...(range.to ? { lte: toDatabaseDate(range.to) } : {}),
   };
+}
+
+function stableSortValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stableSortValue(entry));
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    return Object.keys(value as Record<string, unknown>)
+      .sort()
+      .reduce<Record<string, unknown>>((accumulator, key) => {
+        const next = stableSortValue((value as Record<string, unknown>)[key]);
+        if (next !== undefined) {
+          accumulator[key] = next;
+        }
+        return accumulator;
+      }, {});
+  }
+  return value;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(stableSortValue(value));
+}
+
+function financialStatementContentHash(
+  statement: FinancialStatementDraft,
+): string {
+  const canonical = {
+    securityId: statement.securityId,
+    statementType: statement.statementType,
+    fiscalDate: statement.fiscalDate,
+    fiscalYear: statement.fiscalYear,
+    period: statement.period,
+    reportedCurrency: statement.reportedCurrency,
+    filingDate: statement.filingDate,
+    values: statement.values,
+  };
+  return createHash("sha256")
+    .update(stableStringify(canonical))
+    .digest("hex");
+}
+
+function financialStatementIdentityKey(statement: {
+  securityId: string;
+  statementType: string;
+  fiscalDate: string;
+  fiscalYear: number;
+  period: string;
+}): string {
+  return [
+    statement.securityId,
+    statement.statementType,
+    statement.fiscalDate,
+    statement.fiscalYear,
+    statement.period,
+  ].join(":");
+}
+
+function financialStatementRevisionKey(statement: {
+  securityId: string;
+  statementType: string;
+  fiscalDate: string;
+  fiscalYear: number;
+  period: string;
+  contentHash: string;
+}): string {
+  return `${financialStatementIdentityKey(statement)}:${statement.contentHash}`;
+}
+
+function financialStatementFromRow(row: {
+  securityId: string;
+  statementType: FinancialStatementTypeEnum;
+  fiscalDate: Date;
+  fiscalYear: number;
+  period: FinancialPeriodEnum;
+  reportedCurrency: string;
+  filingDate: Date;
+  availableFromDate: Date;
+  observedAt: Date;
+  contentHash: string;
+  values: unknown;
+}): DomainFinancialStatement {
+  return {
+    securityId: row.securityId,
+    statementType: row.statementType,
+    fiscalDate: fromDatabaseDate(row.fiscalDate),
+    fiscalYear: row.fiscalYear,
+    period: row.period,
+    reportedCurrency: row.reportedCurrency,
+    filingDate: fromDatabaseDate(row.filingDate),
+    availableFromDate: fromDatabaseDate(row.availableFromDate),
+    observedAt: row.observedAt.toISOString(),
+    contentHash: row.contentHash,
+    values: row.values as DomainFinancialStatement["values"],
+  };
+}
+
+function statementPeriods(cadence?: FinancialStatementQuery["cadence"]) {
+  if (cadence === "ANNUAL") {
+    return [FinancialPeriodEnum.FY];
+  }
+  if (cadence === "QUARTERLY") {
+    return [FinancialPeriodEnum.Q1, FinancialPeriodEnum.Q2, FinancialPeriodEnum.Q3, FinancialPeriodEnum.Q4];
+  }
+  return undefined;
 }
 
 function effectiveUpperBound(to?: string, asOf?: string): string | undefined {
@@ -601,6 +715,160 @@ export class PrismaStockDataStore implements StockDataStore {
       volume: Number(row.volume),
       calculationVersion,
     }));
+  }
+
+  async getFinancialStatements(
+    securityId: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]> {
+    const rows = await this.prisma.financialStatement.findMany({
+      where: {
+        securityId,
+        ...(query.statementTypes
+          ? {
+              statementType: {
+                in: query.statementTypes.map(
+                  (statementType) => FinancialStatementTypeEnum[statementType],
+                ),
+              },
+            }
+          : {}),
+        ...(statementPeriods(query.cadence)
+          ? { period: { in: statementPeriods(query.cadence) } }
+          : {}),
+        ...(query.from ? { fiscalDate: { gte: toDatabaseDate(query.from) } } : {}),
+        ...(query.to ? { fiscalDate: { lte: toDatabaseDate(query.to) } } : {}),
+        ...(query.asOf
+          ? { availableFromDate: { lte: toDatabaseDate(query.asOf) } }
+          : {}),
+      },
+      orderBy: [
+        { fiscalDate: "asc" },
+        { statementType: "asc" },
+        { period: "asc" },
+        { availableFromDate: "asc" },
+        { observedAt: "asc" },
+      ],
+    });
+    return selectFinancialStatements(rows.map(financialStatementFromRow), query);
+  }
+
+  async saveFinancialStatements(input: {
+    securityId: string;
+    statements: readonly FinancialStatementDraft[];
+    syncedAt: string;
+  }): Promise<{ insertedRevisionCount: number; unchangedCount: number }> {
+    if (input.statements.length === 0) {
+      return { insertedRevisionCount: 0, unchangedCount: 0 };
+    }
+    const observedAt = new Date(input.syncedAt);
+    return this.prisma.$transaction(async (transaction) => {
+      await this.lockStockWrite(transaction, input.securityId);
+      const existingRows = await transaction.financialStatement.findMany({
+        where: { securityId: input.securityId },
+      });
+      const existingByRevision = new Set(
+        existingRows.map((row) =>
+          financialStatementRevisionKey({
+            securityId: row.securityId,
+            statementType: row.statementType,
+            fiscalDate: fromDatabaseDate(row.fiscalDate),
+            fiscalYear: row.fiscalYear,
+            period: row.period,
+            contentHash: row.contentHash,
+          }),
+        ),
+      );
+      const existingByIdentityAndFiling = new Set(
+        existingRows.map((row) =>
+          [
+            row.securityId,
+            row.statementType,
+            fromDatabaseDate(row.fiscalDate),
+            row.fiscalYear,
+            row.period,
+            fromDatabaseDate(row.filingDate),
+          ].join(":"),
+        ),
+      );
+      const rowsToInsert: Array<{
+        securityId: string;
+        statementType: FinancialStatementTypeEnum;
+        fiscalDate: Date;
+        fiscalYear: number;
+        period: FinancialPeriodEnum;
+        reportedCurrency: string;
+        filingDate: Date;
+        availableFromDate: Date;
+        providerAcceptedDate: string | null;
+        contentHash: string;
+        observedAt: Date;
+        values: Prisma.InputJsonValue;
+      }> = [];
+      let insertedRevisionCount = 0;
+      let unchangedCount = 0;
+      const plannedRevisions = new Set<string>();
+
+      for (const statement of input.statements) {
+        const contentHash = financialStatementContentHash(statement);
+        const revisionKey = financialStatementRevisionKey({
+          securityId: statement.securityId,
+          statementType: statement.statementType,
+          fiscalDate: statement.fiscalDate,
+          fiscalYear: statement.fiscalYear,
+          period: statement.period,
+          contentHash,
+        });
+        if (existingByRevision.has(revisionKey) || plannedRevisions.has(revisionKey)) {
+          unchangedCount += 1;
+          continue;
+        }
+        plannedRevisions.add(revisionKey);
+
+        const filingDate = toDatabaseDate(statement.filingDate);
+        const sameFilingDateExists = existingByIdentityAndFiling.has(
+          [
+            statement.securityId,
+            statement.statementType,
+            statement.fiscalDate,
+            statement.fiscalYear,
+            statement.period,
+            statement.filingDate,
+          ].join(":"),
+        );
+        const availableFromDate = sameFilingDateExists
+          ? new Date(
+              Math.max(
+                filingDate.valueOf() + 24 * 60 * 60 * 1_000,
+                observedAt.valueOf(),
+              ),
+            )
+          : new Date(filingDate.valueOf() + 24 * 60 * 60 * 1_000);
+        rowsToInsert.push({
+          securityId: statement.securityId,
+          statementType: FinancialStatementTypeEnum[statement.statementType],
+          fiscalDate: toDatabaseDate(statement.fiscalDate),
+          fiscalYear: statement.fiscalYear,
+          period: FinancialPeriodEnum[statement.period],
+          reportedCurrency: statement.reportedCurrency,
+          filingDate,
+          availableFromDate,
+          providerAcceptedDate: statement.providerAcceptedDate ?? null,
+          contentHash,
+          observedAt,
+          values: statement.values as Prisma.InputJsonValue,
+        });
+        insertedRevisionCount += 1;
+      }
+
+      if (rowsToInsert.length > 0) {
+        await transaction.financialStatement.createMany({
+          data: rowsToInsert,
+        });
+      }
+
+      return { insertedRevisionCount, unchangedCount };
+    });
   }
 
   async getIntrinsicValues(
