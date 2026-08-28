@@ -62,6 +62,13 @@ const FUNDAMENTALS_DATASET_BY_TYPE: Record<
   CASH_FLOW: "CASH_FLOW",
 };
 
+type FundamentalsOperation = {
+  statementType: FinancialStatementType;
+  cadence: FinancialStatementCadence;
+  dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
+  variant: string;
+};
+
 export class StockDataNotFoundError extends Error {
   constructor(symbol: string) {
     super(`Stock symbol '${symbol}' was not found`);
@@ -689,7 +696,7 @@ export class CanonicalStockDataService implements StockDataService {
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<string> {
+  ): Promise<string | undefined> {
     const expected = this.fundamentalsOperationsForHistory();
     const currentStates = await Promise.all(
       expected.map((operation) =>
@@ -702,8 +709,9 @@ export class CanonicalStockDataService implements StockDataService {
     );
     const missing = expected.filter((_, index) => !currentStates[index]);
     if (missing.length > 0) {
-      await Promise.all(
-        missing.map((operation) =>
+      await this.runFundamentalsOperationsToSettlement(
+        missing,
+        (operation) =>
           this.syncFundamentalsOperation({
             security,
             target,
@@ -711,7 +719,6 @@ export class CanonicalStockDataService implements StockDataService {
             limit: this.fundamentalsBackfillLimit(operation.cadence),
             lease,
           }),
-        ),
       );
     }
     lease.assertOwned();
@@ -734,7 +741,7 @@ export class CanonicalStockDataService implements StockDataService {
       hydrating,
       lease,
     );
-    return this.latestSyncAt(states) ?? this.nowInstant();
+    return this.oldestRequiredSyncAt(states);
   }
 
   private async refreshPriceWithinLease(
@@ -854,8 +861,9 @@ export class CanonicalStockDataService implements StockDataService {
     lease: LoadLease,
   ): Promise<string> {
     const operations = this.fundamentalsOperationsForHistory();
-    const results = await Promise.all(
-      operations.map((operation) =>
+    const results = await this.runFundamentalsOperationsToSettlement(
+      operations,
+      (operation) =>
         this.syncFundamentalsOperation({
           security,
           target,
@@ -863,7 +871,6 @@ export class CanonicalStockDataService implements StockDataService {
           limit: this.fundamentalsRefreshLimit(operation.cadence),
           lease,
         }),
-      ),
     );
     lease.assertOwned();
 
@@ -923,21 +930,11 @@ export class CanonicalStockDataService implements StockDataService {
   private async syncFundamentalsOperation(input: {
     security: Security;
     target: Required<DateRange>;
-    operation: {
-      statementType: FinancialStatementType;
-      cadence: FinancialStatementCadence;
-      dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
-      variant: string;
-    };
+    operation: FundamentalsOperation;
     limit: number;
     lease: LoadLease;
   }): Promise<{
-    operation: {
-      statementType: FinancialStatementType;
-      cadence: FinancialStatementCadence;
-      dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
-      variant: string;
-    };
+    operation: FundamentalsOperation;
     changedYears: number[];
   }> {
     const loaded = await this.provider.getFinancialStatements(
@@ -998,6 +995,22 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  private async runFundamentalsOperationsToSettlement<T>(
+    operations: readonly FundamentalsOperation[],
+    run: (operation: FundamentalsOperation) => Promise<T>,
+  ): Promise<T[]> {
+    const settled = await Promise.allSettled(operations.map((operation) => run(operation)));
+    const firstRejected = settled.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (firstRejected) {
+      throw toError(firstRejected.reason);
+    }
+    return settled.map(
+      (result) => (result as PromiseFulfilledResult<T>).value,
+    );
+  }
+
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
     const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
     return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}`;
@@ -1015,14 +1028,16 @@ export class CanonicalStockDataService implements StockDataService {
       : FUNDAMENTALS_REFRESH_ANNUAL_LIMIT;
   }
 
-  private latestSyncAt(
+  private oldestRequiredSyncAt(
     states: readonly (PersistedDatasetState | null)[],
   ): string | undefined {
-    return states
-      .map((state) => state?.lastSyncedAt)
+    const syncedAtValues = states.map((state) => state?.lastSyncedAt);
+    if (syncedAtValues.some((value) => value === undefined)) {
+      return undefined;
+    }
+    return syncedAtValues
       .filter((value): value is string => value !== undefined)
-      .sort()
-      .at(-1);
+      .sort()[0];
   }
 
   private boundFinancialQuery(
@@ -1244,4 +1259,8 @@ function yearBoundedRange(from: string, to: string): Required<DateRange> {
     from: `${from.slice(0, 4)}-01-01`,
     to: `${to.slice(0, 4)}-12-31`,
   };
+}
+
+function toError(reason: unknown): Error {
+  return reason instanceof Error ? reason : new Error(String(reason));
 }

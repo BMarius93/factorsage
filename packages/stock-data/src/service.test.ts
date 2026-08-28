@@ -261,6 +261,9 @@ class FakeProvider implements FmpStockProviderPort {
   }> = [];
   rowsByRange = new Map<string, DailyPrice[]>();
   financialRows = new Map<string, FinancialStatementDraft[]>();
+  financialDelays = new Map<string, Promise<void>>();
+  financialStarted: string[] = [];
+  financialCompleted: string[] = [];
   failure?: Error;
   financialFailures = new Map<string, Error>();
   beforeReturn?: () => Promise<void>;
@@ -284,10 +287,16 @@ class FakeProvider implements FmpStockProviderPort {
   ): Promise<FinancialStatementDraft[]> {
     this.financialRequests.push({ statementType, cadence, limit });
     const key = `${statementType}:${cadence}:${limit}`;
+    this.financialStarted.push(key);
     const error = this.financialFailures.get(key);
     if (error) {
       throw error;
     }
+    const delay = this.financialDelays.get(key);
+    if (delay) {
+      await delay;
+    }
+    this.financialCompleted.push(key);
     return this.financialRows.get(key) ?? [];
   }
 }
@@ -1374,6 +1383,154 @@ describe("canonical full-stock hydration", () => {
     );
   });
 
+  it("retries fundamentals refresh after partial failure and uses oldest dataset sync as aggregate freshness", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const staleFundamentalsAt = "2026-08-24T01:00:00.000Z";
+    const firstAttemptAt = "2026-08-24T12:30:00.000Z";
+    const secondAttemptAt = "2026-08-24T12:31:00.000Z";
+    let now = new Date(firstAttemptAt);
+
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setFundamentalsStates(store, staleFundamentalsAt);
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: staleFundamentalsAt,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: staleFundamentalsAt,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+    provider.financialFailures.set(
+      "INCOME:QUARTERLY:12",
+      new Error("fundamentals refresh failed"),
+    );
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => now,
+    );
+
+    await expect(
+      loader.getDailyPrices("AAPL", {
+        from: "2026-01-01",
+        to: "2026-08-24",
+      }),
+    ).rejects.toThrow("fundamentals refresh failed");
+
+    expect(provider.financialRequests).toHaveLength(6);
+    expect(
+      store.states.get("INCOME_STATEMENT:standard:quarter:v1:h30")?.lastSyncedAt,
+    ).toBe(staleFundamentalsAt);
+    expect(
+      store.states.get("BALANCE_SHEET:standard:quarter:v1:h30")?.lastSyncedAt,
+    ).toBe(firstAttemptAt);
+
+    provider.financialFailures.delete("INCOME:QUARTERLY:12");
+    now = new Date(secondAttemptAt);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(provider.financialRequests).toHaveLength(12);
+    expect(
+      store.states.get("INCOME_STATEMENT:standard:quarter:v1:h30")?.lastSyncedAt,
+    ).toBe(secondAttemptAt);
+    expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBe(
+      secondAttemptAt,
+    );
+  });
+
+  it("waits for already-started sibling fundamentals operations to settle before failing", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const staleFundamentalsAt = "2026-08-24T01:00:00.000Z";
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setFundamentalsStates(store, staleFundamentalsAt);
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: staleFundamentalsAt,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: staleFundamentalsAt,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+
+    let releaseSlow = () => {};
+    const slowPending = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    provider.financialDelays.set("BALANCE_SHEET:ANNUAL:3", slowPending);
+    provider.financialFailures.set(
+      "INCOME:QUARTERLY:12",
+      new Error("fast fundamentals failure"),
+    );
+
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date("2026-08-24T12:30:00.000Z"),
+    );
+    let settled = false;
+    const request = loader
+      .getDailyPrices("AAPL", {
+        from: "2026-01-01",
+        to: "2026-08-24",
+      })
+      .finally(() => {
+        settled = true;
+      });
+
+    await waitFor(
+      () => provider.financialStarted.includes("BALANCE_SHEET:ANNUAL:3"),
+      2_000,
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    releaseSlow();
+    await expect(request).rejects.toThrow("fast fundamentals failure");
+    expect(provider.financialCompleted).toContain("BALANCE_SHEET:ANNUAL:3");
+  });
+
   it("keeps unchanged fundamentals refresh idempotent", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
@@ -1811,6 +1968,21 @@ function plusDays(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  const started = Date.now();
+  while (!predicate()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
+  }
 }
 
 function slice<T>(
