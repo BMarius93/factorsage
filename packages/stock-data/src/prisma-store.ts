@@ -76,7 +76,6 @@ function financialStatementContentHash(
   statement: FinancialStatementDraft,
 ): string {
   const canonical = {
-    securityId: statement.securityId,
     statementType: statement.statementType,
     fiscalDate: statement.fiscalDate,
     fiscalYear: statement.fiscalYear,
@@ -762,6 +761,7 @@ export class PrismaStockDataStore implements StockDataStore {
       return { insertedRevisionCount: 0, unchangedCount: 0 };
     }
     const observedAt = new Date(input.syncedAt);
+    const observedAtCalendarDate = toDatabaseDate(fromDatabaseDate(observedAt));
     return this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
       const existingRows = await transaction.financialStatement.findMany({
@@ -779,18 +779,20 @@ export class PrismaStockDataStore implements StockDataStore {
           }),
         ),
       );
-      const existingByIdentityAndFiling = new Set(
-        existingRows.map((row) =>
-          [
-            row.securityId,
-            row.statementType,
-            fromDatabaseDate(row.fiscalDate),
-            row.fiscalYear,
-            row.period,
-            fromDatabaseDate(row.filingDate),
-          ].join(":"),
-        ),
-      );
+      const latestKnownFilingDateByIdentity = new Map<string, Date>();
+      for (const row of existingRows) {
+        const identity = financialStatementIdentityKey({
+          securityId: row.securityId,
+          statementType: row.statementType,
+          fiscalDate: fromDatabaseDate(row.fiscalDate),
+          fiscalYear: row.fiscalYear,
+          period: row.period,
+        });
+        const known = latestKnownFilingDateByIdentity.get(identity);
+        if (!known || row.filingDate.valueOf() > known.valueOf()) {
+          latestKnownFilingDateByIdentity.set(identity, row.filingDate);
+        }
+      }
       const rowsToInsert: Array<{
         securityId: string;
         statementType: FinancialStatementTypeEnum;
@@ -810,6 +812,9 @@ export class PrismaStockDataStore implements StockDataStore {
       const plannedRevisions = new Set<string>();
 
       for (const statement of input.statements) {
+        if (statement.securityId !== input.securityId) {
+          throw new Error("Financial statement securityId mismatch");
+        }
         const contentHash = financialStatementContentHash(statement);
         const revisionKey = financialStatementRevisionKey({
           securityId: statement.securityId,
@@ -826,24 +831,24 @@ export class PrismaStockDataStore implements StockDataStore {
         plannedRevisions.add(revisionKey);
 
         const filingDate = toDatabaseDate(statement.filingDate);
-        const sameFilingDateExists = existingByIdentityAndFiling.has(
-          [
-            statement.securityId,
-            statement.statementType,
-            statement.fiscalDate,
-            statement.fiscalYear,
-            statement.period,
-            statement.filingDate,
-          ].join(":"),
-        );
-        const availableFromDate = sameFilingDateExists
-          ? new Date(
+        const identity = financialStatementIdentityKey({
+          securityId: statement.securityId,
+          statementType: statement.statementType,
+          fiscalDate: statement.fiscalDate,
+          fiscalYear: statement.fiscalYear,
+          period: statement.period,
+        });
+        const latestKnownFilingDate = latestKnownFilingDateByIdentity.get(identity);
+        const canUseInitialAvailability =
+          !latestKnownFilingDate || filingDate.valueOf() > latestKnownFilingDate.valueOf();
+        const availableFromDate = canUseInitialAvailability
+          ? new Date(filingDate.valueOf() + 24 * 60 * 60 * 1_000)
+          : new Date(
               Math.max(
                 filingDate.valueOf() + 24 * 60 * 60 * 1_000,
-                observedAt.valueOf(),
+                observedAtCalendarDate.valueOf(),
               ),
-            )
-          : new Date(filingDate.valueOf() + 24 * 60 * 60 * 1_000);
+            );
         rowsToInsert.push({
           securityId: statement.securityId,
           statementType: FinancialStatementTypeEnum[statement.statementType],
@@ -858,6 +863,10 @@ export class PrismaStockDataStore implements StockDataStore {
           observedAt,
           values: statement.values as Prisma.InputJsonValue,
         });
+        const knownFilingDate = latestKnownFilingDateByIdentity.get(identity);
+        if (!knownFilingDate || filingDate.valueOf() > knownFilingDate.valueOf()) {
+          latestKnownFilingDateByIdentity.set(identity, filingDate);
+        }
         insertedRevisionCount += 1;
       }
 

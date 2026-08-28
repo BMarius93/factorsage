@@ -261,11 +261,11 @@ export function mapFmpDailyPrices(
 export function financialStatementPath(statementType: FinancialStatementType): string {
   switch (statementType) {
     case "INCOME":
-      return "stable/income-statement";
+      return "income-statement";
     case "BALANCE_SHEET":
-      return "stable/balance-sheet-statement";
+      return "balance-sheet-statement";
     case "CASH_FLOW":
-      return "stable/cash-flow-statement";
+      return "cash-flow-statement";
   }
 }
 
