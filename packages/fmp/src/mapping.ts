@@ -1,8 +1,16 @@
 import type {
   DailyPrice,
   DateRange,
+  FinancialStatementCadence,
+  FinancialStatementDraft,
+  FinancialStatementType,
   Security,
   SecurityProfile,
+} from "@intrinsic/domain";
+import {
+  BALANCE_SHEET_FIELDS,
+  CASH_FLOW_FIELDS,
+  INCOME_STATEMENT_FIELDS,
 } from "@intrinsic/domain";
 
 export type FmpProfileDto = {
@@ -48,6 +56,17 @@ export type MappedFmpProfile = {
   security: Omit<Security, "id">;
   profile: Omit<SecurityProfile, "securityId">;
 };
+
+type FmpFinancialStatementDto = {
+  symbol?: unknown;
+  date?: unknown;
+  reportedCurrency?: unknown;
+  cik?: unknown;
+  filingDate?: unknown;
+  acceptedDate?: unknown;
+  fiscalYear?: unknown;
+  period?: unknown;
+} & Record<string, unknown>;
 
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
@@ -96,6 +115,71 @@ function localDate(value: unknown, field: string): string {
     throw new Error(`Invalid FMP ${field}`);
   }
   return parsed;
+}
+
+function optionalNumber(value: unknown, field: string): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  if (typeof value === "string" && value.trim().toLowerCase() === "null") {
+    return undefined;
+  }
+  return finiteNumber(value, field);
+}
+
+function fiscalYear(value: unknown): number {
+  const parsed = finiteNumber(value, "fiscalYear");
+  if (!Number.isInteger(parsed)) {
+    throw new Error("Invalid FMP fiscalYear");
+  }
+  return parsed;
+}
+
+function financialPeriod(value: unknown): FinancialStatementDraft["period"] {
+  const parsed = requiredString(value, "period").toUpperCase();
+  if (parsed !== "FY" && parsed !== "Q1" && parsed !== "Q2" && parsed !== "Q3" && parsed !== "Q4") {
+    throw new Error("Invalid FMP period");
+  }
+  return parsed;
+}
+
+function mapFinancialValues<T extends readonly string[]>(
+  row: FmpFinancialStatementDto,
+  fields: T,
+): Record<string, number> {
+  const mapped: Record<string, number> = {};
+  for (const field of fields) {
+    const value = optionalNumber(row[field], field);
+    if (value !== undefined) {
+      mapped[field] = value;
+    }
+  }
+  return mapped;
+}
+
+function mapFmpFinancialStatementRows<T extends FinancialStatementType>(input: {
+  securityId: string;
+  statementType: T;
+  rows: readonly FmpFinancialStatementDto[];
+  fields: readonly string[];
+}): FinancialStatementDraft<T>[] {
+  return input.rows.map((row) => {
+    requiredString(row.symbol, "financial statement symbol");
+    const period = financialPeriod(row.period);
+    return {
+      securityId: input.securityId,
+      statementType: input.statementType,
+      fiscalDate: localDate(row.date, "financial statement date"),
+      fiscalYear: fiscalYear(row.fiscalYear),
+      period,
+      reportedCurrency: requiredString(row.reportedCurrency, "reportedCurrency"),
+      filingDate: localDate(row.filingDate, "filingDate"),
+      ...(typeof row.acceptedDate === "string" && row.acceptedDate.trim()
+        ? { providerAcceptedDate: row.acceptedDate.trim() }
+        : {}),
+      values: mapFinancialValues(row, input.fields) as FinancialStatementDraft<T>["values"],
+    };
+  });
 }
 
 export function normalizeFmpPercentage(
@@ -174,6 +258,41 @@ export function mapFmpDailyPrices(
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
+export function financialStatementPath(statementType: FinancialStatementType): string {
+  switch (statementType) {
+    case "INCOME":
+      return "income-statement";
+    case "BALANCE_SHEET":
+      return "balance-sheet-statement";
+    case "CASH_FLOW":
+      return "cash-flow-statement";
+  }
+}
+
+function statementFields(statementType: FinancialStatementType): readonly string[] {
+  switch (statementType) {
+    case "INCOME":
+      return INCOME_STATEMENT_FIELDS;
+    case "BALANCE_SHEET":
+      return BALANCE_SHEET_FIELDS;
+    case "CASH_FLOW":
+      return CASH_FLOW_FIELDS;
+  }
+}
+
+export function mapFmpFinancialStatements<T extends FinancialStatementType>(input: {
+  securityId: string;
+  statementType: T;
+  rows: readonly FmpFinancialStatementDto[];
+}): FinancialStatementDraft<T>[] {
+  return mapFmpFinancialStatementRows({
+    securityId: input.securityId,
+    statementType: input.statementType,
+    rows: input.rows,
+    fields: statementFields(input.statementType),
+  });
+}
+
 export type FmpStockProviderPort = {
   getProfile(symbol: string): Promise<MappedFmpProfile | null>;
   getDailyPrices(
@@ -181,4 +300,11 @@ export type FmpStockProviderPort = {
     securityId: string,
     range: DateRange,
   ): Promise<DailyPrice[]>;
+  getFinancialStatements(
+    symbol: string,
+    securityId: string,
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    limit: number,
+  ): Promise<FinancialStatementDraft[]>;
 };

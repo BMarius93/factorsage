@@ -1,6 +1,13 @@
-import type { DateRange } from "@intrinsic/domain";
+import type {
+  DateRange,
+  FinancialStatementCadence,
+  FinancialStatementDraft,
+  FinancialStatementType,
+} from "@intrinsic/domain";
 import {
   mapFmpDailyPrices,
+  mapFmpFinancialStatements,
+  financialStatementPath,
   mapFmpProfile,
   type FmpDailyPriceDto,
   type FmpProfileDto,
@@ -112,6 +119,25 @@ export class FmpClient implements FmpStockProviderPort {
       },
     );
     return mapFmpDailyPrices(securityId, payload);
+  }
+
+  async getFinancialStatements(
+    symbol: string,
+    securityId: string,
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    limit: number,
+  ): Promise<FinancialStatementDraft[]> {
+    const payload = await this.request<unknown[]>(financialStatementPath(statementType), {
+      symbol: symbol.toUpperCase(),
+      period: cadence === "QUARTERLY" ? "quarter" : "annual",
+      limit: String(limit),
+    });
+    return mapFmpFinancialStatements({
+      securityId,
+      statementType,
+      rows: payload as readonly Record<string, unknown>[],
+    });
   }
 
   private async request<T>(

@@ -1,9 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   mapFmpDailyPrices,
+  mapFmpFinancialStatements,
   mapFmpProfile,
   normalizeFmpPercentage,
 } from "./mapping.js";
+import {
+  BALANCE_SHEET_FIELDS,
+  CASH_FLOW_FIELDS,
+  INCOME_STATEMENT_FIELDS,
+} from "@intrinsic/domain";
+
+function financialRow(overrides: Record<string, unknown> = {}) {
+  return {
+    symbol: "AAPL",
+    date: "2020-03-31",
+    reportedCurrency: "USD",
+    filingDate: "2020-05-01",
+    acceptedDate: "2020-05-01 16:05:00",
+    fiscalYear: 2020,
+    period: "Q1",
+    ...overrides,
+  };
+}
 
 describe("FMP mapping", () => {
   it("maps profile identity separately from provider quirks", () => {
@@ -81,5 +100,88 @@ describe("FMP mapping", () => {
 
     expect(mapped.map((row) => row.date)).toEqual(["2020-08-28", "2020-08-31"]);
     expect(mapped[0]?.close).toBeCloseTo(124.81);
+  });
+
+  it("maps statement metadata and cadence explicitly", () => {
+    const quarterly = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "INCOME",
+      rows: [financialRow({ period: "q1" })],
+    });
+    const annual = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "BALANCE_SHEET",
+      rows: [financialRow({ period: "fy", fiscalYear: 2019 })],
+    });
+
+    expect(quarterly[0]).toMatchObject({
+      securityId: "security-1",
+      statementType: "INCOME",
+      fiscalDate: "2020-03-31",
+      period: "Q1",
+      reportedCurrency: "USD",
+      filingDate: "2020-05-01",
+      providerAcceptedDate: "2020-05-01 16:05:00",
+    });
+    expect(annual[0]?.period).toBe("FY");
+  });
+
+  it("maps every catalog field when numeric and preserves missing and zero values", () => {
+    for (const [statementType, fields] of [
+      ["INCOME", INCOME_STATEMENT_FIELDS],
+      ["BALANCE_SHEET", BALANCE_SHEET_FIELDS],
+      ["CASH_FLOW", CASH_FLOW_FIELDS],
+    ] as const) {
+      const payload = financialRow(
+        Object.fromEntries(fields.map((field, index) => [field, index + 1])),
+      );
+      const mapped = mapFmpFinancialStatements({
+        securityId: "security-1",
+        statementType,
+        rows: [payload],
+      });
+      const values = mapped[0]?.values as Record<string, number | undefined>;
+      expect(Object.keys(mapped[0]?.values ?? {}).sort()).toEqual(
+        [...fields].sort(),
+      );
+      for (const [index, field] of fields.entries()) {
+        expect(values[field]).toBe(index + 1);
+      }
+    }
+
+    const sparse = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "INCOME",
+      rows: [financialRow({ revenue: 0, grossProfit: 42 })],
+    });
+    expect(sparse[0]?.values.revenue).toBe(0);
+    expect(sparse[0]?.values.grossProfit).toBe(42);
+    expect(sparse[0]?.values.costOfRevenue).toBeUndefined();
+  });
+
+  it("fails deterministically for invalid metadata or non-numeric values", () => {
+    expect(() =>
+      mapFmpFinancialStatements({
+        securityId: "security-1",
+        statementType: "INCOME",
+        rows: [financialRow({ date: "bad-date" })],
+      }),
+    ).toThrow("Invalid FMP financial statement date");
+
+    expect(() =>
+      mapFmpFinancialStatements({
+        securityId: "security-1",
+        statementType: "INCOME",
+        rows: [financialRow({ revenue: "abc" })],
+      }),
+    ).toThrow("Invalid FMP revenue");
+
+    expect(() =>
+      mapFmpFinancialStatements({
+        securityId: "security-1",
+        statementType: "INCOME",
+        rows: [financialRow({ symbol: "" })],
+      }),
+    ).toThrow("Invalid FMP financial statement symbol");
   });
 });

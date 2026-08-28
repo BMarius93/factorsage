@@ -1,4 +1,7 @@
 import type {
+  FinancialStatement,
+  FinancialStatementDraft,
+  FinancialStatementQuery,
   DailyPrice,
   DailyTechnical,
   DateRange,
@@ -206,6 +209,15 @@ class FakeProvider implements FmpStockProviderPort {
     await this.beforeReturn?.();
     return this.rowsByRange.get(`${range.from}:${range.to}`) ?? [];
   }
+  async getFinancialStatements(
+    _symbol: string,
+    _securityId: string,
+    _statementType: FinancialStatementDraft["statementType"],
+    _cadence: "QUARTERLY" | "ANNUAL",
+    _limit: number,
+  ): Promise<FinancialStatementDraft[]> {
+    return [];
+  }
 }
 
 class FakeStore implements StockDataStore {
@@ -289,6 +301,22 @@ class FakeStore implements StockDataStore {
       .filter((row) => !range.from || row.date >= range.from)
       .filter((row) => !range.to || row.date <= range.to)
       .sort((left, right) => left.date.localeCompare(right.date));
+  }
+  async getFinancialStatements(
+    _securityId: string,
+    _query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[]> {
+    return [];
+  }
+  async saveFinancialStatements(input: {
+    securityId: string;
+    statements: readonly FinancialStatementDraft[];
+    syncedAt: string;
+  }) {
+    return {
+      insertedRevisionCount: 0,
+      unchangedCount: input.statements.length,
+    };
   }
   async saveDailyPriceSync(input: {
     prices: readonly DailyPrice[];

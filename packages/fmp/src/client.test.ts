@@ -35,7 +35,55 @@ function config() {
   };
 }
 
+function statementResponseRow() {
+  return {
+    symbol: "AAPL",
+    date: "2020-03-31",
+    reportedCurrency: "USD",
+    filingDate: "2020-05-01",
+    fiscalYear: 2020,
+    period: "Q1",
+  };
+}
+
 describe("FMP retry policy", () => {
+  it.each([
+    ["INCOME", "income-statement", "QUARTERLY", "quarter"],
+    ["INCOME", "income-statement", "ANNUAL", "annual"],
+    ["BALANCE_SHEET", "balance-sheet-statement", "QUARTERLY", "quarter"],
+    ["BALANCE_SHEET", "balance-sheet-statement", "ANNUAL", "annual"],
+    ["CASH_FLOW", "cash-flow-statement", "QUARTERLY", "quarter"],
+    ["CASH_FLOW", "cash-flow-statement", "ANNUAL", "annual"],
+  ] as const)(
+    "builds %s %s requests without a duplicated stable prefix",
+    async (statementType, expectedPath, cadence, expectedPeriod) => {
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(response([statementResponseRow()]));
+      const client = new FmpClient(config, fetchMock);
+
+      await expect(
+        client.getFinancialStatements(
+          "aapl",
+          "security-1",
+          statementType,
+          cadence,
+          123,
+        ),
+      ).resolves.toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const firstCall = fetchMock.mock.calls[0];
+      const requestUrl = new URL(String(firstCall?.[0]));
+      expect(requestUrl.pathname).toBe(`/stable/${expectedPath}`);
+      expect(requestUrl.pathname).not.toContain("/stable/stable/");
+      expect(requestUrl.searchParams.get("symbol")).toBe("AAPL");
+      expect(requestUrl.searchParams.get("period")).toBe(expectedPeriod);
+      expect(requestUrl.searchParams.get("limit")).toBe("123");
+      expect(requestUrl.searchParams.get("apikey")).toBe("test-secret-key");
+    },
+  );
+
   it("returns successful and empty payloads without retry", async () => {
     const success = vi
       .fn<typeof fetch>()
