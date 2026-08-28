@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
+  FINANCIAL_STATEMENT_TYPES,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_BLEND_IDS,
+  type DailyPrice,
   type DateRange,
   type FinancialStatement,
+  type FinancialStatementCadence,
   type FinancialStatementQuery,
+  type FinancialStatementType,
   type IntrinsicValueBlendPoint,
   type IntrinsicValueBlendQuery,
   type IntrinsicValuePoint,
@@ -15,6 +19,7 @@ import {
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort } from "@intrinsic/fmp";
 import {
+  FINANCIAL_STATEMENT_VERSION,
   PRICE_DATASET_VERSION,
   yearsInRange,
   type StockDataCache,
@@ -40,6 +45,22 @@ import {
 
 const DAILY_TECHNICAL_VARIANT = `1D:v${DAILY_TECHNICAL_CALCULATION_VERSION}`;
 const WEEKLY_PRICE_VARIANT = `1W:v${WEEKLY_AGGREGATION_CALCULATION_VERSION}`;
+const QUARTERLY_CADENCE = "QUARTERLY" as const;
+const ANNUAL_CADENCE = "ANNUAL" as const;
+const FUNDAMENTALS_VARIANT_VERSION = 1;
+const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
+const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
+const FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT = 12;
+const FUNDAMENTALS_REFRESH_ANNUAL_LIMIT = 3;
+
+const FUNDAMENTALS_DATASET_BY_TYPE: Record<
+  FinancialStatementType,
+  "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"
+> = {
+  INCOME: "INCOME_STATEMENT",
+  BALANCE_SHEET: "BALANCE_SHEET",
+  CASH_FLOW: "CASH_FLOW",
+};
 
 export class StockDataNotFoundError extends Error {
   constructor(symbol: string) {
@@ -59,6 +80,7 @@ export type CanonicalStockDataServiceOptions = {
   defaultHistoryDays?: number;
   historyYears?: number;
   recentPriceFreshnessMs?: number;
+  fundamentalsFreshnessMs?: number;
   recentTailCalendarDays?: number;
   now?: () => Date;
 };
@@ -67,6 +89,7 @@ export class CanonicalStockDataService implements StockDataService {
   private readonly defaultHistoryDays: number;
   private readonly historyYears: number;
   private readonly recentPriceFreshnessMs: number;
+  private readonly fundamentalsFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
 
@@ -81,12 +104,15 @@ export class CanonicalStockDataService implements StockDataService {
     this.historyYears = options.historyYears ?? 30;
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
+    this.fundamentalsFreshnessMs =
+      options.fundamentalsFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
     for (const [name, value] of Object.entries({
       defaultHistoryDays: this.defaultHistoryDays,
       historyYears: this.historyYears,
       recentPriceFreshnessMs: this.recentPriceFreshnessMs,
+      fundamentalsFreshnessMs: this.fundamentalsFreshnessMs,
       recentTailCalendarDays: this.recentTailCalendarDays,
     })) {
       if (!Number.isInteger(value) || value <= 0) {
@@ -148,7 +174,10 @@ export class CanonicalStockDataService implements StockDataService {
       await this.ensureStockHydrated(security);
       manifest = await this.cache.getManifest(security.id);
     }
-    if (!this.isFreshnessStale(manifest)) {
+    if (
+      !this.isPriceFreshnessStale(manifest) &&
+      !this.isFundamentalsFreshnessStale(manifest)
+    ) {
       return;
     }
 
@@ -158,12 +187,15 @@ export class CanonicalStockDataService implements StockDataService {
         await this.hydrateWithinLease(security, lease);
         lockedManifest = await this.cache.getManifest(security.id);
       }
-      if (
-        !this.isReady(lockedManifest) ||
-        !this.isFreshnessStale(lockedManifest)
-      ) {
+      if (!this.isReady(lockedManifest)) {
         return;
       }
+      const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
+      const refreshFundamentals = this.isFundamentalsFreshnessStale(lockedManifest);
+      if (!refreshPrices && !refreshFundamentals) {
+        return;
+      }
+
       lease.assertOwned();
       const hydrating = this.hydratingManifest(security, lockedManifest);
       if (!(await this.cache.beginRefresh(lockedManifest, hydrating))) {
@@ -172,111 +204,29 @@ export class CanonicalStockDataService implements StockDataService {
       }
 
       const target = this.canonicalTarget(security);
-      const refreshRange = {
-        from: maxDate(
-          addDays(target.to, -this.recentTailCalendarDays),
-          target.from,
-        ),
-        to: target.to,
-      };
-      const previousState = await this.store.getDatasetState(
-        security.id,
-        "DAILY_PRICE",
-        DAILY_PRICE_VARIANT,
-      );
-      const loaded = await this.provider.getDailyPrices(
-        security.symbol,
-        security.id,
-        refreshRange,
-      );
-      lease.assertOwned();
-      const change = await this.store.saveDailyPriceSync({
-        securityId: security.id,
-        prices: loaded,
-        successfulCoverage: [refreshRange],
-        syncedAt: this.nowInstant(),
-        tailDate: target.to,
-        freshThrough: target.to,
-        assertOwned: lease.assertOwned,
-      });
-      lease.assertOwned();
-
-      const allPrices = await this.store.getDailyPrices(security.id, target);
-      const weeklyPrices = aggregateCompletedWeeks(
-        allPrices,
-        target.to,
-        WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        this.weeklyHistoryContext(security, target),
-      );
-      const weeklyRefreshStart = startOfIsoWeek(addDays(refreshRange.from, -7));
-      let recalculationStart: string | undefined;
-      if (change.earliestChangedDate) {
-        recalculationStart =
-          previousState?.earliestDate &&
-          change.earliestChangedDate < previousState.earliestDate
-            ? target.from
-            : change.earliestChangedDate;
-      }
-      const technicals = recalculationStart
-        ? calculateDailyTechnicals(allPrices).filter(
-            (row) => row.date >= recalculationStart,
-          )
-        : [];
-      const weeklyDelta = weeklyPrices.filter(
-        (row) => row.weekStartDate >= weeklyRefreshStart,
-      );
-      if (technicals.length > 0 || weeklyDelta.length > 0) {
-        lease.assertOwned();
-        await this.store.saveDerivedTechnicals({
-          securityId: security.id,
-          technicals,
-          weeklyPrices: weeklyDelta,
-          successfulCoverage: {
-            from: recalculationStart ?? weeklyRefreshStart,
-            to: target.to,
-          },
-          syncedAt: this.nowInstant(),
-          dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-          weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
-          assertOwned: lease.assertOwned,
-        });
-      }
-      lease.assertOwned();
-
-      if (change.earliestChangedDate) {
-        const affectedRange = yearBoundedRange(
-          change.earliestChangedDate,
-          target.to,
-        );
-        const affectedYears = yearsInRange(affectedRange);
-        await this.cache.writeDailyPriceYears(
-          security.id,
-          await this.store.getDailyPrices(security.id, affectedRange),
-          affectedYears,
+      let prices = await this.store.getDailyPrices(security.id, target);
+      let lastPriceRefreshAt = lockedManifest.lastPriceRefreshAt;
+      if (refreshPrices) {
+        const refreshed = await this.refreshPriceWithinLease(
+          security,
+          target,
           hydrating,
+          lease,
         );
-        await this.cache.writeDailyTechnicalYears(
-          security.id,
-          await this.store.getDailyTechnicals(
-            security.id,
-            affectedRange,
-            DAILY_TECHNICAL_CALCULATION_VERSION,
-          ),
-          affectedYears,
-          DAILY_TECHNICAL_CALCULATION_VERSION,
+        prices = refreshed.prices;
+        lastPriceRefreshAt = refreshed.lastPriceRefreshAt;
+      }
+
+      let lastFundamentalsRefreshAt = lockedManifest.lastFundamentalsRefreshAt;
+      if (refreshFundamentals) {
+        lastFundamentalsRefreshAt = await this.refreshFundamentalsWithinLease(
+          security,
+          target,
           hydrating,
+          lease,
         );
       }
-      const affectedWeeklyYears = yearsInRange(
-        yearBoundedRange(weeklyRefreshStart, target.to),
-      );
-      await this.cache.writeWeeklyPriceYears(
-        security.id,
-        weeklyPrices,
-        affectedWeeklyYears,
-        WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        hydrating,
-      );
+
       lease.assertOwned();
       if (
         !(await this.cache.completeHydration(
@@ -284,9 +234,10 @@ export class CanonicalStockDataService implements StockDataService {
           this.readyManifest(
             security,
             target,
-            allPrices,
+            prices,
             lockedManifest.hydratedAt ?? this.nowInstant(),
-            this.nowInstant(),
+            lastPriceRefreshAt,
+            lastFundamentalsRefreshAt,
           ),
         ))
       ) {
@@ -351,7 +302,19 @@ export class CanonicalStockDataService implements StockDataService {
     const security = await this.getSecurity(symbol);
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
-    return this.store.getFinancialStatements(security.id, query);
+    const bounded = this.boundFinancialQuery(security, query);
+    if (bounded.from && bounded.to && bounded.from > bounded.to) {
+      return [];
+    }
+    const observedManifest = await this.cache.getManifest(security.id);
+    let cached = await this.cache.readFinancialStatements(security.id, bounded);
+    if (cached) {
+      return cached;
+    }
+    await this.cache.invalidateManifest(observedManifest);
+    await this.ensureStockHydrated(security);
+    cached = await this.cache.readFinancialStatements(security.id, bounded);
+    return cached ?? this.store.getFinancialStatements(security.id, bounded);
   }
 
   async getIntrinsicValues(
@@ -570,6 +533,8 @@ export class CanonicalStockDataService implements StockDataService {
       WEEKLY_AGGREGATION_CALCULATION_VERSION,
       hydrating,
     );
+    const lastFundamentalsRefreshAt =
+      await this.hydrateFundamentalsWithinLease(security, target, hydrating, lease);
     lease.assertOwned();
     if (
       !(await this.cache.completeHydration(
@@ -580,6 +545,7 @@ export class CanonicalStockDataService implements StockDataService {
           prices,
           this.nowInstant(),
           tailRefreshAt ?? undefined,
+          lastFundamentalsRefreshAt,
         ),
       ))
     ) {
@@ -718,12 +684,369 @@ export class CanonicalStockDataService implements StockDataService {
       );
   }
 
+  private async hydrateFundamentalsWithinLease(
+    security: Security,
+    target: Required<DateRange>,
+    hydrating: StockManifest,
+    lease: LoadLease,
+  ): Promise<string> {
+    const expected = this.fundamentalsOperationsForHistory();
+    const currentStates = await Promise.all(
+      expected.map((operation) =>
+        this.store.getDatasetState(
+          security.id,
+          operation.dataset,
+          operation.variant,
+        ),
+      ),
+    );
+    const missing = expected.filter((_, index) => !currentStates[index]);
+    if (missing.length > 0) {
+      await Promise.all(
+        missing.map((operation) =>
+          this.syncFundamentalsOperation({
+            security,
+            target,
+            operation,
+            limit: this.fundamentalsBackfillLimit(operation.cadence),
+            lease,
+          }),
+        ),
+      );
+    }
+    lease.assertOwned();
+    const states = await Promise.all(
+      expected.map((operation) =>
+        this.store.getDatasetState(
+          security.id,
+          operation.dataset,
+          operation.variant,
+        ),
+      ),
+    );
+    if (states.some((state) => !state)) {
+      throw new Error("Fundamentals hydration is incomplete");
+    }
+
+    await this.publishAllFundamentalsYears(
+      security.id,
+      target,
+      hydrating,
+      lease,
+    );
+    return this.latestSyncAt(states) ?? this.nowInstant();
+  }
+
+  private async refreshPriceWithinLease(
+    security: Security,
+    target: Required<DateRange>,
+    hydrating: StockManifest,
+    lease: LoadLease,
+  ): Promise<{ prices: DailyPrice[]; lastPriceRefreshAt: string }> {
+    const refreshRange = {
+      from: maxDate(addDays(target.to, -this.recentTailCalendarDays), target.from),
+      to: target.to,
+    };
+    const previousState = await this.store.getDatasetState(
+      security.id,
+      "DAILY_PRICE",
+      DAILY_PRICE_VARIANT,
+    );
+    const loaded = await this.provider.getDailyPrices(
+      security.symbol,
+      security.id,
+      refreshRange,
+    );
+    const syncedAt = this.nowInstant();
+    lease.assertOwned();
+    const change = await this.store.saveDailyPriceSync({
+      securityId: security.id,
+      prices: loaded,
+      successfulCoverage: [refreshRange],
+      syncedAt,
+      tailDate: target.to,
+      freshThrough: target.to,
+      assertOwned: lease.assertOwned,
+    });
+    lease.assertOwned();
+
+    const allPrices = await this.store.getDailyPrices(security.id, target);
+    const weeklyPrices = aggregateCompletedWeeks(
+      allPrices,
+      target.to,
+      WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      this.weeklyHistoryContext(security, target),
+    );
+    const weeklyRefreshStart = startOfIsoWeek(addDays(refreshRange.from, -7));
+    let recalculationStart: string | undefined;
+    if (change.earliestChangedDate) {
+      recalculationStart =
+        previousState?.earliestDate &&
+        change.earliestChangedDate < previousState.earliestDate
+          ? target.from
+          : change.earliestChangedDate;
+    }
+    const technicals = recalculationStart
+      ? calculateDailyTechnicals(allPrices).filter(
+          (row) => row.date >= recalculationStart,
+        )
+      : [];
+    const weeklyDelta = weeklyPrices.filter(
+      (row) => row.weekStartDate >= weeklyRefreshStart,
+    );
+    if (technicals.length > 0 || weeklyDelta.length > 0) {
+      lease.assertOwned();
+      await this.store.saveDerivedTechnicals({
+        securityId: security.id,
+        technicals,
+        weeklyPrices: weeklyDelta,
+        successfulCoverage: {
+          from: recalculationStart ?? weeklyRefreshStart,
+          to: target.to,
+        },
+        syncedAt: this.nowInstant(),
+        dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
+        weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
+        assertOwned: lease.assertOwned,
+      });
+    }
+    lease.assertOwned();
+
+    if (change.earliestChangedDate) {
+      const affectedRange = yearBoundedRange(change.earliestChangedDate, target.to);
+      const affectedYears = yearsInRange(affectedRange);
+      await this.cache.writeDailyPriceYears(
+        security.id,
+        await this.store.getDailyPrices(security.id, affectedRange),
+        affectedYears,
+        hydrating,
+      );
+      await this.cache.writeDailyTechnicalYears(
+        security.id,
+        await this.store.getDailyTechnicals(
+          security.id,
+          affectedRange,
+          DAILY_TECHNICAL_CALCULATION_VERSION,
+        ),
+        affectedYears,
+        DAILY_TECHNICAL_CALCULATION_VERSION,
+        hydrating,
+      );
+    }
+    const affectedWeeklyYears = yearsInRange(
+      yearBoundedRange(weeklyRefreshStart, target.to),
+    );
+    await this.cache.writeWeeklyPriceYears(
+      security.id,
+      weeklyPrices,
+      affectedWeeklyYears,
+      WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      hydrating,
+    );
+
+    return { prices: allPrices, lastPriceRefreshAt: syncedAt };
+  }
+
+  private async refreshFundamentalsWithinLease(
+    security: Security,
+    target: Required<DateRange>,
+    hydrating: StockManifest,
+    lease: LoadLease,
+  ): Promise<string> {
+    const operations = this.fundamentalsOperationsForHistory();
+    const results = await Promise.all(
+      operations.map((operation) =>
+        this.syncFundamentalsOperation({
+          security,
+          target,
+          operation,
+          limit: this.fundamentalsRefreshLimit(operation.cadence),
+          lease,
+        }),
+      ),
+    );
+    lease.assertOwned();
+
+    for (const result of results) {
+      if (result.changedYears.length === 0) {
+        continue;
+      }
+      const firstYear = result.changedYears[0]!;
+      const lastYear = result.changedYears.at(-1)!;
+      const rows = await this.store.getFinancialStatementRevisions({
+        securityId: security.id,
+        statementType: result.operation.statementType,
+        cadence: result.operation.cadence,
+        from: `${firstYear}-01-01`,
+        to: `${lastYear}-12-31`,
+      });
+      await this.cache.writeFinancialStatementYears(
+        security.id,
+        rows,
+        result.operation.statementType,
+        result.operation.cadence,
+        result.changedYears,
+        hydrating,
+      );
+      lease.assertOwned();
+    }
+    return this.nowInstant();
+  }
+
+  private async publishAllFundamentalsYears(
+    securityId: string,
+    target: Required<DateRange>,
+    hydrating: StockManifest,
+    lease: LoadLease,
+  ): Promise<void> {
+    const years = yearsInRange(target);
+    for (const operation of this.fundamentalsOperationsForHistory()) {
+      const rows = await this.store.getFinancialStatementRevisions({
+        securityId,
+        statementType: operation.statementType,
+        cadence: operation.cadence,
+        from: target.from,
+        to: target.to,
+      });
+      await this.cache.writeFinancialStatementYears(
+        securityId,
+        rows,
+        operation.statementType,
+        operation.cadence,
+        years,
+        hydrating,
+      );
+      lease.assertOwned();
+    }
+  }
+
+  private async syncFundamentalsOperation(input: {
+    security: Security;
+    target: Required<DateRange>;
+    operation: {
+      statementType: FinancialStatementType;
+      cadence: FinancialStatementCadence;
+      dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
+      variant: string;
+    };
+    limit: number;
+    lease: LoadLease;
+  }): Promise<{
+    operation: {
+      statementType: FinancialStatementType;
+      cadence: FinancialStatementCadence;
+      dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
+      variant: string;
+    };
+    changedYears: number[];
+  }> {
+    const loaded = await this.provider.getFinancialStatements(
+      input.security.symbol,
+      input.security.id,
+      input.operation.statementType,
+      input.operation.cadence,
+      input.limit,
+    );
+    const statements = loaded
+      .filter((statement) => statement.fiscalDate >= input.target.from)
+      .filter((statement) => statement.fiscalDate <= input.target.to);
+    const syncedAt = this.nowInstant();
+    input.lease.assertOwned();
+    const saved = await this.store.saveFinancialStatements({
+      securityId: input.security.id,
+      statements,
+      syncedAt,
+    });
+    input.lease.assertOwned();
+    const sortedFiscalDates = statements.map((statement) => statement.fiscalDate).sort();
+    await this.store.upsertDatasetState({
+      securityId: input.security.id,
+      dataset: input.operation.dataset,
+      variant: input.operation.variant,
+      syncedAt,
+      ...(sortedFiscalDates[0] ? { earliestDate: sortedFiscalDates[0] } : {}),
+      ...(sortedFiscalDates.at(-1)
+        ? { latestDate: sortedFiscalDates.at(-1) }
+        : {}),
+    });
+
+    return {
+      operation: input.operation,
+      changedYears:
+        saved.insertedRevisionCount > 0
+          ? [
+              ...new Set(
+                statements.map((statement) => Number(statement.fiscalDate.slice(0, 4))),
+              ),
+            ].sort((left, right) => left - right)
+          : [],
+    };
+  }
+
+  private fundamentalsOperationsForHistory() {
+    const cadences: readonly FinancialStatementCadence[] = [
+      QUARTERLY_CADENCE,
+      ANNUAL_CADENCE,
+    ];
+    return FINANCIAL_STATEMENT_TYPES.flatMap((statementType) =>
+      cadences.map((cadence) => ({
+        statementType,
+        cadence,
+        dataset: FUNDAMENTALS_DATASET_BY_TYPE[statementType],
+        variant: this.fundamentalsVariant(cadence),
+      })),
+    );
+  }
+
+  private fundamentalsVariant(cadence: FinancialStatementCadence): string {
+    const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
+    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}`;
+  }
+
+  private fundamentalsBackfillLimit(cadence: FinancialStatementCadence): number {
+    return cadence === QUARTERLY_CADENCE
+      ? this.historyYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
+      : this.historyYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
+  }
+
+  private fundamentalsRefreshLimit(cadence: FinancialStatementCadence): number {
+    return cadence === QUARTERLY_CADENCE
+      ? FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT
+      : FUNDAMENTALS_REFRESH_ANNUAL_LIMIT;
+  }
+
+  private latestSyncAt(
+    states: readonly (PersistedDatasetState | null)[],
+  ): string | undefined {
+    return states
+      .map((state) => state?.lastSyncedAt)
+      .filter((value): value is string => value !== undefined)
+      .sort()
+      .at(-1);
+  }
+
+  private boundFinancialQuery(
+    security: Security,
+    query: FinancialStatementQuery,
+  ): FinancialStatementQuery {
+    const target = this.canonicalTarget(security);
+    const from = query.from ? maxDate(query.from, target.from) : target.from;
+    const to = query.to ? minDate(query.to, target.to) : target.to;
+    return {
+      ...query,
+      from,
+      to,
+      ...(query.asOf ? { asOf: minDate(query.asOf, target.to) } : {}),
+    };
+  }
+
   private readyManifest(
     security: Security,
     target: Required<DateRange>,
     prices: readonly { date: string }[],
     hydratedAt: string,
     lastPriceRefreshAt?: string,
+    lastFundamentalsRefreshAt?: string,
   ): StockManifest {
     const first = prices[0]?.date;
     const last = prices.at(-1)?.date;
@@ -737,7 +1060,9 @@ export class CanonicalStockDataService implements StockDataService {
       ...(last ? { canonicalHistoryEnd: last } : {}),
       hydratedAt,
       ...(lastPriceRefreshAt ? { lastPriceRefreshAt } : {}),
+      ...(lastFundamentalsRefreshAt ? { lastFundamentalsRefreshAt } : {}),
       priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
       weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
     };
@@ -758,6 +1083,7 @@ export class CanonicalStockDataService implements StockDataService {
       hydrationId: randomUUID(),
       hydratingAt: this.nowInstant(),
       priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
       dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
       weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
     };
@@ -768,12 +1094,13 @@ export class CanonicalStockDataService implements StockDataService {
       manifest?.status === "READY" &&
       manifest.historyYears === this.historyYears &&
       manifest.priceDatasetVersion === PRICE_DATASET_VERSION &&
+      manifest.financialStatementVersion === FINANCIAL_STATEMENT_VERSION &&
       manifest.dailyTechnicalVersion === DAILY_TECHNICAL_CALCULATION_VERSION &&
       manifest.weeklyVersion === WEEKLY_AGGREGATION_CALCULATION_VERSION
     );
   }
 
-  private isFreshnessStale(manifest: StockManifest | null): boolean {
+  private isPriceFreshnessStale(manifest: StockManifest | null): boolean {
     if (!this.isReady(manifest) || !manifest.lastPriceRefreshAt) {
       return true;
     }
@@ -781,6 +1108,17 @@ export class CanonicalStockDataService implements StockDataService {
     return (
       !Number.isFinite(lastRefresh) ||
       this.now().valueOf() - lastRefresh >= this.recentPriceFreshnessMs
+    );
+  }
+
+  private isFundamentalsFreshnessStale(manifest: StockManifest | null): boolean {
+    if (!this.isReady(manifest) || !manifest.lastFundamentalsRefreshAt) {
+      return true;
+    }
+    const lastRefresh = Date.parse(manifest.lastFundamentalsRefreshAt);
+    return (
+      !Number.isFinite(lastRefresh) ||
+      this.now().valueOf() - lastRefresh >= this.fundamentalsFreshnessMs
     );
   }
 

@@ -182,7 +182,9 @@ function readyManifest(securityId: string): StockManifest {
     canonicalHistoryEnd: "2021-12-31",
     hydratedAt: "2026-08-24T12:00:00.000Z",
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
+    lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
     priceDatasetVersion: 1,
+    financialStatementVersion: 1,
     dailyTechnicalVersion: 1,
     weeklyVersion: 2,
   };

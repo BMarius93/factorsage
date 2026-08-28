@@ -3,9 +3,11 @@ import type {
   DailyPrice,
   DailyTechnical,
   DateRange,
+  FinancialStatementCadence,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
+  FinancialStatementType,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
@@ -877,6 +879,112 @@ export class PrismaStockDataStore implements StockDataStore {
       }
 
       return { insertedRevisionCount, unchangedCount };
+    });
+  }
+
+  async getFinancialStatementRevisions(input: {
+    securityId: string;
+    statementType?: FinancialStatementType;
+    cadence?: FinancialStatementCadence;
+    from?: string;
+    to?: string;
+  }): Promise<FinancialStatement[]> {
+    const rows = await this.prisma.financialStatement.findMany({
+      where: {
+        securityId: input.securityId,
+        ...(input.statementType
+          ? {
+              statementType:
+                FinancialStatementTypeEnum[input.statementType],
+            }
+          : {}),
+        ...(statementPeriods(input.cadence)
+          ? { period: { in: statementPeriods(input.cadence) } }
+          : {}),
+        ...(input.from
+          ? { fiscalDate: { gte: toDatabaseDate(input.from) } }
+          : {}),
+        ...(input.to ? { fiscalDate: { lte: toDatabaseDate(input.to) } } : {}),
+      },
+      orderBy: [
+        { fiscalDate: "asc" },
+        { statementType: "asc" },
+        { period: "asc" },
+        { availableFromDate: "asc" },
+        { observedAt: "asc" },
+      ],
+    });
+    return rows.map(financialStatementFromRow);
+  }
+
+  async upsertDatasetState(input: {
+    securityId: string;
+    dataset: PersistedStockDataset;
+    variant: string;
+    syncedAt: string;
+    earliestDate?: string;
+    latestDate?: string;
+  }): Promise<void> {
+    const dataset = datasetEnum(input.dataset);
+    const existing = await this.prisma.stockDatasetState.findUnique({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset,
+          variant: input.variant,
+        },
+      },
+    });
+    const lastSuccessfulSyncAt = existing?.lastSuccessfulSyncAt
+      ? new Date(
+          Math.max(
+            existing.lastSuccessfulSyncAt.valueOf(),
+            new Date(input.syncedAt).valueOf(),
+          ),
+        )
+      : new Date(input.syncedAt);
+    const earliestDate = input.earliestDate
+      ? existing?.earliestDate
+        ? new Date(
+            Math.min(
+              existing.earliestDate.valueOf(),
+              toDatabaseDate(input.earliestDate).valueOf(),
+            ),
+          )
+        : toDatabaseDate(input.earliestDate)
+      : (existing?.earliestDate ?? null);
+    const latestDate = input.latestDate
+      ? existing?.latestDate
+        ? new Date(
+            Math.max(
+              existing.latestDate.valueOf(),
+              toDatabaseDate(input.latestDate).valueOf(),
+            ),
+          )
+        : toDatabaseDate(input.latestDate)
+      : (existing?.latestDate ?? null);
+
+    await this.prisma.stockDatasetState.upsert({
+      where: {
+        securityId_dataset_variant: {
+          securityId: input.securityId,
+          dataset,
+          variant: input.variant,
+        },
+      },
+      create: {
+        securityId: input.securityId,
+        dataset,
+        variant: input.variant,
+        lastSuccessfulSyncAt,
+        ...(earliestDate ? { earliestDate } : {}),
+        ...(latestDate ? { latestDate } : {}),
+      },
+      update: {
+        lastSuccessfulSyncAt,
+        ...(earliestDate ? { earliestDate } : {}),
+        ...(latestDate ? { latestDate } : {}),
+      },
     });
   }
 

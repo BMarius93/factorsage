@@ -6,7 +6,7 @@ import {
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import type { DateRange } from "@intrinsic/domain";
+import type { DateRange, FinancialStatement } from "@intrinsic/domain";
 import {
   FmpClient,
   FmpRateLimitError,
@@ -119,8 +119,68 @@ describeRedis("real Redis stock-data infrastructure", () => {
     });
   });
 
+  it("stores immutable financial revisions in yearly chunks and preserves asOf selection", async () => {
+    const financialSecurityId = `${securityId}-financials`;
+    await cacheA.evict(financialSecurityId);
+    const first = financialRow(financialSecurityId, {
+      fiscalDate: "2021-03-31",
+      filingDate: "2021-04-20",
+      availableFromDate: "2021-04-21",
+      observedAt: "2021-04-20T12:00:00.000Z",
+      contentHash: "rev-1",
+      values: { revenue: 100 },
+    });
+    const second = financialRow(financialSecurityId, {
+      fiscalDate: "2021-03-31",
+      filingDate: "2021-05-20",
+      availableFromDate: "2021-05-21",
+      observedAt: "2021-05-20T12:00:00.000Z",
+      contentHash: "rev-2",
+      values: { revenue: 200 },
+    });
+    await cacheA.writeFinancialStatementYears(
+      financialSecurityId,
+      [first, second],
+      "INCOME",
+      "QUARTERLY",
+      [2021],
+    );
+    await cacheA.setManifest(readyManifest(financialSecurityId));
+
+    await expect(
+      cacheB.readFinancialStatements(financialSecurityId, {
+        statementTypes: ["INCOME"],
+        cadence: "QUARTERLY",
+        from: "2021-01-01",
+        to: "2021-12-31",
+        asOf: "2021-05-01",
+      }),
+    ).resolves.toMatchObject([{ contentHash: "rev-1", values: { revenue: 100 } }]);
+    await expect(
+      cacheB.readFinancialStatements(financialSecurityId, {
+        statementTypes: ["INCOME"],
+        cadence: "QUARTERLY",
+        from: "2021-01-01",
+        to: "2021-12-31",
+      }),
+    ).resolves.toMatchObject([{ contentHash: "rev-2", values: { revenue: 200 } }]);
+    await cacheA.evict(financialSecurityId);
+  });
+
   it("shares global LRU order and evicts every registered key for one stock", async () => {
-    await cacheA.touch(securityId);
+    await cacheA.writeDailyPriceYears(
+      securityId,
+      [stockPrice(securityId, "2021-01-04", 3)],
+      [2021],
+    );
+    await cacheA.writeFinancialStatementYears(
+      securityId,
+      [financialRow(securityId)],
+      "INCOME",
+      "QUARTERLY",
+      [2021],
+    );
+    await cacheA.setManifest(readyManifest(securityId));
     await cacheB.writeDailyPriceYears(
       "security-other",
       [stockPrice("security-other", "2021-01-04", 3)],
@@ -134,6 +194,11 @@ describeRedis("real Redis stock-data infrastructure", () => {
     ).toEqual([]);
     expect(
       await redisA.get(`${namespace}:security:${securityId}:prices:1D:2021`),
+    ).toBeNull();
+    expect(
+      await redisA.get(
+        `${namespace}:security:${securityId}:financials:income:quarter:v1:2021`,
+      ),
     ).toBeNull();
   });
 
@@ -245,6 +310,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 150);
@@ -255,6 +321,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.price)).not.toBeNull();
     expect(await redisA.get(keys.technical)).not.toBeNull();
     expect(await redisA.get(keys.weekly)).not.toBeNull();
+    expect(await redisA.get(keys.financial)).not.toBeNull();
 
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 200);
@@ -266,6 +333,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.price)).toBeNull();
     expect(await redisA.get(keys.technical)).toBeNull();
     expect(await redisA.get(keys.weekly)).toBeNull();
+    expect(await redisA.get(keys.financial)).toBeNull();
     await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
   });
 
@@ -295,6 +363,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.price)).toBe(-1);
       expect(await redisA.pttl(keys.technical)).toBe(-1);
       expect(await redisA.pttl(keys.weekly)).toBe(-1);
+      expect(await redisA.pttl(keys.financial)).toBe(-1);
 
       await new Promise<void>((resolve) => {
         setTimeout(resolve, hydrationTtlMs + 100);
@@ -306,6 +375,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.get(keys.price)).not.toBeNull();
       expect(await redisA.get(keys.technical)).not.toBeNull();
       expect(await redisA.get(keys.weekly)).not.toBeNull();
+      expect(await redisA.get(keys.financial)).not.toBeNull();
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(true);
     } finally {
       await cache.evict(ttlSecurityId);
@@ -346,6 +416,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
     } finally {
       const registered = await redisA.smembers(keys.registry);
@@ -1535,6 +1606,7 @@ function hydrationKeys(namespace: string, securityId: string, symbol: string) {
     price: `${prefix}:prices:1D:2021`,
     technical: `${prefix}:technicals:1D:v1:2021`,
     weekly: `${prefix}:weekly:1W:v2:2021`,
+    financial: `${prefix}:financials:income:quarter:v1:2021`,
   };
 }
 
@@ -1589,6 +1661,14 @@ async function writeRepresentativeHydration(
     2,
     hydrating,
   );
+  await cache.writeFinancialStatementYears(
+    securityId,
+    [financialRow(securityId)],
+    "INCOME",
+    "QUARTERLY",
+    [2021],
+    hydrating,
+  );
 }
 
 function readyManifest(securityId: string): StockManifest {
@@ -1602,8 +1682,30 @@ function readyManifest(securityId: string): StockManifest {
     canonicalHistoryEnd: "2021-01-04",
     hydratedAt: "2026-08-24T12:00:00.000Z",
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
+    lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
     priceDatasetVersion: 1,
+    financialStatementVersion: 1,
     dailyTechnicalVersion: 1,
     weeklyVersion: 2,
+  };
+}
+
+function financialRow(
+  securityId: string,
+  overrides: Partial<FinancialStatement> = {},
+): FinancialStatement {
+  return {
+    securityId,
+    statementType: "INCOME",
+    fiscalDate: "2021-03-31",
+    fiscalYear: 2021,
+    period: "Q1",
+    reportedCurrency: "USD",
+    filingDate: "2021-04-20",
+    availableFromDate: "2021-04-21",
+    observedAt: "2021-04-20T12:00:00.000Z",
+    contentHash: "baseline",
+    values: { revenue: 100 },
+    ...overrides,
   };
 }

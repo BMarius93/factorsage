@@ -1,4 +1,7 @@
-import type {
+import {
+  FINANCIAL_STATEMENT_TYPES,
+  selectFinancialStatements,
+  type FinancialStatementCadence,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
@@ -59,6 +62,7 @@ class MemoryCache implements StockDataCache {
   readonly prices = new Map<string, DailyPrice[]>();
   readonly technicals = new Map<string, DailyTechnical[]>();
   readonly weekly = new Map<string, WeeklyPrice[]>();
+  readonly financials = new Map<string, FinancialStatement[]>();
   readonly priceYearWrites: number[][] = [];
 
   async getSecurity(symbol: string) {
@@ -180,6 +184,56 @@ class MemoryCache implements StockDataCache {
       ),
     );
   }
+  async readFinancialStatements(
+    securityId: string,
+    query: FinancialStatementQuery,
+  ) {
+    const manifest = this.manifests.get(securityId);
+    if (manifest?.status !== "READY") return null;
+    const from = query.from ?? manifest.coverageStart;
+    const to = query.to ?? manifest.coverageEnd;
+    if (!from || !to || from > to) return [];
+    const statementTypes = query.statementTypes ?? FINANCIAL_STATEMENT_TYPES;
+    const cadences: readonly FinancialStatementCadence[] = query.cadence
+      ? [query.cadence]
+      : ["QUARTERLY", "ANNUAL"];
+    const rangeYears = yearSpan(from, to);
+    const rows: FinancialStatement[] = [];
+    for (const statementType of statementTypes) {
+      for (const cadence of cadences) {
+        for (const year of rangeYears) {
+          const key = `${securityId}:${statementType}:${cadence}:${year}`;
+          const chunk = this.financials.get(key);
+          if (!chunk) {
+            return null;
+          }
+          rows.push(...chunk);
+        }
+      }
+    }
+    return selectFinancialStatements(
+      rows.filter((row) => row.fiscalDate >= from && row.fiscalDate <= to),
+      query,
+    );
+  }
+  async writeFinancialStatementYears(
+    securityId: string,
+    rows: readonly FinancialStatement[],
+    statementType: FinancialStatement["statementType"],
+    cadence: FinancialStatementCadence,
+    writeYears: readonly number[],
+    _hydrating?: StockManifest,
+  ) {
+    for (const year of writeYears) {
+      const key = `${securityId}:${statementType}:${cadence}:${year}`;
+      this.financials.set(
+        key,
+        rows
+          .filter((row) => Number(row.fiscalDate.slice(0, 4)) === year)
+          .sort((left, right) => left.fiscalDate.localeCompare(right.fiscalDate)),
+      );
+    }
+  }
   async hasResidentStock(securityId: string) {
     return this.manifests.get(securityId)?.status === "READY";
   }
@@ -189,14 +243,26 @@ class MemoryCache implements StockDataCache {
     this.prices.delete(securityId);
     this.technicals.delete(securityId);
     this.weekly.delete(securityId);
+    for (const key of [...this.financials.keys()]) {
+      if (key.startsWith(`${securityId}:`)) {
+        this.financials.delete(key);
+      }
+    }
   }
 }
 
 class FakeProvider implements FmpStockProviderPort {
   profile: MappedFmpProfile | null = null;
   readonly ranges: Required<DateRange>[] = [];
+  readonly financialRequests: Array<{
+    statementType: FinancialStatementDraft["statementType"];
+    cadence: "QUARTERLY" | "ANNUAL";
+    limit: number;
+  }> = [];
   rowsByRange = new Map<string, DailyPrice[]>();
+  financialRows = new Map<string, FinancialStatementDraft[]>();
   failure?: Error;
+  financialFailures = new Map<string, Error>();
   beforeReturn?: () => Promise<void>;
 
   async getProfile() {
@@ -212,11 +278,17 @@ class FakeProvider implements FmpStockProviderPort {
   async getFinancialStatements(
     _symbol: string,
     _securityId: string,
-    _statementType: FinancialStatementDraft["statementType"],
-    _cadence: "QUARTERLY" | "ANNUAL",
-    _limit: number,
+    statementType: FinancialStatementDraft["statementType"],
+    cadence: "QUARTERLY" | "ANNUAL",
+    limit: number,
   ): Promise<FinancialStatementDraft[]> {
-    return [];
+    this.financialRequests.push({ statementType, cadence, limit });
+    const key = `${statementType}:${cadence}:${limit}`;
+    const error = this.financialFailures.get(key);
+    if (error) {
+      throw error;
+    }
+    return this.financialRows.get(key) ?? [];
   }
 }
 
@@ -228,6 +300,7 @@ class FakeStore implements StockDataStore {
   weekly: WeeklyPrice[] = [];
   intrinsicValues: IntrinsicValuePoint[] = [];
   blends: IntrinsicValueBlendPoint[] = [];
+  financialStatements: FinancialStatement[] = [];
   states = new Map<string, PersistedDatasetState>();
   coverage = new Map<string, Required<DateRange>[]>();
   coverageSyncs = new Map<
@@ -237,6 +310,11 @@ class FakeStore implements StockDataStore {
   priceSaves = 0;
   derivedWrites: Array<{ technicalDates: string[]; weeklyDates: string[] }> =
     [];
+  fundamentalsStateUpserts: Array<{
+    dataset: PersistedStockDataset;
+    variant: string;
+    syncedAt: string;
+  }> = [];
 
   async findSecurityByProviderSymbol() {
     return this.currentSecurity;
@@ -304,19 +382,114 @@ class FakeStore implements StockDataStore {
   }
   async getFinancialStatements(
     _securityId: string,
-    _query: FinancialStatementQuery,
+    query: FinancialStatementQuery,
   ): Promise<FinancialStatement[]> {
-    return [];
+    return selectFinancialStatements(this.financialStatements, query);
+  }
+  async getFinancialStatementRevisions(input: {
+    securityId: string;
+    statementType?: FinancialStatement["statementType"];
+    cadence?: FinancialStatementCadence;
+    from?: string;
+    to?: string;
+  }): Promise<FinancialStatement[]> {
+    return this.financialStatements
+      .filter((row) => row.securityId === input.securityId)
+      .filter(
+        (row) => !input.statementType || row.statementType === input.statementType,
+      )
+      .filter((row) => !input.from || row.fiscalDate >= input.from)
+      .filter((row) => !input.to || row.fiscalDate <= input.to)
+      .filter((row) => {
+        if (!input.cadence) return true;
+        return input.cadence === "ANNUAL" ? row.period === "FY" : row.period !== "FY";
+      })
+      .sort(
+        (left, right) =>
+          left.fiscalDate.localeCompare(right.fiscalDate) ||
+          left.availableFromDate.localeCompare(right.availableFromDate) ||
+          left.observedAt.localeCompare(right.observedAt),
+      );
   }
   async saveFinancialStatements(input: {
     securityId: string;
     statements: readonly FinancialStatementDraft[];
     syncedAt: string;
   }) {
+    const revisions = input.statements.map((statement) => ({
+      securityId: input.securityId,
+      statementType: statement.statementType,
+      fiscalDate: statement.fiscalDate,
+      fiscalYear: statement.fiscalYear,
+      period: statement.period,
+      reportedCurrency: statement.reportedCurrency,
+      filingDate: statement.filingDate,
+      availableFromDate: plusDays(statement.filingDate, 1),
+      observedAt: input.syncedAt,
+      contentHash: JSON.stringify({
+        statementType: statement.statementType,
+        fiscalDate: statement.fiscalDate,
+        fiscalYear: statement.fiscalYear,
+        period: statement.period,
+        reportedCurrency: statement.reportedCurrency,
+        filingDate: statement.filingDate,
+        values: statement.values,
+      }),
+      values: statement.values,
+    }));
+    const existingKeys = new Set(
+      this.financialStatements.map(
+        (statement) =>
+          `${statement.statementType}:${statement.fiscalDate}:${statement.period}:${statement.filingDate}:${statement.contentHash}`,
+      ),
+    );
+    const uniqueInsertions = revisions.filter((statement) => {
+      const key = `${statement.statementType}:${statement.fiscalDate}:${statement.period}:${statement.filingDate}:${statement.contentHash}`;
+      if (existingKeys.has(key)) {
+        return false;
+      }
+      existingKeys.add(key);
+      return true;
+    });
+    this.financialStatements = [...this.financialStatements, ...uniqueInsertions].sort(
+      (left, right) =>
+        left.fiscalDate.localeCompare(right.fiscalDate) ||
+        left.statementType.localeCompare(right.statementType) ||
+        left.period.localeCompare(right.period) ||
+        left.availableFromDate.localeCompare(right.availableFromDate) ||
+        left.observedAt.localeCompare(right.observedAt),
+    );
     return {
-      insertedRevisionCount: 0,
-      unchangedCount: input.statements.length,
+      insertedRevisionCount: uniqueInsertions.length,
+      unchangedCount: input.statements.length - uniqueInsertions.length,
     };
+  }
+  async upsertDatasetState(input: {
+    securityId: string;
+    dataset: PersistedStockDataset;
+    variant: string;
+    syncedAt: string;
+    earliestDate?: string;
+    latestDate?: string;
+  }): Promise<void> {
+    const key = `${input.dataset}:${input.variant}`;
+    const existing = this.states.get(key);
+    this.states.set(key, {
+      securityId: input.securityId,
+      dataset: input.dataset,
+      variant: input.variant,
+      earliestDate: input.earliestDate ?? existing?.earliestDate,
+      latestDate: input.latestDate ?? existing?.latestDate,
+      lastSyncedAt: input.syncedAt,
+      ...(existing?.calculationVersion
+        ? { calculationVersion: existing.calculationVersion }
+        : {}),
+    });
+    this.fundamentalsStateUpserts.push({
+      dataset: input.dataset,
+      variant: input.variant,
+      syncedAt: input.syncedAt,
+    });
   }
   async saveDailyPriceSync(input: {
     prices: readonly DailyPrice[];
@@ -493,9 +666,16 @@ function createService(
   return new CanonicalStockDataService(store, provider, cache, coordinator, {
     historyYears: 30,
     recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
+    fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
     recentTailCalendarDays: 10,
     now,
   });
+}
+
+function yearSpan(from: string, to: string): number[] {
+  const first = Number(from.slice(0, 4));
+  const last = Number(to.slice(0, 4));
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
 function setTailFreshness(
@@ -513,7 +693,147 @@ function setTailFreshness(
   });
 }
 
+function setFundamentalsStates(
+  store: FakeStore,
+  syncedAt = NOW,
+  historyYears = 30,
+) {
+  const variants = {
+    quarterly: `standard:quarter:v1:h${historyYears}`,
+    annual: `standard:annual:v1:h${historyYears}`,
+  };
+  const datasets: Array<
+    "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"
+  > = ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"];
+  for (const dataset of datasets) {
+    for (const variant of [variants.quarterly, variants.annual]) {
+      store.states.set(`${dataset}:${variant}`, {
+        securityId: security.id,
+        dataset,
+        variant,
+        lastSyncedAt: syncedAt,
+      });
+    }
+  }
+}
+
 describe("canonical full-stock hydration", () => {
+  it("requests the six-source fundamentals initial backfill with expected cadence limits", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store, NOW);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(provider.financialRequests).toHaveLength(6);
+    expect(
+      provider.financialRequests.filter((request) => request.cadence === "QUARTERLY"),
+    ).toHaveLength(3);
+    expect(
+      provider.financialRequests.filter((request) => request.cadence === "ANNUAL"),
+    ).toHaveLength(3);
+    expect(new Set(provider.financialRequests.map((request) => request.limit))).toEqual(
+      new Set([128, 32]),
+    );
+    expect(
+      cache.manifests.get(security.id)?.financialStatementVersion,
+    ).toBe(1);
+    expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBeDefined();
+  });
+
+  it("advances fundamentals cadence state on successful empty backfill responses", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    const variants = store.fundamentalsStateUpserts.map((entry) => entry.variant);
+    expect(variants).toEqual(
+      expect.arrayContaining([
+        "standard:quarter:v1:h30",
+        "standard:annual:v1:h30",
+      ]),
+    );
+    await expect(
+      store.getDatasetState(security.id, "INCOME_STATEMENT", "standard:quarter:v1:h30"),
+    ).resolves.not.toBeNull();
+    await expect(
+      store.getDatasetState(security.id, "INCOME_STATEMENT", "standard:annual:v1:h30"),
+    ).resolves.not.toBeNull();
+  });
+
+  it("treats old READY manifest without financial statement version as stale and reconstructs", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store, NOW);
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+      priceDatasetVersion: 1,
+    } as StockManifest);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(provider.financialRequests).toHaveLength(6);
+    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(1);
+  });
   it("deduplicates identical concurrent requests into one stock hydration", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
@@ -618,6 +938,49 @@ describe("canonical full-stock hydration", () => {
     expect(result).toEqual([price("2026-08-20", 200)]);
     expect(provider.ranges).toEqual([]);
     expect(cache.manifests.get(security.id)?.status).toBe("READY");
+  });
+
+  it("rehydrates Redis fundamentals from durable store without FMP calls when cadence states are complete", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store, NOW);
+    setFundamentalsStates(store, NOW);
+    store.financialStatements = [
+      financialStatementRow("INCOME", "Q1", "2026-03-31", 100),
+      financialStatementRow("INCOME", "FY", "2025-12-31", 300),
+    ];
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+    await cache.evict(security.id);
+    const statements = await loader.getFinancialStatements("AAPL", {
+      statementTypes: ["INCOME"],
+      from: "2025-01-01",
+      to: "2026-12-31",
+    });
+
+    expect(provider.financialRequests).toEqual([]);
+    expect(statements).toHaveLength(2);
+    expect(cache.financials.size).toBeGreaterThan(0);
   });
 
   it("repairs a missing technical suffix without rewriting prior history", async () => {
@@ -784,7 +1147,9 @@ describe("canonical full-stock hydration", () => {
       canonicalHistoryEnd: "2026-08-20",
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
+      financialStatementVersion: 1,
       dailyTechnicalVersion: 1,
       weeklyVersion: 2,
     });
@@ -825,7 +1190,9 @@ describe("canonical full-stock hydration", () => {
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
+      financialStatementVersion: 1,
       dailyTechnicalVersion: 1,
       weeklyVersion: 2,
     });
@@ -846,6 +1213,287 @@ describe("canonical full-stock hydration", () => {
     expect(cache.manifests.get(security.id)?.lastPriceRefreshAt).toBe(
       "2026-08-23T01:00:00.000Z",
     );
+  });
+
+  it("refreshes only fundamentals when prices are fresh and fundamentals are stale", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    const staleFundamentals = "2026-08-24T01:00:00.000Z";
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(CANONICAL_RANGE.from, CANONICAL_RANGE.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: "2026-08-20",
+      canonicalHistoryEnd: "2026-08-20",
+      hydratedAt: staleFundamentals,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: staleFundamentals,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+    setFundamentalsStates(store, NOW);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date("2026-08-24T12:30:00.000Z"),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(provider.ranges).toEqual([]);
+    expect(provider.financialRequests).toHaveLength(6);
+    expect(cache.manifests.get(security.id)?.lastPriceRefreshAt).toBe(NOW);
+    expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBe(
+      "2026-08-24T12:30:00.000Z",
+    );
+  });
+
+  it("refreshes only prices when fundamentals are fresh and prices are stale", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: "2026-08-23T01:00:00.000Z",
+    });
+    setTailFreshness(store, "2026-08-23T01:00:00.000Z");
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [
+      price("2026-08-20", 200),
+      price("2026-08-21", 201),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-20",
+      to: "2026-08-24",
+    });
+
+    expect(provider.financialRequests).toHaveLength(0);
+    expect(provider.ranges).toEqual([{ from: "2026-08-14", to: "2026-08-24" }]);
+  });
+
+  it("does not advance fundamentals freshness when one of six operations fails", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+    provider.financialFailures.set(
+      "INCOME:QUARTERLY:12",
+      new Error("fundamentals refresh failed"),
+    );
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date("2026-08-24T12:30:00.000Z"),
+    );
+
+    await expect(
+      loader.getDailyPrices("AAPL", {
+        from: "2026-01-01",
+        to: "2026-08-24",
+      }),
+    ).rejects.toThrow("fundamentals refresh failed");
+    expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBe(
+      "2026-08-24T01:00:00.000Z",
+    );
+  });
+
+  it("keeps unchanged fundamentals refresh idempotent", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const baseline = financialStatementRow("INCOME", "Q1", "2026-03-31", 100);
+    store.financialStatements = [baseline];
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      dailyTechnicalVersion: 1,
+      weeklyVersion: 2,
+    });
+    provider.financialRows.set("INCOME:QUARTERLY:12", [
+      {
+        securityId: security.id,
+        statementType: "INCOME",
+        fiscalDate: "2026-03-31",
+        fiscalYear: 2026,
+        period: "Q1",
+        reportedCurrency: "USD",
+        filingDate: "2026-04-20",
+        values: { revenue: 100 },
+      },
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date("2026-08-24T12:30:00.000Z"),
+    );
+
+    const before = store.financialStatements.length;
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+    const afterFirst = store.financialStatements.length;
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(afterFirst).toBeGreaterThanOrEqual(before);
+    expect(store.financialStatements.length).toBe(afterFirst);
+  });
+
+  it("serves financial statements from resident cache while preserving asOf revision selection", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store, NOW);
+    setFundamentalsStates(store, NOW);
+    const first = {
+      ...financialStatementRow("INCOME", "Q1", "2026-03-31", 100),
+      filingDate: "2026-04-20",
+      availableFromDate: "2026-04-21",
+      observedAt: "2026-04-20T12:00:00.000Z",
+      contentHash: "rev-1",
+    };
+    const second = {
+      ...financialStatementRow("INCOME", "Q1", "2026-03-31", 200),
+      filingDate: "2026-05-20",
+      availableFromDate: "2026-05-21",
+      observedAt: "2026-05-20T12:00:00.000Z",
+      contentHash: "rev-2",
+    };
+    store.financialStatements = [first, second];
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const asOfOld = await loader.getFinancialStatements("AAPL", {
+      statementTypes: ["INCOME"],
+      cadence: "QUARTERLY",
+      from: "2026-01-01",
+      to: "2026-12-31",
+      asOf: "2026-05-01",
+    });
+    const latest = await loader.getFinancialStatements("AAPL", {
+      statementTypes: ["INCOME"],
+      cadence: "QUARTERLY",
+      from: "2026-01-01",
+      to: "2026-12-31",
+    });
+
+    expect(provider.financialRequests).toHaveLength(0);
+    expect(asOfOld).toMatchObject([{ values: { revenue: 100 } }]);
+    expect(latest).toMatchObject([{ values: { revenue: 200 } }]);
   });
 
   it("bounds empty recent-tail refreshes without freezing freshness forever", async () => {
@@ -872,7 +1520,9 @@ describe("canonical full-stock hydration", () => {
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
+      financialStatementVersion: 1,
       dailyTechnicalVersion: 1,
       weeklyVersion: 2,
     });
@@ -940,7 +1590,9 @@ describe("canonical full-stock hydration", () => {
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: 1,
+      financialStatementVersion: 1,
       dailyTechnicalVersion: 1,
       weeklyVersion: 2,
     };
@@ -1126,6 +1778,39 @@ function blendPoint(
     calculationVersion: 1,
     blendVersion: 1,
   };
+}
+
+function financialStatementRow(
+  statementType: FinancialStatement["statementType"],
+  period: FinancialStatement["period"],
+  fiscalDate: string,
+  revenue: number,
+): FinancialStatement {
+  const filingDate = plusDays(fiscalDate, 20);
+  return {
+    securityId: security.id,
+    statementType,
+    fiscalDate,
+    fiscalYear: Number(fiscalDate.slice(0, 4)),
+    period,
+    reportedCurrency: "USD",
+    filingDate,
+    availableFromDate: plusDays(filingDate, 1),
+    observedAt: NOW,
+    contentHash: JSON.stringify({ statementType, period, fiscalDate, revenue }),
+    values:
+      statementType === "INCOME"
+        ? { revenue }
+        : statementType === "BALANCE_SHEET"
+          ? { totalAssets: revenue }
+          : { netIncome: revenue },
+  };
+}
+
+function plusDays(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 function slice<T>(

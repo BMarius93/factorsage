@@ -2,9 +2,11 @@ import type {
   DailyPrice,
   DailyTechnical,
   DateRange,
+  FinancialStatementCadence,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
+  FinancialStatementType,
   IntrinsicValueBlendPoint,
   IntrinsicValueBlendQuery,
   IntrinsicValuePoint,
@@ -72,11 +74,26 @@ export interface StockDataStore {
     securityId: string,
     query: FinancialStatementQuery,
   ): Promise<FinancialStatement[]>;
+  getFinancialStatementRevisions(input: {
+    securityId: string;
+    statementType?: FinancialStatementType;
+    cadence?: FinancialStatementCadence;
+    from?: string;
+    to?: string;
+  }): Promise<FinancialStatement[]>;
   saveFinancialStatements(input: {
     securityId: string;
     statements: readonly FinancialStatementDraft[];
     syncedAt: string;
   }): Promise<{ insertedRevisionCount: number; unchangedCount: number }>;
+  upsertDatasetState(input: {
+    securityId: string;
+    dataset: PersistedStockDataset;
+    variant: string;
+    syncedAt: string;
+    earliestDate?: string;
+    latestDate?: string;
+  }): Promise<void>;
   saveDerivedTechnicals(input: {
     securityId: string;
     technicals: readonly DailyTechnical[];
