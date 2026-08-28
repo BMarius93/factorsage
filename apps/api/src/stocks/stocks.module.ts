@@ -145,6 +145,8 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
             historyYears: getStockDataConfig().historyYears,
             recentPriceFreshnessMs:
               getStockDataConfig().recentPriceFreshnessMs,
+            fundamentalsFreshnessMs:
+              getStockDataConfig().fundamentalsFreshnessMs,
             recentTailCalendarDays:
               getStockDataConfig().recentTailCalendarDays,
           },

@@ -2,11 +2,20 @@ import type {
   DailyPrice,
   DailyTechnical,
   DateRange,
+  FinancialStatement,
+  FinancialStatementCadence,
+  FinancialStatementQuery,
+  FinancialStatementType,
   Security,
+} from "@intrinsic/domain";
+import {
+  FINANCIAL_STATEMENT_TYPES,
+  selectFinancialStatements,
 } from "@intrinsic/domain";
 import type { WeeklyPrice } from "./weekly.js";
 
 export const PRICE_DATASET_VERSION = 1;
+export const FINANCIAL_STATEMENT_VERSION = 1;
 
 export type StockManifest = {
   securityId: string;
@@ -18,9 +27,11 @@ export type StockManifest = {
   canonicalHistoryEnd?: string;
   hydratedAt?: string;
   lastPriceRefreshAt?: string;
+  lastFundamentalsRefreshAt?: string;
   hydrationId?: string;
   hydratingAt?: string;
   priceDatasetVersion: number;
+  financialStatementVersion: number;
   dailyTechnicalVersion: number;
   weeklyVersion: number;
 };
@@ -90,6 +101,18 @@ export interface StockDataCache {
     prices: readonly WeeklyPrice[],
     years: readonly number[],
     calculationVersion: number,
+    hydrating?: StockManifest,
+  ): Promise<void>;
+  readFinancialStatements(
+    securityId: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[] | null>;
+  writeFinancialStatementYears(
+    securityId: string,
+    statements: readonly FinancialStatement[],
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    years: readonly number[],
     hydrating?: StockManifest,
   ): Promise<void>;
   hasResidentStock(securityId: string): Promise<boolean>;
@@ -292,6 +315,67 @@ export class RedisStockDataCache implements StockDataCache {
     );
   }
 
+  async readFinancialStatements(
+    securityId: string,
+    query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[] | null> {
+    const manifest = await this.getManifest(securityId);
+    if (manifest?.status !== "READY") {
+      return null;
+    }
+    const range = this.financialReadRange(query, manifest);
+    if (!range) {
+      return [];
+    }
+
+    const years = yearsInRange(range);
+    const statementTypes = query.statementTypes ?? FINANCIAL_STATEMENT_TYPES;
+    const cadences: readonly FinancialStatementCadence[] = query.cadence
+      ? [query.cadence]
+      : ["QUARTERLY", "ANNUAL"];
+
+    const keys = statementTypes.flatMap((statementType) =>
+      cadences.flatMap((cadence) =>
+        years.map((year) =>
+          this.financialYearKey(securityId, statementType, cadence, year),
+        ),
+      ),
+    );
+    const payloads = await this.redis.mget(...keys);
+    if (payloads.some((payload) => payload === null)) {
+      return null;
+    }
+    const selected = selectFinancialStatements(
+      payloads
+        .flatMap(
+          (payload) => JSON.parse(payload ?? "[]") as FinancialStatement[],
+        )
+        .filter((row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to),
+      query,
+    );
+    await this.touch(securityId);
+    return selected;
+  }
+
+  async writeFinancialStatementYears(
+    securityId: string,
+    statements: readonly FinancialStatement[],
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    years: readonly number[],
+    hydrating?: StockManifest,
+  ): Promise<void> {
+    await this.writeYearly(
+      securityId,
+      statements,
+      years,
+      (row) => row.fiscalDate,
+      (year) =>
+        this.financialYearKey(securityId, statementType, cadence, year),
+      hydrating,
+    );
+  }
+
   async hasResidentStock(securityId: string): Promise<boolean> {
     return (await this.redis.zscore(this.residentKey(), securityId)) !== null;
   }
@@ -438,6 +522,27 @@ export class RedisStockDataCache implements StockDataCache {
     return `${this.namespace}:security:${securityId}:weekly:1W:v${version}:${year}`;
   }
 
+  private financialYearKey(
+    securityId: string,
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    year: number,
+  ): string {
+    return `${this.namespace}:security:${securityId}:financials:${statementTypeKey(statementType)}:${cadenceKey(cadence)}:v${FINANCIAL_STATEMENT_VERSION}:${year}`;
+  }
+
+  private financialReadRange(
+    query: FinancialStatementQuery,
+    manifest: StockManifest,
+  ): Required<DateRange> | null {
+    const from = query.from ?? manifest.coverageStart;
+    const to = query.to ?? manifest.coverageEnd;
+    if (!from || !to || from > to) {
+      return null;
+    }
+    return { from, to };
+  }
+
   private registryKey(securityId: string): string {
     return `${this.namespace}:security:${securityId}:keys`;
   }
@@ -515,6 +620,20 @@ export class NullStockDataCache implements StockDataCache {
     _prices: readonly WeeklyPrice[],
     _years: readonly number[],
     _calculationVersion: number,
+    _hydrating?: StockManifest,
+  ): Promise<void> {}
+  async readFinancialStatements(
+    _securityId: string,
+    _query: FinancialStatementQuery,
+  ): Promise<FinancialStatement[] | null> {
+    return null;
+  }
+  async writeFinancialStatementYears(
+    _securityId: string,
+    _statements: readonly FinancialStatement[],
+    _statementType: FinancialStatementType,
+    _cadence: FinancialStatementCadence,
+    _years: readonly number[],
     _hydrating?: StockManifest,
   ): Promise<void> {}
   async hasResidentStock(_securityId: string): Promise<boolean> {
@@ -643,3 +762,18 @@ redis.call('DEL', KEYS[1])
 redis.call('ZREM', KEYS[2], ARGV[1])
 return 1
 `;
+
+function statementTypeKey(statementType: FinancialStatementType): string {
+  switch (statementType) {
+    case "INCOME":
+      return "income";
+    case "BALANCE_SHEET":
+      return "balance-sheet";
+    case "CASH_FLOW":
+      return "cash-flow";
+  }
+}
+
+function cadenceKey(cadence: FinancialStatementCadence): string {
+  return cadence === "QUARTERLY" ? "quarter" : "annual";
+}

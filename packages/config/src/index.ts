@@ -249,6 +249,11 @@ export function getStockDataConfig(env: Environment = process.env) {
       ["STOCK_RECENT_PRICE_FRESHNESS_MS"],
       6 * 60 * 60 * 1000,
     ),
+    fundamentalsFreshnessMs: integer(
+      env,
+      ["STOCK_FUNDAMENTALS_FRESHNESS_MS"],
+      6 * 60 * 60 * 1000,
+    ),
     recentTailCalendarDays: integer(
       env,
       ["STOCK_RECENT_TAIL_CALENDAR_DAYS"],
