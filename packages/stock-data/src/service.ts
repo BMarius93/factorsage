@@ -664,6 +664,33 @@ export class CanonicalStockDataService implements StockDataService {
     return rows;
   }
 
+  /**
+   * Republishes every Redis yearly chunk touched by a partial derived rebuild.
+   *
+   * A rebuild may start mid-year, but a yearly chunk is replaced wholesale. Publishing only the
+   * rebuilt tail would silently drop the earlier months of that year from the cache, so the
+   * complete affected years are re-read from PostgreSQL — the durable source of truth — after the
+   * derived-state write and published in full.
+   */
+  private async publishDailyDerivedStateYears(
+    security: Security,
+    from: string,
+    target: Required<DateRange>,
+    hydrating: StockManifest,
+  ): Promise<void> {
+    const affectedRange = yearBoundedRange(from, target.to);
+    const complete = await this.store.getDailyDerivedState(
+      security.id,
+      affectedRange,
+    );
+    await this.cache.writeDailyDerivedStateYears(
+      security.id,
+      complete,
+      yearsInRange(affectedRange),
+      hydrating,
+    );
+  }
+
   private async refreshPriceWithinLease(
     security: Security,
     target: Required<DateRange>,
@@ -713,7 +740,7 @@ export class CanonicalStockDataService implements StockDataService {
       ? minDate(priceRecalculationStart, weeklyRefreshStart)
       : weeklyRefreshStart;
     lease.assertOwned();
-    const rebuiltRows = await this.rebuildDailyDerivedState(
+    await this.rebuildDailyDerivedState(
       security,
       target,
       allPrices,
@@ -731,19 +758,10 @@ export class CanonicalStockDataService implements StockDataService {
         hydrating,
       );
     }
-    const derivedAffectedRange = yearBoundedRange(
+    await this.publishDailyDerivedStateYears(
+      security,
       derivedRebuildStart,
-      target.to,
-    );
-    const derivedAffectedYears = yearsInRange(derivedAffectedRange);
-    await this.cache.writeDailyDerivedStateYears(
-      security.id,
-      rebuiltRows.filter(
-        (row) =>
-          row.date >= derivedAffectedRange.from &&
-          row.date <= derivedAffectedRange.to,
-      ),
-      derivedAffectedYears,
+      target,
       hydrating,
     );
 

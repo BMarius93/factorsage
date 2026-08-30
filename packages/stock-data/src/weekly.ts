@@ -11,6 +11,14 @@ export type WeeklyPrice = {
   securityId: SecurityId;
   weekStartDate: LocalDate;
   weekEndDate: LocalDate;
+  /**
+   * First trading day whose end-of-day derived state may use this week.
+   *
+   * `DailyDerivedState` is an end-of-trading-day state, so a completed week becomes effective on
+   * its own final trading day's close — the actual last observed bar of the week, which handles
+   * holiday-shortened weeks. Earlier days in that week must never see it: doing so would consume a
+   * close that had not happened yet.
+   */
   eligibleDate: LocalDate;
   open: number;
   high: number;
@@ -46,6 +54,14 @@ export function startOfIsoWeek(value: LocalDate): LocalDate {
   return addDays(value, -(day === 0 ? 6 : day - 1));
 }
 
+/**
+ * Aggregates trading weeks that are known to be complete at `asOf`.
+ *
+ * The ISO week containing `asOf` is excluded: while it is still in progress there is no way to
+ * know which of its days is the final one, and guessing would fabricate a value that a later bar
+ * would contradict. Once the week has passed, its last observed bar is its final trading day and
+ * the bar becomes eligible from that day's close.
+ */
 export function aggregateCompletedWeeks(
   prices: readonly DailyPrice[],
   asOf: LocalDate,
@@ -83,7 +99,7 @@ export function aggregateCompletedWeeks(
       securityId: first.securityId,
       weekStartDate,
       weekEndDate: last.date,
-      eligibleDate: addDays(weekStartDate, 7),
+      eligibleDate: last.date,
       open: first.open,
       high: Math.max(...rows.map((row) => row.high)),
       low: Math.min(...rows.map((row) => row.low)),
@@ -123,6 +139,7 @@ export function calculateWeeklyMovingAverage(
   });
 }
 
+/** Latest week whose final trading day has closed at or before `asOf`. */
 export function latestCompletedWeeklyBar(
   bars: readonly WeeklyPrice[],
   asOf: LocalDate,

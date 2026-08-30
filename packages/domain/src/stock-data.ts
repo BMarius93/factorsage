@@ -129,9 +129,11 @@ export type DailyTechnical = {
  * They must be calculated from `DailyPrice` by aggregating completed trading weeks first, then
  * applying the weekly indicator to those weekly bars. Do not derive weekly indicators by averaging
  * daily indicators. For PIT/backtest use, a weekly value becomes eligible only after the source week
- * is complete. Once eligible, the latest weekly value is intentionally materialized on every
- * subsequent trading-day derived record until a newer completed-week value replaces it. Repeated
- * daily values are part of the backtest-facing data model, not accidental duplication.
+ * is complete. Because the daily derived state is an end-of-trading-day state, that means the
+ * week's own final trading day, after its close; earlier days in the same week must never see it.
+ * Once eligible, the latest weekly value is intentionally materialized on every subsequent
+ * trading-day derived record until a newer completed-week value replaces it. Repeated daily values
+ * are part of the backtest-facing data model, not accidental duplication.
  */
 export const WEEKLY_TECHNICAL_BACKTEST_POLICY =
   "COMPLETED_PERIODS_ONLY" as const;

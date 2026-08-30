@@ -210,7 +210,8 @@ The persistence implementation should use a dataset-state model conceptually equ
 - earliest available date
 - latest available date
 - last successful sync timestamp
-- calculation version for derived datasets
+- variant identifying the sync configuration (and, for the derived dataset, its methodology
+  revision, so a methodology change reports no coverage and forces a rebuild)
 
 This enables delta-aware canonical hydration: Redis -> PostgreSQL -> determine missing canonical-horizon coverage -> FMP/calculation -> persist delta -> refresh yearly cache chunks.
 
@@ -250,7 +251,7 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol.
 8. Cache misses hydrate the configured canonical horizon, but PostgreSQL coverage ensures FMP receives only missing canonical deltas. Caller ranges only slice reads.
 9. Historical reads are deterministic and ascending by effective date.
-10. Derived values are persisted for performance but reproducible from canonical inputs plus calculation version.
+10. Derived values are persisted for performance but reproducible from canonical inputs under the current methodology.
 11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
 12. Point-in-time correctness is a hard invariant.
 13. Daily technical names must retain their `d` suffix. Do not introduce ambiguous `sma20`/`ema50` fields once timeframe-aware contracts exist.
@@ -290,7 +291,7 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 1. FMP DTO -> domain mapping keeps provider quirks outside the domain.
 2. Daily EOD mapping preserves split-adjusted OHLCV semantics.
 3. Canonical-horizon gap detection covers empty, full-hit, missing-prefix, missing-suffix, and internal coverage gaps.
-4. Dataset-state updates are monotonic and calculation-version aware.
+4. Dataset-state updates are monotonic, and a methodology-revision change starts a fresh watermark rather than widening the previous one.
 5. SMA 20D/50D/100D/200D calculations are deterministic with correct warm-up behavior.
 6. EMA 20D/50D/200D calculations use one documented seed/warm-up convention.
 7. Moving-average outputs are compared against trusted FMP fixtures within an explicit numeric tolerance.

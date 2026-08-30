@@ -36,7 +36,7 @@ security per trading day, cached as `security:<securityId>:daily-state:<year>` c
 versions are not stored: a methodology change rebuilds the current state.
 
 `@intrinsic/stock-data` owns canonical full-stock hydration: Redis READY check -> PostgreSQL
-canonical-horizon coverage -> missing FMP deltas -> versioned derived calculation -> PostgreSQL ->
+canonical-horizon coverage -> missing FMP deltas -> derived calculation -> PostgreSQL ->
 yearly Redis chunks. Requested ranges are read projections, not hydration boundaries. Process
 adapters construct their own Prisma and Redis clients; they do not reimplement loading behavior.
 

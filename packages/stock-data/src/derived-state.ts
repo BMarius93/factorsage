@@ -18,9 +18,10 @@ export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE
  * Builds the unified daily derived state for every supplied trading day.
  *
  * Daily technicals are calculated per trading day. Completed-week values are carried forward: the
- * latest weekly bar whose `eligibleDate` has been reached is materialized onto the trading day, so
- * the same weekly source repeats across the days of an incomplete week. A weekly source is never
- * visible before its week is complete, and days before the first eligible week carry none.
+ * latest weekly bar whose final trading day has closed is materialized onto the trading day, so
+ * the same weekly source repeats until a newer week completes. Because the daily state is an
+ * end-of-trading-day state, a week becomes effective on its own last trading day's close and is
+ * invisible on every earlier day of that week. Days before the first completed week carry none.
  *
  * Intrinsic-value and blend columns are left absent here. They are materialized by the valuation
  * layer once the methodology is defined; this function must not fabricate them.

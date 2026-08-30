@@ -1112,6 +1112,92 @@ describe("canonical full-stock hydration", () => {
     expect(cache.manifests.get(security.id)?.lastPriceRefreshAt).toBe(NOW);
   });
 
+  it("republishes the complete affected year after a mid-year derived rebuild", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const januaryDates = ["2026-01-05", "2026-01-06"];
+    store.prices = [
+      ...januaryDates.map((date, index) => price(date, 100 + index)),
+      price("2026-08-20", 200),
+    ];
+    // January derived rows are already durable and cached from an earlier hydration.
+    store.dailyState = store.prices.map((row) => ({
+      securityId: security.id,
+      date: row.date,
+      sma20d: row.close,
+    }));
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+      CANONICAL_RANGE,
+    ]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: "2026-08-23T01:00:00.000Z",
+    });
+    store.coverage.set(
+      `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`,
+      [CANONICAL_RANGE],
+    );
+    setTailFreshness(store, "2026-08-23T01:00:00.000Z");
+    const allYears = Array.from({ length: 31 }, (_, index) => 1996 + index);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(security.id, store.prices, allYears);
+    await cache.writeDailyDerivedStateYears(
+      security.id,
+      store.dailyState,
+      allYears,
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: "2026-01-05",
+      canonicalHistoryEnd: "2026-08-20",
+      hydratedAt: "2026-08-23T01:00:00.000Z",
+      lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+    });
+    // The refresh only rebuilds derived rows from August forward.
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [
+      price("2026-08-20", 200),
+      price("2026-08-21", 201),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const refreshed = await loader.getDailyDerivedState("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
+      "2026-08-20",
+      "2026-08-21",
+    ]);
+    // The whole 2026 chunk is republished from PostgreSQL, so January survives the partial rebuild.
+    expect(refreshed.map((row) => row.date)).toEqual([
+      ...januaryDates,
+      "2026-08-20",
+      "2026-08-21",
+    ]);
+    expect(
+      cache.dailyState.get(security.id)?.map((row) => row.date),
+    ).toEqual([...januaryDates, "2026-08-20", "2026-08-21"]);
+  });
+
   it("does not advance READY freshness when the provider refresh fails", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();

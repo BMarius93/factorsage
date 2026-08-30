@@ -80,7 +80,7 @@ describe("range-aware loading", () => {
     ).toEqual([{ from: "2026-08-11", to: "2026-08-14" }]);
   });
 
-  it("advances state monotonically and resets derived coverage on version change", () => {
+  it("advances state monotonically and never records a methodology version", () => {
     const advanced = advanceDatasetState(
       state,
       { from: "2005-01-01", to: "2009-12-31" },
@@ -180,7 +180,8 @@ describe("weekly semantics", () => {
       expect.objectContaining({
         weekStartDate: "2026-08-10",
         weekEndDate: "2026-08-14",
-        eligibleDate: "2026-08-17",
+        // End-of-day state: the week becomes effective on its own final trading day's close.
+        eligibleDate: "2026-08-14",
         open: 10,
         high: 17,
         low: 9,
@@ -193,8 +194,10 @@ describe("weekly semantics", () => {
   it("treats a holiday-shortened week as complete only in the following week", () => {
     const shortened = normalWeek.slice(0, 4);
     expect(aggregateCompletedWeeks(shortened, "2026-08-13")).toEqual([]);
+    // The actual final trading day is Thursday, so that is when the week becomes effective.
     expect(aggregateCompletedWeeks(shortened, "2026-08-17")[0]).toMatchObject({
       weekEndDate: "2026-08-13",
+      eligibleDate: "2026-08-13",
       close: 14,
       volume: 1000,
     });
@@ -233,7 +236,7 @@ describe("weekly semantics", () => {
       expect.objectContaining({
         weekStartDate: "2025-12-29",
         weekEndDate: "2026-01-02",
-        eligibleDate: "2026-01-05",
+        eligibleDate: "2026-01-02",
         open: 9,
         close: 12,
       }),
@@ -310,18 +313,37 @@ describe("unified daily derived state", () => {
       rows.map((row) => [row.date, row.weeklySourceWeekStart]),
     );
 
-    // The first week is still incomplete on its own days: no weekly source is visible.
+    // Monday-Thursday cannot see the close that completes their own week.
     expect(sources["2026-08-10"]).toBeUndefined();
-    expect(sources["2026-08-14"]).toBeUndefined();
-    // Week 1 completes and is eligible from the following Monday, repeating all week.
+    expect(sources["2026-08-13"]).toBeUndefined();
+    // The week becomes effective at its own final trading day's close.
+    expect(sources["2026-08-14"]).toBe("2026-08-10");
+    // It then repeats until a newer week completes; repetition is intentional materialization.
     expect(sources["2026-08-17"]).toBe("2026-08-10");
-    expect(sources["2026-08-21"]).toBe("2026-08-10");
-    // Week 2 completes and replaces it; repetition is intentional materialization.
+    expect(sources["2026-08-20"]).toBe("2026-08-10");
+    expect(sources["2026-08-21"]).toBe("2026-08-17");
     expect(sources["2026-08-24"]).toBe("2026-08-17");
     expect(sources["2026-08-25"]).toBe("2026-08-17");
   });
 
-  it("never carries a weekly value into the week that produced it", () => {
+  it("carries a holiday-shortened week from its actual final trading day", async () => {
+    // Week 2 ends on Thursday; Friday is a holiday.
+    const shortened = [...week1, ...week2.slice(0, 4), price("2026-08-24", 21)];
+    const rows = buildDailyDerivedState({
+      prices: shortened,
+      weeklyBars: aggregateCompletedWeeks(shortened, "2026-08-24"),
+    });
+    const sources = Object.fromEntries(
+      rows.map((row) => [row.date, row.weeklySourceWeekStart]),
+    );
+
+    expect(sources["2026-08-19"]).toBe("2026-08-10");
+    // Thursday is the final trading day of the shortened week, so it becomes effective there.
+    expect(sources["2026-08-20"]).toBe("2026-08-17");
+    expect(sources["2026-08-24"]).toBe("2026-08-17");
+  });
+
+  it("never exposes a value from a week that is still in progress", () => {
     const rows = buildDailyDerivedState({
       prices: week1,
       weeklyBars: aggregateCompletedWeeks(week1, "2026-08-14"),
