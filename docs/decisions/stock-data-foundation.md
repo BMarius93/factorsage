@@ -8,10 +8,13 @@ Foundation decision for the next implementation slice. This document defines con
 
 - One canonical stock-data access boundary for both API Stock Details and worker backtests.
 - PostgreSQL remains the durable source of truth.
-- Redis is a disposable symbol-level cache with LRU residency management in a later implementation PR.
+- Redis is a disposable symbol-level cache with LRU residency management.
 - FMP is upstream data, not the product domain model.
 - Date-range queries are first-class read projections. They do not bound canonical hydration.
 - Historical fundamentals and intrinsic values remain point-in-time correct and cannot use future filings/data.
+- Backtest-facing derived data is materialized on every eligible trading day, including values whose underlying source only changes weekly or when new fundamentals become available.
+- All daily-materialized derived families live in one `DailyDerivedState` row per security per trading day. There is one current methodology; historical calculation versions never coexist.
+- For every Redis-resident stock, the full configured daily historical state needed by backtests is available in Redis and participates in complete-stock LRU residency/eviction.
 
 ## Canonical historical price series
 
@@ -62,6 +65,7 @@ DailyPrice
   -> aggregate completed trading weeks
   -> weekly OHLCV bars
   -> calculate weekly SMA/EMA
+  -> materialize the latest eligible weekly value onto each trading day
 ```
 
 A weekly bar uses:
@@ -78,13 +82,82 @@ known IPO/listing that genuinely starts mid-week remains a valid completed week.
 
 Do not calculate weekly moving averages by averaging daily moving-average values.
 
-For point-in-time/backtest behavior, only completed weekly periods are eligible. A Monday-Thursday backtest date must not see a weekly indicator that depends on the close of the upcoming Friday. The V1 backtest policy is therefore `COMPLETED_PERIODS_ONLY`.
+For point-in-time/backtest behavior, only completed weekly periods are eligible. A Monday-Thursday backtest date must not see a weekly indicator that depends on the close of the upcoming Friday. The V1 backtest policy remains `COMPLETED_PERIODS_ONLY`.
 
-Weekly snapshots should be persisted at most once per completed week when weekly persistence is introduced. Do not duplicate the same weekly value into every daily row. At retrieval time, a daily `asOf` request may resolve to the latest eligible completed weekly snapshot, so the same weekly value can legitimately appear effective across several daily dates until a new week completes.
+Once a weekly indicator becomes eligible, its latest value must be materialized on every subsequent eligible trading day until a newer completed-week value replaces it. Repetition is intentional. The backtest-facing durable representation is daily-aligned even though the underlying weekly calculation changes only once per completed week.
+
+Example:
+
+```text
+Monday    ema20w = 183.4
+Tuesday   ema20w = 183.4
+Wednesday ema20w = 183.4
+Thursday  ema20w = 183.4
+Friday    ema20w = 186.1   # after the new weekly period is complete
+```
 
 A future Stock Details/UI feature may explicitly introduce a provisional week-to-date indicator based on the current partial week. Such a value must be clearly distinguished from completed-period historical values and must never leak into backtest/PIT calculations.
 
 The exact V1 weekly SMA/EMA period catalog is intentionally not fixed by this PR. `1W` is reserved in the type system so a later product decision can add weekly periods without redefining timeframe semantics.
+
+## Daily materialized backtest state
+
+Trading day is the canonical availability granularity for derived backtest data.
+
+For every trading day in the supported history, persist the values that were eligible by that day's PIT cutoff. A derived value may therefore repeat across many rows when its source changes less frequently than daily. This is desired behavior because the backtest should consume a daily-aligned state rather than resolve sparse events or carry values forward itself.
+
+Examples of daily-materialized derived values include:
+
+- daily SMA/EMA values;
+- weekly SMA/EMA values carried forward from the latest completed weekly period;
+- intrinsic-value model results carried forward from the latest eligible fundamentals-driven calculation;
+- intrinsic-value blend results carried forward from the latest eligible component values;
+- future ratios/features explicitly added to the backtest daily state.
+
+Do not fabricate a value before it first becomes eligible. If an indicator lacks warm-up history or an intrinsic-value model is unavailable/not applicable, the daily value remains absent until a valid value exists.
+
+The source data remains stored at its natural cadence: prices daily, financial statements as PIT filing/revision snapshots, and other future event data at its own event cadence. Daily materialization applies to the derived/backtest-facing state, not to duplicating raw source events.
+
+The V1 daily state is an end-of-trading-day state. A completed weekly period or newly eligible filing may affect that trading day's materialized state only when its eligibility rules say the information is available by that cutoff. Same-day before-open execution semantics, if introduced later, require an explicit separate timing policy rather than silently reusing end-of-day state.
+
+## Unified daily derived state persistence
+
+All daily-materialized derived families are one table, not one table per family:
+
+```text
+DailyDerivedState
+  PRIMARY KEY (securityId, date)
+```
+
+Rules that later work must not reverse:
+
+1. Exactly one row per security per trading day. The composite primary key is the identity.
+2. `calculationVersion` is **not** part of the primary key and is not a column anywhere in the
+   daily derived path. One current methodology is materialized; a methodology change rebuilds and
+   replaces the affected rows. Old methodologies are not kept side by side. `BacktestRun` may
+   preserve its own result/audit snapshot separately.
+3. The only historical access pattern is `securityId + date range, ascending`. The composite
+   primary key already provides that B-tree path, so do not add a redundant `(securityId, date)`
+   secondary index. Add an index only for a genuinely different query pattern.
+4. Ticker/symbol never participates in durable historical identity. Resolve symbol -> `Security`
+   once, then use `securityId`.
+5. Do not rely on physical row ordering; always order explicitly by `date`.
+6. Do not denormalize canonical source data into it. `DailyPrice`, point-in-time
+   `FinancialStatement` revisions, and `Security` identity/profile stay separate and keep their own
+   natural cadence. `WeeklyPrice` remains a completed-week aggregate at weekly cadence; only the
+   derived weekly *indicator* values are carried forward daily.
+7. An absent value means not yet eligible or insufficient warm-up. Never write zero, and never
+   back-fill a value before its first eligible trading day.
+
+Methodology changes are handled by an explicit rebuild, not by version history. The
+`DERIVED_STATE_REVISION` constant is recorded only in the dataset-state/coverage variant and in the
+cache manifest. Bumping it reports no coverage for the new variant, which recalculates and replaces
+the materialized state.
+
+Weekly indicator value columns are added to `DailyDerivedState` when the weekly period catalog is
+product-defined. Until then the row carries `weeklySourceWeekStart`, the completed week whose
+carried-forward values are effective on that trading day. Do not reintroduce a weekly-cadence
+indicator table.
 
 ## V1 intrinsic-value models
 
@@ -93,11 +166,22 @@ The exact V1 weekly SMA/EMA period catalog is intentionally not fixed by this PR
 - `DDM`
 - `GRAHAM`
 
-Each historical intrinsic-value point is effective at a `valuationDate` and records `sourceDataAsOf`. Implementations must only use information that was public by that point in time.
+Each intrinsic-value result records `sourceDataAsOf`. Implementations must only use information that was public by that point in time.
 
 `sourceDataAsOf` is the latest publication/availability instant among the inputs actually used by the calculation. It is an audit/no-look-ahead field, not merely the fiscal period end date.
 
-Intrinsic values are snapshots, not necessarily one duplicated row per trading day. An `asOf` query resolves the latest eligible valuation snapshot at or before the requested date.
+Intrinsic-value formulas need to be recalculated only when a relevant PIT input becomes newly eligible or the calculation methodology/version changes. However, the resulting latest eligible value is materialized onto every trading day from its first eligible trading day until the next valuation event. Backtests therefore read a daily intrinsic-value series directly from storage/cache rather than performing sparse-event resolution themselves.
+
+For example:
+
+```text
+2026-05-05 DCF = 180
+2026-05-06 DCF = 180
+...
+2026-08-03 DCF = 180
+2026-08-04 DCF = 195   # newly eligible fundamentals changed the calculation
+2026-08-05 DCF = 195
+```
 
 The implementation must define a consistent market-time cutoff for when a newly published filing becomes eligible in a backtest. A valuation may never become historically visible before every source input used by it was public.
 
@@ -113,6 +197,8 @@ Blend weights must sum to 1. A change to weights creates a new blend version rat
 
 A missing/not-applicable component must be handled explicitly. For example, DDM may be unavailable for a company that does not pay a meaningful dividend. The implementation must not silently pull a future component value, substitute another model, or renormalize weights unless a later product decision explicitly defines that behavior.
 
+Eligible blend results follow the same daily materialization policy as individual intrinsic-value models: the latest valid PIT blend value is stored on each trading day until its component state changes.
+
 ## Dataset state
 
 Do not add `lastUpdatedPrice`, `lastUpdatedFinancials`, etc. columns to `Security`.
@@ -124,7 +210,8 @@ The persistence implementation should use a dataset-state model conceptually equ
 - earliest available date
 - latest available date
 - last successful sync timestamp
-- calculation version for derived datasets
+- variant identifying the sync configuration (and, for the derived dataset, its methodology
+  revision, so a methodology change reports no coverage and forces a rebuild)
 
 This enables delta-aware canonical hydration: Redis -> PostgreSQL -> determine missing canonical-horizon coverage -> FMP/calculation -> persist delta -> refresh yearly cache chunks.
 
@@ -144,8 +231,9 @@ Expected service capabilities:
 - retrieve daily price history by date range
 - retrieve daily technical history by date range
 - retrieve financial/fundamental history by date range/as-of criteria
-- retrieve intrinsic-value history by model and date range/as-of date
-- retrieve intrinsic-value blend history by blend and date range/as-of date
+- retrieve daily-aligned weekly technical history once weekly indicators are implemented
+- retrieve daily-aligned intrinsic-value history by model and date range/as-of date
+- retrieve daily-aligned intrinsic-value blend history by blend and date range/as-of date
 - compose Stock Details from those datasets
 
 The implementation may internally use cache, repository, upstream provider, and calculation-engine ports, but callers must not depend directly on Redis, Prisma, or FMP.
@@ -163,18 +251,36 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol.
 8. Cache misses hydrate the configured canonical horizon, but PostgreSQL coverage ensures FMP receives only missing canonical deltas. Caller ranges only slice reads.
 9. Historical reads are deterministic and ascending by effective date.
-10. Derived values are persisted for performance but reproducible from canonical inputs plus calculation version.
+10. Derived values are persisted for performance but reproducible from canonical inputs under the current methodology.
 11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
 12. Point-in-time correctness is a hard invariant.
 13. Daily technical names must retain their `d` suffix. Do not introduce ambiguous `sma20`/`ema50` fields once timeframe-aware contracts exist.
 14. Weekly indicators must be derived from weekly bars aggregated from daily bars, not from daily indicator values.
 15. Backtests may only use completed weekly periods. Do not expose a Friday-complete value to earlier dates in that same week.
-16. Do not duplicate a weekly snapshot across every day in durable storage; resolve the latest eligible weekly snapshot during retrieval.
-17. Keep the next PR reviewable and avoid unrelated product changes.
+16. Materialize the latest eligible weekly indicator on every trading day until the next completed-week value becomes eligible. Do not make the backtest resolve sparse weekly snapshots itself.
+17. Materialize eligible intrinsic-value model and blend results on every trading day; do not require backtests to carry sparse valuation events forward.
+17b. Keep all daily-materialized derived families in one `DailyDerivedState` row keyed by
+    `(securityId, date)`. Never add a calculation version to daily derived identity, never split a
+    family into its own daily table, and never cache a key per indicator/model/blend.
+18. Every Redis-resident stock must expose the complete configured daily historical state needed by backtests. Redis eviction is complete-stock LRU, never partial-dataset product eviction.
+19. Keep the next PR reviewable and avoid unrelated product changes.
 
 ## Redis direction
 
-The later Redis implementation should maintain a configurable maximum number of resident symbols and evict complete symbols using LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
+Cached derived state uses one yearly chunk family per security:
+
+```text
+security:<securityId>:daily-state:<year>
+```
+
+Do not introduce a Redis key per indicator, model, or blend. Every key belonging to a stock must be
+registered so complete-stock LRU eviction removes all of its cached datasets together.
+
+Redis maintains a configurable maximum number of resident symbols and evicts complete symbols using application-level LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
+
+For a resident symbol, Redis must contain the complete configured historical data needed to serve backtests without reconstructing daily state from sparse weekly/intrinsic events on every request. This includes daily price/technical history and, when implemented, daily-materialized weekly technicals, intrinsic-value model results, and intrinsic-value blend results. Historical fundamentals also remain available for the resident symbol according to their own canonical PIT representation.
+
+Yearly/chunked keys may be used to keep writes and reads bounded, but all keys belonging to the stock must participate in the existing registered-key/generation mechanism and complete-stock LRU eviction. The maximum number of resident stocks is configurable. Access to a stock refreshes its residency/LRU position according to the cache policy.
 
 Redis memory-limit/eviction configuration may be used as a safety net, but product residency semantics belong to the application-level symbol cache policy.
 
@@ -185,20 +291,23 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 1. FMP DTO -> domain mapping keeps provider quirks outside the domain.
 2. Daily EOD mapping preserves split-adjusted OHLCV semantics.
 3. Canonical-horizon gap detection covers empty, full-hit, missing-prefix, missing-suffix, and internal coverage gaps.
-4. Dataset-state updates are monotonic and calculation-version aware.
+4. Dataset-state updates are monotonic, and a methodology-revision change starts a fresh watermark rather than widening the previous one.
 5. SMA 20D/50D/100D/200D calculations are deterministic with correct warm-up behavior.
 6. EMA 20D/50D/200D calculations use one documented seed/warm-up convention.
 7. Moving-average outputs are compared against trusted FMP fixtures within an explicit numeric tolerance.
 8. Daily technical serialization uses `sma20d`/`ema20d`-style timeframe-explicit names and never ambiguous names.
 9. Weekly aggregation from daily bars correctly derives open/high/low/close/volume for normal and holiday-shortened weeks.
 10. Weekly indicator tests prove a Monday-Thursday `asOf` cannot observe a value requiring the future week-ending close.
-11. Weekly `asOf` retrieval resolves the latest completed snapshot and can return the same snapshot for multiple subsequent daily dates without duplicated storage rows.
-12. Historical intrinsic-value selection never returns a snapshot whose `sourceDataAsOf` is after the requested as-of time.
-13. Blend calculation validates weights, uses only eligible components, preserves versions, and handles DDM-not-applicable explicitly.
-14. Redis symbol LRU evicts a complete symbol and never partial datasets.
-15. Loader cache-hit, DB re-admission, DB-partial, and upstream-delta paths return equivalent domain projections.
-16. Concurrent requests for the same stock, including different requested ranges, share one full-stock hydration.
-17. Failed/partial syncs do not falsely advance dataset-state success watermarks.
+11. Weekly daily-materialization tests prove the latest completed weekly value is repeated on each subsequent trading day and replaced only when a newer completed weekly value becomes eligible.
+12. Historical intrinsic-value daily materialization never uses a source whose `sourceDataAsOf` is after the materialized trading-day cutoff and never backfills a value before its first eligibility date.
+13. Blend calculation validates weights, uses only eligible components, handles DDM-not-applicable explicitly, and materializes only valid daily blend values.
+13b. Persistence proves exactly one derived row per `(securityId, date)`, ascending range reads by
+    `securityId`/date, and that no methodology version can coexist for the same day.
+14. Redis symbol LRU evicts a complete symbol and never leaves partial product datasets resident.
+15. Redis re-admission reconstructs the same daily-materialized derived history as the durable PostgreSQL representation.
+16. Loader cache-hit, DB re-admission, DB-partial, and upstream-delta paths return equivalent domain projections.
+17. Concurrent requests for the same stock, including different requested ranges, share one full-stock hydration.
+18. Failed/partial syncs do not falsely advance dataset-state success watermarks.
 
 ### API integration tests
 
@@ -210,15 +319,16 @@ Minimum matrix:
 2. Unknown/unsupported symbol returns the agreed not-found response without leaking provider errors.
 3. Historical price endpoint validates and applies `from`/`to`.
 4. Technical endpoint exposes only agreed daily fields with `d` suffixes.
-5. Intrinsic-value endpoint filters by model/range and supports point-in-time `asOf`.
-6. Blend endpoint filters by blend ID and returns version metadata.
+5. Intrinsic-value endpoint filters by model/range and supports point-in-time `asOf` over the daily-materialized series.
+6. Blend endpoint filters by blend ID and returns version metadata over the daily-materialized series.
 7. Repeating a persisted request returns the same response without requiring FMP again.
 8. Partial canonical-horizon coverage requests only the missing provider delta, independent of the HTTP projection.
 9. Stock Details and worker/backtest resolve the same historical data through the same service contract.
 10. A filing published after the requested date cannot affect that historical response.
 11. Historical arrays are ascending regardless of FMP fixture order.
 12. Warm-up/unavailable derived values are absent/null according to final serialization, never fabricated as zero.
-13. When weekly endpoints are later added, historical `asOf` behavior must prove completed-period-only visibility.
+13. When weekly endpoints are added, responses expose the latest completed weekly value on every eligible trading day and never expose a week-ending value to earlier days in that same incomplete week.
+14. A Redis-resident stock can serve the requested historical daily state without requiring sparse-event reconstruction from PostgreSQL.
 
 ## Explicitly out of scope for this PR
 

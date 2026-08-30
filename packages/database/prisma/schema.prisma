@@ -21,34 +21,13 @@ enum SecurityType {
 enum StockDataset {
   SECURITY_PROFILE
   DAILY_PRICE
-  DAILY_TECHNICAL
   WEEKLY_PRICE
-  WEEKLY_TECHNICAL
+  DAILY_DERIVED_STATE
   INCOME_STATEMENT
   BALANCE_SHEET
   CASH_FLOW
   DIVIDEND
   STOCK_SPLIT
-  INTRINSIC_VALUE
-  INTRINSIC_VALUE_BLEND
-}
-
-enum MovingAverageType {
-  SMA
-  EMA
-}
-
-enum IntrinsicValueModel {
-  DCF_FCFF
-  RESIDUAL_INCOME
-  DDM
-  GRAHAM
-}
-
-enum IntrinsicValueBlendId {
-  BALANCED
-  CONSERVATIVE
-  DIVIDEND
 }
 
 enum FinancialStatementType {
@@ -98,12 +77,9 @@ model Security {
   datasetStates     StockDatasetState[]
   datasetCoverage   StockDatasetCoverage[]
   dailyPrices       DailyPrice[]
-  dailyTechnicals   DailyTechnical[]
   weeklyPrices      WeeklyPrice[]
-  weeklyTechnicals  WeeklyTechnical[]
+  dailyDerivedState DailyDerivedState[]
   financialStatements FinancialStatement[]
-  intrinsicValues   IntrinsicValue[]
-  intrinsicBlends   IntrinsicValueBlend[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -153,7 +129,6 @@ model StockDatasetState {
   earliestDate           DateTime?    @db.Date
   latestDate             DateTime?    @db.Date
   lastSuccessfulSyncAt   DateTime?
-  calculationVersion     Int?
   security               Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@id([securityId, dataset, variant])
@@ -184,25 +159,8 @@ model DailyPrice {
   vwap       Decimal? @db.Decimal(20, 8)
   security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
+  /// The composite primary key already provides the securityId + date-range B-tree access path.
   @@id([securityId, date])
-  @@index([securityId, date])
-}
-
-model DailyTechnical {
-  securityId        String
-  date              DateTime @db.Date
-  sma20d            Decimal? @db.Decimal(20, 8)
-  sma50d            Decimal? @db.Decimal(20, 8)
-  sma100d           Decimal? @db.Decimal(20, 8)
-  sma200d           Decimal? @db.Decimal(20, 8)
-  ema20d            Decimal? @db.Decimal(20, 8)
-  ema50d            Decimal? @db.Decimal(20, 8)
-  ema200d           Decimal? @db.Decimal(20, 8)
-  calculationVersion Int
-  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
-
-  @@id([securityId, date, calculationVersion])
-  @@index([securityId, calculationVersion, date])
 }
 
 model WeeklyPrice {
@@ -215,54 +173,52 @@ model WeeklyPrice {
   low               Decimal  @db.Decimal(20, 8)
   close             Decimal  @db.Decimal(20, 8)
   volume            BigInt
-  calculationVersion Int
   security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
-  @@id([securityId, weekStartDate, calculationVersion])
+  @@id([securityId, weekStartDate])
   @@index([securityId, eligibleDate])
 }
 
-model WeeklyTechnical {
-  securityId        String
-  weekStartDate     DateTime @db.Date
-  eligibleDate      DateTime @db.Date
-  type              MovingAverageType
-  period            Int
-  value             Decimal  @db.Decimal(20, 8)
-  calculationVersion Int
-  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+/// Unified daily materialized derived state.
+///
+/// Exactly one row per security per trading day represents the CURRENT methodology. Historical
+/// methodology versions never coexist here: a methodology change rebuilds/replaces the affected
+/// rows. Never add a calculation-version column or fold one into the primary key.
+///
+/// The composite primary key (securityId, date) is the B-tree access path for the only historical
+/// access pattern: securityId + date range, ascending. Do not add a redundant (securityId, date)
+/// secondary index.
+///
+/// Derived values whose source changes less frequently than daily (completed-week weekly
+/// indicators, fundamentals-driven intrinsic values and blends) are intentionally repeated on each
+/// subsequent trading day until a newer eligible value replaces them. A value stays NULL until it
+/// first becomes point-in-time eligible; it is never fabricated or back-filled earlier.
+model DailyDerivedState {
+  securityId              String
+  date                    DateTime  @db.Date
+  sma20d                  Decimal?  @db.Decimal(20, 8)
+  sma50d                  Decimal?  @db.Decimal(20, 8)
+  sma100d                 Decimal?  @db.Decimal(20, 8)
+  sma200d                 Decimal?  @db.Decimal(20, 8)
+  ema20d                  Decimal?  @db.Decimal(20, 8)
+  ema50d                  Decimal?  @db.Decimal(20, 8)
+  ema200d                 Decimal?  @db.Decimal(20, 8)
+  /// Start date of the completed weekly period whose carried-forward weekly indicators are
+  /// effective on this trading day. Weekly indicator value columns are added here when the
+  /// weekly period catalog is product-defined; they are not invented ahead of that decision.
+  weeklySourceWeekStart   DateTime? @db.Date
+  dcfFcff                 Decimal?  @db.Decimal(20, 8)
+  residualIncome          Decimal?  @db.Decimal(20, 8)
+  ddm                     Decimal?  @db.Decimal(20, 8)
+  graham                  Decimal?  @db.Decimal(20, 8)
+  blendBalanced           Decimal?  @db.Decimal(20, 8)
+  blendConservative       Decimal?  @db.Decimal(20, 8)
+  blendDividend           Decimal?  @db.Decimal(20, 8)
+  /// Latest publication/availability instant among the source inputs actually used by the
+  /// intrinsic values on this row. No-look-ahead audit field; never later than end of `date`.
+  intrinsicSourceDataAsOf DateTime?
+  intrinsicCurrency       String?
+  security                Security  @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
-  @@id([securityId, weekStartDate, type, period, calculationVersion])
-  @@index([securityId, type, period, eligibleDate])
-}
-
-model IntrinsicValue {
-  id                 String                 @id @default(uuid())
-  securityId         String
-  valuationDate      DateTime               @db.Date
-  sourceDataAsOf     DateTime
-  model               IntrinsicValueModel
-  valuePerShare      Decimal                @db.Decimal(20, 8)
-  currency           String
-  calculationVersion Int
-  security           Security               @relation(fields: [securityId], references: [id], onDelete: Cascade)
-
-  @@unique([securityId, valuationDate, sourceDataAsOf, model, calculationVersion])
-  @@index([securityId, model, valuationDate, sourceDataAsOf])
-}
-
-model IntrinsicValueBlend {
-  id                 String                  @id @default(uuid())
-  securityId         String
-  valuationDate      DateTime                @db.Date
-  sourceDataAsOf     DateTime
-  blendId            IntrinsicValueBlendId
-  valuePerShare      Decimal                 @db.Decimal(20, 8)
-  currency           String
-  calculationVersion Int
-  blendVersion       Int
-  security           Security                @relation(fields: [securityId], references: [id], onDelete: Cascade)
-
-  @@unique([securityId, valuationDate, sourceDataAsOf, blendId, blendVersion, calculationVersion])
-  @@index([securityId, blendId, blendVersion, valuationDate, sourceDataAsOf])
+  @@id([securityId, date])
 }

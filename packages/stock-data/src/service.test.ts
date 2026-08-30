@@ -6,12 +6,8 @@ import {
   FinancialStatementDraft,
   FinancialStatementQuery,
   DailyPrice,
-  DailyTechnical,
+  DailyDerivedState,
   DateRange,
-  IntrinsicValueBlendPoint,
-  IntrinsicValueBlendQuery,
-  IntrinsicValuePoint,
-  IntrinsicValueQuery,
   Security,
   SecurityProfile,
 } from "@intrinsic/domain";
@@ -27,6 +23,12 @@ import type {
   PersistedStockDataset,
   StockDataStore,
 } from "./ports.js";
+import { WEEKLY_PRICE_VARIANT } from "./ports.js";
+import {
+  assertOneRowPerTradingDay,
+  DAILY_DERIVED_STATE_VARIANT,
+  DERIVED_STATE_REVISION,
+} from "./derived-state.js";
 import { CanonicalStockDataService } from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
 
@@ -60,8 +62,7 @@ class MemoryCache implements StockDataCache {
   readonly securities = new Map<string, Security>();
   readonly manifests = new Map<string, StockManifest>();
   readonly prices = new Map<string, DailyPrice[]>();
-  readonly technicals = new Map<string, DailyTechnical[]>();
-  readonly weekly = new Map<string, WeeklyPrice[]>();
+  readonly dailyState = new Map<string, DailyDerivedState[]>();
   readonly financials = new Map<string, FinancialStatement[]>();
   readonly priceYearWrites: number[][] = [];
 
@@ -87,8 +88,7 @@ class MemoryCache implements StockDataCache {
     }
     this.manifests.set(hydrating.securityId, hydrating);
     this.prices.delete(hydrating.securityId);
-    this.technicals.delete(hydrating.securityId);
-    this.weekly.delete(hydrating.securityId);
+    this.dailyState.delete(hydrating.securityId);
     return true;
   }
   async beginRefresh(observed: StockManifest, hydrating: StockManifest) {
@@ -141,46 +141,24 @@ class MemoryCache implements StockDataCache {
       ),
     );
   }
-  async readDailyTechnicals(
-    securityId: string,
-    range: Required<DateRange>,
-    _version: number,
-  ) {
+  async readDailyDerivedState(securityId: string, range: Required<DateRange>) {
     if (this.manifests.get(securityId)?.status !== "READY") return null;
-    const rows = this.technicals.get(securityId);
+    const rows = this.dailyState.get(securityId);
     return rows ? slice(rows, range, (row) => row.date) : null;
   }
-  async writeDailyTechnicalYears(
+  async writeDailyDerivedStateYears(
     securityId: string,
-    rows: readonly DailyTechnical[],
+    rows: readonly DailyDerivedState[],
     years: readonly number[],
-    _version: number,
     _hydrating?: StockManifest,
   ) {
-    this.technicals.set(
+    this.dailyState.set(
       securityId,
       replaceYears(
-        this.technicals.get(securityId) ?? [],
+        this.dailyState.get(securityId) ?? [],
         rows,
         years,
         (row) => row.date,
-      ),
-    );
-  }
-  async writeWeeklyPriceYears(
-    securityId: string,
-    rows: readonly WeeklyPrice[],
-    years: readonly number[],
-    _version: number,
-    _hydrating?: StockManifest,
-  ) {
-    this.weekly.set(
-      securityId,
-      replaceYears(
-        this.weekly.get(securityId) ?? [],
-        rows,
-        years,
-        (row) => row.weekStartDate,
       ),
     );
   }
@@ -241,8 +219,7 @@ class MemoryCache implements StockDataCache {
   async evict(securityId: string) {
     this.manifests.delete(securityId);
     this.prices.delete(securityId);
-    this.technicals.delete(securityId);
-    this.weekly.delete(securityId);
+    this.dailyState.delete(securityId);
     for (const key of [...this.financials.keys()]) {
       if (key.startsWith(`${securityId}:`)) {
         this.financials.delete(key);
@@ -305,10 +282,8 @@ class FakeStore implements StockDataStore {
   currentSecurity: Security | null = security;
   profile: SecurityProfile | null = null;
   prices: DailyPrice[] = [];
-  technicals: DailyTechnical[] = [];
+  dailyState: DailyDerivedState[] = [];
   weekly: WeeklyPrice[] = [];
-  intrinsicValues: IntrinsicValuePoint[] = [];
-  blends: IntrinsicValueBlendPoint[] = [];
   financialStatements: FinancialStatement[] = [];
   states = new Map<string, PersistedDatasetState>();
   coverage = new Map<string, Required<DateRange>[]>();
@@ -317,7 +292,7 @@ class FakeStore implements StockDataStore {
     Array<{ range: Required<DateRange>; syncedAt: string }>
   >();
   priceSaves = 0;
-  derivedWrites: Array<{ technicalDates: string[]; weeklyDates: string[] }> =
+  derivedWrites: Array<{ derivedDates: string[]; weeklyDates: string[] }> =
     [];
   fundamentalsStateUpserts: Array<{
     dataset: PersistedStockDataset;
@@ -490,9 +465,6 @@ class FakeStore implements StockDataStore {
       earliestDate: input.earliestDate ?? existing?.earliestDate,
       latestDate: input.latestDate ?? existing?.latestDate,
       lastSyncedAt: input.syncedAt,
-      ...(existing?.calculationVersion
-        ? { calculationVersion: existing.calculationVersion }
-        : {}),
     });
     this.fundamentalsStateUpserts.push({
       dataset: input.dataset,
@@ -562,105 +534,60 @@ class FakeStore implements StockDataStore {
     }
     return earliestChangedDate ? { earliestChangedDate } : {};
   }
-  async getDailyTechnicals(_id: string, range: DateRange, version: number) {
-    return this.technicals.filter(
-      (row) =>
-        row.calculationVersion === version &&
-        (!range.from || row.date >= range.from) &&
-        (!range.to || row.date <= range.to),
-    );
+  async getDailyDerivedState(_id: string, range: DateRange) {
+    return this.dailyState
+      .filter(
+        (row) =>
+          (!range.from || row.date >= range.from) &&
+          (!range.to || row.date <= range.to),
+      )
+      .sort((left, right) => left.date.localeCompare(right.date));
   }
-  async saveDerivedTechnicals(input: {
-    technicals: readonly DailyTechnical[];
+  async saveDailyDerivedState(input: {
+    rows: readonly DailyDerivedState[];
     weeklyPrices: readonly WeeklyPrice[];
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
-    dailyTechnicalCalculationVersion: number;
-    weeklyCalculationVersion: number;
     assertOwned?: () => void;
   }) {
     input.assertOwned?.();
+    assertOneRowPerTradingDay(input.rows);
     this.derivedWrites.push({
-      technicalDates: input.technicals.map((row) => row.date),
+      derivedDates: input.rows.map((row) => row.date),
       weeklyDates: input.weeklyPrices.map((row) => row.weekStartDate),
     });
-    this.technicals = upsertBy(
-      this.technicals,
-      input.technicals,
-      (row) => `${row.date}:${row.calculationVersion}`,
+    this.dailyState = upsertBy(
+      this.dailyState,
+      input.rows,
+      (row) => row.date,
     );
     this.weekly = upsertBy(
       this.weekly,
       input.weeklyPrices,
-      (row) => `${row.weekStartDate}:${row.calculationVersion}`,
+      (row) => row.weekStartDate,
     );
-    const technicalKey = `DAILY_TECHNICAL:1D:v${input.dailyTechnicalCalculationVersion}`;
-    this.states.set(technicalKey, {
+    const derivedKey = `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`;
+    this.states.set(derivedKey, {
       securityId: security.id,
-      dataset: "DAILY_TECHNICAL",
-      variant: `1D:v${input.dailyTechnicalCalculationVersion}`,
+      dataset: "DAILY_DERIVED_STATE",
+      variant: DAILY_DERIVED_STATE_VARIANT,
       earliestDate: input.successfulCoverage.from,
       latestDate: input.successfulCoverage.to,
       lastSyncedAt: input.syncedAt,
-      calculationVersion: input.dailyTechnicalCalculationVersion,
     });
-    this.coverage.set(technicalKey, [input.successfulCoverage]);
-    this.states.set(`WEEKLY_PRICE:1W:v${input.weeklyCalculationVersion}`, {
+    this.coverage.set(derivedKey, [input.successfulCoverage]);
+    this.states.set(`WEEKLY_PRICE:${WEEKLY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "WEEKLY_PRICE",
-      variant: `1W:v${input.weeklyCalculationVersion}`,
+      variant: WEEKLY_PRICE_VARIANT,
       lastSyncedAt: input.syncedAt,
-      calculationVersion: input.weeklyCalculationVersion,
     });
   }
-  async getWeeklyPrices(_id: string, range: DateRange, version: number) {
+  async getWeeklyPrices(_id: string, range: DateRange) {
     return this.weekly.filter(
       (row) =>
-        row.calculationVersion === version &&
         (!range.from || row.weekStartDate >= range.from) &&
         (!range.to || row.weekStartDate <= range.to),
-    );
-  }
-  async getIntrinsicValues(_id: string, query: IntrinsicValueQuery) {
-    const eligible = await this.getIntrinsicValuesForBlend(_id, query);
-    const current = new Map<string, IntrinsicValuePoint>();
-    for (const point of eligible) {
-      const key = `${point.valuationDate}:${point.model}`;
-      const selected = current.get(key);
-      if (
-        !selected ||
-        point.calculationVersion > selected.calculationVersion ||
-        (point.calculationVersion === selected.calculationVersion &&
-          point.sourceDataAsOf > selected.sourceDataAsOf)
-      ) {
-        current.set(key, point);
-      }
-    }
-    return [...current.values()];
-  }
-  async getIntrinsicValuesForBlend(_id: string, query: IntrinsicValueQuery) {
-    const to =
-      query.to && query.asOf
-        ? query.to < query.asOf
-          ? query.to
-          : query.asOf
-        : (query.to ?? query.asOf);
-    return this.intrinsicValues
-      .filter((row) => !query.from || row.valuationDate >= query.from)
-      .filter((row) => !to || row.valuationDate <= to)
-      .filter(
-        (row) =>
-          !query.asOf || row.sourceDataAsOf <= `${query.asOf}T23:59:59.999Z`,
-      )
-      .filter((row) => !query.models || query.models.includes(row.model));
-  }
-  async getIntrinsicValueBlends(_id: string, query: IntrinsicValueBlendQuery) {
-    return this.blends.filter(
-      (row) =>
-        (!query.from || row.valuationDate >= query.from) &&
-        (!query.to || row.valuationDate <= query.to) &&
-        (!query.asOf || row.valuationDate <= query.asOf) &&
-        (!query.blendIds || query.blendIds.includes(row.blendId)),
     );
   }
 }
@@ -824,8 +751,7 @@ describe("canonical full-stock hydration", () => {
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
       priceDatasetVersion: 1,
     } as StockManifest);
     const loader = createService(
@@ -1009,19 +935,17 @@ describe("canonical full-stock hydration", () => {
       lastSyncedAt: NOW,
     });
     setTailFreshness(store);
-    store.states.set("DAILY_TECHNICAL:1D:v1", {
+    store.states.set(`DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`, {
       securityId: security.id,
-      dataset: "DAILY_TECHNICAL",
-      variant: "1D:v1",
-      calculationVersion: 1,
+      dataset: "DAILY_DERIVED_STATE",
+      variant: DAILY_DERIVED_STATE_VARIANT,
     });
-    store.states.set("WEEKLY_PRICE:1W:v2", {
+    store.states.set(`WEEKLY_PRICE:${WEEKLY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "WEEKLY_PRICE",
-      variant: "1W:v2",
-      calculationVersion: 2,
+      variant: WEEKLY_PRICE_VARIANT,
     });
-    store.coverage.set("DAILY_TECHNICAL:1D:v1", [
+    store.coverage.set(`DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`, [
       { from: CANONICAL_RANGE.from, to: "2025-12-31" },
     ]);
     const loader = createService(
@@ -1037,7 +961,7 @@ describe("canonical full-stock hydration", () => {
     });
 
     expect(provider.ranges).toEqual([]);
-    expect(store.derivedWrites.at(-1)?.technicalDates).toEqual(["2026-08-20"]);
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual(["2026-08-20"]);
   });
 
   it("persists an empty unavailable historical prefix and does not refetch it after eviction", async () => {
@@ -1159,8 +1083,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
       price("2026-08-20", 200),
@@ -1180,8 +1103,99 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.ranges).toEqual([{ from: "2026-08-14", to: "2026-08-24" }]);
     expect(cache.priceYearWrites.at(-1)).toEqual([2026]);
-    expect(store.derivedWrites.at(-1)?.technicalDates).toEqual(["2026-08-21"]);
+    // The rebuild window also covers the completed-week boundary, because a newly completed week
+    // changes the carried-forward weekly source on every later trading day.
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
+      "2026-08-20",
+      "2026-08-21",
+    ]);
     expect(cache.manifests.get(security.id)?.lastPriceRefreshAt).toBe(NOW);
+  });
+
+  it("republishes the complete affected year after a mid-year derived rebuild", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const januaryDates = ["2026-01-05", "2026-01-06"];
+    store.prices = [
+      ...januaryDates.map((date, index) => price(date, 100 + index)),
+      price("2026-08-20", 200),
+    ];
+    // January derived rows are already durable and cached from an earlier hydration.
+    store.dailyState = store.prices.map((row) => ({
+      securityId: security.id,
+      date: row.date,
+      sma20d: row.close,
+    }));
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+      CANONICAL_RANGE,
+    ]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: "2026-08-23T01:00:00.000Z",
+    });
+    store.coverage.set(
+      `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`,
+      [CANONICAL_RANGE],
+    );
+    setTailFreshness(store, "2026-08-23T01:00:00.000Z");
+    const allYears = Array.from({ length: 31 }, (_, index) => 1996 + index);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(security.id, store.prices, allYears);
+    await cache.writeDailyDerivedStateYears(
+      security.id,
+      store.dailyState,
+      allYears,
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: "2026-01-05",
+      canonicalHistoryEnd: "2026-08-20",
+      hydratedAt: "2026-08-23T01:00:00.000Z",
+      lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+    });
+    // The refresh only rebuilds derived rows from August forward.
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [
+      price("2026-08-20", 200),
+      price("2026-08-21", 201),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const refreshed = await loader.getDailyDerivedState("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
+      "2026-08-20",
+      "2026-08-21",
+    ]);
+    // The whole 2026 chunk is republished from PostgreSQL, so January survives the partial rebuild.
+    expect(refreshed.map((row) => row.date)).toEqual([
+      ...januaryDates,
+      "2026-08-20",
+      "2026-08-21",
+    ]);
+    expect(
+      cache.dailyState.get(security.id)?.map((row) => row.date),
+    ).toEqual([...januaryDates, "2026-08-20", "2026-08-21"]);
   });
 
   it("does not advance READY freshness when the provider refresh fails", async () => {
@@ -1202,8 +1216,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.failure = new Error("provider failed");
     const loader = createService(
@@ -1258,8 +1271,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: staleFundamentals,
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     setFundamentalsStates(store, NOW);
     const loader = createService(
@@ -1309,8 +1321,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.rowsByRange.set("2026-08-14:2026-08-24", [
       price("2026-08-20", 200),
@@ -1357,8 +1368,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.financialFailures.set(
       "INCOME:QUARTERLY:12",
@@ -1414,8 +1424,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: staleFundamentalsAt,
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.financialFailures.set(
       "INCOME:QUARTERLY:12",
@@ -1488,8 +1497,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: staleFundamentalsAt,
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
 
     let releaseSlow = () => {};
@@ -1558,8 +1566,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     provider.financialRows.set("INCOME:QUARTERLY:12", [
       {
@@ -1680,8 +1687,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     });
     const loader = createService(
       store,
@@ -1750,8 +1756,7 @@ describe("canonical full-stock hydration", () => {
       lastFundamentalsRefreshAt: NOW,
       priceDatasetVersion: 1,
       financialStatementVersion: 1,
-      dailyTechnicalVersion: 1,
-      weeklyVersion: 2,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     };
     provider.beforeReturn = async () => cache.setManifest(successor);
     let ownershipChecks = 0;
@@ -1776,8 +1781,8 @@ describe("canonical full-stock hydration", () => {
   });
 });
 
-describe("intrinsic blend completion", () => {
-  it("uses the highest complete common component version", async () => {
+describe("daily materialized intrinsic projections", () => {
+  function withDailyState(rows: DailyDerivedState[]) {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
@@ -1790,103 +1795,122 @@ describe("intrinsic blend completion", () => {
       variant: "split-adjusted-eod-full",
       lastSyncedAt: NOW,
     });
-    const components = intrinsicComponents("2025-02-01");
-    store.intrinsicValues = [
-      ...components,
-      {
-        ...components[0]!,
-        valuePerShare: 200,
-        calculationVersion: 2,
-      },
-    ];
-    const loader = createService(
+    store.dailyState = rows;
+    return {
       store,
-      provider,
-      cache,
-      new InMemoryLoadCoordinator(),
+      loader: createService(
+        store,
+        provider,
+        cache,
+        new InMemoryLoadCoordinator(),
+      ),
+    };
+  }
+
+  const carriedForward: DailyDerivedState[] = [
+    "2025-02-03",
+    "2025-02-04",
+    "2025-02-05",
+  ].map((date) => ({
+    securityId: security.id,
+    date,
+    intrinsicValues: { DCF_FCFF: 100, RESIDUAL_INCOME: 80, GRAHAM: 60 },
+    intrinsicValueBlends: { BALANCED: 86 },
+    intrinsicSourceDataAsOf: "2025-02-03T12:00:00.000Z",
+    intrinsicCurrency: "USD",
+  }));
+
+  it("returns one value per model per trading day, ascending, with no version metadata", async () => {
+    const { loader } = withDailyState(carriedForward);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2025-02-03",
+      to: "2025-02-05",
+      models: ["DCF_FCFF"],
+    });
+
+    expect(result.map((point) => point.valuationDate)).toEqual([
+      "2025-02-03",
+      "2025-02-04",
+      "2025-02-05",
+    ]);
+    // Repetition of an unchanged valuation across trading days is intentional materialization.
+    expect(result.map((point) => point.valuePerShare)).toEqual([100, 100, 100]);
+    expect(result[0]).not.toHaveProperty("calculationVersion");
+    expect(result.every((point) => point.securityId === security.id)).toBe(
+      true,
     );
+  });
+
+  it("reads blends straight from the materialized state without recomputing components", async () => {
+    const { loader } = withDailyState(carriedForward);
 
     const result = await loader.getIntrinsicValueBlends("AAPL", {
-      from: "2025-02-01",
-      to: "2025-02-01",
+      from: "2025-02-03",
+      to: "2025-02-05",
       blendIds: ["BALANCED"],
     });
 
-    expect(result).toMatchObject([
-      { blendId: "BALANCED", valuePerShare: 86, calculationVersion: 1 },
-    ]);
+    expect(result.map((point) => point.valuePerShare)).toEqual([86, 86, 86]);
+    expect(result[0]).not.toHaveProperty("blendVersion");
+    expect(result[0]).not.toHaveProperty("calculationVersion");
   });
 
-  it("merges persisted and calculated identities without duplicates", async () => {
-    const store = new FakeStore();
-    const provider = new FakeProvider();
-    const cache = new MemoryCache();
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
-      CANONICAL_RANGE,
-    ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
-      securityId: security.id,
-      dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
-      lastSyncedAt: NOW,
-    });
-    store.intrinsicValues = intrinsicComponents("2025-02-01");
-    const balanced = blendPoint("BALANCED", "2025-02-01", 86);
-    store.blends = [balanced, { ...balanced }];
-    const loader = createService(
-      store,
-      provider,
-      cache,
-      new InMemoryLoadCoordinator(),
-    );
-
-    const result = await loader.getIntrinsicValueBlends("AAPL", {
-      from: "2025-02-01",
-      to: "2025-02-01",
-      blendIds: ["BALANCED", "CONSERVATIVE", "DIVIDEND"],
-    });
-
-    expect(result.map((point) => point.blendId)).toEqual([
-      "BALANCED",
-      "CONSERVATIVE",
-    ]);
-    expect(result.filter((point) => point.blendId === "BALANCED")).toHaveLength(
-      1,
-    );
-  });
-
-  it("excludes component publications after the PIT as-of date", async () => {
-    const store = new FakeStore();
-    const provider = new FakeProvider();
-    const cache = new MemoryCache();
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
-      CANONICAL_RANGE,
-    ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
-      securityId: security.id,
-      dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
-      lastSyncedAt: NOW,
-    });
-    store.intrinsicValues = intrinsicComponents("2025-02-01").map((point) =>
-      point.model === "GRAHAM"
-        ? { ...point, sourceDataAsOf: "2025-02-02T12:00:00.000Z" }
-        : point,
-    );
-    const loader = createService(
-      store,
-      provider,
-      cache,
-      new InMemoryLoadCoordinator(),
-    );
+  it("omits a blend that was never materialized rather than renormalizing components", async () => {
+    const { loader } = withDailyState(carriedForward);
 
     await expect(
       loader.getIntrinsicValueBlends("AAPL", {
-        to: "2025-03-01",
-        asOf: "2025-02-01",
-        blendIds: ["BALANCED"],
+        from: "2025-02-03",
+        to: "2025-02-05",
+        blendIds: ["DIVIDEND"],
       }),
     ).resolves.toEqual([]);
+  });
+
+  it("excludes trading days after asOf and rows whose inputs were not yet public", async () => {
+    const { loader } = withDailyState([
+      ...carriedForward,
+      {
+        securityId: security.id,
+        date: "2025-02-06",
+        intrinsicValues: { DCF_FCFF: 120 },
+        // Deliberately inconsistent audit field: it must never become visible at this asOf.
+        intrinsicSourceDataAsOf: "2025-02-07T12:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+    ]);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2025-02-03",
+      to: "2025-02-06",
+      asOf: "2025-02-06",
+      models: ["DCF_FCFF"],
+    });
+
+    expect(result.map((point) => point.valuationDate)).toEqual([
+      "2025-02-03",
+      "2025-02-04",
+      "2025-02-05",
+    ]);
+  });
+
+  it("omits days before the first eligible valuation instead of back-filling them", async () => {
+    const { loader } = withDailyState([
+      { securityId: security.id, date: "2025-02-03", sma20d: 10 },
+      ...carriedForward.slice(1),
+    ]);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2025-02-03",
+      to: "2025-02-05",
+      models: ["DCF_FCFF"],
+    });
+
+    expect(result.map((point) => point.valuationDate)).toEqual([
+      "2025-02-04",
+      "2025-02-05",
+    ]);
   });
 });
 
@@ -1903,39 +1927,6 @@ describe("load coordination", () => {
     ).resolves.toBe("recovered");
   });
 });
-
-function intrinsicComponents(date: string): IntrinsicValuePoint[] {
-  return [
-    ["DCF_FCFF", 100],
-    ["RESIDUAL_INCOME", 80],
-    ["GRAHAM", 60],
-  ].map(([model, value]) => ({
-    securityId: security.id,
-    valuationDate: date,
-    sourceDataAsOf: `${date}T12:00:00.000Z`,
-    model: model as IntrinsicValuePoint["model"],
-    valuePerShare: value as number,
-    currency: "USD",
-    calculationVersion: 1,
-  }));
-}
-
-function blendPoint(
-  blendId: IntrinsicValueBlendPoint["blendId"],
-  date: string,
-  valuePerShare: number,
-): IntrinsicValueBlendPoint {
-  return {
-    securityId: security.id,
-    valuationDate: date,
-    sourceDataAsOf: `${date}T12:00:00.000Z`,
-    blendId,
-    valuePerShare,
-    currency: "USD",
-    calculationVersion: 1,
-    blendVersion: 1,
-  };
-}
 
 function financialStatementRow(
   statementType: FinancialStatement["statementType"],

@@ -27,8 +27,9 @@ current canonical date. It performs these steps under one stock hydration lock:
 5. Persist rows, successful provider-request coverage, and state transactionally. Coverage for an
    exact security/dataset/variant is compacted into disjoint maximal intervals; overlap and
    calendar-day adjacency merge while real gaps and other variants remain separate.
-6. Bring daily technical and weekly aggregation versions current from canonical price history.
-7. Publish complete yearly price, daily technical, and weekly chunks.
+6. Rebuild the unified daily derived state from canonical price history.
+7. Publish complete yearly price and daily derived-state chunks. A partial rebuild still republishes
+   every affected year in full from PostgreSQL, because a yearly chunk is replaced wholesale.
 8. Publish READY last.
 
 A successful empty historical interval is durable request coverage. This distinguishes provider
@@ -76,8 +77,7 @@ Canonical resident keys are security-ID based:
 stock-data:v2:symbol:<encoded-symbol>:security
 stock-data:v2:security:<id>:manifest
 stock-data:v2:security:<id>:prices:1D:<year>
-stock-data:v2:security:<id>:technicals:1D:v<calculationVersion>:<year>
-stock-data:v2:security:<id>:weekly:1W:v<calculationVersion>:<year>
+stock-data:v2:security:<id>:daily-state:<year>
 stock-data:v2:security:<id>:keys
 stock-data:v2:resident-stocks
 stock-data:v2:access-sequence
@@ -87,8 +87,8 @@ Range reads issue one multi-key read for the intersecting years, concatenate asc
 slice exact boundary dates. Exact HTTP/date-range response keys do not exist.
 
 The manifest contains status, configured horizon years, attempted coverage bounds, actual first
-and last available price dates when present, hydration/freshness instants, dataset calculation
-versions, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
+and last available price dates when present, hydration/freshness instants, source-dataset versions,
+the derived-state methodology revision, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
 the distributed lock is authoritative. Every chunk, symbol mapping, and READY publication compares
 the active generation, so a stale owner cannot overwrite or register keys under a successor. A
 concurrent generation-less symbol lookup atomically joins the currently active HYDRATING lifetime
@@ -128,8 +128,7 @@ worker observe the same backpressure.
 
 ## Derived data
 
-Daily SMA20D/50D/100D/200D and EMA20D/50D/200D use canonical ascending DailyPrice history and
-`calculationVersion = 1`. EMA seeds from the first complete-period SMA and then applies
+Daily SMA20D/50D/100D/200D and EMA20D/50D/200D use canonical ascending DailyPrice history. EMA seeds from the first complete-period SMA and then applies
 $\alpha = 2/(period + 1)$. The origin is the first canonical available price, never an arbitrary
 requested warm-up prefix, so request order cannot affect output.
 
@@ -139,32 +138,30 @@ rewrite only affected Redis years. Corrections persist forward from the correcte
 recurrence propagates. Introduction of an older prefix recalculates from canonical origin.
 
 Weekly bars are derived only from canonical daily rows. Monday-based completed weeks use
-first/max/min/last/sum OHLCV and become eligible the following Monday. IPO mid-week,
-holiday-shortened, cross-year, and current partial weeks follow the same completed-period rule. If
-the 30-year canonical horizon begins mid-week, that artificially truncated first week is omitted;
-a known IPO/listing that genuinely begins mid-week remains a valid completed week. There is one
-durable weekly row per completed week, never one duplicate per day. This boundary rule is weekly
-aggregation calculation version 2, so previously persisted v1 bars are not reused.
+first/max/min/last/sum OHLCV. Because `DailyDerivedState` is an end-of-trading-day state, a
+completed week becomes eligible on its own final trading day's close, which is the last observed
+bar of that week; earlier days in the same week must never see it. The ISO week containing the
+hydration cutoff is still in progress and is not aggregated, since its final trading day is not yet
+known. IPO mid-week, holiday-shortened, and cross-year weeks follow the same rule and use their
+actual final trading day. If the 30-year canonical horizon begins mid-week, that artificially
+truncated first week is omitted; a known IPO/listing that genuinely begins mid-week remains a valid
+completed week. `WeeklyPrice` keeps one durable row per completed week; only the derived weekly
+values are carried forward daily.
 
-Derived persistence carries daily technical and weekly aggregation versions independently. A
-successful current hydration records `DAILY_TECHNICAL / 1D:v1 / calculationVersion=1` and
-`WEEKLY_PRICE / 1W:v2 / calculationVersion=2`; neither state version is inferred from the other.
+Derived persistence records one dataset state per family:
+`DAILY_DERIVED_STATE / daily-derived-state:r<revision>` and `WEEKLY_PRICE / completed-weeks`.
+Neither carries a calculation version.
 
-## Point-in-time and versions
+## Point-in-time
 
 Intrinsic and blend reads require both `valuationDate <= asOf` and
 `sourceDataAsOf <= endOf(asOf)`. When `to` and `asOf` are present, the valuation upper bound is
 `min(to, asOf)`.
 
-Durable intrinsic reads select the highest calculation version for each valuation-date/model
-identity, then the latest eligible source instant. Blend reads select highest blend version, then
-calculation version, then eligible source instant for each valuation-date/blend identity. Dynamic
-blend calculation chooses the highest calculation version shared by every required component and
-never mixes versions, substitutes models, or renormalizes missing weights.
-
-Persisted blend rows do not cause an early return. The service combines persisted identities with
-eligible component dates, calculates only missing requested identities, deduplicates, and sorts the
-merged result.
+Intrinsic values and blends are read directly from the materialized daily state: there is exactly
+one current row per `(securityId, date)`, so no version selection or read-time reconstruction from
+sparse valuation events happens. A blend that was never materialized is absent; the reader must not
+substitute models or renormalize missing weights.
 
 ## Validation
 
@@ -173,6 +170,6 @@ slicing, current-year replacement, generation-safe stale HYDRATING recovery, ato
 LRU ordering, separate Redlock coordinators waiting beyond the old short retry window, exception
 release, monotonic 120-second provider cooldown, transactional coverage compaction/concurrency, and
 rate-window-boundary backlog admission. They also prove abandoned HYDRATING generations self-clean,
-READY generations persist, exact daily/weekly durable versions survive Redis re-admission without
+READY generations persist, the durable daily derived state survives Redis re-admission without
 another derived rebuild, and two service instances perform one canonical FMP delta. Live AAPL
 profile, split-adjusted history, SMA, and EMA checks remain opt-in through `test:live`.

@@ -1,10 +1,8 @@
 import type {
+  DailyDerivedState,
   DailyPrice,
-  DailyTechnical,
   MovingAverageType,
 } from "@intrinsic/domain";
-
-export const DAILY_TECHNICAL_CALCULATION_VERSION = 1;
 
 export function movingAverage(
   values: readonly number[],
@@ -53,10 +51,15 @@ export function movingAverage(
   return result;
 }
 
+/**
+ * Calculates the daily technical portion of `DailyDerivedState` for every supplied trading day.
+ *
+ * One row per trading day is produced. Warm-up gaps leave individual indicators absent; they are
+ * never zeroed. Callers merge these rows with the other derived families before persisting.
+ */
 export function calculateDailyTechnicals(
   prices: readonly DailyPrice[],
-  calculationVersion = DAILY_TECHNICAL_CALCULATION_VERSION,
-): DailyTechnical[] {
+): DailyDerivedState[] {
   const ascending = [...prices].sort((left, right) =>
     left.date.localeCompare(right.date),
   );
@@ -79,6 +82,5 @@ export function calculateDailyTechnicals(
     ...(ema20d[index] === undefined ? {} : { ema20d: ema20d[index] }),
     ...(ema50d[index] === undefined ? {} : { ema50d: ema50d[index] }),
     ...(ema200d[index] === undefined ? {} : { ema200d: ema200d[index] }),
-    calculationVersion,
   }));
 }

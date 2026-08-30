@@ -139,7 +139,6 @@ function technicalResponse(
     ...(technical.ema20d === undefined ? {} : { ema20d: technical.ema20d }),
     ...(technical.ema50d === undefined ? {} : { ema50d: technical.ema50d }),
     ...(technical.ema200d === undefined ? {} : { ema200d: technical.ema200d }),
-    calculationVersion: technical.calculationVersion,
   };
 }
 
@@ -152,7 +151,6 @@ function intrinsicResponse(
     model: point.model,
     valuePerShare: point.valuePerShare,
     currency: point.currency,
-    calculationVersion: point.calculationVersion,
   };
 }
 
@@ -167,8 +165,6 @@ function blendResponse(
     blendId: point.blendId,
     valuePerShare: point.valuePerShare,
     currency: point.currency,
-    calculationVersion: point.calculationVersion,
-    blendVersion: point.blendVersion,
   };
 }
 

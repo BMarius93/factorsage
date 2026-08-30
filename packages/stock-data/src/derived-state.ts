@@ -1,0 +1,55 @@
+import type { DailyDerivedState, DailyPrice, LocalDate } from "@intrinsic/domain";
+import { calculateDailyTechnicals } from "./technicals.js";
+import { latestCompletedWeeklyBar, type WeeklyPrice } from "./weekly.js";
+
+/**
+ * Methodology revision of the unified daily derived state.
+ *
+ * This is a rebuild trigger, never a row-identity or history dimension. It is recorded only in the
+ * dataset-state/coverage variant and in the cache manifest. Bumping it invalidates the existing
+ * materialized state so it is recalculated and replaced; it must never be used to keep two
+ * methodologies resident for the same trading day.
+ */
+export const DERIVED_STATE_REVISION = 1;
+
+export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
+
+/**
+ * Builds the unified daily derived state for every supplied trading day.
+ *
+ * Daily technicals are calculated per trading day. Completed-week values are carried forward: the
+ * latest weekly bar whose final trading day has closed is materialized onto the trading day, so
+ * the same weekly source repeats until a newer week completes. Because the daily state is an
+ * end-of-trading-day state, a week becomes effective on its own last trading day's close and is
+ * invisible on every earlier day of that week. Days before the first completed week carry none.
+ *
+ * Intrinsic-value and blend columns are left absent here. They are materialized by the valuation
+ * layer once the methodology is defined; this function must not fabricate them.
+ */
+export function buildDailyDerivedState(input: {
+  prices: readonly DailyPrice[];
+  weeklyBars?: readonly WeeklyPrice[];
+}): DailyDerivedState[] {
+  const weeklyBars = input.weeklyBars ?? [];
+  return calculateDailyTechnicals(input.prices).map((row) => {
+    const weekly = latestCompletedWeeklyBar(weeklyBars, row.date);
+    return weekly
+      ? { ...row, weeklySourceWeekStart: weekly.weekStartDate }
+      : row;
+  });
+}
+
+/** Ascending `(securityId, date)` ordering with at most one row per trading day. */
+export function assertOneRowPerTradingDay(
+  rows: readonly DailyDerivedState[],
+): void {
+  const seen = new Set<LocalDate>();
+  for (const row of rows) {
+    if (seen.has(row.date)) {
+      throw new Error(
+        `Daily derived state must hold exactly one row per trading day; duplicate ${row.date}`,
+      );
+    }
+    seen.add(row.date);
+  }
+}

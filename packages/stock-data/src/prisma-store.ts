@@ -1,18 +1,16 @@
 import { createHash } from "node:crypto";
 import type {
+  DailyDerivedState,
   DailyPrice,
-  DailyTechnical,
   DateRange,
   FinancialStatementCadence,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
   FinancialStatementType,
-  IntrinsicValueBlendPoint,
-  IntrinsicValueBlendQuery,
-  IntrinsicValuePoint,
-  IntrinsicValueQuery,
   FinancialStatement as DomainFinancialStatement,
+  IntrinsicValueBlendId,
+  IntrinsicValueModel,
   Security,
   SecurityProfile,
 } from "@intrinsic/domain";
@@ -21,21 +19,147 @@ import type { MappedFmpProfile } from "@intrinsic/fmp";
 import {
   FinancialPeriod as FinancialPeriodEnum,
   FinancialStatementType as FinancialStatementTypeEnum,
-  IntrinsicValueBlendId,
-  IntrinsicValueModel,
   type Prisma,
   PrismaClient,
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import { endOfLocalDate } from "./dates.js";
+import {
+  assertOneRowPerTradingDay,
+  DAILY_DERIVED_STATE_VARIANT,
+} from "./derived-state.js";
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
+  WEEKLY_PRICE_VARIANT,
   type PersistedDatasetState,
   type PersistedStockDataset,
   type StockDataStore,
 } from "./ports.js";
+
+const INTRINSIC_MODEL_COLUMNS = {
+  DCF_FCFF: "dcfFcff",
+  RESIDUAL_INCOME: "residualIncome",
+  DDM: "ddm",
+  GRAHAM: "graham",
+} as const satisfies Record<IntrinsicValueModel, string>;
+
+const INTRINSIC_BLEND_COLUMNS = {
+  BALANCED: "blendBalanced",
+  CONSERVATIVE: "blendConservative",
+  DIVIDEND: "blendDividend",
+} as const satisfies Record<IntrinsicValueBlendId, string>;
+
+type DecimalLike = { toNumber(): number };
+
+type DailyDerivedStateRow = {
+  date: Date;
+  sma20d: DecimalLike | null;
+  sma50d: DecimalLike | null;
+  sma100d: DecimalLike | null;
+  sma200d: DecimalLike | null;
+  ema20d: DecimalLike | null;
+  ema50d: DecimalLike | null;
+  ema200d: DecimalLike | null;
+  weeklySourceWeekStart: Date | null;
+  dcfFcff: DecimalLike | null;
+  residualIncome: DecimalLike | null;
+  ddm: DecimalLike | null;
+  graham: DecimalLike | null;
+  blendBalanced: DecimalLike | null;
+  blendConservative: DecimalLike | null;
+  blendDividend: DecimalLike | null;
+  intrinsicSourceDataAsOf: Date | null;
+  intrinsicCurrency: string | null;
+};
+
+function dailyDerivedStateFromRow(
+  securityId: string,
+  row: DailyDerivedStateRow,
+): DailyDerivedState {
+  const intrinsicValues = Object.fromEntries(
+    (
+      Object.entries(INTRINSIC_MODEL_COLUMNS) as [
+        IntrinsicValueModel,
+        keyof DailyDerivedStateRow,
+      ][]
+    ).flatMap(([model, column]) => {
+      const value = row[column] as DecimalLike | null;
+      return value === null ? [] : [[model, value.toNumber()] as const];
+    }),
+  ) as Partial<Record<IntrinsicValueModel, number>>;
+  const intrinsicValueBlends = Object.fromEntries(
+    (
+      Object.entries(INTRINSIC_BLEND_COLUMNS) as [
+        IntrinsicValueBlendId,
+        keyof DailyDerivedStateRow,
+      ][]
+    ).flatMap(([blendId, column]) => {
+      const value = row[column] as DecimalLike | null;
+      return value === null ? [] : [[blendId, value.toNumber()] as const];
+    }),
+  ) as Partial<Record<IntrinsicValueBlendId, number>>;
+
+  return {
+    securityId,
+    date: fromDatabaseDate(row.date),
+    ...(row.sma20d === null ? {} : { sma20d: row.sma20d.toNumber() }),
+    ...(row.sma50d === null ? {} : { sma50d: row.sma50d.toNumber() }),
+    ...(row.sma100d === null ? {} : { sma100d: row.sma100d.toNumber() }),
+    ...(row.sma200d === null ? {} : { sma200d: row.sma200d.toNumber() }),
+    ...(row.ema20d === null ? {} : { ema20d: row.ema20d.toNumber() }),
+    ...(row.ema50d === null ? {} : { ema50d: row.ema50d.toNumber() }),
+    ...(row.ema200d === null ? {} : { ema200d: row.ema200d.toNumber() }),
+    ...(row.weeklySourceWeekStart === null
+      ? {}
+      : {
+          weeklySourceWeekStart: fromDatabaseDate(row.weeklySourceWeekStart),
+        }),
+    ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
+    ...(Object.keys(intrinsicValueBlends).length === 0
+      ? {}
+      : { intrinsicValueBlends }),
+    ...(row.intrinsicSourceDataAsOf === null
+      ? {}
+      : {
+          intrinsicSourceDataAsOf: row.intrinsicSourceDataAsOf.toISOString(),
+        }),
+    ...(row.intrinsicCurrency === null
+      ? {}
+      : { intrinsicCurrency: row.intrinsicCurrency }),
+  };
+}
+
+function dailyDerivedStateToRow(
+  securityId: string,
+  row: DailyDerivedState,
+): Prisma.DailyDerivedStateCreateManyInput {
+  return {
+    securityId,
+    date: toDatabaseDate(row.date),
+    sma20d: row.sma20d ?? null,
+    sma50d: row.sma50d ?? null,
+    sma100d: row.sma100d ?? null,
+    sma200d: row.sma200d ?? null,
+    ema20d: row.ema20d ?? null,
+    ema50d: row.ema50d ?? null,
+    ema200d: row.ema200d ?? null,
+    weeklySourceWeekStart: row.weeklySourceWeekStart
+      ? toDatabaseDate(row.weeklySourceWeekStart)
+      : null,
+    dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
+    residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
+    ddm: row.intrinsicValues?.DDM ?? null,
+    graham: row.intrinsicValues?.GRAHAM ?? null,
+    blendBalanced: row.intrinsicValueBlends?.BALANCED ?? null,
+    blendConservative: row.intrinsicValueBlends?.CONSERVATIVE ?? null,
+    blendDividend: row.intrinsicValueBlends?.DIVIDEND ?? null,
+    intrinsicSourceDataAsOf: row.intrinsicSourceDataAsOf
+      ? new Date(row.intrinsicSourceDataAsOf)
+      : null,
+    intrinsicCurrency: row.intrinsicCurrency ?? null,
+  };
+}
 
 function toDatabaseDate(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -154,13 +278,6 @@ function statementPeriods(cadence?: FinancialStatementQuery["cadence"]) {
     return [FinancialPeriodEnum.Q1, FinancialPeriodEnum.Q2, FinancialPeriodEnum.Q3, FinancialPeriodEnum.Q4];
   }
   return undefined;
-}
-
-function effectiveUpperBound(to?: string, asOf?: string): string | undefined {
-  if (to && asOf) {
-    return to < asOf ? to : asOf;
-  }
-  return to ?? asOf;
 }
 
 function samePrice(
@@ -385,9 +502,6 @@ export class PrismaStockDataStore implements StockDataStore {
           ...(row.lastSuccessfulSyncAt
             ? { lastSyncedAt: row.lastSuccessfulSyncAt.toISOString() }
             : {}),
-          ...(row.calculationVersion === null
-            ? {}
-            : { calculationVersion: row.calculationVersion }),
         }
       : null;
   }
@@ -540,112 +654,44 @@ export class PrismaStockDataStore implements StockDataStore {
     return earliestChangedDate ? { earliestChangedDate } : {};
   }
 
-  async getDailyTechnicals(
+  async getDailyDerivedState(
     securityId: string,
     range: DateRange,
-    calculationVersion: number,
-  ): Promise<DailyTechnical[]> {
-    const rows = await this.prisma.dailyTechnical.findMany({
-      where: { securityId, calculationVersion, date: rangeWhere(range) },
+  ): Promise<DailyDerivedState[]> {
+    const rows = await this.prisma.dailyDerivedState.findMany({
+      where: { securityId, date: rangeWhere(range) },
       orderBy: { date: "asc" },
     });
-    return rows.map((row) => ({
-      securityId,
-      date: fromDatabaseDate(row.date),
-      ...(row.sma20d === null ? {} : { sma20d: row.sma20d.toNumber() }),
-      ...(row.sma50d === null ? {} : { sma50d: row.sma50d.toNumber() }),
-      ...(row.sma100d === null ? {} : { sma100d: row.sma100d.toNumber() }),
-      ...(row.sma200d === null ? {} : { sma200d: row.sma200d.toNumber() }),
-      ...(row.ema20d === null ? {} : { ema20d: row.ema20d.toNumber() }),
-      ...(row.ema50d === null ? {} : { ema50d: row.ema50d.toNumber() }),
-      ...(row.ema200d === null ? {} : { ema200d: row.ema200d.toNumber() }),
-      calculationVersion,
-    }));
+    return rows.map((row) => dailyDerivedStateFromRow(securityId, row));
   }
 
-  async saveDerivedTechnicals(
-    input: Parameters<StockDataStore["saveDerivedTechnicals"]>[0],
+  async saveDailyDerivedState(
+    input: Parameters<StockDataStore["saveDailyDerivedState"]>[0],
   ): Promise<void> {
-    if (
-      input.technicals.some(
-        (row) =>
-          row.calculationVersion !== input.dailyTechnicalCalculationVersion,
-      )
-    ) {
-      throw new Error("Daily technical calculation version mismatch");
-    }
-    if (
-      input.weeklyPrices.some(
-        (row) => row.calculationVersion !== input.weeklyCalculationVersion,
-      )
-    ) {
-      throw new Error("Weekly aggregation calculation version mismatch");
-    }
+    assertOneRowPerTradingDay(input.rows);
     await this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
 
-      const byDate = new Map<string, (typeof input.technicals)[number]>();
-      for (const technical of input.technicals) {
-        const existing = byDate.get(technical.date);
-        if (!existing) {
-          byDate.set(technical.date, technical);
-          continue;
-        }
-        const existingHasValues = [
-          existing.sma20d,
-          existing.sma50d,
-          existing.sma100d,
-          existing.sma200d,
-          existing.ema20d,
-          existing.ema50d,
-          existing.ema200d,
-        ].some((value) => value !== undefined);
-        const incomingHasValues = [
-          technical.sma20d,
-          technical.sma50d,
-          technical.sma100d,
-          technical.sma200d,
-          technical.ema20d,
-          technical.ema50d,
-          technical.ema200d,
-        ].some((value) => value !== undefined);
-        if (!existingHasValues && incomingHasValues) {
-          byDate.set(technical.date, technical);
-        }
-      }
-      const persistedDailyTechnicals = [...byDate.values()];
-      const affectedTechnicalDates = [
-        ...new Set(
-          persistedDailyTechnicals.map((technical) =>
-            toDatabaseDate(technical.date),
-          ),
-        ),
-      ];
-      if (affectedTechnicalDates.length > 0) {
-        await transaction.dailyTechnical.deleteMany({
-          where: {
-            securityId: input.securityId,
-            calculationVersion: input.dailyTechnicalCalculationVersion,
-            date: { in: affectedTechnicalDates },
-          },
+      const affectedDates = input.rows.map((row) => toDatabaseDate(row.date));
+      if (affectedDates.length > 0) {
+        // One current methodology per (securityId, date): replace, never append a version.
+        await transaction.dailyDerivedState.deleteMany({
+          where: { securityId: input.securityId, date: { in: affectedDates } },
         });
-      }
-      if (persistedDailyTechnicals.length > 0) {
-        await transaction.dailyTechnical.createMany({
-          data: persistedDailyTechnicals.map((technical) => ({
-            ...technical,
-            date: toDatabaseDate(technical.date),
-          })),
+        await transaction.dailyDerivedState.createMany({
+          data: input.rows.map((row) => dailyDerivedStateToRow(
+            input.securityId,
+            row,
+          )),
         });
       }
       await this.advanceState(transaction, {
         securityId: input.securityId,
-        dataset: "DAILY_TECHNICAL",
-        variant: `1D:v${input.dailyTechnicalCalculationVersion}`,
+        dataset: "DAILY_DERIVED_STATE",
+        variant: DAILY_DERIVED_STATE_VARIANT,
         from: input.successfulCoverage.from,
         to: input.successfulCoverage.to,
         syncedAt: input.syncedAt,
-        calculationVersion: input.dailyTechnicalCalculationVersion,
       });
 
       if (input.weeklyPrices.length > 0) {
@@ -656,52 +702,41 @@ export class PrismaStockDataStore implements StockDataStore {
             ),
           ),
         ];
-        if (affectedWeeklyStarts.length > 0) {
-          await transaction.weeklyPrice.deleteMany({
-            where: {
-              securityId: input.securityId,
-              calculationVersion: input.weeklyCalculationVersion,
-              weekStartDate: { in: affectedWeeklyStarts },
-            },
-          });
-          await transaction.weeklyPrice.createMany({
-            data: input.weeklyPrices.map((weekly) => ({
-              ...weekly,
-              weekStartDate: toDatabaseDate(weekly.weekStartDate),
-              weekEndDate: toDatabaseDate(weekly.weekEndDate),
-              eligibleDate: toDatabaseDate(weekly.eligibleDate),
-              volume: BigInt(weekly.volume),
-            })),
-          });
-        }
+        await transaction.weeklyPrice.deleteMany({
+          where: {
+            securityId: input.securityId,
+            weekStartDate: { in: affectedWeeklyStarts },
+          },
+        });
+        await transaction.weeklyPrice.createMany({
+          data: input.weeklyPrices.map((weekly) => ({
+            ...weekly,
+            securityId: input.securityId,
+            weekStartDate: toDatabaseDate(weekly.weekStartDate),
+            weekEndDate: toDatabaseDate(weekly.weekEndDate),
+            eligibleDate: toDatabaseDate(weekly.eligibleDate),
+            volume: BigInt(weekly.volume),
+          })),
+        });
       }
 
       await this.advanceState(transaction, {
         securityId: input.securityId,
         dataset: "WEEKLY_PRICE",
-        variant: `1W:v${input.weeklyCalculationVersion}`,
+        variant: WEEKLY_PRICE_VARIANT,
         from:
           input.weeklyPrices[0]?.weekStartDate ?? input.successfulCoverage.from,
         to:
           input.weeklyPrices.at(-1)?.weekEndDate ?? input.successfulCoverage.to,
         syncedAt: input.syncedAt,
-        calculationVersion: input.weeklyCalculationVersion,
       });
       input.assertOwned?.();
     });
   }
 
-  async getWeeklyPrices(
-    securityId: string,
-    range: DateRange,
-    calculationVersion: number,
-  ) {
+  async getWeeklyPrices(securityId: string, range: DateRange) {
     const rows = await this.prisma.weeklyPrice.findMany({
-      where: {
-        securityId,
-        calculationVersion,
-        weekStartDate: rangeWhere(range),
-      },
+      where: { securityId, weekStartDate: rangeWhere(range) },
       orderBy: { weekStartDate: "asc" },
     });
     return rows.map((row) => ({
@@ -714,7 +749,6 @@ export class PrismaStockDataStore implements StockDataStore {
       low: row.low.toNumber(),
       close: row.close.toNumber(),
       volume: Number(row.volume),
-      calculationVersion,
     }));
   }
 
@@ -988,145 +1022,6 @@ export class PrismaStockDataStore implements StockDataStore {
     });
   }
 
-  async getIntrinsicValues(
-    securityId: string,
-    query: IntrinsicValueQuery,
-  ): Promise<IntrinsicValuePoint[]> {
-    const points = await this.getIntrinsicValuesForBlend(securityId, query);
-    const current = new Map<string, (typeof points)[number]>();
-    for (const point of points) {
-      const key = `${point.valuationDate}:${point.model}`;
-      const selected = current.get(key);
-      if (
-        !selected ||
-        point.calculationVersion > selected.calculationVersion ||
-        (point.calculationVersion === selected.calculationVersion &&
-          point.sourceDataAsOf > selected.sourceDataAsOf)
-      ) {
-        current.set(key, point);
-      }
-    }
-    return [...current.values()].sort(
-      (left, right) =>
-        left.valuationDate.localeCompare(right.valuationDate) ||
-        left.model.localeCompare(right.model),
-    );
-  }
-
-  async getIntrinsicValuesForBlend(
-    securityId: string,
-    query: IntrinsicValueQuery,
-  ): Promise<IntrinsicValuePoint[]> {
-    const rows = await this.prisma.intrinsicValue.findMany({
-      where: {
-        securityId,
-        valuationDate: rangeWhere({
-          from: query.from,
-          to: effectiveUpperBound(query.to, query.asOf),
-        }),
-        ...(query.models
-          ? {
-              model: {
-                in: query.models.map((model) => IntrinsicValueModel[model]),
-              },
-            }
-          : {}),
-        ...(query.asOf
-          ? { sourceDataAsOf: { lte: new Date(endOfLocalDate(query.asOf)) } }
-          : {}),
-      },
-      orderBy: [
-        { valuationDate: "asc" },
-        { model: "asc" },
-        { sourceDataAsOf: "asc" },
-      ],
-    });
-    const points = rows.map((row) => ({
-      securityId,
-      valuationDate: fromDatabaseDate(row.valuationDate),
-      sourceDataAsOf: row.sourceDataAsOf.toISOString(),
-      model: row.model,
-      valuePerShare: row.valuePerShare.toNumber(),
-      currency: row.currency,
-      calculationVersion: row.calculationVersion,
-    }));
-    const current = new Map<string, (typeof points)[number]>();
-    for (const point of points) {
-      const key = `${point.valuationDate}:${point.model}:${point.calculationVersion}`;
-      const selected = current.get(key);
-      if (!selected || point.sourceDataAsOf > selected.sourceDataAsOf) {
-        current.set(key, point);
-      }
-    }
-    return [...current.values()].sort(
-      (left, right) =>
-        left.valuationDate.localeCompare(right.valuationDate) ||
-        left.model.localeCompare(right.model) ||
-        left.calculationVersion - right.calculationVersion,
-    );
-  }
-
-  async getIntrinsicValueBlends(
-    securityId: string,
-    query: IntrinsicValueBlendQuery,
-  ): Promise<IntrinsicValueBlendPoint[]> {
-    const rows = await this.prisma.intrinsicValueBlend.findMany({
-      where: {
-        securityId,
-        valuationDate: rangeWhere({
-          from: query.from,
-          to: effectiveUpperBound(query.to, query.asOf),
-        }),
-        ...(query.blendIds
-          ? {
-              blendId: {
-                in: query.blendIds.map((blend) => IntrinsicValueBlendId[blend]),
-              },
-            }
-          : {}),
-        ...(query.asOf
-          ? { sourceDataAsOf: { lte: new Date(endOfLocalDate(query.asOf)) } }
-          : {}),
-      },
-      orderBy: [
-        { valuationDate: "asc" },
-        { blendId: "asc" },
-        { sourceDataAsOf: "asc" },
-      ],
-    });
-    const points = rows.map((row) => ({
-      securityId,
-      valuationDate: fromDatabaseDate(row.valuationDate),
-      sourceDataAsOf: row.sourceDataAsOf.toISOString(),
-      blendId: row.blendId,
-      valuePerShare: row.valuePerShare.toNumber(),
-      currency: row.currency,
-      calculationVersion: row.calculationVersion,
-      blendVersion: row.blendVersion,
-    }));
-    const current = new Map<string, (typeof points)[number]>();
-    for (const point of points) {
-      const key = `${point.valuationDate}:${point.blendId}`;
-      const selected = current.get(key);
-      if (
-        !selected ||
-        point.blendVersion > selected.blendVersion ||
-        (point.blendVersion === selected.blendVersion &&
-          point.calculationVersion > selected.calculationVersion) ||
-        (point.blendVersion === selected.blendVersion &&
-          point.calculationVersion === selected.calculationVersion &&
-          point.sourceDataAsOf > selected.sourceDataAsOf)
-      ) {
-        current.set(key, point);
-      }
-    }
-    return [...current.values()].sort(
-      (left, right) =>
-        left.valuationDate.localeCompare(right.valuationDate) ||
-        left.blendId.localeCompare(right.blendId),
-    );
-  }
-
   private async advanceState(
     transaction: PrismaTransaction,
     input: {
@@ -1136,7 +1031,6 @@ export class PrismaStockDataStore implements StockDataStore {
       from: string;
       to: string;
       syncedAt: string;
-      calculationVersion?: number;
     },
   ): Promise<void> {
     const dataset = datasetEnum(input.dataset);
@@ -1244,13 +1138,11 @@ export class PrismaStockDataStore implements StockDataStore {
         earliestDate,
         latestDate,
         lastSuccessfulSyncAt,
-        calculationVersion: input.calculationVersion,
       },
       update: {
         earliestDate,
         latestDate,
         lastSuccessfulSyncAt,
-        calculationVersion: input.calculationVersion,
       },
     });
   }
