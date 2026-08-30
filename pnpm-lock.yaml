@@ -217,6 +217,9 @@ importers:
       '@intrinsic/fmp':
         specifier: workspace:*
         version: link:../fmp
+      '@intrinsic/valuation':
+        specifier: workspace:*
+        version: link:../valuation
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0(supports-color@8.1.1)

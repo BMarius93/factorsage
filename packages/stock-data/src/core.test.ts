@@ -14,6 +14,8 @@ import {
   assertOneRowPerTradingDay,
   buildDailyDerivedState,
 } from "./derived-state.js";
+import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
+import { calculateBlend } from "@intrinsic/valuation";
 import { validateBlendDefinition } from "./intrinsic-values.js";
 import { calculateDailyTechnicals, movingAverage } from "./technicals.js";
 import {
@@ -402,6 +404,35 @@ describe("unified daily derived state", () => {
     const rows = buildDailyDerivedState({ prices });
     expect(rows.every((row) => row.securityId === "security-1")).toBe(true);
     expect(rows[0]).not.toHaveProperty("symbol");
+  });
+
+  /**
+   * The canonical blend definitions live in `@intrinsic/domain` and the pure weighted-sum lives in
+   * `@intrinsic/valuation`; neither package restates the other's part. This is the one place both
+   * meet, so it proves the real definitions are structurally consumable and reproduce the locked
+   * golden blend values from `docs/decisions/intrinsic-value-engine.md`.
+   */
+  it("feeds the canonical domain blend definitions straight into the pure calculator", () => {
+    const components = {
+      DCF_FCFF: 178.8977101328,
+      RESIDUAL_INCOME: 99.1837933641,
+      GRAHAM: 148,
+      DDM: 27.3333333333,
+    };
+
+    for (const [blendId, expected] of [
+      ["BALANCED", 148.8039930756],
+      ["CONSERVATIVE", 145.7142220623],
+      ["DIVIDEND", 102.3291760593],
+    ] as const) {
+      const blend = calculateBlend(INTRINSIC_VALUE_BLENDS[blendId], components);
+
+      expect(blend.status).toBe("CALCULATED");
+      expect(blend.status === "CALCULATED" && blend.value.valuePerShare).toBeCloseTo(
+        expected,
+        9,
+      );
+    }
   });
 
   it("validates blend weights", () => {

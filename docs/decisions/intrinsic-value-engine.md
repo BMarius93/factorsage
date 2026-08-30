@@ -88,6 +88,11 @@ source statements actually used by that model: its flow-window quarters, its lat
 statements, and the two annual rows used as growth endpoints. Statements that were never read —
 intermediate annual rows in particular — do not contribute.
 
+Statement eligibility is day-granularity in V1, so an `availableFromDate` of `YYYY-MM-DD` encodes
+to the canonical instant `YYYY-MM-DDT00:00:00.000Z`; `observedAt` is never used as model
+provenance, because a historical statement may be backfilled long after it was public and that
+would push look-ahead unavailability into historical valuations.
+
 Fixed methodology assumptions (the constants below) are not data provenance and never contribute
 to `sourceDataAsOf`.
 
