@@ -7,6 +7,7 @@ export * from "./derived-state.js";
 export * from "./fmp-gate.js";
 export * from "./intrinsic-value-evaluator.js";
 export * from "./intrinsic-value-inputs.js";
+export * from "./intrinsic-value-materializer.js";
 export * from "./intrinsic-values.js";
 export * from "./ports.js";
 export * from "./prisma-store.js";

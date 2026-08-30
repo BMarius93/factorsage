@@ -1,4 +1,5 @@
 import type { DailyDerivedState, DailyPrice, LocalDate } from "@intrinsic/domain";
+import type { DailyIntrinsicState } from "./intrinsic-value-materializer.js";
 import { calculateDailyTechnicals } from "./technicals.js";
 import { latestCompletedWeeklyBar, type WeeklyPrice } from "./weekly.js";
 
@@ -23,19 +24,36 @@ export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE
  * end-of-trading-day state, a week becomes effective on its own last trading day's close and is
  * invisible on every earlier day of that week. Days before the first completed week carry none.
  *
- * Intrinsic-value and blend columns are left absent here. They are materialized by the valuation
- * layer once the methodology is defined; this function must not fabricate them.
+ * Intrinsic-value and blend fields are never calculated here. `intrinsicStates` carries already
+ * materialized intrinsic projections, which are merged by exact trading date only. Merging cannot
+ * affect prices, technicals or weekly eligibility, and an intrinsic state whose date has no
+ * `DailyPrice` is ignored: every row still originates from one trading day of price history.
  */
 export function buildDailyDerivedState(input: {
   prices: readonly DailyPrice[];
   weeklyBars?: readonly WeeklyPrice[];
+  intrinsicStates?: readonly DailyIntrinsicState[];
 }): DailyDerivedState[] {
   const weeklyBars = input.weeklyBars ?? [];
+  const intrinsicByDate = new Map<LocalDate, DailyIntrinsicState>(
+    (input.intrinsicStates ?? []).map((state) => [state.date, state]),
+  );
   return calculateDailyTechnicals(input.prices).map((row) => {
     const weekly = latestCompletedWeeklyBar(weeklyBars, row.date);
-    return weekly
+    const withWeekly = weekly
       ? { ...row, weeklySourceWeekStart: weekly.weekStartDate }
       : row;
+    const intrinsic = intrinsicByDate.get(row.date);
+    if (!intrinsic) {
+      return withWeekly;
+    }
+    // The intrinsic projection's own date is the merge key, not a merged field.
+    return {
+      ...withWeekly,
+      ...Object.fromEntries(
+        Object.entries(intrinsic).filter(([field]) => field !== "date"),
+      ),
+    };
   });
 }
 

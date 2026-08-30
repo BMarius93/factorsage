@@ -41,12 +41,16 @@ for (const definition of Object.values(INTRINSIC_VALUE_BLENDS)) {
  * source instant on the daily derived row. Reads resolve a model through this map and must never
  * substitute another model's instant or the newest instant on the row.
  */
-const INTRINSIC_MODEL_SOURCE_FIELDS = {
+export const INTRINSIC_MODEL_SOURCE_FIELDS = {
   DCF_FCFF: "dcfFcffSourceAsOf",
   RESIDUAL_INCOME: "residualIncomeSourceAsOf",
   DDM: "ddmSourceAsOf",
   GRAHAM: "grahamSourceAsOf",
 } as const satisfies Record<IntrinsicValueModel, keyof DailyDerivedState>;
+
+/** The daily-row provenance field that belongs to one model; never reuse another model's. */
+export type IntrinsicModelSourceField =
+  (typeof INTRINSIC_MODEL_SOURCE_FIELDS)[IntrinsicValueModel];
 
 /** That model's own provenance instant, or `undefined` when it has none on this trading day. */
 export function intrinsicModelSourceAsOf(

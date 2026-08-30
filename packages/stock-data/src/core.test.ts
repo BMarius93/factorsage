@@ -394,6 +394,75 @@ describe("unified daily derived state", () => {
     ).toThrow("exactly one row per trading day");
   });
 
+  it("merges materialized intrinsic state by exact trading date", () => {
+    const intrinsicStates = [
+      {
+        date: "2026-08-11",
+        intrinsicValues: { DCF_FCFF: 180, GRAHAM: 148 },
+        intrinsicValueBlends: { BALANCED: 160 },
+        dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+        grahamSourceAsOf: "2026-06-01T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+      // No DailyPrice exists for this date, so it must not create a derived row.
+      {
+        date: "2026-08-15",
+        intrinsicValues: { DCF_FCFF: 999 },
+        dcfFcffSourceAsOf: "2026-08-15T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+    ];
+
+    const rows = buildDailyDerivedState({ prices, intrinsicStates });
+
+    expect(rows.map((row) => row.date)).toEqual(prices.map((row) => row.date));
+    expect(rows.find((row) => row.date === "2026-08-11")).toMatchObject({
+      intrinsicValues: { DCF_FCFF: 180, GRAHAM: 148 },
+      intrinsicValueBlends: { BALANCED: 160 },
+      dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+      grahamSourceAsOf: "2026-06-01T00:00:00.000Z",
+      intrinsicCurrency: "USD",
+    });
+    // Only the matching trading day carries intrinsic fields, and the merge key is not a field.
+    expect(rows.find((row) => row.date === "2026-08-11")).not.toHaveProperty(
+      "residualIncomeSourceAsOf",
+    );
+    expect(
+      rows.find((row) => row.date === "2026-08-12")?.intrinsicValues,
+    ).toBeUndefined();
+  });
+
+  it("does not let intrinsic merging change technicals or weekly eligibility", () => {
+    const weeklyBars = aggregateCompletedWeeks(prices, "2026-08-25");
+    const withoutIntrinsic = buildDailyDerivedState({ prices, weeklyBars });
+    const withIntrinsic = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates: [
+        {
+          date: "2026-08-11",
+          intrinsicValues: { DCF_FCFF: 180 },
+          dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+          intrinsicCurrency: "USD",
+        },
+      ],
+    });
+
+    expect(
+      withIntrinsic.map(({ intrinsicValues: _values, ...row }) => ({
+        ...row,
+        dcfFcffSourceAsOf: undefined,
+        intrinsicCurrency: undefined,
+      })),
+    ).toEqual(
+      withoutIntrinsic.map((row) => ({
+        ...row,
+        dcfFcffSourceAsOf: undefined,
+        intrinsicCurrency: undefined,
+      })),
+    );
+  });
+
   it("carries no calculation version on any derived row", () => {
     for (const row of buildDailyDerivedState({ prices })) {
       expect(row).not.toHaveProperty("calculationVersion");
