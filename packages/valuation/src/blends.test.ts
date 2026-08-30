@@ -1,94 +1,129 @@
 import { describe, expect, it } from "vitest";
-import {
-  blendComponents,
-  calculateBlend,
-  VALUATION_BLEND_COMPONENTS,
-} from "./blends.js";
-import { VALUATION_BLEND_IDS } from "./types.js";
+import { calculateBlend, type BlendDefinition } from "./blends.js";
 
-const ALL_MODELS = {
-  DCF_FCFF: 100,
-  RESIDUAL_INCOME: 100,
-  DDM: 100,
-  GRAHAM: 100,
-} as const;
+/**
+ * Test-local structural definitions. The canonical product blends live in `@intrinsic/domain`;
+ * this package must not know or store them, so the tests supply their own shapes.
+ */
+const THREE_COMPONENT: BlendDefinition<"A" | "B" | "C"> = {
+  components: [
+    { model: "A", weight: 0.5 },
+    { model: "B", weight: 0.3 },
+    { model: "C", weight: 0.2 },
+  ],
+};
 
 describe("blends", () => {
-  it("keeps the locked V1 weights", () => {
-    expect(VALUATION_BLEND_COMPONENTS.BALANCED).toEqual([
-      { model: "DCF_FCFF", weight: 0.5 },
-      { model: "RESIDUAL_INCOME", weight: 0.3 },
-      { model: "GRAHAM", weight: 0.2 },
-    ]);
-    expect(VALUATION_BLEND_COMPONENTS.CONSERVATIVE).toEqual([
-      { model: "DCF_FCFF", weight: 0.4 },
-      { model: "RESIDUAL_INCOME", weight: 0.3 },
-      { model: "GRAHAM", weight: 0.3 },
-    ]);
-    expect(VALUATION_BLEND_COMPONENTS.DIVIDEND).toEqual([
-      { model: "DCF_FCFF", weight: 0.4 },
-      { model: "DDM", weight: 0.4 },
-      { model: "RESIDUAL_INCOME", weight: 0.2 },
-    ]);
+  it("weights each component of the supplied definition", () => {
+    expect(calculateBlend(THREE_COMPONENT, { A: 200, B: 100, C: 50 })).toEqual({
+      status: "CALCULATED",
+      value: { valuePerShare: 200 * 0.5 + 100 * 0.3 + 50 * 0.2 },
+    });
   });
 
-  it("requires every component of every blend", () => {
-    for (const blendId of VALUATION_BLEND_IDS) {
-      for (const component of blendComponents(blendId)) {
-        const withoutOne = { ...ALL_MODELS, [component.model]: undefined };
-        expect(calculateBlend(blendId, withoutOne)).toEqual({
-          status: "NOT_APPLICABLE",
-          reason: "MISSING_COMPONENT",
-        });
-      }
-      expect(calculateBlend(blendId, {})).toEqual({
+  it("consumes any structurally compatible definition without knowing its product identity", () => {
+    // An arbitrary caller-defined model vocabulary: the calculator only sees the structure.
+    const definition: BlendDefinition<"EARNINGS_POWER" | "ASSET_BASED"> = {
+      components: [
+        { model: "EARNINGS_POWER", weight: 0.75 },
+        { model: "ASSET_BASED", weight: 0.25 },
+      ],
+    };
+
+    expect(
+      calculateBlend(definition, { EARNINGS_POWER: 120, ASSET_BASED: 40 }),
+    ).toEqual({ status: "CALCULATED", value: { valuePerShare: 100 } });
+  });
+
+  it("requires every component the definition names", () => {
+    for (const missing of ["A", "B", "C"] as const) {
+      const values: Record<string, number> = { A: 200, B: 100, C: 50 };
+      delete values[missing];
+      expect(calculateBlend(THREE_COMPONENT, values)).toEqual({
         status: "NOT_APPLICABLE",
         reason: "MISSING_COMPONENT",
       });
     }
+    expect(calculateBlend(THREE_COMPONENT, {})).toEqual({
+      status: "NOT_APPLICABLE",
+      reason: "MISSING_COMPONENT",
+    });
   });
 
   it("does not renormalize weights around a zero-valued component", () => {
-    // Renormalizing over the non-zero components would yield 100; the locked weights yield 80.
-    const result = calculateBlend("BALANCED", {
-      DCF_FCFF: 100,
-      RESIDUAL_INCOME: 100,
-      GRAHAM: 0,
-    });
-
-    expect(result).toEqual({
+    // Renormalizing over the non-zero components would yield 100; the definition's weights
+    // yield 80.
+    expect(calculateBlend(THREE_COMPONENT, { A: 100, B: 100, C: 0 })).toEqual({
       status: "CALCULATED",
-      value: { blendId: "BALANCED", valuePerShare: 80 },
+      value: { valuePerShare: 80 },
     });
   });
 
-  it("ignores models that are not components of the blend", () => {
-    // DDM is not part of BALANCED, so its presence or absence changes nothing.
-    const withDdm = calculateBlend("BALANCED", ALL_MODELS);
-    const withoutDdm = calculateBlend("BALANCED", {
-      DCF_FCFF: 100,
-      RESIDUAL_INCOME: 100,
-      GRAHAM: 100,
-    });
-
-    expect(withDdm).toEqual(withoutDdm);
-    expect(withDdm.status === "CALCULATED" && withDdm.value.valuePerShare).toBe(
-      100,
+  it("ignores values the definition does not reference", () => {
+    const referenced = calculateBlend(THREE_COMPONENT, { A: 100, B: 100, C: 100 });
+    const withExtra = calculateBlend(
+      THREE_COMPONENT as BlendDefinition<string>,
+      { A: 100, B: 100, C: 100, UNRELATED: 9_999 },
     );
+
+    expect(withExtra).toEqual(referenced);
+    expect(withExtra).toEqual({
+      status: "CALCULATED",
+      value: { valuePerShare: 100 },
+    });
   });
 
   it("never calculates from a non-finite component", () => {
     expect(
-      calculateBlend("CONSERVATIVE", {
-        ...ALL_MODELS,
-        RESIDUAL_INCOME: Number.NaN,
-      }),
+      calculateBlend(THREE_COMPONENT, { A: 100, B: Number.NaN, C: 100 }),
     ).toEqual({ status: "NOT_APPLICABLE", reason: "NON_FINITE_INPUT" });
     expect(
-      calculateBlend("DIVIDEND", {
-        ...ALL_MODELS,
-        DDM: Number.POSITIVE_INFINITY,
+      calculateBlend(THREE_COMPONENT, {
+        A: Number.POSITIVE_INFINITY,
+        B: 100,
+        C: 100,
       }),
     ).toEqual({ status: "NOT_APPLICABLE", reason: "NON_FINITE_INPUT" });
+  });
+
+  it("throws on a malformed definition rather than reporting inapplicability", () => {
+    const values = { A: 100, B: 100, C: 100 };
+
+    expect(() =>
+      calculateBlend({ components: [] } as BlendDefinition<"A">, values),
+    ).toThrow("at least one component");
+    expect(() =>
+      calculateBlend(
+        {
+          components: [
+            { model: "A", weight: 0.5 },
+            { model: "B", weight: 0.3 },
+          ],
+        },
+        values,
+      ),
+    ).toThrow("must sum to 1");
+    expect(() =>
+      calculateBlend(
+        {
+          components: [
+            { model: "A", weight: 1.2 },
+            { model: "B", weight: -0.2 },
+          ],
+        },
+        values,
+      ),
+    ).toThrow("positive finite weight");
+    expect(() =>
+      calculateBlend(
+        {
+          components: [
+            { model: "A", weight: Number.NaN },
+            { model: "B", weight: 1 },
+          ],
+        },
+        values,
+      ),
+    ).toThrow("positive finite weight");
   });
 });

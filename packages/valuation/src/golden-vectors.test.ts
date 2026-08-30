@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateBlend } from "./blends.js";
+import { calculateBlend, type BlendDefinition } from "./blends.js";
 import { calculateDcfFcff } from "./dcf-fcff.js";
 import { calculateDdm } from "./ddm.js";
 import { calculateGraham } from "./graham.js";
@@ -51,12 +51,55 @@ describe("locked golden vectors", () => {
     expect(components.DDM).toBeCloseTo(27.3333333333, 9);
   });
 
-  it.each([
-    ["BALANCED", 148.8039930756],
-    ["CONSERVATIVE", 145.7142220623],
-    ["DIVIDEND", 102.3291760593],
-  ] as const)("produces the documented %s blend", (blendId, expected) => {
-    const blend = calculateBlend(blendId, components);
+  /**
+   * The canonical definitions live in `INTRINSIC_VALUE_BLENDS` in `@intrinsic/domain`; the pure
+   * calculator never owns them. These are the structural equivalents the orchestration layer will
+   * pass in, restated here only as test input. The cross-package test proving the real domain
+   * definitions produce these same results belongs to the orchestration slice.
+   */
+  type GoldenModel = keyof typeof components;
+  const definitions: readonly (readonly [
+    string,
+    BlendDefinition<GoldenModel>,
+    number,
+  ])[] = [
+    [
+      "BALANCED",
+      {
+        components: [
+          { model: "DCF_FCFF", weight: 0.5 },
+          { model: "RESIDUAL_INCOME", weight: 0.3 },
+          { model: "GRAHAM", weight: 0.2 },
+        ],
+      },
+      148.8039930756,
+    ],
+    [
+      "CONSERVATIVE",
+      {
+        components: [
+          { model: "DCF_FCFF", weight: 0.4 },
+          { model: "RESIDUAL_INCOME", weight: 0.3 },
+          { model: "GRAHAM", weight: 0.3 },
+        ],
+      },
+      145.7142220623,
+    ],
+    [
+      "DIVIDEND",
+      {
+        components: [
+          { model: "DCF_FCFF", weight: 0.4 },
+          { model: "DDM", weight: 0.4 },
+          { model: "RESIDUAL_INCOME", weight: 0.2 },
+        ],
+      },
+      102.3291760593,
+    ],
+  ];
+
+  it.each(definitions)("produces the documented %s blend", (_name, definition, expected) => {
+    const blend = calculateBlend(definition, components);
 
     expect(blend.status).toBe("CALCULATED");
     if (blend.status !== "CALCULATED") {

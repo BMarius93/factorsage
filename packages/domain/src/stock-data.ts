@@ -149,9 +149,11 @@ export type IntrinsicValueModel = (typeof INTRINSIC_VALUE_MODELS)[number];
 /**
  * Persisted point-in-time intrinsic-value value for a trading day.
  *
- * The underlying valuation may only change when a newly eligible PIT input or calculation version
- * changes, but the latest eligible result is materialized forward onto every trading day so
+ * The underlying valuation changes only when a newly eligible PIT input replaces one of its
+ * sources, but the latest eligible result is materialized forward onto every trading day so
  * backtests can consume a fully daily-aligned series without resolving sparse valuation events.
+ * There is one current methodology: a methodology change rebuilds and replaces the affected rows
+ * rather than storing a parallel calculation version.
  */
 export type IntrinsicValuePoint = {
   securityId: SecurityId;

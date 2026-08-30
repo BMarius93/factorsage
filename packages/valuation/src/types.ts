@@ -1,24 +1,4 @@
 /**
- * Model and blend identities mirror the canonical domain identities. This package deliberately
- * stays dependency-free, so the identities are restated rather than imported; they must not
- * diverge from `INTRINSIC_VALUE_MODELS` / `INTRINSIC_VALUE_BLEND_IDS` in `@intrinsic/domain`.
- */
-export const VALUATION_MODELS = [
-  "DCF_FCFF",
-  "RESIDUAL_INCOME",
-  "DDM",
-  "GRAHAM",
-] as const;
-export type ValuationModelId = (typeof VALUATION_MODELS)[number];
-
-export const VALUATION_BLEND_IDS = [
-  "BALANCED",
-  "CONSERVATIVE",
-  "DIVIDEND",
-] as const;
-export type ValuationBlendId = (typeof VALUATION_BLEND_IDS)[number];
-
-/**
  * Why a model produced no value.
  *
  * Reasons are input/financial oriented and intentionally few, so callers can log or aggregate them
