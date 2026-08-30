@@ -34,10 +34,35 @@ Every calculation is point-in-time. For a valuation effective on trading day `D`
 5. Never mix `FY` rows into a TTM series.
 6. If the four required quarters are not all available, the model is `NOT_APPLICABLE`. There is no
    fallback to an annual statement for TTM.
-7. Latest balance-sheet inputs use the latest PIT-eligible **quarterly** balance sheet.
+7. Latest state inputs use the latest PIT-eligible **quarterly** statement of the required family.
 8. Historical share counts come from PIT financial-statement data only. Current profile shares are
    never used for a historical valuation. (The V2 `SecurityProfile` carries no share count at all,
    so there is nothing to fall back to.)
+
+## Flow-window alignment versus latest-state selection
+
+TTM flow-window alignment and latest-state selection are **separate concepts**. Implementation must
+not infer this distinction, so it is normative here.
+
+**Flow inputs** (period quantities: cash-flow and income-statement flows) use one common
+four-consecutive-quarter fiscal window for every statement family the model requires. When a model
+needs quarterly fields from more than one family, all of its TTM flow inputs must come from the
+_same_ four fiscal-quarter identities (`fiscalYear`, `period`). Never take "the latest four
+`CASH_FLOW` quarters" and "the latest four `INCOME` quarters" independently when those windows
+differ. Every quarter identity in the window must exist and be PIT-eligible for every family the
+model requires; otherwise the model is `NOT_APPLICABLE`. No annual row may ever fill a TTM gap.
+
+**State inputs** (balance-sheet state and the final per-share denominator) are not flow-window
+inputs. They use the latest independently eligible quarterly statement as of valuation day `D`,
+**even when that fiscal quarter is newer than the final quarter of the model's TTM flow window**.
+This is intentional: the TTM window represents trailing operating performance, while these fields
+represent the latest known financial and share state.
+
+The statements actually used — flow-window and latest-state alike — all contribute to that model's
+provenance.
+
+The one exception is `DDM`, whose per-quarter diluted share count is a flow-window input paired to
+that same quarter's dividend payment, not a latest-state input. See the `DDM` section.
 
 ## Model evaluation events, invalidation and carry-forward
 
@@ -59,7 +84,9 @@ invariant (an absent value is never zero and is never back-filled).
 ## Provenance
 
 A model's `sourceDataAsOf` is the maximum `availableFromDate`/availability instant across **all**
-source statements actually used by that model, including the annual statements used for growth.
+source statements actually used by that model: its flow-window quarters, its latest-state
+statements, and the two annual rows used as growth endpoints. Statements that were never read —
+intermediate annual rows in particular — do not contribute.
 
 Fixed methodology assumptions (the constants below) are not data provenance and never contribute
 to `sourceDataAsOf`.
@@ -95,17 +122,22 @@ Primary — 5-year revenue CAGR:
 
 - take the latest PIT-eligible `FY` revenue (fiscal year `N`);
 - compare it with the `FY` revenue of fiscal year `N - 5`;
-- a full 5-year CAGR therefore spans six fiscal-year endpoints (`N-5` … `N`);
+- **only these two endpoint rows are required.** The four intermediate `FY` rows (`N-1` … `N-4`)
+  need not exist or be eligible and are never used;
+- both endpoints must be the **exact** fiscal-year identities `N` and `N - 5`. Never substitute
+  `N-4`, `N-6` or another nearby year, and never rescale a shorter or longer span into a 5-year
+  rate;
 - both endpoint values must be `> 0`.
 
 ```text
 growth = (latestRevenue / revenueFiveYearsEarlier)^(1/5) - 1
 ```
 
-Fallback — 5-year net-income CAGR under the identical rule, used only when both endpoint values
-are `> 0`.
+Fallback — 5-year net-income CAGR under the identical rule (same exact `N` / `N - 5` endpoint
+identities), used only when both endpoint values are `> 0`.
 
-If neither CAGR can be calculated:
+If the required endpoint pair cannot be formed for revenue, continue to the net-income fallback; if
+neither CAGR can be calculated:
 
 ```text
 growth = DEFAULT_GROWTH = 0.05
@@ -120,17 +152,37 @@ growthUsed = min(rawGrowth, MAX_FORECAST_GROWTH)   // 0.15
 No arbitrary negative floor is imposed. A CAGR computed from two positive endpoints is naturally
 greater than `-100%`.
 
-The specific annual statements used for growth are part of model provenance.
+Only the annual statements actually used as endpoints contribute to model provenance. Intermediate
+annual rows that were never read do not.
 
 ## DCF_FCFF
 
-TTM inputs, each the sum of the last four eligible standalone quarters:
+Flow inputs come from **one common four-consecutive-quarter fiscal window**. For each quarter in
+that window, all three fields below must exist and be PIT-eligible; the `CASH_FLOW` and `INCOME`
+windows are never selected independently:
 
 ```text
+per quarter q in the common window:
+  CASH_FLOW  operatingCashFlow
+  CASH_FLOW  capitalExpenditure
+  INCOME     interestExpense
+
 operatingCashFlow_TTM   = sum(4 quarterly operatingCashFlow)      // CASH_FLOW
 capitalExpenditure_TTM  = sum(4 quarterly capitalExpenditure)     // CASH_FLOW, already negative
 interestExpense_TTM     = sum(4 quarterly interestExpense)        // INCOME, positive magnitude
 ```
+
+If any of the four quarter identities is missing or not PIT-eligible for any required family,
+`DCF_FCFF` is `NOT_APPLICABLE`. No annual row fills the gap.
+
+`interestExpense` is required per quarter and the missing/zero distinction is strict:
+
+- an explicit reported `0` is a valid zero and is used as such;
+- a **missing** `interestExpense` field makes `DCF_FCFF` `NOT_APPLICABLE`.
+
+Missing is never treated as zero, and V1 introduces no fallback to `interestPaid`, `netInterestIncome`,
+a debt-derived estimate, or any other field. The mapper preserves reported zeros and omits only
+genuinely absent fields, so the distinction is observable in the data.
 
 Construction:
 
@@ -161,7 +213,8 @@ PV_TV  = TV / (1 + DCF_WACC)^10
 EV     = sum(PV_t) + PV_TV
 ```
 
-Equity bridge:
+Equity bridge — these are **latest-state** inputs, taken from the latest PIT-eligible quarterly
+balance sheet as of `D` even when its fiscal quarter is newer than the flow window's final quarter:
 
 ```text
 cash  = latest eligible cashAndShortTermInvestments
@@ -173,23 +226,28 @@ equityValue = EV + cash - debt
 
 `netDebt` is **not** a fallback in V1 unless a later decision specifies it.
 
-Shares:
+Shares — also a latest-state input, independent of the flow window:
 
 ```text
-shares = latest eligible quarterly weightedAverageShsOutDil    // require shares > 0
+shares = latest eligible quarterly weightedAverageShsOutDil    // INCOME, require shares > 0
 valuePerShare = equityValue / shares
 ```
 
 `NOT_APPLICABLE` when any required input (OCF, CapEx, interest expense, cash, debt, diluted
-shares) is missing, when `FCFF_0 <= 0`, or when the final `equityValue <= 0`.
+shares) is missing, when the common four-quarter flow window cannot be formed, when
+`FCFF_0 <= 0`, or when the final `equityValue <= 0`.
 
 ## RESIDUAL_INCOME
 
 ```text
-netIncome_TTM = sum(4 quarterly netIncome)                       // INCOME
-bookValue     = latest eligible quarterly totalStockholdersEquity  // BALANCE_SHEET
-shares        = latest eligible quarterly weightedAverageShsOutDil // INCOME
+netIncome_TTM = sum(4 quarterly netIncome)                         // INCOME, flow window
+bookValue     = latest eligible quarterly totalStockholdersEquity  // BALANCE_SHEET, latest state
+shares        = latest eligible quarterly weightedAverageShsOutDil // INCOME, latest state
 ```
+
+The flow window is four consecutive PIT-eligible `INCOME` quarters — only one statement family is
+involved, so no cross-family alignment is needed. `bookValue` and `shares` are latest-state inputs
+and may come from a fiscal quarter newer than the flow window's final quarter.
 
 Require `bookValue > 0` and `shares > 0`.
 
@@ -215,8 +273,9 @@ input is missing, when `bookValue <= 0` or `shares <= 0`, or when the final `equ
 
 Common dividends only.
 
-For each of the last four PIT-eligible quarters, pair the `CASH_FLOW` quarter with the `INCOME`
-quarter of the same fiscal identity (`fiscalYear`, `period`):
+Both inputs are flow-window inputs on **one common four-consecutive-quarter fiscal window**. For
+each quarter in that window, pair the `CASH_FLOW` row with the `INCOME` row of the same fiscal
+identity (`fiscalYear`, `period`); every quarter must be PIT-eligible for both families:
 
 ```text
 quarterDps = abs(commonDividendsPaid) / weightedAverageShsOutDil   // require shares > 0
@@ -226,7 +285,9 @@ DPS_TTM    = sum(4 quarterDps)
 `abs` is applied because `commonDividendsPaid` is a signed cash outflow, normally negative.
 
 Summing four per-quarter DPS values deliberately handles a changing share count better than
-dividing total TTM dividends by the latest quarter's share count alone.
+dividing total TTM dividends by the latest quarter's share count alone. This is why `DDM` is the
+one model whose diluted share count is **not** a latest-state input: each quarter's shares stay
+paired to that same quarter's dividend payment.
 
 If `DPS_TTM <= 0`, `DDM` is `NOT_APPLICABLE`.
 
@@ -245,8 +306,11 @@ The legacy Graham growth formula is used because there is no PIT historical AAA 
 bond-yield series in V2, so the revised bond-yield-adjusted form cannot be computed
 point-in-time-correctly.
 
+The flow window is four consecutive PIT-eligible `INCOME` quarters; only one statement family is
+involved.
+
 ```text
-EPS_TTM = sum(4 quarterly epsDiluted)      // require EPS_TTM > 0
+EPS_TTM = sum(4 quarterly epsDiluted)      // INCOME, flow window; require EPS_TTM > 0
 
 gPercent      = growthUsed * 100
 valuePerShare = EPS_TTM * (8.5 + 2 * gPercent)
@@ -258,10 +322,30 @@ Market price is never an input to the Graham intrinsic value.
 
 ## Currency
 
-Every statement contributing a numeric input to one model must share the same `reportedCurrency`.
-If the required inputs for a model carry incompatible currencies, that model is `NOT_APPLICABLE`.
+`DailyDerivedState` keeps its single shared `intrinsicCurrency` column. Per-model currency columns
+are **not** added, and V1 introduces no FX conversion anywhere.
 
-The resulting `intrinsicCurrency` is that common statement currency.
+Two rules apply, at different levels:
+
+1. **Per model.** Every statement supplying a numeric input to one model must share the same
+   `reportedCurrency`. If a model's required inputs carry incompatible currencies, that model is
+   `NOT_APPLICABLE`.
+2. **Per row.** All non-null intrinsic model results materialized on the same `DailyDerivedState`
+   row must resolve to the same currency, which becomes that row's `intrinsicCurrency`.
+
+If independently calculated non-null model results for the same trading day resolve to
+incompatible currencies, that is a **data-consistency failure**, not a valuation outcome. The
+deterministic handling that fits the current single-column materializer is:
+
+- materialize **no** intrinsic values for that security on that trading day: every model column,
+  every blend column and `intrinsicCurrency` stay `NULL`, exactly as any other unavailable value;
+- the technical/weekly columns on that row are unaffected;
+- surface the condition as a logged data-consistency event through `@intrinsic/observability`
+  rather than skipping it silently.
+
+No model is ever labelled with another model's currency, no currency is picked by priority or
+majority (any such tie-break would be arbitrary and would silently drop valid results), and no
+value is converted. The incompatible result set simply remains unavailable.
 
 ## Blends
 
@@ -350,29 +434,3 @@ BALANCED     = 148.8039930756
 CONSERVATIVE = 145.7142220623
 DIVIDEND     = 102.3291760593
 ```
-
-## Recorded ambiguities
-
-These are under-specified by the methodology lock. They are recorded rather than silently decided,
-because each one changes results. Implementation must not guess; resolve them explicitly first.
-
-1. **Growth endpoint rows.** The formula uses exactly two `FY` rows (`N` and `N-5`), spanning six
-   fiscal years. It is not stated whether the four intermediate `FY` rows must also exist and be
-   eligible. The strict reading (require all six rows) and the endpoint-only reading produce
-   different availability for issuers with gapped annual history.
-2. **"Latest eligible quarterly" vs. "last TTM quarter".** `weightedAverageShsOutDil` and the
-   balance-sheet inputs are specified as the _latest_ eligible quarterly values. When a newer
-   `INCOME` or `BALANCE_SHEET` quarter is eligible but the matching `CASH_FLOW` quarter is not,
-   these can come from a later fiscal quarter than the TTM window's last quarter. Whether that is
-   intended (latest available) or should be pinned to the TTM window is unresolved.
-3. **Missing `interestExpense`.** The rule makes a missing `interestExpense` fatal for
-   `DCF_FCFF`, which excludes every issuer for whom FMP omits the field rather than reporting a
-   zero. An explicit `0` is a usable value — the mapper preserves reported zeros and omits only
-   genuinely absent fields — so the distinction is real and material to coverage.
-4. **Shared `intrinsicCurrency` column.** Provenance is per model but `DailyDerivedState` carries
-   one shared `intrinsicCurrency`. If two eligible models on the same trading day resolved to
-   different statement currencies, the row could not represent both. V1 needs either a stated
-   assumption that all models for a security share one currency, or a per-model currency decision.
-
-None of these contradicts the existing architecture or PIT model; they are gaps in the
-methodology specification itself.
