@@ -1816,9 +1816,28 @@ describe("daily materialized intrinsic projections", () => {
     date,
     intrinsicValues: { DCF_FCFF: 100, RESIDUAL_INCOME: 80, GRAHAM: 60 },
     intrinsicValueBlends: { BALANCED: 86 },
-    intrinsicSourceDataAsOf: "2025-02-03T12:00:00.000Z",
+    dcfFcffSourceAsOf: "2025-02-03T12:00:00.000Z",
+    residualIncomeSourceAsOf: "2025-02-03T12:00:00.000Z",
+    grahamSourceAsOf: "2025-02-03T12:00:00.000Z",
     intrinsicCurrency: "USD",
   }));
+
+  /**
+   * One daily row whose models were sourced at different instants. Provenance is per model, so
+   * DCF's later financial-statement revision must not delay Graham, and Graham must not make DCF
+   * look older than it is.
+   */
+  const perModelSources: DailyDerivedState = {
+    securityId: security.id,
+    date: "2026-05-05",
+    intrinsicValues: { DCF_FCFF: 120, RESIDUAL_INCOME: 90, DDM: 70, GRAHAM: 60 },
+    intrinsicValueBlends: { BALANCED: 100, CONSERVATIVE: 95, DIVIDEND: 94 },
+    dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
+    residualIncomeSourceAsOf: "2026-04-28T20:00:00.000Z",
+    ddmSourceAsOf: "2026-05-04T20:00:00.000Z",
+    grahamSourceAsOf: "2026-04-21T20:00:00.000Z",
+    intrinsicCurrency: "USD",
+  };
 
   it("returns one value per model per trading day, ascending, with no version metadata", async () => {
     const { loader } = withDailyState(carriedForward);
@@ -1876,7 +1895,7 @@ describe("daily materialized intrinsic projections", () => {
         date: "2025-02-06",
         intrinsicValues: { DCF_FCFF: 120 },
         // Deliberately inconsistent audit field: it must never become visible at this asOf.
-        intrinsicSourceDataAsOf: "2025-02-07T12:00:00.000Z",
+        dcfFcffSourceAsOf: "2025-02-07T12:00:00.000Z",
         intrinsicCurrency: "USD",
       },
     ]);
@@ -1893,6 +1912,169 @@ describe("daily materialized intrinsic projections", () => {
       "2025-02-04",
       "2025-02-05",
     ]);
+  });
+
+  it("carries an independent sourceDataAsOf per model on the same daily row", async () => {
+    const { loader } = withDailyState([perModelSources]);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2026-05-05",
+      to: "2026-05-05",
+      models: ["DCF_FCFF", "GRAHAM"],
+    });
+
+    // Two models, one (securityId, date) row, two different provenance instants.
+    expect(
+      result.map((point) => [point.model, point.sourceDataAsOf]),
+    ).toEqual([
+      ["DCF_FCFF", "2026-05-02T20:00:00.000Z"],
+      ["GRAHAM", "2026-04-21T20:00:00.000Z"],
+    ]);
+  });
+
+  it("applies the asOf cutoff independently per model", async () => {
+    const { loader } = withDailyState([
+      {
+        securityId: security.id,
+        date: "2026-04-22",
+        intrinsicValues: { DCF_FCFF: 120, GRAHAM: 60 },
+        grahamSourceAsOf: "2026-04-21T20:00:00.000Z",
+        // Deliberately inconsistent DCF stamp: its inputs were not public by this asOf.
+        dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+    ]);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2026-04-20",
+      to: "2026-04-22",
+      asOf: "2026-04-25",
+    });
+
+    // Graham is eligible at this cutoff; DCF on the same row is not, and no model is delayed to
+    // the newest instant on the row.
+    expect(result.map((point) => point.model)).toEqual(["GRAHAM"]);
+    expect(result[0]?.sourceDataAsOf).toBe("2026-04-21T20:00:00.000Z");
+  });
+
+  it("omits a model value whose own provenance is missing", async () => {
+    const { loader } = withDailyState([
+      {
+        securityId: security.id,
+        date: "2026-05-05",
+        intrinsicValues: { DCF_FCFF: 120, RESIDUAL_INCOME: 90 },
+        dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
+        // No residualIncomeSourceAsOf: the value cannot be proven point-in-time eligible.
+        intrinsicCurrency: "USD",
+      },
+    ]);
+
+    const result = await loader.getIntrinsicValues("AAPL", {
+      from: "2026-05-05",
+      to: "2026-05-05",
+    });
+
+    expect(result.map((point) => point.model)).toEqual(["DCF_FCFF"]);
+  });
+
+  it("derives BALANCED and CONSERVATIVE provenance from their own components only", async () => {
+    const { loader } = withDailyState([perModelSources]);
+
+    const result = await loader.getIntrinsicValueBlends("AAPL", {
+      from: "2026-05-05",
+      to: "2026-05-05",
+      blendIds: ["BALANCED", "CONSERVATIVE"],
+    });
+
+    // max(DCF 05-02, RI 04-28, Graham 04-21); the later DDM instant is not a component.
+    expect(
+      result.map((point) => [point.blendId, point.sourceDataAsOf]),
+    ).toEqual([
+      ["BALANCED", "2026-05-02T20:00:00.000Z"],
+      ["CONSERVATIVE", "2026-05-02T20:00:00.000Z"],
+    ]);
+  });
+
+  it("includes DDM provenance in the DIVIDEND blend", async () => {
+    const { loader } = withDailyState([perModelSources]);
+
+    const result = await loader.getIntrinsicValueBlends("AAPL", {
+      from: "2026-05-05",
+      to: "2026-05-05",
+      blendIds: ["DIVIDEND"],
+    });
+
+    // max(DCF 05-02, DDM 05-04, RI 04-28): DDM is the newest required component.
+    expect(result.map((point) => point.sourceDataAsOf)).toEqual([
+      "2026-05-04T20:00:00.000Z",
+    ]);
+  });
+
+  it("omits a blend when any required component value or provenance is unavailable", async () => {
+    const missingValue = withDailyState([
+      {
+        ...perModelSources,
+        intrinsicValues: { DCF_FCFF: 120, RESIDUAL_INCOME: 90, GRAHAM: 60 },
+      },
+    ]);
+    const missingProvenance = withDailyState([
+      {
+        ...perModelSources,
+        ddmSourceAsOf: undefined,
+      },
+    ]);
+    const query = {
+      from: "2026-05-05",
+      to: "2026-05-05",
+      blendIds: ["DIVIDEND"],
+    } as const;
+
+    // Neither case renormalizes the remaining weights onto a partial blend.
+    await expect(
+      missingValue.loader.getIntrinsicValueBlends("AAPL", query),
+    ).resolves.toEqual([]);
+    await expect(
+      missingProvenance.loader.getIntrinsicValueBlends("AAPL", query),
+    ).resolves.toEqual([]);
+    // The models that are complete on that row remain readable.
+    await expect(
+      missingProvenance.loader.getIntrinsicValueBlends("AAPL", {
+        ...query,
+        blendIds: ["BALANCED"],
+      }),
+    ).resolves.toHaveLength(1);
+  });
+
+  it("never leaks a later-sourced component into an earlier asOf query", async () => {
+    const { loader } = withDailyState([
+      {
+        securityId: security.id,
+        date: "2026-04-22",
+        intrinsicValues: { GRAHAM: 60 },
+        grahamSourceAsOf: "2026-04-21T20:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+      perModelSources,
+    ]);
+
+    const [values, blends] = await Promise.all([
+      loader.getIntrinsicValues("AAPL", {
+        from: "2026-04-20",
+        to: "2026-05-10",
+        asOf: "2026-04-25",
+      }),
+      loader.getIntrinsicValueBlends("AAPL", {
+        from: "2026-04-20",
+        to: "2026-05-10",
+        asOf: "2026-04-25",
+      }),
+    ]);
+
+    // Only the trading day and the model eligible at the cutoff; nothing from 2026-05-05.
+    expect(values.map((point) => [point.valuationDate, point.model])).toEqual([
+      ["2026-04-22", "GRAHAM"],
+    ]);
+    expect(blends).toEqual([]);
   });
 
   it("omits days before the first eligible valuation instead of back-filling them", async () => {

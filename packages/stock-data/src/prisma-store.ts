@@ -44,6 +44,17 @@ const INTRINSIC_MODEL_COLUMNS = {
   GRAHAM: "graham",
 } as const satisfies Record<IntrinsicValueModel, string>;
 
+/**
+ * Point-in-time provenance is per intrinsic-value model, so each model has its own column. Blend
+ * provenance is derived from these at read time and is never persisted.
+ */
+const INTRINSIC_MODEL_SOURCE_COLUMNS = {
+  DCF_FCFF: "dcfFcffSourceAsOf",
+  RESIDUAL_INCOME: "residualIncomeSourceAsOf",
+  DDM: "ddmSourceAsOf",
+  GRAHAM: "grahamSourceAsOf",
+} as const satisfies Record<IntrinsicValueModel, string>;
+
 const INTRINSIC_BLEND_COLUMNS = {
   BALANCED: "blendBalanced",
   CONSERVATIVE: "blendConservative",
@@ -69,7 +80,10 @@ type DailyDerivedStateRow = {
   blendBalanced: DecimalLike | null;
   blendConservative: DecimalLike | null;
   blendDividend: DecimalLike | null;
-  intrinsicSourceDataAsOf: Date | null;
+  dcfFcffSourceAsOf: Date | null;
+  residualIncomeSourceAsOf: Date | null;
+  ddmSourceAsOf: Date | null;
+  grahamSourceAsOf: Date | null;
   intrinsicCurrency: string | null;
 };
 
@@ -99,6 +113,13 @@ function dailyDerivedStateFromRow(
       return value === null ? [] : [[blendId, value.toNumber()] as const];
     }),
   ) as Partial<Record<IntrinsicValueBlendId, number>>;
+  // Provenance is per model: a model's instant is projected independently of the others.
+  const intrinsicSourceAsOf = Object.fromEntries(
+    Object.values(INTRINSIC_MODEL_SOURCE_COLUMNS).flatMap((column) => {
+      const value = row[column];
+      return value === null ? [] : [[column, value.toISOString()] as const];
+    }),
+  );
 
   return {
     securityId,
@@ -119,11 +140,7 @@ function dailyDerivedStateFromRow(
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
       : { intrinsicValueBlends }),
-    ...(row.intrinsicSourceDataAsOf === null
-      ? {}
-      : {
-          intrinsicSourceDataAsOf: row.intrinsicSourceDataAsOf.toISOString(),
-        }),
+    ...intrinsicSourceAsOf,
     ...(row.intrinsicCurrency === null
       ? {}
       : { intrinsicCurrency: row.intrinsicCurrency }),
@@ -154,11 +171,16 @@ function dailyDerivedStateToRow(
     blendBalanced: row.intrinsicValueBlends?.BALANCED ?? null,
     blendConservative: row.intrinsicValueBlends?.CONSERVATIVE ?? null,
     blendDividend: row.intrinsicValueBlends?.DIVIDEND ?? null,
-    intrinsicSourceDataAsOf: row.intrinsicSourceDataAsOf
-      ? new Date(row.intrinsicSourceDataAsOf)
-      : null,
+    dcfFcffSourceAsOf: toDatabaseInstant(row.dcfFcffSourceAsOf),
+    residualIncomeSourceAsOf: toDatabaseInstant(row.residualIncomeSourceAsOf),
+    ddmSourceAsOf: toDatabaseInstant(row.ddmSourceAsOf),
+    grahamSourceAsOf: toDatabaseInstant(row.grahamSourceAsOf),
     intrinsicCurrency: row.intrinsicCurrency ?? null,
   };
+}
+
+function toDatabaseInstant(value: string | undefined): Date | null {
+  return value === undefined ? null : new Date(value);
 }
 
 function toDatabaseDate(value: string): Date {

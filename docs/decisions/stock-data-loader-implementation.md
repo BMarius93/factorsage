@@ -158,6 +158,15 @@ Intrinsic and blend reads require both `valuationDate <= asOf` and
 `sourceDataAsOf <= endOf(asOf)`. When `to` and `asOf` are present, the valuation upper bound is
 `min(to, asOf)`.
 
+`sourceDataAsOf` is per intrinsic-value model, not per row: each model has its own provenance
+column and the cutoff is evaluated independently per model, so one model on a daily row can be
+eligible while another on the same row is withheld. No model is ever delayed to the newest
+provenance instant on its row, and a model value without its own provenance is never returned.
+
+A blend's `sourceDataAsOf` is derived as the maximum provenance of the models composing it and is
+never persisted. A blend is returned only when every required component value and component
+provenance is present and eligible at the cutoff.
+
 Intrinsic values and blends are read directly from the materialized daily state: there is exactly
 one current row per `(securityId, date)`, so no version selection or read-time reconstruction from
 sparse valuation events happens. A blend that was never materialized is absent; the reader must not

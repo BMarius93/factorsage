@@ -1328,7 +1328,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           residualIncome: 80,
           graham: 60,
           blendBalanced: 86,
-          intrinsicSourceDataAsOf: new Date("2025-02-03T12:00:00.000Z"),
+          // BALANCED components each carry their own provenance; the blend derives the max.
+          dcfFcffSourceAsOf: new Date("2025-02-03T12:00:00.000Z"),
+          residualIncomeSourceAsOf: new Date("2025-01-28T12:00:00.000Z"),
+          grahamSourceAsOf: new Date("2025-01-20T12:00:00.000Z"),
           intrinsicCurrency: "USD",
         })),
       });
@@ -1360,6 +1363,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
       // The same eligible blend repeated per trading day is intentional materialization.
       expect(blends.map((point) => point.valuationDate)).toEqual(dates);
       expect(blends.map((point) => point.valuePerShare)).toEqual([86, 86, 86]);
+      expect(blends.map((point) => point.sourceDataAsOf)).toEqual(
+        dates.map(() => "2025-02-03T12:00:00.000Z"),
+      );
       expect(blends[0]).not.toHaveProperty("blendVersion");
       expect(blends[0]).not.toHaveProperty("calculationVersion");
     } finally {

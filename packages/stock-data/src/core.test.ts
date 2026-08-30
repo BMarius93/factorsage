@@ -1,4 +1,8 @@
-import type { DailyPrice, StockDatasetState } from "@intrinsic/domain";
+import type {
+  DailyDerivedState,
+  DailyPrice,
+  StockDatasetState,
+} from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
   addDays,
@@ -360,9 +364,32 @@ describe("unified daily derived state", () => {
         (row) =>
           row.intrinsicValues === undefined &&
           row.intrinsicValueBlends === undefined &&
-          row.intrinsicSourceDataAsOf === undefined,
+          row.dcfFcffSourceAsOf === undefined &&
+          row.residualIncomeSourceAsOf === undefined &&
+          row.ddmSourceAsOf === undefined &&
+          row.grahamSourceAsOf === undefined,
       ),
     ).toBe(true);
+  });
+
+  it("keeps (securityId, date) as the only identity when models are sourced separately", () => {
+    // Per-model provenance is column data, never an identity or history dimension.
+    const row: DailyDerivedState = {
+      securityId: "security-1",
+      date: "2026-05-05",
+      intrinsicValues: { DCF_FCFF: 120, GRAHAM: 60 },
+      dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
+      grahamSourceAsOf: "2026-04-21T20:00:00.000Z",
+      intrinsicCurrency: "USD",
+    };
+
+    expect(() => assertOneRowPerTradingDay([row])).not.toThrow();
+    expect(() =>
+      assertOneRowPerTradingDay([
+        row,
+        { ...row, grahamSourceAsOf: "2026-05-04T20:00:00.000Z" },
+      ]),
+    ).toThrow("exactly one row per trading day");
   });
 
   it("carries no calculation version on any derived row", () => {

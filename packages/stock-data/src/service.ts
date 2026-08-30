@@ -29,6 +29,10 @@ import {
 } from "./cache.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
 import {
+  blendSourceDataAsOf,
+  intrinsicModelSourceAsOf,
+} from "./intrinsic-values.js";
+import {
   addDays,
   assertDateRange,
   endOfLocalDate,
@@ -551,9 +555,10 @@ export class CanonicalStockDataService implements StockDataService {
   /**
    * Bounds an intrinsic-value query to a readable range.
    *
-   * `asOf` narrows the upper bound: nothing effective after the requested point in time may be
-   * returned. Values are materialized only once eligible, so no further look-ahead filter is
-   * needed beyond the row's own `intrinsicSourceDataAsOf` guard applied during projection.
+   * `asOf` narrows the upper bound: no trading day after the requested point in time may be
+   * returned. It is only the row-level bound; per-model and per-blend provenance is then applied
+   * independently during projection, so a later-sourced model is withheld while an earlier-sourced
+   * model on the same row is still returned.
    */
   private intrinsicReadRange(
     security: Security,
@@ -1160,19 +1165,24 @@ function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
 }
 
 /**
- * Point-in-time guard shared by both intrinsic projections.
+ * Point-in-time eligibility of one already-resolved provenance instant.
  *
- * Materialization only writes eligible values, so this is a defensive assertion of the
- * no-look-ahead invariant rather than the primary filter.
+ * Provenance is per intrinsic model, so this is applied independently per model and per blend
+ * rather than once per row: on the same trading day one model can be eligible at a cutoff while
+ * another, whose inputs were published later, is not.
  */
-function isIntrinsicVisible(row: DailyDerivedState, asOf?: string): boolean {
+function isSourceVisible(
+  row: DailyDerivedState,
+  sourceDataAsOf: string | undefined,
+  asOf?: string,
+): boolean {
   if (asOf && row.date > asOf) {
     return false;
   }
-  if (!row.intrinsicSourceDataAsOf) {
+  if (!sourceDataAsOf) {
     return false;
   }
-  return row.intrinsicSourceDataAsOf <= endOfLocalDate(asOf ?? row.date);
+  return sourceDataAsOf <= endOfLocalDate(asOf ?? row.date);
 }
 
 function toIntrinsicValuePoints(
@@ -1180,26 +1190,27 @@ function toIntrinsicValuePoints(
   query: IntrinsicValueQuery,
 ): IntrinsicValuePoint[] {
   const models = query.models ?? INTRINSIC_VALUE_MODELS;
-  return rows.flatMap((row) => {
-    if (!isIntrinsicVisible(row, query.asOf)) {
-      return [];
-    }
-    return models.flatMap((model) => {
+  return rows.flatMap((row) =>
+    models.flatMap((model) => {
       const valuePerShare = row.intrinsicValues?.[model];
-      return valuePerShare === undefined || !row.intrinsicCurrency
+      // A model's own provenance is mandatory: a value without it is never point-in-time readable.
+      const sourceDataAsOf = intrinsicModelSourceAsOf(row, model);
+      return valuePerShare === undefined ||
+        !row.intrinsicCurrency ||
+        !isSourceVisible(row, sourceDataAsOf, query.asOf)
         ? []
         : [
             {
               securityId: row.securityId,
               valuationDate: row.date,
-              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              sourceDataAsOf: sourceDataAsOf as string,
               model,
               valuePerShare,
               currency: row.intrinsicCurrency,
             },
           ];
-    });
-  });
+    }),
+  );
 }
 
 function toIntrinsicValueBlendPoints(
@@ -1207,26 +1218,28 @@ function toIntrinsicValueBlendPoints(
   query: IntrinsicValueBlendQuery,
 ): IntrinsicValueBlendPoint[] {
   const blendIds = query.blendIds ?? INTRINSIC_VALUE_BLEND_IDS;
-  return rows.flatMap((row) => {
-    if (!isIntrinsicVisible(row, query.asOf)) {
-      return [];
-    }
-    return blendIds.flatMap((blendId) => {
+  return rows.flatMap((row) =>
+    blendIds.flatMap((blendId) => {
       const valuePerShare = row.intrinsicValueBlends?.[blendId];
-      return valuePerShare === undefined || !row.intrinsicCurrency
+      // Derived, not stored: the maximum provenance of the models composing this blend, defined
+      // only when every required component value and provenance is present. Never renormalized.
+      const sourceDataAsOf = blendSourceDataAsOf(row, blendId);
+      return valuePerShare === undefined ||
+        !row.intrinsicCurrency ||
+        !isSourceVisible(row, sourceDataAsOf, query.asOf)
         ? []
         : [
             {
               securityId: row.securityId,
               valuationDate: row.date,
-              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              sourceDataAsOf: sourceDataAsOf as string,
               blendId,
               valuePerShare,
               currency: row.intrinsicCurrency,
             },
           ];
-    });
-  });
+    }),
+  );
 }
 
 function subtractYears(value: string, years: number): string {
