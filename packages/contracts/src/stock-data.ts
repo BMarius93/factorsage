@@ -46,10 +46,13 @@ export type DailyPriceResponse = {
 };
 
 /**
- * Persisted V1 daily technical snapshot.
+ * Daily technical projection over the unified daily derived state.
  *
  * The `d` suffix is part of the public contract and explicitly identifies daily indicators. This
  * avoids ambiguity once weekly indicators exist. Missing warm-up values are omitted, never zeroed.
+ *
+ * No calculation version is exposed: exactly one current methodology is materialized per trading
+ * day, and a methodology change rebuilds that state rather than publishing a parallel version.
  */
 export type DailyTechnicalResponse = {
   date: string;
@@ -60,7 +63,6 @@ export type DailyTechnicalResponse = {
   ema20d?: number;
   ema50d?: number;
   ema200d?: number;
-  calculationVersion: number;
 };
 
 export type IntrinsicValueModelResponse =
@@ -69,6 +71,12 @@ export type IntrinsicValueModelResponse =
   | "DDM"
   | "GRAHAM";
 
+/**
+ * Daily intrinsic value effective on `valuationDate`.
+ *
+ * The series is materialized per trading day: once a value becomes point-in-time eligible it is
+ * repeated on subsequent trading days until newly eligible inputs change it.
+ */
 export type IntrinsicValueResponse = {
   valuationDate: string;
   /** ISO-8601 instant when the newest source input used by the valuation was public. */
@@ -76,7 +84,6 @@ export type IntrinsicValueResponse = {
   model: IntrinsicValueModelResponse;
   valuePerShare: number;
   currency: string;
-  calculationVersion: number;
 };
 
 export type IntrinsicValueBlendIdResponse =
@@ -90,8 +97,6 @@ export type IntrinsicValueBlendResponse = {
   blendId: IntrinsicValueBlendIdResponse;
   valuePerShare: number;
   currency: string;
-  calculationVersion: number;
-  blendVersion: number;
 };
 
 /** Composite payload for the future bounded Stock Details endpoint. */

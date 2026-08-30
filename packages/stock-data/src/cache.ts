@@ -1,6 +1,6 @@
 import type {
+  DailyDerivedState,
   DailyPrice,
-  DailyTechnical,
   DateRange,
   FinancialStatement,
   FinancialStatementCadence,
@@ -12,7 +12,6 @@ import {
   FINANCIAL_STATEMENT_TYPES,
   selectFinancialStatements,
 } from "@intrinsic/domain";
-import type { WeeklyPrice } from "./weekly.js";
 
 export const PRICE_DATASET_VERSION = 1;
 export const FINANCIAL_STATEMENT_VERSION = 1;
@@ -32,8 +31,11 @@ export type StockManifest = {
   hydratingAt?: string;
   priceDatasetVersion: number;
   financialStatementVersion: number;
-  dailyTechnicalVersion: number;
-  weeklyVersion: number;
+  /**
+   * Methodology revision of the unified daily derived state. A change invalidates the cached
+   * derived state so it is rebuilt; it never selects between coexisting stored methodologies.
+   */
+  derivedStateRevision: number;
 };
 
 export interface RedisCacheClient {
@@ -84,23 +86,18 @@ export interface StockDataCache {
     years: readonly number[],
     hydrating?: StockManifest,
   ): Promise<void>;
-  readDailyTechnicals(
+  /**
+   * Reads the unified daily derived state from yearly chunks. There is one chunk family for the
+   * whole derived state; never introduce a key per indicator, model, or blend.
+   */
+  readDailyDerivedState(
     securityId: string,
     range: Required<DateRange>,
-    calculationVersion: number,
-  ): Promise<DailyTechnical[] | null>;
-  writeDailyTechnicalYears(
+  ): Promise<DailyDerivedState[] | null>;
+  writeDailyDerivedStateYears(
     securityId: string,
-    technicals: readonly DailyTechnical[],
+    rows: readonly DailyDerivedState[],
     years: readonly number[],
-    calculationVersion: number,
-    hydrating?: StockManifest,
-  ): Promise<void>;
-  writeWeeklyPriceYears(
-    securityId: string,
-    prices: readonly WeeklyPrice[],
-    years: readonly number[],
-    calculationVersion: number,
     hydrating?: StockManifest,
   ): Promise<void>;
   readFinancialStatements(
@@ -262,17 +259,16 @@ export class RedisStockDataCache implements StockDataCache {
     );
   }
 
-  async readDailyTechnicals(
+  async readDailyDerivedState(
     securityId: string,
     range: Required<DateRange>,
-    calculationVersion: number,
-  ): Promise<DailyTechnical[] | null> {
+  ): Promise<DailyDerivedState[] | null> {
     if ((await this.getManifest(securityId))?.status !== "READY") {
       return null;
     }
-    const result = await this.readYearly<DailyTechnical>(
+    const result = await this.readYearly<DailyDerivedState>(
       range,
-      (year) => this.technicalYearKey(securityId, calculationVersion, year),
+      (year) => this.dailyStateYearKey(securityId, year),
       (row) => row.date,
     );
     if (result) {
@@ -281,36 +277,18 @@ export class RedisStockDataCache implements StockDataCache {
     return result;
   }
 
-  async writeDailyTechnicalYears(
+  async writeDailyDerivedStateYears(
     securityId: string,
-    technicals: readonly DailyTechnical[],
+    rows: readonly DailyDerivedState[],
     years: readonly number[],
-    calculationVersion: number,
     hydrating?: StockManifest,
   ): Promise<void> {
     await this.writeYearly(
       securityId,
-      technicals,
+      rows,
       years,
       (row) => row.date,
-      (year) => this.technicalYearKey(securityId, calculationVersion, year),
-      hydrating,
-    );
-  }
-
-  async writeWeeklyPriceYears(
-    securityId: string,
-    prices: readonly WeeklyPrice[],
-    years: readonly number[],
-    calculationVersion: number,
-    hydrating?: StockManifest,
-  ): Promise<void> {
-    await this.writeYearly(
-      securityId,
-      prices,
-      years,
-      (row) => row.weekStartDate,
-      (year) => this.weeklyYearKey(securityId, calculationVersion, year),
+      (year) => this.dailyStateYearKey(securityId, year),
       hydrating,
     );
   }
@@ -506,20 +484,12 @@ export class RedisStockDataCache implements StockDataCache {
     return `${this.namespace}:security:${securityId}:prices:1D:${year}`;
   }
 
-  private technicalYearKey(
-    securityId: string,
-    version: number,
-    year: number,
-  ): string {
-    return `${this.namespace}:security:${securityId}:technicals:1D:v${version}:${year}`;
-  }
-
-  private weeklyYearKey(
-    securityId: string,
-    version: number,
-    year: number,
-  ): string {
-    return `${this.namespace}:security:${securityId}:weekly:1W:v${version}:${year}`;
+  /**
+   * One chunk family holds the whole daily derived state for a year. Keys are registered so
+   * complete-stock LRU eviction removes every cached dataset for the security together.
+   */
+  private dailyStateYearKey(securityId: string, year: number): string {
+    return `${this.namespace}:security:${securityId}:daily-state:${year}`;
   }
 
   private financialYearKey(
@@ -601,25 +571,16 @@ export class NullStockDataCache implements StockDataCache {
     _years: readonly number[],
     _hydrating?: StockManifest,
   ): Promise<void> {}
-  async readDailyTechnicals(
+  async readDailyDerivedState(
     _securityId: string,
     _range: Required<DateRange>,
-    _calculationVersion: number,
-  ): Promise<DailyTechnical[] | null> {
+  ): Promise<DailyDerivedState[] | null> {
     return null;
   }
-  async writeDailyTechnicalYears(
+  async writeDailyDerivedStateYears(
     _securityId: string,
-    _technicals: readonly DailyTechnical[],
+    _rows: readonly DailyDerivedState[],
     _years: readonly number[],
-    _calculationVersion: number,
-    _hydrating?: StockManifest,
-  ): Promise<void> {}
-  async writeWeeklyPriceYears(
-    _securityId: string,
-    _prices: readonly WeeklyPrice[],
-    _years: readonly number[],
-    _calculationVersion: number,
     _hydrating?: StockManifest,
   ): Promise<void> {}
   async readFinancialStatements(

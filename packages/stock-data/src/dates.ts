@@ -104,35 +104,32 @@ export function missingCoverageRanges(
   return missing;
 }
 
+/**
+ * Advances a dataset watermark after a successful sync.
+ *
+ * Derived datasets carry no calculation version. A methodology change is an explicit rebuild that
+ * changes the dataset variant, which starts a fresh watermark instead of widening an old one.
+ */
 export function advanceDatasetState(
   current: StockDatasetState | null,
   successfulCoverage: DateRange,
   lastSyncedAt: string,
-  calculationVersion?: number,
 ): StockDatasetState {
   if (!successfulCoverage.from || !successfulCoverage.to) {
     throw new Error("Successful dataset coverage must be bounded");
   }
   assertDateRange(successfulCoverage);
 
-  const versionChanged =
-    calculationVersion !== undefined &&
-    current?.calculationVersion !== undefined &&
-    current.calculationVersion !== calculationVersion;
-
   return {
     securityId: current?.securityId ?? "",
     dataset: current?.dataset ?? "DAILY_PRICE",
-    earliestDate:
-      !current?.earliestDate || versionChanged
-        ? successfulCoverage.from
-        : [current.earliestDate, successfulCoverage.from].sort()[0],
-    latestDate:
-      !current?.latestDate || versionChanged
-        ? successfulCoverage.to
-        : [current.latestDate, successfulCoverage.to].sort()[1],
+    earliestDate: !current?.earliestDate
+      ? successfulCoverage.from
+      : [current.earliestDate, successfulCoverage.from].sort()[0],
+    latestDate: !current?.latestDate
+      ? successfulCoverage.to
+      : [current.latestDate, successfulCoverage.to].sort()[1],
     lastSyncedAt,
-    ...(calculationVersion === undefined ? {} : { calculationVersion }),
   };
 }
 

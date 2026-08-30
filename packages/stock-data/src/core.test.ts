@@ -1,9 +1,4 @@
-import type {
-  DailyPrice,
-  IntrinsicValuePoint,
-  StockDatasetState,
-} from "@intrinsic/domain";
-import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
+import type { DailyPrice, StockDatasetState } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
   addDays,
@@ -12,10 +7,10 @@ import {
   missingDateRanges,
 } from "./dates.js";
 import {
-  calculateBlend,
-  selectIntrinsicValues,
-  validateBlendDefinition,
-} from "./intrinsic-values.js";
+  assertOneRowPerTradingDay,
+  buildDailyDerivedState,
+} from "./derived-state.js";
+import { validateBlendDefinition } from "./intrinsic-values.js";
 import { calculateDailyTechnicals, movingAverage } from "./technicals.js";
 import {
   aggregateCompletedWeeks,
@@ -96,18 +91,16 @@ describe("range-aware loading", () => {
       latestDate: "2026-08-20",
     });
 
-    expect(
-      advanceDatasetState(
-        { ...state, dataset: "DAILY_TECHNICAL", calculationVersion: 1 },
-        { from: "2020-01-01", to: "2020-12-31" },
-        "2026-08-23T10:00:00.000Z",
-        2,
-      ),
-    ).toMatchObject({
-      earliestDate: "2020-01-01",
-      latestDate: "2020-12-31",
-      calculationVersion: 2,
+    const derived = advanceDatasetState(
+      { ...state, dataset: "DAILY_DERIVED_STATE" },
+      { from: "2020-01-01", to: "2020-12-31" },
+      "2026-08-23T10:00:00.000Z",
+    );
+    expect(derived).toMatchObject({
+      earliestDate: "2010-01-01",
+      latestDate: "2026-08-20",
     });
+    expect(derived).not.toHaveProperty("calculationVersion");
   });
 });
 
@@ -146,7 +139,6 @@ describe("daily moving averages", () => {
     expect(rows[0]).toEqual({
       securityId: "security-1",
       date: "2020-01-01",
-      calculationVersion: 1,
     });
     expect(rows[19]?.sma20d).toBe(10.5);
     expect(rows[19]).not.toHaveProperty("sma20");
@@ -216,7 +208,7 @@ describe("weekly semantics", () => {
       ],
       "2026-08-17",
     );
-    const technicals = calculateWeeklyMovingAverage(bars, "SMA", 2, 1);
+    const technicals = calculateWeeklyMovingAverage(bars, "SMA", 2);
     expect(technicals).toHaveLength(1);
     expect(latestCompletedWeeklyBar(bars, "2026-08-13")?.weekStartDate).toBe(
       "2026-08-03",
@@ -234,7 +226,6 @@ describe("weekly semantics", () => {
         price("2026-01-02", 12),
       ],
       "2026-01-05",
-      1,
       { historyStart: "2025-12-30", historyStartOrigin: "LISTING" },
     );
 
@@ -258,13 +249,13 @@ describe("weekly semantics", () => {
     ];
 
     expect(
-      aggregateCompletedWeeks(prices, "2026-08-24", 1, {
+      aggregateCompletedWeeks(prices, "2026-08-24", {
         historyStart: "2026-08-12",
         historyStartOrigin: "HORIZON",
       }).map((bar) => bar.weekStartDate),
     ).toEqual(["2026-08-17"]);
     expect(
-      aggregateCompletedWeeks(prices.slice(0, 3), "2026-08-17", 1, {
+      aggregateCompletedWeeks(prices.slice(0, 3), "2026-08-17", {
         historyStart: "2026-08-12",
         historyStartOrigin: "LISTING",
       }).map((bar) => bar.weekStartDate),
@@ -272,43 +263,96 @@ describe("weekly semantics", () => {
   });
 });
 
-describe("point-in-time intrinsic values and blends", () => {
-  const points: IntrinsicValuePoint[] = [
-    {
-      securityId: "security-1",
-      valuationDate: "2025-01-10",
-      sourceDataAsOf: "2025-01-10T15:00:00.000Z",
-      model: "DCF_FCFF",
-      valuePerShare: 100,
-      currency: "USD",
-      calculationVersion: 1,
-    },
-    {
-      securityId: "security-1",
-      valuationDate: "2025-01-10",
-      sourceDataAsOf: "2025-01-10T16:00:00.000Z",
-      model: "RESIDUAL_INCOME",
-      valuePerShare: 80,
-      currency: "USD",
-      calculationVersion: 1,
-    },
-    {
-      securityId: "security-1",
-      valuationDate: "2025-01-10",
-      sourceDataAsOf: "2025-01-11T01:00:00.000Z",
-      model: "GRAHAM",
-      valuePerShare: 60,
-      currency: "USD",
-      calculationVersion: 1,
-    },
+describe("unified daily derived state", () => {
+  const week1 = [
+    price("2026-08-10", 11, { open: 10, high: 12, low: 9, volume: 100 }),
+    price("2026-08-11", 12),
+    price("2026-08-12", 13),
+    price("2026-08-13", 14),
+    price("2026-08-14", 15),
   ];
+  const week2 = [
+    price("2026-08-17", 16),
+    price("2026-08-18", 17),
+    price("2026-08-19", 18),
+    price("2026-08-20", 19),
+    price("2026-08-21", 20),
+  ];
+  const week3 = [price("2026-08-24", 21), price("2026-08-25", 22)];
+  const prices = [...week1, ...week2, ...week3];
 
-  it("does not expose source data published after the requested as-of date", () => {
+  it("materializes exactly one row per trading day, ascending", () => {
+    const rows = buildDailyDerivedState({
+      prices,
+      weeklyBars: aggregateCompletedWeeks(prices, "2026-08-25"),
+    });
+
+    expect(rows.map((row) => row.date)).toEqual(
+      prices.map((row) => row.date).sort(),
+    );
+    expect(new Set(rows.map((row) => row.date)).size).toBe(rows.length);
+    expect(() => assertOneRowPerTradingDay(rows)).not.toThrow();
+  });
+
+  it("rejects duplicate methodology rows for the same trading day", () => {
+    const rows = buildDailyDerivedState({ prices: week1 });
+    expect(() =>
+      assertOneRowPerTradingDay([...rows, { ...rows[0]! }]),
+    ).toThrow("exactly one row per trading day");
+  });
+
+  it("repeats the completed-week source on each later trading day until a newer week completes", () => {
+    const rows = buildDailyDerivedState({
+      prices,
+      weeklyBars: aggregateCompletedWeeks(prices, "2026-08-25"),
+    });
+    const sources = Object.fromEntries(
+      rows.map((row) => [row.date, row.weeklySourceWeekStart]),
+    );
+
+    // The first week is still incomplete on its own days: no weekly source is visible.
+    expect(sources["2026-08-10"]).toBeUndefined();
+    expect(sources["2026-08-14"]).toBeUndefined();
+    // Week 1 completes and is eligible from the following Monday, repeating all week.
+    expect(sources["2026-08-17"]).toBe("2026-08-10");
+    expect(sources["2026-08-21"]).toBe("2026-08-10");
+    // Week 2 completes and replaces it; repetition is intentional materialization.
+    expect(sources["2026-08-24"]).toBe("2026-08-17");
+    expect(sources["2026-08-25"]).toBe("2026-08-17");
+  });
+
+  it("never carries a weekly value into the week that produced it", () => {
+    const rows = buildDailyDerivedState({
+      prices: week1,
+      weeklyBars: aggregateCompletedWeeks(week1, "2026-08-14"),
+    });
     expect(
-      selectIntrinsicValues(points, { asOf: "2025-01-10" }).map(
-        (point) => point.model,
+      rows.every((row) => row.weeklySourceWeekStart === undefined),
+    ).toBe(true);
+  });
+
+  it("leaves intrinsic values absent until a valuation methodology materializes them", () => {
+    const rows = buildDailyDerivedState({ prices });
+    expect(
+      rows.every(
+        (row) =>
+          row.intrinsicValues === undefined &&
+          row.intrinsicValueBlends === undefined &&
+          row.intrinsicSourceDataAsOf === undefined,
       ),
-    ).toEqual(["DCF_FCFF", "RESIDUAL_INCOME"]);
+    ).toBe(true);
+  });
+
+  it("carries no calculation version on any derived row", () => {
+    for (const row of buildDailyDerivedState({ prices })) {
+      expect(row).not.toHaveProperty("calculationVersion");
+    }
+  });
+
+  it("keeps securityId, never symbol, as the derived historical identity", () => {
+    const rows = buildDailyDerivedState({ prices });
+    expect(rows.every((row) => row.securityId === "security-1")).toBe(true);
+    expect(rows[0]).not.toHaveProperty("symbol");
   });
 
   it("validates blend weights", () => {
@@ -319,52 +363,5 @@ describe("point-in-time intrinsic values and blends", () => {
         components: [{ model: "DCF_FCFF", weight: 0.9 }],
       }),
     ).toThrow("weights must sum to 1");
-  });
-
-  it("does not renormalize a missing component, including DDM", () => {
-    const dividend = calculateBlend(
-      INTRINSIC_VALUE_BLENDS.DIVIDEND,
-      points,
-      "2025-01-10",
-    );
-    expect(dividend).toEqual({
-      status: "UNAVAILABLE",
-      missingModels: ["DDM"],
-    });
-  });
-
-  it("calculates a versioned blend only when every component is eligible", () => {
-    const result = calculateBlend(
-      INTRINSIC_VALUE_BLENDS.BALANCED,
-      points,
-      "2025-01-11",
-    );
-    expect(result.status).toBe("AVAILABLE");
-    if (result.status === "AVAILABLE") {
-      expect(result.point.valuePerShare).toBe(86);
-      expect(result.point.blendVersion).toBe(1);
-      expect(result.point.sourceDataAsOf).toBe("2025-01-11T01:00:00.000Z");
-    }
-  });
-
-  it("selects the highest version shared by every blend component", () => {
-    const result = calculateBlend(
-      INTRINSIC_VALUE_BLENDS.BALANCED,
-      [
-        ...points,
-        {
-          ...points[0]!,
-          valuePerShare: 1_000,
-          calculationVersion: 2,
-        },
-      ],
-      "2025-01-11",
-    );
-
-    expect(result.status).toBe("AVAILABLE");
-    if (result.status === "AVAILABLE") {
-      expect(result.point.calculationVersion).toBe(1);
-      expect(result.point.valuePerShare).toBe(86);
-    }
   });
 });

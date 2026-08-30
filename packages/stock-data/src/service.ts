@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
   FINANCIAL_STATEMENT_TYPES,
-  INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_BLEND_IDS,
+  INTRINSIC_VALUE_MODELS,
+  type DailyDerivedState,
   type DailyPrice,
+  type DailyTechnical,
   type DateRange,
   type FinancialStatement,
   type FinancialStatementCadence,
@@ -26,25 +28,24 @@ import {
   type StockManifest,
 } from "./cache.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
-import { addDays, assertDateRange, missingCoverageRanges } from "./dates.js";
-import { calculateBlend } from "./intrinsic-values.js";
+import {
+  addDays,
+  assertDateRange,
+  endOfLocalDate,
+  missingCoverageRanges,
+} from "./dates.js";
+import {
+  buildDailyDerivedState,
+  DAILY_DERIVED_STATE_VARIANT,
+  DERIVED_STATE_REVISION,
+} from "./derived-state.js";
 import {
   DAILY_PRICE_VARIANT,
   type PersistedDatasetState,
   type StockDataStore,
 } from "./ports.js";
-import {
-  calculateDailyTechnicals,
-  DAILY_TECHNICAL_CALCULATION_VERSION,
-} from "./technicals.js";
-import {
-  aggregateCompletedWeeks,
-  startOfIsoWeek,
-  WEEKLY_AGGREGATION_CALCULATION_VERSION,
-} from "./weekly.js";
+import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 
-const DAILY_TECHNICAL_VARIANT = `1D:v${DAILY_TECHNICAL_CALCULATION_VERSION}`;
-const WEEKLY_PRICE_VARIANT = `1W:v${WEEKLY_AGGREGATION_CALCULATION_VERSION}`;
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
 const FUNDAMENTALS_VARIANT_VERSION = 1;
@@ -261,27 +262,24 @@ export class CanonicalStockDataService implements StockDataService {
     const security = await this.getSecurity(symbol);
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
-    const [profile, prices, technicals, intrinsicValues, intrinsicValueBlends] =
-      await Promise.all([
-        this.store.getProfile(security.id),
-        this.readDailyPriceProjection(security, bounded),
-        this.readDailyTechnicalProjection(security, bounded),
-        this.store.getIntrinsicValues(security.id, {
-          ...bounded,
-          asOf: bounded.to,
-        }),
-        this.completeIntrinsicValueBlends(security, {
-          ...bounded,
-          asOf: bounded.to,
-        }),
-      ]);
+    const [profile, prices, dailyState] = await Promise.all([
+      this.store.getProfile(security.id),
+      this.readDailyPriceProjection(security, bounded),
+      this.readDailyDerivedStateProjection(security, bounded),
+    ]);
     return {
       security,
       ...(profile ? { profile } : {}),
       prices,
-      technicals,
-      intrinsicValues,
-      intrinsicValueBlends,
+      technicals: dailyState.map(toDailyTechnical),
+      intrinsicValues: toIntrinsicValuePoints(dailyState, {
+        ...bounded,
+        asOf: bounded.to,
+      }),
+      intrinsicValueBlends: toIntrinsicValueBlendPoints(dailyState, {
+        ...bounded,
+        asOf: bounded.to,
+      }),
     };
   }
 
@@ -293,12 +291,19 @@ export class CanonicalStockDataService implements StockDataService {
     return this.readDailyPriceProjection(security, bounded);
   }
 
-  async getDailyTechnicals(symbol: string, range: DateRange) {
+  /** Canonical daily derived read used by Stock Details projections and future backtests. */
+  async getDailyDerivedState(symbol: string, range: DateRange) {
     const bounded = this.requireBoundedRange(range);
     const security = await this.getSecurity(symbol);
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
-    return this.readDailyTechnicalProjection(security, bounded);
+    return this.readDailyDerivedStateProjection(security, bounded);
+  }
+
+  async getDailyTechnicals(symbol: string, range: DateRange) {
+    return (await this.getDailyDerivedState(symbol, range)).map(
+      toDailyTechnical,
+    );
   }
 
   async getFinancialStatements(
@@ -332,7 +337,14 @@ export class CanonicalStockDataService implements StockDataService {
     const security = await this.getSecurity(symbol);
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
-    return this.store.getIntrinsicValues(security.id, query);
+    const bounded = this.intrinsicReadRange(security, query);
+    if (!bounded) {
+      return [];
+    }
+    return toIntrinsicValuePoints(
+      await this.readDailyDerivedStateProjection(security, bounded),
+      query,
+    );
   }
 
   async getIntrinsicValueBlends(
@@ -343,7 +355,14 @@ export class CanonicalStockDataService implements StockDataService {
     const security = await this.getSecurity(symbol);
     await this.ensureStockHydrated(security);
     await this.ensureStockFresh(security);
-    return this.completeIntrinsicValueBlends(security, query);
+    const bounded = this.intrinsicReadRange(security, query);
+    if (!bounded) {
+      return [];
+    }
+    return toIntrinsicValueBlendPoints(
+      await this.readDailyDerivedStateProjection(security, bounded),
+      query,
+    );
   }
 
   private async hydrateWithinLease(
@@ -409,42 +428,19 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
 
     const prices = await this.store.getDailyPrices(security.id, target);
-    const technicalState = await this.store.getDatasetState(
+    // A methodology change bumps DERIVED_STATE_REVISION, which changes the dataset variant. The
+    // previous variant then reports no coverage, so the whole state is rebuilt and replaced rather
+    // than kept alongside the old methodology.
+    const derivedCoverage = await this.store.getDatasetCoverage(
       security.id,
-      "DAILY_TECHNICAL",
-      DAILY_TECHNICAL_VARIANT,
-    );
-    const weeklyState = await this.store.getDatasetState(
-      security.id,
-      "WEEKLY_PRICE",
-      WEEKLY_PRICE_VARIANT,
-    );
-    const technicalCoverage =
-      technicalState?.calculationVersion === DAILY_TECHNICAL_CALCULATION_VERSION
-        ? await this.store.getDatasetCoverage(
-            security.id,
-            "DAILY_TECHNICAL",
-            DAILY_TECHNICAL_VARIANT,
-            target,
-          )
-        : [];
-    const technicalCoverageGaps = missingCoverageRanges(
+      "DAILY_DERIVED_STATE",
+      DAILY_DERIVED_STATE_VARIANT,
       target,
-      technicalCoverage,
     );
-    const firstTechnicalGapStart = technicalCoverageGaps[0]?.from ?? target.from;
-    const technicalRepairStart =
-      technicalState?.calculationVersion !==
-        DAILY_TECHNICAL_CALCULATION_VERSION ||
-      technicalCoverageGaps.length > 0
-        ? firstTechnicalGapStart
-        : undefined;
-    const weeklyRepairStart =
-      weeklyState?.calculationVersion !== WEEKLY_AGGREGATION_CALCULATION_VERSION
-        ? target.from
-        : undefined;
-    const technicalRecalculationStart =
-      technicalRepairStart ??
+    const derivedCoverageGaps = missingCoverageRanges(target, derivedCoverage);
+    const derivedRepairStart = derivedCoverageGaps[0]?.from;
+    const derivedRecalculationStart =
+      derivedRepairStart ??
       (priceChange.earliestChangedDate
         ? this.recalculationStart(
             target,
@@ -453,70 +449,26 @@ export class CanonicalStockDataService implements StockDataService {
             undefined,
           )
         : undefined);
-    const weeklyRecalculationStart =
-      weeklyRepairStart ??
-      (priceChange.earliestChangedDate
-        ? this.recalculationStart(
-            target,
-            previousPriceState,
-            priceChange.earliestChangedDate,
-            undefined,
-          )
-        : undefined);
-    const recalculatedTechnicals = technicalRecalculationStart
-      ? calculateDailyTechnicals(prices).filter(
-          (row) => row.date >= technicalRecalculationStart,
-        )
-      : [];
-    const recalculatedWeeklyPrices = weeklyRecalculationStart
-      ? aggregateCompletedWeeks(
-          prices,
-          target.to,
-          WEEKLY_AGGREGATION_CALCULATION_VERSION,
-          this.weeklyHistoryContext(security, target),
-        ).filter(
-          (row) => row.weekStartDate >= startOfIsoWeek(weeklyRecalculationStart),
-        )
-      : [];
-    if (recalculatedTechnicals.length > 0 || recalculatedWeeklyPrices.length > 0) {
+    if (derivedRecalculationStart) {
       lease.assertOwned();
-      await this.store.saveDerivedTechnicals({
-        securityId: security.id,
-        technicals: recalculatedTechnicals,
-        weeklyPrices: recalculatedWeeklyPrices,
-        successfulCoverage: {
-          from: minDate(
-            technicalRecalculationStart ?? target.from,
-            weeklyRecalculationStart ?? target.from,
-          ),
-          to: target.to,
-        },
-        syncedAt: this.nowInstant(),
-        dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-        weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        assertOwned: lease.assertOwned,
-      });
+      await this.rebuildDailyDerivedState(
+        security,
+        target,
+        prices,
+        derivedRecalculationStart,
+        lease,
+      );
     }
 
-    const [persistedTechnicals, persistedWeeklyPrices, tailRefreshAt] =
-      await Promise.all([
-        this.store.getDailyTechnicals(
-          security.id,
-          target,
-          DAILY_TECHNICAL_CALCULATION_VERSION,
-        ),
-        this.store.getWeeklyPrices(
-          security.id,
-          target,
-          WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        ),
-        this.store.getLatestCoverageSyncContainingDate(
-          security.id,
-          "DAILY_PRICE",
-          DAILY_PRICE_VARIANT,
-          target.to,
-        ),
-      ]);
+    const [persistedDerivedState, tailRefreshAt] = await Promise.all([
+      this.store.getDailyDerivedState(security.id, target),
+      this.store.getLatestCoverageSyncContainingDate(
+        security.id,
+        "DAILY_PRICE",
+        DAILY_PRICE_VARIANT,
+        target.to,
+      ),
+    ]);
     lease.assertOwned();
     const years = yearsInRange(target);
     await this.cache.setSecurity(security, hydrating);
@@ -526,18 +478,10 @@ export class CanonicalStockDataService implements StockDataService {
       years,
       hydrating,
     );
-    await this.cache.writeDailyTechnicalYears(
+    await this.cache.writeDailyDerivedStateYears(
       security.id,
-      persistedTechnicals,
+      persistedDerivedState,
       years,
-      DAILY_TECHNICAL_CALCULATION_VERSION,
-      hydrating,
-    );
-    await this.cache.writeWeeklyPriceYears(
-      security.id,
-      persistedWeeklyPrices,
-      years,
-      WEEKLY_AGGREGATION_CALCULATION_VERSION,
       hydrating,
     );
     const lastFundamentalsRefreshAt =
@@ -579,116 +523,52 @@ export class CanonicalStockDataService implements StockDataService {
     return result ?? this.store.getDailyPrices(security.id, projection);
   }
 
-  private async readDailyTechnicalProjection(
+  private async readDailyDerivedStateProjection(
     security: Security,
     requested: Required<DateRange>,
-  ) {
+  ): Promise<DailyDerivedState[]> {
     const projection = this.projectionRange(security, requested);
     if (!projection) {
       return [];
     }
     const observedManifest = await this.cache.getManifest(security.id);
-    let result = await this.cache.readDailyTechnicals(
+    let result = await this.cache.readDailyDerivedState(
       security.id,
       projection,
-      DAILY_TECHNICAL_CALCULATION_VERSION,
     );
-    if (
-      result &&
-      result.some((row) =>
-        [
-          row.sma20d,
-          row.sma50d,
-          row.sma100d,
-          row.sma200d,
-          row.ema20d,
-          row.ema50d,
-          row.ema200d,
-        ].some((value) => value !== undefined),
-      )
-    ) {
+    if (result && result.length > 0) {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
     await this.ensureStockHydrated(security);
-    result = await this.cache.readDailyTechnicals(
-      security.id,
-      projection,
-      DAILY_TECHNICAL_CALCULATION_VERSION,
-    );
-    if (
-      result &&
-      result.some((row) =>
-        [
-          row.sma20d,
-          row.sma50d,
-          row.sma100d,
-          row.sma200d,
-          row.ema20d,
-          row.ema50d,
-          row.ema200d,
-        ].some((value) => value !== undefined),
-      )
-    ) {
+    result = await this.cache.readDailyDerivedState(security.id, projection);
+    if (result && result.length > 0) {
       return result;
     }
-    return this.store.getDailyTechnicals(
-      security.id,
-      projection,
-      DAILY_TECHNICAL_CALCULATION_VERSION,
-    );
+    return this.store.getDailyDerivedState(security.id, projection);
   }
 
-  private async completeIntrinsicValueBlends(
+  /**
+   * Bounds an intrinsic-value query to a readable range.
+   *
+   * `asOf` narrows the upper bound: nothing effective after the requested point in time may be
+   * returned. Values are materialized only once eligible, so no further look-ahead filter is
+   * needed beyond the row's own `intrinsicSourceDataAsOf` guard applied during projection.
+   */
+  private intrinsicReadRange(
     security: Security,
-    query: IntrinsicValueBlendQuery,
-  ): Promise<IntrinsicValueBlendPoint[]> {
-    const persisted = await this.store.getIntrinsicValueBlends(
-      security.id,
-      query,
+    query: DateRange & { asOf?: string },
+  ): Required<DateRange> | null {
+    const target = this.canonicalTarget(security);
+    const to = minOptionalDate(
+      minOptionalDate(query.to, query.asOf) ?? target.to,
+      target.to,
     );
-    const effectiveTo = minOptionalDate(query.to, query.asOf);
-    const points = await this.store.getIntrinsicValuesForBlend(security.id, {
-      ...(effectiveTo ? { to: effectiveTo } : {}),
-      ...(query.asOf ? { asOf: query.asOf } : {}),
-    });
-    const dates = [
-      ...new Set([
-        ...persisted.map((point) => point.valuationDate),
-        ...points.map((point) => point.valuationDate),
-      ]),
-    ]
-      .filter((date) => !query.from || date >= query.from)
-      .filter((date) => !effectiveTo || date <= effectiveTo)
-      .sort();
-    const blendIds = query.blendIds ?? INTRINSIC_VALUE_BLEND_IDS;
-    const byIdentity = new Map<string, IntrinsicValueBlendPoint>();
-    for (const point of persisted) {
-      byIdentity.set(`${point.valuationDate}:${point.blendId}`, point);
+    const from = query.from ? maxDate(query.from, target.from) : target.from;
+    if (!to || from > to) {
+      return null;
     }
-    for (const blendId of blendIds) {
-      for (const valuationDate of dates) {
-        const identity = `${valuationDate}:${blendId}`;
-        if (byIdentity.has(identity)) {
-          continue;
-        }
-        const result = calculateBlend(
-          INTRINSIC_VALUE_BLENDS[blendId],
-          points,
-          valuationDate,
-        );
-        if (result.status === "AVAILABLE") {
-          byIdentity.set(identity, result.point);
-        }
-      }
-    }
-    return [...byIdentity.values()]
-      .filter((point) => blendIds.includes(point.blendId))
-      .sort(
-        (left, right) =>
-          left.valuationDate.localeCompare(right.valuationDate) ||
-          left.blendId.localeCompare(right.blendId),
-      );
+    return { from, to };
   }
 
   private async hydrateFundamentalsWithinLease(
@@ -744,6 +624,46 @@ export class CanonicalStockDataService implements StockDataService {
     return this.oldestRequiredSyncAt(states);
   }
 
+  /**
+   * Recalculates and replaces the unified daily derived state from `from` through the target end.
+   *
+   * Full price history is used so moving-average warm-up and completed-week carry-forward are
+   * correct, then only the affected trading days are written. Persisting replaces those rows: there
+   * is one current methodology per `(securityId, date)` and no version history.
+   */
+  private async rebuildDailyDerivedState(
+    security: Security,
+    target: Required<DateRange>,
+    prices: readonly DailyPrice[],
+    from: string,
+    lease: LoadLease,
+  ): Promise<DailyDerivedState[]> {
+    const weeklyBars = aggregateCompletedWeeks(
+      prices,
+      target.to,
+      this.weeklyHistoryContext(security, target),
+    );
+    const rows = buildDailyDerivedState({ prices, weeklyBars }).filter(
+      (row) => row.date >= from,
+    );
+    const weeklyDelta = weeklyBars.filter(
+      (bar) => bar.weekStartDate >= startOfIsoWeek(from),
+    );
+    if (rows.length === 0 && weeklyDelta.length === 0) {
+      return rows;
+    }
+    lease.assertOwned();
+    await this.store.saveDailyDerivedState({
+      securityId: security.id,
+      rows,
+      weeklyPrices: weeklyDelta,
+      successfulCoverage: { from, to: target.to },
+      syncedAt: this.nowInstant(),
+      assertOwned: lease.assertOwned,
+    });
+    return rows;
+  }
+
   private async refreshPriceWithinLease(
     security: Security,
     target: Required<DateRange>,
@@ -778,76 +698,52 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
 
     const allPrices = await this.store.getDailyPrices(security.id, target);
-    const weeklyPrices = aggregateCompletedWeeks(
-      allPrices,
-      target.to,
-      WEEKLY_AGGREGATION_CALCULATION_VERSION,
-      this.weeklyHistoryContext(security, target),
-    );
+    // A newly completed week changes the carried-forward weekly source on every later trading day,
+    // so the derived rebuild window starts at the earlier of the price change and the week boundary.
     const weeklyRefreshStart = startOfIsoWeek(addDays(refreshRange.from, -7));
-    let recalculationStart: string | undefined;
+    let priceRecalculationStart: string | undefined;
     if (change.earliestChangedDate) {
-      recalculationStart =
+      priceRecalculationStart =
         previousState?.earliestDate &&
         change.earliestChangedDate < previousState.earliestDate
           ? target.from
           : change.earliestChangedDate;
     }
-    const technicals = recalculationStart
-      ? calculateDailyTechnicals(allPrices).filter(
-          (row) => row.date >= recalculationStart,
-        )
-      : [];
-    const weeklyDelta = weeklyPrices.filter(
-      (row) => row.weekStartDate >= weeklyRefreshStart,
+    const derivedRebuildStart = priceRecalculationStart
+      ? minDate(priceRecalculationStart, weeklyRefreshStart)
+      : weeklyRefreshStart;
+    lease.assertOwned();
+    const rebuiltRows = await this.rebuildDailyDerivedState(
+      security,
+      target,
+      allPrices,
+      derivedRebuildStart,
+      lease,
     );
-    if (technicals.length > 0 || weeklyDelta.length > 0) {
-      lease.assertOwned();
-      await this.store.saveDerivedTechnicals({
-        securityId: security.id,
-        technicals,
-        weeklyPrices: weeklyDelta,
-        successfulCoverage: {
-          from: recalculationStart ?? weeklyRefreshStart,
-          to: target.to,
-        },
-        syncedAt: this.nowInstant(),
-        dailyTechnicalCalculationVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-        weeklyCalculationVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
-        assertOwned: lease.assertOwned,
-      });
-    }
     lease.assertOwned();
 
     if (change.earliestChangedDate) {
       const affectedRange = yearBoundedRange(change.earliestChangedDate, target.to);
-      const affectedYears = yearsInRange(affectedRange);
       await this.cache.writeDailyPriceYears(
         security.id,
         await this.store.getDailyPrices(security.id, affectedRange),
-        affectedYears,
-        hydrating,
-      );
-      await this.cache.writeDailyTechnicalYears(
-        security.id,
-        await this.store.getDailyTechnicals(
-          security.id,
-          affectedRange,
-          DAILY_TECHNICAL_CALCULATION_VERSION,
-        ),
-        affectedYears,
-        DAILY_TECHNICAL_CALCULATION_VERSION,
+        yearsInRange(affectedRange),
         hydrating,
       );
     }
-    const affectedWeeklyYears = yearsInRange(
-      yearBoundedRange(weeklyRefreshStart, target.to),
+    const derivedAffectedRange = yearBoundedRange(
+      derivedRebuildStart,
+      target.to,
     );
-    await this.cache.writeWeeklyPriceYears(
+    const derivedAffectedYears = yearsInRange(derivedAffectedRange);
+    await this.cache.writeDailyDerivedStateYears(
       security.id,
-      weeklyPrices,
-      affectedWeeklyYears,
-      WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      rebuiltRows.filter(
+        (row) =>
+          row.date >= derivedAffectedRange.from &&
+          row.date <= derivedAffectedRange.to,
+      ),
+      derivedAffectedYears,
       hydrating,
     );
 
@@ -1078,8 +974,7 @@ export class CanonicalStockDataService implements StockDataService {
       ...(lastFundamentalsRefreshAt ? { lastFundamentalsRefreshAt } : {}),
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
-      dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-      weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     };
   }
 
@@ -1099,8 +994,7 @@ export class CanonicalStockDataService implements StockDataService {
       hydratingAt: this.nowInstant(),
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
-      dailyTechnicalVersion: DAILY_TECHNICAL_CALCULATION_VERSION,
-      weeklyVersion: WEEKLY_AGGREGATION_CALCULATION_VERSION,
+      derivedStateRevision: DERIVED_STATE_REVISION,
     };
   }
 
@@ -1110,8 +1004,7 @@ export class CanonicalStockDataService implements StockDataService {
       manifest.historyYears === this.historyYears &&
       manifest.priceDatasetVersion === PRICE_DATASET_VERSION &&
       manifest.financialStatementVersion === FINANCIAL_STATEMENT_VERSION &&
-      manifest.dailyTechnicalVersion === DAILY_TECHNICAL_CALCULATION_VERSION &&
-      manifest.weeklyVersion === WEEKLY_AGGREGATION_CALCULATION_VERSION
+      manifest.derivedStateRevision === DERIVED_STATE_REVISION
     );
   }
 
@@ -1231,6 +1124,91 @@ export class CanonicalStockDataService implements StockDataService {
   private nowInstant(): string {
     return this.now().toISOString();
   }
+}
+
+/** Daily technical projection over the unified derived state. */
+function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
+  return {
+    securityId: row.securityId,
+    date: row.date,
+    ...(row.sma20d === undefined ? {} : { sma20d: row.sma20d }),
+    ...(row.sma50d === undefined ? {} : { sma50d: row.sma50d }),
+    ...(row.sma100d === undefined ? {} : { sma100d: row.sma100d }),
+    ...(row.sma200d === undefined ? {} : { sma200d: row.sma200d }),
+    ...(row.ema20d === undefined ? {} : { ema20d: row.ema20d }),
+    ...(row.ema50d === undefined ? {} : { ema50d: row.ema50d }),
+    ...(row.ema200d === undefined ? {} : { ema200d: row.ema200d }),
+  };
+}
+
+/**
+ * Point-in-time guard shared by both intrinsic projections.
+ *
+ * Materialization only writes eligible values, so this is a defensive assertion of the
+ * no-look-ahead invariant rather than the primary filter.
+ */
+function isIntrinsicVisible(row: DailyDerivedState, asOf?: string): boolean {
+  if (asOf && row.date > asOf) {
+    return false;
+  }
+  if (!row.intrinsicSourceDataAsOf) {
+    return false;
+  }
+  return row.intrinsicSourceDataAsOf <= endOfLocalDate(asOf ?? row.date);
+}
+
+function toIntrinsicValuePoints(
+  rows: readonly DailyDerivedState[],
+  query: IntrinsicValueQuery,
+): IntrinsicValuePoint[] {
+  const models = query.models ?? INTRINSIC_VALUE_MODELS;
+  return rows.flatMap((row) => {
+    if (!isIntrinsicVisible(row, query.asOf)) {
+      return [];
+    }
+    return models.flatMap((model) => {
+      const valuePerShare = row.intrinsicValues?.[model];
+      return valuePerShare === undefined || !row.intrinsicCurrency
+        ? []
+        : [
+            {
+              securityId: row.securityId,
+              valuationDate: row.date,
+              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              model,
+              valuePerShare,
+              currency: row.intrinsicCurrency,
+            },
+          ];
+    });
+  });
+}
+
+function toIntrinsicValueBlendPoints(
+  rows: readonly DailyDerivedState[],
+  query: IntrinsicValueBlendQuery,
+): IntrinsicValueBlendPoint[] {
+  const blendIds = query.blendIds ?? INTRINSIC_VALUE_BLEND_IDS;
+  return rows.flatMap((row) => {
+    if (!isIntrinsicVisible(row, query.asOf)) {
+      return [];
+    }
+    return blendIds.flatMap((blendId) => {
+      const valuePerShare = row.intrinsicValueBlends?.[blendId];
+      return valuePerShare === undefined || !row.intrinsicCurrency
+        ? []
+        : [
+            {
+              securityId: row.securityId,
+              valuationDate: row.date,
+              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              blendId,
+              valuePerShare,
+              currency: row.intrinsicCurrency,
+            },
+          ];
+    });
+  });
 }
 
 function subtractYears(value: string, years: number): string {

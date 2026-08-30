@@ -22,3 +22,14 @@ technical storage, dataset state and exact successful coverage intervals, and po
 intrinsic-value/blend snapshots. Symbol is indexed lookup data and is never the durable primary
 key. Dataset state watermarks optimize reads; coverage intervals, not inferred calendar rows,
 drive missing-range subtraction.
+
+Migration `20260830210000_unify_daily_derived_state` replaces the per-family derived tables
+(`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`) with one
+`DailyDerivedState` table keyed by `(securityId, date)`. Every calculation-version dimension is
+removed from the derived path: `StockDatasetState.calculationVersion` and
+`WeeklyPrice.calculationVersion` are dropped, and no derived table stores a methodology version.
+One current methodology is materialized per trading day; a methodology change is an explicit
+rebuild driven by `DERIVED_STATE_REVISION` in the dataset variant, not a parallel version history.
+The redundant `DailyPrice(securityId, date)` index is dropped because the composite primary key
+already serves the only historical access pattern. See
+`docs/decisions/stock-data-foundation.md` for the invariants.

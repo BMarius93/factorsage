@@ -13,6 +13,7 @@ Foundation decision for the next implementation slice. This document defines con
 - Date-range queries are first-class read projections. They do not bound canonical hydration.
 - Historical fundamentals and intrinsic values remain point-in-time correct and cannot use future filings/data.
 - Backtest-facing derived data is materialized on every eligible trading day, including values whose underlying source only changes weekly or when new fundamentals become available.
+- All daily-materialized derived families live in one `DailyDerivedState` row per security per trading day. There is one current methodology; historical calculation versions never coexist.
 - For every Redis-resident stock, the full configured daily historical state needed by backtests is available in Redis and participates in complete-stock LRU residency/eviction.
 
 ## Canonical historical price series
@@ -119,6 +120,45 @@ The source data remains stored at its natural cadence: prices daily, financial s
 
 The V1 daily state is an end-of-trading-day state. A completed weekly period or newly eligible filing may affect that trading day's materialized state only when its eligibility rules say the information is available by that cutoff. Same-day before-open execution semantics, if introduced later, require an explicit separate timing policy rather than silently reusing end-of-day state.
 
+## Unified daily derived state persistence
+
+All daily-materialized derived families are one table, not one table per family:
+
+```text
+DailyDerivedState
+  PRIMARY KEY (securityId, date)
+```
+
+Rules that later work must not reverse:
+
+1. Exactly one row per security per trading day. The composite primary key is the identity.
+2. `calculationVersion` is **not** part of the primary key and is not a column anywhere in the
+   daily derived path. One current methodology is materialized; a methodology change rebuilds and
+   replaces the affected rows. Old methodologies are not kept side by side. `BacktestRun` may
+   preserve its own result/audit snapshot separately.
+3. The only historical access pattern is `securityId + date range, ascending`. The composite
+   primary key already provides that B-tree path, so do not add a redundant `(securityId, date)`
+   secondary index. Add an index only for a genuinely different query pattern.
+4. Ticker/symbol never participates in durable historical identity. Resolve symbol -> `Security`
+   once, then use `securityId`.
+5. Do not rely on physical row ordering; always order explicitly by `date`.
+6. Do not denormalize canonical source data into it. `DailyPrice`, point-in-time
+   `FinancialStatement` revisions, and `Security` identity/profile stay separate and keep their own
+   natural cadence. `WeeklyPrice` remains a completed-week aggregate at weekly cadence; only the
+   derived weekly *indicator* values are carried forward daily.
+7. An absent value means not yet eligible or insufficient warm-up. Never write zero, and never
+   back-fill a value before its first eligible trading day.
+
+Methodology changes are handled by an explicit rebuild, not by version history. The
+`DERIVED_STATE_REVISION` constant is recorded only in the dataset-state/coverage variant and in the
+cache manifest. Bumping it reports no coverage for the new variant, which recalculates and replaces
+the materialized state.
+
+Weekly indicator value columns are added to `DailyDerivedState` when the weekly period catalog is
+product-defined. Until then the row carries `weeklySourceWeekStart`, the completed week whose
+carried-forward values are effective on that trading day. Do not reintroduce a weekly-cadence
+indicator table.
+
 ## V1 intrinsic-value models
 
 - `DCF_FCFF`
@@ -218,10 +258,22 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 15. Backtests may only use completed weekly periods. Do not expose a Friday-complete value to earlier dates in that same week.
 16. Materialize the latest eligible weekly indicator on every trading day until the next completed-week value becomes eligible. Do not make the backtest resolve sparse weekly snapshots itself.
 17. Materialize eligible intrinsic-value model and blend results on every trading day; do not require backtests to carry sparse valuation events forward.
+17b. Keep all daily-materialized derived families in one `DailyDerivedState` row keyed by
+    `(securityId, date)`. Never add a calculation version to daily derived identity, never split a
+    family into its own daily table, and never cache a key per indicator/model/blend.
 18. Every Redis-resident stock must expose the complete configured daily historical state needed by backtests. Redis eviction is complete-stock LRU, never partial-dataset product eviction.
 19. Keep the next PR reviewable and avoid unrelated product changes.
 
 ## Redis direction
+
+Cached derived state uses one yearly chunk family per security:
+
+```text
+security:<securityId>:daily-state:<year>
+```
+
+Do not introduce a Redis key per indicator, model, or blend. Every key belonging to a stock must be
+registered so complete-stock LRU eviction removes all of its cached datasets together.
 
 Redis maintains a configurable maximum number of resident symbols and evicts complete symbols using application-level LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
 
@@ -247,7 +299,9 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 10. Weekly indicator tests prove a Monday-Thursday `asOf` cannot observe a value requiring the future week-ending close.
 11. Weekly daily-materialization tests prove the latest completed weekly value is repeated on each subsequent trading day and replaced only when a newer completed weekly value becomes eligible.
 12. Historical intrinsic-value daily materialization never uses a source whose `sourceDataAsOf` is after the materialized trading-day cutoff and never backfills a value before its first eligibility date.
-13. Blend calculation validates weights, uses only eligible components, preserves versions, handles DDM-not-applicable explicitly, and materializes only valid daily blend values.
+13. Blend calculation validates weights, uses only eligible components, handles DDM-not-applicable explicitly, and materializes only valid daily blend values.
+13b. Persistence proves exactly one derived row per `(securityId, date)`, ascending range reads by
+    `securityId`/date, and that no methodology version can coexist for the same day.
 14. Redis symbol LRU evicts a complete symbol and never leaves partial product datasets resident.
 15. Redis re-admission reconstructs the same daily-materialized derived history as the durable PostgreSQL representation.
 16. Loader cache-hit, DB re-admission, DB-partial, and upstream-delta paths return equivalent domain projections.

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
-  IntrinsicValueModel,
   PrismaClient,
   SecurityType,
   StockDataset,
@@ -16,6 +15,11 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
+import {
+  DAILY_DERIVED_STATE_VARIANT,
+  DERIVED_STATE_REVISION,
+} from "./derived-state.js";
+import { WEEKLY_PRICE_VARIANT } from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
 import {
   createStockDataRedisClient,
@@ -308,8 +312,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.pttl(keys.registry)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
-    expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
-    expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+    expect(await redisA.pttl(keys.dailyState)).toBeGreaterThan(0);
     expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
 
     await new Promise<void>((resolve) => {
@@ -319,8 +322,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.manifest)).not.toBeNull();
     expect(await redisA.get(keys.security)).not.toBeNull();
     expect(await redisA.get(keys.price)).not.toBeNull();
-    expect(await redisA.get(keys.technical)).not.toBeNull();
-    expect(await redisA.get(keys.weekly)).not.toBeNull();
+    expect(await redisA.get(keys.dailyState)).not.toBeNull();
     expect(await redisA.get(keys.financial)).not.toBeNull();
 
     await new Promise<void>((resolve) => {
@@ -331,8 +333,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.exists(keys.registry)).toBe(0);
     expect(await redisA.get(keys.security)).toBeNull();
     expect(await redisA.get(keys.price)).toBeNull();
-    expect(await redisA.get(keys.technical)).toBeNull();
-    expect(await redisA.get(keys.weekly)).toBeNull();
+    expect(await redisA.get(keys.dailyState)).toBeNull();
     expect(await redisA.get(keys.financial)).toBeNull();
     await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
   });
@@ -361,8 +362,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.registry)).toBe(-1);
       expect(await redisA.pttl(keys.security)).toBe(-1);
       expect(await redisA.pttl(keys.price)).toBe(-1);
-      expect(await redisA.pttl(keys.technical)).toBe(-1);
-      expect(await redisA.pttl(keys.weekly)).toBe(-1);
+      expect(await redisA.pttl(keys.dailyState)).toBe(-1);
       expect(await redisA.pttl(keys.financial)).toBe(-1);
 
       await new Promise<void>((resolve) => {
@@ -373,8 +373,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.exists(keys.registry)).toBe(1);
       expect(await redisA.get(keys.security)).not.toBeNull();
       expect(await redisA.get(keys.price)).not.toBeNull();
-      expect(await redisA.get(keys.technical)).not.toBeNull();
-      expect(await redisA.get(keys.weekly)).not.toBeNull();
+      expect(await redisA.get(keys.dailyState)).not.toBeNull();
       expect(await redisA.get(keys.financial)).not.toBeNull();
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(true);
     } finally {
@@ -414,8 +413,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
       expect(await redisA.pttl(keys.registry)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.security)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.price)).toBeGreaterThan(0);
-      expect(await redisA.pttl(keys.technical)).toBeGreaterThan(0);
-      expect(await redisA.pttl(keys.weekly)).toBeGreaterThan(0);
+      expect(await redisA.pttl(keys.dailyState)).toBeGreaterThan(0);
       expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
       await expect(cache.hasResidentStock(ttlSecurityId)).resolves.toBe(false);
     } finally {
@@ -717,38 +715,36 @@ describeInfrastructure("cross-process canonical hydration", () => {
       securityId = security.id;
       const store = new PrismaStockDataStore(prisma);
 
-      await store.saveDerivedTechnicals({
+      await store.saveDailyDerivedState({
         securityId: security.id,
-        technicals: [],
+        rows: [],
         weeklyPrices: [],
         successfulCoverage: { from: "2026-08-24", to: "2026-08-24" },
         syncedAt: "2026-08-24T12:00:00.000Z",
-        dailyTechnicalCalculationVersion: 1,
-        weeklyCalculationVersion: 2,
       });
 
-      await expect(
-        prisma.stockDatasetState.findUnique({
-          where: {
-            securityId_dataset_variant: {
-              securityId: security.id,
-              dataset: StockDataset.DAILY_TECHNICAL,
-              variant: "1D:v1",
-            },
+      const derivedState = await prisma.stockDatasetState.findUnique({
+        where: {
+          securityId_dataset_variant: {
+            securityId: security.id,
+            dataset: StockDataset.DAILY_DERIVED_STATE,
+            variant: DAILY_DERIVED_STATE_VARIANT,
           },
-        }),
-      ).resolves.toMatchObject({ calculationVersion: 1 });
+        },
+      });
+      expect(derivedState).not.toBeNull();
+      expect(derivedState).not.toHaveProperty("calculationVersion");
       await expect(
         prisma.stockDatasetState.findUnique({
           where: {
             securityId_dataset_variant: {
               securityId: security.id,
               dataset: StockDataset.WEEKLY_PRICE,
-              variant: "1W:v2",
+              variant: WEEKLY_PRICE_VARIANT,
             },
           },
         }),
-      ).resolves.toMatchObject({ calculationVersion: 2 });
+      ).resolves.not.toBeNull();
     } finally {
       if (securityId) {
         await prisma.security.deleteMany({ where: { id: securityId } });
@@ -800,9 +796,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
       ).resolves.toEqual({ earliestChangedDate: "2026-08-20" });
 
       await expect(
-        store.saveDerivedTechnicals({
+        store.saveDailyDerivedState({
           securityId: security.id,
-          technicals: [
+          rows: [
             {
               securityId: security.id,
               date: "2026-08-20",
@@ -813,7 +809,6 @@ describeInfrastructure("cross-process canonical hydration", () => {
               ema20d: 104,
               ema50d: 103,
               ema200d: 102,
-              calculationVersion: 1,
             },
           ],
           weeklyPrices: [
@@ -827,13 +822,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
               low: 96,
               close: 104,
               volume: 3000,
-              calculationVersion: 1,
             },
           ],
           successfulCoverage: { from: "2026-08-17", to: "2026-08-21" },
           syncedAt: "2026-08-24T12:00:00.000Z",
-          dailyTechnicalCalculationVersion: 1,
-          weeklyCalculationVersion: 1,
         }),
       ).resolves.toBeUndefined();
 
@@ -842,23 +834,23 @@ describeInfrastructure("cross-process canonical hydration", () => {
           where: {
             securityId_dataset_variant: {
               securityId: security.id,
-              dataset: StockDataset.DAILY_TECHNICAL,
-              variant: "1D:v1",
+              dataset: StockDataset.DAILY_DERIVED_STATE,
+              variant: DAILY_DERIVED_STATE_VARIANT,
             },
           },
         }),
-      ).resolves.toMatchObject({ calculationVersion: 1 });
+      ).resolves.not.toBeNull();
       await expect(
         prisma.stockDatasetState.findUnique({
           where: {
             securityId_dataset_variant: {
               securityId: security.id,
               dataset: StockDataset.WEEKLY_PRICE,
-              variant: "1W:v1",
+              variant: WEEKLY_PRICE_VARIANT,
             },
           },
         }),
-      ).resolves.toMatchObject({ calculationVersion: 1 });
+      ).resolves.not.toBeNull();
     } finally {
       if (securityId) {
         await prisma.security.deleteMany({ where: { id: securityId } });
@@ -918,37 +910,25 @@ describeInfrastructure("cross-process canonical hydration", () => {
           low: 90 + index,
           close: 105 + index,
           volume: 1_000 + index,
-          calculationVersion: 2,
         };
       });
 
       await expect(
-        store.saveDerivedTechnicals({
+        store.saveDailyDerivedState({
           securityId: security.id,
-          technicals,
+          rows: technicals,
           weeklyPrices,
           successfulCoverage: { from: "2021-01-01", to: "2026-08-21" },
           syncedAt: "2026-08-24T12:00:00.000Z",
-          dailyTechnicalCalculationVersion: 1,
-          weeklyCalculationVersion: 2,
         }),
       ).resolves.toBeUndefined();
 
+      // Exactly one derived row per (securityId, date); no parallel methodology rows.
       await expect(
-        prisma.dailyTechnical.count({
-          where: {
-            securityId: security.id,
-            calculationVersion: 1,
-          },
-        }),
+        prisma.dailyDerivedState.count({ where: { securityId: security.id } }),
       ).resolves.toBe(technicals.length);
       await expect(
-        prisma.weeklyPrice.count({
-          where: {
-            securityId: security.id,
-            calculationVersion: 2,
-          },
-        }),
+        prisma.weeklyPrice.count({ where: { securityId: security.id } }),
       ).resolves.toBe(weeklyPrices.length);
     } finally {
       if (securityId) {
@@ -1201,8 +1181,8 @@ describeInfrastructure("cross-process canonical hydration", () => {
       ]);
       const storeA = new PrismaStockDataStore(prismaA);
       const storeB = new PrismaStockDataStore(prismaB);
-      const derivedWritesA = vi.spyOn(storeA, "saveDerivedTechnicals");
-      const derivedWritesB = vi.spyOn(storeB, "saveDerivedTechnicals");
+      const derivedWritesA = vi.spyOn(storeA, "saveDailyDerivedState");
+      const derivedWritesB = vi.spyOn(storeB, "saveDailyDerivedState");
       const cacheA = new RedisStockDataCache(
         new IoredisCacheClient(redisA),
         10,
@@ -1253,43 +1233,31 @@ describeInfrastructure("cross-process canonical hydration", () => {
           where: {
             securityId_dataset_variant: {
               securityId: security.id,
-              dataset: StockDataset.DAILY_TECHNICAL,
-              variant: "1D:v1",
+              dataset: StockDataset.DAILY_DERIVED_STATE,
+              variant: DAILY_DERIVED_STATE_VARIANT,
             },
           },
         }),
-      ).resolves.toMatchObject({ calculationVersion: 1 });
+      ).resolves.not.toBeNull();
       await expect(
         prismaA.stockDatasetState.findUnique({
           where: {
             securityId_dataset_variant: {
               securityId: security.id,
               dataset: StockDataset.WEEKLY_PRICE,
-              variant: "1W:v2",
+              variant: WEEKLY_PRICE_VARIANT,
             },
           },
         }),
-      ).resolves.toMatchObject({ calculationVersion: 2 });
-      expect(
-        new Set(
-          (
-            await prismaA.dailyTechnical.findMany({
-              where: { securityId: security.id },
-              select: { calculationVersion: true },
-            })
-          ).map((row) => row.calculationVersion),
-        ),
-      ).toEqual(new Set([1]));
-      expect(
-        new Set(
-          (
-            await prismaA.weeklyPrice.findMany({
-              where: { securityId: security.id },
-              select: { calculationVersion: true },
-            })
-          ).map((row) => row.calculationVersion),
-        ),
-      ).toEqual(new Set([2]));
+      ).resolves.not.toBeNull();
+      // One current derived row per trading day; the schema cannot hold a second methodology.
+      const derivedDates = (
+        await prismaA.dailyDerivedState.findMany({
+          where: { securityId: security.id },
+          select: { date: true },
+        })
+      ).map((row) => row.date.toISOString().slice(0, 10));
+      expect(new Set(derivedDates).size).toBe(derivedDates.length);
       expect(
         derivedWritesA.mock.calls.length + derivedWritesB.mock.calls.length,
       ).toBe(1);
@@ -1322,7 +1290,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
     }
   });
 
-  it("calculates a blend from the highest complete common persisted version", async () => {
+  it("serves a daily-materialized blend series straight from stored derived state", async () => {
     const suffix = randomUUID();
     const namespace = `stock-data:v2:test:blend:${suffix}`;
     const symbol = `B${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
@@ -1342,7 +1310,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           providerSymbol: symbol,
           symbol,
-          name: "Blend Version Integration Corp",
+          name: "Blend Materialization Integration Corp",
           exchangeCode: "NASDAQ",
           currency: "USD",
           type: SecurityType.STOCK,
@@ -1351,20 +1319,17 @@ describeInfrastructure("cross-process canonical hydration", () => {
         },
       });
       securityId = security.id;
-      await prisma.intrinsicValue.createMany({
-        data: [
-          [IntrinsicValueModel.DCF_FCFF, 100, 1],
-          [IntrinsicValueModel.RESIDUAL_INCOME, 80, 1],
-          [IntrinsicValueModel.GRAHAM, 60, 1],
-          [IntrinsicValueModel.DCF_FCFF, 200, 2],
-        ].map(([model, valuePerShare, calculationVersion]) => ({
+      const dates = ["2025-02-03", "2025-02-04", "2025-02-05"];
+      await prisma.dailyDerivedState.createMany({
+        data: dates.map((date) => ({
           securityId: security.id,
-          valuationDate: new Date("2025-02-01T00:00:00.000Z"),
-          sourceDataAsOf: new Date("2025-02-01T12:00:00.000Z"),
-          model: model as IntrinsicValueModel,
-          valuePerShare: valuePerShare as number,
-          currency: "USD",
-          calculationVersion: calculationVersion as number,
+          date: new Date(`${date}T00:00:00.000Z`),
+          dcfFcff: 100,
+          residualIncome: 80,
+          graham: 60,
+          blendBalanced: 86,
+          intrinsicSourceDataAsOf: new Date("2025-02-03T12:00:00.000Z"),
+          intrinsicCurrency: "USD",
         })),
       });
       await cache.setManifest(readyManifest(security.id));
@@ -1379,23 +1344,24 @@ describeInfrastructure("cross-process canonical hydration", () => {
         { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
 
-      const publicPoints = await store.getIntrinsicValues(security.id, {
-        from: "2025-02-01",
-        to: "2025-02-01",
+      // Historical derived reads are keyed on securityId + date range and come back ascending.
+      const rows = await store.getDailyDerivedState(security.id, {
+        from: "2025-02-03",
+        to: "2025-02-05",
       });
+      expect(rows.map((row) => row.date)).toEqual(dates);
+
       const blends = await service.getIntrinsicValueBlends(symbol, {
-        from: "2025-02-01",
-        to: "2025-02-01",
+        from: "2025-02-03",
+        to: "2025-02-05",
         blendIds: ["BALANCED"],
       });
 
-      expect(
-        publicPoints.find((point) => point.model === "DCF_FCFF")
-          ?.calculationVersion,
-      ).toBe(2);
-      expect(blends).toMatchObject([
-        { valuePerShare: 86, calculationVersion: 1, blendVersion: 1 },
-      ]);
+      // The same eligible blend repeated per trading day is intentional materialization.
+      expect(blends.map((point) => point.valuationDate)).toEqual(dates);
+      expect(blends.map((point) => point.valuePerShare)).toEqual([86, 86, 86]);
+      expect(blends[0]).not.toHaveProperty("blendVersion");
+      expect(blends[0]).not.toHaveProperty("calculationVersion");
     } finally {
       if (securityId) {
         await cache.evict(securityId);
@@ -1604,8 +1570,7 @@ function hydrationKeys(namespace: string, securityId: string, symbol: string) {
     registry: `${prefix}:keys`,
     security: `${namespace}:symbol:${symbol}:security`,
     price: `${prefix}:prices:1D:2021`,
-    technical: `${prefix}:technicals:1D:v1:2021`,
-    weekly: `${prefix}:weekly:1W:v2:2021`,
+    dailyState: `${prefix}:daily-state:2021`,
     financial: `${prefix}:financials:income:quarter:v1:2021`,
   };
 }
@@ -1634,31 +1599,17 @@ async function writeRepresentativeHydration(
     [2021],
     hydrating,
   );
-  await cache.writeDailyTechnicalYears(
-    securityId,
-    [{ securityId, date: "2021-01-04", calculationVersion: 1 }],
-    [2021],
-    1,
-    hydrating,
-  );
-  await cache.writeWeeklyPriceYears(
+  await cache.writeDailyDerivedStateYears(
     securityId,
     [
       {
         securityId,
-        weekStartDate: "2021-01-04",
-        weekEndDate: "2021-01-08",
-        eligibleDate: "2021-01-11",
-        open: 3,
-        high: 3,
-        low: 3,
-        close: 3,
-        volume: 100,
-        calculationVersion: 2,
+        date: "2021-01-04",
+        sma20d: 3,
+        weeklySourceWeekStart: "2020-12-28",
       },
     ],
     [2021],
-    2,
     hydrating,
   );
   await cache.writeFinancialStatementYears(
@@ -1685,8 +1636,7 @@ function readyManifest(securityId: string): StockManifest {
     lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
     priceDatasetVersion: 1,
     financialStatementVersion: 1,
-    dailyTechnicalVersion: 1,
-    weeklyVersion: 2,
+    derivedStateRevision: DERIVED_STATE_REVISION,
   };
 }
 

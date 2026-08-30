@@ -1,4 +1,5 @@
 import type {
+  DailyDerivedState,
   DateRange,
   FinancialStatement,
   FinancialStatementQuery,
@@ -39,6 +40,15 @@ export class LoggedStockDataService implements StockDataService {
   getDailyPrices(symbol: string, range: DateRange): Promise<DailyPrice[]> {
     return this.execute("getDailyPrices", symbol, () =>
       this.delegate.getDailyPrices(symbol, range),
+    );
+  }
+
+  getDailyDerivedState(
+    symbol: string,
+    range: DateRange,
+  ): Promise<DailyDerivedState[]> {
+    return this.execute("getDailyDerivedState", symbol, () =>
+      this.delegate.getDailyDerivedState(symbol, range),
     );
   }
 

@@ -1,16 +1,12 @@
 import type {
+  DailyDerivedState,
   DailyPrice,
-  DailyTechnical,
   DateRange,
   FinancialStatementCadence,
   FinancialStatement,
   FinancialStatementDraft,
   FinancialStatementQuery,
   FinancialStatementType,
-  IntrinsicValueBlendPoint,
-  IntrinsicValueBlendQuery,
-  IntrinsicValuePoint,
-  IntrinsicValueQuery,
   Security,
   SecurityProfile,
   StockDataset,
@@ -19,8 +15,7 @@ import type {
 import type { MappedFmpProfile } from "@intrinsic/fmp";
 import type { WeeklyPrice } from "./weekly.js";
 
-export type PersistedStockDataset =
-  StockDataset | "WEEKLY_PRICE" | "WEEKLY_TECHNICAL";
+export type PersistedStockDataset = StockDataset | "WEEKLY_PRICE";
 
 export type PersistedDatasetState = Omit<StockDatasetState, "dataset"> & {
   dataset: PersistedStockDataset;
@@ -28,6 +23,7 @@ export type PersistedDatasetState = Omit<StockDatasetState, "dataset"> & {
 };
 
 export const DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
+export const WEEKLY_PRICE_VARIANT = "completed-weeks";
 export const DAILY_PRICE_FRESHNESS_VARIANT =
   "split-adjusted-eod-full:recent-tail";
 
@@ -65,11 +61,15 @@ export interface StockDataStore {
     freshThrough?: string;
     assertOwned?: () => void;
   }): Promise<{ earliestChangedDate?: string }>;
-  getDailyTechnicals(
+  /**
+   * Reads the unified daily derived state for one security over an inclusive date range in
+   * ascending date order. This is the only historical derived access pattern; symbol/ticker never
+   * participates in durable historical identity.
+   */
+  getDailyDerivedState(
     securityId: string,
     range: DateRange,
-    calculationVersion: number,
-  ): Promise<DailyTechnical[]>;
+  ): Promise<DailyDerivedState[]>;
   getFinancialStatements(
     securityId: string,
     query: FinancialStatementQuery,
@@ -94,31 +94,22 @@ export interface StockDataStore {
     earliestDate?: string;
     latestDate?: string;
   }): Promise<void>;
-  saveDerivedTechnicals(input: {
+  /**
+   * Replaces the materialized derived state for the supplied trading days.
+   *
+   * There is exactly one current methodology per `(securityId, date)`. Persisting must overwrite
+   * the affected rows rather than append a parallel calculation-version history.
+   */
+  saveDailyDerivedState(input: {
     securityId: string;
-    technicals: readonly DailyTechnical[];
+    rows: readonly DailyDerivedState[];
     weeklyPrices: readonly WeeklyPrice[];
     successfulCoverage: Required<DateRange>;
     syncedAt: string;
-    dailyTechnicalCalculationVersion: number;
-    weeklyCalculationVersion: number;
     assertOwned?: () => void;
   }): Promise<void>;
   getWeeklyPrices(
     securityId: string,
     range: DateRange,
-    calculationVersion: number,
   ): Promise<WeeklyPrice[]>;
-  getIntrinsicValues(
-    securityId: string,
-    query: IntrinsicValueQuery,
-  ): Promise<IntrinsicValuePoint[]>;
-  getIntrinsicValuesForBlend(
-    securityId: string,
-    query: IntrinsicValueQuery,
-  ): Promise<IntrinsicValuePoint[]>;
-  getIntrinsicValueBlends(
-    securityId: string,
-    query: IntrinsicValueBlendQuery,
-  ): Promise<IntrinsicValueBlendPoint[]>;
 }

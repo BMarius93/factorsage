@@ -7,8 +7,6 @@ import type {
 import { addDays, compareDates } from "./dates.js";
 import { movingAverage } from "./technicals.js";
 
-export const WEEKLY_AGGREGATION_CALCULATION_VERSION = 2;
-
 export type WeeklyPrice = {
   securityId: SecurityId;
   weekStartDate: LocalDate;
@@ -19,9 +17,15 @@ export type WeeklyPrice = {
   low: number;
   close: number;
   volume: number;
-  calculationVersion: number;
 };
 
+/**
+ * Completed-week indicator value.
+ *
+ * This is a calculation output, not a storage shape. Weekly indicators are never persisted at
+ * weekly cadence: the latest eligible value is carried forward onto every trading day in
+ * `DailyDerivedState`.
+ */
 export type WeeklyTechnical = {
   securityId: SecurityId;
   weekStartDate: LocalDate;
@@ -29,7 +33,6 @@ export type WeeklyTechnical = {
   type: MovingAverageType;
   period: number;
   value: number;
-  calculationVersion: number;
 };
 
 export type WeeklyHistoryContext = {
@@ -46,7 +49,6 @@ export function startOfIsoWeek(value: LocalDate): LocalDate {
 export function aggregateCompletedWeeks(
   prices: readonly DailyPrice[],
   asOf: LocalDate,
-  calculationVersion = WEEKLY_AGGREGATION_CALCULATION_VERSION,
   history?: WeeklyHistoryContext,
 ): WeeklyPrice[] {
   const currentWeekStart = startOfIsoWeek(asOf);
@@ -87,7 +89,6 @@ export function aggregateCompletedWeeks(
       low: Math.min(...rows.map((row) => row.low)),
       close: last.close,
       volume: rows.reduce((sum, row) => sum + row.volume, 0),
-      calculationVersion,
     };
   });
 }
@@ -96,7 +97,6 @@ export function calculateWeeklyMovingAverage(
   bars: readonly WeeklyPrice[],
   type: MovingAverageType,
   period: number,
-  calculationVersion: number,
 ): WeeklyTechnical[] {
   const ascending = [...bars].sort((left, right) =>
     left.weekStartDate.localeCompare(right.weekStartDate),
@@ -118,7 +118,6 @@ export function calculateWeeklyMovingAverage(
             type,
             period,
             value,
-            calculationVersion,
           },
         ];
   });

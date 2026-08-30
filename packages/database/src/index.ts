@@ -1,9 +1,6 @@
 export {
   FinancialPeriod,
   FinancialStatementType,
-  IntrinsicValueBlendId,
-  IntrinsicValueModel,
-  MovingAverageType,
   PrismaClient,
   SecurityType,
   StockDataset,

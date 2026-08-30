@@ -31,6 +31,10 @@ Redis may be used for:
 
 A Redis flush must not destroy completed executions or user-owned data.
 
+Derived backtest-facing data is materialized per trading day into one `DailyDerivedState` row per
+security per trading day, cached as `security:<securityId>:daily-state:<year>` chunks. Calculation
+versions are not stored: a methodology change rebuilds the current state.
+
 `@intrinsic/stock-data` owns canonical full-stock hydration: Redis READY check -> PostgreSQL
 canonical-horizon coverage -> missing FMP deltas -> versioned derived calculation -> PostgreSQL ->
 yearly Redis chunks. Requested ranges are read projections, not hydration boundaries. Process

@@ -102,11 +102,14 @@ export const DAILY_MOVING_AVERAGES = [
 ] as const satisfies readonly MovingAverageDefinition[];
 
 /**
- * Materialized daily derived values used by Stock Details and backtests.
+ * Daily technical read projection over `DailyDerivedState`.
  *
  * The `d` suffix is deliberate: it makes the timeframe explicit in storage/API contracts before
  * weekly indicators are introduced. Optional values mean the indicator is not available yet
  * because there are not enough warm-up bars; unavailable values must never be replaced with zero.
+ *
+ * There is no calculation version: exactly one current methodology is materialized per trading
+ * day. A methodology change rebuilds the affected rows instead of adding a parallel version.
  */
 export type DailyTechnical = {
   securityId: SecurityId;
@@ -118,8 +121,6 @@ export type DailyTechnical = {
   ema20d?: number;
   ema50d?: number;
   ema200d?: number;
-  /** Increment when calculation or seed/warm-up semantics change. */
-  calculationVersion: number;
 };
 
 /**
@@ -159,7 +160,6 @@ export type IntrinsicValuePoint = {
   model: IntrinsicValueModel;
   valuePerShare: number;
   currency: string;
-  calculationVersion: number;
 };
 
 export const INTRINSIC_VALUE_BLEND_IDS = [
@@ -212,6 +212,13 @@ export const INTRINSIC_VALUE_BLENDS = {
   IntrinsicValueBlendDefinition
 >;
 
+/**
+ * Daily intrinsic-value blend read projection over `DailyDerivedState`.
+ *
+ * Blend weights are versioned in `IntrinsicValueBlendDefinition` so a weight change is an explicit
+ * product decision, but the materialized daily state holds only the current blend definition. A
+ * weight change rebuilds the affected daily rows; blend versions never coexist per trading day.
+ */
 export type IntrinsicValueBlendPoint = {
   securityId: SecurityId;
   valuationDate: LocalDate;
@@ -219,21 +226,62 @@ export type IntrinsicValueBlendPoint = {
   blendId: IntrinsicValueBlendId;
   valuePerShare: number;
   currency: string;
-  calculationVersion: number;
-  blendVersion: number;
+};
+
+/**
+ * Unified daily materialized derived state: exactly one record per security per trading day.
+ *
+ * This is the single backtest-facing and Stock Details derived representation. It intentionally
+ * repeats values whose sources change less frequently than daily (completed-week weekly
+ * indicators, fundamentals-driven intrinsic values and blends): once a value first becomes
+ * point-in-time eligible it is carried forward onto every subsequent trading day until a newer
+ * eligible value replaces it. Repetition is the data model, not a caching artifact, so consumers
+ * never resolve sparse events themselves.
+ *
+ * Invariants that must not be reintroduced:
+ * - no calculation/methodology version participates in identity; `(securityId, date)` is the key
+ *   and a methodology change rebuilds the affected rows rather than storing a parallel history;
+ * - symbol/ticker is never part of durable historical identity; resolve symbol -> securityId once;
+ * - an absent value means not yet eligible or insufficient warm-up. Never substitute zero and
+ *   never back-fill a value before its first eligible trading day.
+ */
+export type DailyDerivedState = {
+  securityId: SecurityId;
+  date: LocalDate;
+  sma20d?: number;
+  sma50d?: number;
+  sma100d?: number;
+  sma200d?: number;
+  ema20d?: number;
+  ema50d?: number;
+  ema200d?: number;
+  /**
+   * Start date of the completed weekly period whose carried-forward weekly indicators are
+   * effective on this trading day. Weekly indicator values are added alongside this field once the
+   * weekly period catalog is product-defined; they are not invented ahead of that decision.
+   */
+  weeklySourceWeekStart?: LocalDate;
+  /** Per-model intrinsic value per share, present only for models eligible on this trading day. */
+  intrinsicValues?: Partial<Record<IntrinsicValueModel, number>>;
+  /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */
+  intrinsicValueBlends?: Partial<Record<IntrinsicValueBlendId, number>>;
+  /**
+   * Latest publication/availability instant among source inputs actually used by this row's
+   * intrinsic values. No-look-ahead audit field; never later than the end of `date`.
+   */
+  intrinsicSourceDataAsOf?: Instant;
+  intrinsicCurrency?: string;
 };
 
 export const STOCK_DATASETS = [
   "SECURITY_PROFILE",
   "DAILY_PRICE",
-  "DAILY_TECHNICAL",
+  "DAILY_DERIVED_STATE",
   "INCOME_STATEMENT",
   "BALANCE_SHEET",
   "CASH_FLOW",
   "DIVIDEND",
   "STOCK_SPLIT",
-  "INTRINSIC_VALUE",
-  "INTRINSIC_VALUE_BLEND",
 ] as const;
 export type StockDataset = (typeof STOCK_DATASETS)[number];
 
@@ -245,8 +293,6 @@ export type StockDatasetState = {
   latestDate?: LocalDate;
   /** Last successful persistence/sync operation, not the last attempted request. */
   lastSyncedAt?: Instant;
-  /** Present for derived datasets invalidated by calculation-method changes. */
-  calculationVersion?: number;
 };
 
 export type StockDetails = {
@@ -275,6 +321,10 @@ export interface StockDataService {
   getSecurity(symbol: string): Promise<Security>;
   getStockDetails(symbol: string, range?: DateRange): Promise<StockDetails>;
   getDailyPrices(symbol: string, range: DateRange): Promise<DailyPrice[]>;
+  getDailyDerivedState(
+    symbol: string,
+    range: DateRange,
+  ): Promise<DailyDerivedState[]>;
   getDailyTechnicals(
     symbol: string,
     range: DateRange,
@@ -303,22 +353,14 @@ export interface StockDataRepository {
     securityId: SecurityId,
     range: DateRange,
   ): Promise<DailyPrice[]>;
-  getDailyTechnicals(
+  getDailyDerivedState(
     securityId: SecurityId,
     range: DateRange,
-  ): Promise<DailyTechnical[]>;
+  ): Promise<DailyDerivedState[]>;
   getFinancialStatements(
     securityId: SecurityId,
     query: FinancialStatementQuery,
   ): Promise<FinancialStatement[]>;
-  getIntrinsicValues(
-    securityId: SecurityId,
-    query: IntrinsicValueQuery,
-  ): Promise<IntrinsicValuePoint[]>;
-  getIntrinsicValueBlends(
-    securityId: SecurityId,
-    query: IntrinsicValueBlendQuery,
-  ): Promise<IntrinsicValueBlendPoint[]>;
 }
 
 /** Complete-stock LRU residency control for disposable Redis cache. */

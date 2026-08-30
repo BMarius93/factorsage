@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { getFmpConfig, loadRootEnv } from "@intrinsic/config";
 import {
-  IntrinsicValueBlendId,
-  IntrinsicValueModel,
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
 import type { DateRange } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import {
+  DAILY_DERIVED_STATE_VARIANT,
   InMemoryLoadCoordinator,
   NullStockDataCache,
 } from "@intrinsic/stock-data";
@@ -163,14 +162,35 @@ describe("Stock Details API", () => {
         },
       ],
     });
-    await prisma.dailyTechnical.create({
-      data: {
-        securityId: security.id,
-        date: new Date("2026-08-20T00:00:00.000Z"),
-        sma20d: 121.5,
-        ema20d: 122.25,
-        calculationVersion: 1,
-      },
+    // One unified derived row per (securityId, date). Repeated intrinsic values across trading
+    // days are intentional daily materialization, not duplicated methodology versions.
+    await prisma.dailyDerivedState.createMany({
+      data: [
+        {
+          securityId: security.id,
+          date: new Date("2025-10-01T00:00:00.000Z"),
+          dcfFcff: 141,
+          blendBalanced: 136,
+          intrinsicSourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
+          intrinsicCurrency: "USD",
+        },
+        {
+          securityId: security.id,
+          date: new Date("2025-11-03T00:00:00.000Z"),
+          dcfFcff: 141,
+          graham: 125,
+          blendBalanced: 136,
+          blendConservative: 125,
+          intrinsicSourceDataAsOf: new Date("2025-11-03T14:00:00.000Z"),
+          intrinsicCurrency: "USD",
+        },
+        {
+          securityId: security.id,
+          date: new Date("2026-08-20T00:00:00.000Z"),
+          sma20d: 121.5,
+          ema20d: 122.25,
+        },
+      ],
     });
     await prisma.stockDatasetState.createMany({
       data: [
@@ -184,12 +204,11 @@ describe("Stock Details API", () => {
         },
         {
           securityId: security.id,
-          dataset: StockDataset.DAILY_TECHNICAL,
-          variant: "1D:v1",
+          dataset: StockDataset.DAILY_DERIVED_STATE,
+          variant: DAILY_DERIVED_STATE_VARIANT,
           earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
           latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
-          calculationVersion: 1,
         },
       ],
     });
@@ -205,89 +224,13 @@ describe("Stock Details API", () => {
         },
         {
           securityId: security.id,
-          dataset: StockDataset.DAILY_TECHNICAL,
-          variant: "1D:v1",
+          dataset: StockDataset.DAILY_DERIVED_STATE,
+          variant: DAILY_DERIVED_STATE_VARIANT,
           fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
           toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
         },
       ],
-    });
-    await prisma.intrinsicValue.createMany({
-      data: [
-        {
-          securityId: security.id,
-          valuationDate: new Date("2025-10-01T00:00:00.000Z"),
-          sourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
-          model: IntrinsicValueModel.DCF_FCFF,
-          valuePerShare: 140,
-          currency: "USD",
-          calculationVersion: 1,
-        },
-        {
-          securityId: security.id,
-          valuationDate: new Date("2025-10-01T00:00:00.000Z"),
-          sourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
-          model: IntrinsicValueModel.DCF_FCFF,
-          valuePerShare: 141,
-          currency: "USD",
-          calculationVersion: 2,
-        },
-        {
-          securityId: security.id,
-          valuationDate: new Date("2025-11-01T00:00:00.000Z"),
-          sourceDataAsOf: new Date("2025-08-01T14:00:00.000Z"),
-          model: IntrinsicValueModel.GRAHAM,
-          valuePerShare: 125,
-          currency: "USD",
-          calculationVersion: 1,
-        },
-        {
-          securityId: security.id,
-          valuationDate: new Date("2025-10-01T00:00:00.000Z"),
-          sourceDataAsOf: new Date("2026-01-01T14:00:00.000Z"),
-          model: IntrinsicValueModel.DDM,
-          valuePerShare: 130,
-          currency: "USD",
-          calculationVersion: 1,
-        },
-      ],
-    });
-    await prisma.intrinsicValueBlend.create({
-      data: {
-        securityId: security.id,
-        valuationDate: new Date("2025-10-01T00:00:00.000Z"),
-        sourceDataAsOf: new Date("2025-10-01T15:00:00.000Z"),
-        blendId: IntrinsicValueBlendId.BALANCED,
-        valuePerShare: 135,
-        currency: "USD",
-        calculationVersion: 1,
-        blendVersion: 1,
-      },
-    });
-    await prisma.intrinsicValueBlend.create({
-      data: {
-        securityId: security.id,
-        valuationDate: new Date("2025-10-01T00:00:00.000Z"),
-        sourceDataAsOf: new Date("2025-10-01T15:00:00.000Z"),
-        blendId: IntrinsicValueBlendId.BALANCED,
-        valuePerShare: 136,
-        currency: "USD",
-        calculationVersion: 2,
-        blendVersion: 2,
-      },
-    });
-    await prisma.intrinsicValueBlend.create({
-      data: {
-        securityId: security.id,
-        valuationDate: new Date("2025-11-01T00:00:00.000Z"),
-        sourceDataAsOf: new Date("2025-08-01T15:00:00.000Z"),
-        blendId: IntrinsicValueBlendId.CONSERVATIVE,
-        valuePerShare: 125,
-        currency: "USD",
-        calculationVersion: 1,
-        blendVersion: 1,
-      },
     });
   });
 
@@ -357,13 +300,9 @@ describe("Stock Details API", () => {
       .expect(200);
 
     expect(response.body).toEqual([
-      {
-        date: "2026-08-20",
-        sma20d: 121.5,
-        ema20d: 122.25,
-        calculationVersion: 1,
-      },
+      { date: "2026-08-20", sma20d: 121.5, ema20d: 122.25 },
     ]);
+    expect(response.body[0]).not.toHaveProperty("calculationVersion");
     expect(response.body[0]).not.toHaveProperty("sma20");
     expect(response.body[0]).not.toHaveProperty("securityId");
   });
@@ -377,10 +316,15 @@ describe("Stock Details API", () => {
 
     expect(
       response.body.map((point: { model: string }) => point.model),
-    ).toEqual(["DCF_FCFF"]);
+    ).toEqual(["DCF_FCFF", "DCF_FCFF"]);
+    expect(
+      response.body.map((point: { valuationDate: string }) =>
+        point.valuationDate,
+      ),
+    ).toEqual(["2025-10-01", "2025-11-03"]);
     expect(response.body[0].sourceDataAsOf).toBe("2025-10-01T14:00:00.000Z");
-    expect(response.body[0].calculationVersion).toBe(2);
     expect(response.body[0].valuePerShare).toBe(141);
+    expect(response.body[0]).not.toHaveProperty("calculationVersion");
   });
 
   it("clamps intrinsic and blend valuation dates to asOf when to is later", async () => {
@@ -399,7 +343,7 @@ describe("Stock Details API", () => {
     expect(blends.body).toEqual([]);
   });
 
-  it("filters blend IDs and returns version metadata", async () => {
+  it("filters blend IDs and repeats the eligible daily value without version metadata", async () => {
     const response = await request(app.getHttpServer())
       .get(
         `/stocks/${baseSymbol}/intrinsic-value-blends?asOf=2025-12-31&blendIds=BALANCED`,
@@ -408,12 +352,19 @@ describe("Stock Details API", () => {
 
     expect(response.body).toEqual([
       expect.objectContaining({
+        valuationDate: "2025-10-01",
         blendId: "BALANCED",
-        blendVersion: 2,
-        calculationVersion: 2,
+        valuePerShare: 136,
+      }),
+      expect.objectContaining({
+        valuationDate: "2025-11-03",
+        blendId: "BALANCED",
         valuePerShare: 136,
       }),
     ]);
+    expect(response.body[0]).not.toHaveProperty("blendVersion");
+    expect(response.body[0]).not.toHaveProperty("calculationVersion");
+    expect(response.body[0]).not.toHaveProperty("securityId");
   });
 
   it("hydrates one canonical horizon and reuses it for later projections", async () => {
