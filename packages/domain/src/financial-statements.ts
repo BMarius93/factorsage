@@ -12,9 +12,19 @@ export const FINANCIAL_STATEMENT_CADENCES = ["QUARTERLY", "ANNUAL"] as const;
 export type FinancialStatementCadence =
   (typeof FINANCIAL_STATEMENT_CADENCES)[number];
 
+/**
+ * `Q1`-`Q4` are standalone provider quarters, not cumulative YTD periods: the four quarters sum to
+ * the `FY` row. The application never converts between the two cadences.
+ */
 export const FINANCIAL_PERIODS = ["FY", "Q1", "Q2", "Q3", "Q4"] as const;
 export type FinancialPeriod = (typeof FINANCIAL_PERIODS)[number];
 
+/**
+ * Provider values are canonical exactly as FMP supplies them; nothing normalizes a sign.
+ *
+ * `interestExpense` is a positive expense magnitude when reported separately, so an after-tax
+ * add-back multiplies it rather than negating it. See `docs/decisions/fundamentals-loader.md`.
+ */
 export const INCOME_STATEMENT_FIELDS = [
   "revenue",
   "costOfRevenue",
@@ -107,6 +117,21 @@ export const BALANCE_SHEET_FIELDS = [
 ] as const;
 export type BalanceSheetField = (typeof BALANCE_SHEET_FIELDS)[number];
 
+/**
+ * Provider values are canonical exactly as FMP supplies them; nothing normalizes a sign.
+ *
+ * Verified conventions consumers must interpret explicitly:
+ * - `capitalExpenditure`, `commonDividendsPaid` and `netDividendsPaid` are signed cash outflows
+ *   and are normally negative, so they are added rather than subtracted;
+ * - `freeCashFlow` is the provider's own `operatingCashFlow + capitalExpenditure` result. It is
+ *   never recalculated here and is a reconciliation value, not a primary valuation input;
+ * - `changeInWorkingCapital` is already the signed cash-flow contribution and may carry either
+ *   sign. Its effect is already inside `operatingCashFlow`; never subtract it again as a
+ *   conventional positive delta-NWC.
+ *
+ * See `docs/decisions/fundamentals-loader.md` for the verification and
+ * `packages/fmp/src/mapping.test.ts` for the tests that lock these semantics.
+ */
 export const CASH_FLOW_FIELDS = [
   "netIncome",
   "depreciationAndAmortization",

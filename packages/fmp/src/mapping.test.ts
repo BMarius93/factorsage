@@ -185,3 +185,168 @@ describe("FMP mapping", () => {
     ).toThrow("Invalid FMP financial statement symbol");
   });
 });
+
+/**
+ * Verified provider semantics for the fields future valuation code depends on.
+ *
+ * These were confirmed against current real FMP statement data. The mapper is a pass-through: it
+ * must never normalize a sign, recalculate a derived field, or convert cadences. Financial
+ * calculations interpret the provider convention explicitly, so it is pinned here.
+ */
+describe("FMP financial statement value semantics", () => {
+  const cashFlowRow = financialRow({
+    period: "FY",
+    date: "2026-06-30",
+    filingDate: "2026-07-30",
+    operatingCashFlow: 147_761_000_000,
+    // Signed outflow: already negative as reported.
+    capitalExpenditure: -60_881_000_000,
+    // Provider-supplied result of operatingCashFlow + capitalExpenditure.
+    freeCashFlow: 86_880_000_000,
+    commonDividendsPaid: -23_531_000_000,
+    netDividendsPaid: -23_531_000_000,
+    changeInWorkingCapital: 1_185_000_000,
+    depreciationAndAmortization: 27_470_000_000,
+  });
+
+  function cashFlowValues(overrides: Record<string, unknown> = {}) {
+    const mapped = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "CASH_FLOW",
+      rows: [{ ...cashFlowRow, ...overrides }],
+    });
+    return mapped[0]?.values as Record<string, number | undefined>;
+  }
+
+  it("preserves signed cash outflows exactly as the provider reports them", () => {
+    const values = cashFlowValues();
+
+    // Capital expenditure and dividends paid are signed outflows, not positive magnitudes.
+    expect(values.capitalExpenditure).toBe(-60_881_000_000);
+    expect(values.commonDividendsPaid).toBe(-23_531_000_000);
+    expect(values.netDividendsPaid).toBe(-23_531_000_000);
+    expect(values.operatingCashFlow).toBe(147_761_000_000);
+  });
+
+  it("keeps changeInWorkingCapital signed in both directions", () => {
+    // It is already the signed cash-flow contribution, so either sign is a valid provider value
+    // and neither may be reinterpreted as a conventional positive delta-NWC.
+    expect(cashFlowValues({ changeInWorkingCapital: 1_185_000_000 })
+      .changeInWorkingCapital).toBe(1_185_000_000);
+    expect(cashFlowValues({ changeInWorkingCapital: -2_400_000_000 })
+      .changeInWorkingCapital).toBe(-2_400_000_000);
+  });
+
+  it("keeps interestExpense as the positive expense magnitude the provider reports", () => {
+    const mapped = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "INCOME",
+      rows: [financialRow({ interestExpense: 559_000_000, incomeTaxExpense: 4_713_000_000 })],
+    });
+
+    expect(mapped[0]?.values.interestExpense).toBe(559_000_000);
+    expect(mapped[0]?.values.incomeTaxExpense).toBe(4_713_000_000);
+  });
+
+  it("passes freeCashFlow through instead of recalculating it", () => {
+    // The provider identity holds on real data...
+    const consistent = cashFlowValues();
+    expect(consistent.freeCashFlow).toBe(
+      (consistent.operatingCashFlow ?? 0) + (consistent.capitalExpenditure ?? 0),
+    );
+
+    // ...but the mapper never derives or corrects it: a deliberately inconsistent provider value
+    // survives untouched, so freeCashFlow is provider data, not a calculated field.
+    const inconsistent = cashFlowValues({ freeCashFlow: 1_234_000_000 });
+    expect(inconsistent.freeCashFlow).toBe(1_234_000_000);
+    expect(inconsistent.operatingCashFlow).toBe(147_761_000_000);
+    expect(inconsistent.capitalExpenditure).toBe(-60_881_000_000);
+  });
+
+  it("preserves a reported zero instead of dropping it or substituting a sign", () => {
+    const values = cashFlowValues({
+      capitalExpenditure: 0,
+      commonDividendsPaid: 0,
+      changeInWorkingCapital: 0,
+    });
+
+    expect(values.capitalExpenditure).toBe(0);
+    expect(values.commonDividendsPaid).toBe(0);
+    expect(values.changeInWorkingCapital).toBe(0);
+  });
+
+  it("maps standalone quarters without converting cumulative or YTD values", () => {
+    const quarters = [
+      {
+        period: "Q1",
+        date: "2025-09-30",
+        operatingCashFlow: 34_180_000_000,
+        capitalExpenditure: -11_237_000_000,
+        freeCashFlow: 22_943_000_000,
+        changeInWorkingCapital: -2_400_000_000,
+        commonDividendsPaid: -5_575_000_000,
+      },
+      {
+        period: "Q2",
+        date: "2025-12-31",
+        operatingCashFlow: 33_774_000_000,
+        capitalExpenditure: -15_800_000_000,
+        freeCashFlow: 17_974_000_000,
+        changeInWorkingCapital: 1_150_000_000,
+        commonDividendsPaid: -5_576_000_000,
+      },
+      {
+        period: "Q3",
+        date: "2026-03-31",
+        operatingCashFlow: 37_195_000_000,
+        capitalExpenditure: -16_745_000_000,
+        freeCashFlow: 20_450_000_000,
+        changeInWorkingCapital: -830_000_000,
+        commonDividendsPaid: -6_190_000_000,
+      },
+      {
+        period: "Q4",
+        date: "2026-06-30",
+        operatingCashFlow: 42_612_000_000,
+        capitalExpenditure: -17_099_000_000,
+        freeCashFlow: 25_513_000_000,
+        changeInWorkingCapital: 3_265_000_000,
+        commonDividendsPaid: -6_190_000_000,
+      },
+    ];
+    const mapped = mapFmpFinancialStatements({
+      securityId: "security-1",
+      statementType: "CASH_FLOW",
+      rows: quarters.map((quarter) => financialRow(quarter)),
+    });
+
+    // One canonical row per provider row: no aggregation, no YTD-to-standalone conversion, and no
+    // synthesized trailing period.
+    expect(mapped).toHaveLength(4);
+    expect(mapped.map((row) => row.period)).toEqual(["Q1", "Q2", "Q3", "Q4"]);
+    for (const [index, quarter] of quarters.entries()) {
+      expect(mapped[index]?.values.operatingCashFlow).toBe(
+        quarter.operatingCashFlow,
+      );
+      expect(mapped[index]?.values.capitalExpenditure).toBe(
+        quarter.capitalExpenditure,
+      );
+      expect(mapped[index]?.values.commonDividendsPaid).toBe(
+        quarter.commonDividendsPaid,
+      );
+      expect(mapped[index]?.values.changeInWorkingCapital).toBe(
+        quarter.changeInWorkingCapital,
+      );
+    }
+
+    // Standalone quarters sum to the annual row; this is the provider's cadence semantics, and
+    // the application relies on it rather than recomputing quarters from cumulative values.
+    const annual = cashFlowValues();
+    const sum = (field: "operatingCashFlow" | "capitalExpenditure" | "commonDividendsPaid" | "changeInWorkingCapital") =>
+      quarters.reduce((total, quarter) => total + quarter[field], 0);
+    expect(sum("operatingCashFlow")).toBe(annual.operatingCashFlow);
+    expect(sum("capitalExpenditure")).toBe(annual.capitalExpenditure);
+    expect(sum("commonDividendsPaid")).toBe(annual.commonDividendsPaid);
+    expect(sum("changeInWorkingCapital")).toBe(annual.changeInWorkingCapital);
+  });
+});

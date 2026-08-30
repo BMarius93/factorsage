@@ -233,6 +233,34 @@ interestPaid
 
 Use explicit TypeScript field catalogs/unions so the JSON payload remains canonical and typed without creating ~120 provider-shaped Prisma columns.
 
+## Verified provider value semantics
+
+These conventions were verified against current real FMP statement data and are now the pinned
+contract for every consumer of `FinancialStatement.values`. They are provider semantics, not
+product methodology.
+
+1. `capitalExpenditure` is a **signed cash-flow outflow** and is negative in the normal cases
+   inspected.
+2. FMP's own `freeCashFlow` satisfies `freeCashFlow = operatingCashFlow + capitalExpenditure`,
+   precisely because `capitalExpenditure` is already negative. It is an addition, not a
+   subtraction.
+3. `commonDividendsPaid` and `netDividendsPaid` are **signed cash outflows** and are negative in
+   the normal dividend-paying cases inspected.
+4. `changeInWorkingCapital` is already the **signed cash-flow contribution** used in the cash-flow
+   statement and may be positive or negative. It must never be treated as a conventional positive
+   delta-NWC and subtracted again; its effect is already inside `operatingCashFlow`.
+5. `interestExpense` is a **positive expense magnitude** when FMP reports it separately on the
+   income statement.
+6. `period=quarter` rows are **standalone** `Q1`-`Q4` rows, not cumulative YTD rows. Current FMP
+   MSFT FY2026 quarterly values sum exactly to the `FY` row for revenue, net income, operating
+   cash flow, capital expenditure, `changeInWorkingCapital` and `commonDividendsPaid`.
+
+The mapper does not normalize any of this. Provider values stay canonical exactly as supplied:
+signs are preserved, `freeCashFlow` is never recalculated, zero stays zero, and no cadence is
+converted or aggregated. Financial calculations interpret the convention explicitly at the point
+of use. These rules are locked by
+`packages/fmp/src/mapping.test.ts` in `describe("FMP financial statement value semantics")`.
+
 ## Persistence
 
 Prefer one durable `FinancialStatement` model rather than three almost-identical tables.

@@ -173,6 +173,29 @@ Each intrinsic-value result records `sourceDataAsOf`. Implementations must only 
 
 `sourceDataAsOf` is the latest publication/availability instant among the inputs actually used by the calculation. It is an audit/no-look-ahead field, not merely the fiscal period end date.
 
+### FCFF input convention (not yet implemented)
+
+The verified FMP sign conventions in `fundamentals-loader.md` fix how FCFF inputs will be
+assembled once the methodology is decided. Recording the convention now prevents a sign error
+later; no formula, growth assumption, or TTM assembly is implemented by this decision.
+
+```text
+FCFF_TTM input construction =
+    operatingCashFlow_TTM
+  + capitalExpenditure_TTM        // already signed negative; this is an addition
+  + after-tax interest expense
+```
+
+Rules that follow from the provider semantics:
+
+- `capitalExpenditure` is added, never subtracted, because FMP already reports it negative.
+- `changeInWorkingCapital` must **not** appear in this construction. Its effect is already
+  contained in `operatingCashFlow`, and the FMP field is the signed cash-flow contribution rather
+  than a conventional positive delta-NWC.
+- `interestExpense` is a positive magnitude, so the after-tax add-back is
+  `interestExpense * (1 - effectiveTaxRate)`.
+- FMP's `freeCashFlow` is a reconciliation/cross-check value, not the primary FCFF input.
+
 ### Provenance is per model, not per row
 
 Point-in-time provenance belongs to the individual model. Models may consume different
