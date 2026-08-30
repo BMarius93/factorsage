@@ -10,8 +10,14 @@ import { latestCompletedWeeklyBar, type WeeklyPrice } from "./weekly.js";
  * dataset-state/coverage variant and in the cache manifest. Bumping it invalidates the existing
  * materialized state so it is recalculated and replaced; it must never be used to keep two
  * methodologies resident for the same trading day.
+ *
+ * Revision history:
+ * - r1: daily technicals and carried-forward completed-week state.
+ * - r2: adds materialized point-in-time intrinsic model values, blends, per-model provenance and
+ *   the shared intrinsic currency. An r1 row is not a current r2 row, so r1 manifests and coverage
+ *   must go stale and the canonical history is rebuilt and replaced as r2.
  */
-export const DERIVED_STATE_REVISION = 1;
+export const DERIVED_STATE_REVISION = 2;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 

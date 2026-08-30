@@ -29,7 +29,10 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
-import { CanonicalStockDataService } from "./service.js";
+import {
+  CanonicalStockDataService,
+  VALUATION_FUNDAMENTALS_WARMUP_YEARS,
+} from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
 
 const NOW = "2026-08-24T12:00:00.000Z";
@@ -634,9 +637,12 @@ function setFundamentalsStates(
   syncedAt = NOW,
   historyYears = 30,
 ) {
+  // The variant encodes the retention policy, so a state row only counts as complete when it also
+  // covers the valuation warm-up years.
+  const warmup = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
   const variants = {
-    quarterly: `standard:quarter:v1:h${historyYears}`,
-    annual: `standard:annual:v1:h${historyYears}`,
+    quarterly: `standard:quarter:v1:h${historyYears}:w${warmup}`,
+    annual: `standard:annual:v1:h${historyYears}:w${warmup}`,
   };
   const datasets: Array<
     "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"
@@ -651,6 +657,79 @@ function setFundamentalsStates(
       });
     }
   }
+}
+
+function annualDraft(fiscalDate: string, revenue: number): FinancialStatementDraft {
+  return {
+    securityId: security.id,
+    statementType: "INCOME",
+    fiscalDate,
+    fiscalYear: Number(fiscalDate.slice(0, 4)),
+    period: "FY",
+    reportedCurrency: "USD",
+    filingDate: `${Number(fiscalDate.slice(0, 4)) + 1}-02-01`,
+    values: { revenue },
+  };
+}
+
+/** One complete, calculable fiscal year of quarterly statements retained before the visible range. */
+function warmupYear(fiscalYear: number, availableFromDate: string): FinancialStatement[] {
+  const quarterEnd = { Q1: "03-31", Q2: "06-30", Q3: "09-30", Q4: "12-31" } as const;
+  const values = {
+    INCOME: {
+      netIncome: 20,
+      interestExpense: 2.5,
+      epsDiluted: 2,
+      weightedAverageShsOutDil: 10,
+    },
+    CASH_FLOW: {
+      operatingCashFlow: 30,
+      capitalExpenditure: -5,
+      commonDividendsPaid: -5,
+    },
+    BALANCE_SHEET: {
+      cashAndShortTermInvestments: 50,
+      totalDebt: 30,
+      totalStockholdersEquity: 500,
+    },
+  } as const;
+  return (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) =>
+    (["INCOME", "CASH_FLOW", "BALANCE_SHEET"] as const).map((statementType) => ({
+      securityId: security.id,
+      statementType,
+      fiscalDate: `${fiscalYear}-${quarterEnd[period]}`,
+      fiscalYear,
+      period,
+      reportedCurrency: "USD",
+      filingDate: availableFromDate,
+      availableFromDate,
+      observedAt: NOW,
+      contentHash: `${statementType}:${fiscalYear}:${period}`,
+      values: values[statementType],
+    })),
+  );
+}
+
+function warmupAnnual(
+  fiscalYear: number,
+  revenue: number,
+  availableFromDate: string,
+): FinancialStatement[] {
+  return [
+    {
+      securityId: security.id,
+      statementType: "INCOME",
+      fiscalDate: `${fiscalYear}-12-31`,
+      fiscalYear,
+      period: "FY",
+      reportedCurrency: "USD",
+      filingDate: availableFromDate,
+      availableFromDate,
+      observedAt: NOW,
+      contentHash: `INCOME:${fiscalYear}:FY`,
+      values: { revenue },
+    },
+  ];
 }
 
 describe("canonical full-stock hydration", () => {
@@ -689,7 +768,8 @@ describe("canonical full-stock hydration", () => {
       provider.financialRequests.filter((request) => request.cadence === "ANNUAL"),
     ).toHaveLength(3);
     expect(new Set(provider.financialRequests.map((request) => request.limit))).toEqual(
-      new Set([128, 32]),
+      // (30 visible + 7 warm-up) years of capacity plus the existing safety tails.
+      new Set([(30 + 7) * 4 + 8, 30 + 7 + 2]),
     );
     expect(
       cache.manifests.get(security.id)?.financialStatementVersion,
@@ -716,15 +796,15 @@ describe("canonical full-stock hydration", () => {
     const variants = store.fundamentalsStateUpserts.map((entry) => entry.variant);
     expect(variants).toEqual(
       expect.arrayContaining([
-        "standard:quarter:v1:h30",
-        "standard:annual:v1:h30",
+        `standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+        `standard:annual:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
       ]),
     );
     await expect(
-      store.getDatasetState(security.id, "INCOME_STATEMENT", "standard:quarter:v1:h30"),
+      store.getDatasetState(security.id, "INCOME_STATEMENT", `standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`),
     ).resolves.not.toBeNull();
     await expect(
-      store.getDatasetState(security.id, "INCOME_STATEMENT", "standard:annual:v1:h30"),
+      store.getDatasetState(security.id, "INCOME_STATEMENT", `standard:annual:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`),
     ).resolves.not.toBeNull();
   });
 
@@ -1447,10 +1527,10 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toHaveLength(6);
     expect(
-      store.states.get("INCOME_STATEMENT:standard:quarter:v1:h30")?.lastSyncedAt,
+      store.states.get(`INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
     ).toBe(staleFundamentalsAt);
     expect(
-      store.states.get("BALANCE_SHEET:standard:quarter:v1:h30")?.lastSyncedAt,
+      store.states.get(`BALANCE_SHEET:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
     ).toBe(firstAttemptAt);
 
     provider.financialFailures.delete("INCOME:QUARTERLY:12");
@@ -1463,7 +1543,7 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toHaveLength(12);
     expect(
-      store.states.get("INCOME_STATEMENT:standard:quarter:v1:h30")?.lastSyncedAt,
+      store.states.get(`INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
     ).toBe(secondAttemptAt);
     expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBe(
       secondAttemptAt,
@@ -2491,6 +2571,297 @@ describe("intrinsic values in the derived-state lifecycle", () => {
       TRADING_DATES.length,
     );
     expect(persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM).toBeDefined();
+  });
+});
+
+describe("derived-state revision and valuation warm-up retention", () => {
+  const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
+
+  it("materializes intrinsic values under derived-state revision 2", () => {
+    // r1 rows carry no intrinsic state, so an r1 manifest/coverage must not read as current.
+    expect(DERIVED_STATE_REVISION).toBe(2);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r2");
+  });
+
+  it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-19", 199), price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    // Coverage and manifest left behind by the pre-intrinsic methodology.
+    store.coverage.set("DAILY_DERIVED_STATE:daily-derived-state:r1", [
+      CANONICAL_RANGE,
+    ]);
+    store.states.set("DAILY_DERIVED_STATE:daily-derived-state:r1", {
+      securityId: security.id,
+      dataset: "DAILY_DERIVED_STATE",
+      variant: "daily-derived-state:r1",
+      lastSyncedAt: NOW,
+    });
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      derivedStateRevision: 1,
+    });
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-19",
+      to: "2026-08-20",
+    });
+
+    // The r1 manifest is not accepted, and the r2 variant reports no coverage, so the whole
+    // canonical derived history is rebuilt rather than a recent tail being refreshed.
+    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(2);
+    expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
+      "2026-08-19",
+      "2026-08-20",
+    ]);
+    expect(
+      store.coverage.get(`DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`),
+    ).toBeDefined();
+  });
+
+  it("retains fundamentals before the visible history without widening it", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    // Provider returns rows inside the warm-up window, inside the visible window, and one that is
+    // older than the retention bound.
+    provider.financialRows.set(`INCOME:ANNUAL:${30 + WARMUP + 2}`, [
+      annualDraft("1988-12-31", 50),
+      annualDraft("1990-12-31", 60),
+      annualDraft("2000-12-31", 70),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    const retained = store.financialStatements.map((row) => row.fiscalDate);
+    // 1996-08-24 is the visible bound; 1989-08-24 is the retention bound.
+    expect(retained).toContain("1990-12-31");
+    expect(retained).toContain("2000-12-31");
+    expect(retained).not.toContain("1988-12-31");
+    // Price history is untouched by the wider fundamentals retention.
+    expect(store.prices.map((row) => row.date)).toEqual(["2026-08-20"]);
+    expect(provider.ranges).toEqual([]);
+    // No derived row is created for a warm-up year.
+    expect(
+      store.dailyState.every((row) => row.date >= CANONICAL_RANGE.from),
+    ).toBe(true);
+  });
+
+  it("clamps the warm-up range to a known listing date", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+      { from: "2020-06-01", to: CANONICAL_RANGE.to },
+    ]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: "2020-06-01",
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    provider.financialRows.set(`INCOME:ANNUAL:${30 + WARMUP + 2}`, [
+      annualDraft("2019-12-31", 40),
+      annualDraft("2021-12-31", 80),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    const retained = store.financialStatements.map((row) => row.fiscalDate);
+    // Nothing before the listing date is retained, even though the warm-up window reaches back
+    // further for an older company.
+    expect(retained).toEqual(["2021-12-31"]);
+  });
+
+  it("encodes the retention policy in the fundamentals dataset variant", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    // A pre-warm-up successful backfill must not satisfy the new retention requirement.
+    for (const dataset of ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"]) {
+      for (const variant of [
+        "standard:quarter:v1:h30",
+        "standard:annual:v1:h30",
+      ]) {
+        store.states.set(`${dataset}:${variant}`, {
+          securityId: security.id,
+          dataset: dataset as "INCOME_STATEMENT",
+          variant,
+          lastSyncedAt: NOW,
+        });
+      }
+    }
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    expect(provider.financialRequests).toHaveLength(6);
+    expect(
+      store.states.get(
+        `INCOME_STATEMENT:standard:quarter:v1:h30:w${WARMUP}`,
+      ),
+    ).toBeDefined();
+  });
+
+  it("values the first visible trading day from retained pre-range statements", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    const firstVisibleDay = "1996-08-26";
+    store.prices = [price(firstVisibleDay, 100), price("1996-08-27", 101)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    // Quarterly TTM context and both annual growth endpoints are all older than the visible range.
+    store.financialStatements = [
+      ...warmupYear(1995, "1996-02-01"),
+      ...warmupAnnual(1995, 127.62815625, "1996-02-01"),
+      ...warmupAnnual(1990, 100, "1991-02-01"),
+    ];
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const values = await loader.getIntrinsicValues("AAPL", {
+      from: firstVisibleDay,
+      to: "1996-08-27",
+      models: ["GRAHAM"],
+    });
+
+    // A four-quarter TTM window exists on the very first visible trading day, and growth is the
+    // real 5% CAGR from the retained annual endpoints rather than the default rate.
+    expect(values[0]?.valuationDate).toBe(firstVisibleDay);
+    expect(values[0]?.valuePerShare).toBeCloseTo(148, 6);
+    expect(
+      store.dailyState.every((row) => row.date >= CANONICAL_RANGE.from),
+    ).toBe(true);
+  });
+
+  it("keeps public financial-statement reads bounded to the visible history", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = [price("2026-08-20", 200)];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    store.financialStatements = [
+      ...warmupAnnual(1990, 100, "1991-02-01"),
+      ...warmupAnnual(2000, 200, "2001-02-01"),
+    ];
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const statements = await loader.getFinancialStatements("AAPL", {
+      statementTypes: ["INCOME"],
+      cadence: "ANNUAL",
+    });
+
+    // The retained warm-up years are internal valuation context, not newly exposed history.
+    expect(statements.map((row) => row.fiscalDate)).toEqual(["2000-12-31"]);
   });
 });
 

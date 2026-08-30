@@ -379,22 +379,58 @@ CASH_FLOW
 State variants must distinguish cadence, mapping version, and configured horizon because these endpoints cannot prove arbitrary date-range coverage:
 
 ```text
-standard:quarter:v1:h<historyYears>
-standard:annual:v1:h<historyYears>
+standard:quarter:v<mappingVersion>:h<historyYears>:w<warmupYears>
+standard:annual:v<mappingVersion>:h<historyYears>:w<warmupYears>
 ```
+
+The variant encodes the retention policy as well as the horizon: an older successful `h30` state
+must not be read as proof that the wider `h30:w7` retention has already been backfilled. The
+mapping version changes only when the provider mapping itself changes.
 
 A successfully persisted state row for a variant means the full configured backfill request completed, including a successful empty response. Failed/partial attempts must not advance the successful state.
 
-### Initial backfill
+### Valuation warm-up retention
 
-If the cadence-specific state variant does not exist, fetch the configured horizon using bounded record counts:
+Fundamentals are retained for `VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7` fiscal years **before** the
+visible history:
 
 ```text
-quarter limit = historyYears * 4 + 8
-annual limit  = historyYears + 2
+price / derived / API / backtest target = [today - historyYears, today]
+fundamentals retention target           = [today - historyYears - 7, today]
 ```
 
-Apply the existing canonical horizon after mapping: discard fiscal rows older than the configured horizon / known listing boundary when appropriate.
+Both are clamped to a known IPO/listing date. The warm-up exists only so that a valuation on the
+**first visible trading day** already has a point-in-time eligible four-quarter TTM window and the
+exact `N` / `N - 5` annual growth endpoints; without it the earliest ~1.5 years would carry no
+intrinsic values and the first ~6 years would fall back to `DEFAULT_GROWTH`.
+
+Rules:
+
+- visible stock, derived-state, API projection and backtest history remain exactly `historyYears`;
+  no `DailyDerivedState` row is ever produced for a warm-up year, because daily materialization
+  uses only the visible price trading dates;
+- `canonicalTarget` stays the user-visible price/derived target. A separate internal
+  `fundamentalsTarget` is used only for statement backfill, statement publication and the derived
+  rebuild's revision read;
+- public `getFinancialStatements` stays bounded to the visible range: the extra years are internal
+  valuation context, not newly exposed product history;
+- retention is a loader guarantee, not a data guarantee. The provider may still not have those
+  older statements, in which case a model is naturally unavailable or growth falls back exactly as
+  the valuation methodology documents.
+
+### Initial backfill
+
+If the cadence-specific state variant does not exist, fetch the retained horizon using bounded
+record counts. Capacity covers the visible years plus the warm-up years, keeping the existing
+safety tails:
+
+```text
+quarter limit = (historyYears + warmupYears) * 4 + 8
+annual limit  = (historyYears + warmupYears) + 2
+```
+
+Apply the fundamentals retention horizon after mapping: discard fiscal rows older than
+`today - historyYears - warmupYears` / the known listing boundary when appropriate.
 
 There are six source requests for a complete initial fundamentals backfill:
 

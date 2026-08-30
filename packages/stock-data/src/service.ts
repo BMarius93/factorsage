@@ -54,6 +54,16 @@ import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
 const FUNDAMENTALS_VARIANT_VERSION = 1;
+/**
+ * Extra fiscal years of financial statements retained before the visible price history.
+ *
+ * A valuation on the first visible trading day needs a four-quarter TTM window and the exact
+ * `N` / `N - 5` annual growth endpoints, all of which must already be point-in-time eligible on
+ * that day. Without this warm-up the earliest part of every history would have no intrinsic values
+ * and would fall back to default growth. It changes fundamentals retention only: price history,
+ * derived rows, cached projections, API output and backtests all stay at the configured horizon.
+ */
+export const VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7;
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
 const FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT = 12;
@@ -651,7 +661,6 @@ export class CanonicalStockDataService implements StockDataService {
         (operation) =>
           this.syncFundamentalsOperation({
             security,
-            target,
             operation,
             limit: this.fundamentalsBackfillLimit(operation.cadence),
             lease,
@@ -677,7 +686,7 @@ export class CanonicalStockDataService implements StockDataService {
 
     await this.publishAllFundamentalsYears(
       security.id,
-      target,
+      this.fundamentalsTarget(security),
       hydrating,
       lease,
     );
@@ -717,8 +726,11 @@ export class CanonicalStockDataService implements StockDataService {
    * `(securityId, date)` and no version history.
    *
    * Intrinsic materialization deliberately runs over the full canonical trading-date history and
-   * every persisted statement revision: starting it at `from` would lose the statement-event and
-   * carry-forward context that establishes the correct opening intrinsic state.
+   * every retained statement revision: starting it at `from` would lose the statement-event and
+   * carry-forward context that establishes the correct opening intrinsic state. Revisions from the
+   * fundamentals warm-up years are read as well, so the first visible trading day can already have
+   * a TTM window and real growth endpoints — but trading dates still come only from the visible
+   * price history, so no derived row is created before the canonical target.
    */
   private async rebuildDailyDerivedState(
     security: Security,
@@ -734,10 +746,11 @@ export class CanonicalStockDataService implements StockDataService {
     );
     // One bounded read of immutable revisions, not the latest-revision selector: the materializer
     // needs each revision's own availableFromDate as a distinct evaluation event.
+    const retention = this.fundamentalsTarget(security);
     const statements = await this.store.getFinancialStatementRevisions({
       securityId: security.id,
-      from: target.from,
-      to: target.to,
+      from: retention.from,
+      to: retention.to,
     });
     const intrinsicStates = materializeDailyIntrinsicValues({
       securityId: security.id,
@@ -891,7 +904,6 @@ export class CanonicalStockDataService implements StockDataService {
       (operation) =>
         this.syncFundamentalsOperation({
           security,
-          target,
           operation,
           limit: this.fundamentalsRefreshLimit(operation.cadence),
           lease,
@@ -935,20 +947,24 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  /**
+   * Publishes every retained fundamentals year, warm-up years included, under the existing yearly
+   * key family. There is no separate warm-up dataset or key.
+   */
   private async publishAllFundamentalsYears(
     securityId: string,
-    target: Required<DateRange>,
+    retention: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
   ): Promise<void> {
-    const years = yearsInRange(target);
+    const years = yearsInRange(retention);
     for (const operation of this.fundamentalsOperationsForHistory()) {
       const rows = await this.store.getFinancialStatementRevisions({
         securityId,
         statementType: operation.statementType,
         cadence: operation.cadence,
-        from: target.from,
-        to: target.to,
+        from: retention.from,
+        to: retention.to,
       });
       await this.cache.writeFinancialStatementYears(
         securityId,
@@ -964,7 +980,6 @@ export class CanonicalStockDataService implements StockDataService {
 
   private async syncFundamentalsOperation(input: {
     security: Security;
-    target: Required<DateRange>;
     operation: FundamentalsOperation;
     limit: number;
     lease: LoadLease;
@@ -979,9 +994,13 @@ export class CanonicalStockDataService implements StockDataService {
       input.operation.cadence,
       input.limit,
     );
+    // Retention, not visibility: statements from the warm-up years are persisted so the first
+    // visible trading day already has TTM and growth context. Rows older than the retention bound
+    // are still discarded.
+    const retention = this.fundamentalsTarget(input.security);
     const statements = loaded
-      .filter((statement) => statement.fiscalDate >= input.target.from)
-      .filter((statement) => statement.fiscalDate <= input.target.to);
+      .filter((statement) => statement.fiscalDate >= retention.from)
+      .filter((statement) => statement.fiscalDate <= retention.to);
     const syncedAt = this.nowInstant();
     input.lease.assertOwned();
     const saved = await this.store.saveFinancialStatements({
@@ -1046,15 +1065,22 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  /**
+   * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill
+   * from before the warm-up existed must not be read as proof that `h30:w7` is already retained.
+   * The mapping version is unchanged because the provider mapping itself did not change.
+   */
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
     const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
-    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}`;
+    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
   }
 
+  /** Request capacity must cover the retained years plus the existing safety tails. */
   private fundamentalsBackfillLimit(cadence: FinancialStatementCadence): number {
+    const retainedYears = this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
     return cadence === QUARTERLY_CADENCE
-      ? this.historyYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
-      : this.historyYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
+      ? retainedYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
+      : retainedYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
   }
 
   private fundamentalsRefreshLimit(cadence: FinancialStatementCadence): number {
@@ -1195,6 +1221,28 @@ export class CanonicalStockDataService implements StockDataService {
       from: security.ipoDate
         ? maxDate(horizonStart, security.ipoDate)
         : horizonStart,
+      to: today,
+    };
+  }
+
+  /**
+   * Internal retention range for financial statements: the canonical history plus valuation
+   * warm-up, clamped to a known listing date.
+   *
+   * This is deliberately separate from `canonicalTarget`: widening that would change price, cache
+   * and API semantics. Only statement backfill, publication and the rebuild's revision read use
+   * this wider range, and no derived row is ever produced for a warm-up year.
+   */
+  private fundamentalsTarget(security: Security): Required<DateRange> {
+    const today = this.today();
+    const retentionStart = subtractYears(
+      today,
+      this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
+    );
+    return {
+      from: security.ipoDate
+        ? maxDate(retentionStart, security.ipoDate)
+        : retentionStart,
       to: today,
     };
   }

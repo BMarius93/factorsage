@@ -21,6 +21,22 @@ Exactly four models. No additional model may be introduced under this decision.
 - `DDM`
 - `GRAHAM`
 
+## History horizons
+
+The visible stock/derived/backtest history is the configured `historyYears`. Financial statements
+are retained for seven additional fiscal years as valuation warm-up
+(`VALUATION_FUNDAMENTALS_WARMUP_YEARS`), so the first visible trading day can already have an
+eligible four-quarter TTM window and real `N` / `N - 5` growth endpoints instead of the default
+rate. The warm-up guarantees loader retention only; if the provider has no such statements, the
+usual unavailability and `DEFAULT_GROWTH` rules apply. No derived row is ever materialized for a
+warm-up year, and public statement reads stay bounded to the visible history. See
+`fundamentals-loader.md`.
+
+Materializing intrinsic values changed the unified daily derived-state methodology, so
+`DERIVED_STATE_REVISION` moved from 1 to 2: r1 rows carry no intrinsic state, so r1 manifests and
+coverage go stale and the canonical history is rebuilt and replaced as r2. This is the existing
+rebuild mechanism — no calculation version and no parallel history.
+
 ## Shared point-in-time input rules
 
 Every calculation is point-in-time. For a valuation effective on trading day `D`:
