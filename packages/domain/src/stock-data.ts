@@ -123,13 +123,14 @@ export type DailyTechnical = {
 };
 
 /**
- * Weekly indicators are future derived data, not a second canonical market-data source.
+ * Weekly indicators are derived data, not a second canonical market-data source.
  *
  * They must be calculated from `DailyPrice` by aggregating completed trading weeks first, then
  * applying the weekly indicator to those weekly bars. Do not derive weekly indicators by averaging
- * daily indicators. For PIT/backtest reads, a weekly value becomes eligible only after the source
- * week is complete; callers may then observe the same latest eligible weekly value on multiple
- * subsequent daily dates without duplicating that weekly snapshot in durable storage.
+ * daily indicators. For PIT/backtest use, a weekly value becomes eligible only after the source week
+ * is complete. Once eligible, the latest weekly value is intentionally materialized on every
+ * subsequent trading-day derived record until a newer completed-week value replaces it. Repeated
+ * daily values are part of the backtest-facing data model, not accidental duplication.
  */
 export const WEEKLY_TECHNICAL_BACKTEST_POLICY =
   "COMPLETED_PERIODS_ONLY" as const;
@@ -142,10 +143,16 @@ export const INTRINSIC_VALUE_MODELS = [
 ] as const;
 export type IntrinsicValueModel = (typeof INTRINSIC_VALUE_MODELS)[number];
 
-/** Persisted point-in-time intrinsic-value snapshot. */
+/**
+ * Persisted point-in-time intrinsic-value value for a trading day.
+ *
+ * The underlying valuation may only change when a newly eligible PIT input or calculation version
+ * changes, but the latest eligible result is materialized forward onto every trading day so
+ * backtests can consume a fully daily-aligned series without resolving sparse valuation events.
+ */
 export type IntrinsicValuePoint = {
   securityId: SecurityId;
-  /** Product-effective valuation date; never earlier than availability of all required inputs. */
+  /** Trading day for which this materialized valuation value is effective. */
   valuationDate: LocalDate;
   /** Latest publication/availability instant among source inputs actually used. */
   sourceDataAsOf: Instant;
