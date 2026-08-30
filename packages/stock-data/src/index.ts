@@ -5,6 +5,7 @@ export * from "./coordination.js";
 export * from "./dates.js";
 export * from "./derived-state.js";
 export * from "./fmp-gate.js";
+export * from "./intrinsic-value-evaluator.js";
 export * from "./intrinsic-value-inputs.js";
 export * from "./intrinsic-values.js";
 export * from "./ports.js";
