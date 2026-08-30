@@ -222,6 +222,8 @@ Read rules:
 3. A model value with no provenance instant is never returned. A materialized value is only
    point-in-time readable together with its own provenance.
 
+The V1 formulas, constants, growth methodology, availability rules and golden vectors for these
+models are locked in `intrinsic-value-engine.md`.
 
 Intrinsic-value formulas need to be recalculated only when a relevant PIT input becomes newly eligible or the calculation methodology/version changes. However, the resulting latest eligible value is materialized onto every trading day from its first eligible trading day until the next valuation event. Backtests therefore read a daily intrinsic-value series directly from storage/cache rather than performing sparse-event resolution themselves.
 
