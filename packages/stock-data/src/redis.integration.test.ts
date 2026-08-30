@@ -123,6 +123,47 @@ describeRedis("real Redis stock-data infrastructure", () => {
     });
   });
 
+  it("round-trips intrinsic fields through the shared daily-state chunks without new keys", async () => {
+    // Its own security id, so the shared generation/LRU state of the other cases cannot interfere.
+    const securityId = `security-${randomUUID()}`;
+    const rows = [
+      {
+        securityId,
+        date: "2026-08-20",
+        sma20d: 121.5,
+        intrinsicValues: { DCF_FCFF: 178.8977101328, GRAHAM: 148 },
+        intrinsicValueBlends: { BALANCED: 148.8039930756 },
+        dcfFcffSourceAsOf: "2026-01-05T00:00:00.000Z",
+        grahamSourceAsOf: "2025-11-02T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+      { securityId, date: "2026-08-21", sma20d: 122 },
+    ];
+
+    try {
+      await cacheA.writeDailyDerivedStateYears(securityId, rows, [2026]);
+      await cacheA.setManifest(readyManifest(securityId));
+
+      // The unified daily-state chunk carries intrinsic fields through the existing serialization.
+      await expect(
+        cacheB.readDailyDerivedState(securityId, {
+          from: "2026-08-20",
+          to: "2026-08-21",
+        }),
+      ).resolves.toEqual(rows);
+      // No separate intrinsic dataset or key family is introduced.
+      const keys = await redisA.smembers(
+        `${namespace}:security:${securityId}:keys`,
+      );
+      expect(
+        keys.filter((key) => /intrinsic|valuation|blend/i.test(key)),
+      ).toEqual([]);
+      expect(keys.some((key) => key.includes(":daily-state:2026"))).toBe(true);
+    } finally {
+      await cacheA.evict(securityId);
+    }
+  });
+
   it("stores immutable financial revisions in yearly chunks and preserves asOf selection", async () => {
     const financialSecurityId = `${securityId}-financials`;
     await cacheA.evict(financialSecurityId);

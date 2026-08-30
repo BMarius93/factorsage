@@ -2096,6 +2096,404 @@ describe("daily materialized intrinsic projections", () => {
   });
 });
 
+describe("intrinsic values in the derived-state lifecycle", () => {
+  const TRADING_DATES = [
+    "2026-08-17",
+    "2026-08-18",
+    "2026-08-19",
+    "2026-08-20",
+    "2026-08-21",
+    "2026-08-24",
+  ];
+  const INCOME_QUARTER = {
+    netIncome: 20,
+    interestExpense: 2.5,
+    epsDiluted: 2,
+    weightedAverageShsOutDil: 10,
+  };
+  const CASH_FLOW_QUARTER = {
+    operatingCashFlow: 30,
+    capitalExpenditure: -5,
+    commonDividendsPaid: -5,
+  };
+  const BALANCE_SHEET_QUARTER = {
+    cashAndShortTermInvestments: 50,
+    totalDebt: 30,
+    totalStockholdersEquity: 500,
+  };
+  const QUARTER_END = { Q1: "03-31", Q2: "06-30", Q3: "09-30", Q4: "12-31" };
+
+  function intrinsicStatement(
+    statementType: FinancialStatement["statementType"],
+    fiscalYear: number,
+    period: "Q1" | "Q2" | "Q3" | "Q4",
+    values: Record<string, number>,
+    availableFromDate: string,
+    contentHash = `${statementType}:${fiscalYear}:${period}:${availableFromDate}`,
+  ): FinancialStatement {
+    return {
+      securityId: security.id,
+      statementType,
+      fiscalDate: `${fiscalYear}-${QUARTER_END[period]}`,
+      fiscalYear,
+      period,
+      reportedCurrency: "USD",
+      filingDate: availableFromDate,
+      availableFromDate,
+      // Deliberately observed long after availability: backfill must not shift provenance.
+      observedAt: "2026-08-24T00:00:00.000Z",
+      contentHash,
+      values,
+    };
+  }
+
+  /** One complete, calculable fiscal year of quarterly statements. */
+  function intrinsicYear(
+    fiscalYear: number,
+    availableFromDate: string,
+    income: Record<string, number> = INCOME_QUARTER,
+  ): FinancialStatement[] {
+    return (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) => [
+      intrinsicStatement("INCOME", fiscalYear, period, income, availableFromDate),
+      intrinsicStatement(
+        "CASH_FLOW",
+        fiscalYear,
+        period,
+        CASH_FLOW_QUARTER,
+        availableFromDate,
+      ),
+      intrinsicStatement(
+        "BALANCE_SHEET",
+        fiscalYear,
+        period,
+        BALANCE_SHEET_QUARTER,
+        availableFromDate,
+      ),
+    ]);
+  }
+
+  function hydratedStore(statements: readonly FinancialStatement[]) {
+    const store = new FakeStore();
+    store.prices = TRADING_DATES.map((date, index) => price(date, 100 + index));
+    store.financialStatements = [...statements];
+    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
+    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    return store;
+  }
+
+  function serviceFor(store: FakeStore, cache = new MemoryCache()) {
+    return {
+      cache,
+      provider: new FakeProvider(),
+      loader: createService(
+        store,
+        new FakeProvider(),
+        cache,
+        new InMemoryLoadCoordinator(),
+      ),
+    };
+  }
+
+  function persistedRow(store: FakeStore, date: string) {
+    const row = store.dailyState.find((each) => each.date === date);
+    if (!row) {
+      throw new Error(`No persisted derived state for ${date}`);
+    }
+    return row;
+  }
+
+  it("persists intrinsic models, blends, provenance and currency during hydration", async () => {
+    const store = hydratedStore(intrinsicYear(2025, "2026-01-05"));
+    const { loader } = serviceFor(store);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    const row = persistedRow(store, "2026-08-24");
+    // Values, blends, per-model provenance and the shared currency all land on the unified row.
+    expect(row.intrinsicValues?.DCF_FCFF).toBeCloseTo(178.8977101328, 6);
+    expect(row.intrinsicValues?.RESIDUAL_INCOME).toBeCloseTo(99.1837933641, 6);
+    expect(row.intrinsicValues?.DDM).toBeCloseTo(27.3333333333, 6);
+    expect(row.intrinsicValues?.GRAHAM).toBeCloseTo(148, 6);
+    expect(row.intrinsicValueBlends?.BALANCED).toBeCloseTo(148.8039930756, 6);
+    expect(row.intrinsicValueBlends?.CONSERVATIVE).toBeCloseTo(
+      145.7142220623,
+      6,
+    );
+    expect(row.intrinsicValueBlends?.DIVIDEND).toBeCloseTo(102.3291760593, 6);
+    expect(row.intrinsicCurrency).toBe("USD");
+    // Provenance is per model and comes from availability, never from observedAt.
+    expect(row.dcfFcffSourceAsOf).toBe("2026-01-05T00:00:00.000Z");
+    expect(row.grahamSourceAsOf).toBe("2026-01-05T00:00:00.000Z");
+    expect(row.residualIncomeSourceAsOf).toBe("2026-01-05T00:00:00.000Z");
+    expect(row.ddmSourceAsOf).toBe("2026-01-05T00:00:00.000Z");
+    // Technicals still come from the same unified row.
+    expect(persistedRow(store, "2026-08-24")).toHaveProperty("securityId");
+  });
+
+  it("serves materialized intrinsic values and blends through the canonical reads", async () => {
+    const store = hydratedStore(intrinsicYear(2025, "2026-01-05"));
+    const { loader } = serviceFor(store);
+
+    const [values, blends] = await Promise.all([
+      loader.getIntrinsicValues("AAPL", {
+        from: "2026-08-17",
+        to: "2026-08-24",
+        models: ["GRAHAM"],
+      }),
+      loader.getIntrinsicValueBlends("AAPL", {
+        from: "2026-08-17",
+        to: "2026-08-24",
+        blendIds: ["BALANCED"],
+      }),
+    ]);
+
+    expect(values.map((point) => point.valuationDate)).toEqual(TRADING_DATES);
+    expect(values[0]?.valuePerShare).toBeCloseTo(148, 6);
+    expect(values[0]?.currency).toBe("USD");
+    expect(values[0]?.sourceDataAsOf).toBe("2026-01-05T00:00:00.000Z");
+    expect(blends).toHaveLength(TRADING_DATES.length);
+    expect(blends[0]?.valuePerShare).toBeCloseTo(148.8039930756, 6);
+  });
+
+  it("materializes nothing before the first eligible statement event", async () => {
+    // Eligible only from the fourth trading day onward.
+    const store = hydratedStore(intrinsicYear(2025, "2026-08-20"));
+    const { loader } = serviceFor(store);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    expect(persistedRow(store, "2026-08-19").intrinsicValues).toBeUndefined();
+    expect(persistedRow(store, "2026-08-19").grahamSourceAsOf).toBeUndefined();
+    expect(persistedRow(store, "2026-08-20").intrinsicValues?.GRAHAM).toBeDefined();
+    expect(persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM).toBeDefined();
+  });
+
+  it("rebuilds intrinsic state from a fundamentals-only refresh with unchanged prices", async () => {
+    const store = hydratedStore(intrinsicYear(2025, "2026-01-05"));
+    const cache = new MemoryCache();
+    const provider = new FakeProvider();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+    const before = persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM;
+    const providerPriceCallsBefore = provider.ranges.length;
+    const pricesBefore = [...store.prices];
+
+    // A newer eligible quarter with different diluted EPS, filed so it becomes available mid-range.
+    provider.financialRows.set("INCOME:QUARTERLY:12", [
+      {
+        securityId: security.id,
+        statementType: "INCOME",
+        fiscalDate: "2026-03-31",
+        fiscalYear: 2026,
+        period: "Q1",
+        reportedCurrency: "USD",
+        filingDate: "2026-08-18",
+        values: { ...INCOME_QUARTER, epsDiluted: 5 },
+      },
+    ]);
+    const manifest = cache.manifests.get(security.id);
+    await cache.setManifest({
+      ...manifest!,
+      lastFundamentalsRefreshAt: "2026-08-20T00:00:00.000Z",
+    });
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    const after = persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM;
+    // Prices never changed, yet the valuation did.
+    expect(provider.ranges).toHaveLength(providerPriceCallsBefore);
+    expect(store.prices).toEqual(pricesBefore);
+    expect(after).not.toBeCloseTo(before ?? 0, 6);
+    // The revision is filed on 2026-08-18 and becomes eligible the next day, so earlier trading
+    // days keep the valuation that was correct for them.
+    expect(persistedRow(store, "2026-08-19").intrinsicValues?.GRAHAM).toBeCloseTo(
+      after ?? 0,
+      6,
+    );
+    expect(persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM).toBeCloseTo(
+      before ?? 0,
+      6,
+    );
+  });
+
+  it("clears an invalidated model from its event day and restores it from a later revision", async () => {
+    const store = hydratedStore([
+      ...intrinsicYear(2025, "2026-01-05"),
+      // A newer quarter without diluted EPS invalidates Graham from 2026-08-19.
+      intrinsicStatement(
+        "INCOME",
+        2026,
+        "Q1",
+        { netIncome: 20, interestExpense: 2.5, weightedAverageShsOutDil: 10 },
+        "2026-08-19",
+      ),
+      // A restatement of that quarter restores it from 2026-08-21.
+      intrinsicStatement(
+        "INCOME",
+        2026,
+        "Q1",
+        INCOME_QUARTER,
+        "2026-08-21",
+        "restated-with-eps",
+      ),
+    ]);
+    const { loader } = serviceFor(store);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    expect(persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM).toBeDefined();
+    for (const date of ["2026-08-19", "2026-08-20"]) {
+      // The stale value and its provenance are dropped, not carried through the invalidation.
+      expect(persistedRow(store, date).intrinsicValues?.GRAHAM).toBeUndefined();
+      expect(persistedRow(store, date).grahamSourceAsOf).toBeUndefined();
+      // Models that do not depend on diluted EPS stay available.
+      expect(persistedRow(store, date).intrinsicValues?.DDM).toBeDefined();
+      // Blends requiring Graham disappear with it.
+      expect(persistedRow(store, date).intrinsicValueBlends?.BALANCED)
+        .toBeUndefined();
+      expect(persistedRow(store, date).intrinsicValueBlends?.DIVIDEND)
+        .toBeDefined();
+    }
+    expect(persistedRow(store, "2026-08-21").intrinsicValues?.GRAHAM).toBeDefined();
+    expect(persistedRow(store, "2026-08-24").intrinsicValueBlends?.BALANCED)
+      .toBeDefined();
+  });
+
+  it("keeps historical rows stable when a restatement is observed later", async () => {
+    const store = hydratedStore([
+      ...intrinsicYear(2025, "2026-01-05"),
+      // Same fiscal identity restated, but only eligible after the whole requested range.
+      intrinsicStatement(
+        "INCOME",
+        2025,
+        "Q4",
+        { ...INCOME_QUARTER, epsDiluted: 99 },
+        "2026-09-30",
+        "future-restatement",
+      ),
+    ]);
+    const { loader } = serviceFor(store);
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    for (const date of TRADING_DATES) {
+      expect(persistedRow(store, date).intrinsicValues?.GRAHAM).toBeCloseTo(
+        148,
+        6,
+      );
+    }
+  });
+
+  it("rematerializes intrinsic state on a price-only refresh", async () => {
+    const store = hydratedStore(intrinsicYear(2025, "2026-01-05"));
+    const cache = new MemoryCache();
+    const provider = new FakeProvider();
+    const coordinator = new InMemoryLoadCoordinator();
+    await createService(store, provider, cache, coordinator).getDailyPrices(
+      "AAPL",
+      { from: "2026-08-17", to: "2026-08-24" },
+    );
+
+    // A changed close in the recent tail refresh window.
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [price("2026-08-24", 250)]);
+    await createService(
+      store,
+      provider,
+      cache,
+      coordinator,
+      () => new Date("2026-08-24T20:00:00.000Z"),
+    ).getDailyPrices("AAPL", { from: "2026-08-17", to: "2026-08-24" });
+
+    const row = persistedRow(store, "2026-08-24");
+    // Technical and intrinsic fields coexist on the one rebuilt row.
+    expect(row.sma20d ?? row.intrinsicValues).toBeDefined();
+    expect(row.intrinsicValues?.GRAHAM).toBeCloseTo(148, 6);
+    expect(row.intrinsicCurrency).toBe("USD");
+    expect(
+      store.derivedWrites.at(-1)?.derivedDates.includes("2026-08-24"),
+    ).toBe(true);
+  });
+
+  it("keeps one unified derived row per trading day after both causes rebuild", async () => {
+    const store = hydratedStore(intrinsicYear(2025, "2026-01-05"));
+    const cache = new MemoryCache();
+    const provider = new FakeProvider();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [price("2026-08-24", 275)]);
+    provider.financialRows.set("INCOME:QUARTERLY:12", [
+      {
+        securityId: security.id,
+        statementType: "INCOME",
+        fiscalDate: "2026-03-31",
+        fiscalYear: 2026,
+        period: "Q1",
+        reportedCurrency: "USD",
+        filingDate: "2026-08-18",
+        values: { ...INCOME_QUARTER, epsDiluted: 4 },
+      },
+    ]);
+    const manifest = cache.manifests.get(security.id);
+    await cache.setManifest({
+      ...manifest!,
+      lastPriceRefreshAt: "2026-08-20T00:00:00.000Z",
+      lastFundamentalsRefreshAt: "2026-08-20T00:00:00.000Z",
+    });
+
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-17",
+      to: "2026-08-24",
+    });
+
+    expect(store.dailyState.map((row) => row.date)).toEqual(TRADING_DATES);
+    expect(new Set(store.dailyState.map((row) => row.date)).size).toBe(
+      TRADING_DATES.length,
+    );
+    expect(persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM).toBeDefined();
+  });
+});
+
 describe("load coordination", () => {
   it("releases ownership after an exception", async () => {
     const coordinator = new InMemoryLoadCoordinator();

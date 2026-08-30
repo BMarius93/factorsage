@@ -28,6 +28,7 @@ import {
   type StockManifest,
 } from "./cache.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
+import { materializeDailyIntrinsicValues } from "./intrinsic-value-materializer.js";
 import {
   blendSourceDataAsOf,
   intrinsicModelSourceAsOf,
@@ -218,6 +219,7 @@ export class CanonicalStockDataService implements StockDataService {
       const target = this.canonicalTarget(security);
       let prices = await this.store.getDailyPrices(security.id, target);
       let lastPriceRefreshAt = lockedManifest.lastPriceRefreshAt;
+      const rebuildStarts: (string | undefined)[] = [];
       if (refreshPrices) {
         const refreshed = await this.refreshPriceWithinLease(
           security,
@@ -227,15 +229,40 @@ export class CanonicalStockDataService implements StockDataService {
         );
         prices = refreshed.prices;
         lastPriceRefreshAt = refreshed.lastPriceRefreshAt;
+        rebuildStarts.push(refreshed.derivedRebuildStart);
       }
 
       let lastFundamentalsRefreshAt = lockedManifest.lastFundamentalsRefreshAt;
       if (refreshFundamentals) {
-        lastFundamentalsRefreshAt = await this.refreshFundamentalsWithinLease(
+        const refreshed = await this.refreshFundamentalsWithinLease(
           security,
           target,
           hydrating,
           lease,
+        );
+        lastFundamentalsRefreshAt = refreshed.lastFundamentalsRefreshAt;
+        rebuildStarts.push(refreshed.derivedRebuildStart);
+      }
+
+      // Newly eligible fundamentals change intrinsic values even when prices did not move, so the
+      // unified derived state is rebuilt from the earliest cause of this cycle and the affected
+      // Redis years are republished once.
+      const derivedRebuildStart = this.boundedRebuildStart(target, rebuildStarts);
+      if (derivedRebuildStart) {
+        lease.assertOwned();
+        await this.rebuildDailyDerivedState(
+          security,
+          target,
+          prices,
+          derivedRebuildStart,
+          lease,
+        );
+        lease.assertOwned();
+        await this.publishDailyDerivedStateYears(
+          security,
+          derivedRebuildStart,
+          target,
+          hydrating,
         );
       }
 
@@ -432,6 +459,17 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
 
     const prices = await this.store.getDailyPrices(security.id, target);
+    // Fundamentals are hydrated before the derived rebuild so READY always means the persisted
+    // derived state already reflects both price history and point-in-time fundamentals. Building
+    // intrinsic values first and never rebuilding them would publish a permanently empty
+    // intrinsic history.
+    const fundamentals = await this.hydrateFundamentalsWithinLease(
+      security,
+      target,
+      hydrating,
+      lease,
+    );
+    lease.assertOwned();
     // A methodology change bumps DERIVED_STATE_REVISION, which changes the dataset variant. The
     // previous variant then reports no coverage, so the whole state is rebuilt and replaced rather
     // than kept alongside the old methodology.
@@ -443,16 +481,19 @@ export class CanonicalStockDataService implements StockDataService {
     );
     const derivedCoverageGaps = missingCoverageRanges(target, derivedCoverage);
     const derivedRepairStart = derivedCoverageGaps[0]?.from;
-    const derivedRecalculationStart =
-      derivedRepairStart ??
-      (priceChange.earliestChangedDate
-        ? this.recalculationStart(
-            target,
-            previousPriceState,
-            priceChange.earliestChangedDate,
-            undefined,
-          )
-        : undefined);
+    const priceRecalculationStart = priceChange.earliestChangedDate
+      ? this.recalculationStart(
+          target,
+          previousPriceState,
+          priceChange.earliestChangedDate,
+          undefined,
+        )
+      : undefined;
+    const derivedRecalculationStart = this.boundedRebuildStart(target, [
+      derivedRepairStart,
+      derivedRepairStart ? undefined : priceRecalculationStart,
+      fundamentals.derivedRebuildStart,
+    ]);
     if (derivedRecalculationStart) {
       lease.assertOwned();
       await this.rebuildDailyDerivedState(
@@ -488,8 +529,6 @@ export class CanonicalStockDataService implements StockDataService {
       years,
       hydrating,
     );
-    const lastFundamentalsRefreshAt =
-      await this.hydrateFundamentalsWithinLease(security, target, hydrating, lease);
     lease.assertOwned();
     if (
       !(await this.cache.completeHydration(
@@ -500,7 +539,7 @@ export class CanonicalStockDataService implements StockDataService {
           prices,
           this.nowInstant(),
           tailRefreshAt ?? undefined,
-          lastFundamentalsRefreshAt,
+          fundamentals.lastFundamentalsRefreshAt,
         ),
       ))
     ) {
@@ -576,12 +615,22 @@ export class CanonicalStockDataService implements StockDataService {
     return { from, to };
   }
 
+  /**
+   * Backfills missing fundamentals datasets and reports whether the derived state must be rebuilt.
+   *
+   * A first backfill makes statements point-in-time eligible for the whole canonical history, so
+   * the intrinsic state has to be rebuilt from the start of the target range rather than only from
+   * a price-change boundary.
+   */
   private async hydrateFundamentalsWithinLease(
     security: Security,
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<string | undefined> {
+  ): Promise<{
+    lastFundamentalsRefreshAt: string | undefined;
+    derivedRebuildStart: string | undefined;
+  }> {
     const expected = this.fundamentalsOperationsForHistory();
     const currentStates = await Promise.all(
       expected.map((operation) =>
@@ -593,8 +642,11 @@ export class CanonicalStockDataService implements StockDataService {
       ),
     );
     const missing = expected.filter((_, index) => !currentStates[index]);
+    // A first backfill lands the whole persisted statement history at once, so its earliest
+    // availability is effectively the start of the canonical range.
+    let derivedRebuildStart: string | undefined;
     if (missing.length > 0) {
-      await this.runFundamentalsOperationsToSettlement(
+      const results = await this.runFundamentalsOperationsToSettlement(
         missing,
         (operation) =>
           this.syncFundamentalsOperation({
@@ -605,6 +657,9 @@ export class CanonicalStockDataService implements StockDataService {
             lease,
           }),
       );
+      if (results.some((result) => result.changedYears.length > 0)) {
+        derivedRebuildStart = target.from;
+      }
     }
     lease.assertOwned();
     const states = await Promise.all(
@@ -626,15 +681,44 @@ export class CanonicalStockDataService implements StockDataService {
       hydrating,
       lease,
     );
-    return this.oldestRequiredSyncAt(states);
+    return {
+      lastFundamentalsRefreshAt: this.oldestRequiredSyncAt(states),
+      derivedRebuildStart,
+    };
+  }
+
+  /**
+   * Earliest of the supplied rebuild starts, clamped to the canonical target range.
+   *
+   * Several causes (a coverage gap, changed prices, newly eligible fundamentals) can require a
+   * rebuild in the same cycle; the unified state is rebuilt once from the earliest of them.
+   */
+  private boundedRebuildStart(
+    target: Required<DateRange>,
+    candidates: readonly (string | undefined)[],
+  ): string | undefined {
+    let earliest: string | undefined;
+    for (const candidate of candidates) {
+      if (!candidate || candidate > target.to) {
+        continue;
+      }
+      const clamped = maxDate(candidate, target.from);
+      earliest = earliest === undefined ? clamped : minDate(earliest, clamped);
+    }
+    return earliest;
   }
 
   /**
    * Recalculates and replaces the unified daily derived state from `from` through the target end.
    *
-   * Full price history is used so moving-average warm-up and completed-week carry-forward are
-   * correct, then only the affected trading days are written. Persisting replaces those rows: there
-   * is one current methodology per `(securityId, date)` and no version history.
+   * Full price history is used so moving-average warm-up, completed-week carry-forward and
+   * intrinsic-value carry-forward are all correct at the rebuild boundary, then only the affected
+   * trading days are written. Persisting replaces those rows: there is one current methodology per
+   * `(securityId, date)` and no version history.
+   *
+   * Intrinsic materialization deliberately runs over the full canonical trading-date history and
+   * every persisted statement revision: starting it at `from` would lose the statement-event and
+   * carry-forward context that establishes the correct opening intrinsic state.
    */
   private async rebuildDailyDerivedState(
     security: Security,
@@ -648,9 +732,23 @@ export class CanonicalStockDataService implements StockDataService {
       target.to,
       this.weeklyHistoryContext(security, target),
     );
-    const rows = buildDailyDerivedState({ prices, weeklyBars }).filter(
-      (row) => row.date >= from,
-    );
+    // One bounded read of immutable revisions, not the latest-revision selector: the materializer
+    // needs each revision's own availableFromDate as a distinct evaluation event.
+    const statements = await this.store.getFinancialStatementRevisions({
+      securityId: security.id,
+      from: target.from,
+      to: target.to,
+    });
+    const intrinsicStates = materializeDailyIntrinsicValues({
+      securityId: security.id,
+      tradingDates: prices.map((price) => price.date),
+      statements,
+    });
+    const rows = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates,
+    }).filter((row) => row.date >= from);
     const weeklyDelta = weeklyBars.filter(
       (bar) => bar.weekStartDate >= startOfIsoWeek(from),
     );
@@ -701,7 +799,11 @@ export class CanonicalStockDataService implements StockDataService {
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<{ prices: DailyPrice[]; lastPriceRefreshAt: string }> {
+  ): Promise<{
+    prices: DailyPrice[];
+    lastPriceRefreshAt: string;
+    derivedRebuildStart: string;
+  }> {
     const refreshRange = {
       from: maxDate(addDays(target.to, -this.recentTailCalendarDays), target.from),
       to: target.to,
@@ -745,14 +847,6 @@ export class CanonicalStockDataService implements StockDataService {
       ? minDate(priceRecalculationStart, weeklyRefreshStart)
       : weeklyRefreshStart;
     lease.assertOwned();
-    await this.rebuildDailyDerivedState(
-      security,
-      target,
-      allPrices,
-      derivedRebuildStart,
-      lease,
-    );
-    lease.assertOwned();
 
     if (change.earliestChangedDate) {
       const affectedRange = yearBoundedRange(change.earliestChangedDate, target.to);
@@ -763,22 +857,34 @@ export class CanonicalStockDataService implements StockDataService {
         hydrating,
       );
     }
-    await this.publishDailyDerivedStateYears(
-      security,
-      derivedRebuildStart,
-      target,
-      hydrating,
-    );
 
-    return { prices: allPrices, lastPriceRefreshAt: syncedAt };
+    // The derived rebuild is not performed here: prices and fundamentals may both have changed in
+    // this cycle, and the unified state is rebuilt and republished exactly once from the earliest
+    // required start across every cause.
+    return {
+      prices: allPrices,
+      lastPriceRefreshAt: syncedAt,
+      derivedRebuildStart,
+    };
   }
 
+  /**
+   * Refreshes fundamentals and reports the earliest trading date whose intrinsic values may change.
+   *
+   * A newly persisted revision changes valuations from its own `availableFromDate` onward, never
+   * from its fiscal date, so the bound comes from the availability of the successfully loaded
+   * overlap batch. That batch may contain unchanged revisions too; rebuilding from the earliest of
+   * them is conservative but bounded, and far cheaper than rebuilding the whole history.
+   */
   private async refreshFundamentalsWithinLease(
     security: Security,
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<string> {
+  ): Promise<{
+    lastFundamentalsRefreshAt: string;
+    derivedRebuildStart: string | undefined;
+  }> {
     const operations = this.fundamentalsOperationsForHistory();
     const results = await this.runFundamentalsOperationsToSettlement(
       operations,
@@ -793,6 +899,7 @@ export class CanonicalStockDataService implements StockDataService {
     );
     lease.assertOwned();
 
+    let derivedRebuildStart: string | undefined;
     for (const result of results) {
       if (result.changedYears.length === 0) {
         continue;
@@ -806,6 +913,12 @@ export class CanonicalStockDataService implements StockDataService {
         from: `${firstYear}-01-01`,
         to: `${lastYear}-12-31`,
       });
+      for (const row of rows) {
+        derivedRebuildStart =
+          derivedRebuildStart === undefined
+            ? row.availableFromDate
+            : minDate(derivedRebuildStart, row.availableFromDate);
+      }
       await this.cache.writeFinancialStatementYears(
         security.id,
         rows,
@@ -816,7 +929,10 @@ export class CanonicalStockDataService implements StockDataService {
       );
       lease.assertOwned();
     }
-    return this.nowInstant();
+    return {
+      lastFundamentalsRefreshAt: this.nowInstant(),
+      derivedRebuildStart,
+    };
   }
 
   private async publishAllFundamentalsYears(
