@@ -8,6 +8,7 @@ import type {
   FinancialStatementQuery,
   FinancialStatementType,
   Security,
+  SecurityId,
   SecurityProfile,
   StockDataset,
   StockDatasetState,
@@ -22,6 +23,21 @@ export type PersistedDatasetState = Omit<StockDatasetState, "dataset"> & {
   variant: string;
 };
 
+/**
+ * One catalog row: the provider identity the upsert keys on, plus the lightweight identity fields
+ * a universe synchronization owns.
+ */
+export type SecurityCatalogEntry = {
+  providerSymbol: string;
+  security: Omit<Security, "id">;
+};
+
+/** A persisted catalog row read back with the provider identity it is keyed by. */
+export type PersistedSecurityCatalogEntry = {
+  providerSymbol: string;
+  security: Security;
+};
+
 export const DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
 export const WEEKLY_PRICE_VARIANT = "completed-weeks";
 export const DAILY_PRICE_FRESHNESS_VARIANT =
@@ -29,10 +45,41 @@ export const DAILY_PRICE_FRESHNESS_VARIANT =
 
 export interface StockDataStore {
   findSecurityByProviderSymbol(symbol: string): Promise<Security | null>;
-  saveSecurityProfile(
-    mapped: MappedFmpProfile,
-    syncedAt: string,
-  ): Promise<{ security: Security; profile: SecurityProfile }>;
+  /**
+   * Candidate securities for the global search, matched case-insensitively on symbol prefix or
+   * name substring. Returns unranked candidates: relevance ordering is a domain concern applied by
+   * the service, so the store stays a plain persistence read.
+   */
+  searchSecurities(input: {
+    term: string;
+    limit: number;
+  }): Promise<Security[]>;
+  /** Reads existing catalog rows so a synchronization can tell created from updated. */
+  findSecurityCatalogEntries(
+    providerSymbols: readonly string[],
+  ): Promise<PersistedSecurityCatalogEntry[]>;
+  /**
+   * Inserts catalog rows, ignoring any whose provider identity already exists. Returning the
+   * inserted count keeps the caller honest when a concurrent sync wins a race.
+   */
+  createSecurityCatalogEntries(
+    entries: readonly SecurityCatalogEntry[],
+  ): Promise<number>;
+  /**
+   * Updates the lightweight catalog fields of one existing row. Never creates: a `Security` may
+   * only come into existence through an explicit catalog synchronization.
+   */
+  updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<void>;
+  /**
+   * Persists the per-stock profile and refreshes the identity fields the bulk catalog cannot
+   * supply. Keyed by `securityId` rather than provider symbol so it can only ever refine a
+   * `Security` the catalog already admits, never conjure one.
+   */
+  saveSecurityProfile(input: {
+    securityId: SecurityId;
+    mapped: MappedFmpProfile;
+    syncedAt: string;
+  }): Promise<{ security: Security; profile: SecurityProfile }>;
   getProfile(securityId: string): Promise<SecurityProfile | null>;
   getDatasetState(
     securityId: string,

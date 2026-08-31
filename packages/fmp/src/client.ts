@@ -9,10 +9,14 @@ import {
   mapFmpFinancialStatements,
   financialStatementPath,
   mapFmpProfile,
+  mapFmpStockUniverse,
   type FmpDailyPriceDto,
   type FmpProfileDto,
+  type FmpSecurityCatalogPort,
   type FmpStockProviderPort,
+  type FmpStockUniverseDto,
   type MappedFmpProfile,
+  type MappedFmpSecurityListing,
 } from "./mapping.js";
 
 export type FmpClientConfig = {
@@ -79,7 +83,17 @@ const directGate: FmpRequestGate = {
   publishCooldown: async () => {},
 };
 
-export class FmpClient implements FmpStockProviderPort {
+/**
+ * Upper bound for one bulk universe request.
+ *
+ * The screener caps its own page at the requested limit, and the largest supported exchange is
+ * well under this, so one request per exchange returns the complete listing set.
+ */
+const STOCK_UNIVERSE_REQUEST_LIMIT = 20_000;
+
+export class FmpClient
+  implements FmpStockProviderPort, FmpSecurityCatalogPort
+{
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
   private readonly now: () => number;
@@ -107,6 +121,23 @@ export class FmpClient implements FmpStockProviderPort {
     });
     const first = payload[0];
     return first ? mapFmpProfile(first) : null;
+  }
+
+  async getStockUniverse(
+    exchangeCode: string,
+  ): Promise<MappedFmpSecurityListing[]> {
+    // Filtering upstream keeps ETFs and funds off the wire entirely; the domain still re-checks
+    // every row, because a provider filter is a convenience, not the product's definition.
+    const payload = await this.request<FmpStockUniverseDto[]>(
+      "company-screener",
+      {
+        exchange: exchangeCode.trim().toUpperCase(),
+        isEtf: "false",
+        isFund: "false",
+        limit: String(STOCK_UNIVERSE_REQUEST_LIMIT),
+      },
+    );
+    return mapFmpStockUniverse(payload);
   }
 
   async getDailyPrices(symbol: string, securityId: string, range: DateRange) {

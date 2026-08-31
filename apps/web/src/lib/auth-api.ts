@@ -1,7 +1,5 @@
 import type { AuthUser, LoginRequest } from "@intrinsic/contracts";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+import { API_BASE_URL } from "./api/client";
 
 async function parseAuthUser(response: Response): Promise<AuthUser> {
   const user = (await response.json()) as Partial<AuthUser>;

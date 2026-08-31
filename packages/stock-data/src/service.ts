@@ -16,6 +16,7 @@ import {
   type IntrinsicValuePoint,
   type IntrinsicValueQuery,
   type Security,
+  type SecuritySearchQuery,
   type StockDataService,
   type StockDetails,
 } from "@intrinsic/domain";
@@ -49,6 +50,12 @@ import {
   type PersistedDatasetState,
   type StockDataStore,
 } from "./ports.js";
+import {
+  normalizeSearchTerm,
+  rankSecurityMatches,
+  resolveSecuritySearchLimit,
+  SECURITY_SEARCH_CANDIDATE_FACTOR,
+} from "./security-search.js";
 import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
@@ -144,6 +151,14 @@ export class CanonicalStockDataService implements StockDataService {
     }
   }
 
+  /**
+   * Resolves a symbol against the canonical `Security` catalog.
+   *
+   * `Security` is the catalog of supported stocks, so this is a pure lookup: cache, then
+   * PostgreSQL, then not-found. It deliberately does not discover unknown symbols from the
+   * provider — a stock the catalog does not list is a stock this application does not support,
+   * and admitting one is an explicit admin synchronization, never a side effect of a page view.
+   */
   async getSecurity(symbol: string): Promise<Security> {
     const normalized = this.normalizeSymbol(symbol);
     const cached = await this.cache.getSecurity(normalized);
@@ -154,34 +169,31 @@ export class CanonicalStockDataService implements StockDataService {
       return cached;
     }
     const persisted = await this.store.findSecurityByProviderSymbol(normalized);
-    if (persisted) {
-      await this.cache.setSecurity(persisted);
-      return persisted;
+    if (!persisted) {
+      throw new StockDataNotFoundError(normalized);
     }
+    await this.cache.setSecurity(persisted);
+    return persisted;
+  }
 
-    return this.coordinator.run(
-      `hydrate:symbol:${normalized}`,
-      async (lease) => {
-        const afterLock =
-          await this.store.findSecurityByProviderSymbol(normalized);
-        if (afterLock) {
-          await this.cache.setSecurity(afterLock);
-          return afterLock;
-        }
-        const mapped = await this.provider.getProfile(normalized);
-        if (!mapped) {
-          throw new StockDataNotFoundError(normalized);
-        }
-        lease.assertOwned();
-        const saved = await this.store.saveSecurityProfile(
-          mapped,
-          this.nowInstant(),
-        );
-        lease.assertOwned();
-        await this.cache.setSecurity(saved.security);
-        return saved.security;
-      },
-    );
+  /**
+   * Global stock search over the persisted securities universe.
+   *
+   * Unlike `getSecurity`, this never falls through to the provider and never hydrates: search runs
+   * on every debounced keystroke, so an unknown term must resolve to an empty list rather than a
+   * paid FMP profile lookup and a speculative hydration.
+   */
+  async searchSecurities(query: SecuritySearchQuery): Promise<Security[]> {
+    const term = normalizeSearchTerm(query.term);
+    if (term === "") {
+      return [];
+    }
+    const limit = resolveSecuritySearchLimit(query.limit);
+    const candidates = await this.store.searchSecurities({
+      term,
+      limit: limit * SECURITY_SEARCH_CANDIDATE_FACTOR,
+    });
+    return rankSecurityMatches(term, candidates, limit);
   }
 
   async ensureStockHydrated(security: Security): Promise<void> {
@@ -409,6 +421,44 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  /**
+   * Fills in the per-stock profile the first time a catalog entry is hydrated.
+   *
+   * The bulk catalog synchronization carries identity only, so CIK, ISIN, CUSIP, IPO date, ADR
+   * status and the descriptive profile arrive here, lazily, for a stock someone actually opened.
+   * It runs once per security: a recorded `SECURITY_PROFILE` sync short-circuits every later
+   * hydration.
+   *
+   * A provider that has no profile for a catalogued symbol is not fatal. The stock is supported
+   * because the catalog says so, and its price and fundamental history is independent of whether
+   * the descriptive profile happens to resolve.
+   */
+  private async hydrateSecurityProfileWithinLease(
+    security: Security,
+    lease: LoadLease,
+  ): Promise<void> {
+    const state = await this.store.getDatasetState(
+      security.id,
+      "SECURITY_PROFILE",
+      "",
+    );
+    if (state?.lastSyncedAt) {
+      return;
+    }
+    const mapped = await this.provider.getProfile(security.symbol);
+    if (!mapped) {
+      return;
+    }
+    lease.assertOwned();
+    const saved = await this.store.saveSecurityProfile({
+      securityId: security.id,
+      mapped,
+      syncedAt: this.nowInstant(),
+    });
+    lease.assertOwned();
+    await this.cache.setSecurity(saved.security);
+  }
+
   private async hydrateWithinLease(
     security: Security,
     lease: LoadLease,
@@ -427,6 +477,10 @@ export class CanonicalStockDataService implements StockDataService {
       }
       throw new Error("Stock cache hydration generation changed");
     }
+
+    // No unconditional ownership check here: the profile step asserts around its own writes and
+    // must not consume a lease check on the far more common path where there is nothing to save.
+    await this.hydrateSecurityProfileWithinLease(security, lease);
 
     const previousPriceState = await this.store.getDatasetState(
       security.id,

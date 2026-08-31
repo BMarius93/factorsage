@@ -23,7 +23,7 @@
  *   created. No FLUSHDB, no migrate reset, no reliance on pre-existing data.
  */
 import { randomUUID } from "node:crypto";
-import { PrismaClient, StockDataset } from "@intrinsic/database";
+import { PrismaClient, SecurityType, StockDataset } from "@intrinsic/database";
 import {
   INTRINSIC_VALUE_BLENDS,
   type DailyPrice,
@@ -743,6 +743,26 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
 
     app = await createStockApp({ provider, namespace });
     prisma = app.get(PrismaService);
+
+    // `Security` is the catalog of supported stocks and nothing discovers one lazily any more, so
+    // every fixture is admitted to the catalog first — the same precondition the admin universe
+    // synchronization establishes in production. Only identity is seeded: prices, fundamentals and
+    // derived state still hydrate lazily on first request, which is what these tests exercise.
+    for (const [symbol, fixture] of provider.fixtures) {
+      await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: fixture.name,
+          exchangeCode: "NASDAQ",
+          exchangeName: "NASDAQ Global Select",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+    }
   }, SLOW);
 
   afterAll(async () => {
@@ -1474,25 +1494,18 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(cachedIdentity).not.toBeNull();
         expect((JSON.parse(cachedIdentity as string) as { id: string }).id).toBe(staleId);
 
-        // Architecture-consistent behavior: PostgreSQL is the source of truth, Redis is
-        // disposable, so the request must succeed by re-resolving the security instead of
-        // failing on a foreign-key insert against the deleted identity.
-        const response = await http()
+        // Architecture-consistent behavior: PostgreSQL is the source of truth and Redis is
+        // disposable, so the stale identity is never served. It is also never re-created: a
+        // security absent from the catalog is an unsupported stock, and only an explicit catalog
+        // synchronization may admit one. The request fails cleanly instead of inserting against
+        // the deleted identity's foreign key.
+        const profileCallsBefore = provider.profileCalls.length;
+        await http()
           .get(`/stocks/${symbol}?from=2026-06-01&to=${TODAY}`)
-          .expect(200);
-        expect(response.body.security.symbol).toBe(symbol);
-        expect(response.body.prices.length).toBeGreaterThan(0);
+          .expect(404);
 
-        const rebornId = await securityIdOf(symbol);
-        expect(rebornId).not.toBe(staleId);
-        expect(await prisma.security.count({ where: { providerSymbol: symbol } })).toBe(1);
-        expect(
-          await prisma.dailyPrice.count({ where: { securityId: rebornId } }),
-        ).toBe(businessDays("2026-06-01", TODAY).length);
-        // The stale identity mapping was replaced, not resurrected.
-        const refreshedIdentity = await redis.get(`${namespace}:symbol:${symbol}:security`);
-        expect((JSON.parse(refreshedIdentity as string) as { id: string }).id).toBe(rebornId);
-        expect((await readRedisManifest(rebornId))?.status).toBe("READY");
+        expect(provider.profileCalls.length).toBe(profileCallsBefore);
+        expect(await prisma.security.count({ where: { providerSymbol: symbol } })).toBe(0);
       },
       SLOW,
     );

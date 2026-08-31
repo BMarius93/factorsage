@@ -12,6 +12,8 @@ export * from "./intrinsic-values.js";
 export * from "./ports.js";
 export * from "./prisma-store.js";
 export * from "./redis-client.js";
+export * from "./security-catalog.js";
+export * from "./security-search.js";
 export * from "./service.js";
 export * from "./technicals.js";
 export * from "./weekly.js";

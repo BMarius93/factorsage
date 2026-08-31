@@ -6,6 +6,7 @@ import type {
   SecurityProfileResponse,
   SecurityResponse,
   StockDetailsResponse,
+  StockSearchResultResponse,
 } from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
@@ -13,6 +14,7 @@ import {
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
+  type Security,
   type StockDataService,
 } from "@intrinsic/domain";
 import {
@@ -95,6 +97,15 @@ function securityResponse(
   };
 }
 
+function searchResultResponse(security: Security): StockSearchResultResponse {
+  return {
+    symbol: security.symbol,
+    name: security.name,
+    exchangeCode: security.exchangeCode,
+    ...(security.exchangeName ? { exchangeName: security.exchangeName } : {}),
+  };
+}
+
 function profileResponse(
   profile: NonNullable<
     Awaited<ReturnType<StockDataService["getStockDetails"]>>["profile"]
@@ -174,6 +185,26 @@ export class StocksController {
     @Inject(STOCK_DATA_SERVICE)
     private readonly stocks: StockDataService,
   ) {}
+
+  /**
+   * Global stock search.
+   *
+   * Declared before `:symbol` on purpose: Nest matches routes in declaration order, so moving this
+   * handler below the parameterised routes would make `/stocks/search` resolve as a symbol lookup
+   * for a security named "search". `stocks.search.integration.test.ts` locks that ordering in.
+   */
+  @Get("search")
+  async searchStocks(
+    @Query("q") q?: string,
+  ): Promise<StockSearchResultResponse[]> {
+    const term = (q ?? "").trim();
+    if (term === "") {
+      throw new BadRequestException("q is required");
+    }
+    return this.execute(async () =>
+      (await this.stocks.searchSecurities({ term })).map(searchResultResponse),
+    );
+  }
 
   @Get(":symbol")
   async getStockDetails(

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { StockSearch } from "../../features/stocks/search/components/StockSearch";
 import styles from "./AppTopbar.module.css";
 import { BRAND_NAME, BrandMark } from "./BrandMark";
 import { AccountIcon } from "./nav-icons";
@@ -32,6 +33,9 @@ export function AppTopbar({ actions }: AppTopbarProps) {
       >
         <BrandMark />
       </Link>
+
+      {/* The shell composes the search feature; it never owns search behaviour. */}
+      <StockSearch />
 
       <nav className={styles.desktopNav} aria-label="Primary">
         <ul className={styles.navList}>

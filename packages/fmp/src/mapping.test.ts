@@ -3,6 +3,7 @@ import {
   mapFmpDailyPrices,
   mapFmpFinancialStatements,
   mapFmpProfile,
+  mapFmpStockUniverse,
   normalizeFmpPercentage,
 } from "./mapping.js";
 import {
@@ -348,5 +349,78 @@ describe("FMP financial statement value semantics", () => {
     expect(sum("capitalExpenditure")).toBe(annual.capitalExpenditure);
     expect(sum("commonDividendsPaid")).toBe(annual.commonDividendsPaid);
     expect(sum("changeInWorkingCapital")).toBe(annual.changeInWorkingCapital);
+  });
+});
+
+describe("mapFmpStockUniverse", () => {
+  it("maps a screener row onto a listing candidate", () => {
+    expect(
+      mapFmpStockUniverse([
+        {
+          symbol: "nvda",
+          companyName: "NVIDIA Corporation",
+          exchange: "NASDAQ Global Select",
+          exchangeShortName: "NASDAQ",
+          country: "US",
+          sector: "Technology",
+          industry: "Semiconductors",
+          isEtf: false,
+          isFund: false,
+          isActivelyTrading: true,
+        },
+      ]),
+    ).toEqual([
+      {
+        providerSymbol: "NVDA",
+        listing: {
+          symbol: "NVDA",
+          name: "NVIDIA Corporation",
+          exchangeCode: "NASDAQ",
+          exchangeName: "NASDAQ Global Select",
+          country: "US",
+          sector: "Technology",
+          industry: "Semiconductors",
+          isEtf: false,
+          isFund: false,
+          isActivelyTrading: true,
+        },
+      },
+    ]);
+  });
+
+  it("preserves the instrument flags rather than deciding support itself", () => {
+    const [etf] = mapFmpStockUniverse([
+      {
+        symbol: "SPY",
+        companyName: "SPDR S&P 500 ETF Trust",
+        exchangeShortName: "AMEX",
+        isEtf: true,
+        isFund: false,
+        isActivelyTrading: false,
+      },
+    ]);
+
+    expect(etf?.listing).toMatchObject({
+      isEtf: true,
+      isActivelyTrading: false,
+    });
+  });
+
+  it("treats a missing trading flag as tradable so only an explicit false deactivates", () => {
+    const [row] = mapFmpStockUniverse([
+      { symbol: "AAPL", companyName: "Apple Inc.", exchangeShortName: "NASDAQ" },
+    ]);
+
+    expect(row?.listing.isActivelyTrading).toBe(true);
+  });
+
+  it("drops rows without a usable symbol or name", () => {
+    expect(
+      mapFmpStockUniverse([
+        { companyName: "No Symbol Corp", exchangeShortName: "NYSE" },
+        { symbol: "NONAME", exchangeShortName: "NYSE" },
+        { symbol: "  ", companyName: "Blank", exchangeShortName: "NYSE" },
+      ]),
+    ).toEqual([]);
   });
 });
