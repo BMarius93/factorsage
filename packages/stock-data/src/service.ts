@@ -147,7 +147,10 @@ export class CanonicalStockDataService implements StockDataService {
   async getSecurity(symbol: string): Promise<Security> {
     const normalized = this.normalizeSymbol(symbol);
     const cached = await this.cache.getSecurity(normalized);
-    if (cached) {
+    // The cached identity is trusted only while its stock generation is READY. Outside that
+    // window PostgreSQL decides: hydrating against a security row the durable store no longer
+    // has would fail every dependent insert on its foreign key instead of re-resolving.
+    if (cached && this.isReady(await this.cache.getManifest(cached.id))) {
       return cached;
     }
     const persisted = await this.store.findSecurityByProviderSymbol(normalized);

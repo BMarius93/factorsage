@@ -869,6 +869,69 @@ describe("canonical full-stock hydration", () => {
     expect(provider.ranges).toEqual([CANONICAL_RANGE]);
   });
 
+  it("re-resolves a symbol whose cached identity PostgreSQL no longer owns", async () => {
+    const store = new FakeStore();
+    store.currentSecurity = null;
+    const provider = new FakeProvider();
+    provider.profile = {
+      providerSymbol: security.symbol,
+      security: {
+        symbol: security.symbol,
+        name: security.name,
+        exchangeCode: security.exchangeCode,
+        currency: security.currency,
+        type: security.type,
+        isAdr: security.isAdr,
+        isActivelyTrading: security.isActivelyTrading,
+      },
+      profile: { description: "Recreated after durable deletion" },
+    };
+    const cache = new MemoryCache();
+    // Redis still maps the symbol to an identity whose durable row was deleted.
+    await cache.setSecurity({ ...security, id: "deleted-security" });
+    const loader = createService(store, provider, cache, new InMemoryLoadCoordinator());
+
+    const resolved = await loader.getSecurity("AAPL");
+
+    // PostgreSQL stays authoritative: the stale identity is never served (hydrating with it
+    // would fail every dependent insert on its foreign key), the security is re-created
+    // through the provider, and the cached mapping is replaced.
+    expect(resolved.id).toBe(security.id);
+    expect(cache.securities.get("AAPL")?.id).toBe(security.id);
+  });
+
+  it("serves the cached identity without a durable lookup while the stock is READY", async () => {
+    const store = new FakeStore();
+    let durableLookups = 0;
+    const lookup = store.findSecurityByProviderSymbol.bind(store);
+    store.findSecurityByProviderSymbol = async () => {
+      durableLookups += 1;
+      return lookup();
+    };
+    const cache = new MemoryCache();
+    await cache.setSecurity(security);
+    cache.manifests.set(security.id, {
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      hydratedAt: NOW,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+    });
+    const loader = createService(
+      store,
+      new FakeProvider(),
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await expect(loader.getSecurity("AAPL")).resolves.toMatchObject({
+      id: security.id,
+    });
+    expect(durableLookups).toBe(0);
+  });
+
   it("deduplicates different range projections across API-like and worker-like instances", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
