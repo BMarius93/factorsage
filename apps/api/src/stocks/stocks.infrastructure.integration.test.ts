@@ -15,12 +15,14 @@
  * explanation instead of silently substituting fakes.
  *
  * Infrastructure isolation:
- * - PostgreSQL: uses TEST_DATABASE_URL when set (recommended locally, e.g. a dedicated
- *   `intrinsic_value_test` database), otherwise DATABASE_URL (CI provides a dedicated,
- *   migrated database there). Prepare the dedicated database once with:
- *       createdb intrinsic_value_test   # or any equivalent
+ * - PostgreSQL: requires TEST_DATABASE_URL, a dedicated test database such as
+ *   `intrinsic_value_test`. DATABASE_URL is deliberately not a fallback, so an
+ *   accidental local run cannot write fixtures into the development database.
+ *   Prepare it once with:
  *       TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/intrinsic_value_test \
  *         pnpm db:test:prepare
+ *   CI points TEST_DATABASE_URL at its own throwaway database, which is the only
+ *   context where it may equal DATABASE_URL.
  * - Redis: uses TEST_REDIS_URL when set, otherwise REDIS_URL, always under a randomized
  *   key namespace so developer Redis state is never touched.
  * - Every stock uses a randomized symbol; cleanup deletes only rows and keys this suite
@@ -319,8 +321,9 @@ function expectedBlendValue(
 
 describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () => {
   loadRootEnv();
-  const databaseUrl =
-    process.env.TEST_DATABASE_URL?.trim() || process.env.DATABASE_URL?.trim();
+  // Captured before beforeAll rewrites process.env for the application under test.
+  const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
+  const developmentDatabaseUrl = process.env.DATABASE_URL?.trim();
   const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
 
   const suffix = randomUUID().replaceAll("-", "").slice(0, 9).toUpperCase();
@@ -593,10 +596,18 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
   beforeAll(async () => {
     if (!databaseUrl) {
       throw new Error(
-        "Stock infrastructure tests need PostgreSQL: set TEST_DATABASE_URL " +
-          "(preferred, dedicated intrinsic_value_test database) or DATABASE_URL. " +
-          "Start local infrastructure with `pnpm infra:up` and prepare the test " +
-          "database with `pnpm db:test:prepare`.",
+        "Stock infrastructure tests require TEST_DATABASE_URL pointing at a dedicated " +
+          "test database (for example intrinsic_value_test). DATABASE_URL is deliberately " +
+          "not used as a fallback so an accidental run cannot write test fixtures into the " +
+          "development database. Start infrastructure with `pnpm infra:up`, then create and " +
+          "migrate the test database with `pnpm db:test:prepare`.",
+      );
+    }
+    if (databaseUrl === developmentDatabaseUrl && process.env.CI !== "true") {
+      throw new Error(
+        "TEST_DATABASE_URL must be a dedicated test database, not the same URL as " +
+          "DATABASE_URL. CI deliberately points both at its own throwaway database; " +
+          "locally, create one with `pnpm db:test:prepare`.",
       );
     }
     if (!redisUrl) {

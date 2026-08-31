@@ -18,8 +18,15 @@
  */
 import { randomUUID } from "node:crypto";
 import { getFmpConfig, getFmpTrafficConfig, loadRootEnv } from "@intrinsic/config";
-import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
-import { FmpClient } from "@intrinsic/fmp";
+import {
+  INTRINSIC_VALUE_BLENDS,
+  type DailyPrice,
+  type DateRange,
+  type FinancialStatementCadence,
+  type FinancialStatementDraft,
+  type FinancialStatementType,
+} from "@intrinsic/domain";
+import { FmpClient, type FmpStockProviderPort, type MappedFmpProfile } from "@intrinsic/fmp";
 import { createLogger } from "@intrinsic/observability";
 import {
   CanonicalStockDataService,
@@ -51,6 +58,74 @@ const describeLive = enabled ? describe : describe.skip;
 const SYMBOL = "AAPL";
 const HISTORY_YEARS = 8;
 const SLOW = 300_000;
+/** Refresh limits from the canonical service; a backfill asks for far more than these. */
+const FUNDAMENTALS_REFRESH_MAX_LIMIT = 12;
+
+type ProviderCall =
+  | { kind: "profile" }
+  | { kind: "prices"; from?: string; to?: string }
+  | {
+      kind: "statements";
+      statementType: FinancialStatementType;
+      cadence: FinancialStatementCadence;
+      limit: number;
+    };
+
+/**
+ * Records what was asked of the real FMP client, so "no second historical backfill" is an
+ * assertion about actual provider traffic rather than about unchanged row counts, which a
+ * repeated backfill returning identical rows would also satisfy.
+ *
+ * It captures only the request shape already present in the port signature — never the
+ * credential, a URL, or a response body.
+ */
+class CountingFmpProvider implements FmpStockProviderPort {
+  readonly calls: ProviderCall[] = [];
+
+  constructor(private readonly delegate: FmpStockProviderPort) {}
+
+  getProfile(symbol: string): Promise<MappedFmpProfile | null> {
+    this.calls.push({ kind: "profile" });
+    return this.delegate.getProfile(symbol);
+  }
+
+  getDailyPrices(
+    symbol: string,
+    securityId: string,
+    range: DateRange,
+  ): Promise<DailyPrice[]> {
+    this.calls.push({ kind: "prices", from: range.from, to: range.to });
+    return this.delegate.getDailyPrices(symbol, securityId, range);
+  }
+
+  getFinancialStatements(
+    symbol: string,
+    securityId: string,
+    statementType: FinancialStatementType,
+    cadence: FinancialStatementCadence,
+    limit: number,
+  ): Promise<FinancialStatementDraft[]> {
+    this.calls.push({ kind: "statements", statementType, cadence, limit });
+    return this.delegate.getFinancialStatements(
+      symbol,
+      securityId,
+      statementType,
+      cadence,
+      limit,
+    );
+  }
+}
+
+function spanDays(from?: string, to?: string): number {
+  if (!from || !to) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return (
+    (Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) /
+      86_400_000 +
+    1
+  );
+}
 
 describeLive("live FMP stock API smoke", () => {
   const namespace = `stock-data:v2:test:live:${randomUUID()}`;
@@ -58,6 +133,7 @@ describeLive("live FMP stock API smoke", () => {
   let prisma: PrismaService;
   let redis: ReturnType<typeof createStockDataRedisClient>;
   let securityId: string;
+  let liveProvider: CountingFmpProvider;
 
   beforeAll(async () => {
     if (!process.env.FMP_API_KEY?.trim()) {
@@ -66,10 +142,11 @@ describeLive("live FMP stock API smoke", () => {
       );
     }
     const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
-    if (!databaseUrl) {
+    if (!databaseUrl || databaseUrl === process.env.DATABASE_URL?.trim()) {
       throw new Error(
-        "The live FMP suite refuses to run against DATABASE_URL. Set TEST_DATABASE_URL " +
-          "to a dedicated, migrated test database (see `pnpm db:test:prepare`).",
+        "The live FMP suite refuses to run against the development database. Set " +
+          "TEST_DATABASE_URL to a dedicated, migrated test database that differs from " +
+          "DATABASE_URL (see `pnpm db:test:prepare`).",
       );
     }
     const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
@@ -91,17 +168,20 @@ describeLive("live FMP stock API smoke", () => {
         inject: [STOCK_DATA_REDIS],
         factory: (client: ReturnType<typeof createStockDataRedisClient>) => {
           const traffic = getFmpTrafficConfig();
-          return new FmpClient(() => getFmpConfig(), fetch, {
-            gate: new RedisFmpRequestGate(client, {
-              namespace: `${namespace}:fmp`,
-              maxConcurrentRequests: traffic.maxConcurrentRequests,
-              rateLimitPerWindow: traffic.rateLimitPerWindow,
-              rateWindowMs: traffic.rateWindowMs,
-              maxQueueDepth: traffic.maxQueueDepth,
-              maxQueueWaitMs: traffic.maxQueueWaitMs,
-              requestLeaseMs: traffic.timeoutMs * 2,
+          liveProvider = new CountingFmpProvider(
+            new FmpClient(() => getFmpConfig(), fetch, {
+              gate: new RedisFmpRequestGate(client, {
+                namespace: `${namespace}:fmp`,
+                maxConcurrentRequests: traffic.maxConcurrentRequests,
+                rateLimitPerWindow: traffic.rateLimitPerWindow,
+                rateWindowMs: traffic.rateWindowMs,
+                maxQueueDepth: traffic.maxQueueDepth,
+                maxQueueWaitMs: traffic.maxQueueWaitMs,
+                requestLeaseMs: traffic.timeoutMs * 2,
+              }),
             }),
-          });
+          );
+          return liveProvider;
         },
       })
       .overrideProvider(STOCK_DATA_CACHE)
@@ -257,7 +337,7 @@ describeLive("live FMP stock API smoke", () => {
   );
 
   it(
-    "keeps the PostgreSQL latest daily state aligned with Redis and avoids a second backfill",
+    "keeps the PostgreSQL latest daily state aligned with Redis",
     async () => {
       const latestDb = await prisma.dailyDerivedState.findFirst({
         where: { securityId },
@@ -283,14 +363,40 @@ describeLive("live FMP stock API smoke", () => {
       expect(cachedLatest?.intrinsicValues?.DCF_FCFF).toBe(
         latestDb!.dcfFcff === null ? undefined : Number(latestDb!.dcfFcff),
       );
+    },
+    SLOW,
+  );
 
+  it(
+    "does not repeat the historical backfill on a second request",
+    async () => {
       const priceCount = await prisma.dailyPrice.count({ where: { securityId } });
       const statementCount = await prisma.financialStatement.count({
         where: { securityId },
       });
+      const boundary = liveProvider.calls.length;
+      // The counter observed the initial backfill, so "no calls below" is evidence rather
+      // than an unwired counter passing vacuously.
+      expect(boundary).toBeGreaterThan(0);
+
       await request(app.getHttpServer()).get(`/stocks/${SYMBOL}`).expect(200);
-      // The second request projects the hydrated canonical state; the historical
-      // backfill is not repeated.
+
+      // Provider traffic, not row counts, is what proves this: a repeated backfill
+      // returning identical rows would leave the counts unchanged too.
+      const second = liveProvider.calls.slice(boundary);
+      // The security identity is resolved once and then read from durable state.
+      expect(second.filter((call) => call.kind === "profile")).toEqual([]);
+      // Any price request is a bounded recent tail, never the multi-year canonical horizon.
+      for (const call of second) {
+        if (call.kind === "prices") {
+          expect(spanDays(call.from, call.to)).toBeLessThanOrEqual(31);
+        }
+        // Any fundamentals request uses the small refresh limits, never backfill limits.
+        if (call.kind === "statements") {
+          expect(call.limit).toBeLessThanOrEqual(FUNDAMENTALS_REFRESH_MAX_LIMIT);
+        }
+      }
+      // The durable history is projected, not re-persisted.
       expect(await prisma.dailyPrice.count({ where: { securityId } })).toBe(priceCount);
       expect(
         await prisma.financialStatement.count({ where: { securityId } }),

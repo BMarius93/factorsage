@@ -19,19 +19,21 @@ real Redlock with only the FMP boundary replaced by deterministic fixtures. It
 runs inside normal `pnpm test` and requires reachable PostgreSQL and Redis
 (`pnpm infra:up`).
 
-Preferred local setup uses a dedicated test database so hydration data stays
-out of the development database:
+`TEST_DATABASE_URL` is required and must name a dedicated test database. There
+is no fallback to `DATABASE_URL`, so an accidental run cannot write fixtures
+into development data, and the suite refuses a `TEST_DATABASE_URL` equal to
+`DATABASE_URL` unless `CI=true` (CI points both at its own throwaway database).
 
 ```bash
-createdb intrinsic_value_test   # once, on the local PostgreSQL server
+docker compose exec -T postgres createdb -U intrinsic intrinsic_value_test
 TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value_test \
   pnpm db:test:prepare          # prisma migrate deploy against the test DB
 pnpm --filter @intrinsic/api test:infrastructure
 ```
 
-Without `TEST_DATABASE_URL` the suite falls back to `DATABASE_URL` (CI provides
-a dedicated migrated database there). All tests use randomized symbols, a
-randomized Redis namespace, and targeted cleanup only.
+Keep `TEST_DATABASE_URL` in `.env` so `pnpm test` picks it up. All tests use
+randomized symbols, a randomized Redis namespace, and targeted cleanup only.
+Nothing resets or flushes developer infrastructure.
 
 The opt-in live smoke suite never runs by default or in CI:
 
