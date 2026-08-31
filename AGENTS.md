@@ -51,6 +51,20 @@ Forbidden:
 - Do not silently change schema.
 - Schema changes require an explicit migration and a short migration note.
 
+## Frontend rules
+
+- Read `ai/architecture/frontend.md` for substantial frontend/UI work.
+- The old repository is a visual/behavioral oracle only; do not copy its architecture wholesale.
+- Preserve the established FactorSage visual identity where it still fits V2: Geist, light neutral surfaces, blue primary accent, restrained financial state colors, soft cards, and high information clarity.
+- Use App Router only in V2; do not introduce Pages Router.
+- Keep route files thin and organize product code by feature.
+- Use `@intrinsic/contracts` as the canonical API shape; do not duplicate response types in the web app.
+- Responsive desktop and mobile behavior is part of feature acceptance. Do not defer mobile behavior to a later cleanup task.
+- Prefer dedicated mobile composition for dense data when a desktop table/layout would be hard to use on a phone.
+- Do not put canonical financial/business calculations in React components.
+- Use semantic design tokens before adding new hard-coded brand colors.
+- For time-series market charts, prefer the established Lightweight Charts direction unless the task has a materially different visualization need.
+
 ## Code-change rules
 
 - Prefer small reviewable changes.

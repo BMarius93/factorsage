@@ -16,12 +16,17 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`.
 
+For frontend/UI work, also read
+`architecture/frontend.md`.
+
 For server-side API, worker, stock-data, FMP, database, cache, queue, or integration work, also read
 `architecture/observability.md`.
 
 ## Source-of-truth rule
 
 The old repository is historical reference only.
+
+For frontend work, the old repository may be used as a visual/behavioral oracle, but V2 architecture and product documents remain authoritative.
 
 When old code or old documentation conflicts with V2 documents, V2 documents win unless the user explicitly changes the decision.
 
