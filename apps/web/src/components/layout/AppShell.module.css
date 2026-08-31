@@ -1,0 +1,41 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--color-background);
+}
+
+.main {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  /* Reserve room for the fixed bottom navigation and the device safe area so
+     content is never hidden behind it. */
+  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+}
+
+.skipLink {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+}
+
+.skipLink:focus {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 50;
+  padding: 10px 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-primary);
+  background: var(--color-surface);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+@media (min-width: 880px) {
+  .main {
+    padding-bottom: 0;
+  }
+}

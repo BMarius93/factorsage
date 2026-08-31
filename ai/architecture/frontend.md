@@ -54,6 +54,14 @@ Legacy behavior worth preserving conceptually:
 
 As a baseline, consider behavior at roughly phone, tablet/small desktop, and large desktop widths. Use content-driven breakpoints rather than copying legacy breakpoint values mechanically.
 
+The application shell establishes the baseline breakpoints. Reuse them unless a
+feature's own content demands a different switch point:
+
+- `600px` — tablet padding and the fuller brand treatment.
+- `880px` — persistent topbar navigation replaces the fixed bottom navigation,
+  and content moves to desktop padding.
+- `1280px` — wide desktop padding.
+
 ## Frontend structure
 
 Use App Router for routing and composition. Do not introduce Pages Router in V2.
@@ -85,6 +93,29 @@ apps/web/src/
 Keep feature-specific code inside the feature. Do not create a global component merely because two files currently use it; promote it only when it represents a stable shared UI concept.
 
 Route files should be thin composition boundaries. React components must not own financial/business calculations that belong in domain/backend code.
+
+### Application shell
+
+`components/layout` owns the shared chrome: `AppShell` (topbar, content region,
+and mobile bottom navigation), `AppTopbar`, `MobileBottomNav`, `BrandMark`, and
+`PageContainer`. Routes compose the shell through a layout; they do not rebuild
+chrome per page.
+
+`components/layout/navigation.ts` is the single source of truth for primary
+destinations and for active-route matching. Add or rename a destination there,
+never inside a navigation component.
+
+`AppTopbar` exposes an `actions` slot for account/user controls so authentication
+work can supply them without changing the shell.
+
+### Styling
+
+Component styles live in colocated CSS Modules (`Component.module.css`) that read
+the semantic tokens. `globals.css` is reserved for app-wide element defaults and
+shared cross-page classes; do not grow it with per-component rules. Shared layout
+metrics (topbar height, bottom-navigation height, safe-area inset, content
+max-width, page padding) are tokens in `styles/tokens.css` so chrome and content
+cannot drift apart.
 
 ## API and contracts
 
