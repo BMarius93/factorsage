@@ -1,42 +1,36 @@
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   min-width: 0;
 }
 
+/* Compact mark on phones. */
 .mark {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
+  display: block;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
 }
 
-/* Compact mark only on phones; the wordmark appears once space allows. */
+/* Full wordmark replaces the mark once space allows; width stays automatic so
+   the asset's aspect ratio is preserved. */
 .wordmark {
   display: none;
-  color: var(--color-text-primary);
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
+  width: auto;
+  height: 26px;
 }
 
 @media (min-width: 600px) {
-  .wordmark {
-    display: inline;
+  .mark {
+    display: none;
   }
 
-  .mark {
-    width: 34px;
-    height: 34px;
+  .wordmark {
+    display: block;
+  }
+}
+
+@media (min-width: 880px) {
+  .wordmark {
+    height: 28px;
   }
 }

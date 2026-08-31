@@ -16,6 +16,17 @@ describe("primary navigation configuration", () => {
     expect(PRIMARY_NAV_ITEMS.length).toBeLessThanOrEqual(5);
   });
 
+  it("keeps Dashboard first and as the application home", () => {
+    expect(PRIMARY_NAV_ITEMS[0]?.id).toBe("dashboard");
+    expect(APP_HOME_HREF).toBe("/dashboard");
+  });
+
+  it("does not expose /stocks as a primary destination", () => {
+    const hrefs: readonly string[] = PRIMARY_NAV_ITEMS.map((item) => item.href);
+
+    expect(hrefs).not.toContain("/stocks");
+  });
+
   it("uses unique ids and hrefs", () => {
     const ids = PRIMARY_NAV_ITEMS.map((item) => item.id);
     const hrefs = PRIMARY_NAV_ITEMS.map((item) => item.href);
@@ -67,10 +78,18 @@ describe("isNavItemActive", () => {
 
   it("marks exactly one destination active for a nested product route", () => {
     const active = PRIMARY_NAV_ITEMS.filter((item) =>
+      isNavItemActive("/lists/42/symbols", item),
+    );
+
+    expect(active.map((item) => item.id)).toEqual(["lists"]);
+  });
+
+  it("marks no destination active on a non-primary product route", () => {
+    const active = PRIMARY_NAV_ITEMS.filter((item) =>
       isNavItemActive("/stocks/AAPL", item),
     );
 
-    expect(active.map((item) => item.id)).toEqual(["stocks"]);
+    expect(active).toEqual([]);
   });
 
   it("marks no destination active outside the product routes", () => {

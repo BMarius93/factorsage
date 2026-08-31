@@ -13,8 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "IntrinsicValue",
+  title: "FactorSage",
   description: "Stock valuation, backtesting, and monitoring",
+  icons: {
+    icon: "/images/logo/FactorSage-favicon.ico",
+    shortcut: "/images/logo/FactorSage-favicon.ico",
+    apple: "/images/logo/FactorSage-favicon-512.png",
+  },
 };
 
 export default function RootLayout({

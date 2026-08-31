@@ -13,11 +13,10 @@ const SHARED_ICON_PROPS = {
   "aria-hidden": true,
 } as const;
 
-function StocksIcon({ className }: NavIconProps) {
+function DashboardIcon({ className }: NavIconProps) {
   return (
     <svg {...SHARED_ICON_PROPS} className={className}>
-      <path d="M4 19h16" />
-      <path d="M7 16V9m5 7V5m5 11v-5" />
+      <path d="M3 9.6L12 3l9 6.6V20a1 1 0 01-1 1h-5v-5h-6v5H4a1 1 0 01-1-1V9.6z" />
     </svg>
   );
 }
@@ -59,7 +58,7 @@ function MonitorsIcon({ className }: NavIconProps) {
 }
 
 export const NAV_ICONS: Record<NavItemId, ComponentType<NavIconProps>> = {
-  stocks: StocksIcon,
+  dashboard: DashboardIcon,
   lists: ListsIcon,
   strategies: StrategiesIcon,
   backtests: BacktestsIcon,
