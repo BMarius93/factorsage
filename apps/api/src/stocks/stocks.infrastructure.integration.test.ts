@@ -15,21 +15,14 @@
  * explanation instead of silently substituting fakes.
  *
  * Infrastructure isolation:
- * - PostgreSQL: requires TEST_DATABASE_URL, a dedicated test database such as
- *   `intrinsic_value_test`. DATABASE_URL is deliberately not a fallback, so an
- *   accidental local run cannot write fixtures into the development database.
- *   Prepare it once with:
- *       TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/intrinsic_value_test \
- *         pnpm db:test:prepare
- *   CI points TEST_DATABASE_URL at its own throwaway database, which is the only
- *   context where it may equal DATABASE_URL.
+ * - PostgreSQL: `useTestDatabase()` requires TEST_DATABASE_URL and never falls back to the
+ *   development DATABASE_URL. Prepare the database once with `pnpm db:test:prepare`.
  * - Redis: uses TEST_REDIS_URL when set, otherwise REDIS_URL, always under a randomized
  *   key namespace so developer Redis state is never touched.
  * - Every stock uses a randomized symbol; cleanup deletes only rows and keys this suite
  *   created. No FLUSHDB, no migrate reset, no reliance on pre-existing data.
  */
 import { randomUUID } from "node:crypto";
-import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient, StockDataset } from "@intrinsic/database";
 import {
   INTRINSIC_VALUE_BLENDS,
@@ -52,6 +45,7 @@ import {
   createStockDataRedisClient,
   type StockManifest,
 } from "@intrinsic/stock-data";
+import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -319,11 +313,10 @@ function expectedBlendValue(
   }, 0);
 }
 
+// Before PrismaService constructs its client during Nest module compilation.
+const databaseUrl = useTestDatabase();
+
 describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () => {
-  loadRootEnv();
-  // Captured before beforeAll rewrites process.env for the application under test.
-  const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
-  const developmentDatabaseUrl = process.env.DATABASE_URL?.trim();
   const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
 
   const suffix = randomUUID().replaceAll("-", "").slice(0, 9).toUpperCase();
@@ -594,22 +587,6 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
   }
 
   beforeAll(async () => {
-    if (!databaseUrl) {
-      throw new Error(
-        "Stock infrastructure tests require TEST_DATABASE_URL pointing at a dedicated " +
-          "test database (for example intrinsic_value_test). DATABASE_URL is deliberately " +
-          "not used as a fallback so an accidental run cannot write test fixtures into the " +
-          "development database. Start infrastructure with `pnpm infra:up`, then create and " +
-          "migrate the test database with `pnpm db:test:prepare`.",
-      );
-    }
-    if (databaseUrl === developmentDatabaseUrl && process.env.CI !== "true") {
-      throw new Error(
-        "TEST_DATABASE_URL must be a dedicated test database, not the same URL as " +
-          "DATABASE_URL. CI deliberately points both at its own throwaway database; " +
-          "locally, create one with `pnpm db:test:prepare`.",
-      );
-    }
     if (!redisUrl) {
       throw new Error(
         "Stock infrastructure tests need Redis: set TEST_REDIS_URL or REDIS_URL " +
@@ -619,7 +596,6 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     process.env.NODE_ENV = "test";
     process.env.AUTH_JWT_SECRET =
       "test-only-jwt-secret-that-is-at-least-32-characters";
-    process.env.DATABASE_URL = databaseUrl;
     process.env.REDIS_URL = redisUrl;
 
     const preflight = new PrismaClient();
@@ -627,9 +603,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       await preflight.$queryRaw`SELECT 1`;
     } catch (error) {
       throw new Error(
-        `PostgreSQL at the configured test DATABASE_URL is unreachable: ${String(
-          error,
-        )}. Start it with \`pnpm infra:up\` and check TEST_DATABASE_URL/DATABASE_URL.`,
+        `PostgreSQL at ${databaseUrl.replace(/:\/\/[^@]*@/, "://***@")} is unreachable: ` +
+          `${String(error)}. Start it with \`pnpm infra:up\`.`,
       );
     }
     try {

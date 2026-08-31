@@ -277,18 +277,22 @@ several suites are backed by real PostgreSQL and Redis.
 
 `DATABASE_URL` is the development database and is never written to by tests.
 
-The stock API infrastructure tests require `TEST_DATABASE_URL`, a dedicated database such as
-`intrinsic_value_test`. There is deliberately no fallback to `DATABASE_URL`, so an accidental
-run cannot write fixtures into development data. `pnpm db:test:prepare` runs
-`prisma migrate deploy` against `TEST_DATABASE_URL`; it never resets or drops a database. CI
-points `TEST_DATABASE_URL` at its own throwaway database, the only place the two URLs may match.
+Every PostgreSQL-backed suite — auth, stock API, and stock-data persistence — resolves its
+connection through `TEST_DATABASE_URL`, a dedicated database such as `intrinsic_value_test`.
+They share one helper, `useTestDatabase()` from `@intrinsic/testing`, which refuses to run
+without it. There is deliberately no fallback to `DATABASE_URL`, so an accidental run cannot
+write fixtures into development data, and a `TEST_DATABASE_URL` equal to `DATABASE_URL` is
+refused unless `CI=true`. `pnpm db:test:prepare` runs `prisma migrate deploy` against
+`TEST_DATABASE_URL`; it never resets or drops a database. CI points `TEST_DATABASE_URL` at its
+own throwaway database, the only place the two URLs may match.
 
 Redis needs no separate instance: every suite uses a randomized key namespace, cleans up only
 the keys it created, and never flushes.
 
 ### Test suites
 
-- `pnpm test` — the default gate. Deterministic; no `FMP_API_KEY` required.
+- `pnpm test` — the default gate. Deterministic; no `FMP_API_KEY` required, but
+  `TEST_DATABASE_URL` must be set because it includes PostgreSQL-backed suites.
 - `pnpm --filter @intrinsic/api test:infrastructure` — the cross-layer stock API suite
   (HTTP → Nest → PostgreSQL → Redis → Redlock) with only the FMP provider boundary faked.
   It is part of `pnpm test`.

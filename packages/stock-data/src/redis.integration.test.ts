@@ -12,6 +12,7 @@ import {
   FmpTransientError,
   type FmpStockProviderPort,
 } from "@intrinsic/fmp";
+import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
@@ -29,10 +30,12 @@ import { PrismaStockDataStore } from "./prisma-store.js";
 import { CanonicalStockDataService } from "./service.js";
 
 loadRootEnv();
+// PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
+// database rather than DATABASE_URL. Redis stays isolated by namespace, not by instance.
+useTestDatabase();
 const redisUrl = process.env.REDIS_URL;
 const describeRedis = redisUrl ? describe : describe.skip;
-const describeInfrastructure =
-  redisUrl && process.env.DATABASE_URL ? describe : describe.skip;
+const describeInfrastructure = redisUrl ? describe : describe.skip;
 
 describeRedis("real Redis stock-data infrastructure", () => {
   const suffix = randomUUID();

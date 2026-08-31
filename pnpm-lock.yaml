@@ -72,6 +72,9 @@ importers:
         specifier: ^7.8.0
         version: 7.8.2
     devDependencies:
+      '@intrinsic/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@nestjs/cli':
         specifier: ^11.0.0
         version: 11.0.24(@types/node@20.19.43)(esbuild@0.28.2)(postcss@8.5.26)(prettier@3.9.6)
@@ -230,6 +233,9 @@ importers:
       '@intrinsic/config':
         specifier: workspace:*
         version: link:../config
+      '@intrinsic/testing':
+        specifier: workspace:*
+        version: link:../testing
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -238,7 +244,14 @@ importers:
         version: 2.1.9(@types/node@20.19.43)(supports-color@8.1.1)(terser@5.50.0)
 
   packages/testing:
+    dependencies:
+      '@intrinsic/config':
+        specifier: workspace:*
+        version: link:../config
     devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

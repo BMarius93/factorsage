@@ -35,6 +35,7 @@ import {
   RedisStockDataCache,
   createStockDataRedisClient,
 } from "@intrinsic/stock-data";
+import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -141,14 +142,9 @@ describeLive("live FMP stock API smoke", () => {
         "RUN_LIVE_FMP_TESTS=1 requires FMP_API_KEY to be set in the environment.",
       );
     }
-    const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
-    if (!databaseUrl || databaseUrl === process.env.DATABASE_URL?.trim()) {
-      throw new Error(
-        "The live FMP suite refuses to run against the development database. Set " +
-          "TEST_DATABASE_URL to a dedicated, migrated test database that differs from " +
-          "DATABASE_URL (see `pnpm db:test:prepare`).",
-      );
-    }
+    // Inside beforeAll, not at module scope: this suite must still skip cleanly when the
+    // RUN_LIVE_FMP_TESTS gate is off, whatever the local database configuration is.
+    useTestDatabase();
     const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
     if (!redisUrl) {
       throw new Error("The live FMP suite requires TEST_REDIS_URL or REDIS_URL.");
@@ -156,7 +152,6 @@ describeLive("live FMP stock API smoke", () => {
     process.env.NODE_ENV = "test";
     process.env.AUTH_JWT_SECRET =
       "test-only-jwt-secret-that-is-at-least-32-characters";
-    process.env.DATABASE_URL = databaseUrl;
     process.env.REDIS_URL = redisUrl;
 
     redis = createStockDataRedisClient(redisUrl);

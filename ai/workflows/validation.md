@@ -11,6 +11,41 @@ pnpm build
 
 Do not suppress failing type checks.
 
+## PostgreSQL-backed tests
+
+`DATABASE_URL` is the development database and is never written to by tests.
+
+Every suite that writes to PostgreSQL calls `useTestDatabase()` from
+`@intrinsic/testing`, which loads root env, requires `TEST_DATABASE_URL`, refuses
+a value equal to `DATABASE_URL` unless `CI=true`, and points this process's
+Prisma clients at the test database. It must be called at module scope, before
+anything constructs a Prisma client — directly, or through `PrismaService` when
+a Nest testing module compiles. There is no fallback, so an unconfigured run
+fails loudly instead of mutating development data.
+
+Current callers:
+
+- `apps/api/src/auth/auth.integration.test.ts`
+- `apps/api/src/stocks/stocks.integration.test.ts`
+- `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
+- `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
+  so the opt-in gate still skips cleanly)
+- `packages/stock-data/src/financial-statements.test.ts`
+- `packages/stock-data/src/redis.integration.test.ts`
+
+Prepare the database once, then keep `TEST_DATABASE_URL` in `.env` so `pnpm test`
+picks it up:
+
+```bash
+docker compose exec -T postgres createdb -U intrinsic intrinsic_value_test
+TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value_test \
+  pnpm db:test:prepare          # prisma migrate deploy against the test DB
+```
+
+Redis isolation is deliberately different: suites keep one instance and isolate
+by randomized key namespace with targeted cleanup. Nothing resets or flushes
+developer infrastructure.
+
 ## Stock API infrastructure tests
 
 `apps/api/src/stocks/stocks.infrastructure.integration.test.ts` exercises
@@ -19,21 +54,9 @@ real Redlock with only the FMP boundary replaced by deterministic fixtures. It
 runs inside normal `pnpm test` and requires reachable PostgreSQL and Redis
 (`pnpm infra:up`).
 
-`TEST_DATABASE_URL` is required and must name a dedicated test database. There
-is no fallback to `DATABASE_URL`, so an accidental run cannot write fixtures
-into development data, and the suite refuses a `TEST_DATABASE_URL` equal to
-`DATABASE_URL` unless `CI=true` (CI points both at its own throwaway database).
-
 ```bash
-docker compose exec -T postgres createdb -U intrinsic intrinsic_value_test
-TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value_test \
-  pnpm db:test:prepare          # prisma migrate deploy against the test DB
 pnpm --filter @intrinsic/api test:infrastructure
 ```
-
-Keep `TEST_DATABASE_URL` in `.env` so `pnpm test` picks it up. All tests use
-randomized symbols, a randomized Redis namespace, and targeted cleanup only.
-Nothing resets or flushes developer infrastructure.
 
 The opt-in live smoke suite never runs by default or in CI:
 

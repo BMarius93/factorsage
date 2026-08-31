@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
+import { useTestDatabase } from "@intrinsic/testing";
 import { describe, expect, it } from "vitest";
 import { PrismaStockDataStore } from "./prisma-store.js";
 
-loadRootEnv();
-
-const describeInfrastructure = process.env.DATABASE_URL
-  ? describe
-  : describe.skip;
+// Before any PrismaClient in this file is constructed.
+useTestDatabase();
 
 function statement(overrides: Record<string, unknown> = {}) {
   return {
@@ -24,7 +21,7 @@ function statement(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describeInfrastructure("financial statement persistence", () => {
+describe("financial statement persistence", () => {
   it("deduplicates unchanged rows and keeps the initial PIT availability one day after filing", async () => {
     const prisma = new PrismaClient();
     const suffix = randomUUID();

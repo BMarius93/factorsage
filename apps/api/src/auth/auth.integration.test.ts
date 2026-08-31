@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getApiConfig, getAuthConfig, loadRootEnv } from "@intrinsic/config";
 import { UserRole } from "@intrinsic/database";
+import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -10,6 +11,9 @@ import { PrismaService } from "../database/prisma.service";
 import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { seedInitialAdmin } from "./seed-admin";
+
+// Before PrismaService constructs its client during Nest module compilation.
+useTestDatabase();
 
 describe("authentication and role authorization", () => {
   const suffix = randomUUID();

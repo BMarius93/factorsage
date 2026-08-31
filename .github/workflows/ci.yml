@@ -33,8 +33,9 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgresql://intrinsic_ci:intrinsic_ci_password@localhost:5432/intrinsic_value_ci
-      # The CI database is already dedicated and thrown away with the job, so the stock API
-      # infrastructure suite is pointed at it explicitly. Locally these must differ.
+      # PostgreSQL-backed suites resolve their connection through TEST_DATABASE_URL. The CI
+      # database is already dedicated and thrown away with the job, so both point at it.
+      # Locally these must differ; the shared test helper enforces that unless CI=true.
       TEST_DATABASE_URL: postgresql://intrinsic_ci:intrinsic_ci_password@localhost:5432/intrinsic_value_ci
       REDIS_URL: redis://localhost:6379
       AUTH_JWT_SECRET: ci-test-only-secret-at-least-32-characters-long

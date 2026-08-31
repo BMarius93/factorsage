@@ -11,6 +11,7 @@ import {
   InMemoryLoadCoordinator,
   NullStockDataCache,
 } from "@intrinsic/stock-data";
+import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -22,6 +23,9 @@ import {
   STOCK_DATA_COORDINATOR,
   STOCK_DATA_PROVIDER,
 } from "./stock-data.tokens";
+
+// Before PrismaService constructs its client during Nest module compilation.
+useTestDatabase();
 
 const runtimeToday = new Date().toISOString().slice(0, 10);
 const runtimeHistoryStart = (() => {
