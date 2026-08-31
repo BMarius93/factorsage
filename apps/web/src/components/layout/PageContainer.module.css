@@ -1,0 +1,27 @@
+/* Progressive page padding: never cramped on phones, never oversized on wide
+   desktops. Width is capped so long-form content stays readable. */
+.container {
+  width: 100%;
+  max-width: var(--content-max-width);
+  min-width: 0;
+  margin: 0 auto;
+  padding: var(--page-pad-mobile);
+}
+
+@media (min-width: 600px) {
+  .container {
+    padding: var(--page-pad-tablet);
+  }
+}
+
+@media (min-width: 880px) {
+  .container {
+    padding: var(--page-pad-desktop);
+  }
+}
+
+@media (min-width: 1280px) {
+  .container {
+    padding: var(--page-pad-wide);
+  }
+}

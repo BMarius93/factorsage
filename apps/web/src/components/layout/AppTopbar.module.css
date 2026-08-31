@@ -1,0 +1,135 @@
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--topbar-height);
+  padding: 0 var(--page-pad-mobile);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background-translucent);
+  box-shadow: var(--shadow-header);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.brandLink {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  margin-right: auto;
+  padding: 4px;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+
+.brandLink:focus-visible,
+.navLink:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Persistent inline navigation once the topbar fits brand + links + account. */
+.desktopNav {
+  display: none;
+}
+
+.navList {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLink {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.navLink:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.navLink[data-active="true"] {
+  color: var(--color-primary);
+}
+
+.navLink[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 2px;
+  left: 12px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-primary);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.accountPlaceholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+}
+
+.accountIcon {
+  width: 20px;
+  height: 20px;
+}
+
+@media (min-width: 600px) {
+  .topbar {
+    padding: 0 var(--page-pad-tablet);
+  }
+}
+
+@media (min-width: 880px) {
+  .topbar {
+    min-height: var(--topbar-height-wide);
+    gap: 20px;
+    padding: 0 var(--page-pad-desktop);
+  }
+
+  .desktopNav {
+    display: block;
+  }
+}
+
+@media (min-width: 1280px) {
+  .topbar {
+    padding: 0 var(--page-pad-wide);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navLink {
+    transition: none;
+  }
+}
