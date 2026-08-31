@@ -149,15 +149,21 @@ export type IntrinsicValueModel = (typeof INTRINSIC_VALUE_MODELS)[number];
 /**
  * Persisted point-in-time intrinsic-value value for a trading day.
  *
- * The underlying valuation may only change when a newly eligible PIT input or calculation version
- * changes, but the latest eligible result is materialized forward onto every trading day so
+ * The underlying valuation changes only when a newly eligible PIT input replaces one of its
+ * sources, but the latest eligible result is materialized forward onto every trading day so
  * backtests can consume a fully daily-aligned series without resolving sparse valuation events.
+ * There is one current methodology: a methodology change rebuilds and replaces the affected rows
+ * rather than storing a parallel calculation version.
  */
 export type IntrinsicValuePoint = {
   securityId: SecurityId;
   /** Trading day for which this materialized valuation value is effective. */
   valuationDate: LocalDate;
-  /** Latest publication/availability instant among source inputs actually used. */
+  /**
+   * Latest publication/availability instant among source inputs actually used by *this* model.
+   * It comes from that model's own provenance field on `DailyDerivedState`; models on the same
+   * trading day routinely carry different instants.
+   */
   sourceDataAsOf: Instant;
   model: IntrinsicValueModel;
   valuePerShare: number;
@@ -224,6 +230,11 @@ export const INTRINSIC_VALUE_BLENDS = {
 export type IntrinsicValueBlendPoint = {
   securityId: SecurityId;
   valuationDate: LocalDate;
+  /**
+   * Derived, never stored: the maximum provenance instant of the models that actually compose
+   * this blend. A blend is unavailable unless every required component value and every required
+   * component provenance instant is present and eligible at the requested cutoff.
+   */
   sourceDataAsOf: Instant;
   blendId: IntrinsicValueBlendId;
   valuePerShare: number;
@@ -268,10 +279,24 @@ export type DailyDerivedState = {
   /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */
   intrinsicValueBlends?: Partial<Record<IntrinsicValueBlendId, number>>;
   /**
-   * Latest publication/availability instant among source inputs actually used by this row's
-   * intrinsic values. No-look-ahead audit field; never later than the end of `date`.
+   * Point-in-time provenance is per intrinsic-value model, not per row.
+   *
+   * Each model may consume a different financial-statement family/revision, so its inputs can
+   * become public at a different instant. Every field below is the latest publication/availability
+   * instant among the source inputs actually used by that model on this trading day: a
+   * no-look-ahead audit field, never later than the end of `date`.
+   *
+   * A model value is only readable together with its own provenance: a present value with an
+   * absent provenance instant is never returned. Reads must filter each model independently and
+   * must never delay one model to the newest provenance instant on the row.
+   *
+   * Blend provenance is deliberately not stored. It is derived at read time as the maximum
+   * provenance of the models that actually compose the blend; see `INTRINSIC_VALUE_BLENDS`.
    */
-  intrinsicSourceDataAsOf?: Instant;
+  dcfFcffSourceAsOf?: Instant;
+  residualIncomeSourceAsOf?: Instant;
+  ddmSourceAsOf?: Instant;
+  grahamSourceAsOf?: Instant;
   intrinsicCurrency?: string;
 };
 

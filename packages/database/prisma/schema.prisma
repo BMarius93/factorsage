@@ -194,31 +194,40 @@ model WeeklyPrice {
 /// subsequent trading day until a newer eligible value replaces them. A value stays NULL until it
 /// first becomes point-in-time eligible; it is never fabricated or back-filled earlier.
 model DailyDerivedState {
-  securityId              String
-  date                    DateTime  @db.Date
-  sma20d                  Decimal?  @db.Decimal(20, 8)
-  sma50d                  Decimal?  @db.Decimal(20, 8)
-  sma100d                 Decimal?  @db.Decimal(20, 8)
-  sma200d                 Decimal?  @db.Decimal(20, 8)
-  ema20d                  Decimal?  @db.Decimal(20, 8)
-  ema50d                  Decimal?  @db.Decimal(20, 8)
-  ema200d                 Decimal?  @db.Decimal(20, 8)
+  securityId               String
+  date                     DateTime  @db.Date
+  sma20d                   Decimal?  @db.Decimal(20, 8)
+  sma50d                   Decimal?  @db.Decimal(20, 8)
+  sma100d                  Decimal?  @db.Decimal(20, 8)
+  sma200d                  Decimal?  @db.Decimal(20, 8)
+  ema20d                   Decimal?  @db.Decimal(20, 8)
+  ema50d                   Decimal?  @db.Decimal(20, 8)
+  ema200d                  Decimal?  @db.Decimal(20, 8)
   /// Start date of the completed weekly period whose carried-forward weekly indicators are
   /// effective on this trading day. Weekly indicator value columns are added here when the
   /// weekly period catalog is product-defined; they are not invented ahead of that decision.
-  weeklySourceWeekStart   DateTime? @db.Date
-  dcfFcff                 Decimal?  @db.Decimal(20, 8)
-  residualIncome          Decimal?  @db.Decimal(20, 8)
-  ddm                     Decimal?  @db.Decimal(20, 8)
-  graham                  Decimal?  @db.Decimal(20, 8)
-  blendBalanced           Decimal?  @db.Decimal(20, 8)
-  blendConservative       Decimal?  @db.Decimal(20, 8)
-  blendDividend           Decimal?  @db.Decimal(20, 8)
-  /// Latest publication/availability instant among the source inputs actually used by the
-  /// intrinsic values on this row. No-look-ahead audit field; never later than end of `date`.
-  intrinsicSourceDataAsOf DateTime?
-  intrinsicCurrency       String?
-  security                Security  @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  weeklySourceWeekStart    DateTime? @db.Date
+  dcfFcff                  Decimal?  @db.Decimal(20, 8)
+  residualIncome           Decimal?  @db.Decimal(20, 8)
+  ddm                      Decimal?  @db.Decimal(20, 8)
+  graham                   Decimal?  @db.Decimal(20, 8)
+  blendBalanced            Decimal?  @db.Decimal(20, 8)
+  blendConservative        Decimal?  @db.Decimal(20, 8)
+  blendDividend            Decimal?  @db.Decimal(20, 8)
+  /// Point-in-time provenance is per intrinsic-value model: each model may consume a different
+  /// financial-statement family/revision, so its inputs can become public at a different instant.
+  /// Each column is the latest publication/availability instant among the inputs actually used by
+  /// that model. No-look-ahead audit fields; never later than end of `date`. A model value is only
+  /// readable together with its own provenance, and reads filter each model independently.
+  ///
+  /// Blend provenance is never stored: it is derived as the maximum provenance of the models that
+  /// compose the blend, and the blend is unavailable if any required component is missing.
+  dcfFcffSourceAsOf        DateTime?
+  residualIncomeSourceAsOf DateTime?
+  ddmSourceAsOf            DateTime?
+  grahamSourceAsOf         DateTime?
+  intrinsicCurrency        String?
+  security                 Security  @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@id([securityId, date])
 }

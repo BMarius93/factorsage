@@ -1,4 +1,8 @@
-import type { DailyPrice, StockDatasetState } from "@intrinsic/domain";
+import type {
+  DailyDerivedState,
+  DailyPrice,
+  StockDatasetState,
+} from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import {
   addDays,
@@ -10,6 +14,8 @@ import {
   assertOneRowPerTradingDay,
   buildDailyDerivedState,
 } from "./derived-state.js";
+import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
+import { calculateBlend } from "@intrinsic/valuation";
 import { validateBlendDefinition } from "./intrinsic-values.js";
 import { calculateDailyTechnicals, movingAverage } from "./technicals.js";
 import {
@@ -360,9 +366,101 @@ describe("unified daily derived state", () => {
         (row) =>
           row.intrinsicValues === undefined &&
           row.intrinsicValueBlends === undefined &&
-          row.intrinsicSourceDataAsOf === undefined,
+          row.dcfFcffSourceAsOf === undefined &&
+          row.residualIncomeSourceAsOf === undefined &&
+          row.ddmSourceAsOf === undefined &&
+          row.grahamSourceAsOf === undefined,
       ),
     ).toBe(true);
+  });
+
+  it("keeps (securityId, date) as the only identity when models are sourced separately", () => {
+    // Per-model provenance is column data, never an identity or history dimension.
+    const row: DailyDerivedState = {
+      securityId: "security-1",
+      date: "2026-05-05",
+      intrinsicValues: { DCF_FCFF: 120, GRAHAM: 60 },
+      dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
+      grahamSourceAsOf: "2026-04-21T20:00:00.000Z",
+      intrinsicCurrency: "USD",
+    };
+
+    expect(() => assertOneRowPerTradingDay([row])).not.toThrow();
+    expect(() =>
+      assertOneRowPerTradingDay([
+        row,
+        { ...row, grahamSourceAsOf: "2026-05-04T20:00:00.000Z" },
+      ]),
+    ).toThrow("exactly one row per trading day");
+  });
+
+  it("merges materialized intrinsic state by exact trading date", () => {
+    const intrinsicStates = [
+      {
+        date: "2026-08-11",
+        intrinsicValues: { DCF_FCFF: 180, GRAHAM: 148 },
+        intrinsicValueBlends: { BALANCED: 160 },
+        dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+        grahamSourceAsOf: "2026-06-01T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+      // No DailyPrice exists for this date, so it must not create a derived row.
+      {
+        date: "2026-08-15",
+        intrinsicValues: { DCF_FCFF: 999 },
+        dcfFcffSourceAsOf: "2026-08-15T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+    ];
+
+    const rows = buildDailyDerivedState({ prices, intrinsicStates });
+
+    expect(rows.map((row) => row.date)).toEqual(prices.map((row) => row.date));
+    expect(rows.find((row) => row.date === "2026-08-11")).toMatchObject({
+      intrinsicValues: { DCF_FCFF: 180, GRAHAM: 148 },
+      intrinsicValueBlends: { BALANCED: 160 },
+      dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+      grahamSourceAsOf: "2026-06-01T00:00:00.000Z",
+      intrinsicCurrency: "USD",
+    });
+    // Only the matching trading day carries intrinsic fields, and the merge key is not a field.
+    expect(rows.find((row) => row.date === "2026-08-11")).not.toHaveProperty(
+      "residualIncomeSourceAsOf",
+    );
+    expect(
+      rows.find((row) => row.date === "2026-08-12")?.intrinsicValues,
+    ).toBeUndefined();
+  });
+
+  it("does not let intrinsic merging change technicals or weekly eligibility", () => {
+    const weeklyBars = aggregateCompletedWeeks(prices, "2026-08-25");
+    const withoutIntrinsic = buildDailyDerivedState({ prices, weeklyBars });
+    const withIntrinsic = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates: [
+        {
+          date: "2026-08-11",
+          intrinsicValues: { DCF_FCFF: 180 },
+          dcfFcffSourceAsOf: "2026-08-10T00:00:00.000Z",
+          intrinsicCurrency: "USD",
+        },
+      ],
+    });
+
+    expect(
+      withIntrinsic.map(({ intrinsicValues: _values, ...row }) => ({
+        ...row,
+        dcfFcffSourceAsOf: undefined,
+        intrinsicCurrency: undefined,
+      })),
+    ).toEqual(
+      withoutIntrinsic.map((row) => ({
+        ...row,
+        dcfFcffSourceAsOf: undefined,
+        intrinsicCurrency: undefined,
+      })),
+    );
   });
 
   it("carries no calculation version on any derived row", () => {
@@ -375,6 +473,35 @@ describe("unified daily derived state", () => {
     const rows = buildDailyDerivedState({ prices });
     expect(rows.every((row) => row.securityId === "security-1")).toBe(true);
     expect(rows[0]).not.toHaveProperty("symbol");
+  });
+
+  /**
+   * The canonical blend definitions live in `@intrinsic/domain` and the pure weighted-sum lives in
+   * `@intrinsic/valuation`; neither package restates the other's part. This is the one place both
+   * meet, so it proves the real definitions are structurally consumable and reproduce the locked
+   * golden blend values from `docs/decisions/intrinsic-value-engine.md`.
+   */
+  it("feeds the canonical domain blend definitions straight into the pure calculator", () => {
+    const components = {
+      DCF_FCFF: 178.8977101328,
+      RESIDUAL_INCOME: 99.1837933641,
+      GRAHAM: 148,
+      DDM: 27.3333333333,
+    };
+
+    for (const [blendId, expected] of [
+      ["BALANCED", 148.8039930756],
+      ["CONSERVATIVE", 145.7142220623],
+      ["DIVIDEND", 102.3291760593],
+    ] as const) {
+      const blend = calculateBlend(INTRINSIC_VALUE_BLENDS[blendId], components);
+
+      expect(blend.status).toBe("CALCULATED");
+      expect(blend.status === "CALCULATED" && blend.value.valuePerShare).toBeCloseTo(
+        expected,
+        9,
+      );
+    }
   });
 
   it("validates blend weights", () => {

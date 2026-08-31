@@ -28,6 +28,11 @@ import {
   type StockManifest,
 } from "./cache.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
+import { materializeDailyIntrinsicValues } from "./intrinsic-value-materializer.js";
+import {
+  blendSourceDataAsOf,
+  intrinsicModelSourceAsOf,
+} from "./intrinsic-values.js";
 import {
   addDays,
   assertDateRange,
@@ -49,6 +54,16 @@ import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
 const FUNDAMENTALS_VARIANT_VERSION = 1;
+/**
+ * Extra fiscal years of financial statements retained before the visible price history.
+ *
+ * A valuation on the first visible trading day needs a four-quarter TTM window and the exact
+ * `N` / `N - 5` annual growth endpoints, all of which must already be point-in-time eligible on
+ * that day. Without this warm-up the earliest part of every history would have no intrinsic values
+ * and would fall back to default growth. It changes fundamentals retention only: price history,
+ * derived rows, cached projections, API output and backtests all stay at the configured horizon.
+ */
+export const VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7;
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
 const FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT = 12;
@@ -132,7 +147,10 @@ export class CanonicalStockDataService implements StockDataService {
   async getSecurity(symbol: string): Promise<Security> {
     const normalized = this.normalizeSymbol(symbol);
     const cached = await this.cache.getSecurity(normalized);
-    if (cached) {
+    // The cached identity is trusted only while its stock generation is READY. Outside that
+    // window PostgreSQL decides: hydrating against a security row the durable store no longer
+    // has would fail every dependent insert on its foreign key instead of re-resolving.
+    if (cached && this.isReady(await this.cache.getManifest(cached.id))) {
       return cached;
     }
     const persisted = await this.store.findSecurityByProviderSymbol(normalized);
@@ -214,6 +232,7 @@ export class CanonicalStockDataService implements StockDataService {
       const target = this.canonicalTarget(security);
       let prices = await this.store.getDailyPrices(security.id, target);
       let lastPriceRefreshAt = lockedManifest.lastPriceRefreshAt;
+      const rebuildStarts: (string | undefined)[] = [];
       if (refreshPrices) {
         const refreshed = await this.refreshPriceWithinLease(
           security,
@@ -223,15 +242,40 @@ export class CanonicalStockDataService implements StockDataService {
         );
         prices = refreshed.prices;
         lastPriceRefreshAt = refreshed.lastPriceRefreshAt;
+        rebuildStarts.push(refreshed.derivedRebuildStart);
       }
 
       let lastFundamentalsRefreshAt = lockedManifest.lastFundamentalsRefreshAt;
       if (refreshFundamentals) {
-        lastFundamentalsRefreshAt = await this.refreshFundamentalsWithinLease(
+        const refreshed = await this.refreshFundamentalsWithinLease(
           security,
           target,
           hydrating,
           lease,
+        );
+        lastFundamentalsRefreshAt = refreshed.lastFundamentalsRefreshAt;
+        rebuildStarts.push(refreshed.derivedRebuildStart);
+      }
+
+      // Newly eligible fundamentals change intrinsic values even when prices did not move, so the
+      // unified derived state is rebuilt from the earliest cause of this cycle and the affected
+      // Redis years are republished once.
+      const derivedRebuildStart = this.boundedRebuildStart(target, rebuildStarts);
+      if (derivedRebuildStart) {
+        lease.assertOwned();
+        await this.rebuildDailyDerivedState(
+          security,
+          target,
+          prices,
+          derivedRebuildStart,
+          lease,
+        );
+        lease.assertOwned();
+        await this.publishDailyDerivedStateYears(
+          security,
+          derivedRebuildStart,
+          target,
+          hydrating,
         );
       }
 
@@ -428,6 +472,17 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
 
     const prices = await this.store.getDailyPrices(security.id, target);
+    // Fundamentals are hydrated before the derived rebuild so READY always means the persisted
+    // derived state already reflects both price history and point-in-time fundamentals. Building
+    // intrinsic values first and never rebuilding them would publish a permanently empty
+    // intrinsic history.
+    const fundamentals = await this.hydrateFundamentalsWithinLease(
+      security,
+      target,
+      hydrating,
+      lease,
+    );
+    lease.assertOwned();
     // A methodology change bumps DERIVED_STATE_REVISION, which changes the dataset variant. The
     // previous variant then reports no coverage, so the whole state is rebuilt and replaced rather
     // than kept alongside the old methodology.
@@ -439,16 +494,19 @@ export class CanonicalStockDataService implements StockDataService {
     );
     const derivedCoverageGaps = missingCoverageRanges(target, derivedCoverage);
     const derivedRepairStart = derivedCoverageGaps[0]?.from;
-    const derivedRecalculationStart =
-      derivedRepairStart ??
-      (priceChange.earliestChangedDate
-        ? this.recalculationStart(
-            target,
-            previousPriceState,
-            priceChange.earliestChangedDate,
-            undefined,
-          )
-        : undefined);
+    const priceRecalculationStart = priceChange.earliestChangedDate
+      ? this.recalculationStart(
+          target,
+          previousPriceState,
+          priceChange.earliestChangedDate,
+          undefined,
+        )
+      : undefined;
+    const derivedRecalculationStart = this.boundedRebuildStart(target, [
+      derivedRepairStart,
+      derivedRepairStart ? undefined : priceRecalculationStart,
+      fundamentals.derivedRebuildStart,
+    ]);
     if (derivedRecalculationStart) {
       lease.assertOwned();
       await this.rebuildDailyDerivedState(
@@ -484,8 +542,6 @@ export class CanonicalStockDataService implements StockDataService {
       years,
       hydrating,
     );
-    const lastFundamentalsRefreshAt =
-      await this.hydrateFundamentalsWithinLease(security, target, hydrating, lease);
     lease.assertOwned();
     if (
       !(await this.cache.completeHydration(
@@ -496,7 +552,7 @@ export class CanonicalStockDataService implements StockDataService {
           prices,
           this.nowInstant(),
           tailRefreshAt ?? undefined,
-          lastFundamentalsRefreshAt,
+          fundamentals.lastFundamentalsRefreshAt,
         ),
       ))
     ) {
@@ -551,9 +607,10 @@ export class CanonicalStockDataService implements StockDataService {
   /**
    * Bounds an intrinsic-value query to a readable range.
    *
-   * `asOf` narrows the upper bound: nothing effective after the requested point in time may be
-   * returned. Values are materialized only once eligible, so no further look-ahead filter is
-   * needed beyond the row's own `intrinsicSourceDataAsOf` guard applied during projection.
+   * `asOf` narrows the upper bound: no trading day after the requested point in time may be
+   * returned. It is only the row-level bound; per-model and per-blend provenance is then applied
+   * independently during projection, so a later-sourced model is withheld while an earlier-sourced
+   * model on the same row is still returned.
    */
   private intrinsicReadRange(
     security: Security,
@@ -571,12 +628,22 @@ export class CanonicalStockDataService implements StockDataService {
     return { from, to };
   }
 
+  /**
+   * Backfills missing fundamentals datasets and reports whether the derived state must be rebuilt.
+   *
+   * A first backfill makes statements point-in-time eligible for the whole canonical history, so
+   * the intrinsic state has to be rebuilt from the start of the target range rather than only from
+   * a price-change boundary.
+   */
   private async hydrateFundamentalsWithinLease(
     security: Security,
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<string | undefined> {
+  ): Promise<{
+    lastFundamentalsRefreshAt: string | undefined;
+    derivedRebuildStart: string | undefined;
+  }> {
     const expected = this.fundamentalsOperationsForHistory();
     const currentStates = await Promise.all(
       expected.map((operation) =>
@@ -588,18 +655,23 @@ export class CanonicalStockDataService implements StockDataService {
       ),
     );
     const missing = expected.filter((_, index) => !currentStates[index]);
+    // A first backfill lands the whole persisted statement history at once, so its earliest
+    // availability is effectively the start of the canonical range.
+    let derivedRebuildStart: string | undefined;
     if (missing.length > 0) {
-      await this.runFundamentalsOperationsToSettlement(
+      const results = await this.runFundamentalsOperationsToSettlement(
         missing,
         (operation) =>
           this.syncFundamentalsOperation({
             security,
-            target,
             operation,
             limit: this.fundamentalsBackfillLimit(operation.cadence),
             lease,
           }),
       );
+      if (results.some((result) => result.changedYears.length > 0)) {
+        derivedRebuildStart = target.from;
+      }
     }
     lease.assertOwned();
     const states = await Promise.all(
@@ -617,19 +689,51 @@ export class CanonicalStockDataService implements StockDataService {
 
     await this.publishAllFundamentalsYears(
       security.id,
-      target,
+      this.fundamentalsTarget(security),
       hydrating,
       lease,
     );
-    return this.oldestRequiredSyncAt(states);
+    return {
+      lastFundamentalsRefreshAt: this.oldestRequiredSyncAt(states),
+      derivedRebuildStart,
+    };
+  }
+
+  /**
+   * Earliest of the supplied rebuild starts, clamped to the canonical target range.
+   *
+   * Several causes (a coverage gap, changed prices, newly eligible fundamentals) can require a
+   * rebuild in the same cycle; the unified state is rebuilt once from the earliest of them.
+   */
+  private boundedRebuildStart(
+    target: Required<DateRange>,
+    candidates: readonly (string | undefined)[],
+  ): string | undefined {
+    let earliest: string | undefined;
+    for (const candidate of candidates) {
+      if (!candidate || candidate > target.to) {
+        continue;
+      }
+      const clamped = maxDate(candidate, target.from);
+      earliest = earliest === undefined ? clamped : minDate(earliest, clamped);
+    }
+    return earliest;
   }
 
   /**
    * Recalculates and replaces the unified daily derived state from `from` through the target end.
    *
-   * Full price history is used so moving-average warm-up and completed-week carry-forward are
-   * correct, then only the affected trading days are written. Persisting replaces those rows: there
-   * is one current methodology per `(securityId, date)` and no version history.
+   * Full price history is used so moving-average warm-up, completed-week carry-forward and
+   * intrinsic-value carry-forward are all correct at the rebuild boundary, then only the affected
+   * trading days are written. Persisting replaces those rows: there is one current methodology per
+   * `(securityId, date)` and no version history.
+   *
+   * Intrinsic materialization deliberately runs over the full canonical trading-date history and
+   * every retained statement revision: starting it at `from` would lose the statement-event and
+   * carry-forward context that establishes the correct opening intrinsic state. Revisions from the
+   * fundamentals warm-up years are read as well, so the first visible trading day can already have
+   * a TTM window and real growth endpoints — but trading dates still come only from the visible
+   * price history, so no derived row is created before the canonical target.
    */
   private async rebuildDailyDerivedState(
     security: Security,
@@ -643,9 +747,24 @@ export class CanonicalStockDataService implements StockDataService {
       target.to,
       this.weeklyHistoryContext(security, target),
     );
-    const rows = buildDailyDerivedState({ prices, weeklyBars }).filter(
-      (row) => row.date >= from,
-    );
+    // One bounded read of immutable revisions, not the latest-revision selector: the materializer
+    // needs each revision's own availableFromDate as a distinct evaluation event.
+    const retention = this.fundamentalsTarget(security);
+    const statements = await this.store.getFinancialStatementRevisions({
+      securityId: security.id,
+      from: retention.from,
+      to: retention.to,
+    });
+    const intrinsicStates = materializeDailyIntrinsicValues({
+      securityId: security.id,
+      tradingDates: prices.map((price) => price.date),
+      statements,
+    });
+    const rows = buildDailyDerivedState({
+      prices,
+      weeklyBars,
+      intrinsicStates,
+    }).filter((row) => row.date >= from);
     const weeklyDelta = weeklyBars.filter(
       (bar) => bar.weekStartDate >= startOfIsoWeek(from),
     );
@@ -696,7 +815,11 @@ export class CanonicalStockDataService implements StockDataService {
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<{ prices: DailyPrice[]; lastPriceRefreshAt: string }> {
+  ): Promise<{
+    prices: DailyPrice[];
+    lastPriceRefreshAt: string;
+    derivedRebuildStart: string;
+  }> {
     const refreshRange = {
       from: maxDate(addDays(target.to, -this.recentTailCalendarDays), target.from),
       to: target.to,
@@ -740,14 +863,6 @@ export class CanonicalStockDataService implements StockDataService {
       ? minDate(priceRecalculationStart, weeklyRefreshStart)
       : weeklyRefreshStart;
     lease.assertOwned();
-    await this.rebuildDailyDerivedState(
-      security,
-      target,
-      allPrices,
-      derivedRebuildStart,
-      lease,
-    );
-    lease.assertOwned();
 
     if (change.earliestChangedDate) {
       const affectedRange = yearBoundedRange(change.earliestChangedDate, target.to);
@@ -758,29 +873,40 @@ export class CanonicalStockDataService implements StockDataService {
         hydrating,
       );
     }
-    await this.publishDailyDerivedStateYears(
-      security,
-      derivedRebuildStart,
-      target,
-      hydrating,
-    );
 
-    return { prices: allPrices, lastPriceRefreshAt: syncedAt };
+    // The derived rebuild is not performed here: prices and fundamentals may both have changed in
+    // this cycle, and the unified state is rebuilt and republished exactly once from the earliest
+    // required start across every cause.
+    return {
+      prices: allPrices,
+      lastPriceRefreshAt: syncedAt,
+      derivedRebuildStart,
+    };
   }
 
+  /**
+   * Refreshes fundamentals and reports the earliest trading date whose intrinsic values may change.
+   *
+   * A newly persisted revision changes valuations from its own `availableFromDate` onward, never
+   * from its fiscal date, so the bound comes from the availability of the successfully loaded
+   * overlap batch. That batch may contain unchanged revisions too; rebuilding from the earliest of
+   * them is conservative but bounded, and far cheaper than rebuilding the whole history.
+   */
   private async refreshFundamentalsWithinLease(
     security: Security,
     target: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
-  ): Promise<string> {
+  ): Promise<{
+    lastFundamentalsRefreshAt: string;
+    derivedRebuildStart: string | undefined;
+  }> {
     const operations = this.fundamentalsOperationsForHistory();
     const results = await this.runFundamentalsOperationsToSettlement(
       operations,
       (operation) =>
         this.syncFundamentalsOperation({
           security,
-          target,
           operation,
           limit: this.fundamentalsRefreshLimit(operation.cadence),
           lease,
@@ -788,6 +914,7 @@ export class CanonicalStockDataService implements StockDataService {
     );
     lease.assertOwned();
 
+    let derivedRebuildStart: string | undefined;
     for (const result of results) {
       if (result.changedYears.length === 0) {
         continue;
@@ -801,6 +928,12 @@ export class CanonicalStockDataService implements StockDataService {
         from: `${firstYear}-01-01`,
         to: `${lastYear}-12-31`,
       });
+      for (const row of rows) {
+        derivedRebuildStart =
+          derivedRebuildStart === undefined
+            ? row.availableFromDate
+            : minDate(derivedRebuildStart, row.availableFromDate);
+      }
       await this.cache.writeFinancialStatementYears(
         security.id,
         rows,
@@ -811,23 +944,30 @@ export class CanonicalStockDataService implements StockDataService {
       );
       lease.assertOwned();
     }
-    return this.nowInstant();
+    return {
+      lastFundamentalsRefreshAt: this.nowInstant(),
+      derivedRebuildStart,
+    };
   }
 
+  /**
+   * Publishes every retained fundamentals year, warm-up years included, under the existing yearly
+   * key family. There is no separate warm-up dataset or key.
+   */
   private async publishAllFundamentalsYears(
     securityId: string,
-    target: Required<DateRange>,
+    retention: Required<DateRange>,
     hydrating: StockManifest,
     lease: LoadLease,
   ): Promise<void> {
-    const years = yearsInRange(target);
+    const years = yearsInRange(retention);
     for (const operation of this.fundamentalsOperationsForHistory()) {
       const rows = await this.store.getFinancialStatementRevisions({
         securityId,
         statementType: operation.statementType,
         cadence: operation.cadence,
-        from: target.from,
-        to: target.to,
+        from: retention.from,
+        to: retention.to,
       });
       await this.cache.writeFinancialStatementYears(
         securityId,
@@ -843,7 +983,6 @@ export class CanonicalStockDataService implements StockDataService {
 
   private async syncFundamentalsOperation(input: {
     security: Security;
-    target: Required<DateRange>;
     operation: FundamentalsOperation;
     limit: number;
     lease: LoadLease;
@@ -858,9 +997,13 @@ export class CanonicalStockDataService implements StockDataService {
       input.operation.cadence,
       input.limit,
     );
+    // Retention, not visibility: statements from the warm-up years are persisted so the first
+    // visible trading day already has TTM and growth context. Rows older than the retention bound
+    // are still discarded.
+    const retention = this.fundamentalsTarget(input.security);
     const statements = loaded
-      .filter((statement) => statement.fiscalDate >= input.target.from)
-      .filter((statement) => statement.fiscalDate <= input.target.to);
+      .filter((statement) => statement.fiscalDate >= retention.from)
+      .filter((statement) => statement.fiscalDate <= retention.to);
     const syncedAt = this.nowInstant();
     input.lease.assertOwned();
     const saved = await this.store.saveFinancialStatements({
@@ -925,15 +1068,22 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  /**
+   * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill
+   * from before the warm-up existed must not be read as proof that `h30:w7` is already retained.
+   * The mapping version is unchanged because the provider mapping itself did not change.
+   */
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
     const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
-    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}`;
+    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
   }
 
+  /** Request capacity must cover the retained years plus the existing safety tails. */
   private fundamentalsBackfillLimit(cadence: FinancialStatementCadence): number {
+    const retainedYears = this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
     return cadence === QUARTERLY_CADENCE
-      ? this.historyYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
-      : this.historyYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
+      ? retainedYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
+      : retainedYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
   }
 
   private fundamentalsRefreshLimit(cadence: FinancialStatementCadence): number {
@@ -1078,6 +1228,28 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  /**
+   * Internal retention range for financial statements: the canonical history plus valuation
+   * warm-up, clamped to a known listing date.
+   *
+   * This is deliberately separate from `canonicalTarget`: widening that would change price, cache
+   * and API semantics. Only statement backfill, publication and the rebuild's revision read use
+   * this wider range, and no derived row is ever produced for a warm-up year.
+   */
+  private fundamentalsTarget(security: Security): Required<DateRange> {
+    const today = this.today();
+    const retentionStart = subtractYears(
+      today,
+      this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
+    );
+    return {
+      from: security.ipoDate
+        ? maxDate(retentionStart, security.ipoDate)
+        : retentionStart,
+      to: today,
+    };
+  }
+
   private weeklyHistoryContext(
     security: Security,
     target: Required<DateRange>,
@@ -1160,19 +1332,24 @@ function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
 }
 
 /**
- * Point-in-time guard shared by both intrinsic projections.
+ * Point-in-time eligibility of one already-resolved provenance instant.
  *
- * Materialization only writes eligible values, so this is a defensive assertion of the
- * no-look-ahead invariant rather than the primary filter.
+ * Provenance is per intrinsic model, so this is applied independently per model and per blend
+ * rather than once per row: on the same trading day one model can be eligible at a cutoff while
+ * another, whose inputs were published later, is not.
  */
-function isIntrinsicVisible(row: DailyDerivedState, asOf?: string): boolean {
+function isSourceVisible(
+  row: DailyDerivedState,
+  sourceDataAsOf: string | undefined,
+  asOf?: string,
+): boolean {
   if (asOf && row.date > asOf) {
     return false;
   }
-  if (!row.intrinsicSourceDataAsOf) {
+  if (!sourceDataAsOf) {
     return false;
   }
-  return row.intrinsicSourceDataAsOf <= endOfLocalDate(asOf ?? row.date);
+  return sourceDataAsOf <= endOfLocalDate(asOf ?? row.date);
 }
 
 function toIntrinsicValuePoints(
@@ -1180,26 +1357,27 @@ function toIntrinsicValuePoints(
   query: IntrinsicValueQuery,
 ): IntrinsicValuePoint[] {
   const models = query.models ?? INTRINSIC_VALUE_MODELS;
-  return rows.flatMap((row) => {
-    if (!isIntrinsicVisible(row, query.asOf)) {
-      return [];
-    }
-    return models.flatMap((model) => {
+  return rows.flatMap((row) =>
+    models.flatMap((model) => {
       const valuePerShare = row.intrinsicValues?.[model];
-      return valuePerShare === undefined || !row.intrinsicCurrency
+      // A model's own provenance is mandatory: a value without it is never point-in-time readable.
+      const sourceDataAsOf = intrinsicModelSourceAsOf(row, model);
+      return valuePerShare === undefined ||
+        !row.intrinsicCurrency ||
+        !isSourceVisible(row, sourceDataAsOf, query.asOf)
         ? []
         : [
             {
               securityId: row.securityId,
               valuationDate: row.date,
-              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              sourceDataAsOf: sourceDataAsOf as string,
               model,
               valuePerShare,
               currency: row.intrinsicCurrency,
             },
           ];
-    });
-  });
+    }),
+  );
 }
 
 function toIntrinsicValueBlendPoints(
@@ -1207,26 +1385,28 @@ function toIntrinsicValueBlendPoints(
   query: IntrinsicValueBlendQuery,
 ): IntrinsicValueBlendPoint[] {
   const blendIds = query.blendIds ?? INTRINSIC_VALUE_BLEND_IDS;
-  return rows.flatMap((row) => {
-    if (!isIntrinsicVisible(row, query.asOf)) {
-      return [];
-    }
-    return blendIds.flatMap((blendId) => {
+  return rows.flatMap((row) =>
+    blendIds.flatMap((blendId) => {
       const valuePerShare = row.intrinsicValueBlends?.[blendId];
-      return valuePerShare === undefined || !row.intrinsicCurrency
+      // Derived, not stored: the maximum provenance of the models composing this blend, defined
+      // only when every required component value and provenance is present. Never renormalized.
+      const sourceDataAsOf = blendSourceDataAsOf(row, blendId);
+      return valuePerShare === undefined ||
+        !row.intrinsicCurrency ||
+        !isSourceVisible(row, sourceDataAsOf, query.asOf)
         ? []
         : [
             {
               securityId: row.securityId,
               valuationDate: row.date,
-              sourceDataAsOf: row.intrinsicSourceDataAsOf as string,
+              sourceDataAsOf: sourceDataAsOf as string,
               blendId,
               valuePerShare,
               currency: row.intrinsicCurrency,
             },
           ];
-    });
-  });
+    }),
+  );
 }
 
 function subtractYears(value: string, years: number): string {

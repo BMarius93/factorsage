@@ -11,6 +11,7 @@ import {
   InMemoryLoadCoordinator,
   NullStockDataCache,
 } from "@intrinsic/stock-data";
+import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -22,6 +23,9 @@ import {
   STOCK_DATA_COORDINATOR,
   STOCK_DATA_PROVIDER,
 } from "./stock-data.tokens";
+
+// Before PrismaService constructs its client during Nest module compilation.
+useTestDatabase();
 
 const runtimeToday = new Date().toISOString().slice(0, 10);
 const runtimeHistoryStart = (() => {
@@ -170,18 +174,26 @@ describe("Stock Details API", () => {
           securityId: security.id,
           date: new Date("2025-10-01T00:00:00.000Z"),
           dcfFcff: 141,
+          residualIncome: 130,
+          graham: 125,
           blendBalanced: 136,
-          intrinsicSourceDataAsOf: new Date("2025-10-01T14:00:00.000Z"),
+          // Per-model provenance: the blend's own sourceDataAsOf is the max of its components.
+          dcfFcffSourceAsOf: new Date("2025-10-01T14:00:00.000Z"),
+          residualIncomeSourceAsOf: new Date("2025-09-15T14:00:00.000Z"),
+          grahamSourceAsOf: new Date("2025-08-20T14:00:00.000Z"),
           intrinsicCurrency: "USD",
         },
         {
           securityId: security.id,
           date: new Date("2025-11-03T00:00:00.000Z"),
           dcfFcff: 141,
+          residualIncome: 130,
           graham: 125,
           blendBalanced: 136,
           blendConservative: 125,
-          intrinsicSourceDataAsOf: new Date("2025-11-03T14:00:00.000Z"),
+          dcfFcffSourceAsOf: new Date("2025-11-03T14:00:00.000Z"),
+          residualIncomeSourceAsOf: new Date("2025-09-15T14:00:00.000Z"),
+          grahamSourceAsOf: new Date("2025-10-20T14:00:00.000Z"),
           intrinsicCurrency: "USD",
         },
         {
@@ -322,7 +334,9 @@ describe("Stock Details API", () => {
         point.valuationDate,
       ),
     ).toEqual(["2025-10-01", "2025-11-03"]);
+    // DCF's own provenance, not the newest instant on the row.
     expect(response.body[0].sourceDataAsOf).toBe("2025-10-01T14:00:00.000Z");
+    expect(response.body[1].sourceDataAsOf).toBe("2025-11-03T14:00:00.000Z");
     expect(response.body[0].valuePerShare).toBe(141);
     expect(response.body[0]).not.toHaveProperty("calculationVersion");
   });
@@ -355,11 +369,14 @@ describe("Stock Details API", () => {
         valuationDate: "2025-10-01",
         blendId: "BALANCED",
         valuePerShare: 136,
+        // max(DCF 10-01, RI 09-15, Graham 08-20)
+        sourceDataAsOf: "2025-10-01T14:00:00.000Z",
       }),
       expect.objectContaining({
         valuationDate: "2025-11-03",
         blendId: "BALANCED",
         valuePerShare: 136,
+        sourceDataAsOf: "2025-11-03T14:00:00.000Z",
       }),
     ]);
     expect(response.body[0]).not.toHaveProperty("blendVersion");

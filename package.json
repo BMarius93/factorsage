@@ -26,6 +26,7 @@
     "db:validate": "pnpm --filter @intrinsic/database prisma:validate",
     "db:migrate:dev": "pnpm --filter @intrinsic/database prisma:migrate:dev",
     "db:migrate:deploy": "pnpm --filter @intrinsic/database prisma:migrate:deploy",
+    "db:test:prepare": "DATABASE_URL=\"${TEST_DATABASE_URL:?Set TEST_DATABASE_URL to the dedicated test database URL, e.g. postgresql://user:pass@localhost:5432/intrinsic_value_test}\" pnpm --filter @intrinsic/database prisma:migrate:deploy",
     "db:status": "pnpm --filter @intrinsic/database prisma:migrate:status",
     "db:pull": "pnpm --filter @intrinsic/database prisma:db:pull",
     "db:studio": "pnpm --filter @intrinsic/database prisma:studio",

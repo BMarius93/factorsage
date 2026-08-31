@@ -60,6 +60,12 @@ Security discovery uses `stock-data:load:hydrate:symbol:<NORMALIZED_SYMBOL>` unt
 Security ID exists. Full hydration and freshness then use
 `stock-data:load:hydrate:<securityId>`. Caller ranges and datasets are never part of lock identity.
 
+A cached `symbol -> Security` identity is authoritative only while that stock's cache generation
+is READY. Outside a READY generation the identity is re-resolved from PostgreSQL, and only then
+from the provider, because PostgreSQL owns identity and Redis is disposable. Serving a cached
+identity unconditionally allowed a deleted Security to survive in Redis and made every dependent
+write fail on its foreign key instead of recovering.
+
 Redlock uses a finite renewable lease (`STOCK_DATA_LOAD_LOCK_MS`, 30 seconds by default) and an
 independent finite acquisition window (`STOCK_DATA_LOCK_WAIT_MS`, 120 seconds by default).
 Automatic extension is proportional to the lease, and ownership assertions occur before
@@ -158,6 +164,15 @@ Intrinsic and blend reads require both `valuationDate <= asOf` and
 `sourceDataAsOf <= endOf(asOf)`. When `to` and `asOf` are present, the valuation upper bound is
 `min(to, asOf)`.
 
+`sourceDataAsOf` is per intrinsic-value model, not per row: each model has its own provenance
+column and the cutoff is evaluated independently per model, so one model on a daily row can be
+eligible while another on the same row is withheld. No model is ever delayed to the newest
+provenance instant on its row, and a model value without its own provenance is never returned.
+
+A blend's `sourceDataAsOf` is derived as the maximum provenance of the models composing it and is
+never persisted. A blend is returned only when every required component value and component
+provenance is present and eligible at the cutoff.
+
 Intrinsic values and blends are read directly from the materialized daily state: there is exactly
 one current row per `(securityId, date)`, so no version selection or read-time reconstruction from
 sparse valuation events happens. A blend that was never materialized is absent; the reader must not
@@ -171,5 +186,32 @@ LRU ordering, separate Redlock coordinators waiting beyond the old short retry w
 release, monotonic 120-second provider cooldown, transactional coverage compaction/concurrency, and
 rate-window-boundary backlog admission. They also prove abandoned HYDRATING generations self-clean,
 READY generations persist, the durable daily derived state survives Redis re-admission without
-another derived rebuild, and two service instances perform one canonical FMP delta. Live AAPL
-profile, split-adjusted history, SMA, and EMA checks remain opt-in through `test:live`.
+another derived rebuild, and two service instances perform one canonical FMP delta.
+
+A cross-layer infrastructure suite additionally drives the assembled system over real HTTP:
+Nest routes, `CanonicalStockDataService`, PostgreSQL, `RedisStockDataCache`, and
+`RedlockLoadCoordinator`, with only the FMP provider boundary replaced by deterministic
+fixtures. Each scenario is asserted on all three surfaces — HTTP response, PostgreSQL through
+Prisma, and Redis keys — because a 200 response alone does not establish durable or cached
+state. It covers:
+
+- cold hydration and repeated requests projecting one canonical state;
+- process restart against the same PostgreSQL and Redis, proving no dependence on process memory;
+- complete and partial Redis loss, proving Redis is disposable and rebuilt from PostgreSQL
+  without provider traffic;
+- recovery when a cached identity outlives its Security row;
+- the point-in-time intrinsic lifecycle: first eligibility, weekend availability taking effect on
+  the next trading day, later revisions changing valuations only from their own eligibility,
+  invalidation and restoration of a model, carry-forward between events, and per-model and blend
+  provenance;
+- price-only, fundamentals-only, and combined refresh cycles converging on one derived row per
+  trading day with republication limited to affected years.
+
+The suite runs against a dedicated test database supplied through `TEST_DATABASE_URL` and a
+randomized Redis namespace, and removes only what it created.
+
+Live checks remain opt-in through `test:live`: AAPL profile, split-adjusted history, SMA/EMA,
+and intrinsic model values and canonical blends. They assert sanity and point-in-time invariants
+— finite positive values, consistent currency, provenance never later than the valuation day,
+blends equal to their weighted components, PostgreSQL and Redis agreeing on the latest daily
+state, and a second request issuing no historical backfill — never exact provider numbers.

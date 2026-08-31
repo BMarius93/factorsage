@@ -136,7 +136,24 @@ pnpm db:generate
 pnpm db:validate
 ```
 
-8. Run repository quality checks:
+8. Apply migrations to the development database. The applications and tests assume a
+   migrated schema; nothing migrates it implicitly:
+
+```bash
+pnpm db:migrate:deploy
+```
+
+9. Create and migrate the dedicated test database (see [Test databases](#test-databases)):
+
+```bash
+docker compose exec -T postgres createdb -U intrinsic intrinsic_value_test
+TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/intrinsic_value_test \
+  pnpm db:test:prepare
+```
+
+Add the same `TEST_DATABASE_URL` line to your `.env` so test runs pick it up.
+
+10. Run repository quality checks:
 
 ```bash
 pnpm lint
@@ -145,7 +162,7 @@ pnpm test
 pnpm build
 ```
 
-9. Start local applications in separate terminals:
+11. Start local applications in separate terminals:
 
 ```bash
 pnpm dev:web
@@ -153,7 +170,7 @@ pnpm dev:api
 pnpm dev:worker
 ```
 
-10. Verify pnpm is available in your selected Node runtime:
+12. Verify pnpm is available in your selected Node runtime:
 
 ```bash
 pnpm --version
@@ -253,8 +270,39 @@ pnpm test
 pnpm build
 ```
 
-The auth slice includes PostgreSQL-backed API integration tests. Start infrastructure before
-running the full test gate locally.
+Start infrastructure (`pnpm infra:up`) and apply migrations before running the gate locally:
+several suites are backed by real PostgreSQL and Redis.
+
+### Test databases
+
+`DATABASE_URL` is the development database and is never written to by tests.
+
+Every PostgreSQL-backed suite — auth, stock API, and stock-data persistence — resolves its
+connection through `TEST_DATABASE_URL`, a dedicated database such as `intrinsic_value_test`.
+They share one helper, `useTestDatabase()` from `@intrinsic/testing`, which refuses to run
+without it. There is deliberately no fallback to `DATABASE_URL`, so an accidental run cannot
+write fixtures into development data, and a `TEST_DATABASE_URL` equal to `DATABASE_URL` is
+refused unless `CI=true`. `pnpm db:test:prepare` runs `prisma migrate deploy` against
+`TEST_DATABASE_URL`; it never resets or drops a database. CI points `TEST_DATABASE_URL` at its
+own throwaway database, the only place the two URLs may match.
+
+Redis needs no separate instance: every suite uses a randomized key namespace, cleans up only
+the keys it created, and never flushes.
+
+### Test suites
+
+- `pnpm test` — the default gate. Deterministic; no `FMP_API_KEY` required, but
+  `TEST_DATABASE_URL` must be set because it includes PostgreSQL-backed suites.
+- `pnpm --filter @intrinsic/api test:infrastructure` — the cross-layer stock API suite
+  (HTTP → Nest → PostgreSQL → Redis → Redlock) with only the FMP provider boundary faked.
+  It is part of `pnpm test`.
+- `pnpm --filter @intrinsic/stock-data test:redis` — real-Redis stock-data integration tests.
+- `pnpm --filter @intrinsic/api test:live` — opt-in live FMP smoke tests. Excluded from
+  `pnpm test` and from CI. Requires `RUN_LIVE_FMP_TESTS=1`, `FMP_API_KEY`, and a
+  `TEST_DATABASE_URL` that differs from `DATABASE_URL`. It asserts invariants only, never
+  exact provider values.
+
+`ai/workflows/validation.md` holds the detailed testing workflow.
 
 ## Rewrite order
 

@@ -233,6 +233,34 @@ interestPaid
 
 Use explicit TypeScript field catalogs/unions so the JSON payload remains canonical and typed without creating ~120 provider-shaped Prisma columns.
 
+## Verified provider value semantics
+
+These conventions were verified against current real FMP statement data and are now the pinned
+contract for every consumer of `FinancialStatement.values`. They are provider semantics, not
+product methodology.
+
+1. `capitalExpenditure` is a **signed cash-flow outflow** and is negative in the normal cases
+   inspected.
+2. FMP's own `freeCashFlow` satisfies `freeCashFlow = operatingCashFlow + capitalExpenditure`,
+   precisely because `capitalExpenditure` is already negative. It is an addition, not a
+   subtraction.
+3. `commonDividendsPaid` and `netDividendsPaid` are **signed cash outflows** and are negative in
+   the normal dividend-paying cases inspected.
+4. `changeInWorkingCapital` is already the **signed cash-flow contribution** used in the cash-flow
+   statement and may be positive or negative. It must never be treated as a conventional positive
+   delta-NWC and subtracted again; its effect is already inside `operatingCashFlow`.
+5. `interestExpense` is a **positive expense magnitude** when FMP reports it separately on the
+   income statement.
+6. `period=quarter` rows are **standalone** `Q1`-`Q4` rows, not cumulative YTD rows. Current FMP
+   MSFT FY2026 quarterly values sum exactly to the `FY` row for revenue, net income, operating
+   cash flow, capital expenditure, `changeInWorkingCapital` and `commonDividendsPaid`.
+
+The mapper does not normalize any of this. Provider values stay canonical exactly as supplied:
+signs are preserved, `freeCashFlow` is never recalculated, zero stays zero, and no cadence is
+converted or aggregated. Financial calculations interpret the convention explicitly at the point
+of use. These rules are locked by
+`packages/fmp/src/mapping.test.ts` in `describe("FMP financial statement value semantics")`.
+
 ## Persistence
 
 Prefer one durable `FinancialStatement` model rather than three almost-identical tables.
@@ -351,22 +379,58 @@ CASH_FLOW
 State variants must distinguish cadence, mapping version, and configured horizon because these endpoints cannot prove arbitrary date-range coverage:
 
 ```text
-standard:quarter:v1:h<historyYears>
-standard:annual:v1:h<historyYears>
+standard:quarter:v<mappingVersion>:h<historyYears>:w<warmupYears>
+standard:annual:v<mappingVersion>:h<historyYears>:w<warmupYears>
 ```
+
+The variant encodes the retention policy as well as the horizon: an older successful `h30` state
+must not be read as proof that the wider `h30:w7` retention has already been backfilled. The
+mapping version changes only when the provider mapping itself changes.
 
 A successfully persisted state row for a variant means the full configured backfill request completed, including a successful empty response. Failed/partial attempts must not advance the successful state.
 
-### Initial backfill
+### Valuation warm-up retention
 
-If the cadence-specific state variant does not exist, fetch the configured horizon using bounded record counts:
+Fundamentals are retained for `VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7` fiscal years **before** the
+visible history:
 
 ```text
-quarter limit = historyYears * 4 + 8
-annual limit  = historyYears + 2
+price / derived / API / backtest target = [today - historyYears, today]
+fundamentals retention target           = [today - historyYears - 7, today]
 ```
 
-Apply the existing canonical horizon after mapping: discard fiscal rows older than the configured horizon / known listing boundary when appropriate.
+Both are clamped to a known IPO/listing date. The warm-up exists only so that a valuation on the
+**first visible trading day** already has a point-in-time eligible four-quarter TTM window and the
+exact `N` / `N - 5` annual growth endpoints; without it the earliest ~1.5 years would carry no
+intrinsic values and the first ~6 years would fall back to `DEFAULT_GROWTH`.
+
+Rules:
+
+- visible stock, derived-state, API projection and backtest history remain exactly `historyYears`;
+  no `DailyDerivedState` row is ever produced for a warm-up year, because daily materialization
+  uses only the visible price trading dates;
+- `canonicalTarget` stays the user-visible price/derived target. A separate internal
+  `fundamentalsTarget` is used only for statement backfill, statement publication and the derived
+  rebuild's revision read;
+- public `getFinancialStatements` stays bounded to the visible range: the extra years are internal
+  valuation context, not newly exposed product history;
+- retention is a loader guarantee, not a data guarantee. The provider may still not have those
+  older statements, in which case a model is naturally unavailable or growth falls back exactly as
+  the valuation methodology documents.
+
+### Initial backfill
+
+If the cadence-specific state variant does not exist, fetch the retained horizon using bounded
+record counts. Capacity covers the visible years plus the warm-up years, keeping the existing
+safety tails:
+
+```text
+quarter limit = (historyYears + warmupYears) * 4 + 8
+annual limit  = (historyYears + warmupYears) + 2
+```
+
+Apply the fundamentals retention horizon after mapping: discard fiscal rows older than
+`today - historyYears - warmupYears` / the known listing boundary when appropriate.
 
 There are six source requests for a complete initial fundamentals backfill:
 

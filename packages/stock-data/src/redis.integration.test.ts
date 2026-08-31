@@ -12,6 +12,7 @@ import {
   FmpTransientError,
   type FmpStockProviderPort,
 } from "@intrinsic/fmp";
+import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
@@ -29,10 +30,12 @@ import { PrismaStockDataStore } from "./prisma-store.js";
 import { CanonicalStockDataService } from "./service.js";
 
 loadRootEnv();
+// PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
+// database rather than DATABASE_URL. Redis stays isolated by namespace, not by instance.
+useTestDatabase();
 const redisUrl = process.env.REDIS_URL;
 const describeRedis = redisUrl ? describe : describe.skip;
-const describeInfrastructure =
-  redisUrl && process.env.DATABASE_URL ? describe : describe.skip;
+const describeInfrastructure = redisUrl ? describe : describe.skip;
 
 describeRedis("real Redis stock-data infrastructure", () => {
   const suffix = randomUUID();
@@ -121,6 +124,47 @@ describeRedis("real Redis stock-data infrastructure", () => {
     await expect(cacheA.getManifest(securityId)).resolves.toMatchObject({
       status: "READY",
     });
+  });
+
+  it("round-trips intrinsic fields through the shared daily-state chunks without new keys", async () => {
+    // Its own security id, so the shared generation/LRU state of the other cases cannot interfere.
+    const securityId = `security-${randomUUID()}`;
+    const rows = [
+      {
+        securityId,
+        date: "2026-08-20",
+        sma20d: 121.5,
+        intrinsicValues: { DCF_FCFF: 178.8977101328, GRAHAM: 148 },
+        intrinsicValueBlends: { BALANCED: 148.8039930756 },
+        dcfFcffSourceAsOf: "2026-01-05T00:00:00.000Z",
+        grahamSourceAsOf: "2025-11-02T00:00:00.000Z",
+        intrinsicCurrency: "USD",
+      },
+      { securityId, date: "2026-08-21", sma20d: 122 },
+    ];
+
+    try {
+      await cacheA.writeDailyDerivedStateYears(securityId, rows, [2026]);
+      await cacheA.setManifest(readyManifest(securityId));
+
+      // The unified daily-state chunk carries intrinsic fields through the existing serialization.
+      await expect(
+        cacheB.readDailyDerivedState(securityId, {
+          from: "2026-08-20",
+          to: "2026-08-21",
+        }),
+      ).resolves.toEqual(rows);
+      // No separate intrinsic dataset or key family is introduced.
+      const keys = await redisA.smembers(
+        `${namespace}:security:${securityId}:keys`,
+      );
+      expect(
+        keys.filter((key) => /intrinsic|valuation|blend/i.test(key)),
+      ).toEqual([]);
+      expect(keys.some((key) => key.includes(":daily-state:2026"))).toBe(true);
+    } finally {
+      await cacheA.evict(securityId);
+    }
   });
 
   it("stores immutable financial revisions in yearly chunks and preserves asOf selection", async () => {
@@ -1328,7 +1372,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           residualIncome: 80,
           graham: 60,
           blendBalanced: 86,
-          intrinsicSourceDataAsOf: new Date("2025-02-03T12:00:00.000Z"),
+          // BALANCED components each carry their own provenance; the blend derives the max.
+          dcfFcffSourceAsOf: new Date("2025-02-03T12:00:00.000Z"),
+          residualIncomeSourceAsOf: new Date("2025-01-28T12:00:00.000Z"),
+          grahamSourceAsOf: new Date("2025-01-20T12:00:00.000Z"),
           intrinsicCurrency: "USD",
         })),
       });
@@ -1360,6 +1407,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
       // The same eligible blend repeated per trading day is intentional materialization.
       expect(blends.map((point) => point.valuationDate)).toEqual(dates);
       expect(blends.map((point) => point.valuePerShare)).toEqual([86, 86, 86]);
+      expect(blends.map((point) => point.sourceDataAsOf)).toEqual(
+        dates.map(() => "2025-02-03T12:00:00.000Z"),
+      );
       expect(blends[0]).not.toHaveProperty("blendVersion");
       expect(blends[0]).not.toHaveProperty("calculationVersion");
     } finally {

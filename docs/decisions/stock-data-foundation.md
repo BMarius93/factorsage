@@ -148,6 +148,9 @@ Rules that later work must not reverse:
    derived weekly *indicator* values are carried forward daily.
 7. An absent value means not yet eligible or insufficient warm-up. Never write zero, and never
    back-fill a value before its first eligible trading day.
+8. Point-in-time provenance is per intrinsic-value model (one nullable timestamp column per
+   model), and blend provenance is derived from its components rather than stored. Provenance is
+   column data only; it never becomes an identity, version, or history dimension.
 
 Methodology changes are handled by an explicit rebuild, not by version history. The
 `DERIVED_STATE_REVISION` constant is recorded only in the dataset-state/coverage variant and in the
@@ -169,6 +172,58 @@ indicator table.
 Each intrinsic-value result records `sourceDataAsOf`. Implementations must only use information that was public by that point in time.
 
 `sourceDataAsOf` is the latest publication/availability instant among the inputs actually used by the calculation. It is an audit/no-look-ahead field, not merely the fiscal period end date.
+
+### FCFF input convention (not yet implemented)
+
+The verified FMP sign conventions in `fundamentals-loader.md` fix how FCFF inputs will be
+assembled once the methodology is decided. Recording the convention now prevents a sign error
+later; no formula, growth assumption, or TTM assembly is implemented by this decision.
+
+```text
+FCFF_TTM input construction =
+    operatingCashFlow_TTM
+  + capitalExpenditure_TTM        // already signed negative; this is an addition
+  + after-tax interest expense
+```
+
+Rules that follow from the provider semantics:
+
+- `capitalExpenditure` is added, never subtracted, because FMP already reports it negative.
+- `changeInWorkingCapital` must **not** appear in this construction. Its effect is already
+  contained in `operatingCashFlow`, and the FMP field is the signed cash-flow contribution rather
+  than a conventional positive delta-NWC.
+- `interestExpense` is a positive magnitude, so the after-tax add-back is
+  `interestExpense * (1 - effectiveTaxRate)`.
+- FMP's `freeCashFlow` is a reconciliation/cross-check value, not the primary FCFF input.
+
+### Provenance is per model, not per row
+
+Point-in-time provenance belongs to the individual model. Models may consume different
+financial-statement families/revisions, so their inputs can become public at different instants.
+`DailyDerivedState` therefore carries one nullable provenance timestamp per model:
+
+- `dcfFcffSourceAsOf`
+- `residualIncomeSourceAsOf`
+- `ddmSourceAsOf`
+- `grahamSourceAsOf`
+
+A single row-level `intrinsicSourceDataAsOf` is explicitly rejected: it would delay every model on
+the row to the newest source instant. There are no provenance rows or provenance tables; row
+identity remains exactly `(securityId, date)`, `intrinsicCurrency` stays shared, and no
+calculation version or methodology history is introduced.
+
+Read rules:
+
+1. A model response's `sourceDataAsOf` comes from that model's own provenance column.
+2. The `asOf` cutoff is applied independently per model. On the same daily row, a model whose
+   inputs were public by the cutoff is returned while a later-sourced model on that row is not.
+   For example, with `grahamSourceAsOf = 2026-04-21` and `dcfFcffSourceAsOf = 2026-05-02`, a query
+   at `asOf = 2026-04-25` may return `GRAHAM` and must not return `DCF_FCFF`.
+3. A model value with no provenance instant is never returned. A materialized value is only
+   point-in-time readable together with its own provenance.
+
+The V1 formulas, constants, growth methodology, availability rules and golden vectors for these
+models are locked in `intrinsic-value-engine.md`.
 
 Intrinsic-value formulas need to be recalculated only when a relevant PIT input becomes newly eligible or the calculation methodology/version changes. However, the resulting latest eligible value is materialized onto every trading day from its first eligible trading day until the next valuation event. Backtests therefore read a daily intrinsic-value series directly from storage/cache rather than performing sparse-event resolution themselves.
 
@@ -198,6 +253,22 @@ Blend weights must sum to 1. A change to weights creates a new blend version rat
 A missing/not-applicable component must be handled explicitly. For example, DDM may be unavailable for a company that does not pay a meaningful dividend. The implementation must not silently pull a future component value, substitute another model, or renormalize weights unless a later product decision explicitly defines that behavior.
 
 Eligible blend results follow the same daily materialization policy as individual intrinsic-value models: the latest valid PIT blend value is stored on each trading day until its component state changes.
+
+### Blend provenance is derived, never stored
+
+Blends do not get their own provenance columns. A materialized blend's `sourceDataAsOf` is derived
+as the maximum provenance of the models that actually compose it:
+
+```text
+BALANCED     = max(dcfFcffSourceAsOf, residualIncomeSourceAsOf, grahamSourceAsOf)
+CONSERVATIVE = max(dcfFcffSourceAsOf, residualIncomeSourceAsOf, grahamSourceAsOf)
+DIVIDEND     = max(dcfFcffSourceAsOf, ddmSourceAsOf, residualIncomeSourceAsOf)
+```
+
+A blend is only point-in-time eligible when every required component value **and** every required
+component provenance timestamp is present and eligible at the requested `asOf` cutoff. A missing
+component value or a missing component provenance makes the blend unavailable; weights are never
+renormalized, and no component is ever substituted.
 
 ## Dataset state
 
