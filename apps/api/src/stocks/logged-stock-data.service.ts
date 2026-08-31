@@ -8,6 +8,7 @@ import type {
   IntrinsicValuePoint,
   IntrinsicValueQuery,
   Security,
+  SecuritySearchQuery,
   StockDetails,
   StockDataService,
   DailyPrice,
@@ -29,6 +30,23 @@ export class LoggedStockDataService implements StockDataService {
     return this.execute("getSecurity", symbol, () =>
       this.delegate.getSecurity(symbol),
     );
+  }
+
+  async searchSecurities(query: SecuritySearchQuery): Promise<Security[]> {
+    const startedAt = Date.now();
+    try {
+      return await this.delegate.searchSecurities(query);
+    } catch (err) {
+      this.logger.error({
+        event: "stock.search.failed",
+        operation: "searchSecurities",
+        // The raw term is user input, not credentials; its length alone would hide the cause.
+        query: query.term.trim(),
+        durationMs: Date.now() - startedAt,
+        err,
+      });
+      throw err;
+    }
   }
 
   getStockDetails(symbol: string, range?: DateRange): Promise<StockDetails> {

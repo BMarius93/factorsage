@@ -1,6 +1,7 @@
 import type {
   DailyPrice,
   DateRange,
+  SecurityListingCandidate,
   FinancialStatementCadence,
   FinancialStatementDraft,
   FinancialStatementType,
@@ -39,6 +40,33 @@ export type FmpProfileDto = {
   city?: unknown;
   state?: unknown;
   zip?: unknown;
+};
+
+/**
+ * One row of the bulk company screener, which is the only stable FMP endpoint that returns the
+ * whole listed universe together with the equity/exchange discriminators the catalog needs.
+ * The unused screener fields (market cap, beta, price, volume, dividend) are deliberately absent:
+ * catalog synchronization carries identity only, never market data.
+ */
+export type FmpStockUniverseDto = {
+  symbol?: unknown;
+  companyName?: unknown;
+  /** Full venue name, e.g. "NASDAQ Global Select". */
+  exchange?: unknown;
+  /** Short venue code, e.g. "NASDAQ". This is the code the catalog stores. */
+  exchangeShortName?: unknown;
+  country?: unknown;
+  sector?: unknown;
+  industry?: unknown;
+  isEtf?: unknown;
+  isFund?: unknown;
+  isActivelyTrading?: unknown;
+};
+
+/** A universe row paired with the provider identity the catalog upserts on. */
+export type MappedFmpSecurityListing = {
+  providerSymbol: string;
+  listing: SecurityListingCandidate;
 };
 
 export type FmpDailyPriceDto = {
@@ -238,6 +266,47 @@ export function mapFmpProfile(dto: FmpProfileDto): MappedFmpProfile {
   };
 }
 
+/**
+ * Maps bulk universe rows, dropping only rows that carry no usable symbol or name.
+ *
+ * Product admission (stock-only, supported exchange) is not decided here: that is a domain policy,
+ * and the provider package must not own it.
+ */
+export function mapFmpStockUniverse(
+  rows: readonly FmpStockUniverseDto[],
+): MappedFmpSecurityListing[] {
+  const listings: MappedFmpSecurityListing[] = [];
+  for (const row of rows) {
+    const symbol = optionalString(row.symbol)?.toUpperCase();
+    const name = optionalString(row.companyName);
+    if (!symbol || !name) {
+      continue;
+    }
+    const exchangeName = optionalString(row.exchange);
+    const country = optionalString(row.country);
+    const sector = optionalString(row.sector);
+    const industry = optionalString(row.industry);
+    listings.push({
+      providerSymbol: symbol,
+      listing: {
+        symbol,
+        name,
+        exchangeCode: optionalString(row.exchangeShortName) ?? "",
+        ...(exchangeName ? { exchangeName } : {}),
+        ...(country ? { country } : {}),
+        ...(sector ? { sector } : {}),
+        ...(industry ? { industry } : {}),
+        isEtf: boolean(row.isEtf, false),
+        isFund: boolean(row.isFund, false),
+        // A universe row that omits the flag is assumed tradable; only an explicit `false`
+        // deactivates a catalog entry.
+        isActivelyTrading: boolean(row.isActivelyTrading, true),
+      },
+    });
+  }
+  return listings;
+}
+
 export function mapFmpDailyPrices(
   securityId: string,
   rows: readonly FmpDailyPriceDto[],
@@ -292,6 +361,18 @@ export function mapFmpFinancialStatements<T extends FinancialStatementType>(inpu
     fields: statementFields(input.statementType),
   });
 }
+
+/**
+ * Bulk catalog capability, kept separate from {@link FmpStockProviderPort}.
+ *
+ * Catalog synchronization is an admin write path with one caller; the per-stock read path has
+ * several implementations and fakes. Splitting the ports keeps each side depending only on what
+ * it actually uses.
+ */
+export type FmpSecurityCatalogPort = {
+  /** Every listing on one exchange. Never one request per symbol. */
+  getStockUniverse(exchangeCode: string): Promise<MappedFmpSecurityListing[]>;
+};
 
 export type FmpStockProviderPort = {
   getProfile(symbol: string): Promise<MappedFmpProfile | null>;

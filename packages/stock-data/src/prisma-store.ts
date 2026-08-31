@@ -34,8 +34,13 @@ import {
   WEEKLY_PRICE_VARIANT,
   type PersistedDatasetState,
   type PersistedStockDataset,
+  type PersistedSecurityCatalogEntry,
+  type SecurityCatalogEntry,
   type StockDataStore,
 } from "./ports.js";
+
+/** Bind-parameter-safe page size for reading existing catalog rows during a full-universe sync. */
+const SECURITY_CATALOG_READ_CHUNK = 1_000;
 
 const INTRINSIC_MODEL_COLUMNS = {
   DCF_FCFF: "dcfFcff",
@@ -379,22 +384,111 @@ export class PrismaStockDataStore implements StockDataStore {
     return row ? mapSecurity(row) : null;
   }
 
-  async saveSecurityProfile(
-    mapped: MappedFmpProfile,
-    syncedAt: string,
-  ): Promise<{ security: Security; profile: SecurityProfile }> {
-    return this.prisma.$transaction(async (transaction) => {
-      const security = await transaction.security.upsert({
-        where: { providerSymbol: mapped.providerSymbol },
-        create: {
-          providerSymbol: mapped.providerSymbol,
-          ...mapped.security,
-          ...(mapped.security.ipoDate
-            ? { ipoDate: toDatabaseDate(mapped.security.ipoDate) }
-            : {}),
-          type: SecurityType[mapped.security.type],
+  async searchSecurities(input: {
+    term: string;
+    limit: number;
+  }): Promise<Security[]> {
+    const term = input.term.trim();
+    if (term === "") {
+      return [];
+    }
+
+    // Symbol matching is prefix-only: an infix symbol match ("PL" in "AAPL") is noise, whereas an
+    // infix name match ("micro" in "Advanced Micro Devices") is how people actually recall names.
+    const rows = await this.prisma.security.findMany({
+      where: {
+        OR: [
+          { symbol: { startsWith: term, mode: "insensitive" } },
+          { name: { contains: term, mode: "insensitive" } },
+        ],
+      },
+      orderBy: [{ symbol: "asc" }],
+      take: input.limit,
+    });
+    return rows.map(mapSecurity);
+  }
+
+  async findSecurityCatalogEntries(
+    providerSymbols: readonly string[],
+  ): Promise<PersistedSecurityCatalogEntry[]> {
+    if (providerSymbols.length === 0) {
+      return [];
+    }
+    const entries: PersistedSecurityCatalogEntry[] = [];
+    // Chunked so a full-universe sync cannot build a single query with thousands of bind
+    // parameters.
+    for (
+      let start = 0;
+      start < providerSymbols.length;
+      start += SECURITY_CATALOG_READ_CHUNK
+    ) {
+      const rows = await this.prisma.security.findMany({
+        where: {
+          providerSymbol: {
+            in: [...providerSymbols.slice(start, start + SECURITY_CATALOG_READ_CHUNK)],
+          },
         },
-        update: {
+      });
+      entries.push(
+        ...rows.map((row) => ({
+          providerSymbol: row.providerSymbol,
+          security: mapSecurity(row),
+        })),
+      );
+    }
+    return entries;
+  }
+
+  async createSecurityCatalogEntries(
+    entries: readonly SecurityCatalogEntry[],
+  ): Promise<number> {
+    if (entries.length === 0) {
+      return 0;
+    }
+    const result = await this.prisma.security.createMany({
+      data: entries.map((entry) => ({
+        providerSymbol: entry.providerSymbol,
+        ...entry.security,
+        type: SecurityType[entry.security.type],
+      })),
+      // A concurrent sync, or a symbol the provider lists twice, must not fail the batch.
+      skipDuplicates: true,
+    });
+    return result.count;
+  }
+
+  async updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<void> {
+    // Only the catalog-owned fields are written. CIK, ISIN, CUSIP, IPO date and ADR status come
+    // from the per-stock profile, and a bulk universe row has none of them to offer.
+    await this.prisma.security.update({
+      where: { providerSymbol: entry.providerSymbol },
+      data: {
+        symbol: entry.security.symbol,
+        name: entry.security.name,
+        exchangeCode: entry.security.exchangeCode,
+        exchangeName: entry.security.exchangeName ?? null,
+        currency: entry.security.currency,
+        country: entry.security.country ?? null,
+        sector: entry.security.sector ?? null,
+        industry: entry.security.industry ?? null,
+        type: SecurityType[entry.security.type],
+        isActivelyTrading: entry.security.isActivelyTrading,
+      },
+    });
+  }
+
+  async saveSecurityProfile(input: {
+    securityId: string;
+    mapped: MappedFmpProfile;
+    syncedAt: string;
+  }): Promise<{ security: Security; profile: SecurityProfile }> {
+    const { mapped, syncedAt } = input;
+    return this.prisma.$transaction(async (transaction) => {
+      // `update`, never `upsert`: profile hydration refines a catalog entry that already exists
+      // and must not be able to create an unknown security behind the catalog's back.
+      const security = await transaction.security.update({
+        where: { id: input.securityId },
+        data: {
           ...mapped.security,
           ipoDate: mapped.security.ipoDate
             ? toDatabaseDate(mapped.security.ipoDate)

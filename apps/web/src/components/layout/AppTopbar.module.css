@@ -108,6 +108,12 @@
   .topbar {
     padding: 0 var(--page-pad-tablet);
   }
+
+  /* The search field grows into the free space from here up, so the brand no longer needs an auto
+     margin to push navigation and account controls to the right. */
+  .brandLink {
+    margin-right: 0;
+  }
 }
 
 @media (min-width: 880px) {

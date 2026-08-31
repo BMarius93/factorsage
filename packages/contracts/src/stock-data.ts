@@ -119,3 +119,34 @@ export type IntrinsicValueBlendHistoryQuery = StockDateRangeQuery & {
   blendIds?: IntrinsicValueBlendIdResponse[];
   asOf?: string;
 };
+
+/**
+ * One row of the global stock search dropdown.
+ *
+ * Deliberately a projection of `SecurityResponse` rather than a parallel DTO: the search surface
+ * only identifies a security so the client can navigate to `/stocks/{symbol}`, and must not grow
+ * into a second stock model.
+ */
+export type StockSearchResultResponse = Pick<
+  SecurityResponse,
+  "symbol" | "name" | "exchangeCode" | "exchangeName"
+>;
+
+/**
+ * Outcome of one admin-triggered synchronization of the supported stock catalog.
+ *
+ * `deactivated` counts rows inside `updated` that stopped trading upstream; it is not a separate
+ * bucket. `received + skipped` do not partition the rest either: `skipped` is the share of
+ * `received` this product does not support, and the remainder resolves to
+ * `created + updated + unchanged + failed`.
+ */
+export type SecurityCatalogSyncResponse = {
+  received: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  deactivated: number;
+  skipped: number;
+  failed: number;
+  durationMs: number;
+};

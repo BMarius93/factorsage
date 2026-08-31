@@ -343,9 +343,23 @@ export type IntrinsicValueBlendQuery = DateRange & {
   asOf?: LocalDate;
 };
 
+/** Free-text identity search over the persisted securities universe. */
+export type SecuritySearchQuery = {
+  /** Raw user input; implementations trim and match case-insensitively. */
+  term: string;
+  /** Maximum rows to return. Implementations apply their own dropdown-sized default. */
+  limit?: number;
+};
+
 /** Canonical stock-data read boundary shared by API Stock Details and worker backtests. */
 export interface StockDataService {
   getSecurity(symbol: string): Promise<Security>;
+  /**
+   * Identity lookup across the locally persisted securities universe, used by the global stock
+   * search. It never reaches the external provider: search runs on every keystroke and must stay a
+   * cheap local read.
+   */
+  searchSecurities(query: SecuritySearchQuery): Promise<Security[]>;
   getStockDetails(symbol: string, range?: DateRange): Promise<StockDetails>;
   getDailyPrices(symbol: string, range: DateRange): Promise<DailyPrice[]>;
   getDailyDerivedState(

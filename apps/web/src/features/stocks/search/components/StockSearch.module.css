@@ -1,0 +1,305 @@
+/*
+ * Two layouts share one component.
+ *
+ * Below 600px the topbar has no room for a real field, so the control is a touch-sized icon that
+ * expands into a search surface spanning the topbar row, with the dropdown full-bleed beneath it.
+ * At 600px and up the field lives inline in the topbar and the dropdown anchors to it.
+ *
+ * The mobile surface positions against the topbar rather than this container, which is why the
+ * container is `static` until the inline layout takes over.
+ */
+
+.search {
+  position: static;
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-width: 0;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.triggerIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.field {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.search[data-expanded="true"] .trigger {
+  display: none;
+}
+
+.search[data-expanded="true"] .field {
+  /* Overlays the topbar row: the sticky topbar is the nearest positioned ancestor. */
+  position: absolute;
+  top: 50%;
+  right: var(--page-pad-mobile);
+  left: var(--page-pad-mobile);
+  z-index: 1;
+  display: flex;
+  transform: translateY(-50%);
+}
+
+.field:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+}
+
+.fieldIcon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-muted);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  color: var(--color-text-primary);
+  background: transparent;
+  font-size: 14px;
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.clear {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-soft);
+}
+
+.clearIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.cancel {
+  flex: none;
+  padding: 0 6px;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: var(--page-pad-mobile);
+  left: var(--page-pad-mobile);
+  z-index: 45;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.groupLabel {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Subtle progress: a hairline that pulses rather than a spinner that grabs attention. */
+.loading {
+  width: 44px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  animation: search-loading 1s ease-in-out infinite;
+}
+
+.options {
+  max-height: min(320px, 50dvh);
+  margin: 4px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: minmax(56px, auto) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 10px;
+  min-height: 44px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.option:hover,
+.option[data-highlighted="true"] {
+  background: var(--color-primary-soft);
+}
+
+.symbol {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exchange {
+  grid-column: 2;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.retry {
+  padding: 0;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trigger:focus-visible,
+.clear:focus-visible,
+.cancel:focus-visible,
+.retry:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@keyframes search-loading {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Inline field: the topbar has room from the tablet breakpoint upward. */
+@media (min-width: 600px) {
+  .search {
+    position: relative;
+    flex: 1;
+    max-width: 360px;
+  }
+
+  .trigger,
+  .search[data-expanded="true"] .trigger,
+  .cancel {
+    display: none;
+  }
+
+  .field,
+  .search[data-expanded="true"] .field {
+    position: static;
+    display: flex;
+    width: 100%;
+    height: 40px;
+    transform: none;
+  }
+
+  .panel {
+    right: 0;
+    left: 0;
+  }
+}
+
+@media (min-width: 880px) {
+  .search {
+    max-width: 420px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .field {
+    transition: none;
+  }
+
+  .loading {
+    animation: none;
+    opacity: 0.6;
+  }
+}

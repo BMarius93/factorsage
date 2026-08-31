@@ -20,7 +20,9 @@ import {
 } from "./coordination.js";
 import type {
   PersistedDatasetState,
+  PersistedSecurityCatalogEntry,
   PersistedStockDataset,
+  SecurityCatalogEntry,
   StockDataStore,
 } from "./ports.js";
 import { WEEKLY_PRICE_VARIANT } from "./ports.js";
@@ -31,6 +33,7 @@ import {
 } from "./derived-state.js";
 import {
   CanonicalStockDataService,
+  StockDataNotFoundError,
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
 } from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
@@ -248,7 +251,9 @@ class FakeProvider implements FmpStockProviderPort {
   financialFailures = new Map<string, Error>();
   beforeReturn?: () => Promise<void>;
 
-  async getProfile() {
+  readonly profileCalls: string[] = [];
+  async getProfile(symbol: string) {
+    this.profileCalls.push(symbol);
     return this.profile;
   }
   async getDailyPrices(_symbol: string, _securityId: string, range: DateRange) {
@@ -306,13 +311,41 @@ class FakeStore implements StockDataStore {
   async findSecurityByProviderSymbol() {
     return this.currentSecurity;
   }
-  async saveSecurityProfile(mapped: MappedFmpProfile) {
-    this.currentSecurity = { id: security.id, ...mapped.security };
+  searchCalls: Array<{ term: string; limit: number }> = [];
+  searchResults: Security[] = [];
+  async searchSecurities(input: { term: string; limit: number }) {
+    this.searchCalls.push(input);
+    return this.searchResults;
+  }
+  async saveSecurityProfile(input: {
+    securityId: string;
+    mapped: MappedFmpProfile;
+    syncedAt: string;
+  }) {
+    this.profileSaves.push(input.securityId);
+    this.states.set("SECURITY_PROFILE:", {
+      securityId: input.securityId,
+      dataset: "SECURITY_PROFILE",
+      variant: "",
+      lastSyncedAt: input.syncedAt,
+    });
+    this.currentSecurity = { id: input.securityId, ...input.mapped.security };
     return {
       security: this.currentSecurity,
-      profile: { securityId: security.id, ...mapped.profile },
+      profile: { securityId: input.securityId, ...input.mapped.profile },
     };
   }
+  profileSaves: string[] = [];
+  catalogEntries: PersistedSecurityCatalogEntry[] = [];
+  async findSecurityCatalogEntries(providerSymbols: readonly string[]) {
+    return this.catalogEntries.filter((entry) =>
+      providerSymbols.includes(entry.providerSymbol),
+    );
+  }
+  async createSecurityCatalogEntries(entries: readonly SecurityCatalogEntry[]) {
+    return entries.length;
+  }
+  async updateSecurityCatalogEntry() {}
   async getProfile() {
     return this.profile;
   }
@@ -869,7 +902,7 @@ describe("canonical full-stock hydration", () => {
     expect(provider.ranges).toEqual([CANONICAL_RANGE]);
   });
 
-  it("re-resolves a symbol whose cached identity PostgreSQL no longer owns", async () => {
+  it("does not serve a cached identity PostgreSQL no longer owns", async () => {
     const store = new FakeStore();
     store.currentSecurity = null;
     const provider = new FakeProvider();
@@ -884,20 +917,151 @@ describe("canonical full-stock hydration", () => {
         isAdr: security.isAdr,
         isActivelyTrading: security.isActivelyTrading,
       },
-      profile: { description: "Recreated after durable deletion" },
+      profile: { description: "Would have been recreated by discovery" },
     };
     const cache = new MemoryCache();
     // Redis still maps the symbol to an identity whose durable row was deleted.
     await cache.setSecurity({ ...security, id: "deleted-security" });
     const loader = createService(store, provider, cache, new InMemoryLoadCoordinator());
 
-    const resolved = await loader.getSecurity("AAPL");
+    // PostgreSQL stays authoritative: the stale identity is never served, and a symbol the
+    // catalog no longer lists is unsupported rather than silently re-created from the provider.
+    await expect(loader.getSecurity("AAPL")).rejects.toBeInstanceOf(
+      StockDataNotFoundError,
+    );
+    expect(store.profileSaves).toEqual([]);
+  });
 
-    // PostgreSQL stays authoritative: the stale identity is never served (hydrating with it
-    // would fail every dependent insert on its foreign key), the security is re-created
-    // through the provider, and the cached mapping is replaced.
+  it("rejects a symbol that is not in the Security catalog", async () => {
+    const store = new FakeStore();
+    store.currentSecurity = null;
+    const provider = new FakeProvider();
+    provider.profile = {
+      providerSymbol: "GHOST",
+      security: {
+        symbol: "GHOST",
+        name: "Ghost Corp",
+        exchangeCode: "NASDAQ",
+        currency: "USD",
+        type: "STOCK",
+        isAdr: false,
+        isActivelyTrading: true,
+      },
+      profile: {},
+    };
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    await expect(loader.getSecurity("GHOST")).rejects.toBeInstanceOf(
+      StockDataNotFoundError,
+    );
+    // The invariant that matters: no Security row means no provider discovery call at all.
+    expect(provider.profileCalls).toEqual([]);
+    expect(store.profileSaves).toEqual([]);
+  });
+
+  it("resolves a catalogued security and still hydrates its heavy data lazily", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    provider.profile = {
+      providerSymbol: security.symbol,
+      security: {
+        symbol: security.symbol,
+        name: security.name,
+        exchangeCode: security.exchangeCode,
+        currency: security.currency,
+        type: security.type,
+        isAdr: security.isAdr,
+        isActivelyTrading: security.isActivelyTrading,
+      },
+      profile: { description: "Hydrated for an already-catalogued security" },
+    };
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2026-08-20"),
+    ]);
+    const cache = new MemoryCache();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    // Resolving the catalog entry alone must not reach the provider for anything.
+    const resolved = await loader.getSecurity("AAPL");
     expect(resolved.id).toBe(security.id);
-    expect(cache.securities.get("AAPL")?.id).toBe(security.id);
+    expect(provider.profileCalls).toEqual([]);
+    expect(provider.ranges).toEqual([]);
+
+    // Asking for data still hydrates prices and, once, the per-stock profile.
+    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.profileCalls).toEqual([security.symbol]);
+    expect(store.profileSaves).toEqual([security.id]);
+  });
+
+  it("hydrates the per-stock profile only once per security", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    provider.profile = {
+      providerSymbol: security.symbol,
+      security: {
+        symbol: security.symbol,
+        name: security.name,
+        exchangeCode: security.exchangeCode,
+        currency: security.currency,
+        type: security.type,
+        isAdr: security.isAdr,
+        isActivelyTrading: security.isActivelyTrading,
+      },
+      profile: {},
+    };
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2026-08-20"),
+    ]);
+    const cache = new MemoryCache();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+    // Drop the cache so the next call hydrates again from durable state.
+    cache.manifests.delete(security.id);
+    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+
+    expect(provider.profileCalls).toEqual([security.symbol]);
+    expect(store.profileSaves).toEqual([security.id]);
+  });
+
+  it("keeps hydrating a catalogued security whose profile the provider cannot resolve", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    provider.profile = null;
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2026-08-20"),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const prices = await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
+
+    // Catalog membership decides support, not whether a descriptive profile happens to exist.
+    expect(prices).toHaveLength(1);
+    expect(store.profileSaves).toEqual([]);
   });
 
   it("serves the cached identity without a durable lookup while the stock is READY", async () => {

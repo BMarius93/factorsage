@@ -144,6 +144,22 @@ describe("Stock Details API", () => {
       },
     });
     baseSecurityId = security.id;
+
+    // Catalog identity only, with no persisted history: nothing discovers a security lazily any
+    // more, so the loaded-symbol scenario needs its catalog entry up front and then hydrates its
+    // price history on demand.
+    await prisma.security.create({
+      data: {
+        providerSymbol: loadedSymbol,
+        symbol: loadedSymbol,
+        name: "Persisted Test Corp",
+        exchangeCode: "NASDAQ",
+        currency: "USD",
+        type: SecurityType.STOCK,
+        isAdr: false,
+        isActivelyTrading: true,
+      },
+    });
     await prisma.dailyPrice.createMany({
       data: [
         {

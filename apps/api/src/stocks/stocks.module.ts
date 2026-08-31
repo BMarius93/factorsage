@@ -6,12 +6,13 @@ import {
   getStockDataConfig,
 } from "@intrinsic/config";
 import type { StockDataService } from "@intrinsic/domain";
-import { FmpClient, type FmpStockProviderPort } from "@intrinsic/fmp";
+import { FmpClient } from "@intrinsic/fmp";
 import {
   createLogger,
   type StructuredLogger,
 } from "@intrinsic/observability";
 import {
+  CanonicalSecurityCatalogService,
   CanonicalStockDataService,
   createStockDataRedisClient,
   IoredisCacheClient,
@@ -20,6 +21,7 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   type LoadCoordinator,
+  type SecurityCatalogService,
   type StockDataCache,
   type StockDataStore,
 } from "@intrinsic/stock-data";
@@ -30,8 +32,10 @@ import {
   type OnApplicationShutdown,
 } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { LoggedSecurityCatalogService } from "./logged-security-catalog.service";
 import { LoggedStockDataService } from "./logged-stock-data.service";
 import {
+  SECURITY_CATALOG_SERVICE,
   STOCK_DATA_CACHE,
   STOCK_DATA_COORDINATOR,
   STOCK_DATA_PROVIDER,
@@ -80,7 +84,9 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     {
       provide: STOCK_DATA_PROVIDER,
       inject: [STOCK_DATA_REDIS],
-      useFactory: (redis: StockDataRedisClient): FmpStockProviderPort => {
+      // Typed as the concrete client because it satisfies both the per-stock read port and the
+      // bulk catalog port, and both are injected from this single instance.
+      useFactory: (redis: StockDataRedisClient): FmpClient => {
         const config = getFmpTrafficConfig();
         return new FmpClient(() => getFmpConfig(), fetch, {
           gate: new RedisFmpRequestGate(redis, {
@@ -130,7 +136,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
       ],
       useFactory: (
         store: StockDataStore,
-        provider: FmpStockProviderPort,
+        provider: FmpClient,
         cache: StockDataCache,
         coordinator: LoadCoordinator,
         logger: StructuredLogger,
@@ -154,8 +160,21 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         return new LoggedStockDataService(service, logger);
       },
     },
+    {
+      provide: SECURITY_CATALOG_SERVICE,
+      inject: [STOCK_DATA_STORE, STOCK_DATA_PROVIDER, STOCK_DATA_LOGGER],
+      useFactory: (
+        store: StockDataStore,
+        provider: FmpClient,
+        logger: StructuredLogger,
+      ): SecurityCatalogService =>
+        new LoggedSecurityCatalogService(
+          new CanonicalSecurityCatalogService(store, provider),
+          logger.child({ component: "security-catalog" }),
+        ),
+    },
     StockDataRedisLifecycle,
   ],
-  exports: [STOCK_DATA_SERVICE],
+  exports: [STOCK_DATA_SERVICE, SECURITY_CATALOG_SERVICE],
 })
 export class StocksModule {}
