@@ -1,0 +1,103 @@
+.wrapper {
+  position: relative;
+  width: 100%;
+  height: 280px;
+}
+
+@media (min-width: 880px) {
+  .wrapper {
+    height: 360px;
+  }
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.wrapper[data-loading="true"] .canvas {
+  opacity: 0.45;
+}
+
+/* Hover readout: updated imperatively from the crosshair subscription, never via React state. */
+.legend {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100% - 72px);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-background-translucent);
+  pointer-events: none;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.legend[hidden] {
+  display: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.legendItem strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.legendDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.emptyMessage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-control);
+}
+
+.loadingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--color-border-strong);
+  border-top-color: var(--color-primary);
+  border-radius: 999px;
+  animation: chart-spinner 800ms linear infinite;
+}
+
+@keyframes chart-spinner {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
