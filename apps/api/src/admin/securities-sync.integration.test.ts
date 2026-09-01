@@ -343,6 +343,9 @@ describe("admin security catalog synchronization", () => {
       .expect(200);
     expect(bySymbol.body).toEqual([
       {
+        // The catalog row's durable id rides along so features such as stock lists can
+        // reference the security without a second lookup.
+        id: expect.stringMatching(/[0-9a-f-]{36}/) as unknown,
         symbol: SYMBOLS.equity,
         name: `Synchronized ${tag} Robotics`,
         exchangeCode: "NASDAQ",

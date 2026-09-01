@@ -1,0 +1,152 @@
+.explainer {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.modes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.modes legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.modeOption {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.modeOption[data-checked="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.modeOption input {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.modeName {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.modeHint {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ranges {
+  display: grid;
+  gap: 10px;
+}
+
+.rangeRow {
+  display: grid;
+  gap: 6px;
+}
+
+.rangeFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.rangeField {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.rangeLabel {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.rangeLabelSoft {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.rangeArrow {
+  padding-bottom: 14px;
+  color: var(--color-text-muted);
+}
+
+.rangeRemove {
+  padding: 12px 10px;
+  border: none;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rangeRemove:hover {
+  color: var(--color-negative);
+  background: var(--color-negative-soft);
+}
+
+.rangeError {
+  margin: 0;
+  color: var(--color-negative);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.addRange {
+  justify-self: start;
+  padding: 8px 12px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-primary);
+  background: none;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.addRange:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+@media (max-width: 599px) {
+  .rangeArrow {
+    display: none;
+  }
+
+  .rangeFields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rangeRemove {
+    align-self: flex-end;
+    padding: 6px 10px;
+  }
+}

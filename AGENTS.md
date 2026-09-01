@@ -5,10 +5,12 @@ Read `ai/README.md` before substantial work.
 ## Product invariants
 
 1. Historical S&P 500 / Dow membership PIT is removed from the product.
-2. Symbol lists are static.
-3. Each list symbol may define a buy window:
-   - `FULL`
-   - `CUSTOM(startDate, endDate)`
+2. Stock lists are static user-owned universes; membership references the canonical `Security`
+   catalog, never free-text symbols.
+3. Each list membership defines buy eligibility:
+   - `FULL` (no persisted ranges)
+   - `CUSTOM` (one or more date ranges, persisted only in canonical normalized form —
+     sorted, non-overlapping, non-adjacent, at most one open-ended; see `ai/product/lists.md`)
 4. Fundamental and intrinsic-value historical calculations must remain point-in-time correct and must not use future information.
 5. Backtests are asynchronous long-running work.
 6. API and worker are different processes, not different business implementations.

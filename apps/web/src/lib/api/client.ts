@@ -85,23 +85,62 @@ export async function apiGet<T>(
   return (await response.json()) as T;
 }
 
-/** Performs a JSON POST against the API and rejects with `ApiError` on a non-2xx response. */
-export async function apiPost<T>(
+async function apiSend<T>(
+  method: "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   body: unknown,
   options: ApiRequestOptions = {},
 ): Promise<T | null> {
   const response = await fetch(buildUrl(path, options.query), {
-    method: "POST",
+    method,
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body ?? {}),
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        }),
     ...(options.signal ? { signal: options.signal } : {}),
   });
 
   if (!response.ok) {
     throw await toApiError(response, path);
   }
-  // 204 responses (logout) have no body to parse.
+  // 204 responses (logout, deletes) have no body to parse.
   return response.status === 204 ? null : ((await response.json()) as T);
+}
+
+/** Performs a JSON POST against the API and rejects with `ApiError` on a non-2xx response. */
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T | null> {
+  return apiSend<T>("POST", path, body ?? {}, options);
+}
+
+/** Performs a JSON PATCH against the API and rejects with `ApiError` on a non-2xx response. */
+export async function apiPatch<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T | null> {
+  return apiSend<T>("PATCH", path, body ?? {}, options);
+}
+
+/** Performs a JSON PUT against the API and rejects with `ApiError` on a non-2xx response. */
+export async function apiPut<T>(
+  path: string,
+  body: unknown,
+  options: ApiRequestOptions = {},
+): Promise<T | null> {
+  return apiSend<T>("PUT", path, body ?? {}, options);
+}
+
+/** Performs a DELETE against the API and rejects with `ApiError` on a non-2xx response. */
+export async function apiDelete(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<null> {
+  return apiSend<never>("DELETE", path, undefined, options);
 }

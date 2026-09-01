@@ -15,7 +15,13 @@ function result(
   name: string,
   overrides: Partial<StockSearchResultResponse> = {},
 ): StockSearchResultResponse {
-  return { symbol, name, exchangeCode: "NASDAQ", ...overrides };
+  return {
+    id: `id-${symbol}`,
+    symbol,
+    name,
+    exchangeCode: "NASDAQ",
+    ...overrides,
+  };
 }
 
 /** Resolves `fetch` with the given rows, in call order. */

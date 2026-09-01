@@ -28,6 +28,7 @@ Current callers:
 - `apps/api/src/auth/auth.integration.test.ts`
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
+- `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,

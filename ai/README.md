@@ -33,12 +33,12 @@ When old code or old documentation conflicts with V2 documents, V2 documents win
 ## Current V2 product model
 
 ```text
-Static List
+StockList (user-owned)
   |
-  +-- Symbol
+  +-- StockListItem -> Security (canonical catalog identity)
        +-- BUY window = FULL
        or
-       +-- BUY window = CUSTOM(start, end)
+       +-- BUY window = CUSTOM(one or more normalized date ranges; endDate null = open-ended)
 
 Strategy
   |

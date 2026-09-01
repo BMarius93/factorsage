@@ -96,6 +96,7 @@ describe("GET /stocks/search", () => {
     expect(service.detailsCalls).toEqual([]);
     expect(response.body).toEqual([
       {
+        id: "id-AAPL",
         symbol: "AAPL",
         name: "Apple Inc.",
         exchangeCode: "NASDAQ",
@@ -141,7 +142,12 @@ describe("GET /stocks/search", () => {
       .expect(200);
 
     expect(response.body).toEqual([
-      { symbol: "NVDA", name: "NVIDIA Corporation", exchangeCode: "NASDAQ" },
+      {
+        id: "id-NVDA",
+        symbol: "NVDA",
+        name: "NVIDIA Corporation",
+        exchangeCode: "NASDAQ",
+      },
     ]);
   });
 

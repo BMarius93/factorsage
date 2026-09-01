@@ -156,7 +156,10 @@ pnpm --filter @intrinsic/web exec playwright install chromium
 ```
 
 Preconditions for every run: the stack is up, migrations are applied, and `pnpm test:users:seed`
-has been run at least once since the personas' credentials last changed.
+has been run at least once since the personas' credentials last changed. The lists suite
+(`e2e/lists`) additionally needs the deterministic fictional QA catalog rows: run
+`pnpm test:securities:seed` once (idempotent, refuses `NODE_ENV=production`; seeds
+`QATEST1`/`QATEST2`). E2E never assumes real market symbols exist in an environment's catalog.
 
 Current coverage: guest reaches sign-in and registration, a product route bounces an anonymous
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
