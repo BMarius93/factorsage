@@ -62,6 +62,11 @@ import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
 const FUNDAMENTALS_VARIANT_VERSION = 1;
+
+const FUNDAMENTALS_CADENCES: readonly FinancialStatementCadence[] = [
+  QUARTERLY_CADENCE,
+  ANNUAL_CADENCE,
+];
 /**
  * Extra fiscal years of financial statements retained before the visible price history.
  *
@@ -92,6 +97,39 @@ type FundamentalsOperation = {
   dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
   variant: string;
 };
+
+/**
+ * Dataset variant of one persisted fundamentals cadence.
+ *
+ * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill from
+ * before the warm-up existed must not be read as proof that `h30:w7` is already retained. The
+ * mapping version is unchanged because the provider mapping itself did not change.
+ *
+ * Exported so anything that has to recognise an already-satisfied fundamentals dataset — the
+ * service itself, and the deterministic QA seed used by browser tests — resolves the same string
+ * instead of hard-coding a second copy of it.
+ */
+export function fundamentalsDatasetVariant(
+  cadence: FinancialStatementCadence,
+  historyYears: number,
+): string {
+  const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
+  return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
+}
+
+/** Every statement-type/cadence dataset the canonical history expects, with its variant. */
+export function fundamentalsDatasetOperations(
+  historyYears: number,
+): FundamentalsOperation[] {
+  return FINANCIAL_STATEMENT_TYPES.flatMap((statementType) =>
+    FUNDAMENTALS_CADENCES.map((cadence) => ({
+      statementType,
+      cadence,
+      dataset: FUNDAMENTALS_DATASET_BY_TYPE[statementType],
+      variant: fundamentalsDatasetVariant(cadence, historyYears),
+    })),
+  );
+}
 
 export class StockDataNotFoundError extends Error {
   constructor(symbol: string) {
@@ -1105,18 +1143,7 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   private fundamentalsOperationsForHistory() {
-    const cadences: readonly FinancialStatementCadence[] = [
-      QUARTERLY_CADENCE,
-      ANNUAL_CADENCE,
-    ];
-    return FINANCIAL_STATEMENT_TYPES.flatMap((statementType) =>
-      cadences.map((cadence) => ({
-        statementType,
-        cadence,
-        dataset: FUNDAMENTALS_DATASET_BY_TYPE[statementType],
-        variant: this.fundamentalsVariant(cadence),
-      })),
-    );
+    return fundamentalsDatasetOperations(this.historyYears);
   }
 
   private async runFundamentalsOperationsToSettlement<T>(
@@ -1135,14 +1162,8 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
-  /**
-   * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill
-   * from before the warm-up existed must not be read as proof that `h30:w7` is already retained.
-   * The mapping version is unchanged because the provider mapping itself did not change.
-   */
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
-    const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
-    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
+    return fundamentalsDatasetVariant(cadence, this.historyYears);
   }
 
   /** Request capacity must cover the retained years plus the existing safety tails. */

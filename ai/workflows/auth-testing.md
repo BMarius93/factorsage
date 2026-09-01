@@ -157,14 +157,29 @@ pnpm --filter @intrinsic/web exec playwright install chromium
 
 Preconditions for every run: the stack is up, migrations are applied, and `pnpm test:users:seed`
 has been run at least once since the personas' credentials last changed. The lists suite
-(`e2e/lists`) additionally needs the deterministic fictional QA catalog rows: run
-`pnpm test:securities:seed` once (idempotent, refuses `NODE_ENV=production`; seeds
-`QATEST1`/`QATEST2`). E2E never assumes real market symbols exist in an environment's catalog.
+(`e2e/lists`) and the Stock Details suite (`e2e/stocks`) additionally need the deterministic
+fictional QA catalog rows: run `pnpm test:securities:seed` (idempotent, refuses
+`NODE_ENV=production`; seeds `QATEST1`/`QATEST2`). E2E never assumes real market symbols exist in
+an environment's catalog.
+
+`pnpm test:securities:seed` also seeds `QATEST1`'s market data: a deterministic synthetic price
+history, the derived state the production calculators build from it (daily and weekly moving
+averages, carried-forward completed weeks), fixture intrinsic-value model/blend results, and the
+dataset coverage/state watermarks that tell the canonical loader nothing is missing. That is what
+lets `e2e/stocks` drive real Stock Details without a market-data provider. The watermarks carry the
+seed's own timestamp and the loader treats a price tail older than
+`STOCK_RECENT_PRICE_FRESHNESS_MS` (default 6 hours) as stale, so **run the seed shortly before the
+Stock Details suite** rather than relying on a seed from a previous day. Rerunning is safe and
+produces the same data for the same day. `QATEST2` deliberately stays identity-only.
 
 Current coverage: guest reaches sign-in and registration, a product route bounces an anonymous
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
 across navigation and is denied the ADMIN route, `QA_ADMIN` reaches the ADMIN route, and signing
-out ends the session.
+out ends the session. `e2e/lists` covers the full stock-list journey; `e2e/stocks` covers the
+Stock Details `Indicators` catalog — all four groups, all 21 entries, the default `Balanced`
+selection, daily/weekly/model/blend overlays together, deselection, the disabled unavailable
+state, the always-visible price series, desktop and phone viewports, keyboard operation, and the
+absence of console errors or failed requests.
 
 ## 8. Storage state
 
