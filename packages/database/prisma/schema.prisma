@@ -48,6 +48,14 @@ enum FinancialPeriod {
   Q4
 }
 
+/// Buy eligibility of one security inside one list. `FULL` means eligible for the whole period a
+/// future strategy/backtest covers and must persist zero buy-window rows; `CUSTOM` restricts BUYs
+/// to the item's normalized buy-window ranges and requires at least one row.
+enum BuyWindowMode {
+  FULL
+  CUSTOM
+}
+
 /// Product identity. `passwordHash` is null for external-identity-only users and
 /// `emailVerifiedAt` is null until a local registration proves the address.
 model User {
@@ -60,6 +68,7 @@ model User {
   updatedAt          DateTime                 @updatedAt
   oauthAccounts      OAuthAccount[]
   verificationTokens EmailVerificationToken[]
+  stockLists         StockList[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -115,9 +124,59 @@ model Security {
   weeklyPrices      WeeklyPrice[]
   dailyDerivedState DailyDerivedState[]
   financialStatements FinancialStatement[]
+  stockListItems    StockListItem[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
+}
+
+/// User-owned reusable stock universe. Mutable configuration: future backtests must snapshot the
+/// membership and buy-window state they ran with instead of referencing this row's current state.
+model StockList {
+  id          String          @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       StockListItem[]
+
+  @@index([userId])
+}
+
+/// Membership of one canonical `Security` in one list. The catalog is the identity authority:
+/// membership never stores a free-text symbol. `onDelete: Restrict` is deliberate — catalog rows
+/// are never product-deleted (sync only deactivates), and user-owned list data must not silently
+/// vanish through a catalog mutation.
+model StockListItem {
+  id            String               @id @default(uuid())
+  stockListId   String
+  securityId    String
+  buyWindowMode BuyWindowMode        @default(FULL)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  stockList     StockList            @relation(fields: [stockListId], references: [id], onDelete: Cascade)
+  security      Security             @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  buyWindows    StockListBuyWindow[]
+
+  @@unique([stockListId, securityId])
+  @@index([securityId])
+}
+
+/// One canonical CUSTOM buy-window range. Writers must persist only the deterministic normalized
+/// set produced by `@intrinsic/domain` (sorted, non-overlapping, non-adjacent, at most one
+/// open-ended range): rows here are replaced as a complete set, never patched individually.
+/// `endDate` null means open-ended; an unrestricted item uses mode FULL with zero rows instead of
+/// a null `startDate`.
+model StockListBuyWindow {
+  id              String        @id @default(uuid())
+  stockListItemId String
+  startDate       DateTime      @db.Date
+  endDate         DateTime?     @db.Date
+  item            StockListItem @relation(fields: [stockListItemId], references: [id], onDelete: Cascade)
+
+  @@unique([stockListItemId, startDate])
 }
 
 model SecurityProfile {

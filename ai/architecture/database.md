@@ -29,6 +29,16 @@ Migration `20260901090000_add_email_verification_and_oauth_accounts` completes t
 outstanding token per user as a hash only. Accounts created before verification existed are
 backfilled as verified so existing local logins keep working.
 
+Migration `20260901171729_add_stock_lists` adds the user-owned stock-list slice: `StockList`
+(cascades from `User`), `StockListItem` with `@@unique([stockListId, securityId])`, a
+`BuyWindowMode` enum (`FULL`/`CUSTOM`), and `StockListBuyWindow` holding canonical normalized
+CUSTOM date ranges (`@db.Date`, nullable `endDate` = open-ended). `StockListItem.securityId` is
+`onDelete: Restrict` because catalog rows are never product-deleted and user list data must not
+vanish through a catalog mutation. The migration also carries three auto-generated
+`FinancialStatement` index renames: the original migration declared names longer than
+PostgreSQL's 63-character identifier limit, so every database holds the truncated names and
+Prisma reconciles them to its canonical truncation. See `ai/product/lists.md` for the invariants.
+
 Migration `20260830210000_unify_daily_derived_state` replaces the per-family derived tables
 (`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`) with one
 `DailyDerivedState` table keyed by `(securityId, date)`. Every calculation-version dimension is

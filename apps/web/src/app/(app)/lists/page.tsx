@@ -1,10 +1,9 @@
-import { RoutePlaceholder } from "../_placeholder/RoutePlaceholder";
+import type { Metadata } from "next";
+import { ListsPage } from "../../../features/lists/components/ListsPage";
 
-export default function ListsPage() {
-  return (
-    <RoutePlaceholder
-      title="Lists"
-      description="Static symbol lists and per-symbol buy windows arrive in the Lists slice."
-    />
-  );
+export const metadata: Metadata = { title: "Lists · FactorSage" };
+
+/** Thin route boundary; everything lives in the lists feature. */
+export default function ListsRoute() {
+  return <ListsPage />;
 }

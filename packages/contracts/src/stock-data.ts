@@ -124,12 +124,13 @@ export type IntrinsicValueBlendHistoryQuery = StockDateRangeQuery & {
  * One row of the global stock search dropdown.
  *
  * Deliberately a projection of `SecurityResponse` rather than a parallel DTO: the search surface
- * only identifies a security so the client can navigate to `/stocks/{symbol}`, and must not grow
- * into a second stock model.
+ * only identifies a security — `id` so features such as stock lists can reference the canonical
+ * catalog row, `symbol` so the client can navigate to `/stocks/{symbol}` — and must not grow into
+ * a second stock model.
  */
 export type StockSearchResultResponse = Pick<
   SecurityResponse,
-  "symbol" | "name" | "exchangeCode" | "exchangeName"
+  "id" | "symbol" | "name" | "exchangeCode" | "exchangeName"
 >;
 
 /**

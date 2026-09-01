@@ -32,6 +32,7 @@
     "db:studio": "pnpm --filter @intrinsic/database prisma:studio",
     "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin",
     "test:users:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:qa-users",
+    "test:securities:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:qa-securities",
     "test:e2e": "pnpm --filter @intrinsic/web e2e",
     "test:e2e:auth": "pnpm --filter @intrinsic/web e2e:auth",
     "test:e2e:smoke": "pnpm --filter @intrinsic/web e2e:smoke",

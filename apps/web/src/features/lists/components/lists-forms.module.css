@@ -1,0 +1,133 @@
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.label {
+  color: var(--color-text-body);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.input {
+  min-height: 46px;
+}
+
+.textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--color-negative);
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-negative);
+  border-radius: var(--radius-control);
+  color: var(--color-negative);
+  background: var(--color-negative-soft);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border: 1px solid var(--color-primary);
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.secondaryButton {
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: var(--color-surface-soft);
+}
+
+.dangerButton {
+  border: 1px solid var(--color-negative);
+  color: #ffffff;
+  background: var(--color-negative);
+}
+
+.dangerButton:hover:not(:disabled) {
+  filter: brightness(0.94);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+@media (max-width: 599px) {
+  .actions {
+    flex-direction: column-reverse;
+  }
+
+  .actions > * {
+    width: 100%;
+  }
+}

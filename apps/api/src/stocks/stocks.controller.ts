@@ -99,6 +99,7 @@ function securityResponse(
 
 function searchResultResponse(security: Security): StockSearchResultResponse {
   return {
+    id: security.id,
     symbol: security.symbol,
     name: security.name,
     exchangeCode: security.exchangeCode,
