@@ -23,6 +23,12 @@ intrinsic-value/blend snapshots. Symbol is indexed lookup data and is never the 
 key. Dataset state watermarks optimize reads; coverage intervals, not inferred calendar rows,
 drive missing-range subtraction.
 
+Migration `20260901090000_add_email_verification_and_oauth_accounts` completes the identity model.
+`User` gains a nullable `emailVerifiedAt`; `OAuthAccount` stores external identities with a unique
+`(provider, providerAccountId)` and no provider tokens; `EmailVerificationToken` stores one
+outstanding token per user as a hash only. Accounts created before verification existed are
+backfilled as verified so existing local logins keep working.
+
 Migration `20260830210000_unify_daily_derived_state` replaces the per-family derived tables
 (`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`) with one
 `DailyDerivedState` table keyed by `(securityId, date)`. Every calculation-version dimension is

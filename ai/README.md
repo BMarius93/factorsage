@@ -14,7 +14,7 @@ For substantial work:
 6. Relevant ADRs in `../docs/decisions/`.
 
 For authentication and role authorization work, also read
-`architecture/authentication.md`.
+`architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.

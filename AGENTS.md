@@ -103,6 +103,13 @@ Forbidden:
 - When a caught exception is translated into a generic error, log the original error object before translation so its name, message, and stack are retained.
 - New integrations and long-running flows must include enough structured logging to identify the operation, owner/caller when available, external dependency, outcome, and elapsed time without enabling `trace`.
 
+## Authentication and E2E testing
+
+- For authentication work or browser/E2E testing, read `ai/workflows/auth-testing.md`. It is the
+  operational source of truth for QA personas, seeding, auth test suites, Playwright, storage
+  state, and the Google/email test policies.
+- Never commit credentials, session cookies, tokens, or Playwright storage state.
+
 ## Validation
 
 During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:

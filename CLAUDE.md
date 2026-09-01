@@ -4,6 +4,7 @@ Use `AGENTS.md` as the repository-wide source of truth for product invariants, a
 
 - Read `AGENTS.md` before making substantive changes.
 - Read `ai/README.md` before substantial work, then load only the files under `ai/` that are relevant to the current task.
+- For authentication or E2E-testing work, read `ai/workflows/auth-testing.md` as well.
 - Keep investigation and implementation narrowly scoped to the user's request; do not perform unrelated refactors or cleanup.
 - Prefer targeted searches, existing tests, and existing logs over broad repository scans or ad-hoc diagnostics.
 - Follow the validation workflow defined in `AGENTS.md`; during iteration use the smallest relevant checks, then run the full gate once the implementation is settled.
