@@ -79,6 +79,53 @@ function commaSeparated(
   return values.length > 0 ? values : fallback;
 }
 
+function boolean(
+  env: Environment,
+  name: string,
+  fallback: boolean,
+): boolean {
+  const raw = optional(env, name);
+  if (raw === undefined) {
+    return fallback;
+  }
+
+  const normalized = raw.toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+  throw new Error(
+    `Invalid application configuration: ${name} must be true or false`,
+  );
+}
+
+/** Parses an absolute http(s) URL and returns it without a trailing slash. */
+function absoluteUrl(env: Environment, name: string, fallback?: string): string {
+  const raw = optional(env, name) ?? fallback;
+  if (raw === undefined) {
+    throw new Error(`Invalid application configuration: ${name} is required`);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `Invalid application configuration: ${name} must be an absolute URL`,
+    );
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(
+      `Invalid application configuration: ${name} must be an http or https URL`,
+    );
+  }
+
+  return url.toString().replace(/\/$/, "");
+}
+
 function corsOrigins(env: Environment): string[] {
   const values = commaSeparated(optional(env, "CORS_ORIGINS"), [
     "http://localhost:3000",
@@ -161,6 +208,16 @@ export function getApiConfig(env: Environment = process.env) {
   } as const;
 }
 
+/**
+ * Absolute base URL of the web application.
+ *
+ * The API builds user-facing links (email-verification links, post-OAuth redirects) against
+ * this value rather than trusting a request `Host` header.
+ */
+export function getWebBaseUrl(env: Environment = process.env): string {
+  return absoluteUrl(env, "WEB_BASE_URL", "http://localhost:3000");
+}
+
 export function getAuthConfig(env: Environment = process.env) {
   const environment = runtimeEnvironment(env);
   const jwtSecret = required(env, "AUTH_JWT_SECRET");
@@ -174,10 +231,139 @@ export function getAuthConfig(env: Environment = process.env) {
   return {
     jwtSecret,
     tokenTtlSeconds: integer(env, ["AUTH_TOKEN_TTL_SECONDS"], 8 * 60 * 60),
+    emailVerificationTtlSeconds: integer(
+      env,
+      ["AUTH_EMAIL_VERIFICATION_TTL_SECONDS"],
+      24 * 60 * 60,
+    ),
     cookieName: optional(env, "AUTH_COOKIE_NAME") ?? "intrinsic_auth",
     cookieSecure: environment === "production",
     cookieSameSite: "lax" as const,
+    webBaseUrl: getWebBaseUrl(env),
   } as const;
+}
+
+export type GoogleOAuthConfig = {
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly callbackUrl: string;
+};
+
+/**
+ * Server-only Google identity configuration. Never expose this object to browser code.
+ *
+ * Google sign-in is optional, so a completely unset configuration returns `null` and the API
+ * simply does not offer the provider. A partially configured provider is always a mistake and
+ * is rejected rather than silently disabled, because it would fail only at the callback.
+ */
+export function getGoogleOAuthConfig(
+  env: Environment = process.env,
+): GoogleOAuthConfig | null {
+  const clientId = optional(env, "GOOGLE_CLIENT_ID");
+  const clientSecret = optional(env, "GOOGLE_CLIENT_SECRET");
+  const callbackUrl = optional(env, "GOOGLE_CALLBACK_URL");
+
+  const provided = [clientId, clientSecret, callbackUrl].filter(Boolean).length;
+  if (provided === 0) {
+    return null;
+  }
+  if (provided < 3) {
+    throw new Error(
+      "Invalid application configuration: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and " +
+        "GOOGLE_CALLBACK_URL must be set together",
+    );
+  }
+
+  return {
+    clientId: clientId as string,
+    clientSecret: clientSecret as string,
+    callbackUrl: absoluteUrl(env, "GOOGLE_CALLBACK_URL"),
+  } as const;
+}
+
+export type SmtpConfig = {
+  readonly host: string;
+  readonly port: number;
+  readonly secure: boolean;
+  readonly from: string;
+  /** Null for unauthenticated local/test SMTP such as Mailpit. */
+  readonly auth: { readonly user: string; readonly password: string } | null;
+};
+
+/**
+ * Server-only SMTP configuration. Never expose this object to browser code.
+ *
+ * Outbound email is optional infrastructure: with nothing configured this returns `null` and the
+ * API reports the email boundary as unavailable instead of failing at startup. When it is
+ * configured, `SMTP_HOST` and `SMTP_FROM` are mandatory and credentials are all-or-nothing, so a
+ * local unauthenticated relay stays valid while a half-configured production relay is rejected.
+ */
+export function getSmtpConfig(env: Environment = process.env): SmtpConfig | null {
+  const host = optional(env, "SMTP_HOST");
+  const from = optional(env, "SMTP_FROM");
+  const user = optional(env, "SMTP_USER");
+  const password = optional(env, "SMTP_PASSWORD");
+  const portRaw = optional(env, "SMTP_PORT");
+  const secureRaw = optional(env, "SMTP_SECURE");
+
+  const anyProvided = [host, from, user, password, portRaw, secureRaw].some(
+    Boolean,
+  );
+  if (!anyProvided) {
+    return null;
+  }
+
+  if (!host || !from) {
+    throw new Error(
+      "Invalid application configuration: SMTP_HOST and SMTP_FROM are required when any " +
+        "SMTP_* variable is set",
+    );
+  }
+
+  if (Boolean(user) !== Boolean(password)) {
+    throw new Error(
+      "Invalid application configuration: SMTP_USER and SMTP_PASSWORD must be set together",
+    );
+  }
+
+  const port = integer(env, ["SMTP_PORT"], 587);
+  if (port > 65_535) {
+    throw new Error(
+      "Invalid application configuration: SMTP_PORT must be a valid port number",
+    );
+  }
+
+  return {
+    host,
+    port,
+    // Implicit TLS is the norm on 465 and STARTTLS elsewhere; SMTP_SECURE overrides explicitly.
+    secure: boolean(env, "SMTP_SECURE", port === 465),
+    from,
+    auth: user && password ? { user, password } : null,
+  } as const;
+}
+
+/**
+ * Credentials for the two persistent QA personas used by Playwright and live smoke testing.
+ *
+ * Required only while running the QA seed command; the application never reads it.
+ */
+export function getQaPersonaConfig(env: Environment = process.env) {
+  function persona(role: "USER" | "ADMIN") {
+    const emailName = `QA_${role}_EMAIL`;
+    const passwordName = `QA_${role}_PASSWORD`;
+    const password = required(env, passwordName);
+
+    if (password.length < 12) {
+      throw new Error(
+        `Invalid application configuration: ${passwordName} must be at least 12 characters`,
+      );
+    }
+
+    return { email: required(env, emailName), password, role } as const;
+  }
+
+  return { user: persona("USER"), admin: persona("ADMIN") } as const;
 }
 
 export function getAdminBootstrapConfig(env: Environment = process.env) {

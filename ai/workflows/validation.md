@@ -26,6 +26,8 @@ fails loudly instead of mutating development data.
 Current callers:
 
 - `apps/api/src/auth/auth.integration.test.ts`
+- `apps/api/src/auth/registration.integration.test.ts`
+- `apps/api/src/auth/google-auth.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
@@ -77,3 +79,9 @@ For a vertical slice:
 1. unit tests,
 2. integration tests,
 3. Playwright user journey once the UI/API path exists.
+
+## Authentication and Playwright
+
+Auth suites, QA-persona seeding, storage state, and the Google/email test policies are documented
+in `ai/workflows/auth-testing.md`. Playwright drives an already-running stack and is not part of
+`pnpm test`; run `pnpm test:e2e:smoke` (or `pnpm test:e2e`) when an auth or session flow changed.

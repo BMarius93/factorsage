@@ -145,10 +145,13 @@ describe("admin security catalog synchronization", () => {
 
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
+    // Password login requires a verified address, and this suite is about authorization rather
+    // than the verification flow.
+    const emailVerifiedAt = new Date();
     await prisma.user.createMany({
       data: [
-        { email: adminEmail, passwordHash, role: UserRole.ADMIN },
-        { email: userEmail, passwordHash, role: UserRole.USER },
+        { email: adminEmail, passwordHash, emailVerifiedAt, role: UserRole.ADMIN },
+        { email: userEmail, passwordHash, emailVerifiedAt, role: UserRole.USER },
       ],
     });
   });

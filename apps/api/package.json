@@ -10,7 +10,8 @@
     "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run --exclude src/stocks/stocks.live-fmp.integration.test.ts",
     "test:infrastructure": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run src/stocks/stocks.infrastructure.integration.test.ts",
     "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run src/stocks/stocks.live-fmp.integration.test.ts",
-    "seed:admin": "tsx src/seed.ts"
+    "seed:admin": "tsx src/seed.ts",
+    "seed:qa-users": "tsx src/seed-qa-users.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
@@ -26,6 +27,8 @@
     "@nestjs/platform-express": "^11.0.0",
     "argon2": "^0.45.1",
     "cookie": "^1.1.1",
+    "google-auth-library": "^10.9.1",
+    "nodemailer": "^7.0.9",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0"
   },
@@ -35,6 +38,7 @@
     "@nestjs/testing": "^11.2.1",
     "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
+    "@types/nodemailer": "^7.0.4",
     "@types/supertest": "^7.2.1",
     "supertest": "^7.2.2",
     "tsx": "^4.23.12",

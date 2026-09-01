@@ -30,7 +30,13 @@
     "db:status": "pnpm --filter @intrinsic/database prisma:migrate:status",
     "db:pull": "pnpm --filter @intrinsic/database prisma:db:pull",
     "db:studio": "pnpm --filter @intrinsic/database prisma:studio",
-    "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin"
+    "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin",
+    "test:users:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:qa-users",
+    "test:e2e": "pnpm --filter @intrinsic/web e2e",
+    "test:e2e:auth": "pnpm --filter @intrinsic/web e2e:auth",
+    "test:e2e:smoke": "pnpm --filter @intrinsic/web e2e:smoke",
+    "test:e2e:headed": "pnpm --filter @intrinsic/web e2e:headed",
+    "test:e2e:report": "pnpm --filter @intrinsic/web e2e:report"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

@@ -21,15 +21,21 @@ export async function seedInitialAdmin(
   }
 
   const passwordHash = await passwords.hash(input.password);
+  // The operator running the seed owns the mailbox by definition, so the bootstrap admin is
+  // created already verified and can sign in without an email round trip.
+  const emailVerifiedAt = new Date();
+
   return prisma.user.upsert({
     where: { email },
     update: {
       passwordHash,
+      emailVerifiedAt,
       role: UserRole.ADMIN,
     },
     create: {
       email,
       passwordHash,
+      emailVerifiedAt,
       role: UserRole.ADMIN,
     },
     select: {

@@ -202,34 +202,44 @@ Default URLs:
 - PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
 
-## Authentication foundation
+## Authentication
 
-The current vertical slice provides local password authentication and `USER` / `ADMIN` role
-authorization. `User` is the product identity, emails are normalized before storage and lookup,
-and PostgreSQL enforces email uniqueness. Passwords use Argon2id and only a nullable
-`passwordHash` is stored. The nullable field preserves compatibility with future external-only
-identities without adding provider tables now.
+The Nest API is the authentication authority. It owns credentials, sessions, email verification,
+and the Google OpenID Connect exchange; the web app holds no authentication authority. V2 does not
+use NextAuth and does not use Pages Router.
 
-Browser auth uses a signed JWT stored only in an HttpOnly cookie. The cookie uses `SameSite=Lax`,
-path `/`, an eight-hour default lifetime, and `Secure` in production. Browser requests include
-credentials and the API allows credentialed CORS only for configured origins. The frontend uses
-`/auth/me` as its identity authority; backend guards remain authoritative for authorization. Auth
-tokens are not stored in `localStorage` or `sessionStorage`.
+`User` is the product identity. Emails are normalized before storage and lookup, PostgreSQL
+enforces uniqueness, passwords use Argon2id, and `passwordHash` is nullable so an external-identity
+-only user can exist. `emailVerifiedAt` records local email confirmation, `OAuthAccount` links
+external identities (no provider tokens are ever stored), and `EmailVerificationToken` keeps one
+outstanding hashed, single-use token per user.
 
-Implemented endpoints:
+Browser auth uses a signed JWT stored only in an HttpOnly cookie: `SameSite=Lax`, path `/`, an
+eight-hour default lifetime, and `Secure` in production. Browser requests include credentials and
+the API allows credentialed CORS only for configured origins. Auth tokens are never stored in
+`localStorage` or `sessionStorage`.
 
-- `POST /auth/login`
-- `POST /auth/logout`
-- `GET /auth/me`
+Endpoints:
+
+- `GET /auth/providers` — which external providers this deployment configured
+- `POST /auth/register`, `POST /auth/verify-email`, `POST /auth/resend-verification`
+- `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`
+- `GET /auth/google`, `GET /auth/google/callback`
 - `GET /admin/health` (ADMIN authorization proof only)
 
-Required auth settings are documented in `.env.example`:
+A new local user starts unverified and cannot sign in until the emailed link is redeemed;
+redeeming consumes the one-time token and marks the address verified in a single transaction.
+Google sign-in uses the authorization-code flow with `state`, PKCE S256, and an OIDC `nonce`, and
+accepts identity only from an ID token whose signature, audience, issuer, and expiry
+`google-auth-library` has verified. It creates or links an account only when Google reports the
+address as verified, and it ends in exactly the same FactorSage session cookie as password login.
 
-- `AUTH_JWT_SECRET` (at least 32 characters; use a unique random production secret)
-- `AUTH_TOKEN_TTL_SECONDS`
-- `AUTH_COOKIE_NAME`
-- `CORS_ORIGINS`
-- `ADMIN_EMAIL` and `ADMIN_PASSWORD` (required only for bootstrap seeding)
+Settings are documented in `.env.example`: `AUTH_JWT_SECRET` (at least 32 characters),
+`AUTH_TOKEN_TTL_SECONDS`, `AUTH_COOKIE_NAME`, `AUTH_EMAIL_VERIFICATION_TTL_SECONDS`,
+`WEB_BASE_URL`, `CORS_ORIGINS`, the optional `GOOGLE_*` and `SMTP_*` groups, and `ADMIN_EMAIL` /
+`ADMIN_PASSWORD` for bootstrap seeding. Google and SMTP are optional and ship empty, so a fresh
+`.env` copied from the template runs with both simply not offered; each group is all-or-nothing,
+and a partially configured one is rejected rather than silently disabled.
 
 Create or update the first administrator explicitly:
 
@@ -237,17 +247,16 @@ Create or update the first administrator explicitly:
 ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD='<temporary-value>' pnpm db:seed
 ```
 
-The command has no default credentials, hashes the supplied password, normalizes the email, and is
-idempotent. Do not put real credentials in committed files.
+The command has no default credentials, hashes the supplied password, normalizes the email, marks
+it verified, and is idempotent. Do not put real credentials in committed files.
 
 `CookieAuthGuard` resolves the current database user, while `Roles` metadata and `RolesGuard`
-enforce `USER` / `ADMIN`. Future ADMIN endpoints, such as a future Security sync endpoint, must
-reuse these primitives. Security sync itself is not implemented.
+enforce `USER` / `ADMIN`. Future ADMIN endpoints must reuse these primitives.
 
-Google OAuth is intentionally deferred. This slice does not include Google packages, OAuth
-callbacks, provider identifiers, an `OAuthAccount` table, or account linking. It also does not
-include public registration, password reset, email verification, refresh tokens, or product
-features.
+Forgot/reset password, refresh tokens, and additional identity providers are not implemented.
+
+`ai/architecture/authentication.md` is the canonical design document and
+`ai/workflows/auth-testing.md` is the test/QA-persona runbook.
 
 ## Full Docker stack
 
@@ -301,6 +310,9 @@ the keys it created, and never flushes.
   `pnpm test` and from CI. Requires `RUN_LIVE_FMP_TESTS=1`, `FMP_API_KEY`, and a
   `TEST_DATABASE_URL` that differs from `DATABASE_URL`. It asserts invariants only, never
   exact provider values.
+- `pnpm test:e2e:smoke` / `pnpm test:e2e` — Playwright authentication suite. Not part of
+  `pnpm test`: it drives an already-running stack and needs the QA personas seeded with
+  `pnpm test:users:seed`. See `ai/workflows/auth-testing.md`.
 
 `ai/workflows/validation.md` holds the detailed testing workflow.
 

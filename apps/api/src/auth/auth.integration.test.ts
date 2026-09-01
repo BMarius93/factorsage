@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getApiConfig, getAuthConfig, loadRootEnv } from "@intrinsic/config";
+import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
 import { UserRole } from "@intrinsic/database";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -8,7 +9,10 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
-import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
+import {
+  EMAIL_NOT_VERIFIED_MESSAGE,
+  INVALID_CREDENTIALS_MESSAGE,
+} from "./auth.service";
 import { PasswordService } from "./password.service";
 import { seedInitialAdmin } from "./seed-admin";
 
@@ -21,6 +25,7 @@ describe("authentication and role authorization", () => {
   const adminEmail = `admin-${suffix}@example.test`;
   const userEmail = `user-${suffix}@example.test`;
   const externalOnlyEmail = `external-${suffix}@example.test`;
+  const unverifiedEmail = `unverified-${suffix}@example.test`;
   const seedEmail = `seed-${suffix}@example.test`;
 
   let app: INestApplication;
@@ -47,11 +52,25 @@ describe("authentication and role authorization", () => {
     passwords = moduleRef.get(PasswordService);
     const passwordHash = await passwords.hash(password);
 
+    const emailVerifiedAt = new Date();
     await prisma.user.createMany({
       data: [
-        { email: adminEmail, passwordHash, role: UserRole.ADMIN },
-        { email: userEmail, passwordHash, role: UserRole.USER },
-        { email: externalOnlyEmail, passwordHash: null, role: UserRole.USER },
+        { email: adminEmail, passwordHash, emailVerifiedAt, role: UserRole.ADMIN },
+        { email: userEmail, passwordHash, emailVerifiedAt, role: UserRole.USER },
+        // Google-only identity: verified address, no local password.
+        {
+          email: externalOnlyEmail,
+          passwordHash: null,
+          emailVerifiedAt,
+          role: UserRole.USER,
+        },
+        // Registered but never confirmed the address.
+        {
+          email: unverifiedEmail,
+          passwordHash,
+          emailVerifiedAt: null,
+          role: UserRole.USER,
+        },
       ],
     });
   });
@@ -60,7 +79,15 @@ describe("authentication and role authorization", () => {
     if (prisma) {
       await prisma.user.deleteMany({
         where: {
-          email: { in: [adminEmail, userEmail, externalOnlyEmail, seedEmail] },
+          email: {
+            in: [
+              adminEmail,
+              userEmail,
+              externalOnlyEmail,
+              unverifiedEmail,
+              seedEmail,
+            ],
+          },
         },
       });
     }
@@ -148,6 +175,26 @@ describe("authentication and role authorization", () => {
     const response = await request(app.getHttpServer())
       .post("/auth/login")
       .send({ email: externalOnlyEmail, password })
+      .expect(401);
+
+    expect(response.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
+  });
+
+  it("does not allow password login before the email address is verified", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/auth/login")
+      .send({ email: unverifiedEmail, password })
+      .expect(403);
+
+    expect(response.body.code).toBe(EMAIL_NOT_VERIFIED_CODE);
+    expect(response.body.message).toBe(EMAIL_NOT_VERIFIED_MESSAGE);
+    expect(response.headers["set-cookie"]).toBeUndefined();
+  });
+
+  it("still reports a generic failure for a wrong password on an unverified account", async () => {
+    const response = await request(app.getHttpServer())
+      .post("/auth/login")
+      .send({ email: unverifiedEmail, password: "wrong" })
       .expect(401);
 
     expect(response.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
