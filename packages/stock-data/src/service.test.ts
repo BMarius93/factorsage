@@ -330,9 +330,10 @@ class FakeStore implements StockDataStore {
       lastSyncedAt: input.syncedAt,
     });
     this.currentSecurity = { id: input.securityId, ...input.mapped.security };
+    this.profile = { securityId: input.securityId, ...input.mapped.profile };
     return {
       security: this.currentSecurity,
-      profile: { securityId: input.securityId, ...input.mapped.profile },
+      profile: this.profile,
     };
   }
   profileSaves: string[] = [];
@@ -1038,6 +1039,81 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.profileCalls).toEqual([security.symbol]);
     expect(store.profileSaves).toEqual([security.id]);
+  });
+
+  it("returns the enriched post-hydration identity on the first stock details request", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    provider.profile = {
+      providerSymbol: security.symbol,
+      security: {
+        symbol: security.symbol,
+        name: security.name,
+        exchangeCode: security.exchangeCode,
+        currency: security.currency,
+        type: security.type,
+        isAdr: security.isAdr,
+        isActivelyTrading: security.isActivelyTrading,
+        cik: "0000320193",
+        sector: "Technology",
+        industry: "Consumer Electronics",
+        ipoDate: "1980-12-12",
+      },
+      profile: { description: "Designs consumer electronics." },
+    };
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2026-08-20"),
+    ]);
+    const cache = new MemoryCache();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    // The very first response must already be internally consistent: the security carries the
+    // profile-sync enrichment that produced the profile returned next to it.
+    expect(details.security).toMatchObject({
+      cik: "0000320193",
+      sector: "Technology",
+      industry: "Consumer Electronics",
+      ipoDate: "1980-12-12",
+    });
+    expect(details.profile?.description).toBe("Designs consumer electronics.");
+    // And hydration must not republish the stale pre-hydration snapshot afterwards, or every
+    // READY identity read from cache would lose the enrichment again.
+    await expect(cache.getSecurity("AAPL")).resolves.toMatchObject({
+      sector: "Technology",
+      ipoDate: "1980-12-12",
+    });
+  });
+
+  it("keeps the catalog identity on stock details when the provider has no profile", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    provider.profile = null;
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2026-08-20"),
+    ]);
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    expect(details.security).toMatchObject({
+      id: security.id,
+      symbol: security.symbol,
+      name: security.name,
+    });
+    expect(details.profile).toBeUndefined();
+    expect(details.prices.map((row) => row.date)).toEqual(["2026-08-20"]);
   });
 
   it("keeps hydrating a catalogued security whose profile the provider cannot resolve", async () => {

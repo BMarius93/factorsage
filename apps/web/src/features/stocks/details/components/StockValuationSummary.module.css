@@ -1,0 +1,118 @@
+.card {
+  composes: card from "./section.module.css";
+}
+
+.title {
+  composes: title from "./section.module.css";
+}
+
+.caption {
+  composes: caption from "./section.module.css";
+}
+
+.heading {
+  margin-bottom: 16px;
+}
+
+.blendGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.blendTile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
+}
+
+.blendLabel {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.blendValue {
+  color: var(--color-text-primary);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.upside {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.upside[data-direction="above"] {
+  color: var(--color-positive);
+  background: var(--color-positive-soft);
+}
+
+.upside[data-direction="below"] {
+  color: var(--color-negative);
+  background: var(--color-negative-soft);
+}
+
+.modelList {
+  margin: 16px 0 0;
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modelRow:last-child {
+  border-bottom: 0;
+}
+
+.modelLabel {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.modelValue {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.staleNote {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}

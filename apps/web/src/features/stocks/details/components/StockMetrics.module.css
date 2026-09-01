@@ -1,0 +1,83 @@
+.card {
+  composes: card from "./section.module.css";
+}
+
+.title {
+  composes: title from "./section.module.css";
+}
+
+.group {
+  margin-top: 16px;
+}
+
+.groupTitle {
+  margin: 0 0 4px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  line-clamp: 5;
+  overflow: hidden;
+  margin: 8px 0 6px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.list {
+  margin: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 40px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--color-border);
+  box-sizing: border-box;
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.label {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.value {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.link {
+  color: var(--color-primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

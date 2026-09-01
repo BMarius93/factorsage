@@ -315,9 +315,14 @@ export class CanonicalStockDataService implements StockDataService {
     range?: DateRange,
   ): Promise<StockDetails> {
     const bounded = this.defaultRange(range);
+    const preHydration = await this.getSecurity(symbol);
+    await this.ensureStockHydrated(preHydration);
+    await this.ensureStockFresh(preHydration);
+    // The first hydration enriches the catalog identity with profile-sync fields (CIK, ISIN,
+    // IPO date, sector, ...). Re-resolving after hydration keeps the returned security and the
+    // freshly read profile consistent; on the common READY path this is a cache read, not a
+    // database query.
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
     const [profile, prices, dailyState] = await Promise.all([
       this.store.getProfile(security.id),
       this.readDailyPriceProjection(security, bounded),
@@ -436,18 +441,18 @@ export class CanonicalStockDataService implements StockDataService {
   private async hydrateSecurityProfileWithinLease(
     security: Security,
     lease: LoadLease,
-  ): Promise<void> {
+  ): Promise<Security> {
     const state = await this.store.getDatasetState(
       security.id,
       "SECURITY_PROFILE",
       "",
     );
     if (state?.lastSyncedAt) {
-      return;
+      return security;
     }
     const mapped = await this.provider.getProfile(security.symbol);
     if (!mapped) {
-      return;
+      return security;
     }
     lease.assertOwned();
     const saved = await this.store.saveSecurityProfile({
@@ -457,6 +462,7 @@ export class CanonicalStockDataService implements StockDataService {
     });
     lease.assertOwned();
     await this.cache.setSecurity(saved.security);
+    return saved.security;
   }
 
   private async hydrateWithinLease(
@@ -480,7 +486,13 @@ export class CanonicalStockDataService implements StockDataService {
 
     // No unconditional ownership check here: the profile step asserts around its own writes and
     // must not consume a lease check on the far more common path where there is nothing to save.
-    await this.hydrateSecurityProfileWithinLease(security, lease);
+    // The enriched identity it returns is what this hydration publishes to the cache below; the
+    // pre-hydration snapshot must never overwrite it, or every READY read would serve a security
+    // that is missing its profile-sync fields.
+    const hydratedSecurity = await this.hydrateSecurityProfileWithinLease(
+      security,
+      lease,
+    );
 
     const previousPriceState = await this.store.getDatasetState(
       security.id,
@@ -583,7 +595,7 @@ export class CanonicalStockDataService implements StockDataService {
     ]);
     lease.assertOwned();
     const years = yearsInRange(target);
-    await this.cache.setSecurity(security, hydrating);
+    await this.cache.setSecurity(hydratedSecurity, hydrating);
     await this.cache.writeDailyPriceYears(
       security.id,
       prices,

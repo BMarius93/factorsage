@@ -1,22 +1,27 @@
-import { RoutePlaceholder } from "../../_placeholder/RoutePlaceholder";
+import type { Metadata } from "next";
+import { StockDetails } from "../../../../features/stocks/details/components/StockDetails";
+import { normalizeStockSymbol } from "../../../../features/stocks/details/utils/route-symbol";
 
 type StockDetailsPageProps = {
   readonly params: Promise<{ readonly symbol: string }>;
 };
 
+export async function generateMetadata({
+  params,
+}: StockDetailsPageProps): Promise<Metadata> {
+  const { symbol } = await params;
+  const normalized = normalizeStockSymbol(symbol);
+  return { title: normalized === "" ? "Stocks" : `${normalized} · FactorSage` };
+}
+
 /**
- * Destination for every global stock-search selection. Stock Details itself is a later slice, so
- * this stays a thin placeholder; the route exists now so search navigation resolves.
+ * Destination for every global stock-search selection and for direct visits like `/stocks/AAPL`.
+ * The route stays a thin composition boundary: the symbol is normalized here and everything else
+ * lives in the stock-details feature.
  */
 export default async function StockDetailsPage({
   params,
 }: StockDetailsPageProps) {
   const { symbol } = await params;
-
-  return (
-    <RoutePlaceholder
-      title={decodeURIComponent(symbol).toUpperCase()}
-      description="Stock Details arrives in its own slice. Search navigation already resolves here."
-    />
-  );
+  return <StockDetails symbol={normalizeStockSymbol(symbol)} />;
 }

@@ -1,0 +1,185 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (min-width: 880px) {
+  .page {
+    gap: 20px;
+  }
+}
+
+.chartCard {
+  composes: card from "./section.module.css";
+}
+
+.chartTitle {
+  composes: title from "./section.module.css";
+}
+
+.chartCaption {
+  composes: caption from "./section.module.css";
+}
+
+.chartHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 16px;
+}
+
+.chartTools {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+@media (min-width: 880px) {
+  .chartTools {
+    align-items: flex-end;
+  }
+}
+
+.overlayToggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.overlayToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.overlayToggle:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.overlayToggle[aria-pressed="true"] {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  background: var(--color-primary-soft);
+}
+
+.overlayToggle[aria-pressed="false"] .overlayDot {
+  opacity: 0.35;
+}
+
+.overlayToggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.overlayDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.chartError {
+  margin: 12px 0 0;
+  color: var(--color-negative);
+  font-size: 13px;
+}
+
+.inlineRetry {
+  padding: 0;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inlineRetry:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.columns {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 880px) {
+  .columns {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: 20px;
+    align-items: start;
+  }
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 880px) {
+  .column {
+    gap: 20px;
+  }
+}
+
+.actionLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-primary);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.actionLink:hover {
+  border-color: var(--color-primary);
+}
+
+.actionLink:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.retryButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: var(--color-primary-hover);
+}
+
+.retryButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
