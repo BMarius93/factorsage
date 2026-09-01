@@ -4,7 +4,12 @@ import {
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import type { DateRange } from "@intrinsic/domain";
+import { MOVING_AVERAGE_SERIES } from "@intrinsic/contracts";
+import {
+  INTRINSIC_VALUE_BLEND_IDS,
+  INTRINSIC_VALUE_MODELS,
+  type DateRange,
+} from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import {
   DAILY_DERIVED_STATE_VARIANT,
@@ -218,6 +223,37 @@ describe("Stock Details API", () => {
           sma20d: 121.5,
           ema20d: 122.25,
         },
+        // Monday-Thursday of the week starting 2026-08-24 carry the previous completed week
+        // (2026-08-17) forward. `sma200w` is deliberately absent: still warming up.
+        ...["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27"].map((date) => ({
+          securityId: security.id,
+          date: new Date(`${date}T00:00:00.000Z`),
+          sma20d: 121.5,
+          weeklySourceWeekStart: new Date("2026-08-17T00:00:00.000Z"),
+          sma20w: 116.1,
+          ema20w: 112.5,
+        })),
+        // Friday closes the week starting 2026-08-24, so its own weekly values become eligible
+        // on that day and every catalog moving average is representable on one row.
+        {
+          securityId: security.id,
+          date: new Date("2026-08-28T00:00:00.000Z"),
+          sma20d: 130.1,
+          sma50d: 129.2,
+          sma100d: 128.3,
+          sma200d: 127.4,
+          ema20d: 131.1,
+          ema50d: 130.2,
+          ema200d: 129.3,
+          weeklySourceWeekStart: new Date("2026-08-24T00:00:00.000Z"),
+          sma20w: 126.1,
+          sma50w: 125.2,
+          sma100w: 124.3,
+          sma200w: 123.4,
+          ema20w: 122.5,
+          ema50w: 121.6,
+          ema200w: 120.7,
+        },
       ],
     });
     await prisma.stockDatasetState.createMany({
@@ -398,6 +434,133 @@ describe("Stock Details API", () => {
     expect(response.body[0]).not.toHaveProperty("blendVersion");
     expect(response.body[0]).not.toHaveProperty("calculationVersion");
     expect(response.body[0]).not.toHaveProperty("securityId");
+  });
+
+  it("exposes every catalog moving average, daily and weekly, on one technical row", async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28`)
+      .expect(200);
+
+    expect(response.body).toHaveLength(1);
+    const row = response.body[0] as Record<string, unknown>;
+    for (const series of MOVING_AVERAGE_SERIES) {
+      if (series.source.kind !== "MOVING_AVERAGE") {
+        throw new Error("unreachable");
+      }
+      expect(row[series.source.field]).toBeTypeOf("number");
+    }
+    // Fourteen indicator values plus the date; nothing else leaks onto the contract.
+    expect(Object.keys(row)).toHaveLength(MOVING_AVERAGE_SERIES.length + 1);
+    expect(row).not.toHaveProperty("securityId");
+    expect(row).not.toHaveProperty("weeklySourceWeekStart");
+    expect(row).not.toHaveProperty("calculationVersion");
+  });
+
+  it("never exposes a completed-week value to earlier days of that same week", async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-28`)
+      .expect(200);
+
+    const rows = response.body as { date: string; sma20w?: number }[];
+    expect(rows.map((row) => row.date)).toEqual([
+      "2026-08-24",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
+    ]);
+    // Monday-Thursday repeat the previous completed week; only Friday's own close introduces the
+    // newer weekly value.
+    expect(rows.slice(0, 4).map((row) => row.sma20w)).toEqual([
+      116.1, 116.1, 116.1, 116.1,
+    ]);
+    expect(rows[4]?.sma20w).toBe(126.1);
+  });
+
+  it("omits an unavailable weekly value instead of returning zero or null", async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-24`)
+      .expect(200);
+
+    const row = response.body[0] as Record<string, unknown>;
+    expect(row.sma20w).toBe(116.1);
+    for (const field of ["sma50w", "sma100w", "sma200w", "ema50w", "ema200w"]) {
+      expect(field in row).toBe(false);
+    }
+    expect(JSON.stringify(row)).not.toContain("null");
+  });
+
+  it("filters the technical projection to selected catalog series", async () => {
+    const response = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=SMA_200W,EMA_50D`,
+      )
+      .expect(200);
+
+    expect(response.body).toEqual([
+      { date: "2026-08-28", sma200w: 123.4, ema50d: 130.2 },
+    ]);
+  });
+
+  it("rejects selection identifiers that are not in the canonical catalog", async () => {
+    for (const series of ["SMA_300W", "sma_20w", "BALANCED", "PRICE"]) {
+      await request(app.getHttpServer())
+        .get(
+          `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=${series}`,
+        )
+        .expect(400);
+    }
+    await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/intrinsic-values?models=NOT_A_MODEL`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/intrinsic-value-blends?blendIds=NOT_A_BLEND`)
+      .expect(400);
+  });
+
+  it("serves the catalog's four models and three blends from the same daily state", async () => {
+    const models = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/intrinsic-values?from=2025-01-01&to=2025-12-31&asOf=2025-12-31&models=${INTRINSIC_VALUE_MODELS.join(",")}`,
+      )
+      .expect(200);
+    const blends = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/intrinsic-value-blends?from=2025-01-01&to=2025-12-31&asOf=2025-12-31&blendIds=${INTRINSIC_VALUE_BLEND_IDS.join(",")}`,
+      )
+      .expect(200);
+
+    // Every catalog model/blend identifier is accepted; only the ones this fixture materialized
+    // come back, and an unavailable one is simply absent rather than substituted.
+    expect(
+      new Set(models.body.map((point: { model: string }) => point.model)),
+    ).toEqual(new Set(["DCF_FCFF", "RESIDUAL_INCOME", "GRAHAM"]));
+    expect(
+      new Set(blends.body.map((point: { blendId: string }) => point.blendId)),
+    ).toEqual(new Set(["BALANCED", "CONSERVATIVE"]));
+    for (const point of [...models.body, ...blends.body]) {
+      expect(point.valuePerShare).toBeGreaterThan(0);
+    }
+  });
+
+  it("returns the same weekly state through Stock Details as through the technical endpoint", async () => {
+    const details = await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}?from=2026-08-24&to=2026-08-28`)
+      .expect(200);
+    const technicals = await request(app.getHttpServer())
+      .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-28`)
+      .expect(200);
+
+    expect(details.body.technicals).toEqual(technicals.body);
+    expect(
+      details.body.technicals.map((row: { date: string }) => row.date),
+    ).toEqual([
+      "2026-08-24",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
+    ]);
   });
 
   it("hydrates one canonical horizon and reuses it for later projections", async () => {

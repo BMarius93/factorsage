@@ -1,19 +1,23 @@
-import type {
-  DailyPriceResponse,
-  DailyTechnicalResponse,
-  IntrinsicValueBlendResponse,
-  IntrinsicValueResponse,
-  SecurityProfileResponse,
-  SecurityResponse,
-  StockDetailsResponse,
-  StockSearchResultResponse,
+import {
+  findSelectableSeries,
+  MOVING_AVERAGE_SERIES,
+  type DailyPriceResponse,
+  type DailyTechnicalResponse,
+  type IntrinsicValueBlendResponse,
+  type IntrinsicValueResponse,
+  type SecurityProfileResponse,
+  type SecurityResponse,
+  type StockDetailsResponse,
+  type StockSearchResultResponse,
 } from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
+  MATERIALIZED_MOVING_AVERAGES,
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
+  type MovingAverageField,
   type Security,
   type StockDataService,
 } from "@intrinsic/domain";
@@ -57,17 +61,27 @@ function asOf(value?: string): string | undefined {
   return value;
 }
 
+/** Splits a repeated or comma-separated query parameter into its non-empty values. */
+function selectionValues(
+  raw: string | string[] | undefined,
+): string[] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  return (Array.isArray(raw) ? raw : raw.split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function selections<T extends string>(
   raw: string | string[] | undefined,
   allowed: readonly T[],
   name: string,
 ): T[] | undefined {
-  if (raw === undefined) {
+  const values = selectionValues(raw);
+  if (values === undefined) {
     return undefined;
   }
-  const values = (Array.isArray(raw) ? raw : raw.split(","))
-    .map((value) => value.trim())
-    .filter(Boolean);
   if (values.some((value) => !allowed.includes(value as T))) {
     throw new BadRequestException(`Unsupported ${name}`);
   }
@@ -137,21 +151,59 @@ function priceResponse(
   };
 }
 
+/**
+ * Projects one daily technical row onto the wire contract.
+ *
+ * Every daily and weekly moving average is copied through the canonical field list, so adding a
+ * catalog period can never leave a series silently missing from the API. Nothing is calculated
+ * here: controllers project canonical stock-data values and never compute financial or technical
+ * series. `fields` restricts the projection to a validated selection; unavailable values are
+ * omitted rather than zeroed either way.
+ */
 function technicalResponse(
   technical: Awaited<
     ReturnType<StockDataService["getDailyTechnicals"]>
   >[number],
+  fields?: readonly MovingAverageField[],
 ): DailyTechnicalResponse {
+  const selected =
+    fields ?? MATERIALIZED_MOVING_AVERAGES.map((average) => average.field);
   return {
     date: technical.date,
-    ...(technical.sma20d === undefined ? {} : { sma20d: technical.sma20d }),
-    ...(technical.sma50d === undefined ? {} : { sma50d: technical.sma50d }),
-    ...(technical.sma100d === undefined ? {} : { sma100d: technical.sma100d }),
-    ...(technical.sma200d === undefined ? {} : { sma200d: technical.sma200d }),
-    ...(technical.ema20d === undefined ? {} : { ema20d: technical.ema20d }),
-    ...(technical.ema50d === undefined ? {} : { ema50d: technical.ema50d }),
-    ...(technical.ema200d === undefined ? {} : { ema200d: technical.ema200d }),
+    ...Object.fromEntries(
+      selected.flatMap((field) => {
+        const value = technical[field as keyof typeof technical];
+        return typeof value === "number" ? [[field, value] as const] : [];
+      }),
+    ),
   };
+}
+
+/**
+ * Resolves a `series` filter against the canonical selectable-series catalog.
+ *
+ * Only moving-average entries are addressable here: the intrinsic-value entries of the catalog are
+ * served by the intrinsic-value and blend endpoints, which apply their own point-in-time rules. An
+ * unknown or non-technical identifier is rejected rather than silently ignored.
+ */
+function technicalFields(
+  raw: string | string[] | undefined,
+): MovingAverageField[] | undefined {
+  const ids = selectionValues(raw);
+  if (ids === undefined) {
+    return undefined;
+  }
+  return ids.map((id) => {
+    const entry = findSelectableSeries(id);
+    if (!entry || entry.source.kind !== "MOVING_AVERAGE") {
+      throw new BadRequestException(
+        `Unsupported technical series. Supported: ${MOVING_AVERAGE_SERIES.map(
+          (series) => series.id,
+        ).join(", ")}`,
+      );
+    }
+    return entry.source.field as MovingAverageField;
+  });
 }
 
 function intrinsicResponse(
@@ -222,7 +274,9 @@ export class StocksController {
           ? { profile: profileResponse(details.profile) }
           : {}),
         prices: details.prices.map(priceResponse),
-        technicals: details.technicals.map(technicalResponse),
+        technicals: details.technicals.map((technical) =>
+          technicalResponse(technical),
+        ),
         intrinsicValues: details.intrinsicValues.map(intrinsicResponse),
         intrinsicValueBlends: details.intrinsicValueBlends.map(blendResponse),
       };
@@ -241,16 +295,23 @@ export class StocksController {
     );
   }
 
+  /**
+   * Daily technical history, including the weekly moving averages carried forward onto each
+   * trading day. `series` optionally narrows the response to catalog moving-average identities;
+   * omitting it keeps the pre-existing full projection.
+   */
   @Get(":symbol/technicals/daily")
   async getDailyTechnicals(
     @Param("symbol") symbol: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("series") seriesQuery?: string | string[],
   ): Promise<DailyTechnicalResponse[]> {
     const query = range(from, to, true);
+    const fields = technicalFields(seriesQuery);
     return this.execute(async () =>
-      (await this.stocks.getDailyTechnicals(symbol, query)).map(
-        technicalResponse,
+      (await this.stocks.getDailyTechnicals(symbol, query)).map((technical) =>
+        technicalResponse(technical, fields),
       ),
     );
   }
