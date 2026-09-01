@@ -179,4 +179,6 @@ password with Argon2id, and upserts only that account as a verified `ADMIN`. It 
 credentials and is safe to rerun without creating duplicates.
 
 `pnpm test:users:seed` creates or updates exactly the two persistent QA personas from the `QA_*`
-environment variables. See [`../workflows/auth-testing.md`](../workflows/auth-testing.md).
+environment variables, and refuses to run when `NODE_ENV=production` because the `QA_ADMIN`
+persona is a real administrator account. See
+[`../workflows/auth-testing.md`](../workflows/auth-testing.md).

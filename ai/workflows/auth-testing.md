@@ -44,8 +44,12 @@ Testing:
 - `QA_USER_EMAIL`, `QA_USER_PASSWORD`
 - `QA_ADMIN_EMAIL`, `QA_ADMIN_PASSWORD`
 
-All of these live in the git-ignored repository-root `.env`. `.env.example` documents them with
-empty values.
+All of these live in the git-ignored repository-root `.env`. `.env.example` documents every one
+of them and leaves the optional `GOOGLE_*` and `SMTP_*` groups, the `QA_*` personas, `ADMIN_*` and
+`FMP_API_KEY` empty, so `cp .env.example .env` yields a stack that boots with Google and email
+simply not offered. Both groups are all-or-nothing: setting only part of one is rejected at
+startup rather than silently disabled, so do not put a default back into an otherwise empty
+group.
 
 ## 3. QA personas
 
@@ -74,6 +78,12 @@ The command reads the four `QA_*` variables, creates or updates exactly those tw
 both email-verified, re-asserts their roles, and removes any leftover verification token. It
 touches no other row and is safe to rerun. It targets `DATABASE_URL`, which is the database the
 running stack uses, so run it against the development stack Playwright will drive.
+
+It refuses outright when `NODE_ENV=production`, before reading any credential or opening a
+connection. The `QA_ADMIN` persona is a real administrator account whose password lives in a
+developer environment file, so it must never exist in a production database. This guard is
+specific to the QA seeder; `pnpm db:seed`, which exists to bootstrap a genuine administrator, is
+unaffected.
 
 Implementation: `apps/api/src/seed-qa-users.ts` and `apps/api/src/auth/seed-qa-users.ts`.
 

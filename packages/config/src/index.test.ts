@@ -1,5 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  getApiConfig,
   getAuthConfig,
   getGoogleOAuthConfig,
   getQaPersonaConfig,
@@ -94,6 +97,36 @@ describe("Google OAuth configuration", () => {
       getGoogleOAuthConfig({ ...GOOGLE_ENV, GOOGLE_CALLBACK_URL: "/callback" }),
     ).toThrow("GOOGLE_CALLBACK_URL must be an absolute URL");
   });
+
+  it("treats variables that are present but blank as not offering the provider", () => {
+    expect(
+      getGoogleOAuthConfig({
+        GOOGLE_CLIENT_ID: "",
+        GOOGLE_CLIENT_SECRET: "",
+        GOOGLE_CALLBACK_URL: "",
+      }),
+    ).toBeNull();
+    expect(
+      getGoogleOAuthConfig({
+        GOOGLE_CLIENT_ID: "   ",
+        GOOGLE_CLIENT_SECRET: "",
+        GOOGLE_CALLBACK_URL: "",
+      }),
+    ).toBeNull();
+  });
+
+  it("still rejects a group whose only non-empty value is a default callback", () => {
+    // The exact shape `.env.example` used to ship, which made a fresh .env unbootable.
+    expect(() =>
+      getGoogleOAuthConfig({
+        GOOGLE_CLIENT_ID: "",
+        GOOGLE_CLIENT_SECRET: "",
+        GOOGLE_CALLBACK_URL: "http://localhost:3001/auth/google/callback",
+      }),
+    ).toThrow(
+      "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_CALLBACK_URL must be set together",
+    );
+  });
 });
 
 describe("SMTP configuration", () => {
@@ -155,6 +188,33 @@ describe("SMTP configuration", () => {
     expect(() => getSmtpConfig(withoutUser)).toThrow(
       "SMTP_USER and SMTP_PASSWORD must be set together",
     );
+  });
+
+  it("treats variables that are present but blank as no transport at all", () => {
+    expect(
+      getSmtpConfig({
+        SMTP_HOST: "",
+        SMTP_PORT: "",
+        SMTP_SECURE: "",
+        SMTP_USER: "",
+        SMTP_PASSWORD: "",
+        SMTP_FROM: "",
+      }),
+    ).toBeNull();
+  });
+
+  it("still rejects a transport switched on by nothing but a port", () => {
+    // The exact shape `.env.example` used to ship, which made a fresh .env unbootable.
+    expect(() =>
+      getSmtpConfig({
+        SMTP_HOST: "",
+        SMTP_PORT: "587",
+        SMTP_SECURE: "",
+        SMTP_USER: "",
+        SMTP_PASSWORD: "",
+        SMTP_FROM: "",
+      }),
+    ).toThrow("SMTP_HOST and SMTP_FROM are required");
   });
 
   it("rejects an invalid port or secure flag", () => {
@@ -242,5 +302,71 @@ describe("browser-exposed configuration", () => {
       "apiBaseUrl",
       "stripePublishableKey",
     ]);
+  });
+});
+
+/** Mirrors how `loadRootEnv` locates the workspace, so this works from any cwd. */
+function repositoryRoot(): string {
+  let directory = resolve(process.cwd());
+  while (!existsSync(join(directory, "pnpm-workspace.yaml"))) {
+    const parent = dirname(directory);
+    if (parent === directory) {
+      throw new Error("Could not locate the repository root");
+    }
+    directory = parent;
+  }
+  return directory;
+}
+
+function parseEnvFile(path: string): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
+    if (match) {
+      values[match[1] as string] = match[2] ?? "";
+    }
+  }
+  return values;
+}
+
+/**
+ * `.env.example` is the first thing a new contributor copies to `.env`, so the template has to
+ * satisfy the parser it documents. A stray value left inside an optional group makes that group
+ * look half-configured and stops the API from starting.
+ */
+describe(".env.example template", () => {
+  const template = parseEnvFile(join(repositoryRoot(), ".env.example"));
+
+  it("leaves every optional and secret value empty", () => {
+    const mustBeEmpty = [
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_CALLBACK_URL",
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_SECURE",
+      "SMTP_USER",
+      "SMTP_PASSWORD",
+      "SMTP_FROM",
+      "ADMIN_EMAIL",
+      "ADMIN_PASSWORD",
+      "QA_USER_EMAIL",
+      "QA_USER_PASSWORD",
+      "QA_ADMIN_EMAIL",
+      "QA_ADMIN_PASSWORD",
+      "FMP_API_KEY",
+    ];
+
+    for (const name of mustBeEmpty) {
+      expect(template).toHaveProperty(name);
+      expect(`${name}=${template[name]}`).toBe(`${name}=`);
+    }
+  });
+
+  it("parses cleanly, with Google and SMTP genuinely disabled", () => {
+    expect(getGoogleOAuthConfig(template)).toBeNull();
+    expect(getSmtpConfig(template)).toBeNull();
+    expect(() => getAuthConfig(template)).not.toThrow();
+    expect(() => getApiConfig(template)).not.toThrow();
   });
 });

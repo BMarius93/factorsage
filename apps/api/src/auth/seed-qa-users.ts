@@ -13,18 +13,42 @@ export type QaPersonaInput = {
 
 export type SeededQaPersona = AuthUser & { readonly name: string };
 
+export const PRODUCTION_QA_SEED_MESSAGE =
+  "Refusing to seed QA personas: NODE_ENV is production. QA personas are development and test " +
+  "infrastructure, and the QA_ADMIN persona is a real administrator account, so this command " +
+  "must never run against a production database.";
+
+/**
+ * Hard stop for the QA persona seeder.
+ *
+ * Unlike `pnpm db:seed`, which exists to bootstrap a real administrator, this command creates
+ * accounts whose credentials live in developer environment files. Whoever runs it may not realize
+ * `DATABASE_URL` points at production, so the refusal is unconditional rather than a prompt.
+ */
+export function assertQaSeedingAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): void {
+  if (env.NODE_ENV?.trim() === "production") {
+    throw new Error(PRODUCTION_QA_SEED_MESSAGE);
+  }
+}
+
 /**
  * Creates or updates exactly the two persistent QA personas and nothing else.
  *
- * Rerunning is safe: each persona is upserted by its normalized email, its password hash is
- * refreshed from the environment, its role is re-asserted, and it is left email-verified so
- * browser tests can sign in through the normal UI. No other row is touched.
+ * Refuses to run in production. Rerunning is otherwise safe: each persona is upserted by its
+ * normalized email, its password hash is refreshed from the environment, its role is re-asserted,
+ * and it is left email-verified so browser tests can sign in through the normal UI. No other row
+ * is touched.
  */
 export async function seedQaUsers(
   prisma: PrismaClient,
   passwords: PasswordService,
   personas: readonly QaPersonaInput[],
 ): Promise<SeededQaPersona[]> {
+  // Guarded here as well as at the entry point, so no caller can reach the writes without it.
+  assertQaSeedingAllowed();
+
   const seeded: SeededQaPersona[] = [];
 
   for (const persona of personas) {
