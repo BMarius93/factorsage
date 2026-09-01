@@ -138,6 +138,11 @@ When it is introduced in V2:
 - Price history, moving averages, intrinsic values/blends, and buy/sell/final-exit markers must remain legible together.
 - Do not compute canonical valuation models in React. The chart visualizes canonical data/contracts.
 - Verify desktop resize and mobile touch interaction.
+- Stock Details chart overlays and Strategy condition operands consume the canonical catalog in
+  `../../docs/decisions/selectable-series-catalog.md`; feature components must not duplicate its
+  option identities, grouping, or ordering.
+- Stock Details exposes that catalog through one grouped multi-select `Indicators` control. Price
+  remains the always-visible base series.
 
 Do not add a second chart library just for convenience when Lightweight Charts can cleanly satisfy the requirement. A different library is acceptable for a materially different visualization category if justified by the task.
 

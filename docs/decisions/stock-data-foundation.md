@@ -98,7 +98,7 @@ Friday    ema20w = 186.1   # after the new weekly period is complete
 
 A future Stock Details/UI feature may explicitly introduce a provisional week-to-date indicator based on the current partial week. Such a value must be clearly distinguished from completed-period historical values and must never leak into backtest/PIT calculations.
 
-The exact V1 weekly SMA/EMA period catalog is intentionally not fixed by this PR. `1W` is reserved in the type system so a later product decision can add weekly periods without redefining timeframe semantics.
+The later product decision in `selectable-series-catalog.md` fixes the weekly catalog as SMA 20W/50W/100W/200W and EMA 20W/50W/200W. `1W` remains the explicit timeframe identity, and all completed-period rules in this document remain authoritative.
 
 ## Daily materialized backtest state
 
@@ -157,10 +157,10 @@ Methodology changes are handled by an explicit rebuild, not by version history. 
 cache manifest. Bumping it reports no coverage for the new variant, which recalculates and replaces
 the materialized state.
 
-Weekly indicator value columns are added to `DailyDerivedState` when the weekly period catalog is
-product-defined. Until then the row carries `weeklySourceWeekStart`, the completed week whose
-carried-forward values are effective on that trading day. Do not reintroduce a weekly-cadence
-indicator table.
+The weekly indicator catalog is now fixed by `selectable-series-catalog.md`. Its seven value
+columns must be added to `DailyDerivedState` and carried forward beside `weeklySourceWeekStart`,
+the completed week whose values are effective on that trading day. Do not reintroduce a
+weekly-cadence indicator table.
 
 ## V1 intrinsic-value models
 
@@ -407,7 +407,7 @@ Minimum matrix:
 - Redis client/LRU implementation
 - live FMP client implementation
 - SMA/EMA calculation implementation
-- weekly technical implementation or weekly period catalog
+- weekly technical implementation (the later product catalog is fixed in `selectable-series-catalog.md`)
 - intrinsic-value formulas
 - blend calculation implementation
 - Stock Details controllers/routes

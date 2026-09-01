@@ -16,6 +16,10 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
+For strategy work, also read `product/strategies.md`.
+For Stock Details or selectable-series work, also read `product/stock-details.md` and
+`../docs/decisions/selectable-series-catalog.md`.
+
 For frontend/UI work, also read
 `architecture/frontend.md`.
 
@@ -40,15 +44,27 @@ StockList (user-owned)
        or
        +-- BUY window = CUSTOM(one or more normalized date ranges; endDate null = open-ended)
 
+SelectableSeriesCatalog
+  |
+  +-- daily/weekly moving averages
+  +-- intrinsic-value models/blends
+  +-- Stock Details overlays
+  +-- compatible Strategy condition operands
+
 Strategy
   |
-  +-- valuation rules
-  +-- margin-of-safety rules
-  +-- technical rules
-  +-- entry/exit rules
-  +-- allocation rules
+  +-- ordered BUY/SELL/FINAL EXIT predicates
+  +-- entry fraction of one full position
+  +-- exit fraction of the remaining position
+  +-- no global valuation source
+  +-- no portfolio-position limit
 
-Backtest = immutable execution snapshot + asynchronous worker execution
+Backtest
+  |
+  +-- immutable execution snapshot + asynchronous worker execution
+  +-- capital/contributions/maximumPositions
+  +-- full position fraction = 1 / maximumPositions
+
 Monitor = current-data evaluation using the same canonical strategy logic
 ```
 
