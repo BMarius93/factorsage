@@ -1,4 +1,8 @@
-import type { DailyTechnicalResponse } from "@intrinsic/contracts";
+import {
+  MOVING_AVERAGE_SERIES,
+  type DailyTechnicalResponse,
+  type MovingAverageFieldResponse,
+} from "@intrinsic/contracts";
 
 /**
  * Latest-row projection over the daily technical series for the summary panel.
@@ -7,7 +11,7 @@ import type { DailyTechnicalResponse } from "@intrinsic/contracts";
  * zero. Values are taken from the newest technical row as-is; the only derivation is the
  * display-level position of the close relative to each average.
  */
-export type TechnicalIndicatorKey = keyof Omit<DailyTechnicalResponse, "date">;
+export type TechnicalIndicatorKey = MovingAverageFieldResponse;
 
 export type TechnicalReading = {
   key: TechnicalIndicatorKey;
@@ -20,18 +24,21 @@ export type TechnicalSnapshot = {
   readings: TechnicalReading[];
 };
 
+/**
+ * Indicator rows of the summary panel, taken from the canonical selectable-series catalog.
+ *
+ * The order and the labels are the catalog's, so the summary, the `Indicators` picker and the
+ * chart legend cannot drift apart, and this file keeps no second option list.
+ */
 export const TECHNICAL_INDICATORS: ReadonlyArray<{
   key: TechnicalIndicatorKey;
   label: string;
-}> = [
-  { key: "sma20d", label: "SMA 20" },
-  { key: "sma50d", label: "SMA 50" },
-  { key: "sma100d", label: "SMA 100" },
-  { key: "sma200d", label: "SMA 200" },
-  { key: "ema20d", label: "EMA 20" },
-  { key: "ema50d", label: "EMA 50" },
-  { key: "ema200d", label: "EMA 200" },
-];
+}> = MOVING_AVERAGE_SERIES.map((series) => {
+  if (series.source.kind !== "MOVING_AVERAGE") {
+    throw new Error("MOVING_AVERAGE_SERIES must only contain moving averages");
+  }
+  return { key: series.source.field, label: series.label };
+});
 
 /** Expects ascending rows; `undefined` when there are no rows or the last row has no values. */
 export function selectLatestTechnicals(

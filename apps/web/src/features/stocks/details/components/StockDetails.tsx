@@ -1,19 +1,22 @@
 "use client";
 
-import type { StockDetailsResponse } from "@intrinsic/contracts";
+import type {
+  SelectableSeriesId,
+  StockDetailsResponse,
+} from "@intrinsic/contracts";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { PageContainer } from "../../../../components/layout/PageContainer";
 import type { StockHistoryWindow } from "../api/stock-details-api";
 import { useExtendedHistory } from "../hooks/use-extended-history";
+import { useIndicatorSelection } from "../hooks/use-indicator-selection";
 import { useStockDetails } from "../hooks/use-stock-details";
+import { closeSeries } from "../utils/chart-series";
 import {
-  blendSeries,
-  closeSeries,
-  technicalSeries,
-  type ChartOverlaySeries,
-} from "../utils/chart-series";
-import { CHART_COLORS } from "../utils/chart-theme";
+  availableSeriesIds,
+  buildOverlays,
+  type SeriesSource,
+} from "../utils/series-catalog";
 import {
   DEFAULT_PRICE_RANGE,
   rangeExceedsWindow,
@@ -24,6 +27,7 @@ import {
 import { summarizePrices } from "../utils/price-summary";
 import { selectLatestTechnicals } from "../utils/technicals";
 import { selectLatestValuations } from "../utils/valuation";
+import { IndicatorsMenu } from "./IndicatorsMenu";
 import { StockDetailsSkeleton } from "./StockDetailsSkeleton";
 import { StockHeader } from "./StockHeader";
 import { StockMetrics } from "./StockMetrics";
@@ -38,33 +42,6 @@ type StockDetailsProps = {
   /** Normalized upper-case ticker from the route. */
   readonly symbol: string;
 };
-
-type OverlayId = "intrinsic" | "sma50" | "sma200";
-
-type OverlayToggleProps = {
-  readonly label: string;
-  readonly color: string;
-  readonly pressed: boolean;
-  readonly onToggle: () => void;
-};
-
-function OverlayToggle({ label, color, pressed, onToggle }: OverlayToggleProps) {
-  return (
-    <button
-      type="button"
-      className={styles.overlayToggle}
-      aria-pressed={pressed}
-      onClick={onToggle}
-    >
-      <span
-        className={styles.overlayDot}
-        style={{ backgroundColor: color }}
-        aria-hidden="true"
-      />
-      {label}
-    </button>
-  );
-}
 
 /**
  * Stock Details page feature: resolves the symbol against the real API and renders the identity
@@ -145,9 +122,6 @@ function StockDetailsContent({
   window,
 }: StockDetailsContentProps) {
   const [range, setRange] = useState<PriceRangeKey>(DEFAULT_PRICE_RANGE);
-  const [overlaysEnabled, setOverlaysEnabled] = useState<
-    Record<OverlayId, boolean>
-  >({ intrinsic: true, sma50: false, sma200: false });
 
   const { security, profile } = details;
   const summary = useMemo(() => summarizePrices(details.prices), [details.prices]);
@@ -166,75 +140,55 @@ function StockDetailsContent({
   const extended = useExtendedHistory(symbol, needsExtended, security.ipoDate);
   const extendedHistory =
     extended.status === "ready" ? extended.history : undefined;
-  const source =
+  const prices =
+    needsExtended && extendedHistory ? extendedHistory.prices : details.prices;
+  const source: SeriesSource =
     needsExtended && extendedHistory
       ? {
-          prices: extendedHistory.prices,
           technicals: extendedHistory.technicals,
           blends: extendedHistory.intrinsicValueBlends,
+          intrinsicValues: extendedHistory.intrinsicValues,
         }
       : {
-          prices: details.prices,
           technicals: details.technicals,
           blends: details.intrinsicValueBlends,
+          intrinsicValues: details.intrinsicValues,
         };
+
+  // Option availability is answered from the always-loaded details window, so the picker does not
+  // reshuffle between enabled and disabled while a longer history is still loading.
+  const detailsSource: SeriesSource = useMemo(
+    () => ({
+      technicals: details.technicals,
+      blends: details.intrinsicValueBlends,
+      intrinsicValues: details.intrinsicValues,
+    }),
+    [details.technicals, details.intrinsicValueBlends, details.intrinsicValues],
+  );
+  const available = useMemo(
+    () => availableSeriesIds(detailsSource),
+    [detailsSource],
+  );
+  const { selected, toggle } = useIndicatorSelection(available);
 
   const rangeStart = rangeStartDate(range, latestDate);
   const chartPoints = useMemo(
+    () => sliceFromDate(closeSeries(prices), rangeStart, (point) => point.date),
+    [prices, rangeStart],
+  );
+  const chartOverlays = useMemo(
     () =>
-      sliceFromDate(closeSeries(source.prices), rangeStart, (point) => point.date),
-    [source.prices, rangeStart],
+      buildOverlays(source, selected, (points) =>
+        sliceFromDate(points, rangeStart, (point) => point.date),
+      ),
+    [source, selected, rangeStart],
   );
-  const chartOverlays = useMemo(() => {
-    const list: ChartOverlaySeries[] = [];
-    if (overlaysEnabled.intrinsic) {
-      const points = sliceFromDate(
-        blendSeries(source.blends, "BALANCED"),
-        rangeStart,
-        (point) => point.date,
-      );
-      if (points.length > 0) {
-        list.push({
-          id: "intrinsic",
-          label: "Intrinsic (Balanced)",
-          color: CHART_COLORS.intrinsic,
-          points,
-        });
-      }
-    }
-    for (const overlay of [
-      { id: "sma50" as const, key: "sma50d" as const, label: "SMA 50", color: CHART_COLORS.sma50 },
-      { id: "sma200" as const, key: "sma200d" as const, label: "SMA 200", color: CHART_COLORS.sma200 },
-    ]) {
-      if (!overlaysEnabled[overlay.id]) {
-        continue;
-      }
-      const points = sliceFromDate(
-        technicalSeries(source.technicals, overlay.key),
-        rangeStart,
-        (point) => point.date,
-      );
-      if (points.length > 0) {
-        list.push({
-          id: overlay.id,
-          label: overlay.label,
-          color: overlay.color,
-          points,
-        });
-      }
-    }
-    return list;
-  }, [overlaysEnabled, source.blends, source.technicals, rangeStart]);
-
-  // Toggle availability comes from the always-loaded details window so controls do not appear and
-  // disappear as range data loads.
-  const hasIntrinsicOverlay = details.intrinsicValueBlends.some(
-    (blend) => blend.blendId === "BALANCED",
+  // The legend and the picker read the same assignment, so a swatch always matches its line.
+  const overlayColors = useMemo(
+    () => new Map(chartOverlays.map((overlay) => [overlay.id, overlay.color])),
+    [chartOverlays],
   );
-  const hasSma50 = details.technicals.some((row) => row.sma50d !== undefined);
-  const hasSma200 = details.technicals.some((row) => row.sma200d !== undefined);
-  const toggleOverlay = (id: OverlayId) =>
-    setOverlaysEnabled((current) => ({ ...current, [id]: !current[id] }));
+  const colorOf = (id: SelectableSeriesId) => overlayColors.get(id);
 
   return (
     <PageContainer>
@@ -253,34 +207,12 @@ function StockDetailsContent({
             </div>
             <div className={styles.chartTools}>
               <StockRangeSelector value={range} onChange={setRange} />
-              {hasIntrinsicOverlay || hasSma50 || hasSma200 ? (
-                <div className={styles.overlayToggles} role="group" aria-label="Chart overlays">
-                  {hasIntrinsicOverlay ? (
-                    <OverlayToggle
-                      label="Intrinsic value"
-                      color={CHART_COLORS.intrinsic}
-                      pressed={overlaysEnabled.intrinsic}
-                      onToggle={() => toggleOverlay("intrinsic")}
-                    />
-                  ) : null}
-                  {hasSma50 ? (
-                    <OverlayToggle
-                      label="SMA 50"
-                      color={CHART_COLORS.sma50}
-                      pressed={overlaysEnabled.sma50}
-                      onToggle={() => toggleOverlay("sma50")}
-                    />
-                  ) : null}
-                  {hasSma200 ? (
-                    <OverlayToggle
-                      label="SMA 200"
-                      color={CHART_COLORS.sma200}
-                      pressed={overlaysEnabled.sma200}
-                      onToggle={() => toggleOverlay("sma200")}
-                    />
-                  ) : null}
-                </div>
-              ) : null}
+              <IndicatorsMenu
+                selected={selected}
+                available={available}
+                onToggle={toggle}
+                colorOf={colorOf}
+              />
             </div>
           </div>
 

@@ -3,8 +3,10 @@ import type {
   DailyTechnicalResponse,
   IntrinsicValueBlendIdResponse,
   IntrinsicValueBlendResponse,
+  IntrinsicValueModelResponse,
+  IntrinsicValueResponse,
+  MovingAverageFieldResponse,
 } from "@intrinsic/contracts";
-import type { TechnicalIndicatorKey } from "./technicals";
 
 /** One dated observation handed to the chart; dates stay canonical `YYYY-MM-DD` strings. */
 export type ChartPoint = {
@@ -27,12 +29,16 @@ export function closeSeries(
 }
 
 /**
- * Daily indicator line. Warm-up days without a value are omitted entirely so the chart starts the
- * line at its first real observation instead of interpolating over missing data.
+ * Moving-average line, daily or weekly.
+ *
+ * Warm-up days without a value are omitted entirely so the chart starts the line at its first real
+ * observation instead of interpolating over missing data. A weekly field intentionally repeats the
+ * latest completed week's value across that week's trading days: the backend materialized it that
+ * way, and flattening it here would misrepresent the point-in-time series.
  */
 export function technicalSeries(
   technicals: readonly DailyTechnicalResponse[],
-  indicator: TechnicalIndicatorKey,
+  indicator: MovingAverageFieldResponse,
 ): ChartPoint[] {
   return technicals.flatMap((row) => {
     const value = row[indicator];
@@ -51,6 +57,21 @@ export function blendSeries(
 ): ChartPoint[] {
   return blends.flatMap((row) =>
     row.blendId === blendId
+      ? [{ date: row.valuationDate, value: row.valuePerShare }]
+      : [],
+  );
+}
+
+/**
+ * Materialized intrinsic-value model line, with the same carry-forward semantics as a blend: the
+ * backend repeats each eligible valuation per trading day and leaves pre-eligibility days absent.
+ */
+export function intrinsicModelSeries(
+  values: readonly IntrinsicValueResponse[],
+  model: IntrinsicValueModelResponse,
+): ChartPoint[] {
+  return values.flatMap((row) =>
+    row.model === model
       ? [{ date: row.valuationDate, value: row.valuePerShare }]
       : [],
   );

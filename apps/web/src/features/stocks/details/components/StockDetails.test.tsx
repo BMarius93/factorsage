@@ -1,9 +1,10 @@
-import type {
-  DailyPriceResponse,
-  SecurityResponse,
-  StockDetailsResponse,
+import {
+  SELECTABLE_SERIES_CATALOG,
+  type DailyPriceResponse,
+  type SecurityResponse,
+  type StockDetailsResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../../lib/api/client";
@@ -11,6 +12,7 @@ import {
   fetchDailyPriceHistory,
   fetchDailyTechnicalHistory,
   fetchIntrinsicValueBlendHistory,
+  fetchIntrinsicValueHistory,
   fetchStockDetails,
 } from "../api/stock-details-api";
 import type { StockPriceChartProps } from "./StockPriceChart";
@@ -21,6 +23,7 @@ vi.mock("../api/stock-details-api", () => ({
   fetchDailyPriceHistory: vi.fn(),
   fetchDailyTechnicalHistory: vi.fn(),
   fetchIntrinsicValueBlendHistory: vi.fn(),
+  fetchIntrinsicValueHistory: vi.fn(),
 }));
 
 // The chart library boundary is tested separately; here a probe records the data our feature
@@ -35,6 +38,12 @@ vi.mock("./StockPriceChart", () => ({
       data-overlays={props.overlays
         .map((overlay) => `${overlay.id}:${overlay.points.length}`)
         .join(",")}
+      data-overlay-labels={props.overlays
+        .map((overlay) => overlay.label)
+        .join(",")}
+      data-overlay-colors={props.overlays
+        .map((overlay) => overlay.color)
+        .join(",")}
       data-loading={props.loading ? "true" : "false"}
     />
   ),
@@ -46,6 +55,7 @@ const fetchDailyTechnicalHistoryMock = vi.mocked(fetchDailyTechnicalHistory);
 const fetchIntrinsicValueBlendHistoryMock = vi.mocked(
   fetchIntrinsicValueBlendHistory,
 );
+const fetchIntrinsicValueHistoryMock = vi.mocked(fetchIntrinsicValueHistory);
 
 const SECURITY: SecurityResponse = {
   id: "sec-1",
@@ -91,9 +101,18 @@ function detailsFixture(): StockDetailsResponse {
       bar("2026-08-27", 200),
       bar("2026-08-28", 232),
     ],
+    // Deliberately partial: only some catalog entries have data, so the rest must render as
+    // discoverable-but-unavailable rather than disappearing.
     technicals: [
-      { date: "2026-08-27", sma50d: 219 },
-      { date: "2026-08-28", sma50d: 220, sma200d: 210, ema20d: 225 },
+      { date: "2026-08-27", sma50d: 219, sma20w: 215 },
+      {
+        date: "2026-08-28",
+        sma50d: 220,
+        sma200d: 210,
+        ema20d: 225,
+        sma20w: 216,
+        ema50w: 208,
+      },
     ],
     intrinsicValues: [
       {
@@ -145,8 +164,10 @@ beforeEach(() => {
   fetchDailyPriceHistoryMock.mockReset();
   fetchDailyTechnicalHistoryMock.mockReset();
   fetchIntrinsicValueBlendHistoryMock.mockReset();
+  fetchIntrinsicValueHistoryMock.mockReset();
   fetchDailyTechnicalHistoryMock.mockResolvedValue([]);
   fetchIntrinsicValueBlendHistoryMock.mockResolvedValue([]);
+  fetchIntrinsicValueHistoryMock.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -182,18 +203,27 @@ describe("StockDetails", () => {
     render(<StockDetails symbol="AAPL" />);
     await screen.findByRole("heading", { name: "Intrinsic value" });
 
-    expect(screen.getByText("Balanced")).toBeDefined();
-    expect(screen.getByText("$290.00")).toBeDefined();
+    // Scoped to the valuation card: the catalog labels also appear inside the Indicators picker.
+    const valuation = screen
+      .getByRole("heading", { name: "Intrinsic value" })
+      .closest("section")!;
+    expect(within(valuation).getByText("Balanced")).toBeDefined();
+    expect(within(valuation).getByText("$290.00")).toBeDefined();
     // (290 - 232) / 232 = +25% upside against the latest close.
-    expect(screen.getByText("+25.00% vs price")).toBeDefined();
-    expect(screen.getByText("DCF (FCFF)")).toBeDefined();
-    expect(screen.getByText(/Valuation as of Aug 28, 2026/)).toBeDefined();
+    expect(within(valuation).getByText("+25.00% vs price")).toBeDefined();
+    expect(within(valuation).getByText("DCF (FCFF)")).toBeDefined();
+    expect(
+      within(valuation).getByText(/Valuation as of Aug 28, 2026/),
+    ).toBeDefined();
 
-    expect(screen.getByRole("heading", { name: "Technicals" })).toBeDefined();
-    // "SMA 200" labels both the overlay toggle and the technicals row.
-    expect(screen.getAllByText("SMA 200").length).toBeGreaterThan(1);
-    // Close 232 vs SMA 50 of 220 → price sits 5.45% above.
-    expect(screen.getByText("price +5.45%")).toBeDefined();
+    const technicals = screen
+      .getByRole("heading", { name: "Technicals" })
+      .closest("section")!;
+    // Daily and weekly rows both use the canonical catalog labels.
+    expect(within(technicals).getByText("SMA 200D")).toBeDefined();
+    expect(within(technicals).getByText("SMA 20W")).toBeDefined();
+    // Close 232 vs SMA 50D of 220 → price sits 5.45% above.
+    expect(within(technicals).getByText("price +5.45%")).toBeDefined();
 
     expect(screen.getByText("Sector")).toBeDefined();
     expect(screen.getByText("Technology")).toBeDefined();
@@ -266,21 +296,144 @@ describe("StockDetails", () => {
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
   });
 
-  it("drives chart overlays from the toggles", async () => {
+  async function openIndicators(user: ReturnType<typeof setupUser>) {
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    return screen.getByRole("dialog", { name: "Indicators" });
+  }
+
+  it("offers the whole canonical catalog in its four ordered groups", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     const user = setupUser();
 
-    render(<StockDetails symbol="AAPL" />);
-    await screen.findByTestId("price-chart");
+    const panel = await openIndicators(user);
 
-    // The intrinsic overlay is on by default when blend data exists.
-    expect(chart().dataset.overlays).toBe("intrinsic:2");
+    expect(
+      Array.from(panel.querySelectorAll("legend")).map(
+        (legend) => legend.textContent,
+      ),
+    ).toEqual([
+      "Moving averages — Daily",
+      "Moving averages — Weekly",
+      "Intrinsic Value — Blends",
+      "Intrinsic Value — Models",
+    ]);
 
-    await user.click(screen.getByRole("button", { name: "SMA 50" }));
-    expect(chart().dataset.overlays).toBe("intrinsic:2,sma50:2");
+    const options = within(panel).getAllByRole("checkbox");
+    expect(options).toHaveLength(SELECTABLE_SERIES_CATALOG.length);
+    expect(options).toHaveLength(21);
+    // Price is the always-visible base series and is never offered as an option.
+    expect(within(panel).queryByRole("checkbox", { name: /Price/ })).toBeNull();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Intrinsic value" }));
-    expect(chart().dataset.overlays).toBe("sma50:2");
+  it("enables Balanced by default and nothing else", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    const checked = within(panel)
+      .getAllByRole("checkbox")
+      .filter((box) => (box as HTMLInputElement).checked);
+    expect(checked).toHaveLength(1);
+    expect(chart().dataset.overlays).toBe("BALANCED:2");
+    expect(chart().dataset.overlayLabels).toBe("Balanced");
+  });
+
+  it("marks an unavailable entry disabled without hiding or substituting it", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    // The fixture has no SMA 100D, no 200W and no Graham history. The accessible name of an
+    // unavailable option carries the "Unavailable" marker, which is exactly the point.
+    for (const name of [
+      "SMA 100D Unavailable",
+      "SMA 200W Unavailable",
+      "Graham Unavailable",
+      "Dividend Unavailable",
+      "Dividend Discount (DDM) Unavailable",
+    ]) {
+      const option = within(panel).getByRole("checkbox", {
+        name,
+      }) as HTMLInputElement;
+      expect(option.disabled).toBe(true);
+    }
+    expect(within(panel).getAllByText("Unavailable")).toHaveLength(14);
+
+    // Available entries stay enabled.
+    for (const name of ["SMA 50D", "SMA 20W", "Balanced", "DCF (FCFF)"]) {
+      expect(
+        (within(panel).getByRole("checkbox", { name }) as HTMLInputElement)
+          .disabled,
+      ).toBe(false);
+    }
+
+    // Clicking a disabled entry cannot substitute another series onto the chart.
+    await user.click(
+      within(panel).getByRole("checkbox", { name: "SMA 100D Unavailable" }),
+    );
+    expect(chart().dataset.overlays).toBe("BALANCED:2");
+  });
+
+  it("switches between a daily and a weekly moving average", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+    expect(chart().dataset.overlays).toBe("SMA_50D:2,BALANCED:2");
+    expect(chart().dataset.overlayLabels).toBe("SMA 50D,Balanced");
+
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 20W" }));
+    // A weekly series is its own identity, not a relabelled daily one.
+    expect(chart().dataset.overlays).toBe("SMA_20W:2,BALANCED:2");
+    expect(chart().dataset.overlayLabels).toBe("SMA 20W,Balanced");
+  });
+
+  it("draws technical and intrinsic-value overlays simultaneously with distinct colours", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 200D" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "EMA 50W" }));
+    await user.click(
+      within(panel).getByRole("checkbox", { name: "DCF (FCFF)" }),
+    );
+
+    // Canonical catalog order, not click order.
+    expect(chart().dataset.overlays).toBe(
+      "SMA_200D:1,EMA_50W:1,BALANCED:2,DCF_FCFF:1",
+    );
+    expect(chart().dataset.overlayLabels).toBe(
+      "SMA 200D,EMA 50W,Balanced,DCF (FCFF)",
+    );
+    const colors = chart().dataset.overlayColors!.split(",");
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("removes an overlay when it is deselected", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+    expect(chart().dataset.overlays).toBe("SMA_50D:2,BALANCED:2");
+
+    await user.click(within(panel).getByRole("checkbox", { name: "Balanced" }));
+    expect(chart().dataset.overlays).toBe("SMA_50D:2");
+
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+    // Price remains the base series with no overlays at all.
+    expect(chart().dataset.overlays).toBe("");
+    expect(Number(chart().dataset.pointCount)).toBeGreaterThan(0);
   });
 
   it("shows a layout-shaped loading state while the request is in flight", () => {
@@ -357,7 +510,9 @@ describe("StockDetails", () => {
       screen.getByText("No intrinsic-value estimates are available for this stock yet."),
     ).toBeDefined();
     expect(screen.queryByRole("heading", { name: "Technicals" })).toBeNull();
-    expect(screen.queryByRole("group", { name: "Chart overlays" })).toBeNull();
+    // The catalog stays discoverable even with no derived data: every entry is disabled and
+    // marked unavailable rather than the control disappearing.
+    expect(chart().dataset.overlays).toBe("");
     expect(screen.queryByText("Sector")).toBeNull();
     expect(screen.getAllByText("NYSE").length).toBeGreaterThan(0);
   });

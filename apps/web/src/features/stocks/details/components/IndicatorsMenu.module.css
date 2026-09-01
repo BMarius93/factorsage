@@ -1,0 +1,171 @@
+.container {
+  position: relative;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.trigger[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+  background: var(--color-primary-soft);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.caret {
+  width: 0;
+  height: 0;
+  border-inline: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.trigger[aria-expanded="true"] .caret {
+  transform: rotate(180deg);
+}
+
+.panel {
+  position: absolute;
+  z-index: 20;
+  inset-inline-end: 0;
+  top: calc(100% + 8px);
+  width: min(300px, calc(100vw - 32px));
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+/* On phones the popover is anchored to the control's start edge so it cannot run off screen. */
+@media (max-width: 599px) {
+  .panel {
+    inset-inline: 0 auto;
+  }
+}
+
+.hint {
+  margin: 0 0 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.group + .group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.groupLabel {
+  padding: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.options {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Comfortable touch target; the whole row is the label, so tapping anywhere toggles. */
+  min-height: 34px;
+  padding: 0 6px;
+  border-radius: var(--radius-control);
+  color: var(--color-text-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--color-surface-soft);
+}
+
+.option:has(.checkbox:focus-visible) {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+}
+
+.option[data-unavailable="true"] {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-primary);
+  cursor: inherit;
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.swatch[data-on="true"] {
+  border-color: transparent;
+}
+
+.optionLabel {
+  flex: 1;
+}
+
+.unavailable {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}

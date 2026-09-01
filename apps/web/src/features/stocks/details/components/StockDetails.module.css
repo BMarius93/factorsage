@@ -44,53 +44,6 @@
   }
 }
 
-.overlayToggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.overlayToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.overlayToggle:hover {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.overlayToggle[aria-pressed="true"] {
-  border-color: var(--color-border-strong);
-  color: var(--color-text-primary);
-  background: var(--color-primary-soft);
-}
-
-.overlayToggle[aria-pressed="false"] .overlayDot {
-  opacity: 0.35;
-}
-
-.overlayToggle:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.overlayDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-}
-
 .chartError {
   margin: 12px 0 0;
   color: var(--color-negative);
