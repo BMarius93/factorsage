@@ -93,3 +93,34 @@ model, or a future completed-week value.
 
 Catalog ordering and labels are product metadata. Backend/domain identities remain structured
 (moving-average type, period, timeframe; or intrinsic source identity) rather than UI labels.
+
+## Implementation
+
+Package ownership follows the dependency rules in `AGENTS.md`:
+
+- `@intrinsic/contracts` owns the catalog itself (`packages/contracts/src/selectable-series.ts`):
+  the 21 entries with their stable id, group, label, canonical order, and a structured `source`
+  discriminator. It is the only package the web app may depend on and is equally available to the
+  API and worker, so Stock Details, the API's selection validation and future Strategy operand
+  pickers all read the same list. The consumer filters from this decision (`MOVING_AVERAGE_SERIES`,
+  `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it rather than in feature code.
+- `@intrinsic/domain` owns the structured backend identities that are calculated and persisted:
+  `DAILY_MOVING_AVERAGES`, `WEEKLY_MOVING_AVERAGES` and their union
+  `MATERIALIZED_MOVING_AVERAGES`, each pairing `{type, period, timeframe}` with the `d`/`w`-suffixed
+  field it materializes into, plus `INTRINSIC_VALUE_MODELS` and `INTRINSIC_VALUE_BLENDS`.
+- `apps/api/src/stocks/selectable-series-catalog.test.ts` is the drift guard: the API is the
+  closest package depending on both, and the suite fails if either side gains, loses, renames or
+  reorders a series.
+
+The seven weekly values are carried on `DailyDerivedState` as `sma20w`/`sma50w`/`sma100w`/
+`sma200w` and `ema20w`/`ema50w`/`ema200w`, beside the existing `weeklySourceWeekStart`. Adding them
+changed the materialized methodology, so `DERIVED_STATE_REVISION` moved 2 -> 3: an r2 row recorded
+which completed week was effective but never its values, and must not read as complete weekly
+coverage. Migration `20260901234500_add_weekly_moving_averages` adds the nullable columns and leaves
+them NULL, because the revision bump makes r2 coverage and r2 cache manifests report nothing for the
+current variant and the existing rebuild mechanism recalculates and replaces the affected rows.
+
+Overlay colour is deliberately not part of series identity: 21 permanently distinct, legible hues
+do not exist. `apps/web/src/features/stocks/details/utils/chart-theme.ts` owns one palette and
+assigns a colour by an enabled series' position in canonical catalog order, so a given selection
+always paints the same way and simultaneously enabled series stay distinguishable.
