@@ -49,3 +49,14 @@ rebuild driven by `DERIVED_STATE_REVISION` in the dataset variant, not a paralle
 The redundant `DailyPrice(securityId, date)` index is dropped because the composite primary key
 already serves the only historical access pattern. See
 `docs/decisions/stock-data-foundation.md` for the invariants.
+
+Migration `20260901234500_add_weekly_moving_averages` adds the seven catalog weekly moving-average
+columns (`sma20w`/`sma50w`/`sma100w`/`sma200w`, `ema20w`/`ema50w`/`ema200w`) to
+`DailyDerivedState`, beside the existing `weeklySourceWeekStart`. They are nullable
+`DECIMAL(20,8)`: NULL keeps meaning "not eligible yet / insufficient warm-up", never zero. No
+weekly-cadence indicator table is reintroduced — `WeeklyPrice` stays the completed-week aggregate
+and the unified daily row stays the only materialized derived representation. The columns are
+deliberately left NULL on existing rows: `DERIVED_STATE_REVISION` moves 2 -> 3 in the same change,
+so `daily-derived-state:r2` coverage and r2 cache manifests report nothing for the current variant
+and the canonical rebuild recalculates and replaces those rows with complete weekly values. See
+`docs/decisions/selectable-series-catalog.md` for the catalog these periods come from.

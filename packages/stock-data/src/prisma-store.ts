@@ -78,6 +78,13 @@ type DailyDerivedStateRow = {
   ema50d: DecimalLike | null;
   ema200d: DecimalLike | null;
   weeklySourceWeekStart: Date | null;
+  sma20w: DecimalLike | null;
+  sma50w: DecimalLike | null;
+  sma100w: DecimalLike | null;
+  sma200w: DecimalLike | null;
+  ema20w: DecimalLike | null;
+  ema50w: DecimalLike | null;
+  ema200w: DecimalLike | null;
   dcfFcff: DecimalLike | null;
   residualIncome: DecimalLike | null;
   ddm: DecimalLike | null;
@@ -141,6 +148,13 @@ function dailyDerivedStateFromRow(
       : {
           weeklySourceWeekStart: fromDatabaseDate(row.weeklySourceWeekStart),
         }),
+    ...(row.sma20w === null ? {} : { sma20w: row.sma20w.toNumber() }),
+    ...(row.sma50w === null ? {} : { sma50w: row.sma50w.toNumber() }),
+    ...(row.sma100w === null ? {} : { sma100w: row.sma100w.toNumber() }),
+    ...(row.sma200w === null ? {} : { sma200w: row.sma200w.toNumber() }),
+    ...(row.ema20w === null ? {} : { ema20w: row.ema20w.toNumber() }),
+    ...(row.ema50w === null ? {} : { ema50w: row.ema50w.toNumber() }),
+    ...(row.ema200w === null ? {} : { ema200w: row.ema200w.toNumber() }),
     ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
@@ -169,6 +183,13 @@ function dailyDerivedStateToRow(
     weeklySourceWeekStart: row.weeklySourceWeekStart
       ? toDatabaseDate(row.weeklySourceWeekStart)
       : null,
+    sma20w: row.sma20w ?? null,
+    sma50w: row.sma50w ?? null,
+    sma100w: row.sma100w ?? null,
+    sma200w: row.sma200w ?? null,
+    ema20w: row.ema20w ?? null,
+    ema50w: row.ema50w ?? null,
+    ema200w: row.ema200w ?? null,
     dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
     residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
     ddm: row.intrinsicValues?.DDM ?? null,

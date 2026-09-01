@@ -90,23 +90,72 @@ export type MovingAverageDefinition = {
   timeframe: TechnicalTimeframe;
 };
 
-/** Product-supported V1 moving averages. V1 materializes daily indicators only. */
+/**
+ * Field carrying one moving average on the persisted/derived daily state.
+ *
+ * The timeframe suffix is part of the name: `d` for daily bars, `w` for completed weekly bars.
+ * `sma20d` and `sma20w` are different indicators over different source bars and never alias.
+ */
+export type MovingAverageField =
+  | `${Lowercase<MovingAverageType>}${number}d`
+  | `${Lowercase<MovingAverageType>}${number}w`;
+
+export type MaterializedMovingAverage = MovingAverageDefinition & {
+  /** Column/field the calculated value is materialized into on `DailyDerivedState`. */
+  field: MovingAverageField;
+};
+
+/** Product-supported daily moving averages, materialized from canonical daily closes. */
 export const DAILY_MOVING_AVERAGES = [
-  { type: "SMA", period: 20, timeframe: "1D" },
-  { type: "SMA", period: 50, timeframe: "1D" },
-  { type: "SMA", period: 100, timeframe: "1D" },
-  { type: "SMA", period: 200, timeframe: "1D" },
-  { type: "EMA", period: 20, timeframe: "1D" },
-  { type: "EMA", period: 50, timeframe: "1D" },
-  { type: "EMA", period: 200, timeframe: "1D" },
-] as const satisfies readonly MovingAverageDefinition[];
+  { type: "SMA", period: 20, timeframe: "1D", field: "sma20d" },
+  { type: "SMA", period: 50, timeframe: "1D", field: "sma50d" },
+  { type: "SMA", period: 100, timeframe: "1D", field: "sma100d" },
+  { type: "SMA", period: 200, timeframe: "1D", field: "sma200d" },
+  { type: "EMA", period: 20, timeframe: "1D", field: "ema20d" },
+  { type: "EMA", period: 50, timeframe: "1D", field: "ema50d" },
+  { type: "EMA", period: 200, timeframe: "1D", field: "ema200d" },
+] as const satisfies readonly MaterializedMovingAverage[];
+
+/**
+ * Product-supported weekly moving averages, fixed by the selectable-series catalog decision.
+ *
+ * The period counts completed weekly bars, never calendar days: `SMA(20, 1W)` averages twenty
+ * weekly closes. Values are calculated from weekly bars aggregated out of `DailyPrice` and are
+ * never derived by averaging daily moving averages. Each value is carried forward onto every
+ * trading day from the close of its source week's final trading day until a newer completed week
+ * replaces it.
+ */
+export const WEEKLY_MOVING_AVERAGES = [
+  { type: "SMA", period: 20, timeframe: "1W", field: "sma20w" },
+  { type: "SMA", period: 50, timeframe: "1W", field: "sma50w" },
+  { type: "SMA", period: 100, timeframe: "1W", field: "sma100w" },
+  { type: "SMA", period: 200, timeframe: "1W", field: "sma200w" },
+  { type: "EMA", period: 20, timeframe: "1W", field: "ema20w" },
+  { type: "EMA", period: 50, timeframe: "1W", field: "ema50w" },
+  { type: "EMA", period: 200, timeframe: "1W", field: "ema200w" },
+] as const satisfies readonly MaterializedMovingAverage[];
+
+/** Every materialized moving average, daily first, in canonical catalog order. */
+export const MATERIALIZED_MOVING_AVERAGES = [
+  ...DAILY_MOVING_AVERAGES,
+  ...WEEKLY_MOVING_AVERAGES,
+] as const satisfies readonly MaterializedMovingAverage[];
+
+export type DailyMovingAverageField =
+  (typeof DAILY_MOVING_AVERAGES)[number]["field"];
+export type WeeklyMovingAverageField =
+  (typeof WEEKLY_MOVING_AVERAGES)[number]["field"];
 
 /**
  * Daily technical read projection over `DailyDerivedState`.
  *
- * The `d` suffix is deliberate: it makes the timeframe explicit in storage/API contracts before
- * weekly indicators are introduced. Optional values mean the indicator is not available yet
- * because there are not enough warm-up bars; unavailable values must never be replaced with zero.
+ * The timeframe suffix is deliberate: `d` values come from daily bars and `w` values from the
+ * latest completed weekly bar carried forward onto this trading day. Optional values mean the
+ * indicator is not available yet because there are not enough warm-up bars; unavailable values
+ * must never be replaced with zero.
+ *
+ * Every row is still a daily row. A `w` value repeats across the trading days of a week and only
+ * changes once a newer week completes; the current, still-running week never contributes.
  *
  * There is no calculation version: exactly one current methodology is materialized per trading
  * day. A methodology change rebuilds the affected rows instead of adding a parallel version.
@@ -121,6 +170,13 @@ export type DailyTechnical = {
   ema20d?: number;
   ema50d?: number;
   ema200d?: number;
+  sma20w?: number;
+  sma50w?: number;
+  sma100w?: number;
+  sma200w?: number;
+  ema20w?: number;
+  ema50w?: number;
+  ema200w?: number;
 };
 
 /**
@@ -270,10 +326,29 @@ export type DailyDerivedState = {
   ema200d?: number;
   /**
    * Start date of the completed weekly period whose carried-forward weekly indicators are
-   * effective on this trading day. Weekly indicator values are added alongside this field once the
-   * weekly period catalog is product-defined; they are not invented ahead of that decision.
+   * effective on this trading day.
+   *
+   * It is present from the first trading day that has a completed week behind it, which is earlier
+   * than the first week with enough warm-up bars for any weekly average. A present week start with
+   * absent weekly values therefore means "a completed week exists, but this indicator has not
+   * warmed up yet" — never zero, and never a value borrowed from another period.
    */
   weeklySourceWeekStart?: LocalDate;
+  /**
+   * Weekly moving averages of the completed week identified by `weeklySourceWeekStart`.
+   *
+   * Calculated from weekly closes aggregated out of `DailyPrice`, never by averaging daily moving
+   * averages. A value first appears on the final trading day of the week that completes its
+   * warm-up, is repeated on every later trading day, and is replaced only when a newer completed
+   * week becomes eligible. The in-progress week is never represented here.
+   */
+  sma20w?: number;
+  sma50w?: number;
+  sma100w?: number;
+  sma200w?: number;
+  ema20w?: number;
+  ema50w?: number;
+  ema200w?: number;
   /** Per-model intrinsic value per share, present only for models eligible on this trading day. */
   intrinsicValues?: Partial<Record<IntrinsicValueModel, number>>;
   /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */

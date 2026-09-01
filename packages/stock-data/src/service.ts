@@ -3,6 +3,7 @@ import {
   FINANCIAL_STATEMENT_TYPES,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
+  MATERIALIZED_MOVING_AVERAGES,
   type DailyDerivedState,
   type DailyPrice,
   type DailyTechnical,
@@ -1382,19 +1383,22 @@ export class CanonicalStockDataService implements StockDataService {
   }
 }
 
-/** Daily technical projection over the unified derived state. */
+/**
+ * Daily technical projection over the unified derived state.
+ *
+ * Weekly values are read straight off the daily row: the materializer already carried the latest
+ * completed week forward, so this projection never recalculates, interpolates or looks ahead. Both
+ * timeframes are copied through the same canonical field list, so an unavailable value stays
+ * absent instead of becoming zero.
+ */
 function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
-  return {
-    securityId: row.securityId,
-    date: row.date,
-    ...(row.sma20d === undefined ? {} : { sma20d: row.sma20d }),
-    ...(row.sma50d === undefined ? {} : { sma50d: row.sma50d }),
-    ...(row.sma100d === undefined ? {} : { sma100d: row.sma100d }),
-    ...(row.sma200d === undefined ? {} : { sma200d: row.sma200d }),
-    ...(row.ema20d === undefined ? {} : { ema20d: row.ema20d }),
-    ...(row.ema50d === undefined ? {} : { ema50d: row.ema50d }),
-    ...(row.ema200d === undefined ? {} : { ema200d: row.ema200d }),
-  };
+  const values = Object.fromEntries(
+    MATERIALIZED_MOVING_AVERAGES.flatMap((average) => {
+      const value = row[average.field];
+      return value === undefined ? [] : [[average.field, value] as const];
+    }),
+  );
+  return { securityId: row.securityId, date: row.date, ...values };
 }
 
 /**

@@ -5,7 +5,12 @@ import {
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import type { DateRange, FinancialStatement } from "@intrinsic/domain";
+import {
+  MATERIALIZED_MOVING_AVERAGES,
+  WEEKLY_MOVING_AVERAGES,
+  type DateRange,
+  type FinancialStatement,
+} from "@intrinsic/domain";
 import {
   FmpClient,
   FmpRateLimitError,
@@ -16,10 +21,13 @@ import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RedisStockDataCache, type StockManifest } from "./cache.js";
 import { RedlockLoadCoordinator } from "./coordination.js";
+import { addDays } from "./dates.js";
 import {
+  buildDailyDerivedState,
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import { aggregateCompletedWeeks } from "./weekly.js";
 import { WEEKLY_PRICE_VARIANT } from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
 import {
@@ -1533,6 +1541,135 @@ describeInfrastructure("cross-process canonical hydration", () => {
         const keys = await redis.smembers(registry);
         if (keys.length > 0) await redis.del(...keys);
         await redis.del(registry);
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await redis.del(
+        `${namespace}:resident-stocks`,
+        `${namespace}:access-sequence`,
+      );
+      redis.disconnect();
+      await prisma.$disconnect();
+    }
+  });
+
+  it("round-trips every weekly field through Redis and rebuilds it identically after eviction", async () => {
+    const suffix = randomUUID();
+    const namespace = `stock-data:v2:test:weekly:${suffix}`;
+    const symbol = `K${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prisma = new PrismaClient();
+    const redis = createStockDataRedisClient(
+      redisUrl ?? "redis://localhost:6379",
+    );
+    const store = new PrismaStockDataStore(prisma);
+    const cache = new RedisStockDataCache(
+      new IoredisCacheClient(redis),
+      10,
+      namespace,
+    );
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Weekly Cache Round Trip Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+
+      // 205 Monday-Friday weeks warm up every catalog weekly period, including 200W.
+      const prices: ReturnType<typeof integrationPrice>[] = [];
+      for (let week = 0; week < 205; week += 1) {
+        for (let day = 0; day < 5; day += 1) {
+          const index = prices.length;
+          prices.push(
+            integrationPrice(
+              security.id,
+              addDays("2020-01-06", week * 7 + day),
+              100 + (index % 31) * 0.5 + index * 0.05,
+            ),
+          );
+        }
+      }
+      const lastDate = prices.at(-1)!.date;
+      const weeklyBars = aggregateCompletedWeeks(prices, addDays(lastDate, 3));
+      const rows = buildDailyDerivedState({ prices, weeklyBars });
+      await store.saveDailyDerivedState({
+        securityId: security.id,
+        rows,
+        weeklyPrices: weeklyBars,
+        successfulCoverage: { from: prices[0]!.date, to: lastDate },
+        syncedAt: "2026-08-24T12:00:00.000Z",
+      });
+
+      const persisted = await store.getDailyDerivedState(security.id, {
+        from: prices[0]!.date,
+        to: lastDate,
+      });
+      const years = [
+        ...new Set(persisted.map((row) => Number(row.date.slice(0, 4)))),
+      ];
+      await cache.writeDailyDerivedStateYears(security.id, persisted, years);
+      await cache.setManifest(readyManifest(security.id));
+
+      // 1. A cache hit returns exactly what PostgreSQL holds, weekly fields included.
+      const cached = await cache.readDailyDerivedState(security.id, {
+        from: prices[0]!.date,
+        to: lastDate,
+      });
+      expect(cached).toEqual(persisted);
+
+      const cachedLast = cached?.at(-1);
+      for (const average of MATERIALIZED_MOVING_AVERAGES) {
+        expect(cachedLast?.[average.field]).toBeDefined();
+        expect(cachedLast?.[average.field]).toBe(
+          persisted.at(-1)?.[average.field],
+        );
+      }
+      expect(cachedLast?.weeklySourceWeekStart).toBe(
+        persisted.at(-1)?.weeklySourceWeekStart,
+      );
+
+      // 2. A warm-up row keeps its weekly fields absent through serialization, never zero.
+      const cachedFirst = cached?.[0];
+      for (const average of WEEKLY_MOVING_AVERAGES) {
+        expect(cachedFirst && average.field in cachedFirst).toBe(false);
+      }
+
+      // 3. Eviction removes the complete stock, not a partial dataset.
+      await cache.evict(security.id);
+      await expect(cache.getManifest(security.id)).resolves.toBeNull();
+      await expect(
+        redis.smembers(`${namespace}:security:${security.id}:keys`),
+      ).resolves.toEqual([]);
+      await expect(
+        cache.readDailyDerivedState(security.id, {
+          from: prices[0]!.date,
+          to: lastDate,
+        }),
+      ).resolves.toBeNull();
+
+      // 4. Re-admission from the durable store reconstructs the identical daily state.
+      const readmitted = await store.getDailyDerivedState(security.id, {
+        from: prices[0]!.date,
+        to: lastDate,
+      });
+      await cache.writeDailyDerivedStateYears(security.id, readmitted, years);
+      await cache.setManifest(readyManifest(security.id));
+      await expect(
+        cache.readDailyDerivedState(security.id, {
+          from: prices[0]!.date,
+          to: lastDate,
+        }),
+      ).resolves.toEqual(persisted);
+    } finally {
+      if (securityId) {
+        await cache.evict(securityId);
         await prisma.security.deleteMany({ where: { id: securityId } });
       }
       await redis.del(
