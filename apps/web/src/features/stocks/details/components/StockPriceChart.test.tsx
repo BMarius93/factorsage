@@ -459,6 +459,8 @@ describe("StockPriceChart oscillator pane", () => {
     const chart = lastChart();
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.dataset.oscillatorPane).toBe("true");
+    // The canvas-drawn levels stay assertable from the DOM.
+    expect(wrapper.dataset.oscillatorLevels).toBe("30,50,70");
 
     rerender(
       <StockPriceChart
@@ -474,6 +476,7 @@ describe("StockPriceChart oscillator pane", () => {
     const rsi = oscillatorSeries(chart)[0];
     expect(chart.removeSeries).toHaveBeenCalledWith(rsi?.api);
     expect(wrapper.dataset.oscillatorPane).toBeUndefined();
+    expect(wrapper.dataset.oscillatorLevels).toBeUndefined();
   });
 
   it("survives repeated on/off/on cycles with one series and one line set per period", () => {

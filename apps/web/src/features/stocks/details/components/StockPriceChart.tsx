@@ -349,6 +349,13 @@ export function StockPriceChart({
       className={styles.wrapper}
       data-loading={loading}
       data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
+      // The reference levels are drawn on canvas, so this is the DOM-visible contract the
+      // browser tests assert them through.
+      data-oscillator-levels={
+        hasOscillatorPane
+          ? OSCILLATOR_REFERENCE_LEVELS.map((level) => level.price).join(",")
+          : undefined
+      }
     >
       <div
         ref={containerRef}
