@@ -157,10 +157,10 @@ Methodology changes are handled by an explicit rebuild, not by version history. 
 cache manifest. Bumping it reports no coverage for the new variant, which recalculates and replaces
 the materialized state.
 
-The weekly indicator catalog is now fixed by `selectable-series-catalog.md`. Its seven value
-columns must be added to `DailyDerivedState` and carried forward beside `weeklySourceWeekStart`,
-the completed week whose values are effective on that trading day. Do not reintroduce a
-weekly-cadence indicator table.
+The weekly indicator catalog is fixed by `selectable-series-catalog.md`, and its seven value
+columns are implemented: they live on `DailyDerivedState` and are carried forward beside
+`weeklySourceWeekStart`, the completed week whose values are effective on that trading day. Do not
+reintroduce a weekly-cadence indicator table.
 
 ## V1 intrinsic-value models
 
@@ -302,7 +302,7 @@ Expected service capabilities:
 - retrieve daily price history by date range
 - retrieve daily technical history by date range
 - retrieve financial/fundamental history by date range/as-of criteria
-- retrieve daily-aligned weekly technical history once weekly indicators are implemented
+- retrieve daily-aligned weekly technical history (implemented)
 - retrieve daily-aligned intrinsic-value history by model and date range/as-of date
 - retrieve daily-aligned intrinsic-value blend history by blend and date range/as-of date
 - compose Stock Details from those datasets
@@ -349,7 +349,7 @@ registered so complete-stock LRU eviction removes all of its cached datasets tog
 
 Redis maintains a configurable maximum number of resident symbols and evicts complete symbols using application-level LRU semantics. Redis remains disposable and cannot be the only copy of durable historical or user-owned data.
 
-For a resident symbol, Redis must contain the complete configured historical data needed to serve backtests without reconstructing daily state from sparse weekly/intrinsic events on every request. This includes daily price/technical history and, when implemented, daily-materialized weekly technicals, intrinsic-value model results, and intrinsic-value blend results. Historical fundamentals also remain available for the resident symbol according to their own canonical PIT representation.
+For a resident symbol, Redis must contain the complete configured historical data needed to serve backtests without reconstructing daily state from sparse weekly/intrinsic events on every request. This includes daily price/technical history and the daily-materialized weekly technicals, intrinsic-value model results, and intrinsic-value blend results, all of which are implemented. Historical fundamentals also remain available for the resident symbol according to their own canonical PIT representation.
 
 Yearly/chunked keys may be used to keep writes and reads bounded, but all keys belonging to the stock must participate in the existing registered-key/generation mechanism and complete-stock LRU eviction. The maximum number of resident stocks is configurable. Access to a stock refreshes its residency/LRU position according to the cache policy.
 
@@ -398,10 +398,14 @@ Minimum matrix:
 10. A filing published after the requested date cannot affect that historical response.
 11. Historical arrays are ascending regardless of FMP fixture order.
 12. Warm-up/unavailable derived values are absent/null according to final serialization, never fabricated as zero.
-13. When weekly endpoints are added, responses expose the latest completed weekly value on every eligible trading day and never expose a week-ending value to earlier days in that same incomplete week.
+13. Weekly responses expose the latest completed weekly value on every eligible trading day and never expose a week-ending value to earlier days in that same incomplete week. Implemented and covered by `apps/api/src/stocks/stocks.integration.test.ts`.
 14. A Redis-resident stock can serve the requested historical daily state without requiring sparse-event reconstruction from PostgreSQL.
 
 ## Explicitly out of scope for this PR
+
+Historical record of what the foundation PR deferred. Everything below except worker/backtest
+wiring has since been implemented; the list is kept as written rather than rewritten, because it
+documents the scope of that decision rather than the current state of the system.
 
 - Prisma models or migrations
 - Redis client/LRU implementation

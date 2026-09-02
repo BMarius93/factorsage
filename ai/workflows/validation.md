@@ -25,6 +25,7 @@ fails loudly instead of mutating development data.
 
 Current callers:
 
+- `apps/api/src/admin/securities-sync.integration.test.ts`
 - `apps/api/src/auth/auth.integration.test.ts`
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
@@ -33,8 +34,10 @@ Current callers:
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
+- `packages/stock-data/src/derived-state.integration.test.ts`
 - `packages/stock-data/src/financial-statements.test.ts`
 - `packages/stock-data/src/redis.integration.test.ts`
+- `packages/stock-data/src/security-search.integration.test.ts`
 
 Prepare the database once, then keep `TEST_DATABASE_URL` in `.env` so `pnpm test`
 picks it up:
@@ -48,6 +51,13 @@ TEST_DATABASE_URL=postgresql://intrinsic:intrinsic_dev_password@localhost:5432/i
 Redis isolation is deliberately different: suites keep one instance and isolate
 by randomized key namespace with targeted cleanup. Nothing resets or flushes
 developer infrastructure.
+
+Redis-backed suites resolve `TEST_REDIS_URL` then `REDIS_URL`. Locally a missing
+value skips them, so a developer without `pnpm infra:up` is not blocked. **In CI
+(`CI=true`) a missing value is a hard failure instead of a skip**, because
+`packages/stock-data/src/redis.integration.test.ts` holds the only coverage proving
+the Redis cache and PostgreSQL agree on every materialized series — a silent skip
+there would let CI report green with that parity untested.
 
 ## Stock API infrastructure tests
 

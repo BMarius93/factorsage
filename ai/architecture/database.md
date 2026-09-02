@@ -17,11 +17,13 @@ identity compatibility.
 
 Migrations `20260823120000_add_stock_data_loader` and
 `20260823160000_add_stock_dataset_coverage` add UUID-based Security identity, current profile,
-split-adjusted daily prices, versioned daily technicals, completed weekly bars/generic weekly
-technical storage, dataset state and exact successful coverage intervals, and point-in-time
-intrinsic-value/blend snapshots. Symbol is indexed lookup data and is never the durable primary
-key. Dataset state watermarks optimize reads; coverage intervals, not inferred calendar rows,
-drive missing-range subtraction.
+split-adjusted daily prices, completed weekly bars, dataset state and exact successful coverage
+intervals. They also introduced per-family derived tables with calculation versions
+(`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`), **all of which were
+later replaced** — see `20260830210000_unify_daily_derived_state` below, which is the current
+model. Symbol is indexed lookup data and is never the durable primary key. Dataset state
+watermarks optimize reads; coverage intervals, not inferred calendar rows, drive missing-range
+subtraction.
 
 Migration `20260901090000_add_email_verification_and_oauth_accounts` completes the identity model.
 `User` gains a nullable `emailVerifiedAt`; `OAuthAccount` stores external identities with a unique

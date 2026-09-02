@@ -20,6 +20,11 @@ For strategy work, also read `product/strategies.md`.
 For Stock Details or selectable-series work, also read `product/stock-details.md` and
 `../docs/decisions/selectable-series-catalog.md`.
 
+To add a new calculated daily series (a moving-average period, an indicator family, a ratio), read
+`../docs/development/adding-a-calculated-series.md`. It is the checklist for the retained
+one-column-per-series model, and it says explicitly that repository search and the completeness
+tests — not the checklist alone — are what prove a series is fully wired.
+
 For frontend/UI work, also read
 `architecture/frontend.md`.
 
