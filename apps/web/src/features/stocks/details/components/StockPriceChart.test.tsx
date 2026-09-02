@@ -52,7 +52,9 @@ vi.mock("lightweight-charts", () => {
           const api: FakeSeries = {
             setData: vi.fn(),
             applyOptions: vi.fn(),
-            createPriceLine: vi.fn(() => ({})),
+            // Returns the options so a line stays identifiable: the reference-line assertions
+            // track which specific lines are still attached to which series.
+            createPriceLine: vi.fn((options: { price: number }) => ({ options })),
             removePriceLine: vi.fn(),
           };
           chart.addedSeries.push({ definition, options, paneIndex, api });
@@ -317,6 +319,48 @@ function oscillatorSeries(chart: FakeChart) {
   return chart.addedSeries.filter((entry) => entry.paneIndex !== undefined);
 }
 
+/** Oscillator series the chart has not removed, in creation order. */
+function liveOscillatorSeries(chart: FakeChart) {
+  const removed = new Set(chart.removeSeries.mock.calls.map((call) => call[0]));
+  return oscillatorSeries(chart).filter((entry) => !removed.has(entry.api));
+}
+
+/**
+ * The live oscillator series carrying `value`.
+ *
+ * Series are identified by the data they were given, not by creation order: a period toggled off
+ * and back on is a new series appended after the ones already present, so positional lookup would
+ * silently compare the wrong periods.
+ */
+function seriesShowing(chart: FakeChart, value: number) {
+  const match = liveOscillatorSeries(chart).find((entry) =>
+    entry.api.setData.mock.calls.some((call) =>
+      (call[0] as { value: number }[]).some((point) => point.value === value),
+    ),
+  );
+  expect(match, `no live oscillator series showing ${value}`).toBeDefined();
+  return match!;
+}
+
+/**
+ * Prices of every reference line still drawn in the pane.
+ *
+ * A line counts as live when it was created on a series the chart still holds and was not
+ * explicitly detached — removing a series disposes its own price lines, which is why removed
+ * series are excluded rather than their lines counted as leaked.
+ */
+function liveReferenceLines(chart: FakeChart): number[] {
+  return liveOscillatorSeries(chart).flatMap((entry) => {
+    const detached = new Set(
+      entry.api.removePriceLine.mock.calls.map((call) => call[0]),
+    );
+    return entry.api.createPriceLine.mock.results
+      .map((result) => result.value as { options: { price: number } })
+      .filter((line) => !detached.has(line))
+      .map((line) => line.options.price);
+  });
+}
+
 describe("StockPriceChart oscillator pane", () => {
   it("routes an oscillator into the shared lower pane with the fixed catalog scale", () => {
     render(
@@ -519,6 +563,111 @@ describe("StockPriceChart oscillator pane", () => {
       expect(generation.api.createPriceLine).toHaveBeenCalledTimes(3);
       expect(generation.api.removePriceLine).not.toHaveBeenCalled();
     }
+  });
+
+  it("hands the 30/50/70 levels down the selection as each owner is switched off", () => {
+    // The pane's reference levels are owned by whichever RSI is canonically first, so switching
+    // periods off in order walks the ownership from 7D to 14D to 21D. At no point may the pane
+    // show a second set, lose the set while a period is still drawn, or keep one after the last
+    // period goes.
+    const rsi7 = rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2);
+    const rsi14 = rsiOverlay("RSI_14D", "RSI 14D", 1, 54.3);
+    const rsi21 = rsiOverlay("RSI_21D", "RSI 21D", 2, 48.9);
+
+    // 1. Enable RSI 7D.
+    const { rerender, container } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[rsi7]}
+        currency="USD"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+    const show = (overlays: ReturnType<typeof rsiOverlay>[]) =>
+      rerender(
+        <StockPriceChart
+          points={POINTS}
+          overlays={overlays}
+          currency="USD"
+          ariaLabel="AAPL chart"
+        />,
+      );
+
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+
+    // 2-3. Enable RSI 14D and RSI 21D: still exactly one set, on the first period.
+    show([rsi7, rsi14, rsi21]);
+    expect(liveOscillatorSeries(chart)).toHaveLength(3);
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+    const owner7 = seriesShowing(chart, 61.2);
+    expect(owner7.api.createPriceLine).toHaveBeenCalledTimes(3);
+    // The later periods carry no levels of their own.
+    expect(seriesShowing(chart, 54.3).api.createPriceLine).not.toHaveBeenCalled();
+    expect(seriesShowing(chart, 48.9).api.createPriceLine).not.toHaveBeenCalled();
+
+    // 4-6. Disable RSI 7D, the initial owner. 14D and 21D stay drawn and the levels survive
+    //      exactly once, having moved to 14D.
+    show([rsi14, rsi21]);
+    expect(liveOscillatorSeries(chart)).toHaveLength(2);
+    expect(chart.removeSeries).toHaveBeenCalledWith(owner7.api);
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+    // Ownership moved to 14D, which now carries the only set; 21D still carries none.
+    expect(seriesShowing(chart, 54.3).api.createPriceLine).toHaveBeenCalledTimes(3);
+    expect(seriesShowing(chart, 48.9).api.createPriceLine).not.toHaveBeenCalled();
+
+    // 7-8. Disable RSI 14D: RSI 21D and one set remain.
+    show([rsi21]);
+    expect(liveOscillatorSeries(chart)).toHaveLength(1);
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+    expect(seriesShowing(chart, 48.9).api.createPriceLine).toHaveBeenCalledTimes(3);
+
+    // 9-10. Disable the final RSI: the pane and its levels are gone.
+    show([]);
+    expect(liveOscillatorSeries(chart)).toHaveLength(0);
+    expect(liveReferenceLines(chart)).toEqual([]);
+    expect(wrapper.dataset.oscillatorPane).toBeUndefined();
+    expect(wrapper.dataset.oscillatorLevels).toBeUndefined();
+
+    // 11. Re-enable one period: one series, one set, nothing duplicated.
+    show([rsi14]);
+    expect(liveOscillatorSeries(chart)).toHaveLength(1);
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+    expect(wrapper.dataset.oscillatorLevels).toBe("30,50,70");
+  });
+
+  it("keeps one level set when the owner is re-enabled ahead of the current owner", () => {
+    // The reverse handover: 14D owns the levels, then 7D is switched back on and becomes
+    // canonically first. Ownership must move forward without leaving the old owner's set behind.
+    const rsi7 = rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2);
+    const rsi14 = rsiOverlay("RSI_14D", "RSI 14D", 1, 54.3);
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[rsi14]}
+        currency="USD"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[rsi7, rsi14]}
+        currency="USD"
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    expect(liveOscillatorSeries(chart)).toHaveLength(2);
+    expect(liveReferenceLines(chart)).toEqual([30, 50, 70]);
+    // 7D is canonically first, so it takes the levels; 14D detaches its own rather than leaving
+    // a second set drawn.
+    expect(seriesShowing(chart, 61.2).api.createPriceLine).toHaveBeenCalledTimes(3);
+    expect(seriesShowing(chart, 54.3).api.removePriceLine).toHaveBeenCalledTimes(3);
   });
 
   it("names each oscillator with its unitless value in the hover legend", () => {

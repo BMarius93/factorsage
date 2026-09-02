@@ -95,6 +95,37 @@ async function chartCanvasCount(page: Page): Promise<number> {
   return priceChart(page).locator("canvas").count();
 }
 
+/**
+ * Asserts exactly which RSI periods are currently drawn, read from the chart's own hover legend.
+ *
+ * The legend is populated from the series data the chart holds, so it is the browser-visible
+ * contract for "this line exists" — no canvas-pixel inspection, and it fails if a deselected
+ * period keeps drawing or a selected one silently stops.
+ */
+async function expectDrawnOscillators(
+  page: Page,
+  expected: readonly string[],
+): Promise<void> {
+  if (await panel(page).isVisible()) {
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeHidden();
+  }
+  const box = await priceChart(page).boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.6, box!.y + box!.height * 0.3);
+  const legend = page.getByTestId("chart-legend");
+  await expect(legend).toContainText("Close");
+  for (const label of OSCILLATOR_LABELS) {
+    if (expected.includes(label)) {
+      await expect(legend).toContainText(label);
+      // Unitless: an RSI reading is never formatted as money.
+      await expect(legend).not.toContainText(`${label}$`);
+    } else {
+      await expect(legend).not.toContainText(label);
+    }
+  }
+}
+
 async function expectPane(page: Page, active: boolean): Promise<void> {
   const wrapper = chartWrapper(page).first();
   if (active) {
@@ -164,25 +195,38 @@ test.describe("QA_USER Stock Details oscillators", () => {
       await expect(legend).not.toContainText(`${label}$`);
     }
 
-    // 7. Toggling one period off keeps the others and the pane.
+    // 7. Switch off the period that owns the pane's reference levels. The rest stay drawn and
+    //    the 30/50/70 set survives exactly once, having moved to the next period.
     await openIndicators(page);
-    await option(page, "RSI 14D").uncheck();
-    await expect(option(page, "RSI 7D")).toBeChecked();
+    await option(page, "RSI 7D").uncheck();
+    await expect(option(page, "RSI 14D")).toBeChecked();
     await expect(option(page, "RSI 21D")).toBeChecked();
     await expectPane(page, true);
+    await expectDrawnOscillators(page, ["RSI 14D", "RSI 21D"]);
 
-    // 8. Toggling the last period off removes the pane and restores the price-only layout.
-    await option(page, "RSI 7D").uncheck();
+    // The new owner can be switched off too, handing the levels on again.
+    await openIndicators(page);
+    await option(page, "RSI 14D").uncheck();
+    await expect(option(page, "RSI 21D")).toBeChecked();
+    await expectPane(page, true);
+    await expectDrawnOscillators(page, ["RSI 21D"]);
+
+    // 8. Toggling the last period off removes the pane, its levels, and restores the
+    //    price-only layout.
+    await openIndicators(page);
     await option(page, "RSI 21D").uncheck();
     await expectPane(page, false);
     await expect.poll(() => chartCanvasCount(page)).toBe(baselineCanvases);
+    await expectDrawnOscillators(page, []);
 
-    // 9. Re-enabling reproduces exactly one pane with one line per selected period.
+    // 9. Re-enabling reproduces exactly one pane, one levels set and one line per period.
+    await openIndicators(page);
     await option(page, "RSI 7D").check();
     await option(page, "RSI 14D").check();
     await option(page, "RSI 21D").check();
     await expectPane(page, true);
     await expect.poll(() => chartCanvasCount(page)).toBe(paneCanvases);
+    await expectDrawnOscillators(page, [...OSCILLATOR_LABELS]);
 
     // 12. Nothing broke along the way.
     const documentWidth = await page.evaluate(
