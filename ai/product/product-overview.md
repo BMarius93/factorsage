@@ -5,11 +5,11 @@ IntrinsicValue is a stock research, intrinsic valuation, strategy, backtesting, 
 ## Core workflows
 
 1. Search and inspect a stock.
-2. View price, fundamentals, financial statements, and intrinsic value.
+2. View price, fundamentals, financial statements, and selectable technical/intrinsic-value overlays.
 3. Create a static list of symbols.
 4. Optionally restrict the BUY period independently for each symbol in a list.
-5. Define a strategy.
-6. Run an asynchronous historical backtest.
+5. Define reusable BUY, SELL, and FINAL EXIT logic against compatible selectable series.
+6. Run an asynchronous historical backtest with capital, contributions, and maximum positions.
 7. Monitor a list using the same strategy-evaluation rules.
 8. Apply plan entitlements consistently.
 

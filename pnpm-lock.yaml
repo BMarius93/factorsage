@@ -197,6 +197,9 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@1.8.0))(lightningcss@1.33.0)(supports-color@8.1.1)(terser@5.50.0)
 
   packages/database:
     dependencies:

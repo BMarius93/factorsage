@@ -1,8 +1,10 @@
-import type {
-  DailyPrice,
-  LocalDate,
-  MovingAverageType,
-  SecurityId,
+import {
+  WEEKLY_MOVING_AVERAGES,
+  type DailyPrice,
+  type LocalDate,
+  type MovingAverageType,
+  type SecurityId,
+  type WeeklyMovingAverageField,
 } from "@intrinsic/domain";
 import { addDays, compareDates } from "./dates.js";
 import { movingAverage } from "./technicals.js";
@@ -149,4 +151,45 @@ export function latestCompletedWeeklyBar(
     .sort((left, right) =>
       right.eligibleDate.localeCompare(left.eligibleDate),
     )[0];
+}
+
+/**
+ * Weekly moving-average values of one completed week, keyed by their materialization field.
+ *
+ * A field is absent while the indicator has not warmed up. Absent never means zero: a week with
+ * only thirty completed weekly bars behind it legitimately has `sma20w` and no `sma50w`.
+ */
+export type WeeklyTechnicalValues = Partial<
+  Record<WeeklyMovingAverageField, number>
+>;
+
+/**
+ * Calculates every catalog weekly moving average over completed weekly bars.
+ *
+ * The result is indexed by `weekStartDate` so the daily materializer can look up the values of
+ * whichever completed week is effective on a trading day. Each indicator is calculated from the
+ * weekly closes themselves; no daily indicator participates, and the caller has already excluded
+ * the in-progress week from `bars`.
+ */
+export function calculateWeeklyTechnicalValues(
+  bars: readonly WeeklyPrice[],
+): Map<LocalDate, WeeklyTechnicalValues> {
+  const ascending = [...bars].sort((left, right) =>
+    left.weekStartDate.localeCompare(right.weekStartDate),
+  );
+  const byWeekStart = new Map<LocalDate, WeeklyTechnicalValues>(
+    ascending.map((bar) => [bar.weekStartDate, {}]),
+  );
+  const closes = ascending.map((bar) => bar.close);
+  for (const average of WEEKLY_MOVING_AVERAGES) {
+    const values = movingAverage(closes, average.type, average.period);
+    ascending.forEach((bar, index) => {
+      const value = values[index];
+      const week = byWeekStart.get(bar.weekStartDate);
+      if (value !== undefined && week) {
+        week[average.field] = value;
+      }
+    });
+  }
+  return byWeekStart;
 }

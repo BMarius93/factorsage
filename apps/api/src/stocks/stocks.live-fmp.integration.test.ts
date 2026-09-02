@@ -6,6 +6,12 @@
  * real Redis request gate. It asserts sanity and architectural invariants only, never
  * exact FMP numeric values.
  *
+ * `Security` is the catalog of supported stocks and `getSecurity` resolves only rows it already
+ * contains — a page view never discovers a symbol from the provider. The suite therefore seeds one
+ * minimal canonical AAPL row before its first request. That row is identity only: no profile, no
+ * prices, no statements, no coverage and no dataset state, so profile, prices, statements,
+ * intrinsic values and blends are all still hydrated for real from FMP.
+ *
  * This suite NEVER runs by default and is excluded from normal CI. It requires all of:
  *   RUN_LIVE_FMP_TESTS=1
  *   FMP_API_KEY=<key>                 (never printed)
@@ -18,6 +24,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { getFmpConfig, getFmpTrafficConfig, loadRootEnv } from "@intrinsic/config";
+import { SecurityType } from "@intrinsic/database";
 import {
   INTRINSIC_VALUE_BLENDS,
   type DailyPrice,
@@ -57,6 +64,15 @@ const enabled = process.env.RUN_LIVE_FMP_TESTS === "1";
 const describeLive = enabled ? describe : describe.skip;
 
 const SYMBOL = "AAPL";
+const EXCHANGE_CODE = "NASDAQ";
+/**
+ * Placeholder identity for the seeded catalog row.
+ *
+ * Deliberately not the real company name: the first hydration must replace it through the live
+ * profile sync, which is what proves the seed admits the symbol rather than standing in for the
+ * provider.
+ */
+const SEEDED_NAME = "Live FMP fixture — replaced by profile sync";
 const HISTORY_YEARS = 8;
 const SLOW = 300_000;
 /** Refresh limits from the canonical service; a backfill asks for far more than these. */
@@ -115,6 +131,25 @@ class CountingFmpProvider implements FmpStockProviderPort {
       limit,
     );
   }
+}
+
+/**
+ * Removes every trace of this suite's security from the test database.
+ *
+ * Matched on both identities so a row left by a crashed run, or one a catalog synchronization
+ * created, is removed rather than colliding with the seed. Deleting the `Security` cascades to its
+ * profile, prices, derived state, statements, dataset state and coverage, so both the pre-clean and
+ * the teardown leave exactly the same state.
+ */
+async function removeLiveFixture(client: PrismaService): Promise<void> {
+  await client.security.deleteMany({
+    where: {
+      OR: [
+        { providerSymbol: SYMBOL },
+        { symbol: SYMBOL, exchangeCode: EXCHANGE_CODE },
+      ],
+    },
+  });
 }
 
 function spanDays(from?: string, to?: string): number {
@@ -210,11 +245,30 @@ describeLive("live FMP stock API smoke", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = app.get(PrismaService);
+
+    // Start cold and admit the symbol. Pre-cleaning matters as much as seeding: a half-hydrated
+    // leftover would let "no second backfill" pass without a first backfill ever happening.
+    await removeLiveFixture(prisma);
+    const seeded = await prisma.security.create({
+      data: {
+        providerSymbol: SYMBOL,
+        symbol: SYMBOL,
+        name: SEEDED_NAME,
+        exchangeCode: EXCHANGE_CODE,
+        currency: "USD",
+        type: SecurityType.STOCK,
+        isAdr: false,
+        isActivelyTrading: true,
+      },
+      select: { id: true },
+    });
+    // Known before the first request, so no case has to learn it from an earlier one.
+    securityId = seeded.id;
   }, SLOW);
 
   afterAll(async () => {
     if (prisma) {
-      await prisma.security.deleteMany({ where: { providerSymbol: SYMBOL } });
+      await removeLiveFixture(prisma);
     }
     if (app) {
       await app.close();
@@ -238,12 +292,22 @@ describeLive("live FMP stock API smoke", () => {
     }
   }, SLOW);
 
+  /**
+   * Drives the canonical hydration through the real HTTP boundary.
+   *
+   * Every case establishes its own precondition with this instead of relying on an earlier case
+   * having run, so one failure cannot cascade into three misleading ones and any case can be run
+   * on its own with `-t`. Only the first call pays for the backfill; later calls are served from
+   * the READY cache.
+   */
+  async function hydrateStock() {
+    return request(app.getHttpServer()).get(`/stocks/${SYMBOL}`).expect(200);
+  }
+
   it(
     "hydrates a real stock and satisfies the cross-layer invariants",
     async () => {
-      const response = await request(app.getHttpServer())
-        .get(`/stocks/${SYMBOL}`)
-        .expect(200);
+      const response = await hydrateStock();
 
       expect(response.body.security.symbol).toBe(SYMBOL);
       expect(response.body.profile).toBeDefined();
@@ -251,11 +315,19 @@ describeLive("live FMP stock API smoke", () => {
       const dates = response.body.prices.map((row: { date: string }) => row.date);
       expect([...dates].sort()).toEqual(dates);
 
+      // Hydration enriches the seeded catalog row in place: the same identity, never a second one.
+      expect(response.body.security.id).toBe(securityId);
+      expect(await prisma.security.count({ where: { symbol: SYMBOL } })).toBe(1);
       const security = await prisma.security.findFirst({
         where: { providerSymbol: SYMBOL },
       });
       expect(security).not.toBeNull();
-      securityId = security!.id;
+      expect(security!.id).toBe(securityId);
+      // The live profile sync replaced the placeholder, so the seed admitted the symbol rather
+      // than substituting for the provider.
+      expect(security!.name).not.toBe(SEEDED_NAME);
+      expect(response.body.security.name).not.toBe(SEEDED_NAME);
+
       expect(
         await prisma.dailyPrice.count({ where: { securityId } }),
       ).toBeGreaterThan(250);
@@ -272,6 +344,7 @@ describeLive("live FMP stock API smoke", () => {
   it(
     "serves finite, positive, PIT-correct intrinsic values and weighted blends",
     async () => {
+      await hydrateStock();
       const from = new Date();
       from.setUTCFullYear(from.getUTCFullYear() - 2);
       const range = `from=${from.toISOString().slice(0, 10)}&to=${new Date()
@@ -334,6 +407,7 @@ describeLive("live FMP stock API smoke", () => {
   it(
     "keeps the PostgreSQL latest daily state aligned with Redis",
     async () => {
+      await hydrateStock();
       const latestDb = await prisma.dailyDerivedState.findFirst({
         where: { securityId },
         orderBy: { date: "desc" },
@@ -365,6 +439,7 @@ describeLive("live FMP stock API smoke", () => {
   it(
     "does not repeat the historical backfill on a second request",
     async () => {
+      await hydrateStock();
       const priceCount = await prisma.dailyPrice.count({ where: { securityId } });
       const statementCount = await prisma.financialStatement.count({
         where: { securityId },

@@ -51,6 +51,10 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
 /**
  * Lightweight Charts integration for the Stock Details price history.
  *
+ * The legend names the always-visible close plus every enabled overlay, using the label the
+ * overlay carries — which is the canonical selectable-series label the `Indicators` picker shows,
+ * so the two can never disagree.
+ *
  * The chart instance is created once and mutated through series `setData` calls; hover updates go
  * straight to a legend DOM node via the crosshair subscription so pointer movement never causes a
  * React render. Zoom/scroll gestures are disabled: the visible window is owned by the range
@@ -209,6 +213,10 @@ export function StockPriceChart({
           lastValueVisible: false,
         });
         existing.set(overlay.id, series);
+      } else {
+        // Overlay colour is assigned by position within the enabled set, so a reused series can
+        // legitimately change colour when another overlay is added or removed.
+        series.applyOptions({ color: overlay.color });
       }
       series.setData(
         overlay.points.map((point) => ({
@@ -230,7 +238,13 @@ export function StockPriceChart({
         role="img"
         aria-label={ariaLabel}
       />
-      <div ref={legendRef} className={styles.legend} hidden aria-hidden="true" />
+      <div
+        ref={legendRef}
+        data-testid="chart-legend"
+        className={styles.legend}
+        hidden
+        aria-hidden="true"
+      />
       {empty ? (
         <p className={styles.emptyMessage} role="status">
           Not enough price history to draw a chart.

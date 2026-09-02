@@ -81,5 +81,6 @@ export type AdminHealthResponse = {
   role: "ADMIN";
 };
 
+export * from "./selectable-series.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";

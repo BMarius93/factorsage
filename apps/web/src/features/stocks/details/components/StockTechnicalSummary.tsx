@@ -9,8 +9,11 @@ type StockTechnicalSummaryProps = {
 };
 
 /**
- * Latest daily moving averages with the close's position relative to each. Indicators still in
- * their warm-up window are absent from the snapshot and simply not rendered.
+ * Latest catalog moving averages with the close's position relative to each.
+ *
+ * Weekly rows carry the latest completed week's value, carried forward onto this trading day by
+ * the backend. Indicators still in their warm-up window are absent from the snapshot and simply
+ * not rendered.
  */
 export function StockTechnicalSummary({
   snapshot,
@@ -24,7 +27,7 @@ export function StockTechnicalSummary({
           Technicals
         </h2>
         <p className={styles.caption}>
-          Daily moving averages as of {formatLocalDate(snapshot.date)}
+          Moving averages as of {formatLocalDate(snapshot.date)}
         </p>
       </div>
       <dl className={styles.list}>

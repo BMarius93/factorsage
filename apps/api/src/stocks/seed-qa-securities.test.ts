@@ -51,10 +51,17 @@ describe("QA security seeding safety", () => {
 
   it("uses symbols no real US listing can collide with", () => {
     for (const security of QA_SECURITIES) {
-      // Real US tickers are at most five characters; the -QA provider suffix is not a provider
-      // format, so the catalog synchronization can never claim or reconcile these rows.
+      // Real US tickers are at most five characters, so a seven-character symbol can never appear
+      // in a provider universe and the catalog synchronization can never claim these rows.
       expect(security.symbol.length).toBeGreaterThan(5);
-      expect(security.providerSymbol.endsWith("-QA")).toBe(true);
+    }
+  });
+
+  it("keeps the provider symbol identical to the product symbol, as real rows have it", () => {
+    for (const security of QA_SECURITIES) {
+      // `/stocks/{symbol}` resolves a security by its provider identity. A decorated provider
+      // symbol would make these the only catalog rows the product's own navigation cannot open.
+      expect(security.providerSymbol).toBe(security.symbol);
     }
   });
 });

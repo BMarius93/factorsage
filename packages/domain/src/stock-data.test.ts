@@ -3,24 +3,57 @@ import {
   DAILY_MOVING_AVERAGES,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
+  MATERIALIZED_MOVING_AVERAGES,
   TECHNICAL_TIMEFRAMES,
+  WEEKLY_MOVING_AVERAGES,
   WEEKLY_TECHNICAL_BACKTEST_POLICY,
 } from "./stock-data.js";
 
 describe("stock data foundation", () => {
   it("defines the agreed daily moving-average catalog", () => {
     expect(DAILY_MOVING_AVERAGES).toEqual([
-      { type: "SMA", period: 20, timeframe: "1D" },
-      { type: "SMA", period: 50, timeframe: "1D" },
-      { type: "SMA", period: 100, timeframe: "1D" },
-      { type: "SMA", period: 200, timeframe: "1D" },
-      { type: "EMA", period: 20, timeframe: "1D" },
-      { type: "EMA", period: 50, timeframe: "1D" },
-      { type: "EMA", period: 200, timeframe: "1D" },
+      { type: "SMA", period: 20, timeframe: "1D", field: "sma20d" },
+      { type: "SMA", period: 50, timeframe: "1D", field: "sma50d" },
+      { type: "SMA", period: 100, timeframe: "1D", field: "sma100d" },
+      { type: "SMA", period: 200, timeframe: "1D", field: "sma200d" },
+      { type: "EMA", period: 20, timeframe: "1D", field: "ema20d" },
+      { type: "EMA", period: 50, timeframe: "1D", field: "ema50d" },
+      { type: "EMA", period: 200, timeframe: "1D", field: "ema200d" },
     ]);
   });
 
-  it("keeps timeframe explicit and reserves weekly indicators", () => {
+  it("defines the agreed weekly moving-average catalog", () => {
+    expect(WEEKLY_MOVING_AVERAGES).toEqual([
+      { type: "SMA", period: 20, timeframe: "1W", field: "sma20w" },
+      { type: "SMA", period: 50, timeframe: "1W", field: "sma50w" },
+      { type: "SMA", period: 100, timeframe: "1W", field: "sma100w" },
+      { type: "SMA", period: 200, timeframe: "1W", field: "sma200w" },
+      { type: "EMA", period: 20, timeframe: "1W", field: "ema20w" },
+      { type: "EMA", period: 50, timeframe: "1W", field: "ema50w" },
+      { type: "EMA", period: 200, timeframe: "1W", field: "ema200w" },
+    ]);
+  });
+
+  it("keeps every materialized moving-average identity and field unique", () => {
+    expect(MATERIALIZED_MOVING_AVERAGES).toHaveLength(14);
+    const identities = MATERIALIZED_MOVING_AVERAGES.map(
+      (average) => `${average.type}(${average.period},${average.timeframe})`,
+    );
+    expect(new Set(identities).size).toBe(14);
+    const fields = MATERIALIZED_MOVING_AVERAGES.map((average) => average.field);
+    expect(new Set(fields).size).toBe(14);
+  });
+
+  it("never lets a daily and a weekly indicator share an ambiguous field name", () => {
+    for (const average of MATERIALIZED_MOVING_AVERAGES) {
+      const suffix = average.timeframe === "1D" ? "d" : "w";
+      expect(average.field).toBe(
+        `${average.type.toLowerCase()}${average.period}${suffix}`,
+      );
+    }
+  });
+
+  it("keeps timeframe explicit and locks the weekly backtest policy", () => {
     expect(TECHNICAL_TIMEFRAMES).toEqual(["1D", "1W"]);
     expect(WEEKLY_TECHNICAL_BACKTEST_POLICY).toBe("COMPLETED_PERIODS_ONLY");
   });

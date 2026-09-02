@@ -1,19 +1,28 @@
-import type { DailyTechnicalResponse } from "@intrinsic/contracts";
+import {
+  MOVING_AVERAGE_SERIES,
+  type DailyTechnicalResponse,
+} from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { blendSeries, technicalSeries } from "./chart-series";
-import { priceVersusAverage, selectLatestTechnicals } from "./technicals";
+import {
+  priceVersusAverage,
+  selectLatestTechnicals,
+  TECHNICAL_INDICATORS,
+} from "./technicals";
 
 describe("selectLatestTechnicals", () => {
-  it("projects only the indicators present on the newest row", () => {
+  it("projects only the indicators present on the newest row, with catalog labels", () => {
     const snapshot = selectLatestTechnicals([
       { date: "2026-08-27", sma20d: 100, sma50d: 90 },
-      { date: "2026-08-28", sma20d: 101, ema200d: 80 },
+      { date: "2026-08-28", sma20d: 101, ema200d: 80, sma50w: 95 },
     ]);
 
     expect(snapshot?.date).toBe("2026-08-28");
+    // Ordered by the canonical catalog: daily entries first, then weekly.
     expect(snapshot?.readings).toEqual([
-      { key: "sma20d", label: "SMA 20", value: 101 },
-      { key: "ema200d", label: "EMA 200", value: 80 },
+      { key: "sma20d", label: "SMA 20D", value: 101 },
+      { key: "ema200d", label: "EMA 200D", value: 80 },
+      { key: "sma50w", label: "SMA 50W", value: 95 },
     ]);
   });
 
@@ -46,6 +55,15 @@ describe("technicalSeries", () => {
       { date: "2026-08-27", value: 90 },
       { date: "2026-08-28", value: 91 },
     ]);
+  });
+});
+
+describe("technical summary rows", () => {
+  it("comes from the canonical catalog rather than a second local list", () => {
+    expect(TECHNICAL_INDICATORS).toHaveLength(MOVING_AVERAGE_SERIES.length);
+    expect(TECHNICAL_INDICATORS.map((row) => row.label)).toEqual(
+      MOVING_AVERAGE_SERIES.map((series) => series.label),
+    );
   });
 });
 

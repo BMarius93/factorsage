@@ -3,6 +3,8 @@ import type {
   DailyTechnicalResponse,
   IntrinsicValueBlendIdResponse,
   IntrinsicValueBlendResponse,
+  IntrinsicValueModelResponse,
+  IntrinsicValueResponse,
   StockDetailsResponse,
 } from "@intrinsic/contracts";
 import { apiGet } from "../../../../lib/api/client";
@@ -70,6 +72,21 @@ export function fetchIntrinsicValueBlendHistory(
     stockPath(symbol, "/intrinsic-value-blends"),
     {
       query: { from: window.from, to: window.to, blendIds: blendIds.join(",") },
+      ...options,
+    },
+  );
+}
+
+export function fetchIntrinsicValueHistory(
+  symbol: string,
+  window: StockHistoryWindow,
+  models: readonly IntrinsicValueModelResponse[],
+  options: RequestOptions = {},
+): Promise<IntrinsicValueResponse[]> {
+  return apiGet<IntrinsicValueResponse[]>(
+    stockPath(symbol, "/intrinsic-values"),
+    {
+      query: { from: window.from, to: window.to, models: models.join(",") },
       ...options,
     },
   );

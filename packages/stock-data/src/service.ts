@@ -3,6 +3,7 @@ import {
   FINANCIAL_STATEMENT_TYPES,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
+  MATERIALIZED_MOVING_AVERAGES,
   type DailyDerivedState,
   type DailyPrice,
   type DailyTechnical,
@@ -61,6 +62,11 @@ import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
 const FUNDAMENTALS_VARIANT_VERSION = 1;
+
+const FUNDAMENTALS_CADENCES: readonly FinancialStatementCadence[] = [
+  QUARTERLY_CADENCE,
+  ANNUAL_CADENCE,
+];
 /**
  * Extra fiscal years of financial statements retained before the visible price history.
  *
@@ -91,6 +97,39 @@ type FundamentalsOperation = {
   dataset: "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW";
   variant: string;
 };
+
+/**
+ * Dataset variant of one persisted fundamentals cadence.
+ *
+ * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill from
+ * before the warm-up existed must not be read as proof that `h30:w7` is already retained. The
+ * mapping version is unchanged because the provider mapping itself did not change.
+ *
+ * Exported so anything that has to recognise an already-satisfied fundamentals dataset — the
+ * service itself, and the deterministic QA seed used by browser tests — resolves the same string
+ * instead of hard-coding a second copy of it.
+ */
+export function fundamentalsDatasetVariant(
+  cadence: FinancialStatementCadence,
+  historyYears: number,
+): string {
+  const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
+  return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
+}
+
+/** Every statement-type/cadence dataset the canonical history expects, with its variant. */
+export function fundamentalsDatasetOperations(
+  historyYears: number,
+): FundamentalsOperation[] {
+  return FINANCIAL_STATEMENT_TYPES.flatMap((statementType) =>
+    FUNDAMENTALS_CADENCES.map((cadence) => ({
+      statementType,
+      cadence,
+      dataset: FUNDAMENTALS_DATASET_BY_TYPE[statementType],
+      variant: fundamentalsDatasetVariant(cadence, historyYears),
+    })),
+  );
+}
 
 export class StockDataNotFoundError extends Error {
   constructor(symbol: string) {
@@ -1104,18 +1143,7 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   private fundamentalsOperationsForHistory() {
-    const cadences: readonly FinancialStatementCadence[] = [
-      QUARTERLY_CADENCE,
-      ANNUAL_CADENCE,
-    ];
-    return FINANCIAL_STATEMENT_TYPES.flatMap((statementType) =>
-      cadences.map((cadence) => ({
-        statementType,
-        cadence,
-        dataset: FUNDAMENTALS_DATASET_BY_TYPE[statementType],
-        variant: this.fundamentalsVariant(cadence),
-      })),
-    );
+    return fundamentalsDatasetOperations(this.historyYears);
   }
 
   private async runFundamentalsOperationsToSettlement<T>(
@@ -1134,14 +1162,8 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
-  /**
-   * The variant encodes the retention policy, not just the horizon: a successful `h30` backfill
-   * from before the warm-up existed must not be read as proof that `h30:w7` is already retained.
-   * The mapping version is unchanged because the provider mapping itself did not change.
-   */
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
-    const cadenceKey = cadence === QUARTERLY_CADENCE ? "quarter" : "annual";
-    return `standard:${cadenceKey}:v${FUNDAMENTALS_VARIANT_VERSION}:h${this.historyYears}:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`;
+    return fundamentalsDatasetVariant(cadence, this.historyYears);
   }
 
   /** Request capacity must cover the retained years plus the existing safety tails. */
@@ -1382,19 +1404,22 @@ export class CanonicalStockDataService implements StockDataService {
   }
 }
 
-/** Daily technical projection over the unified derived state. */
+/**
+ * Daily technical projection over the unified derived state.
+ *
+ * Weekly values are read straight off the daily row: the materializer already carried the latest
+ * completed week forward, so this projection never recalculates, interpolates or looks ahead. Both
+ * timeframes are copied through the same canonical field list, so an unavailable value stays
+ * absent instead of becoming zero.
+ */
 function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
-  return {
-    securityId: row.securityId,
-    date: row.date,
-    ...(row.sma20d === undefined ? {} : { sma20d: row.sma20d }),
-    ...(row.sma50d === undefined ? {} : { sma50d: row.sma50d }),
-    ...(row.sma100d === undefined ? {} : { sma100d: row.sma100d }),
-    ...(row.sma200d === undefined ? {} : { sma200d: row.sma200d }),
-    ...(row.ema20d === undefined ? {} : { ema20d: row.ema20d }),
-    ...(row.ema50d === undefined ? {} : { ema50d: row.ema50d }),
-    ...(row.ema200d === undefined ? {} : { ema200d: row.ema200d }),
-  };
+  const values = Object.fromEntries(
+    MATERIALIZED_MOVING_AVERAGES.flatMap((average) => {
+      const value = row[average.field];
+      return value === undefined ? [] : [[average.field, value] as const];
+    }),
+  );
+  return { securityId: row.securityId, date: row.date, ...values };
 }
 
 /**

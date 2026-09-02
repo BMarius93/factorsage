@@ -48,8 +48,14 @@ export type DailyPriceResponse = {
 /**
  * Daily technical projection over the unified daily derived state.
  *
- * The `d` suffix is part of the public contract and explicitly identifies daily indicators. This
- * avoids ambiguity once weekly indicators exist. Missing warm-up values are omitted, never zeroed.
+ * The timeframe suffix is part of the public contract: `d` values are calculated over daily bars,
+ * `w` values over completed weekly bars. `sma20d` and `sma20w` are different indicators and never
+ * alias. Missing warm-up values are omitted, never zeroed.
+ *
+ * Every row is a trading day. A `w` value is the latest completed week's value carried forward, so
+ * it repeats across the days of a week and changes only once a newer week completes. The
+ * in-progress week is never exposed: a Monday-Thursday row can never carry a value that depends on
+ * the upcoming Friday close.
  *
  * No calculation version is exposed: exactly one current methodology is materialized per trading
  * day, and a methodology change rebuilds that state rather than publishing a parallel version.
@@ -63,7 +69,20 @@ export type DailyTechnicalResponse = {
   ema20d?: number;
   ema50d?: number;
   ema200d?: number;
+  sma20w?: number;
+  sma50w?: number;
+  sma100w?: number;
+  sma200w?: number;
+  ema20w?: number;
+  ema50w?: number;
+  ema200w?: number;
 };
+
+/** Field on `DailyTechnicalResponse` that carries a moving average. */
+export type MovingAverageFieldResponse = Exclude<
+  keyof DailyTechnicalResponse,
+  "date"
+>;
 
 export type IntrinsicValueModelResponse =
   | "DCF_FCFF"

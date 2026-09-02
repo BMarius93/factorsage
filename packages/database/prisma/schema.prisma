@@ -298,9 +298,22 @@ model DailyDerivedState {
   ema50d                   Decimal?  @db.Decimal(20, 8)
   ema200d                  Decimal?  @db.Decimal(20, 8)
   /// Start date of the completed weekly period whose carried-forward weekly indicators are
-  /// effective on this trading day. Weekly indicator value columns are added here when the
-  /// weekly period catalog is product-defined; they are not invented ahead of that decision.
+  /// effective on this trading day. It is set as soon as one completed week exists, which is
+  /// earlier than the first week any weekly average has warmed up over, so a present week start
+  /// with NULL weekly values means "not warmed up yet", never zero.
   weeklySourceWeekStart    DateTime? @db.Date
+  /// Weekly moving averages of the completed week identified by `weeklySourceWeekStart`,
+  /// calculated from weekly closes aggregated out of `DailyPrice` and carried forward onto every
+  /// trading day until a newer completed week becomes eligible. There is no weekly-cadence
+  /// indicator table: the unified daily row is the only materialized representation. The
+  /// in-progress week never appears here.
+  sma20w                   Decimal?  @db.Decimal(20, 8)
+  sma50w                   Decimal?  @db.Decimal(20, 8)
+  sma100w                  Decimal?  @db.Decimal(20, 8)
+  sma200w                  Decimal?  @db.Decimal(20, 8)
+  ema20w                   Decimal?  @db.Decimal(20, 8)
+  ema50w                   Decimal?  @db.Decimal(20, 8)
+  ema200w                  Decimal?  @db.Decimal(20, 8)
   dcfFcff                  Decimal?  @db.Decimal(20, 8)
   residualIncome           Decimal?  @db.Decimal(20, 8)
   ddm                      Decimal?  @db.Decimal(20, 8)

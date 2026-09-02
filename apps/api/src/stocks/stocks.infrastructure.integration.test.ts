@@ -820,6 +820,28 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const lastTechnical = response.body.technicals.at(-1);
         expect(lastTechnical.sma20d).toBeGreaterThan(0);
         expect(lastTechnical.ema20d).toBeGreaterThan(0);
+
+        // Weekly moving averages travel the same HTTP -> service -> PostgreSQL/Redis path as the
+        // daily ones. The fixture spans roughly 87 completed weeks, so 20W/50W are warmed up while
+        // 100W/200W are legitimately absent — never zero, never a shorter period standing in.
+        expect(lastTechnical.sma20w).toBeGreaterThan(0);
+        expect(lastTechnical.ema50w).toBeGreaterThan(0);
+        expect(lastTechnical).not.toHaveProperty("sma100w");
+        expect(lastTechnical).not.toHaveProperty("sma200w");
+        expect(lastTechnical).not.toHaveProperty("ema200w");
+
+        // A completed week becomes visible on its own final trading day and is then repeated:
+        // Thursday cannot already carry the value that Friday's close produces.
+        const weeklyByDate = new Map<string, number | undefined>(
+          response.body.technicals.map(
+            (row: { date: string; sma20w?: number }) => [row.date, row.sma20w],
+          ),
+        );
+        const friday = "2026-06-19";
+        expect(weeklyByDate.get("2026-06-18")).not.toBe(weeklyByDate.get(friday));
+        for (const carried of ["2026-06-22", "2026-06-23", "2026-06-24"]) {
+          expect(weeklyByDate.get(carried)).toBe(weeklyByDate.get(friday));
+        }
         // Intrinsic values exist only where inputs support them: first full TTM window
         // becomes point-in-time eligible on Monday 2025-02-03 (Q4-2024 available Sat 02-01).
         const grahamPoints = response.body.intrinsicValues.filter(
@@ -896,7 +918,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(derivedState?.variant).toBe(
           `daily-derived-state:r${DERIVED_STATE_REVISION}`,
         );
-        expect(DERIVED_STATE_REVISION).toBe(2);
+        // r3 is the current methodology: daily technicals, the seven catalog weekly moving
+        // averages, and materialized intrinsic values/blends.
+        expect(DERIVED_STATE_REVISION).toBe(3);
         const fundamentalsVariants = snapshot.states
           .filter((state) =>
             ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"].includes(state.dataset),

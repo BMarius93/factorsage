@@ -16,6 +16,10 @@ Read `ai/README.md` before substantial work.
 6. API and worker are different processes, not different business implementations.
 7. PostgreSQL is the durable source of truth.
 8. Redis is disposable infrastructure and must not be the only store for completed/user-owned state.
+9. Stock Details and Strategy conditions consume one canonical selectable-series catalog; do not
+   duplicate indicator/model option lists in feature code.
+10. `maximumPositions` belongs to a Backtest execution, not a Strategy. A full-position fraction is
+    derived as `1 / maximumPositions`; do not introduce a user-entered max-allocation percentage.
 
 ## Dependency rules
 

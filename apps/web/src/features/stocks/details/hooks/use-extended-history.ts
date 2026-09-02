@@ -1,15 +1,20 @@
 "use client";
 
-import type {
-  DailyPriceResponse,
-  DailyTechnicalResponse,
-  IntrinsicValueBlendResponse,
+import {
+  INTRINSIC_VALUE_SERIES,
+  type DailyPriceResponse,
+  type DailyTechnicalResponse,
+  type IntrinsicValueBlendIdResponse,
+  type IntrinsicValueBlendResponse,
+  type IntrinsicValueModelResponse,
+  type IntrinsicValueResponse,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchDailyPriceHistory,
   fetchDailyTechnicalHistory,
   fetchIntrinsicValueBlendHistory,
+  fetchIntrinsicValueHistory,
   type StockHistoryWindow,
 } from "../api/stock-details-api";
 import { todayLocalDate } from "../utils/local-dates";
@@ -20,9 +25,23 @@ import { todayLocalDate } from "../utils/local-dates";
  */
 const FULL_HISTORY_FROM = "1900-01-01";
 
+/**
+ * Every intrinsic entry of the canonical catalog is loaded for the long ranges, because any of
+ * them can be enabled from the `Indicators` picker. The identifiers come from the catalog rather
+ * than a local list, so a new blend or model needs no change here.
+ */
+const CATALOG_BLEND_IDS = INTRINSIC_VALUE_SERIES.flatMap((series) =>
+  series.source.kind === "INTRINSIC_VALUE_BLEND" ? [series.source.blendId] : [],
+) as IntrinsicValueBlendIdResponse[];
+
+const CATALOG_MODELS = INTRINSIC_VALUE_SERIES.flatMap((series) =>
+  series.source.kind === "INTRINSIC_VALUE_MODEL" ? [series.source.model] : [],
+) as IntrinsicValueModelResponse[];
+
 export type ExtendedHistory = {
   readonly prices: DailyPriceResponse[];
   readonly technicals: DailyTechnicalResponse[];
+  readonly intrinsicValues: IntrinsicValueResponse[];
   readonly intrinsicValueBlends: IntrinsicValueBlendResponse[];
   readonly window: StockHistoryWindow;
 };
@@ -89,18 +108,29 @@ export function useExtendedHistory(
         }),
       ),
       optional(
-        fetchIntrinsicValueBlendHistory(symbol, window, ["BALANCED"], {
+        fetchIntrinsicValueBlendHistory(symbol, window, CATALOG_BLEND_IDS, {
+          signal: controller.signal,
+        }),
+      ),
+      optional(
+        fetchIntrinsicValueHistory(symbol, window, CATALOG_MODELS, {
           signal: controller.signal,
         }),
       ),
     ])
-      .then(([prices, technicals, intrinsicValueBlends]) => {
+      .then(([prices, technicals, intrinsicValueBlends, intrinsicValues]) => {
         if (requestId !== latestRequestRef.current) {
           return;
         }
         setState({
           status: "ready",
-          history: { prices, technicals, intrinsicValueBlends, window },
+          history: {
+            prices,
+            technicals,
+            intrinsicValues,
+            intrinsicValueBlends,
+            window,
+          },
         });
       })
       .catch(() => {

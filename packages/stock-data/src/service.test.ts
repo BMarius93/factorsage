@@ -2880,10 +2880,11 @@ describe("intrinsic values in the derived-state lifecycle", () => {
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes intrinsic values under derived-state revision 2", () => {
-    // r1 rows carry no intrinsic state, so an r1 manifest/coverage must not read as current.
-    expect(DERIVED_STATE_REVISION).toBe(2);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r2");
+  it("materializes weekly technicals and intrinsic values under revision 3", () => {
+    // r1 rows carry no intrinsic state and r2 rows carry no weekly moving-average values, so
+    // neither reads as current: their coverage and manifests must go stale and rebuild.
+    expect(DERIVED_STATE_REVISION).toBe(3);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r3");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {
@@ -2937,9 +2938,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
       to: "2026-08-20",
     });
 
-    // The r1 manifest is not accepted, and the r2 variant reports no coverage, so the whole
+    // The r1 manifest is not accepted, and the current variant reports no coverage, so the whole
     // canonical derived history is rebuilt rather than a recent tail being refreshed.
-    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(2);
+    expect(cache.manifests.get(security.id)?.derivedStateRevision).toBe(
+      DERIVED_STATE_REVISION,
+    );
     expect(store.derivedWrites.at(-1)?.derivedDates).toEqual([
       "2026-08-19",
       "2026-08-20",
