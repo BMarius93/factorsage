@@ -17,6 +17,7 @@ import {
 import { INTRINSIC_VALUE_BLENDS } from "@intrinsic/domain";
 import { calculateBlend } from "@intrinsic/valuation";
 import { validateBlendDefinition } from "./intrinsic-values.js";
+import { calculateDailyOscillators } from "./oscillators.js";
 import { calculateDailyTechnicals, movingAverage } from "./technicals.js";
 import {
   aggregateCompletedWeeks,
@@ -362,6 +363,28 @@ describe("unified daily derived state", () => {
     expect(
       rows.every((row) => row.weeklySourceWeekStart === undefined),
     ).toBe(true);
+  });
+
+  it("materializes the daily oscillator family onto its exact trading day", () => {
+    const rows = buildDailyDerivedState({
+      prices,
+      weeklyBars: aggregateCompletedWeeks(prices, "2026-08-25"),
+    });
+    const oscillators = calculateDailyOscillators(prices);
+
+    rows.forEach((row, index) => {
+      expect(oscillators[index]?.date).toBe(row.date);
+      expect(row.rsi7d).toBe(oscillators[index]?.rsi7d);
+      expect(row.rsi14d).toBe(oscillators[index]?.rsi14d);
+      expect(row.rsi21d).toBe(oscillators[index]?.rsi21d);
+    });
+    // Twelve trading days warm up RSI 7D on the eighth close and leave the longer periods absent:
+    // per-period availability, never zero, never a shorter period standing in.
+    expect(rows[6]).not.toHaveProperty("rsi7d");
+    expect(rows[7]?.rsi7d).toBeDefined();
+    expect(rows.at(-1)?.rsi7d).toBeDefined();
+    expect(rows.at(-1)).not.toHaveProperty("rsi14d");
+    expect(rows.at(-1)).not.toHaveProperty("rsi21d");
   });
 
   it("leaves intrinsic values absent until a valuation methodology materializes them", () => {

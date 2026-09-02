@@ -6,6 +6,7 @@ import {
   StockDataset,
 } from "@intrinsic/database";
 import {
+  DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
@@ -1650,14 +1651,25 @@ describeInfrastructure("cross-process canonical hydration", () => {
           persisted.at(-1)?.[average.field],
         );
       }
+      expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+      for (const oscillator of DAILY_OSCILLATORS) {
+        expect(cachedLast?.[oscillator.field]).toBeDefined();
+        expect(cachedLast?.[oscillator.field]).toBe(
+          persisted.at(-1)?.[oscillator.field],
+        );
+      }
       expect(cachedLast?.weeklySourceWeekStart).toBe(
         persisted.at(-1)?.weeklySourceWeekStart,
       );
 
-      // 2. A warm-up row keeps its weekly fields absent through serialization, never zero.
+      // 2. A warm-up row keeps its weekly and oscillator fields absent through serialization,
+      //    never zero.
       const cachedFirst = cached?.[0];
       for (const average of WEEKLY_MOVING_AVERAGES) {
         expect(cachedFirst && average.field in cachedFirst).toBe(false);
+      }
+      for (const oscillator of DAILY_OSCILLATORS) {
+        expect(cachedFirst && oscillator.field in cachedFirst).toBe(false);
       }
 
       // 3. Eviction removes the complete stock, not a partial dataset.

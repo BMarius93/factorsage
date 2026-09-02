@@ -918,9 +918,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(derivedState?.variant).toBe(
           `daily-derived-state:r${DERIVED_STATE_REVISION}`,
         );
-        // r3 is the current methodology: daily technicals, the seven catalog weekly moving
-        // averages, and materialized intrinsic values/blends.
-        expect(DERIVED_STATE_REVISION).toBe(3);
+        // r4 is the current methodology: daily technicals, the seven catalog weekly moving
+        // averages, materialized intrinsic values/blends, and the daily RSI oscillators.
+        expect(DERIVED_STATE_REVISION).toBe(4);
         const fundamentalsVariants = snapshot.states
           .filter((state) =>
             ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"].includes(state.dataset),

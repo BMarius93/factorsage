@@ -2867,11 +2867,13 @@ describe("intrinsic values in the derived-state lifecycle", () => {
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes weekly technicals and intrinsic values under revision 3", () => {
-    // r1 rows carry no intrinsic state and r2 rows carry no weekly moving-average values, so
-    // neither reads as current: their coverage and manifests must go stale and rebuild.
-    expect(DERIVED_STATE_REVISION).toBe(3);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r3");
+  it("materializes weekly technicals, intrinsic values and daily oscillators under revision 4", () => {
+    // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values and r3 rows no
+    // daily RSI oscillators, so none reads as current: their coverage and manifests must go stale
+    // and rebuild. The revision is deliberately one global number, so this single r3 -> r4 bump
+    // covers the whole RSI family and invalidates every series of every security at once.
+    expect(DERIVED_STATE_REVISION).toBe(4);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r4");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {

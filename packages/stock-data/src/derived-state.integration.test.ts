@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
 import {
+  DAILY_OSCILLATORS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
@@ -151,6 +152,13 @@ describe("daily derived state persistence", () => {
           expect(row[average.field]).toBeCloseTo(original[average.field]!, 7);
         }
       }
+      for (const oscillator of DAILY_OSCILLATORS) {
+        if (original[oscillator.field] === undefined) {
+          expect(row[oscillator.field]).toBeUndefined();
+        } else {
+          expect(row[oscillator.field]).toBeCloseTo(original[oscillator.field]!, 7);
+        }
+      }
       expect(row.weeklySourceWeekStart).toBe(original.weeklySourceWeekStart);
       expect(row.intrinsicValues).toEqual(original.intrinsicValues);
       expect(row.intrinsicValueBlends).toEqual(original.intrinsicValueBlends);
@@ -168,6 +176,12 @@ describe("daily derived state persistence", () => {
     for (const average of MATERIALIZED_MOVING_AVERAGES) {
       expect(expected[average.field]).toBeDefined();
       expect(read?.[average.field]).toBeCloseTo(expected[average.field]!, 7);
+    }
+    // The registry-driven loop above and below would pass vacuously over an emptied registry.
+    expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+    for (const oscillator of DAILY_OSCILLATORS) {
+      expect(expected[oscillator.field]).toBeDefined();
+      expect(read?.[oscillator.field]).toBeCloseTo(expected[oscillator.field]!, 7);
     }
     expect(read?.weeklySourceWeekStart).toBe(expected.weeklySourceWeekStart);
   });
@@ -189,6 +203,9 @@ describe("daily derived state persistence", () => {
     for (const average of MATERIALIZED_MOVING_AVERAGES) {
       expect(columnNames).toContain(average.field);
     }
+    for (const oscillator of DAILY_OSCILLATORS) {
+      expect(columnNames).toContain(oscillator.field);
+    }
   });
 
   it("keeps unavailable technical values absent instead of turning them into zero", async () => {
@@ -202,6 +219,11 @@ describe("daily derived state persistence", () => {
       expect(read && average.field in read).toBe(false);
       expect(read?.[average.field]).toBeUndefined();
     }
+    // The first trading day has no oscillator warm-up either: absent, not zero.
+    for (const oscillator of DAILY_OSCILLATORS) {
+      expect(read && oscillator.field in read).toBe(false);
+      expect(read?.[oscillator.field]).toBeUndefined();
+    }
     expect(read?.sma200d).toBeUndefined();
 
     const stored = await prisma.dailyDerivedState.findUniqueOrThrow({
@@ -214,6 +236,9 @@ describe("daily derived state persistence", () => {
     });
     for (const average of WEEKLY_MOVING_AVERAGES) {
       expect(stored[average.field]).toBeNull();
+    }
+    for (const oscillator of DAILY_OSCILLATORS) {
+      expect(stored[oscillator.field]).toBeNull();
     }
   });
 

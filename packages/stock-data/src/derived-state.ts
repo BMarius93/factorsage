@@ -1,5 +1,9 @@
 import type { DailyDerivedState, DailyPrice, LocalDate } from "@intrinsic/domain";
 import type { DailyIntrinsicState } from "./intrinsic-value-materializer.js";
+import {
+  calculateDailyOscillators,
+  type DailyOscillatorValues,
+} from "./oscillators.js";
 import { calculateDailyTechnicals } from "./technicals.js";
 import {
   calculateWeeklyTechnicalValues,
@@ -15,6 +19,10 @@ import {
  * materialized state so it is recalculated and replaced; it must never be used to keep two
  * methodologies resident for the same trading day.
  *
+ * The revision remains deliberately global: one bump invalidates every series for every security,
+ * and the affected history is rebuilt lazily on next access. Per-family revisions stay a deferred
+ * design recorded in the storage decision.
+ *
  * Revision history:
  * - r1: daily technicals and carried-forward completed-week state.
  * - r2: adds materialized point-in-time intrinsic model values, blends, per-model provenance and
@@ -26,8 +34,13 @@ import {
  *   a weekly-complete r3 row. Bumping the revision makes r2 coverage and r2 cache manifests report
  *   nothing for the current variant, which rebuilds and replaces the state as r3 rather than
  *   letting partial weekly coverage masquerade as complete.
+ * - r4: adds the daily RSI oscillator family (`rsi7d`/`rsi14d`/`rsi21d`), calculated per trading
+ *   day from the same canonical daily closes as the daily moving averages. An r3 row carries NULL
+ *   for every oscillator column, which is indistinguishable from warm-up, so r3 coverage and
+ *   manifests must report nothing and the canonical history is rebuilt and replaced as r4. One
+ *   bump covers the whole family: the three periods are one methodology addition.
  */
-export const DERIVED_STATE_REVISION = 3;
+export const DERIVED_STATE_REVISION = 4;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 
@@ -44,6 +57,10 @@ export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE
  * moving averages, calculated once over the weekly closes rather than per trading day. A weekly
  * indicator that has not warmed up stays absent even though the week start is already present.
  *
+ * The daily oscillator family is calculated from the same price history and merged onto each row
+ * by exact trading date, so an oscillator value can only ever land on the trading day whose close
+ * completed its window. A period that has not warmed up stays absent.
+ *
  * Intrinsic-value and blend fields are never calculated here. `intrinsicStates` carries already
  * materialized intrinsic projections, which are merged by exact trading date only. Merging cannot
  * affect prices, technicals or weekly eligibility, and an intrinsic state whose date has no
@@ -59,6 +76,12 @@ export function buildDailyDerivedState(input: {
     (input.intrinsicStates ?? []).map((state) => [state.date, state]),
   );
   const weeklyValuesByWeekStart = calculateWeeklyTechnicalValues(weeklyBars);
+  // The oscillator row's identity is the merge key, not merged data.
+  const oscillatorsByDate = new Map<LocalDate, DailyOscillatorValues>(
+    calculateDailyOscillators(input.prices).map(
+      ({ securityId: _securityId, date, ...values }) => [date, values],
+    ),
+  );
   return calculateDailyTechnicals(input.prices).map((row) => {
     const weekly = latestCompletedWeeklyBar(weeklyBars, row.date);
     const withWeekly = weekly
@@ -68,13 +91,17 @@ export function buildDailyDerivedState(input: {
           ...weeklyValuesByWeekStart.get(weekly.weekStartDate),
         }
       : row;
+    const withOscillators = {
+      ...withWeekly,
+      ...oscillatorsByDate.get(row.date),
+    };
     const intrinsic = intrinsicByDate.get(row.date);
     if (!intrinsic) {
-      return withWeekly;
+      return withOscillators;
     }
     // The intrinsic projection's own date is the merge key, not a merged field.
     return {
-      ...withWeekly,
+      ...withOscillators,
       ...Object.fromEntries(
         Object.entries(intrinsic).filter(([field]) => field !== "date"),
       ),

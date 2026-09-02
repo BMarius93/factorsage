@@ -85,6 +85,9 @@ type DailyDerivedStateRow = {
   ema20w: DecimalLike | null;
   ema50w: DecimalLike | null;
   ema200w: DecimalLike | null;
+  rsi7d: DecimalLike | null;
+  rsi14d: DecimalLike | null;
+  rsi21d: DecimalLike | null;
   dcfFcff: DecimalLike | null;
   residualIncome: DecimalLike | null;
   ddm: DecimalLike | null;
@@ -155,6 +158,9 @@ function dailyDerivedStateFromRow(
     ...(row.ema20w === null ? {} : { ema20w: row.ema20w.toNumber() }),
     ...(row.ema50w === null ? {} : { ema50w: row.ema50w.toNumber() }),
     ...(row.ema200w === null ? {} : { ema200w: row.ema200w.toNumber() }),
+    ...(row.rsi7d === null ? {} : { rsi7d: row.rsi7d.toNumber() }),
+    ...(row.rsi14d === null ? {} : { rsi14d: row.rsi14d.toNumber() }),
+    ...(row.rsi21d === null ? {} : { rsi21d: row.rsi21d.toNumber() }),
     ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
@@ -190,6 +196,9 @@ function dailyDerivedStateToRow(
     ema20w: row.ema20w ?? null,
     ema50w: row.ema50w ?? null,
     ema200w: row.ema200w ?? null,
+    rsi7d: row.rsi7d ?? null,
+    rsi14d: row.rsi14d ?? null,
+    rsi21d: row.rsi21d ?? null,
     dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
     residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
     ddm: row.intrinsicValues?.DDM ?? null,
