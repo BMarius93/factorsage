@@ -7,7 +7,6 @@ import { DEFAULT_SELECTED_SERIES } from "../utils/series-catalog";
 export type IndicatorSelection = {
   readonly selected: ReadonlySet<SelectableSeriesId>;
   readonly toggle: (id: SelectableSeriesId) => void;
-  readonly clear: () => void;
 };
 
 /**
@@ -45,7 +44,5 @@ export function useIndicatorSelection(
     [available],
   );
 
-  const clear = useCallback(() => setChosen(new Set()), []);
-
-  return { selected, toggle, clear };
+  return { selected, toggle };
 }

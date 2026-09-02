@@ -1,3 +1,7 @@
+import {
+  SELECTABLE_SERIES_CATALOG,
+  SELECTABLE_SERIES_GROUPED,
+} from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
@@ -12,13 +16,15 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const QA_SYMBOL = "QATEST1";
 
-/** The catalog's four groups, in the order the product decision fixes. */
-const GROUPS = [
-  "Moving averages — Daily",
-  "Moving averages — Weekly",
-  "Intrinsic Value — Blends",
-  "Intrinsic Value — Models",
-];
+/**
+ * The catalog's groups and size come from the canonical catalog, not a copy.
+ *
+ * The browser assertions below are about what the real page renders; what it is supposed to render
+ * is product state owned by `@intrinsic/contracts` and pinned by its own snapshot test. Restating
+ * it here would make this suite a second catalog that silently goes stale.
+ */
+const GROUPS = SELECTABLE_SERIES_GROUPED.map((group) => group.label);
+const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -85,9 +91,9 @@ test.describe("QA_USER Stock Details indicators", () => {
     await openStock(page);
     await openIndicators(page);
 
-    // 1. All four groups, in canonical order, with all 21 entries discoverable.
+    // 1. Every group, in canonical order, with every catalog entry discoverable.
     await expect(panel(page).locator("legend")).toHaveText(GROUPS);
-    await expect(panel(page).getByRole("checkbox")).toHaveCount(21);
+    await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
 
     // 2. Balanced is the only overlay enabled by default.
     await expect(option(page, "Balanced")).toBeChecked();
@@ -152,7 +158,7 @@ test.describe("QA_USER Stock Details indicators", () => {
     await openIndicators(page);
 
     await expect(panel(page).locator("legend")).toHaveText(GROUPS);
-    await expect(panel(page).getByRole("checkbox")).toHaveCount(21);
+    await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
     // The popover must stay inside the viewport rather than overflowing the page horizontally.
     const box = await panel(page).boundingBox();
     expect(box).not.toBeNull();
@@ -167,6 +173,50 @@ test.describe("QA_USER Stock Details indicators", () => {
 
     expect(issues.consoleErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
+  });
+
+  test("renders canonical catalog labels in the valuation summary on both viewports", async ({
+    page,
+  }) => {
+    // The valuation summary once kept its own label map and drifted from the catalog. These are
+    // the canonical labels, asserted through the real page at both widths so a reintroduced
+    // second label vocabulary — or a label that no longer fits — fails here.
+    const canonicalModelLabels = new Set(
+      SELECTABLE_SERIES_CATALOG.filter(
+        (series) => series.source.kind === "INTRINSIC_VALUE_MODEL",
+      ).map((series) => series.label),
+    );
+
+    for (const viewport of [DESKTOP, MOBILE]) {
+      await page.setViewportSize(viewport);
+      await openStock(page);
+
+      const labels = page.locator('[class*="modelLabel"]');
+      const count = await labels.count();
+      expect(count).toBeGreaterThan(0);
+
+      for (let index = 0; index < count; index += 1) {
+        const row = labels.nth(index);
+        // The stale-date note is a child span, so compare on the label's own leading text.
+        const text = ((await row.textContent()) ?? "").trim();
+        const label = [...canonicalModelLabels].find((candidate) =>
+          text.startsWith(candidate),
+        );
+        expect(label, `unrecognised model label: ${text}`).toBeDefined();
+
+        // Whatever the label's length, the row must stay inside the viewport: no horizontal
+        // overflow and no truncation, wrapping to a second line if it needs to.
+        const box = await row.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      }
+
+      const documentWidth = await page.evaluate(
+        () => document.documentElement.scrollWidth,
+      );
+      expect(documentWidth).toBeLessThanOrEqual(viewport.width);
+    }
   });
 
   test("opens and operates the picker from the keyboard alone @smoke", async ({

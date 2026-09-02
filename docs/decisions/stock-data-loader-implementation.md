@@ -134,7 +134,11 @@ worker observe the same backpressure.
 
 ## Derived data
 
-Daily SMA20D/50D/100D/200D and EMA20D/50D/200D use canonical ascending DailyPrice history. EMA seeds from the first complete-period SMA and then applies
+Daily SMA20D/50D/100D/200D and EMA20D/50D/200D use canonical ascending DailyPrice history, and
+the weekly SMA20W/50W/100W/200W and EMA20W/50W/200W of `selectable-series-catalog.md` are
+calculated over completed weekly closes and carried forward daily. Both calculators iterate their
+domain registry (`DAILY_MOVING_AVERAGES` / `WEEKLY_MOVING_AVERAGES`) rather than naming periods
+inline. EMA seeds from the first complete-period SMA and then applies
 $\alpha = 2/(period + 1)$. The origin is the first canonical available price, never an arbitrary
 requested warm-up prefix, so request order cannot affect output.
 

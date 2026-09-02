@@ -291,7 +291,8 @@ INDEX(securityId, statementType, period, fiscalDate)
 INDEX(securityId, statementType, period, availableFromDate)
 ```
 
-Add the relation on `Security` and an explicit Prisma migration. Do not alter existing price/technical/intrinsic tables.
+Add the relation on `Security` and an explicit Prisma migration. Do not alter the existing price
+tables or the unified `DailyDerivedState` row.
 
 The canonical JSON payload must be produced by the FMP mapper before persistence. `FinancialStatement.values` is not an FMP DTO dump.
 
@@ -503,7 +504,7 @@ Every key must use the existing registered-key/generation mechanism so:
 
 - HYDRATING TTL behavior remains valid;
 - stale owners cannot publish into a successor generation;
-- complete-stock LRU eviction removes financials together with prices/technicals;
+- complete-stock LRU eviction removes financials together with prices and the daily derived state;
 - no hot-path `SCAN` is introduced.
 
 On refresh, rewrite only affected fiscal years for the statement/cadence series whose persisted rows changed.

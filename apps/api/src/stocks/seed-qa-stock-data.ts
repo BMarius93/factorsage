@@ -1,13 +1,22 @@
 import { getStockDataConfig } from "@intrinsic/config";
 import type { PrismaClient } from "@intrinsic/database";
-import type { DailyPrice } from "@intrinsic/domain";
+import {
+  INTRINSIC_VALUE_BLEND_IDS,
+  INTRINSIC_VALUE_BLENDS,
+  INTRINSIC_VALUE_MODELS,
+  type DailyPrice,
+  type IntrinsicValueBlendId,
+  type IntrinsicValueModel,
+} from "@intrinsic/domain";
 import {
   addDays,
   aggregateCompletedWeeks,
   buildDailyDerivedState,
+  combineBlendComponents,
   fundamentalsDatasetOperations,
   PrismaStockDataStore,
   startOfIsoWeek,
+  type EvaluatedIntrinsicModel,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "./seed-qa-securities";
 
@@ -37,18 +46,66 @@ const PRICE_SEED = 100;
 /** Intrinsic values become eligible partway through the history, as a real valuation would. */
 const VALUATION_START_WEEK = 40;
 
-const INTRINSIC_FIXTURE = {
-  values: {
-    DCF_FCFF: 182.5,
-    RESIDUAL_INCOME: 151.25,
-    GRAHAM: 121.75,
-  },
-  blends: {
-    BALANCED: 0.5 * 182.5 + 0.3 * 151.25 + 0.2 * 121.75,
-    CONSERVATIVE: 0.4 * 182.5 + 0.3 * 151.25 + 0.3 * 121.75,
-  },
-  currency: "USD",
-} as const;
+const INTRINSIC_CURRENCY = "USD";
+
+/**
+ * Per-model values for the fictional QA security.
+ *
+ * `DDM` is deliberately not applicable: the fictional company pays no dividend, which is what
+ * makes the `DIVIDEND` blend unavailable and gives the browser tests a genuinely unavailable
+ * catalog entry to assert against.
+ */
+const QA_MODEL_VALUES: Partial<Record<IntrinsicValueModel, number>> = {
+  DCF_FCFF: 182.5,
+  RESIDUAL_INCOME: 151.25,
+  GRAHAM: 121.75,
+};
+
+/**
+ * The intrinsic fixture, blends included, for a given provenance instant.
+ *
+ * Blend values are produced by `combineBlendComponents` over the canonical
+ * `INTRINSIC_VALUE_BLENDS` definitions — the same function the production evaluator uses — rather
+ * than by restating the weights as arithmetic literals. A weight change in the product definition
+ * therefore reaches this fixture automatically, and a blend whose components are not all present
+ * is simply absent, exactly as production materializes it.
+ */
+export function qaIntrinsicFixture(sourceDataAsOf: string): {
+  values: Partial<Record<IntrinsicValueModel, number>>;
+  blends: Partial<Record<IntrinsicValueBlendId, number>>;
+  currency: string;
+} {
+  const models = Object.fromEntries(
+    INTRINSIC_VALUE_MODELS.map((model) => {
+      const valuePerShare = QA_MODEL_VALUES[model];
+      return [
+        model,
+        valuePerShare === undefined
+          ? {
+              status: "NOT_APPLICABLE",
+              phase: "VALUATION",
+              reason: "NON_POSITIVE_DIVIDEND",
+            }
+          : {
+              status: "CALCULATED",
+              valuePerShare,
+              sourceDataAsOf,
+              currency: INTRINSIC_CURRENCY,
+            },
+      ];
+    }),
+  ) as Record<IntrinsicValueModel, EvaluatedIntrinsicModel>;
+
+  const blends: Partial<Record<IntrinsicValueBlendId, number>> = {};
+  for (const blendId of INTRINSIC_VALUE_BLEND_IDS) {
+    const blend = combineBlendComponents(INTRINSIC_VALUE_BLENDS[blendId], models);
+    if (blend.status === "CALCULATED") {
+      blends[blendId] = blend.valuePerShare;
+    }
+  }
+
+  return { values: { ...QA_MODEL_VALUES }, blends, currency: INTRINSIC_CURRENCY };
+}
 
 /** Closing price of the `index`-th trading day. Pure function of the index: reruns are identical. */
 function closeAt(index: number): number {
@@ -134,17 +191,21 @@ export async function seedQaStockData(
     historyStartOrigin: "HORIZON",
   });
   const valuationStart = prices[VALUATION_START_WEEK * 5]?.date ?? last.date;
+  const sourceDataAsOf = `${valuationStart}T20:00:00.000Z`;
+  const intrinsic = qaIntrinsicFixture(sourceDataAsOf);
   const rows = buildDailyDerivedState({ prices, weeklyBars }).map((row) =>
     row.date < valuationStart
       ? row
       : {
           ...row,
-          intrinsicValues: { ...INTRINSIC_FIXTURE.values },
-          intrinsicValueBlends: { ...INTRINSIC_FIXTURE.blends },
-          dcfFcffSourceAsOf: `${valuationStart}T20:00:00.000Z`,
-          residualIncomeSourceAsOf: `${valuationStart}T20:00:00.000Z`,
-          grahamSourceAsOf: `${valuationStart}T20:00:00.000Z`,
-          intrinsicCurrency: INTRINSIC_FIXTURE.currency,
+          intrinsicValues: { ...intrinsic.values },
+          intrinsicValueBlends: { ...intrinsic.blends },
+          // Only the models that actually produced a value carry provenance; a value without its
+          // own provenance is never point-in-time readable.
+          dcfFcffSourceAsOf: sourceDataAsOf,
+          residualIncomeSourceAsOf: sourceDataAsOf,
+          grahamSourceAsOf: sourceDataAsOf,
+          intrinsicCurrency: intrinsic.currency,
         },
   );
 

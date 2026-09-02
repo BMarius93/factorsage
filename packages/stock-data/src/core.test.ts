@@ -20,7 +20,7 @@ import { validateBlendDefinition } from "./intrinsic-values.js";
 import { calculateDailyTechnicals, movingAverage } from "./technicals.js";
 import {
   aggregateCompletedWeeks,
-  calculateWeeklyMovingAverage,
+  calculateWeeklyTechnicalValues,
   latestCompletedWeeklyBar,
 } from "./weekly.js";
 
@@ -217,8 +217,13 @@ describe("weekly semantics", () => {
       ],
       "2026-08-17",
     );
-    const technicals = calculateWeeklyMovingAverage(bars, "SMA", 2);
-    expect(technicals).toHaveLength(1);
+    // The production path calculates every registered weekly series over the weekly closes; with
+    // two completed bars only the shortest catalog period could ever warm up, and it does not.
+    const values = calculateWeeklyTechnicalValues(bars);
+    expect(bars).toHaveLength(2);
+    expect(values.get("2026-08-03")).toEqual({});
+    expect(values.get("2026-08-10")).toEqual({});
+
     expect(latestCompletedWeeklyBar(bars, "2026-08-13")?.weekStartDate).toBe(
       "2026-08-03",
     );

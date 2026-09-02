@@ -147,6 +147,14 @@ export interface StockDataStore {
    * There is exactly one current methodology per `(securityId, date)`. Persisting must overwrite
    * the affected rows rather than append a parallel calculation-version history.
    */
+  /**
+   * Persists the completed-week OHLCV aggregate alongside the derived rows it fed.
+   *
+   * `WeeklyPrice` is source data, not a derived series value, so it is written at weekly cadence
+   * and has no read port: every rebuild re-aggregates completed weeks from canonical `DailyPrice`
+   * rather than reading these rows back, and consumers get the weekly *indicator* values carried
+   * forward on the daily derived row instead.
+   */
   saveDailyDerivedState(input: {
     securityId: string;
     rows: readonly DailyDerivedState[];
@@ -155,8 +163,4 @@ export interface StockDataStore {
     syncedAt: string;
     assertOwned?: () => void;
   }): Promise<void>;
-  getWeeklyPrices(
-    securityId: string,
-    range: DateRange,
-  ): Promise<WeeklyPrice[]>;
 }

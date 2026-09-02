@@ -103,7 +103,15 @@ Package ownership follows the dependency rules in `AGENTS.md`:
   discriminator. It is the only package the web app may depend on and is equally available to the
   API and worker, so Stock Details, the API's selection validation and future Strategy operand
   pickers all read the same list. The consumer filters from this decision (`MOVING_AVERAGE_SERIES`,
-  `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it rather than in feature code.
+  `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it rather than in feature code,
+  as do `INTRINSIC_VALUE_BLEND_OPTIONS` and `INTRINSIC_VALUE_MODEL_OPTIONS`, which project the
+  catalog into the `blendId`/`model` vocabulary the intrinsic-value endpoints speak so a consumer
+  of those responses never needs its own ordered list.
+- Each series has exactly **one** product label, used by the dropdown, the chart legend and the
+  valuation summary alike. A feature must never keep its own label map: the valuation summary's
+  did, and had silently drifted to `Residual income` and `Dividend discount`. A short-lived
+  `shortLabel` property was considered and removed once browser measurement showed no presentation
+  need for it — see `ai/architecture/calculated-series.md` for the measured widths.
 - `@intrinsic/domain` owns the structured backend identities that are calculated and persisted:
   `DAILY_MOVING_AVERAGES`, `WEEKLY_MOVING_AVERAGES` and their union
   `MATERIALIZED_MOVING_AVERAGES`, each pairing `{type, period, timeframe}` with the `d`/`w`-suffixed
@@ -111,6 +119,17 @@ Package ownership follows the dependency rules in `AGENTS.md`:
 - `apps/api/src/stocks/selectable-series-catalog.test.ts` is the drift guard: the API is the
   closest package depending on both, and the suite fails if either side gains, loses, renames or
   reorders a series.
+- `packages/contracts/src/selectable-series.test.ts` holds the one deliberate snapshot of the
+  catalog — stable id, canonical order, group, label, compact label and the structured source
+  metadata. It is the only place the catalog's membership is intentionally hardcoded; every other
+  assertion in the repository derives counts and ordering from the catalog, so adding a series
+  means editing that snapshot rather than hunting for the literals `21`, `14` and `[7, 7, 3, 4]`.
+  `docs/development/adding-a-calculated-series.md` is the checklist for doing so.
+
+How a catalog entry becomes a calculated, persisted and cached value — and why each series is an
+explicit PostgreSQL column — is described once in `ai/architecture/calculated-series.md` and
+decided in `retain-wide-column-calculated-series-storage.md`; this decision stays about the product
+catalog itself.
 
 The seven weekly values are carried on `DailyDerivedState` as `sma20w`/`sma50w`/`sma100w`/
 `sma200w` and `ema20w`/`ema50w`/`ema200w`, beside the existing `weeklySourceWeekStart`. Adding them

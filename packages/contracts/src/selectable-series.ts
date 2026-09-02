@@ -68,7 +68,17 @@ export type SelectableSeries = {
   /** Stable identity used by selection state, API filters and future strategy persistence. */
   id: SelectableSeriesId;
   group: SelectableSeriesGroupId;
-  /** Product label shown in the dropdown and reused verbatim by the chart legend. */
+  /**
+   * The one product label, used by every surface: the dropdown, the chart legend and the
+   * valuation summary.
+   *
+   * There is deliberately no second, shorter label. Measured in the browser, the widest label
+   * ("Dividend Discount (DDM)", 148px at 13px Geist) fits the valuation summary's label column on
+   * desktop with room to spare (465px available) and wraps to a second line only on a 390px phone
+   * (123px available). That row is a `min-height: 44px` flex row with no `nowrap` and no
+   * truncation, so wrapping grows the row and nothing overflows or is cut off — not a presentation
+   * requirement worth a parallel label vocabulary.
+   */
   label: string;
   source: SelectableSeriesSource;
 };
@@ -76,8 +86,10 @@ export type SelectableSeries = {
 /**
  * Every selectable series, in canonical group and in-group order.
  *
- * Exactly 21 entries: 14 moving averages and 7 intrinsic-value sources. Price is the chart's
- * always-visible base series and is deliberately not an entry.
+ * The moving-average entries address the periods `@intrinsic/domain` materializes; the intrinsic
+ * entries address its canonical blends and models. Price is the chart's always-visible base series
+ * and is deliberately not an entry. `selectable-series.test.ts` holds the one snapshot that pins
+ * the exact membership, so consumers derive counts from this array rather than restating them.
  */
 export const SELECTABLE_SERIES_CATALOG = [
   {
@@ -316,20 +328,43 @@ const SERIES_BY_ID = new Map<string, SelectableSeries>(
   SELECTABLE_SERIES_CATALOG.map((entry) => [entry.id, entry]),
 );
 
+/**
+ * The catalog entry for `id`, or `undefined` when the identifier is not a catalog series.
+ *
+ * This is the single lookup and validation entry point. Callers that only need to know whether an
+ * identifier is valid still use it and check for `undefined`: every real caller goes on to read
+ * the entry's `source` or `label`, so a separate boolean type guard would only ever duplicate this
+ * map lookup.
+ */
 export function findSelectableSeries(id: string): SelectableSeries | undefined {
   return SERIES_BY_ID.get(id);
 }
 
-export function isSelectableSeriesId(
-  value: string,
-): value is SelectableSeriesId {
-  return SERIES_BY_ID.has(value);
-}
+/**
+ * Blend and model identities paired with the label a dense surface should render, in canonical
+ * catalog order.
+ *
+ * The intrinsic-value endpoints speak `blendId`/`model` rather than catalog id, so a consumer of
+ * those responses would otherwise need its own ordered list to render them. These projections
+ * exist precisely so it does not: ordering and labels stay owned by the catalog.
+ */
+export const INTRINSIC_VALUE_BLEND_OPTIONS: readonly {
+  blendId: IntrinsicValueBlendIdResponse;
+  label: string;
+}[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+  entry.source.kind === "INTRINSIC_VALUE_BLEND"
+    ? [{ blendId: entry.source.blendId, label: entry.label }]
+    : [],
+);
 
-/** Canonical position of a series, used for deterministic ordering and colour assignment. */
-export function selectableSeriesOrder(id: SelectableSeriesId): number {
-  return SELECTABLE_SERIES_CATALOG.findIndex((entry) => entry.id === id);
-}
+export const INTRINSIC_VALUE_MODEL_OPTIONS: readonly {
+  model: IntrinsicValueModelResponse;
+  label: string;
+}[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+  entry.source.kind === "INTRINSIC_VALUE_MODEL"
+    ? [{ model: entry.source.model, label: entry.label }]
+    : [],
+);
 
 /**
  * Consumer-facing filtered views of the catalog.

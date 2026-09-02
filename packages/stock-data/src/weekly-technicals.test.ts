@@ -1,12 +1,13 @@
 import {
   WEEKLY_MOVING_AVERAGES,
+  WEEKLY_TECHNICAL_BACKTEST_POLICY,
   type DailyPrice,
   type LocalDate,
-  type MovingAverageType,
 } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { addDays } from "./dates.js";
 import { buildDailyDerivedState } from "./derived-state.js";
+import { referenceMovingAverage } from "./moving-average-oracle.test-helper.js";
 import { calculateDailyTechnicals } from "./technicals.js";
 import {
   aggregateCompletedWeeks,
@@ -15,39 +16,6 @@ import {
 } from "./weekly.js";
 
 const SECURITY_ID = "security-weekly";
-
-/**
- * Independent reference implementation of the product's moving averages.
- *
- * Deliberately naive and written from the documented convention rather than reusing
- * `movingAverage`: comparing the production function with itself would lock in whatever it does.
- * The EMA seed is the simple average of the first `period` values, matching the convention the
- * daily indicators were locked to.
- */
-function referenceMovingAverage(
-  values: readonly number[],
-  type: MovingAverageType,
-  period: number,
-): Array<number | undefined> {
-  const out: Array<number | undefined> = values.map(() => undefined);
-  for (let index = period - 1; index < values.length; index += 1) {
-    let sum = 0;
-    for (let back = 0; back < period; back += 1) {
-      sum += values[index - back]!;
-    }
-    out[index] = sum / period;
-  }
-  if (type === "SMA") {
-    return out;
-  }
-  const multiplier = 2 / (period + 1);
-  let previous = out[period - 1];
-  for (let index = period; index < values.length; index += 1) {
-    previous = (values[index]! - previous!) * multiplier + previous!;
-    out[index] = previous;
-  }
-  return out;
-}
 
 /** Deterministic close for the `index`-th trading day; no randomness, no date dependence. */
 function closeAt(index: number): number {
@@ -90,6 +58,15 @@ const WEEKLY_BARS = aggregateCompletedWeeks(PRICES, AS_OF);
 const WEEKLY_CLOSES = WEEKLY_BARS.map((week) => week.close);
 
 describe("weekly moving averages", () => {
+  it("runs its registry-driven cases over a non-empty registry", () => {
+    // Guards the `it.each` and `for` loops below: an emptied registry would make them pass
+    // vacuously by generating no cases at all.
+    expect(WEEKLY_MOVING_AVERAGES.length).toBeGreaterThan(0);
+    expect(WEEKLY_BARS.length).toBeGreaterThan(
+      Math.max(...WEEKLY_MOVING_AVERAGES.map((average) => average.period)),
+    );
+  });
+
   it("aggregates one completed weekly bar per week, closing on the week's last trading day", () => {
     expect(WEEKLY_BARS).toHaveLength(WEEKS);
     expect(WEEKLY_BARS[0]?.weekStartDate).toBe(START_MONDAY);
@@ -169,6 +146,11 @@ describe("weekly moving averages", () => {
   });
 
   it("excludes the still-running ISO week from every weekly value", () => {
+    // This is the behaviour `WEEKLY_TECHNICAL_BACKTEST_POLICY` names: only completed periods are
+    // eligible, so the constant and the implementation are asserted together rather than the
+    // constant merely asserting its own spelling.
+    expect(WEEKLY_TECHNICAL_BACKTEST_POLICY).toBe("COMPLETED_PERIODS_ONLY");
+
     const midWeek = addDays(LAST_DAY, -2); // Wednesday of the final week.
     const partial = aggregateCompletedWeeks(PRICES, midWeek);
 
@@ -215,6 +197,169 @@ describe("weekly moving averages", () => {
     const listingValues = calculateWeeklyTechnicalValues(listing);
     const horizonValues = calculateWeeklyTechnicalValues(horizon);
     expect(listingValues.size).toBe(horizonValues.size + 1);
+  });
+
+  it("produces nothing at all when history is shorter than the shortest period", () => {
+    const shortestPeriod = Math.min(
+      ...WEEKLY_MOVING_AVERAGES.map((average) => average.period),
+    );
+    const tooShort = aggregateCompletedWeeks(
+      tradingDays(START_MONDAY, shortestPeriod - 1),
+      addDays(START_MONDAY, shortestPeriod * 7),
+    );
+    const values = calculateWeeklyTechnicalValues(tooShort);
+
+    expect(tooShort).toHaveLength(shortestPeriod - 1);
+    // A bar exists for every completed week, but no indicator has warmed up on any of them.
+    expect(values.size).toBe(shortestPeriod - 1);
+    for (const week of tooShort) {
+      expect(values.get(week.weekStartDate)).toEqual({});
+    }
+  });
+
+  it("first materializes each weekly period exactly on its warm-up boundary", () => {
+    const values = calculateWeeklyTechnicalValues(WEEKLY_BARS);
+    for (const average of WEEKLY_MOVING_AVERAGES) {
+      const before = WEEKLY_BARS[average.period - 2]!;
+      const boundary = WEEKLY_BARS[average.period - 1]!;
+      expect(values.get(before.weekStartDate)?.[average.field]).toBeUndefined();
+      expect(values.get(boundary.weekStartDate)?.[average.field]).toBeDefined();
+    }
+  });
+
+  it("tracks monotonically rising and falling closes without overshooting the window", () => {
+    // A simple average of a strictly monotonic series must sit strictly inside the window's
+    // endpoints, and must move in the same direction as the series. This is an ordering property,
+    // independent of the implementation's arithmetic.
+    const rising = tradingDays(START_MONDAY, 40).map((row, index) => ({
+      ...row,
+      close: 10 + index,
+    }));
+    const falling = tradingDays(START_MONDAY, 40).map((row, index) => ({
+      ...row,
+      close: 1_000 - index,
+    }));
+    const asOf = addDays(START_MONDAY, 41 * 7);
+
+    for (const [prices, direction] of [
+      [rising, "rising"],
+      [falling, "falling"],
+    ] as const) {
+      const bars = aggregateCompletedWeeks(prices, asOf);
+      const closes = bars.map((week) => week.close);
+      const values = calculateWeeklyTechnicalValues(bars);
+      const series = bars.flatMap((week) => {
+        const value = values.get(week.weekStartDate)?.sma20w;
+        return value === undefined ? [] : [value];
+      });
+
+      expect(series.length).toBeGreaterThan(1);
+      series.forEach((value, index) => {
+        const window = closes.slice(index, index + 20);
+        expect(value).toBeGreaterThanOrEqual(Math.min(...window));
+        expect(value).toBeLessThanOrEqual(Math.max(...window));
+      });
+      const deltas = series.slice(1).map((value, index) => value - series[index]!);
+      for (const delta of deltas) {
+        expect(direction === "rising" ? delta : -delta).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("aggregates a week with missing trading days from the days that exist", () => {
+    // Tuesday and Thursday are absent; the week is still complete and uses its real first/last bar.
+    const sparse = [
+      bar("2020-01-06", 10),
+      bar("2020-01-08", 14),
+      bar("2020-01-10", 12),
+      ...tradingDays("2020-01-13", 2),
+    ];
+    const bars = aggregateCompletedWeeks(sparse, "2020-02-03");
+    const first = bars[0]!;
+
+    expect(first).toMatchObject({
+      weekStartDate: "2020-01-06",
+      weekEndDate: "2020-01-10",
+      eligibleDate: "2020-01-10",
+      close: 12,
+    });
+    expect(first.high).toBe(16);
+    expect(first.low).toBe(8);
+  });
+
+  it("keeps a week that spans a calendar-year boundary as one bar", () => {
+    // 2020-12-28 is a Monday and that ISO week ends on 2021-01-01.
+    const bars = aggregateCompletedWeeks(
+      [
+        bar("2020-12-28", 50),
+        bar("2020-12-29", 51),
+        bar("2020-12-30", 52),
+        bar("2020-12-31", 53),
+        bar("2021-01-01", 54),
+        ...tradingDays("2021-01-04", 1),
+      ],
+      "2021-01-18",
+    );
+
+    expect(bars[0]).toMatchObject({
+      weekStartDate: "2020-12-28",
+      weekEndDate: "2021-01-01",
+      eligibleDate: "2021-01-01",
+      close: 54,
+    });
+    expect(bars.map((week) => week.weekStartDate)).toEqual([
+      "2020-12-28",
+      "2021-01-04",
+    ]);
+  });
+
+  it("calculates every catalog weekly series simultaneously from one pass", () => {
+    const values = calculateWeeklyTechnicalValues(WEEKLY_BARS);
+    const warmed = values.get(WEEKLY_BARS.at(-1)!.weekStartDate)!;
+
+    // All seven registered series are present together, each matching its own oracle.
+    expect(Object.keys(warmed).sort()).toEqual(
+      WEEKLY_MOVING_AVERAGES.map((average) => average.field).sort(),
+    );
+    for (const average of WEEKLY_MOVING_AVERAGES) {
+      expect(warmed[average.field]).toBeCloseTo(
+        referenceMovingAverage(
+          WEEKLY_CLOSES,
+          average.type,
+          average.period,
+        ).at(-1)!,
+        9,
+      );
+    }
+  });
+
+  it("never looks ahead: a prefix of history yields the same weekly values", () => {
+    // Truncating later weeks must not change an already-completed week's value.
+    const prefixBars = WEEKLY_BARS.slice(0, 210);
+    const prefixValues = calculateWeeklyTechnicalValues(prefixBars);
+    const fullValues = calculateWeeklyTechnicalValues(WEEKLY_BARS);
+
+    for (const week of prefixBars) {
+      expect(prefixValues.get(week.weekStartDate)).toEqual(
+        fullValues.get(week.weekStartDate),
+      );
+    }
+  });
+
+  it("is independent of input ordering", () => {
+    // Ordering carries no information: the aggregator sorts, so a shuffled feed is the same
+    // canonical history.
+    const shuffled = [
+      ...PRICES.filter((_, index) => index % 3 === 2),
+      ...PRICES.filter((_, index) => index % 3 === 0),
+      ...PRICES.filter((_, index) => index % 3 === 1),
+    ];
+    const shuffledBars = aggregateCompletedWeeks(shuffled, AS_OF);
+
+    expect(shuffledBars).toEqual(WEEKLY_BARS);
+    expect(calculateWeeklyTechnicalValues(shuffledBars)).toEqual(
+      calculateWeeklyTechnicalValues(WEEKLY_BARS),
+    );
   });
 });
 

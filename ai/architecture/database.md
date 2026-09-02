@@ -17,11 +17,13 @@ identity compatibility.
 
 Migrations `20260823120000_add_stock_data_loader` and
 `20260823160000_add_stock_dataset_coverage` add UUID-based Security identity, current profile,
-split-adjusted daily prices, versioned daily technicals, completed weekly bars/generic weekly
-technical storage, dataset state and exact successful coverage intervals, and point-in-time
-intrinsic-value/blend snapshots. Symbol is indexed lookup data and is never the durable primary
-key. Dataset state watermarks optimize reads; coverage intervals, not inferred calendar rows,
-drive missing-range subtraction.
+split-adjusted daily prices, completed weekly bars, dataset state and exact successful coverage
+intervals. They also introduced per-family derived tables with calculation versions
+(`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`), **all of which were
+later replaced** — see `20260830210000_unify_daily_derived_state` below, which is the current
+model. Symbol is indexed lookup data and is never the durable primary key. Dataset state
+watermarks optimize reads; coverage intervals, not inferred calendar rows, drive missing-range
+subtraction.
 
 Migration `20260901090000_add_email_verification_and_oauth_accounts` completes the identity model.
 `User` gains a nullable `emailVerifiedAt`; `OAuthAccount` stores external identities with a unique
@@ -49,6 +51,12 @@ rebuild driven by `DERIVED_STATE_REVISION` in the dataset variant, not a paralle
 The redundant `DailyPrice(securityId, date)` index is dropped because the composite primary key
 already serves the only historical access pattern. See
 `docs/decisions/stock-data-foundation.md` for the invariants.
+
+The one-column-per-series shape of `DailyDerivedState` is an accepted decision, not an accident:
+see `../../docs/decisions/retain-wide-column-calculated-series-storage.md` for why JSONB is
+deferred and EAV rejected, and `calculated-series.md` for how the columns are calculated, mapped
+and cached. Adding a series column follows
+`../../docs/development/adding-a-calculated-series.md`.
 
 Migration `20260901234500_add_weekly_moving_averages` adds the seven catalog weekly moving-average
 columns (`sma20w`/`sma50w`/`sma100w`/`sma200w`, `ema20w`/`ema50w`/`ema200w`) to

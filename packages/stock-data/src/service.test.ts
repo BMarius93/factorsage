@@ -291,7 +291,6 @@ class FakeStore implements StockDataStore {
   profile: SecurityProfile | null = null;
   prices: DailyPrice[] = [];
   dailyState: DailyDerivedState[] = [];
-  weekly: WeeklyPrice[] = [];
   financialStatements: FinancialStatement[] = [];
   states = new Map<string, PersistedDatasetState>();
   coverage = new Map<string, Required<DateRange>[]>();
@@ -598,11 +597,6 @@ class FakeStore implements StockDataStore {
       input.rows,
       (row) => row.date,
     );
-    this.weekly = upsertBy(
-      this.weekly,
-      input.weeklyPrices,
-      (row) => row.weekStartDate,
-    );
     const derivedKey = `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`;
     this.states.set(derivedKey, {
       securityId: security.id,
@@ -619,13 +613,6 @@ class FakeStore implements StockDataStore {
       variant: WEEKLY_PRICE_VARIANT,
       lastSyncedAt: input.syncedAt,
     });
-  }
-  async getWeeklyPrices(_id: string, range: DateRange) {
-    return this.weekly.filter(
-      (row) =>
-        (!range.from || row.weekStartDate >= range.from) &&
-        (!range.to || row.weekStartDate <= range.to),
-    );
   }
 }
 

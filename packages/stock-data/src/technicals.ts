@@ -1,7 +1,9 @@
-import type {
-  DailyDerivedState,
-  DailyPrice,
-  MovingAverageType,
+import {
+  DAILY_MOVING_AVERAGES,
+  type DailyDerivedState,
+  type DailyMovingAverageField,
+  type DailyPrice,
+  type MovingAverageType,
 } from "@intrinsic/domain";
 
 export function movingAverage(
@@ -52,7 +54,22 @@ export function movingAverage(
 }
 
 /**
+ * Daily moving-average values of one trading day, keyed by their materialization field.
+ *
+ * A field is absent while the indicator has not warmed up. Absent never means zero: a security
+ * with only sixty trading days behind it legitimately has `sma50d` and no `sma100d`. This mirrors
+ * `WeeklyTechnicalValues` so both timeframes carry the same shape.
+ */
+export type DailyTechnicalValues = Partial<
+  Record<DailyMovingAverageField, number>
+>;
+
+/**
  * Calculates the daily technical portion of `DailyDerivedState` for every supplied trading day.
+ *
+ * Every daily moving average registered in `DAILY_MOVING_AVERAGES` is calculated, so a period
+ * added to that registry is materialized here without editing this function. Iteration follows
+ * registry order, which is also the order the fields are written onto the row.
  *
  * One row per trading day is produced. Warm-up gaps leave individual indicators absent; they are
  * never zeroed. Callers merge these rows with the other derived families before persisting.
@@ -64,23 +81,19 @@ export function calculateDailyTechnicals(
     left.date.localeCompare(right.date),
   );
   const closes = ascending.map((price) => price.close);
-  const sma20d = movingAverage(closes, "SMA", 20);
-  const sma50d = movingAverage(closes, "SMA", 50);
-  const sma100d = movingAverage(closes, "SMA", 100);
-  const sma200d = movingAverage(closes, "SMA", 200);
-  const ema20d = movingAverage(closes, "EMA", 20);
-  const ema50d = movingAverage(closes, "EMA", 50);
-  const ema200d = movingAverage(closes, "EMA", 200);
-
-  return ascending.map((price, index) => ({
-    securityId: price.securityId,
-    date: price.date,
-    ...(sma20d[index] === undefined ? {} : { sma20d: sma20d[index] }),
-    ...(sma50d[index] === undefined ? {} : { sma50d: sma50d[index] }),
-    ...(sma100d[index] === undefined ? {} : { sma100d: sma100d[index] }),
-    ...(sma200d[index] === undefined ? {} : { sma200d: sma200d[index] }),
-    ...(ema20d[index] === undefined ? {} : { ema20d: ema20d[index] }),
-    ...(ema50d[index] === undefined ? {} : { ema50d: ema50d[index] }),
-    ...(ema200d[index] === undefined ? {} : { ema200d: ema200d[index] }),
+  const calculated = DAILY_MOVING_AVERAGES.map((average) => ({
+    field: average.field,
+    values: movingAverage(closes, average.type, average.period),
   }));
+
+  return ascending.map((price, index) => {
+    const values: DailyTechnicalValues = {};
+    for (const average of calculated) {
+      const value = average.values[index];
+      if (value !== undefined) {
+        values[average.field] = value;
+      }
+    }
+    return { securityId: price.securityId, date: price.date, ...values };
+  });
 }

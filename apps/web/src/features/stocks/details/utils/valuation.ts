@@ -1,8 +1,10 @@
-import type {
-  IntrinsicValueBlendIdResponse,
-  IntrinsicValueBlendResponse,
-  IntrinsicValueModelResponse,
-  IntrinsicValueResponse,
+import {
+  INTRINSIC_VALUE_BLEND_OPTIONS,
+  INTRINSIC_VALUE_MODEL_OPTIONS,
+  type IntrinsicValueBlendIdResponse,
+  type IntrinsicValueBlendResponse,
+  type IntrinsicValueModelResponse,
+  type IntrinsicValueResponse,
 } from "@intrinsic/contracts";
 
 /**
@@ -36,31 +38,14 @@ export type ValuationSnapshot = {
   asOfDate: string;
 };
 
-export const BLEND_LABELS: Record<IntrinsicValueBlendIdResponse, string> = {
-  BALANCED: "Balanced",
-  CONSERVATIVE: "Conservative",
-  DIVIDEND: "Dividend",
-};
-
-export const MODEL_LABELS: Record<IntrinsicValueModelResponse, string> = {
-  DCF_FCFF: "DCF (FCFF)",
-  RESIDUAL_INCOME: "Residual income",
-  DDM: "Dividend discount",
-  GRAHAM: "Graham",
-};
-
-const BLEND_ORDER: readonly IntrinsicValueBlendIdResponse[] = [
-  "BALANCED",
-  "CONSERVATIVE",
-  "DIVIDEND",
-];
-
-const MODEL_ORDER: readonly IntrinsicValueModelResponse[] = [
-  "DCF_FCFF",
-  "RESIDUAL_INCOME",
-  "DDM",
-  "GRAHAM",
-];
+/**
+ * Blend and model identities, ordering and labels come from the canonical selectable-series
+ * catalog. This summary deliberately keeps no list of its own: the catalog is the single product
+ * source of truth, and a second local map is exactly how the labels here drifted from it before.
+ * There is one label per series — the canonical one — and no shorter presentation variant.
+ */
+const BLEND_ENTRIES = INTRINSIC_VALUE_BLEND_OPTIONS;
+const MODEL_ENTRIES = INTRINSIC_VALUE_MODEL_OPTIONS;
 
 function latestByKey<TKey extends string, TPoint extends { valuationDate: string }>(
   points: readonly TPoint[],
@@ -84,13 +69,13 @@ export function selectLatestValuations(
 ): ValuationSnapshot | undefined {
   const latestBlends = latestByKey(intrinsicValueBlends, (point) => point.blendId);
   const latestModels = latestByKey(intrinsicValues, (point) => point.model);
-  const blends = BLEND_ORDER.flatMap((blendId) => {
-    const point = latestBlends.get(blendId);
+  const blends = BLEND_ENTRIES.flatMap((entry) => {
+    const point = latestBlends.get(entry.blendId);
     return point
       ? [
           {
-            blendId,
-            label: BLEND_LABELS[blendId],
+            blendId: entry.blendId,
+            label: entry.label,
             valuePerShare: point.valuePerShare,
             currency: point.currency,
             valuationDate: point.valuationDate,
@@ -98,13 +83,13 @@ export function selectLatestValuations(
         ]
       : [];
   });
-  const models = MODEL_ORDER.flatMap((model) => {
-    const point = latestModels.get(model);
+  const models = MODEL_ENTRIES.flatMap((entry) => {
+    const point = latestModels.get(entry.model);
     return point
       ? [
           {
-            model,
-            label: MODEL_LABELS[model],
+            model: entry.model,
+            label: entry.label,
             valuePerShare: point.valuePerShare,
             currency: point.currency,
             valuationDate: point.valuationDate,

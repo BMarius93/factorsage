@@ -20,8 +20,8 @@ type IndicatorsMenuProps = {
  *
  * Groups, ordering, labels and identifiers come from the canonical selectable-series catalog; this
  * component keeps no list of its own, so a catalog change reaches the UI without editing it. Every
- * one of the 21 entries stays discoverable: an entry the security has no data for is rendered
- * disabled and explicitly marked unavailable rather than hidden or silently substituted.
+ * catalog entry stays discoverable: an entry the security has no data for is rendered disabled and
+ * explicitly marked unavailable rather than hidden or silently substituted.
  *
  * The options are native checkboxes inside labelled fieldsets, so keyboard traversal, screen-reader
  * grouping and touch targets are the platform's rather than a re-implementation. The popover closes

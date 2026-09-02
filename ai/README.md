@@ -20,6 +20,23 @@ For strategy work, also read `product/strategies.md`.
 For Stock Details or selectable-series work, also read `product/stock-details.md` and
 `../docs/decisions/selectable-series-catalog.md`.
 
+For any work on calculated daily series — moving averages, intrinsic-value models and blends, the
+derived state, or adding a new series or family — read these in order:
+
+1. `../docs/decisions/retain-wide-column-calculated-series-storage.md` — the accepted storage
+   decision: explicit PostgreSQL columns, what is deferred, what is rejected, and the budgets and
+   triggers that would re-open it.
+2. `architecture/calculated-series.md` — the canonical architecture as implemented: identity,
+   registries, calculation, persistence, revision, cache, API and web.
+3. `../docs/development/adding-a-calculated-series.md` — the extension checklist. It says
+   explicitly that repository search and the completeness tests, not the checklist alone, are what
+   prove a series is fully wired.
+4. `workflows/validation.md` for the test gate, and `product/stock-details.md` with
+   `../docs/decisions/selectable-series-catalog.md` for the consuming product surface.
+
+Do not propose JSONB, EAV, a Redis redesign or a generic series endpoint as the current direction:
+the first document records why they are deferred or rejected.
+
 For frontend/UI work, also read
 `architecture/frontend.md`.
 

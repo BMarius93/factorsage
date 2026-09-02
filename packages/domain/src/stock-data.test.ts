@@ -35,13 +35,27 @@ describe("stock data foundation", () => {
   });
 
   it("keeps every materialized moving-average identity and field unique", () => {
-    expect(MATERIALIZED_MOVING_AVERAGES).toHaveLength(14);
+    // Counts are derived from the registries above, which are themselves the pinned tables: a new
+    // period must be added there and nowhere else in this suite.
+    const expectedLength =
+      DAILY_MOVING_AVERAGES.length + WEEKLY_MOVING_AVERAGES.length;
+    expect(MATERIALIZED_MOVING_AVERAGES).toHaveLength(expectedLength);
     const identities = MATERIALIZED_MOVING_AVERAGES.map(
       (average) => `${average.type}(${average.period},${average.timeframe})`,
     );
-    expect(new Set(identities).size).toBe(14);
+    expect(new Set(identities).size).toBe(expectedLength);
     const fields = MATERIALIZED_MOVING_AVERAGES.map((average) => average.field);
-    expect(new Set(fields).size).toBe(14);
+    expect(new Set(fields).size).toBe(expectedLength);
+  });
+
+  it("materializes the daily registry before the weekly one, in registry order", () => {
+    // Ordering is load-bearing: it is the order fields are written onto a derived row and the
+    // order the API projects them, so it is asserted rather than assumed.
+    expect(MATERIALIZED_MOVING_AVERAGES.map((average) => average.field)).toEqual(
+      [...DAILY_MOVING_AVERAGES, ...WEEKLY_MOVING_AVERAGES].map(
+        (average) => average.field,
+      ),
+    );
   });
 
   it("never lets a daily and a weekly indicator share an ambiguous field name", () => {

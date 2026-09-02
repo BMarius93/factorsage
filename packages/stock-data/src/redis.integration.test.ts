@@ -44,7 +44,23 @@ loadRootEnv();
 // PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
 // database rather than DATABASE_URL. Redis stays isolated by namespace, not by instance.
 useTestDatabase();
-const redisUrl = process.env.REDIS_URL;
+/**
+ * Redis is required infrastructure for this suite, and CI must never report green without it.
+ *
+ * Locally the suite stays environment-aware: a developer without `pnpm infra:up` skips it rather
+ * than failing a whole run. In CI that would be silent coverage loss of the only Redis/PostgreSQL
+ * parity tests, so a missing URL is a hard failure there instead. The same precedence as the API
+ * infrastructure suite is used, so one variable configures both.
+ */
+const redisUrl =
+  process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
+if (!redisUrl && process.env.CI === "true") {
+  throw new Error(
+    "Redis-backed stock-data tests require TEST_REDIS_URL or REDIS_URL. CI must not skip them " +
+      "silently: they are the only coverage proving the Redis cache and PostgreSQL agree on " +
+      "every materialized series.",
+  );
+}
 const describeRedis = redisUrl ? describe : describe.skip;
 const describeInfrastructure = redisUrl ? describe : describe.skip;
 
