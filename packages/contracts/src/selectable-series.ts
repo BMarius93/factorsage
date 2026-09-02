@@ -70,6 +70,14 @@ export type SelectableSeries = {
   group: SelectableSeriesGroupId;
   /** Product label shown in the dropdown and reused verbatim by the chart legend. */
   label: string;
+  /**
+   * Compact label for dense surfaces such as the valuation summary's model list.
+   *
+   * Present only where a surface genuinely renders something other than `label`; read it through
+   * `selectableSeriesShortLabel`, which falls back to `label`. It exists so a compact rendering is
+   * catalog data with one owner, rather than a second label map inside a feature.
+   */
+  shortLabel?: string;
   source: SelectableSeriesSource;
 };
 
@@ -276,12 +284,14 @@ export const SELECTABLE_SERIES_CATALOG = [
     id: "RESIDUAL_INCOME",
     group: "INTRINSIC_VALUE_MODELS",
     label: "Residual Income",
+    shortLabel: "Residual income",
     source: { kind: "INTRINSIC_VALUE_MODEL", model: "RESIDUAL_INCOME" },
   },
   {
     id: "DDM",
     group: "INTRINSIC_VALUE_MODELS",
     label: "Dividend Discount (DDM)",
+    shortLabel: "Dividend discount",
     source: { kind: "INTRINSIC_VALUE_MODEL", model: "DDM" },
   },
   {
@@ -316,20 +326,48 @@ const SERIES_BY_ID = new Map<string, SelectableSeries>(
   SELECTABLE_SERIES_CATALOG.map((entry) => [entry.id, entry]),
 );
 
+/**
+ * The catalog entry for `id`, or `undefined` when the identifier is not a catalog series.
+ *
+ * This is the single lookup and validation entry point. Callers that only need to know whether an
+ * identifier is valid still use it and check for `undefined`: every real caller goes on to read
+ * the entry's `source` or `label`, so a separate boolean type guard would only ever duplicate this
+ * map lookup.
+ */
 export function findSelectableSeries(id: string): SelectableSeries | undefined {
   return SERIES_BY_ID.get(id);
 }
 
-export function isSelectableSeriesId(
-  value: string,
-): value is SelectableSeriesId {
-  return SERIES_BY_ID.has(value);
+/** The compact label for dense surfaces, falling back to the full product label. */
+export function selectableSeriesShortLabel(entry: SelectableSeries): string {
+  return entry.shortLabel ?? entry.label;
 }
 
-/** Canonical position of a series, used for deterministic ordering and colour assignment. */
-export function selectableSeriesOrder(id: SelectableSeriesId): number {
-  return SELECTABLE_SERIES_CATALOG.findIndex((entry) => entry.id === id);
-}
+/**
+ * Blend and model identities paired with the label a dense surface should render, in canonical
+ * catalog order.
+ *
+ * The intrinsic-value endpoints speak `blendId`/`model` rather than catalog id, so a consumer of
+ * those responses would otherwise need its own ordered list to render them. These projections
+ * exist precisely so it does not: ordering and labels stay owned by the catalog.
+ */
+export const INTRINSIC_VALUE_BLEND_OPTIONS: readonly {
+  blendId: IntrinsicValueBlendIdResponse;
+  label: string;
+}[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+  entry.source.kind === "INTRINSIC_VALUE_BLEND"
+    ? [{ blendId: entry.source.blendId, label: selectableSeriesShortLabel(entry) }]
+    : [],
+);
+
+export const INTRINSIC_VALUE_MODEL_OPTIONS: readonly {
+  model: IntrinsicValueModelResponse;
+  label: string;
+}[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+  entry.source.kind === "INTRINSIC_VALUE_MODEL"
+    ? [{ model: entry.source.model, label: selectableSeriesShortLabel(entry) }]
+    : [],
+);
 
 /**
  * Consumer-facing filtered views of the catalog.

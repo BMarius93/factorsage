@@ -1,6 +1,8 @@
-import type {
-  IntrinsicValueBlendResponse,
-  IntrinsicValueResponse,
+import {
+  INTRINSIC_VALUE_BLEND_OPTIONS,
+  INTRINSIC_VALUE_MODEL_OPTIONS,
+  type IntrinsicValueBlendResponse,
+  type IntrinsicValueResponse,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { selectLatestValuations, upsideFraction } from "./valuation";
@@ -75,6 +77,33 @@ describe("selectLatestValuations", () => {
 
   it("returns undefined when no valuation data exists", () => {
     expect(selectLatestValuations([], [])).toBeUndefined();
+  });
+
+  it("takes every label and the ordering from the canonical catalog", () => {
+    // The summary must not keep a second label/order list: that is exactly how two model labels
+    // drifted from the catalog before. Feeding one point per catalog entry proves the rendered
+    // order and every label come from the catalog itself.
+    const snapshot = selectLatestValuations(
+      INTRINSIC_VALUE_MODEL_OPTIONS.map((option) =>
+        model(option.model, "2026-08-28", 100),
+      ),
+      INTRINSIC_VALUE_BLEND_OPTIONS.map((option) =>
+        blend(option.blendId, "2026-08-28", 100),
+      ),
+    );
+
+    expect(snapshot?.blends.map((entry) => entry.blendId)).toEqual(
+      INTRINSIC_VALUE_BLEND_OPTIONS.map((option) => option.blendId),
+    );
+    expect(snapshot?.blends.map((entry) => entry.label)).toEqual(
+      INTRINSIC_VALUE_BLEND_OPTIONS.map((option) => option.label),
+    );
+    expect(snapshot?.models.map((entry) => entry.model)).toEqual(
+      INTRINSIC_VALUE_MODEL_OPTIONS.map((option) => option.model),
+    );
+    expect(snapshot?.models.map((entry) => entry.label)).toEqual(
+      INTRINSIC_VALUE_MODEL_OPTIONS.map((option) => option.label),
+    );
   });
 });
 
