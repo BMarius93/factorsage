@@ -6,8 +6,11 @@ import {
   StockDataset,
 } from "@intrinsic/database";
 import {
+  INTRINSIC_VALUE_BLEND_IDS,
+  INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
+  type DailyDerivedState,
   type DateRange,
   type FinancialStatement,
 } from "@intrinsic/domain";
@@ -1667,6 +1670,199 @@ describeInfrastructure("cross-process canonical hydration", () => {
           to: lastDate,
         }),
       ).resolves.toEqual(persisted);
+    } finally {
+      if (securityId) {
+        await cache.evict(securityId);
+        await prisma.security.deleteMany({ where: { id: securityId } });
+      }
+      await redis.del(
+        `${namespace}:resident-stocks`,
+        `${namespace}:access-sequence`,
+      );
+      redis.disconnect();
+      await prisma.$disconnect();
+    }
+  });
+
+  it("round-trips the complete intrinsic-value payload through PostgreSQL and Redis", async () => {
+    const suffix = randomUUID();
+    const namespace = `stock-data:v2:test:intrinsic:${suffix}`;
+    const symbol = `V${suffix.replaceAll("-", "").slice(0, 12).toUpperCase()}`;
+    const prisma = new PrismaClient();
+    const redis = createStockDataRedisClient(
+      redisUrl ?? "redis://localhost:6379",
+    );
+    const store = new PrismaStockDataStore(prisma);
+    const cache = new RedisStockDataCache(
+      new IoredisCacheClient(redis),
+      10,
+      namespace,
+    );
+    let securityId: string | undefined;
+    try {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: symbol,
+          symbol,
+          name: "Intrinsic Payload Round Trip Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: SecurityType.STOCK,
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      securityId = security.id;
+
+      // Fixture constants, not engine output: this asserts the persistence and projection path,
+      // not the valuation methodology. Values are written as literals rather than computed from
+      // blend weights so DECIMAL(20,8) round-tripping is exact rather than float-dependent.
+      const complete: DailyDerivedState = {
+        securityId: security.id,
+        date: "2026-02-02",
+        sma20d: 118.5,
+        intrinsicValues: {
+          DCF_FCFF: 182.5,
+          RESIDUAL_INCOME: 151.25,
+          DDM: 96.125,
+          GRAHAM: 121.75,
+        },
+        intrinsicValueBlends: {
+          BALANCED: 160.975,
+          CONSERVATIVE: 155.275,
+          DIVIDEND: 145.775,
+        },
+        dcfFcffSourceAsOf: "2026-01-30T21:00:00.000Z",
+        residualIncomeSourceAsOf: "2026-01-28T21:00:00.000Z",
+        ddmSourceAsOf: "2026-01-15T21:00:00.000Z",
+        grahamSourceAsOf: "2026-01-05T21:00:00.000Z",
+        intrinsicCurrency: "USD",
+      };
+      // Partial availability: DDM is not applicable, so its value, its own provenance instant and
+      // the DIVIDEND blend that requires it are all absent. The other models are unaffected.
+      const partial: DailyDerivedState = {
+        securityId: security.id,
+        date: "2026-02-03",
+        sma20d: 119.25,
+        intrinsicValues: {
+          DCF_FCFF: 182.5,
+          RESIDUAL_INCOME: 151.25,
+          GRAHAM: 121.75,
+        },
+        intrinsicValueBlends: { BALANCED: 160.975, CONSERVATIVE: 155.275 },
+        dcfFcffSourceAsOf: "2026-01-30T21:00:00.000Z",
+        residualIncomeSourceAsOf: "2026-01-28T21:00:00.000Z",
+        grahamSourceAsOf: "2026-01-05T21:00:00.000Z",
+        intrinsicCurrency: "USD",
+      };
+      // No valuation is eligible yet at all: the row exists as a trading day and carries nothing.
+      const none: DailyDerivedState = {
+        securityId: security.id,
+        date: "2026-02-04",
+        sma20d: 120,
+      };
+      const written = [complete, partial, none];
+      const range = { from: "2026-02-02", to: "2026-02-04" };
+
+      await store.saveDailyDerivedState({
+        securityId: security.id,
+        rows: written,
+        weeklyPrices: [],
+        successfulCoverage: range,
+        syncedAt: "2026-02-04T21:00:00.000Z",
+      });
+
+      // 1. PostgreSQL returns exactly what was written, ascending, with nothing added or lost.
+      const persisted = await store.getDailyDerivedState(security.id, range);
+      expect(persisted).toEqual(written);
+
+      const [persistedComplete, persistedPartial, persistedNone] = persisted;
+
+      // 2. Every catalog model and blend survives the round trip with its own value.
+      for (const model of INTRINSIC_VALUE_MODELS) {
+        expect(persistedComplete?.intrinsicValues?.[model]).toBe(
+          complete.intrinsicValues?.[model],
+        );
+      }
+      for (const blendId of INTRINSIC_VALUE_BLEND_IDS) {
+        expect(persistedComplete?.intrinsicValueBlends?.[blendId]).toBe(
+          complete.intrinsicValueBlends?.[blendId],
+        );
+      }
+
+      // 3. Provenance is per model and each instant survives independently, as does the shared
+      //    currency. A single row-level instant would collapse these four into one.
+      expect(persistedComplete?.dcfFcffSourceAsOf).toBe(
+        "2026-01-30T21:00:00.000Z",
+      );
+      expect(persistedComplete?.residualIncomeSourceAsOf).toBe(
+        "2026-01-28T21:00:00.000Z",
+      );
+      expect(persistedComplete?.ddmSourceAsOf).toBe("2026-01-15T21:00:00.000Z");
+      expect(persistedComplete?.grahamSourceAsOf).toBe(
+        "2026-01-05T21:00:00.000Z",
+      );
+      expect(persistedComplete?.intrinsicCurrency).toBe("USD");
+
+      // 4. Unavailable components stay absent rather than becoming zero or null.
+      expect(persistedPartial?.intrinsicValues?.DDM).toBeUndefined();
+      expect(persistedPartial?.intrinsicValueBlends?.DIVIDEND).toBeUndefined();
+      expect(persistedPartial && "ddmSourceAsOf" in persistedPartial).toBe(
+        false,
+      );
+      expect(persistedNone?.intrinsicValues).toBeUndefined();
+      expect(persistedNone?.intrinsicValueBlends).toBeUndefined();
+      expect(persistedNone?.intrinsicCurrency).toBeUndefined();
+
+      const storedRows = await prisma.dailyDerivedState.findMany({
+        where: { securityId: security.id },
+        orderBy: { date: "asc" },
+      });
+      expect(storedRows[1]?.ddm).toBeNull();
+      expect(storedRows[1]?.blendDividend).toBeNull();
+      expect(storedRows[1]?.ddmSourceAsOf).toBeNull();
+      expect(storedRows[2]?.dcfFcff).toBeNull();
+      expect(storedRows[2]?.dcfFcffSourceAsOf).toBeNull();
+      expect(storedRows[2]?.intrinsicCurrency).toBeNull();
+
+      // 5. Hydrate the PostgreSQL read through the real Redis daily-state chunk and require exact
+      //    parity: the cache is disposable, so it must never be a different projection.
+      await cache.writeDailyDerivedStateYears(security.id, persisted, [2026]);
+      await cache.setManifest(readyManifest(security.id));
+      const cached = await cache.readDailyDerivedState(security.id, range);
+      expect(cached).toEqual(persisted);
+      expect(cached).toEqual(written);
+
+      // The serialized chunk carries absence as absence, not as an explicit null or a zero.
+      const chunk = await redis.get(
+        `${namespace}:security:${security.id}:daily-state:2026`,
+      );
+      expect(chunk).not.toBeNull();
+      const serialized = JSON.parse(chunk ?? "[]") as Record<string, unknown>[];
+      expect(serialized).toHaveLength(3);
+      expect(Object.keys(serialized[1]?.intrinsicValues ?? {})).toEqual([
+        "DCF_FCFF",
+        "RESIDUAL_INCOME",
+        "GRAHAM",
+      ]);
+      expect("ddmSourceAsOf" in (serialized[1] ?? {})).toBe(false);
+      expect("intrinsicValues" in (serialized[2] ?? {})).toBe(false);
+      expect("intrinsicCurrency" in (serialized[2] ?? {})).toBe(false);
+      expect(chunk).not.toContain("null");
+
+      // 6. Eviction removes the whole stock; re-admitting from the durable store reconstructs an
+      //    identical payload, so a lost cache costs nothing but a rebuild.
+      await cache.evict(security.id);
+      await expect(
+        cache.readDailyDerivedState(security.id, range),
+      ).resolves.toBeNull();
+
+      const readmitted = await store.getDailyDerivedState(security.id, range);
+      await cache.writeDailyDerivedStateYears(security.id, readmitted, [2026]);
+      await cache.setManifest(readyManifest(security.id));
+      await expect(
+        cache.readDailyDerivedState(security.id, range),
+      ).resolves.toEqual(written);
     } finally {
       if (securityId) {
         await cache.evict(securityId);
