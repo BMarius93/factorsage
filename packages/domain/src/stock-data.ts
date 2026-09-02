@@ -191,6 +191,16 @@ export type DailyTechnical = {
  * trading-day derived record until a newer completed-week value replaces it. Repeated daily values
  * are part of the backtest-facing data model, not accidental duplication.
  */
+/**
+ * Retained deliberately: this names the eligibility policy the weekly pipeline implements.
+ *
+ * Nothing branches on it today because there is exactly one policy and
+ * `aggregateCompletedWeeks` enforces it structurally by excluding the in-progress ISO week. It is
+ * kept as the published domain name for that rule so Strategy operand evaluation and backtest
+ * execution read one constant instead of restating "completed periods only" in feature code, and
+ * so introducing a second policy is an explicit change here rather than a silent divergence.
+ * `weekly-technicals.test.ts` asserts the implemented behaviour under this name.
+ */
 export const WEEKLY_TECHNICAL_BACKTEST_POLICY =
   "COMPLETED_PERIODS_ONLY" as const;
 
@@ -459,30 +469,12 @@ export interface StockDataService {
   ): Promise<IntrinsicValueBlendPoint[]>;
 }
 
-/** Durable persistence read port. Implement in the database layer; do not couple domain to Prisma. */
-export interface StockDataRepository {
-  getDatasetState(
-    securityId: SecurityId,
-    dataset: StockDataset,
-  ): Promise<StockDatasetState | null>;
-  getDailyPrices(
-    securityId: SecurityId,
-    range: DateRange,
-  ): Promise<DailyPrice[]>;
-  getDailyDerivedState(
-    securityId: SecurityId,
-    range: DateRange,
-  ): Promise<DailyDerivedState[]>;
-  getFinancialStatements(
-    securityId: SecurityId,
-    query: FinancialStatementQuery,
-  ): Promise<FinancialStatement[]>;
-}
-
-/** Complete-stock LRU residency control for disposable Redis cache. */
-export interface StockCache {
-  hasResidentStock(securityId: SecurityId): Promise<boolean>;
-  touch(securityId: SecurityId): Promise<void>;
-  /** Evict every cached dataset for the security as one logical operation. */
-  evict(securityId: SecurityId): Promise<void>;
-}
+/*
+ * The durable-persistence and cache ports deliberately do not live here.
+ *
+ * `StockDataStore` and `StockDataCache` in `@intrinsic/stock-data` are the real ports: they are
+ * implemented, injected and tested, and they carry infrastructure-shaped concerns (dataset
+ * variants, coverage intervals, yearly cache chunks, hydration generations) that must not leak
+ * into the pure domain. Earlier `StockDataRepository`/`StockCache` declarations here were never
+ * implemented by anything and were removed rather than kept as a second, drifting definition.
+ */

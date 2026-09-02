@@ -2,7 +2,6 @@ import {
   WEEKLY_MOVING_AVERAGES,
   type DailyPrice,
   type LocalDate,
-  type MovingAverageType,
   type SecurityId,
   type WeeklyMovingAverageField,
 } from "@intrinsic/domain";
@@ -27,22 +26,6 @@ export type WeeklyPrice = {
   low: number;
   close: number;
   volume: number;
-};
-
-/**
- * Completed-week indicator value.
- *
- * This is a calculation output, not a storage shape. Weekly indicators are never persisted at
- * weekly cadence: the latest eligible value is carried forward onto every trading day in
- * `DailyDerivedState`.
- */
-export type WeeklyTechnical = {
-  securityId: SecurityId;
-  weekStartDate: LocalDate;
-  eligibleDate: LocalDate;
-  type: MovingAverageType;
-  period: number;
-  value: number;
 };
 
 export type WeeklyHistoryContext = {
@@ -108,36 +91,6 @@ export function aggregateCompletedWeeks(
       close: last.close,
       volume: rows.reduce((sum, row) => sum + row.volume, 0),
     };
-  });
-}
-
-export function calculateWeeklyMovingAverage(
-  bars: readonly WeeklyPrice[],
-  type: MovingAverageType,
-  period: number,
-): WeeklyTechnical[] {
-  const ascending = [...bars].sort((left, right) =>
-    left.weekStartDate.localeCompare(right.weekStartDate),
-  );
-  const values = movingAverage(
-    ascending.map((bar) => bar.close),
-    type,
-    period,
-  );
-  return ascending.flatMap((bar, index) => {
-    const value = values[index];
-    return value === undefined
-      ? []
-      : [
-          {
-            securityId: bar.securityId,
-            weekStartDate: bar.weekStartDate,
-            eligibleDate: bar.eligibleDate,
-            type,
-            period,
-            value,
-          },
-        ];
   });
 }
 

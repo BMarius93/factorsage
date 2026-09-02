@@ -871,24 +871,6 @@ export class PrismaStockDataStore implements StockDataStore {
     });
   }
 
-  async getWeeklyPrices(securityId: string, range: DateRange) {
-    const rows = await this.prisma.weeklyPrice.findMany({
-      where: { securityId, weekStartDate: rangeWhere(range) },
-      orderBy: { weekStartDate: "asc" },
-    });
-    return rows.map((row) => ({
-      securityId,
-      weekStartDate: fromDatabaseDate(row.weekStartDate),
-      weekEndDate: fromDatabaseDate(row.weekEndDate),
-      eligibleDate: fromDatabaseDate(row.eligibleDate),
-      open: row.open.toNumber(),
-      high: row.high.toNumber(),
-      low: row.low.toNumber(),
-      close: row.close.toNumber(),
-      volume: Number(row.volume),
-    }));
-  }
-
   async getFinancialStatements(
     securityId: string,
     query: FinancialStatementQuery,
