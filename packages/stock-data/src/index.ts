@@ -9,6 +9,7 @@ export * from "./intrinsic-value-evaluator.js";
 export * from "./intrinsic-value-inputs.js";
 export * from "./intrinsic-value-materializer.js";
 export * from "./intrinsic-values.js";
+export * from "./oscillators.js";
 export * from "./ports.js";
 export * from "./prisma-store.js";
 export * from "./redis-client.js";
