@@ -58,6 +58,15 @@ const WEEKLY_BARS = aggregateCompletedWeeks(PRICES, AS_OF);
 const WEEKLY_CLOSES = WEEKLY_BARS.map((week) => week.close);
 
 describe("weekly moving averages", () => {
+  it("runs its registry-driven cases over a non-empty registry", () => {
+    // Guards the `it.each` and `for` loops below: an emptied registry would make them pass
+    // vacuously by generating no cases at all.
+    expect(WEEKLY_MOVING_AVERAGES.length).toBeGreaterThan(0);
+    expect(WEEKLY_BARS.length).toBeGreaterThan(
+      Math.max(...WEEKLY_MOVING_AVERAGES.map((average) => average.period)),
+    );
+  });
+
   it("aggregates one completed weekly bar per week, closing on the week's last trading day", () => {
     expect(WEEKLY_BARS).toHaveLength(WEEKS);
     expect(WEEKLY_BARS[0]?.weekStartDate).toBe(START_MONDAY);

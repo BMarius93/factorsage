@@ -58,6 +58,15 @@ const LAST_ROW = ROWS.at(-1)!;
  * shifts a warm-up boundary by one bar, or perturbs the arithmetic fails here.
  */
 describe("daily moving averages", () => {
+  it("runs its registry-driven cases over a non-empty registry", () => {
+    // Guards the `it.each` and `for` loops below: an emptied registry would make them pass
+    // vacuously by generating no cases at all.
+    expect(DAILY_MOVING_AVERAGES.length).toBeGreaterThan(0);
+    expect(ROWS.length).toBeGreaterThan(
+      Math.max(...DAILY_MOVING_AVERAGES.map((average) => average.period)),
+    );
+  });
+
   it.each(DAILY_MOVING_AVERAGES)(
     "calculates $type $period over daily closes with the documented warm-up",
     (average) => {
