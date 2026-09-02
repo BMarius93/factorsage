@@ -60,8 +60,7 @@ export type DailyPriceResponse = {
  * No calculation version is exposed: exactly one current methodology is materialized per trading
  * day, and a methodology change rebuilds that state rather than publishing a parallel version.
  */
-export type DailyTechnicalResponse = {
-  date: string;
+export type MovingAverageValuesResponse = {
   sma20d?: number;
   sma50d?: number;
   sma100d?: number;
@@ -78,11 +77,40 @@ export type DailyTechnicalResponse = {
   ema200w?: number;
 };
 
-/** Field on `DailyTechnicalResponse` that carries a moving average. */
-export type MovingAverageFieldResponse = Exclude<
-  keyof DailyTechnicalResponse,
-  "date"
->;
+/**
+ * Daily oscillator values riding on the same technical row.
+ *
+ * Wilder RSI over canonical completed daily closes, one field per period. Values are unitless and
+ * lie in `[0, 100]`; warm-up rows omit the field entirely — RSI 14D needs fifteen closes before
+ * its first value. An oscillator is not a moving average: it is a separate catalog family, drawn
+ * in its own chart pane, and its fields are deliberately not part of
+ * `MovingAverageFieldResponse`.
+ */
+export type OscillatorValuesResponse = {
+  rsi7d?: number;
+  rsi14d?: number;
+  rsi21d?: number;
+};
+
+export type DailyTechnicalResponse = { date: string } & MovingAverageValuesResponse &
+  OscillatorValuesResponse;
+
+/**
+ * Field on `DailyTechnicalResponse` that carries a moving average.
+ *
+ * Derived from the moving-average slice alone, not from the whole row: deriving it as
+ * `Exclude<keyof DailyTechnicalResponse, "date">` would silently classify every future non-average
+ * field (such as the RSI oscillators) as a moving average.
+ */
+export type MovingAverageFieldResponse = keyof MovingAverageValuesResponse;
+
+/** Field on `DailyTechnicalResponse` that carries a daily oscillator. */
+export type OscillatorFieldResponse = keyof OscillatorValuesResponse;
+
+/** Any value field the daily technical endpoint serves. */
+export type TechnicalSeriesFieldResponse =
+  | MovingAverageFieldResponse
+  | OscillatorFieldResponse;
 
 export type IntrinsicValueModelResponse =
   | "DCF_FCFF"

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   comparableMovingAverages,
+  DEFAULT_SELECTED_SERIES_IDS,
   findSelectableSeries,
   INTRINSIC_VALUE_BLEND_OPTIONS,
   INTRINSIC_VALUE_MODEL_OPTIONS,
   INTRINSIC_VALUE_SERIES,
   MOVING_AVERAGE_SERIES,
+  OSCILLATOR_SERIES,
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
   SELECTABLE_SERIES_GROUPS,
+  TECHNICAL_SERIES,
 } from "./selectable-series.js";
 
 /**
@@ -38,6 +41,9 @@ const EXPECTED_CATALOG = [
   ["EMA_20W", "MOVING_AVERAGES_WEEKLY", "EMA 20W", "MOVING_AVERAGE:EMA:20:1W:ema20w"],
   ["EMA_50W", "MOVING_AVERAGES_WEEKLY", "EMA 50W", "MOVING_AVERAGE:EMA:50:1W:ema50w"],
   ["EMA_200W", "MOVING_AVERAGES_WEEKLY", "EMA 200W", "MOVING_AVERAGE:EMA:200:1W:ema200w"],
+  ["RSI_7D", "OSCILLATORS", "RSI 7D", "OSCILLATOR:RSI:7:1D:rsi7d:0-100:SEPARATE_PANE"],
+  ["RSI_14D", "OSCILLATORS", "RSI 14D", "OSCILLATOR:RSI:14:1D:rsi14d:0-100:SEPARATE_PANE"],
+  ["RSI_21D", "OSCILLATORS", "RSI 21D", "OSCILLATOR:RSI:21:1D:rsi21d:0-100:SEPARATE_PANE"],
   ["BALANCED", "INTRINSIC_VALUE_BLENDS", "Balanced", "INTRINSIC_VALUE_BLEND:BALANCED"],
   ["CONSERVATIVE", "INTRINSIC_VALUE_BLENDS", "Conservative", "INTRINSIC_VALUE_BLEND:CONSERVATIVE"],
   ["DIVIDEND", "INTRINSIC_VALUE_BLENDS", "Dividend", "INTRINSIC_VALUE_BLEND:DIVIDEND"],
@@ -53,6 +59,8 @@ function sourceKey(entry: (typeof SELECTABLE_SERIES_CATALOG)[number]): string {
   switch (source.kind) {
     case "MOVING_AVERAGE":
       return `MOVING_AVERAGE:${source.type}:${source.period}:${source.timeframe}:${source.field}`;
+    case "OSCILLATOR":
+      return `OSCILLATOR:${source.type}:${source.period}:${source.timeframe}:${source.field}:${source.range.min}-${source.range.max}:${source.placement}`;
     case "INTRINSIC_VALUE_BLEND":
       return `INTRINSIC_VALUE_BLEND:${source.blendId}`;
     case "INTRINSIC_VALUE_MODEL":
@@ -79,20 +87,45 @@ describe("selectable series catalog", () => {
     ).toEqual(EXPECTED_CATALOG.map((entry) => [...entry]));
   });
 
-  it("splits into moving averages and intrinsic-value sources with nothing left over", () => {
+  it("splits into moving averages, oscillators and intrinsic-value sources with nothing left over", () => {
     // Counts come from the catalog itself: a new series must not require editing this assertion.
-    expect(MOVING_AVERAGE_SERIES.length + INTRINSIC_VALUE_SERIES.length).toBe(
-      SELECTABLE_SERIES_CATALOG.length,
-    );
+    expect(
+      MOVING_AVERAGE_SERIES.length +
+        OSCILLATOR_SERIES.length +
+        INTRINSIC_VALUE_SERIES.length,
+    ).toBe(SELECTABLE_SERIES_CATALOG.length);
     expect(MOVING_AVERAGE_SERIES).toHaveLength(
       SELECTABLE_SERIES_CATALOG.filter(
         (entry) => entry.source.kind === "MOVING_AVERAGE",
       ).length,
     );
+    expect(OSCILLATOR_SERIES).toHaveLength(
+      SELECTABLE_SERIES_CATALOG.filter(
+        (entry) => entry.source.kind === "OSCILLATOR",
+      ).length,
+    );
+    // An oscillator must never be classified as an intrinsic-value source: this filter once meant
+    // "everything that is not a moving average" and would have silently absorbed the RSI family.
     expect(INTRINSIC_VALUE_SERIES).toHaveLength(
       SELECTABLE_SERIES_CATALOG.filter(
-        (entry) => entry.source.kind !== "MOVING_AVERAGE",
+        (entry) =>
+          entry.source.kind === "INTRINSIC_VALUE_BLEND" ||
+          entry.source.kind === "INTRINSIC_VALUE_MODEL",
       ).length,
+    );
+    expect(
+      INTRINSIC_VALUE_SERIES.some((entry) => entry.source.kind === "OSCILLATOR"),
+    ).toBe(false);
+  });
+
+  it("serves the technical endpoint's addressable set as moving averages plus oscillators", () => {
+    expect(TECHNICAL_SERIES.map((entry) => entry.id)).toEqual(
+      SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+        entry.source.kind === "MOVING_AVERAGE" ||
+        entry.source.kind === "OSCILLATOR"
+          ? [entry.id]
+          : [],
+      ),
     );
   });
 
@@ -100,12 +133,14 @@ describe("selectable series catalog", () => {
     expect(SELECTABLE_SERIES_GROUPS).toEqual([
       "MOVING_AVERAGES_DAILY",
       "MOVING_AVERAGES_WEEKLY",
+      "OSCILLATORS",
       "INTRINSIC_VALUE_BLENDS",
       "INTRINSIC_VALUE_MODELS",
     ]);
     expect(SELECTABLE_SERIES_GROUPED.map((group) => group.label)).toEqual([
       "Moving averages — Daily",
       "Moving averages — Weekly",
+      "Oscillators",
       "Intrinsic Value — Blends",
       "Intrinsic Value — Models",
     ]);
@@ -129,10 +164,15 @@ describe("selectable series catalog", () => {
     const labels = SELECTABLE_SERIES_CATALOG.map((entry) => entry.label);
     expect(new Set(labels).size).toBe(labels.length);
 
-    const fields = MOVING_AVERAGE_SERIES.map((entry) =>
-      entry.source.kind === "MOVING_AVERAGE" ? entry.source.field : "",
+    // Field uniqueness spans both technical families: an oscillator could otherwise silently
+    // claim a moving-average column or vice versa.
+    const fields = TECHNICAL_SERIES.map((entry) =>
+      entry.source.kind === "MOVING_AVERAGE" ||
+      entry.source.kind === "OSCILLATOR"
+        ? entry.source.field
+        : "",
     );
-    expect(new Set(fields).size).toBe(MOVING_AVERAGE_SERIES.length);
+    expect(new Set(fields).size).toBe(TECHNICAL_SERIES.length);
   });
 
   it("treats a daily and a weekly moving average of the same period as distinct identities", () => {
@@ -169,6 +209,72 @@ describe("selectable series catalog", () => {
       expect(entry.id).toBe(
         `${entry.source.type}_${entry.source.period}${suffix.toUpperCase()}`,
       );
+    }
+  });
+
+  it("carries the full structured oscillator metadata on every RSI entry", () => {
+    // The product metadata the RSI family was accepted with: daily timeframe, the 7/14/21 period
+    // ladder in ascending order, the fixed 0-100 unit range, the RSI compatibility group that
+    // shares one pane, and placement off the price scale. Parameters live here structurally —
+    // nothing may parse them out of the id or the label.
+    expect(OSCILLATOR_SERIES.length).toBeGreaterThan(0);
+    expect(
+      OSCILLATOR_SERIES.map((entry) =>
+        entry.source.kind === "OSCILLATOR"
+          ? {
+              type: entry.source.type,
+              period: entry.source.period,
+              timeframe: entry.source.timeframe,
+              field: entry.source.field,
+              range: entry.source.range,
+              placement: entry.source.placement,
+            }
+          : undefined,
+      ),
+    ).toEqual([
+      {
+        type: "RSI",
+        period: 7,
+        timeframe: "1D",
+        field: "rsi7d",
+        range: { min: 0, max: 100 },
+        placement: "SEPARATE_PANE",
+      },
+      {
+        type: "RSI",
+        period: 14,
+        timeframe: "1D",
+        field: "rsi14d",
+        range: { min: 0, max: 100 },
+        placement: "SEPARATE_PANE",
+      },
+      {
+        type: "RSI",
+        period: 21,
+        timeframe: "1D",
+        field: "rsi21d",
+        range: { min: 0, max: 100 },
+        placement: "SEPARATE_PANE",
+      },
+    ]);
+    for (const entry of OSCILLATOR_SERIES) {
+      if (entry.source.kind !== "OSCILLATOR") {
+        throw new Error("unreachable");
+      }
+      const suffix = entry.source.timeframe === "1D" ? "d" : "w";
+      expect(entry.source.field).toBe(
+        `${entry.source.type.toLowerCase()}${entry.source.period}${suffix}`,
+      );
+      expect(entry.id).toBe(
+        `${entry.source.type}_${entry.source.period}${suffix.toUpperCase()}`,
+      );
+    }
+  });
+
+  it("keeps Balanced the only default-enabled entry, so every oscillator starts off", () => {
+    expect(DEFAULT_SELECTED_SERIES_IDS).toEqual(["BALANCED"]);
+    for (const entry of OSCILLATOR_SERIES) {
+      expect(entry.defaultSelected).toBeUndefined();
     }
   });
 

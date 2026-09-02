@@ -1,12 +1,15 @@
 import {
   INTRINSIC_VALUE_SERIES,
   MOVING_AVERAGE_SERIES,
+  OSCILLATOR_SERIES,
   SELECTABLE_SERIES_CATALOG,
 } from "@intrinsic/contracts";
 import {
+  DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
+  RSI_VALUE_RANGE,
 } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 
@@ -42,6 +45,41 @@ describe("canonical selectable-series catalog", () => {
     );
   });
 
+  it("addresses exactly the oscillators the domain materializes, in the same order", () => {
+    expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+    expect(
+      OSCILLATOR_SERIES.map((entry) => {
+        if (entry.source.kind !== "OSCILLATOR") {
+          throw new Error("unreachable");
+        }
+        return {
+          type: entry.source.type,
+          period: entry.source.period,
+          timeframe: entry.source.timeframe,
+          field: entry.source.field,
+        };
+      }),
+    ).toEqual(
+      DAILY_OSCILLATORS.map((oscillator) => ({
+        type: oscillator.type,
+        period: oscillator.period,
+        timeframe: oscillator.timeframe,
+        field: oscillator.field,
+      })),
+    );
+  });
+
+  it("carries the domain's RSI unit range on every RSI catalog entry", () => {
+    // The 0-100 scale is domain truth (`RSI_VALUE_RANGE`); the catalog repeats it as structured
+    // product metadata for the chart pane. This pins the two so they cannot drift.
+    for (const entry of OSCILLATOR_SERIES) {
+      if (entry.source.kind !== "OSCILLATOR") {
+        throw new Error("unreachable");
+      }
+      expect(entry.source.range).toEqual(RSI_VALUE_RANGE);
+    }
+  });
+
   it("addresses exactly the domain intrinsic-value blends and models", () => {
     expect(
       INTRINSIC_VALUE_SERIES.flatMap((entry) =>
@@ -62,6 +100,7 @@ describe("canonical selectable-series catalog", () => {
   it("keeps the catalog at exactly one entry per backend identity", () => {
     expect(SELECTABLE_SERIES_CATALOG).toHaveLength(
       MATERIALIZED_MOVING_AVERAGES.length +
+        DAILY_OSCILLATORS.length +
         INTRINSIC_VALUE_MODELS.length +
         INTRINSIC_VALUE_BLEND_IDS.length,
     );
