@@ -20,8 +20,8 @@ For strategy work, also read `product/strategies.md`.
 For Stock Details or selectable-series work, also read `product/stock-details.md` and
 `../docs/decisions/selectable-series-catalog.md`.
 
-For any work on calculated daily series — moving averages, intrinsic-value models and blends, the
-derived state, or adding a new series or family — read these in order:
+For any work on calculated daily series — moving averages, oscillators (RSI), intrinsic-value
+models and blends, the derived state, or adding a new series or family — read these in order:
 
 1. `../docs/decisions/retain-wide-column-calculated-series-storage.md` — the accepted storage
    decision: explicit PostgreSQL columns, what is deferred, what is rejected, and the budgets and
@@ -64,6 +64,7 @@ StockList (user-owned)
 SelectableSeriesCatalog
   |
   +-- daily/weekly moving averages
+  +-- daily oscillators (RSI 7D/14D/21D, shared 0-100 chart pane)
   +-- intrinsic-value models/blends
   +-- Stock Details overlays
   +-- compatible Strategy condition operands

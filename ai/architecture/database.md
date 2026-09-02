@@ -68,3 +68,13 @@ deliberately left NULL on existing rows: `DERIVED_STATE_REVISION` moves 2 -> 3 i
 so `daily-derived-state:r2` coverage and r2 cache manifests report nothing for the current variant
 and the canonical rebuild recalculates and replaces those rows with complete weekly values. See
 `docs/decisions/selectable-series-catalog.md` for the catalog these periods come from.
+
+Migration `20260902120000_add_daily_rsi_oscillators` adds the daily RSI oscillator family —
+`rsi7d`, `rsi14d`, `rsi21d` — to `DailyDerivedState` as three nullable `DECIMAL(20,8)` columns, one
+additive migration for the whole family. The values are unitless (`[0, 100]`) Wilder RSI over the
+same canonical daily closes as the daily moving averages; zero is a real reading (an only-losses
+window), so NULL is the only representation of "not warmed up yet". Existing rows are left NULL on
+purpose: `DERIVED_STATE_REVISION` moves 3 -> 4 in the same change, r3 coverage and r3 cache
+manifests report nothing for the current variant, and the canonical rebuild recalculates and
+replaces the affected rows lazily on next access — the revision stays global, so this one bump
+covers all three periods and every security.

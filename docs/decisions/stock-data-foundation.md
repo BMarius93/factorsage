@@ -109,6 +109,8 @@ For every trading day in the supported history, persist the values that were eli
 Examples of daily-materialized derived values include:
 
 - daily SMA/EMA values;
+- daily RSI oscillator values (added by the selectable-series catalog's Oscillators family; same
+  canonical daily closes, same warm-up-is-absent rule);
 - weekly SMA/EMA values carried forward from the latest completed weekly period;
 - intrinsic-value model results carried forward from the latest eligible fundamentals-driven calculation;
 - intrinsic-value blend results carried forward from the latest eligible component values;

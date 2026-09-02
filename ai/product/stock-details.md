@@ -14,12 +14,18 @@ Groups:
 
 1. Moving averages — Daily
 2. Moving averages — Weekly
-3. Intrinsic Value — Blends
-4. Intrinsic Value — Models
+3. Oscillators
+4. Intrinsic Value — Blends
+5. Intrinsic Value — Models
 
 The price series is not an option because it is always shown. The initial chart state keeps
-`Balanced` enabled and every other overlay disabled, preserving the current V2 default while
-making the full catalog discoverable.
+`Balanced` enabled and every other overlay disabled — every oscillator starts unchecked — driven by
+the catalog's own default-selection metadata, preserving the current V2 default while making the
+full catalog discoverable.
+
+Availability is answered per series over the loaded window: `RSI 7D` becomes available once eight
+closes exist, `RSI 14D` after fifteen and `RSI 21D` after twenty-two, and a leading warm-up gap in
+a long response does not disable a series whose later points are evaluable.
 
 All catalog entries remain discoverable. An entry whose series is unavailable for the security or
 selected range is disabled and identified as unavailable; it is never replaced by zero or silently
@@ -34,7 +40,14 @@ substituted.
   completed week replaces it.
 - Intrinsic-value models and blends come from canonical backend contracts; React never calculates
   them.
-- The legend identifies every enabled series and uses the same labels as the dropdown.
+- The legend identifies every enabled series and uses the same labels as the dropdown. Oscillator
+  readings render unitless; price-scaled series render as money.
+- Oscillators are never drawn over the price scale. All selected RSI periods share one lower pane
+  with a fixed 0-100 axis and one muted set of 30/50/70 reference levels (30 oversold, 70
+  overbought). The first selection creates the pane, deselecting one period removes only its line,
+  deselecting the last removes the pane, and repeated toggling never duplicates panes, lines or
+  levels. The pane synchronizes date range, scrolling and crosshair with the price chart, and the
+  price pane keeps a useful height on desktop and phone.
 - Desktop and mobile expose the same catalog even if their picker compositions differ.
 
 Stock Details may show the complete model/blend summaries outside the chart. Chart selection is

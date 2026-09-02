@@ -15,12 +15,14 @@ provenance rules by `../../docs/decisions/stock-data-foundation.md` and
 ```mermaid
 flowchart LR
   DP[("DailyPrice<br/>PostgreSQL")] --> DT["calculateDailyTechnicals<br/>technicals.ts"]
+  DP --> DO["calculateDailyOscillators<br/>oscillators.ts"]
   DP --> AW["aggregateCompletedWeeks<br/>weekly.ts"]
   AW --> WP[("WeeklyPrice<br/>completed-week OHLCV")]
   AW --> WV["calculateWeeklyTechnicalValues<br/>weekly.ts"]
   FS[("FinancialStatement<br/>PIT revisions")] --> IM["materializeDailyIntrinsicValues<br/>intrinsic-value-materializer.ts"]
   IM --> EV["evaluateIntrinsicValues<br/>+ @intrinsic/valuation"]
   DT --> BD["buildDailyDerivedState<br/>derived-state.ts"]
+  DO --> BD
   WV --> BD
   EV --> BD
   BD --> ST["dailyDerivedStateToRow<br/>prisma-store.ts"]
@@ -44,9 +46,11 @@ flowchart TD
   C -->|"group + position"| ORD["Grouping · canonical order · overlay colour"]
   C -->|"source discriminator"| SRC{"source.kind"}
   SRC -->|MOVING_AVERAGE| REG["Domain registry — packages/domain/src/stock-data.ts<br/>DAILY_MOVING_AVERAGES · WEEKLY_MOVING_AVERAGES"]
+  SRC -->|OSCILLATOR| OSC["DAILY_OSCILLATORS"]
   SRC -->|INTRINSIC_VALUE_MODEL| IVM["INTRINSIC_VALUE_MODELS"]
   SRC -->|INTRINSIC_VALUE_BLEND| IVB["INTRINSIC_VALUE_BLENDS"]
   REG -->|"field: sma20w"| COL["Prisma column sma20w<br/>DailyDerivedState"]
+  OSC -->|"field: rsi14d"| COL4["rsi7d · rsi14d · rsi21d"]
   IVM -->|"INTRINSIC_MODEL_COLUMNS"| COL2["dcfFcff · residualIncome · ddm · graham<br/>+ per-model provenance columns"]
   IVB -->|"INTRINSIC_BLEND_COLUMNS"| COL3["blendBalanced · blendConservative · blendDividend"]
 ```
@@ -65,8 +69,15 @@ flowchart TD
   available label width on desktop and 123px on a 390px phone, where it wraps to a second line in a
   `min-height: 44px` flex row with no truncation and no horizontal overflow. Ordering, grouping and
   identity are the catalog's; presentation width is CSS's problem.
-- **Storage fields** carry an explicit timeframe suffix: `sma20d` from daily bars, `sma20w` from
-  completed weekly bars. They never alias, and an ambiguous `sma20` is forbidden.
+- **Storage fields** carry an explicit timeframe suffix: `sma20d` and `rsi14d` from daily bars,
+  `sma20w` from completed weekly bars. They never alias, and an ambiguous `sma20` or `rsi14` is
+  forbidden.
+- **An oscillator entry carries its product metadata structurally**: the `OSCILLATOR` source holds
+  the family (`type: "RSI"`, which is also the pane-compatibility group), period, timeframe, field,
+  the fixed `range` (`0-100`, pinned against the domain's `RSI_VALUE_RANGE` by the drift guard) and
+  `placement: "SEPARATE_PANE"`. Default chart selection is catalog metadata too: entries opt in
+  with `defaultSelected`, `DEFAULT_SELECTED_SERIES_IDS` derives the initial selection, and every
+  oscillator starts off.
 
 ## Domain registries
 
@@ -77,8 +88,14 @@ flowchart TD
 - `MATERIALIZED_MOVING_AVERAGES` — their concatenation, daily first, in registry order. That order
   is load-bearing: it is the order fields are written onto a row and the order the API projects
   them.
-- `DailyMovingAverageField` / `WeeklyMovingAverageField` — the field-name types that make an
-  unregistered field a compile error.
+- `DAILY_OSCILLATORS` — three `{type: "RSI", period, timeframe: "1D", field}` entries (7/14/21),
+  plus `RSI_VALUE_RANGE` (`{min: 0, max: 100}`), the fixed unit range the shared pane renders and
+  future Strategy thresholds compare against.
+- `TECHNICAL_SERIES_FIELDS` — every technical field in canonical wire order: moving averages
+  (daily, then weekly) first, oscillators after them. The daily technical projection and the API
+  both iterate this one list.
+- `DailyMovingAverageField` / `WeeklyMovingAverageField` / `DailyOscillatorField` — the field-name
+  types that make an unregistered field a compile error.
 - `INTRINSIC_VALUE_MODELS`, `INTRINSIC_VALUE_BLEND_IDS`, `INTRINSIC_VALUE_BLENDS` (weights,
   versioned).
 
@@ -97,6 +114,35 @@ these registries.
   Adding a period to the registry materializes it without editing this function.
 - Input is sorted internally, so ordering carries no information and a shuffled feed produces
   identical output.
+
+## Daily oscillators — one Wilder RSI methodology
+
+`packages/stock-data/src/oscillators.ts`:
+
+- `calculateWilderRsi(closes, period)` is the one parameterized kernel; there is no per-period
+  formula. `calculateDailyOscillators(prices)` iterates `DAILY_OSCILLATORS` over the same canonical
+  completed daily closes the moving averages consume, so a period added to the registry is
+  materialized without editing either function.
+- **Formula, locked by `daily-oscillators.test.ts`:** consecutive close changes give
+  `gain = max(change, 0)` and `loss = max(-change, 0)`. The first value appears once `period + 1`
+  closes exist; its average gain/loss is the simple mean of the first `period` changes. Every later
+  value applies Wilder smoothing — `avg' = (avg × (period − 1) + current) / period` — and
+  `RSI = 100 × avgGain / (avgGain + avgLoss)`, algebraically `100 − 100 / (1 + RS)`.
+- **Edge cases:** an only-gains window reads exactly 100, an only-losses window exactly 0, and a
+  completely flat window (both averages zero) reads 50. Every value lies in `RSI_VALUE_RANGE`
+  because both averages are non-negative.
+- **Warm-up is absence.** `rsi7d` first appears on the eighth close, `rsi14d` on the fifteenth,
+  `rsi21d` on the twenty-second — per period, never zero, never a shorter period standing in.
+- **Trading observations are counted, not calendar days.** Weekend and holiday gaps between closes
+  carry no meaning; the same close sequence produces the same values on any calendar, across year
+  boundaries included.
+- **No look-ahead.** A prefix of history yields identical values for its own days; the suite pins
+  this alongside ordering independence and input purity (the caller's arrays are never mutated or
+  reordered).
+- The suite runs one behavioural matrix over all three registered periods, checks fixed
+  independently calculated values (the period-14 fixture is the published Wilder worked example)
+  and a structurally independent closed-form oracle, and locks the relative-sensitivity property:
+  a shock moves RSI 7D further than RSI 14D and RSI 14D further than RSI 21D, in both directions.
 
 ## Weekly calculation — one production path
 
@@ -165,8 +211,9 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 
 - Primary key `(securityId, date)`; **no secondary index** — the composite key already serves the
   only historical access pattern, `securityId + date range ascending`.
-- 21 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 4 intrinsic models, 3
-  blends. Plus `weeklySourceWeekStart`, four provenance timestamps and `intrinsicCurrency`.
+- 24 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 3 daily RSI oscillators,
+  4 intrinsic models, 3 blends. Plus `weeklySourceWeekStart`, four provenance timestamps and
+  `intrinsicCurrency`.
 - No calculation-version column, ever.
 
 `packages/stock-data/src/prisma-store.ts` maps in three hand-written places —
@@ -178,9 +225,11 @@ inside one transaction under a per-security advisory lock: replace, never versio
 
 ## Revision and lazy rebuild
 
-`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **3**) is a
+`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **4**) is a
 methodology rebuild trigger, never a row-identity or history dimension. It is recorded only in the
-dataset-state/coverage variant (`daily-derived-state:r3`) and in the Redis manifest.
+dataset-state/coverage variant (`daily-derived-state:r4`) and in the Redis manifest. r4 added the
+daily RSI family — one bump for all three periods, because an r3 row's NULL oscillator columns are
+indistinguishable from warm-up.
 
 Bumping it makes previous-variant coverage and manifests report nothing, so
 `CanonicalStockDataService` recalculates and **replaces** the affected rows on next access. It is
@@ -211,15 +260,15 @@ deferred.
 | --- | --- |
 | `GET /stocks/:symbol` | composite Stock Details for a bounded window |
 | `GET /stocks/:symbol/prices` | `DailyPriceResponse[]` |
-| `GET /stocks/:symbol/technicals/daily` | `DailyTechnicalResponse[]`, all 14 MAs; `series=` narrows |
+| `GET /stocks/:symbol/technicals/daily` | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows |
 | `GET /stocks/:symbol/intrinsic-values` | long-form points; `models=`, `asOf=` |
 | `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=` |
 
-- `technicalResponse` projects `MATERIALIZED_MOVING_AVERAGES`, so a registered series cannot go
-  missing from the API.
+- `technicalResponse` projects `TECHNICAL_SERIES_FIELDS` — every moving average and every daily
+  oscillator — so a registered series cannot go missing from the API.
 - `technicalFields` resolves `series=` against the catalog via `findSelectableSeries` and rejects
-  anything that is not a moving-average entry. Filtering happens **after** retrieval, on the full
-  daily row.
+  anything that is not a moving-average or oscillator entry (`TECHNICAL_SERIES` is the addressable
+  set the validation error names). Filtering happens **after** retrieval, on the full daily row.
 - Unavailable values are **omitted**, never `null` and never zero.
 - Controllers project canonical stock-data values; they never calculate.
 
@@ -227,21 +276,33 @@ deferred.
 
 `apps/web/src/features/stocks/details/`:
 
-- `utils/series-catalog.ts` — `seriesPoints` switches on `source.kind` (the one dispatch point),
-  `availableSeriesIds` answers availability from the always-loaded details window, `buildOverlays`
-  emits overlays in canonical catalog order.
+- `utils/series-catalog.ts` — `seriesPoints` switches on `source.kind` (the one dispatch point;
+  moving averages and oscillators both read technical rows), `availableSeriesIds` answers
+  availability from the always-loaded details window — per period, so a leading warm-up gap does
+  not disable a series whose later points are evaluable — and `buildOverlays` emits overlays in
+  canonical catalog order, each carrying its placement (`PRICE_OVERLAY` or `OSCILLATOR_PANE`) and,
+  for oscillators, the catalog's fixed scale.
 - `components/IndicatorsMenu.tsx` — grouped multi-select built entirely from
   `SELECTABLE_SERIES_GROUPED`. Every catalog entry stays discoverable; one the security has no data
   for is rendered **disabled and marked "Unavailable"**, never hidden and never substituted.
 - `hooks/use-indicator-selection.ts` — presentation state only; an unavailable entry can never
   enter the selection.
-- `utils/chart-theme.ts` — `overlayColorAt` assigns colour by position within the enabled set.
-  Colour is deliberately **not** part of series identity.
+- `utils/chart-theme.ts` — `overlayColorAt` assigns colour by position within the enabled set,
+  spanning both panes so simultaneously enabled series stay distinct. Colour is deliberately
+  **not** part of series identity.
 - `utils/valuation.ts` — the summary derives identities, ordering and labels from
   `INTRINSIC_VALUE_BLEND_OPTIONS` / `INTRINSIC_VALUE_MODEL_OPTIONS`.
-- All catalog series are drawn as **overlays on the price chart**, which is correct while every
-  series is price-scaled. A unitless series (an oscillator, a growth rate) would need a separate
-  pane — see Deferred below.
+- Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are
+  **never** drawn over the price scale: `StockPriceChart` routes them into one shared native
+  Lightweight Charts pane (`paneIndex 1` of the same chart instance), so every selected RSI period
+  shares one fixed `0-100` axis, one muted dashed set of 30/50/70 reference levels (Oversold 30 /
+  50 / Overbought 70, owned by the canonically first oscillator series and moving with it), and the
+  price chart's time scale and crosshair by construction. The first selected oscillator creates the
+  pane, removing the last one removes it, and repeated toggling reuses the same pane index — no
+  duplicated panes, lines, levels or subscriptions, pinned by a toggle-cycle test. The hover legend
+  renders oscillator readings unitless (one decimal) beside money-formatted price overlays, and the
+  chart wrapper grows while the pane exists so the price pane keeps a useful height on desktop and
+  phone.
 
 ## Availability and warm-up
 
@@ -282,9 +343,10 @@ points a *new family* touches, beyond a new period in an existing one:
 
 1. A new `SelectableSeriesSource` kind in the catalog — parameters belong in the structured source,
    never parsed from the id.
-2. `MovingAverageFieldResponse` in `packages/contracts/src/stock-data.ts`, derived as
-   `Exclude<keyof DailyTechnicalResponse, "date">`, which silently widens if a non-average field is
-   added to that response.
+2. `MovingAverageFieldResponse` in `packages/contracts/src/stock-data.ts`, derived from the
+   moving-average slice (`MovingAverageValuesResponse`) of `DailyTechnicalResponse`;
+   `OscillatorValuesResponse` and `TechnicalSeriesFieldResponse` sit beside it. A new family adds
+   its own slice rather than widening an existing field union.
 3. A registry plus a calculator that iterates it, returning `Partial<Record<Field, number>>`.
 4. `buildDailyDerivedState` — merge the family by exact trading date.
 5. `technicalResponse` and `technicalFields` in the controller.
@@ -304,5 +366,6 @@ Explicitly **not** the current architecture. Do not describe any of these as imp
   web client fetches all series and filters client-side.
 - **Per-family or per-series revisions** replacing the single global `DERIVED_STATE_REVISION`.
 - **Persisted NOT_EVALUABLE reasons.**
-- **RSI, MACD, growth rates, quality metrics, volatility, ratios** — no such series exists.
-- **Separate oscillator panes** in the chart.
+- **MACD, growth rates, quality metrics, volatility, ratios** — no such series exists. (The daily
+  RSI family is implemented; it is the first oscillator, not a template for storing multi-output
+  families like MACD, which still needs the explicit product decision described above.)
