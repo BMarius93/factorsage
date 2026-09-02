@@ -85,6 +85,13 @@ async function openIndicators(page: Page): Promise<void> {
  * restores the baseline exactly, and re-enabling reproduces the first enabled count.
  */
 async function chartCanvasCount(page: Page): Promise<number> {
+  // The library attaches pane DOM on an animation frame, so settle two frames before counting.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))),
+      ),
+  );
   return priceChart(page).locator("canvas").count();
 }
 
@@ -125,8 +132,10 @@ test.describe("QA_USER Stock Details oscillators", () => {
     // 3. The first RSI creates the lower pane.
     await option(page, "RSI 7D").check();
     await expectPane(page, true);
+    await expect
+      .poll(() => chartCanvasCount(page))
+      .toBeGreaterThan(baselineCanvases);
     const paneCanvases = await chartCanvasCount(page);
-    expect(paneCanvases).toBeGreaterThan(baselineCanvases);
 
     // 4. The other two periods join the same pane: no further canvases, one shared pane.
     await option(page, "RSI 14D").check();
@@ -166,14 +175,14 @@ test.describe("QA_USER Stock Details oscillators", () => {
     await option(page, "RSI 7D").uncheck();
     await option(page, "RSI 21D").uncheck();
     await expectPane(page, false);
-    expect(await chartCanvasCount(page)).toBe(baselineCanvases);
+    await expect.poll(() => chartCanvasCount(page)).toBe(baselineCanvases);
 
     // 9. Re-enabling reproduces exactly one pane with one line per selected period.
     await option(page, "RSI 7D").check();
     await option(page, "RSI 14D").check();
     await option(page, "RSI 21D").check();
     await expectPane(page, true);
-    expect(await chartCanvasCount(page)).toBe(paneCanvases);
+    await expect.poll(() => chartCanvasCount(page)).toBe(paneCanvases);
 
     // 12. Nothing broke along the way.
     const documentWidth = await page.evaluate(
