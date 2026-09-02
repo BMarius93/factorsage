@@ -107,11 +107,11 @@ Package ownership follows the dependency rules in `AGENTS.md`:
   as do `INTRINSIC_VALUE_BLEND_OPTIONS` and `INTRINSIC_VALUE_MODEL_OPTIONS`, which project the
   catalog into the `blendId`/`model` vocabulary the intrinsic-value endpoints speak so a consumer
   of those responses never needs its own ordered list.
-- A dense surface may render a shorter label than the dropdown. That is catalog data too:
-  `shortLabel` is an explicit optional property read through `selectableSeriesShortLabel`, which
-  falls back to `label`. Only `RESIDUAL_INCOME` and `DDM` carry one today, matching what the
-  valuation summary already rendered. A feature must never keep its own label map — the summary's
-  did, and had already drifted from the canonical labels before it was removed.
+- Each series has exactly **one** product label, used by the dropdown, the chart legend and the
+  valuation summary alike. A feature must never keep its own label map: the valuation summary's
+  did, and had silently drifted to `Residual income` and `Dividend discount`. A short-lived
+  `shortLabel` property was considered and removed once browser measurement showed no presentation
+  need for it — see `ai/architecture/calculated-series.md` for the measured widths.
 - `@intrinsic/domain` owns the structured backend identities that are calculated and persisted:
   `DAILY_MOVING_AVERAGES`, `WEEKLY_MOVING_AVERAGES` and their union
   `MATERIALIZED_MOVING_AVERAGES`, each pairing `{type, period, timeframe}` with the `d`/`w`-suffixed
@@ -125,6 +125,11 @@ Package ownership follows the dependency rules in `AGENTS.md`:
   assertion in the repository derives counts and ordering from the catalog, so adding a series
   means editing that snapshot rather than hunting for the literals `21`, `14` and `[7, 7, 3, 4]`.
   `docs/development/adding-a-calculated-series.md` is the checklist for doing so.
+
+How a catalog entry becomes a calculated, persisted and cached value — and why each series is an
+explicit PostgreSQL column — is described once in `ai/architecture/calculated-series.md` and
+decided in `retain-wide-column-calculated-series-storage.md`; this decision stays about the product
+catalog itself.
 
 The seven weekly values are carried on `DailyDerivedState` as `sma20w`/`sma50w`/`sma100w`/
 `sma200w` and `ema20w`/`ema50w`/`ema200w`, beside the existing `weeklySourceWeekStart`. Adding them

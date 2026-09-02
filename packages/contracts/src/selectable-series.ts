@@ -68,16 +68,18 @@ export type SelectableSeries = {
   /** Stable identity used by selection state, API filters and future strategy persistence. */
   id: SelectableSeriesId;
   group: SelectableSeriesGroupId;
-  /** Product label shown in the dropdown and reused verbatim by the chart legend. */
-  label: string;
   /**
-   * Compact label for dense surfaces such as the valuation summary's model list.
+   * The one product label, used by every surface: the dropdown, the chart legend and the
+   * valuation summary.
    *
-   * Present only where a surface genuinely renders something other than `label`; read it through
-   * `selectableSeriesShortLabel`, which falls back to `label`. It exists so a compact rendering is
-   * catalog data with one owner, rather than a second label map inside a feature.
+   * There is deliberately no second, shorter label. Measured in the browser, the widest label
+   * ("Dividend Discount (DDM)", 148px at 13px Geist) fits the valuation summary's label column on
+   * desktop with room to spare (465px available) and wraps to a second line only on a 390px phone
+   * (123px available). That row is a `min-height: 44px` flex row with no `nowrap` and no
+   * truncation, so wrapping grows the row and nothing overflows or is cut off — not a presentation
+   * requirement worth a parallel label vocabulary.
    */
-  shortLabel?: string;
+  label: string;
   source: SelectableSeriesSource;
 };
 
@@ -286,14 +288,12 @@ export const SELECTABLE_SERIES_CATALOG = [
     id: "RESIDUAL_INCOME",
     group: "INTRINSIC_VALUE_MODELS",
     label: "Residual Income",
-    shortLabel: "Residual income",
     source: { kind: "INTRINSIC_VALUE_MODEL", model: "RESIDUAL_INCOME" },
   },
   {
     id: "DDM",
     group: "INTRINSIC_VALUE_MODELS",
     label: "Dividend Discount (DDM)",
-    shortLabel: "Dividend discount",
     source: { kind: "INTRINSIC_VALUE_MODEL", model: "DDM" },
   },
   {
@@ -340,11 +340,6 @@ export function findSelectableSeries(id: string): SelectableSeries | undefined {
   return SERIES_BY_ID.get(id);
 }
 
-/** The compact label for dense surfaces, falling back to the full product label. */
-export function selectableSeriesShortLabel(entry: SelectableSeries): string {
-  return entry.shortLabel ?? entry.label;
-}
-
 /**
  * Blend and model identities paired with the label a dense surface should render, in canonical
  * catalog order.
@@ -358,7 +353,7 @@ export const INTRINSIC_VALUE_BLEND_OPTIONS: readonly {
   label: string;
 }[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
   entry.source.kind === "INTRINSIC_VALUE_BLEND"
-    ? [{ blendId: entry.source.blendId, label: selectableSeriesShortLabel(entry) }]
+    ? [{ blendId: entry.source.blendId, label: entry.label }]
     : [],
 );
 
@@ -367,7 +362,7 @@ export const INTRINSIC_VALUE_MODEL_OPTIONS: readonly {
   label: string;
 }[] = SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
   entry.source.kind === "INTRINSIC_VALUE_MODEL"
-    ? [{ model: entry.source.model, label: selectableSeriesShortLabel(entry) }]
+    ? [{ model: entry.source.model, label: entry.label }]
     : [],
 );
 

@@ -17,9 +17,12 @@ Read `ai/README.md` before substantial work.
 7. PostgreSQL is the durable source of truth.
 8. Redis is disposable infrastructure and must not be the only store for completed/user-owned state.
 9. Stock Details and Strategy conditions consume one canonical selectable-series catalog; do not
-   duplicate indicator/model option lists in feature code. This includes labels and ordering: a
-   shorter label for a dense surface is a `shortLabel` on the catalog entry, never a second map.
-   To add a calculated series, follow `docs/development/adding-a-calculated-series.md`.
+   duplicate indicator/model option lists in feature code. This includes labels and ordering: each
+   series has exactly one product label, and no surface keeps a second label map or ordering array.
+   Calculated series are stored as explicit PostgreSQL columns — see
+   `docs/decisions/retain-wide-column-calculated-series-storage.md` for the accepted decision,
+   `ai/architecture/calculated-series.md` for how it is implemented, and
+   `docs/development/adding-a-calculated-series.md` to add one.
 10. `maximumPositions` belongs to a Backtest execution, not a Strategy. A full-position fraction is
     derived as `1 / maximumPositions`; do not introduce a user-entered max-allocation percentage.
 

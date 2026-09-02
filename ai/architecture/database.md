@@ -52,6 +52,12 @@ The redundant `DailyPrice(securityId, date)` index is dropped because the compos
 already serves the only historical access pattern. See
 `docs/decisions/stock-data-foundation.md` for the invariants.
 
+The one-column-per-series shape of `DailyDerivedState` is an accepted decision, not an accident:
+see `../../docs/decisions/retain-wide-column-calculated-series-storage.md` for why JSONB is
+deferred and EAV rejected, and `calculated-series.md` for how the columns are calculated, mapped
+and cached. Adding a series column follows
+`../../docs/development/adding-a-calculated-series.md`.
+
 Migration `20260901234500_add_weekly_moving_averages` adds the seven catalog weekly moving-average
 columns (`sma20w`/`sma50w`/`sma100w`/`sma200w`, `ema20w`/`ema50w`/`ema200w`) to
 `DailyDerivedState`, beside the existing `weeklySourceWeekStart`. They are nullable

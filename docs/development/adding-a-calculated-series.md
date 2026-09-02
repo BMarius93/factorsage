@@ -3,8 +3,14 @@
 How to add one new daily-materialized calculated series to FactorSage, under the architecture the
 project deliberately keeps: **one explicit PostgreSQL column per series**.
 
-Read `AGENTS.md` and `ai/README.md` first. This guide is the operational checklist; the product and
-architecture invariants live in `docs/decisions/stock-data-foundation.md`,
+Read `AGENTS.md` and `ai/README.md` first, then:
+
+- `docs/decisions/retain-wide-column-calculated-series-storage.md` — the accepted storage decision
+  this guide operationalises, including what is deferred and what would re-open it;
+- `ai/architecture/calculated-series.md` — how the pipeline actually fits together.
+
+This guide is the operational checklist and deliberately does not restate that architecture. The
+product invariants live in `docs/decisions/stock-data-foundation.md`,
 `docs/decisions/selectable-series-catalog.md` and `docs/decisions/intrinsic-value-engine.md`, and
 they win wherever this guide is less specific.
 
@@ -36,11 +42,10 @@ drift. If you are an AI agent, or a human working quickly:
 ## Why the wide-column model is kept
 
 One nullable `DECIMAL(20,8)` column per series per trading day, `PRIMARY KEY (securityId, date)`.
-JSONB, EAV and per-series cache keys were evaluated and rejected: the only historical access
-pattern is `securityId + date range, ascending`, which the composite primary key already serves,
-and the explicit columns keep the schema self-describing and debuggable in `psql`. The cost is that
-adding a series touches several files. This guide makes that cost predictable rather than removing
-it.
+The reasoning, the measurements, the budgets and the triggers that would re-open the decision are
+in `docs/decisions/retain-wide-column-calculated-series-storage.md` — read it rather than a summary
+here. The cost is that adding a series touches several files. This guide makes that cost
+predictable rather than removing it.
 
 Consequences worth internalising:
 
@@ -58,7 +63,7 @@ Consequences worth internalising:
 | --- | --- |
 | Stable catalog ID (e.g. `SMA_100W`) — permanent; future Strategy conditions persist it | `packages/contracts/src/selectable-series.ts` |
 | Family and timeframe (daily bars vs completed weekly bars vs fundamentals-driven) | domain registry |
-| Product label, and a `shortLabel` only if a dense surface genuinely renders something different | catalog entry |
+| Product label — exactly one per series, used by the dropdown, legend and valuation summary alike | catalog entry |
 | Group and position in canonical order (drives picker grouping and overlay colour) | catalog entry |
 | Unit and comparability (price-like? ratio? unitless oscillator?) — decides which Strategy operands it may face | product decision doc |
 | Persisted field name, with its explicit timeframe suffix (`d` / `w`) | domain registry + Prisma column |

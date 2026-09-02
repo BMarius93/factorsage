@@ -9,52 +9,42 @@ import {
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
   SELECTABLE_SERIES_GROUPS,
-  selectableSeriesShortLabel,
-  type SelectableSeries,
 } from "./selectable-series.js";
-
-/**
- * The catalog widened to its declared type.
- *
- * `SELECTABLE_SERIES_CATALOG` is `as const`, so entries that declare no `shortLabel` have no such
- * property in their literal type at all. Reading the optional field needs the declared type.
- */
-const CATALOG: readonly SelectableSeries[] = SELECTABLE_SERIES_CATALOG;
 
 /**
  * The one deliberate catalog snapshot.
  *
  * The catalog is product state, so it is asserted against the literal table in
  * `docs/decisions/selectable-series-catalog.md` rather than against itself: stable id, canonical
- * order, group, label, compact label and the structured source metadata that addresses the backend
- * identity. Any change to any of those must be made in the decision and here at the same time.
+ * order, group, label and the structured source metadata that addresses the backend identity. Any
+ * change to any of those must be made in the decision and here at the same time.
  *
  * This snapshot is the only place in the suite that hardcodes the catalog's contents. Every other
  * assertion below derives its expectations from the catalog, so adding a series means editing this
  * table and nothing else here.
  */
 const EXPECTED_CATALOG = [
-  ["SMA_20D", "MOVING_AVERAGES_DAILY", "SMA 20D", "SMA 20D", "MOVING_AVERAGE:SMA:20:1D:sma20d"],
-  ["SMA_50D", "MOVING_AVERAGES_DAILY", "SMA 50D", "SMA 50D", "MOVING_AVERAGE:SMA:50:1D:sma50d"],
-  ["SMA_100D", "MOVING_AVERAGES_DAILY", "SMA 100D", "SMA 100D", "MOVING_AVERAGE:SMA:100:1D:sma100d"],
-  ["SMA_200D", "MOVING_AVERAGES_DAILY", "SMA 200D", "SMA 200D", "MOVING_AVERAGE:SMA:200:1D:sma200d"],
-  ["EMA_20D", "MOVING_AVERAGES_DAILY", "EMA 20D", "EMA 20D", "MOVING_AVERAGE:EMA:20:1D:ema20d"],
-  ["EMA_50D", "MOVING_AVERAGES_DAILY", "EMA 50D", "EMA 50D", "MOVING_AVERAGE:EMA:50:1D:ema50d"],
-  ["EMA_200D", "MOVING_AVERAGES_DAILY", "EMA 200D", "EMA 200D", "MOVING_AVERAGE:EMA:200:1D:ema200d"],
-  ["SMA_20W", "MOVING_AVERAGES_WEEKLY", "SMA 20W", "SMA 20W", "MOVING_AVERAGE:SMA:20:1W:sma20w"],
-  ["SMA_50W", "MOVING_AVERAGES_WEEKLY", "SMA 50W", "SMA 50W", "MOVING_AVERAGE:SMA:50:1W:sma50w"],
-  ["SMA_100W", "MOVING_AVERAGES_WEEKLY", "SMA 100W", "SMA 100W", "MOVING_AVERAGE:SMA:100:1W:sma100w"],
-  ["SMA_200W", "MOVING_AVERAGES_WEEKLY", "SMA 200W", "SMA 200W", "MOVING_AVERAGE:SMA:200:1W:sma200w"],
-  ["EMA_20W", "MOVING_AVERAGES_WEEKLY", "EMA 20W", "EMA 20W", "MOVING_AVERAGE:EMA:20:1W:ema20w"],
-  ["EMA_50W", "MOVING_AVERAGES_WEEKLY", "EMA 50W", "EMA 50W", "MOVING_AVERAGE:EMA:50:1W:ema50w"],
-  ["EMA_200W", "MOVING_AVERAGES_WEEKLY", "EMA 200W", "EMA 200W", "MOVING_AVERAGE:EMA:200:1W:ema200w"],
-  ["BALANCED", "INTRINSIC_VALUE_BLENDS", "Balanced", "Balanced", "INTRINSIC_VALUE_BLEND:BALANCED"],
-  ["CONSERVATIVE", "INTRINSIC_VALUE_BLENDS", "Conservative", "Conservative", "INTRINSIC_VALUE_BLEND:CONSERVATIVE"],
-  ["DIVIDEND", "INTRINSIC_VALUE_BLENDS", "Dividend", "Dividend", "INTRINSIC_VALUE_BLEND:DIVIDEND"],
-  ["DCF_FCFF", "INTRINSIC_VALUE_MODELS", "DCF (FCFF)", "DCF (FCFF)", "INTRINSIC_VALUE_MODEL:DCF_FCFF"],
-  ["RESIDUAL_INCOME", "INTRINSIC_VALUE_MODELS", "Residual Income", "Residual income", "INTRINSIC_VALUE_MODEL:RESIDUAL_INCOME"],
-  ["DDM", "INTRINSIC_VALUE_MODELS", "Dividend Discount (DDM)", "Dividend discount", "INTRINSIC_VALUE_MODEL:DDM"],
-  ["GRAHAM", "INTRINSIC_VALUE_MODELS", "Graham", "Graham", "INTRINSIC_VALUE_MODEL:GRAHAM"],
+  ["SMA_20D", "MOVING_AVERAGES_DAILY", "SMA 20D", "MOVING_AVERAGE:SMA:20:1D:sma20d"],
+  ["SMA_50D", "MOVING_AVERAGES_DAILY", "SMA 50D", "MOVING_AVERAGE:SMA:50:1D:sma50d"],
+  ["SMA_100D", "MOVING_AVERAGES_DAILY", "SMA 100D", "MOVING_AVERAGE:SMA:100:1D:sma100d"],
+  ["SMA_200D", "MOVING_AVERAGES_DAILY", "SMA 200D", "MOVING_AVERAGE:SMA:200:1D:sma200d"],
+  ["EMA_20D", "MOVING_AVERAGES_DAILY", "EMA 20D", "MOVING_AVERAGE:EMA:20:1D:ema20d"],
+  ["EMA_50D", "MOVING_AVERAGES_DAILY", "EMA 50D", "MOVING_AVERAGE:EMA:50:1D:ema50d"],
+  ["EMA_200D", "MOVING_AVERAGES_DAILY", "EMA 200D", "MOVING_AVERAGE:EMA:200:1D:ema200d"],
+  ["SMA_20W", "MOVING_AVERAGES_WEEKLY", "SMA 20W", "MOVING_AVERAGE:SMA:20:1W:sma20w"],
+  ["SMA_50W", "MOVING_AVERAGES_WEEKLY", "SMA 50W", "MOVING_AVERAGE:SMA:50:1W:sma50w"],
+  ["SMA_100W", "MOVING_AVERAGES_WEEKLY", "SMA 100W", "MOVING_AVERAGE:SMA:100:1W:sma100w"],
+  ["SMA_200W", "MOVING_AVERAGES_WEEKLY", "SMA 200W", "MOVING_AVERAGE:SMA:200:1W:sma200w"],
+  ["EMA_20W", "MOVING_AVERAGES_WEEKLY", "EMA 20W", "MOVING_AVERAGE:EMA:20:1W:ema20w"],
+  ["EMA_50W", "MOVING_AVERAGES_WEEKLY", "EMA 50W", "MOVING_AVERAGE:EMA:50:1W:ema50w"],
+  ["EMA_200W", "MOVING_AVERAGES_WEEKLY", "EMA 200W", "MOVING_AVERAGE:EMA:200:1W:ema200w"],
+  ["BALANCED", "INTRINSIC_VALUE_BLENDS", "Balanced", "INTRINSIC_VALUE_BLEND:BALANCED"],
+  ["CONSERVATIVE", "INTRINSIC_VALUE_BLENDS", "Conservative", "INTRINSIC_VALUE_BLEND:CONSERVATIVE"],
+  ["DIVIDEND", "INTRINSIC_VALUE_BLENDS", "Dividend", "INTRINSIC_VALUE_BLEND:DIVIDEND"],
+  ["DCF_FCFF", "INTRINSIC_VALUE_MODELS", "DCF (FCFF)", "INTRINSIC_VALUE_MODEL:DCF_FCFF"],
+  ["RESIDUAL_INCOME", "INTRINSIC_VALUE_MODELS", "Residual Income", "INTRINSIC_VALUE_MODEL:RESIDUAL_INCOME"],
+  ["DDM", "INTRINSIC_VALUE_MODELS", "Dividend Discount (DDM)", "INTRINSIC_VALUE_MODEL:DDM"],
+  ["GRAHAM", "INTRINSIC_VALUE_MODELS", "Graham", "INTRINSIC_VALUE_MODEL:GRAHAM"],
 ] as const;
 
 /** Flattens a structured source into the snapshot's comparable form. */
@@ -84,7 +74,6 @@ describe("selectable series catalog", () => {
         entry.id,
         entry.group,
         entry.label,
-        selectableSeriesShortLabel(entry),
         sourceKey(entry),
       ]),
     ).toEqual(EXPECTED_CATALOG.map((entry) => [...entry]));
@@ -220,7 +209,7 @@ describe("selectable series catalog", () => {
     expect(findSelectableSeries("")).toBeUndefined();
   });
 
-  it("projects blend and model options in catalog order with their compact labels", () => {
+  it("projects blend and model options in catalog order with their canonical labels", () => {
     // These projections are what keeps a consumer of the intrinsic endpoints — which speak
     // blendId/model rather than catalog id — from keeping its own ordered label list.
     expect(INTRINSIC_VALUE_BLEND_OPTIONS.map((option) => option.blendId)).toEqual(
@@ -238,28 +227,10 @@ describe("selectable series catalog", () => {
         (option) => option.label,
       ),
     ).toEqual(
-      INTRINSIC_VALUE_SERIES.map((entry) => selectableSeriesShortLabel(entry)),
+      INTRINSIC_VALUE_SERIES.map((entry) => entry.label),
     );
   });
 
-  it("falls back to the full label when a series declares no compact label", () => {
-    for (const entry of CATALOG) {
-      expect(selectableSeriesShortLabel(entry)).toBe(
-        entry.shortLabel ?? entry.label,
-      );
-      expect(selectableSeriesShortLabel(entry)).not.toBe("");
-    }
-    // Only the entries the snapshot marks as differing may carry a compact label at all.
-    expect(
-      CATALOG.filter((entry) => entry.shortLabel !== undefined).map(
-        (entry) => entry.id,
-      ),
-    ).toEqual(
-      EXPECTED_CATALOG.filter((entry) => entry[2] !== entry[3]).map(
-        (entry) => entry[0],
-      ),
-    );
-  });
 
   it("filters moving-average comparisons to the same timeframe and excludes the identity", () => {
     const dailyCount = MOVING_AVERAGE_SERIES.filter(

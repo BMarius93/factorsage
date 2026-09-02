@@ -42,8 +42,7 @@ export type ValuationSnapshot = {
  * Blend and model identities, ordering and labels come from the canonical selectable-series
  * catalog. This summary deliberately keeps no list of its own: the catalog is the single product
  * source of truth, and a second local map is exactly how the labels here drifted from it before.
- * The compact `shortLabel` is what this dense list renders; entries without one fall back to the
- * full product label.
+ * There is one label per series — the canonical one — and no shorter presentation variant.
  */
 const BLEND_ENTRIES = INTRINSIC_VALUE_BLEND_OPTIONS;
 const MODEL_ENTRIES = INTRINSIC_VALUE_MODEL_OPTIONS;

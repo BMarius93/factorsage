@@ -175,6 +175,50 @@ test.describe("QA_USER Stock Details indicators", () => {
     expect(issues.failedRequests).toEqual([]);
   });
 
+  test("renders canonical catalog labels in the valuation summary on both viewports", async ({
+    page,
+  }) => {
+    // The valuation summary once kept its own label map and drifted from the catalog. These are
+    // the canonical labels, asserted through the real page at both widths so a reintroduced
+    // second label vocabulary — or a label that no longer fits — fails here.
+    const canonicalModelLabels = new Set(
+      SELECTABLE_SERIES_CATALOG.filter(
+        (series) => series.source.kind === "INTRINSIC_VALUE_MODEL",
+      ).map((series) => series.label),
+    );
+
+    for (const viewport of [DESKTOP, MOBILE]) {
+      await page.setViewportSize(viewport);
+      await openStock(page);
+
+      const labels = page.locator('[class*="modelLabel"]');
+      const count = await labels.count();
+      expect(count).toBeGreaterThan(0);
+
+      for (let index = 0; index < count; index += 1) {
+        const row = labels.nth(index);
+        // The stale-date note is a child span, so compare on the label's own leading text.
+        const text = ((await row.textContent()) ?? "").trim();
+        const label = [...canonicalModelLabels].find((candidate) =>
+          text.startsWith(candidate),
+        );
+        expect(label, `unrecognised model label: ${text}`).toBeDefined();
+
+        // Whatever the label's length, the row must stay inside the viewport: no horizontal
+        // overflow and no truncation, wrapping to a second line if it needs to.
+        const box = await row.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      }
+
+      const documentWidth = await page.evaluate(
+        () => document.documentElement.scrollWidth,
+      );
+      expect(documentWidth).toBeLessThanOrEqual(viewport.width);
+    }
+  });
+
   test("opens and operates the picker from the keyboard alone @smoke", async ({
     page,
   }) => {
