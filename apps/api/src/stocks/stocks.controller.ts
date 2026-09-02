@@ -1,6 +1,6 @@
 import {
   findSelectableSeries,
-  MOVING_AVERAGE_SERIES,
+  TECHNICAL_SERIES,
   type DailyPriceResponse,
   type DailyTechnicalResponse,
   type IntrinsicValueBlendResponse,
@@ -13,13 +13,13 @@ import {
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
-  MATERIALIZED_MOVING_AVERAGES,
+  TECHNICAL_SERIES_FIELDS,
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
-  type MovingAverageField,
   type Security,
   type StockDataService,
+  type TechnicalSeriesField,
 } from "@intrinsic/domain";
 import {
   isLocalDate,
@@ -154,20 +154,19 @@ function priceResponse(
 /**
  * Projects one daily technical row onto the wire contract.
  *
- * Every daily and weekly moving average is copied through the canonical field list, so adding a
- * catalog period can never leave a series silently missing from the API. Nothing is calculated
- * here: controllers project canonical stock-data values and never compute financial or technical
- * series. `fields` restricts the projection to a validated selection; unavailable values are
- * omitted rather than zeroed either way.
+ * Every technical series — both moving-average timeframes and the daily oscillators — is copied
+ * through the canonical field list, so adding a catalog series can never leave it silently missing
+ * from the API. Nothing is calculated here: controllers project canonical stock-data values and
+ * never compute financial or technical series. `fields` restricts the projection to a validated
+ * selection; unavailable values are omitted rather than zeroed either way.
  */
 function technicalResponse(
   technical: Awaited<
     ReturnType<StockDataService["getDailyTechnicals"]>
   >[number],
-  fields?: readonly MovingAverageField[],
+  fields?: readonly TechnicalSeriesField[],
 ): DailyTechnicalResponse {
-  const selected =
-    fields ?? MATERIALIZED_MOVING_AVERAGES.map((average) => average.field);
+  const selected = fields ?? TECHNICAL_SERIES_FIELDS;
   return {
     date: technical.date,
     ...Object.fromEntries(
@@ -182,27 +181,32 @@ function technicalResponse(
 /**
  * Resolves a `series` filter against the canonical selectable-series catalog.
  *
- * Only moving-average entries are addressable here: the intrinsic-value entries of the catalog are
- * served by the intrinsic-value and blend endpoints, which apply their own point-in-time rules. An
- * unknown or non-technical identifier is rejected rather than silently ignored.
+ * Moving-average and oscillator entries are addressable here: the intrinsic-value entries of the
+ * catalog are served by the intrinsic-value and blend endpoints, which apply their own
+ * point-in-time rules. An unknown or non-technical identifier is rejected rather than silently
+ * ignored.
  */
 function technicalFields(
   raw: string | string[] | undefined,
-): MovingAverageField[] | undefined {
+): TechnicalSeriesField[] | undefined {
   const ids = selectionValues(raw);
   if (ids === undefined) {
     return undefined;
   }
   return ids.map((id) => {
     const entry = findSelectableSeries(id);
-    if (!entry || entry.source.kind !== "MOVING_AVERAGE") {
+    if (
+      !entry ||
+      (entry.source.kind !== "MOVING_AVERAGE" &&
+        entry.source.kind !== "OSCILLATOR")
+    ) {
       throw new BadRequestException(
-        `Unsupported technical series. Supported: ${MOVING_AVERAGE_SERIES.map(
+        `Unsupported technical series. Supported: ${TECHNICAL_SERIES.map(
           (series) => series.id,
         ).join(", ")}`,
       );
     }
-    return entry.source.field as MovingAverageField;
+    return entry.source.field as TechnicalSeriesField;
   });
 }
 

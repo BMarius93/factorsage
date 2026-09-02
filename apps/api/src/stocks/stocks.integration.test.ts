@@ -4,7 +4,7 @@ import {
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import { MOVING_AVERAGE_SERIES } from "@intrinsic/contracts";
+import { TECHNICAL_SERIES } from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
@@ -224,7 +224,8 @@ describe("Stock Details API", () => {
           ema20d: 122.25,
         },
         // Monday-Thursday of the week starting 2026-08-24 carry the previous completed week
-        // (2026-08-17) forward. `sma200w` is deliberately absent: still warming up.
+        // (2026-08-17) forward. `sma200w` is deliberately absent: still warming up. The RSI
+        // periods warm up independently: 7D is already evaluable while 14D and 21D are not.
         ...["2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27"].map((date) => ({
           securityId: security.id,
           date: new Date(`${date}T00:00:00.000Z`),
@@ -232,9 +233,10 @@ describe("Stock Details API", () => {
           weeklySourceWeekStart: new Date("2026-08-17T00:00:00.000Z"),
           sma20w: 116.1,
           ema20w: 112.5,
+          rsi7d: 62.1,
         })),
         // Friday closes the week starting 2026-08-24, so its own weekly values become eligible
-        // on that day and every catalog moving average is representable on one row.
+        // on that day and every catalog technical series is representable on one row.
         {
           securityId: security.id,
           date: new Date("2026-08-28T00:00:00.000Z"),
@@ -253,6 +255,9 @@ describe("Stock Details API", () => {
           ema20w: 122.5,
           ema50w: 121.6,
           ema200w: 120.7,
+          rsi7d: 71.55,
+          rsi14d: 63.4,
+          rsi21d: 58.9,
         },
       ],
     });
@@ -436,21 +441,24 @@ describe("Stock Details API", () => {
     expect(response.body[0]).not.toHaveProperty("securityId");
   });
 
-  it("exposes every catalog moving average, daily and weekly, on one technical row", async () => {
+  it("exposes every catalog technical series, averages and oscillators, on one technical row", async () => {
     const response = await request(app.getHttpServer())
       .get(`/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28`)
       .expect(200);
 
     expect(response.body).toHaveLength(1);
     const row = response.body[0] as Record<string, unknown>;
-    for (const series of MOVING_AVERAGE_SERIES) {
-      if (series.source.kind !== "MOVING_AVERAGE") {
+    for (const series of TECHNICAL_SERIES) {
+      if (
+        series.source.kind !== "MOVING_AVERAGE" &&
+        series.source.kind !== "OSCILLATOR"
+      ) {
         throw new Error("unreachable");
       }
       expect(row[series.source.field]).toBeTypeOf("number");
     }
-    // Every catalog moving average plus the date; nothing else leaks onto the contract.
-    expect(Object.keys(row)).toHaveLength(MOVING_AVERAGE_SERIES.length + 1);
+    // Every catalog technical series plus the date; nothing else leaks onto the contract.
+    expect(Object.keys(row)).toHaveLength(TECHNICAL_SERIES.length + 1);
     expect(row).not.toHaveProperty("securityId");
     expect(row).not.toHaveProperty("weeklySourceWeekStart");
     expect(row).not.toHaveProperty("calculationVersion");
@@ -502,12 +510,16 @@ describe("Stock Details API", () => {
     ]);
   });
 
-  it("accepts every catalog moving-average id and projects that series alone", async () => {
+  it("accepts every catalog technical-series id and projects that series alone", async () => {
     // Completeness rather than a spot check: a catalog entry the API cannot address, or one whose
     // id resolves to the wrong persisted field, fails here instead of only being noticed when the
-    // picker draws an empty overlay.
-    for (const series of MOVING_AVERAGE_SERIES) {
-      if (series.source.kind !== "MOVING_AVERAGE") {
+    // picker draws an empty overlay. Iterating TECHNICAL_SERIES also proves each RSI period is
+    // independently requestable.
+    for (const series of TECHNICAL_SERIES) {
+      if (
+        series.source.kind !== "MOVING_AVERAGE" &&
+        series.source.kind !== "OSCILLATOR"
+      ) {
         throw new Error("unreachable");
       }
       const response = await request(app.getHttpServer())
@@ -524,13 +536,83 @@ describe("Stock Details API", () => {
     }
   });
 
+  it("serves the three RSI periods together and beside moving averages", async () => {
+    const together = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=RSI_7D,RSI_14D,RSI_21D`,
+      )
+      .expect(200);
+    expect(together.body).toEqual([
+      { date: "2026-08-28", rsi7d: 71.55, rsi14d: 63.4, rsi21d: 58.9 },
+    ]);
+
+    const mixed = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=RSI_14D,SMA_20D,EMA_50D`,
+      )
+      .expect(200);
+    expect(mixed.body).toEqual([
+      { date: "2026-08-28", sma20d: 130.1, ema50d: 130.2, rsi14d: 63.4 },
+    ]);
+  });
+
+  it("applies date filtering to RSI rows and keeps warm-up gaps absent, never zero", async () => {
+    // Monday-Thursday carry only the 7D period; 14D and 21D are still warming up. Absence must
+    // survive the projection: no zero, no null, no borrowed shorter period.
+    const week = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/technicals/daily?from=2026-08-24&to=2026-08-28&series=RSI_7D,RSI_14D,RSI_21D`,
+      )
+      .expect(200);
+
+    const rows = week.body as Record<string, unknown>[];
+    expect(rows.map((row) => row.date)).toEqual([
+      "2026-08-24",
+      "2026-08-25",
+      "2026-08-26",
+      "2026-08-27",
+      "2026-08-28",
+    ]);
+    for (const row of rows.slice(0, 4)) {
+      expect(row.rsi7d).toBe(62.1);
+      expect("rsi14d" in row).toBe(false);
+      expect("rsi21d" in row).toBe(false);
+    }
+    expect(rows[4]).toEqual({
+      date: "2026-08-28",
+      rsi7d: 71.55,
+      rsi14d: 63.4,
+      rsi21d: 58.9,
+    });
+    expect(JSON.stringify(rows)).not.toContain("null");
+
+    // Date filtering narrows the same selection to a single warm-up day.
+    const single = await request(app.getHttpServer())
+      .get(
+        `/stocks/${baseSymbol}/technicals/daily?from=2026-08-25&to=2026-08-25&series=RSI_14D`,
+      )
+      .expect(200);
+    expect(single.body).toEqual([{ date: "2026-08-25" }]);
+  });
+
   it("rejects selection identifiers that are not in the canonical catalog", async () => {
-    for (const series of ["SMA_300W", "sma_20w", "BALANCED", "PRICE"]) {
-      await request(app.getHttpServer())
+    for (const series of [
+      "SMA_300W",
+      "sma_20w",
+      "BALANCED",
+      "PRICE",
+      "RSI_14",
+      "rsi_14d",
+      "RSI_30D",
+    ]) {
+      const response = await request(app.getHttpServer())
         .get(
           `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=${series}`,
         )
         .expect(400);
+      // The established validation error names the addressable set, oscillators included.
+      expect(response.body.message).toContain("Unsupported technical series");
+      expect(response.body.message).toContain("RSI_14D");
     }
     await request(app.getHttpServer())
       .get(`/stocks/${baseSymbol}/intrinsic-values?models=NOT_A_MODEL`)
