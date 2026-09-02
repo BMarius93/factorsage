@@ -115,11 +115,16 @@ describe("IndicatorsMenu", () => {
     await user.click(screen.getByRole("button", { name: /Indicators/ }));
     const options = within(panel()).getAllByRole("checkbox");
 
-    expect(options).toHaveLength(21);
+    // Counts follow from the catalog and this harness's `available` set, so a new catalog entry
+    // does not require editing these numbers — only being genuinely rendered and disabled.
+    const expectedDisabled = SELECTABLE_SERIES_CATALOG.length - available.size;
+    expect(options).toHaveLength(SELECTABLE_SERIES_CATALOG.length);
     expect(
       options.filter((box) => (box as HTMLInputElement).disabled),
-    ).toHaveLength(19);
-    expect(within(panel()).getAllByText("Unavailable")).toHaveLength(19);
+    ).toHaveLength(expectedDisabled);
+    expect(within(panel()).getAllByText("Unavailable")).toHaveLength(
+      expectedDisabled,
+    );
     // An unavailable entry is present and identified, never removed or swapped for another.
     expect(
       within(panel()).getByRole("checkbox", { name: "SMA 200W Unavailable" }),

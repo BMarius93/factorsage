@@ -1,3 +1,7 @@
+import {
+  SELECTABLE_SERIES_CATALOG,
+  SELECTABLE_SERIES_GROUPED,
+} from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
@@ -12,13 +16,15 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const QA_SYMBOL = "QATEST1";
 
-/** The catalog's four groups, in the order the product decision fixes. */
-const GROUPS = [
-  "Moving averages — Daily",
-  "Moving averages — Weekly",
-  "Intrinsic Value — Blends",
-  "Intrinsic Value — Models",
-];
+/**
+ * The catalog's groups and size come from the canonical catalog, not a copy.
+ *
+ * The browser assertions below are about what the real page renders; what it is supposed to render
+ * is product state owned by `@intrinsic/contracts` and pinned by its own snapshot test. Restating
+ * it here would make this suite a second catalog that silently goes stale.
+ */
+const GROUPS = SELECTABLE_SERIES_GROUPED.map((group) => group.label);
+const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
@@ -85,9 +91,9 @@ test.describe("QA_USER Stock Details indicators", () => {
     await openStock(page);
     await openIndicators(page);
 
-    // 1. All four groups, in canonical order, with all 21 entries discoverable.
+    // 1. Every group, in canonical order, with every catalog entry discoverable.
     await expect(panel(page).locator("legend")).toHaveText(GROUPS);
-    await expect(panel(page).getByRole("checkbox")).toHaveCount(21);
+    await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
 
     // 2. Balanced is the only overlay enabled by default.
     await expect(option(page, "Balanced")).toBeChecked();
@@ -152,7 +158,7 @@ test.describe("QA_USER Stock Details indicators", () => {
     await openIndicators(page);
 
     await expect(panel(page).locator("legend")).toHaveText(GROUPS);
-    await expect(panel(page).getByRole("checkbox")).toHaveCount(21);
+    await expect(panel(page).getByRole("checkbox")).toHaveCount(CATALOG_SIZE);
     // The popover must stay inside the viewport rather than overflowing the page horizontally.
     const box = await panel(page).boundingBox();
     expect(box).not.toBeNull();

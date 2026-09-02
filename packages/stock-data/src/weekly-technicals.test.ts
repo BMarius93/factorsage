@@ -1,5 +1,6 @@
 import {
   WEEKLY_MOVING_AVERAGES,
+  WEEKLY_TECHNICAL_BACKTEST_POLICY,
   type DailyPrice,
   type LocalDate,
 } from "@intrinsic/domain";
@@ -136,6 +137,11 @@ describe("weekly moving averages", () => {
   });
 
   it("excludes the still-running ISO week from every weekly value", () => {
+    // This is the behaviour `WEEKLY_TECHNICAL_BACKTEST_POLICY` names: only completed periods are
+    // eligible, so the constant and the implementation are asserted together rather than the
+    // constant merely asserting its own spelling.
+    expect(WEEKLY_TECHNICAL_BACKTEST_POLICY).toBe("COMPLETED_PERIODS_ONLY");
+
     const midWeek = addDays(LAST_DAY, -2); // Wednesday of the final week.
     const partial = aggregateCompletedWeeks(PRICES, midWeek);
 

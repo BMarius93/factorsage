@@ -322,7 +322,6 @@ describe("StockDetails", () => {
 
     const options = within(panel).getAllByRole("checkbox");
     expect(options).toHaveLength(SELECTABLE_SERIES_CATALOG.length);
-    expect(options).toHaveLength(21);
     // Price is the always-visible base series and is never offered as an option.
     expect(within(panel).queryByRole("checkbox", { name: /Price/ })).toBeNull();
   });
@@ -361,7 +360,17 @@ describe("StockDetails", () => {
       }) as HTMLInputElement;
       expect(option.disabled).toBe(true);
     }
-    expect(within(panel).getAllByText("Unavailable")).toHaveLength(14);
+    // Every entry is still rendered, and the disabled ones are exactly the ones carrying the
+    // marker. Asserting the partition rather than a fixed count keeps this honest when the
+    // catalog grows: nothing is hidden, and no entry is both disabled and unmarked.
+    const all = within(panel).getAllByRole("checkbox") as HTMLInputElement[];
+    const disabled = all.filter((option) => option.disabled);
+    expect(all).toHaveLength(SELECTABLE_SERIES_CATALOG.length);
+    expect(within(panel).getAllByText("Unavailable")).toHaveLength(
+      disabled.length,
+    );
+    expect(disabled.length).toBeGreaterThan(0);
+    expect(disabled.length).toBeLessThan(all.length);
 
     // Available entries stay enabled.
     for (const name of ["SMA 50D", "SMA 20W", "Balanced", "DCF (FCFF)"]) {

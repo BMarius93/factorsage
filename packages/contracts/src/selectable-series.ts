@@ -84,8 +84,10 @@ export type SelectableSeries = {
 /**
  * Every selectable series, in canonical group and in-group order.
  *
- * Exactly 21 entries: 14 moving averages and 7 intrinsic-value sources. Price is the chart's
- * always-visible base series and is deliberately not an entry.
+ * The moving-average entries address the periods `@intrinsic/domain` materializes; the intrinsic
+ * entries address its canonical blends and models. Price is the chart's always-visible base series
+ * and is deliberately not an entry. `selectable-series.test.ts` holds the one snapshot that pins
+ * the exact membership, so consumers derive counts from this array rather than restating them.
  */
 export const SELECTABLE_SERIES_CATALOG = [
   {

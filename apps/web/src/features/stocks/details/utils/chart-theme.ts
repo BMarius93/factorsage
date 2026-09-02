@@ -18,9 +18,9 @@ export const CHART_COLORS = {
 /**
  * Overlay hues, ordered so neighbouring entries stay distinguishable.
  *
- * The catalog offers 21 selectable series and no chart can carry 21 permanently distinct, legible
- * hues, so colour is deliberately not a per-series identity. This palette is the single owner of
- * overlay colour; it avoids the brand blue so an overlay is never mistaken for price.
+ * The catalog offers far more selectable series than a chart can carry in permanently distinct,
+ * legible hues, so colour is deliberately not a per-series identity. This palette is the single
+ * owner of overlay colour; it avoids the brand blue so an overlay is never mistaken for price.
  */
 export const OVERLAY_PALETTE = [
   "#1e9e78",

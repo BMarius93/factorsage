@@ -449,7 +449,7 @@ describe("Stock Details API", () => {
       }
       expect(row[series.source.field]).toBeTypeOf("number");
     }
-    // Fourteen indicator values plus the date; nothing else leaks onto the contract.
+    // Every catalog moving average plus the date; nothing else leaks onto the contract.
     expect(Object.keys(row)).toHaveLength(MOVING_AVERAGE_SERIES.length + 1);
     expect(row).not.toHaveProperty("securityId");
     expect(row).not.toHaveProperty("weeklySourceWeekStart");
