@@ -4,7 +4,9 @@ import {
   AreaSeries,
   createChart,
   LineSeries,
+  LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type MouseEventParams,
   type Time,
@@ -14,6 +16,33 @@ import type { ChartOverlaySeries, ChartPoint } from "../utils/chart-series";
 import { CHART_COLORS } from "../utils/chart-theme";
 import { formatLocalDate, formatMoney } from "../utils/format";
 import styles from "./StockPriceChart.module.css";
+
+/**
+ * The shared oscillator pane. Every oscillator series draws into this one native Lightweight
+ * Charts pane below the price pane, so all selected RSI periods share one fixed scale, one set of
+ * reference lines, and the price chart's time scale and crosshair by construction. The library
+ * creates the pane with the first series placed into it and removes it again with the last one.
+ */
+const OSCILLATOR_PANE_INDEX = 1;
+
+/** Relative height of the oscillator pane; the price pane keeps its default factor of 1. */
+const OSCILLATOR_PANE_STRETCH = 0.35;
+
+/**
+ * The 30/50/70 orientation levels, rendered once per pane on the canonically first oscillator
+ * series: 30 marks oversold, 70 overbought, 50 the midline. Muted, dashed and without axis labels
+ * so they orient the reading without competing with the data lines.
+ */
+const OSCILLATOR_REFERENCE_LEVELS = [
+  { price: 30, title: "Oversold 30" },
+  { price: 50, title: "50" },
+  { price: 70, title: "Overbought 70" },
+] as const;
+
+/** An oscillator is unitless: legend and hover values never read as money. */
+function formatOscillatorValue(value: number): string {
+  return value.toFixed(1);
+}
 
 export type StockPriceChartProps = {
   /** Ascending daily closing prices for the selected range. */
@@ -72,6 +101,12 @@ export function StockPriceChart({
   const chartRef = useRef<IChartApi | null>(null);
   const priceSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const overlaySeriesRef = useRef(new Map<string, ISeriesApi<"Line">>());
+  // The one set of oscillator reference lines, attached to the canonically first oscillator
+  // series. Tracking the owner is what keeps repeated toggling from duplicating the levels.
+  const oscillatorReferenceRef = useRef<{
+    owner: ISeriesApi<"Line">;
+    lines: IPriceLine[];
+  } | null>(null);
   // The crosshair handler is subscribed once; refs keep it reading current props.
   const crosshairContextRef = useRef<CrosshairContext>({ overlays, currency });
   crosshairContextRef.current = { overlays, currency };
@@ -147,7 +182,10 @@ export function StockPriceChart({
           legend.append(
             legendRow(
               overlay.label,
-              formatMoney(data.value, currentCurrency),
+              // An oscillator is unitless; only price-scaled overlays read as money.
+              overlay.placement === "OSCILLATOR_PANE"
+                ? formatOscillatorValue(data.value)
+                : formatMoney(data.value, currentCurrency),
               overlay.color,
             ),
           );
@@ -162,11 +200,14 @@ export function StockPriceChart({
     const overlaySeries = overlaySeriesRef.current;
 
     return () => {
+      // chart.remove() disposes every series, pane, price line and subscription the instance
+      // owns; the refs are cleared so a later effect run cannot touch disposed handles.
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
       chartRef.current = null;
       priceSeriesRef.current = null;
       overlaySeries.clear();
+      oscillatorReferenceRef.current = null;
     };
   }, []);
 
@@ -199,6 +240,11 @@ export function StockPriceChart({
     const wanted = new Set(overlays.map((overlay) => overlay.id));
     for (const [id, series] of existing) {
       if (!wanted.has(id)) {
+        // Removing the reference-line owner disposes its lines with it; forgetting that here
+        // would try to detach lines from a dead series when the ownership moves on.
+        if (oscillatorReferenceRef.current?.owner === series) {
+          oscillatorReferenceRef.current = null;
+        }
         chart.removeSeries(series);
         existing.delete(id);
       }
@@ -206,12 +252,38 @@ export function StockPriceChart({
     for (const overlay of overlays) {
       let series = existing.get(overlay.id);
       if (!series) {
-        series = chart.addSeries(LineSeries, {
-          color: overlay.color,
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
+        series =
+          overlay.placement === "OSCILLATOR_PANE"
+            ? chart.addSeries(
+                LineSeries,
+                {
+                  color: overlay.color,
+                  lineWidth: 2,
+                  priceLineVisible: false,
+                  lastValueVisible: false,
+                  // The pane renders the catalog's fixed unit range instead of autoscaling, so
+                  // every oscillator of the family shares one stable axis.
+                  autoscaleInfoProvider: () => ({
+                    priceRange: {
+                      minValue: overlay.scale?.min ?? 0,
+                      maxValue: overlay.scale?.max ?? 100,
+                    },
+                  }),
+                  // Unitless axis labels; the chart-level formatter renders money.
+                  priceFormat: {
+                    type: "custom",
+                    formatter: formatOscillatorValue,
+                    minMove: 0.1,
+                  },
+                },
+                OSCILLATOR_PANE_INDEX,
+              )
+            : chart.addSeries(LineSeries, {
+                color: overlay.color,
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: false,
+              });
         existing.set(overlay.id, series);
       } else {
         // Overlay colour is assigned by position within the enabled set, so a reused series can
@@ -225,13 +297,59 @@ export function StockPriceChart({
         })),
       );
     }
+
+    // One set of 30/50/70 reference levels per pane, owned by the canonically first oscillator
+    // series. When that series changes or disappears the lines move or vanish with it — never
+    // accumulating across repeated toggles.
+    const firstOscillator = overlays.find(
+      (overlay) => overlay.placement === "OSCILLATOR_PANE",
+    );
+    const owner = firstOscillator
+      ? existing.get(firstOscillator.id)
+      : undefined;
+    const reference = oscillatorReferenceRef.current;
+    if (reference && reference.owner !== owner) {
+      for (const line of reference.lines) {
+        reference.owner.removePriceLine(line);
+      }
+      oscillatorReferenceRef.current = null;
+    }
+    if (owner && !oscillatorReferenceRef.current) {
+      oscillatorReferenceRef.current = {
+        owner,
+        lines: OSCILLATOR_REFERENCE_LEVELS.map((level) =>
+          owner.createPriceLine({
+            price: level.price,
+            title: level.title,
+            color: CHART_COLORS.oscillatorReference,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+          }),
+        ),
+      };
+    }
+    if (owner) {
+      // Keep the price pane dominant: the oscillator pane takes roughly a quarter of the height.
+      chart
+        .panes()
+        [OSCILLATOR_PANE_INDEX]?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
+    }
+
     chart.timeScale().fitContent();
   }, [overlays]);
 
   const empty = points.length < 2;
+  const hasOscillatorPane = overlays.some(
+    (overlay) => overlay.placement === "OSCILLATOR_PANE",
+  );
 
   return (
-    <div className={styles.wrapper} data-loading={loading}>
+    <div
+      className={styles.wrapper}
+      data-loading={loading}
+      data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
+    >
       <div
         ref={containerRef}
         className={styles.canvas}

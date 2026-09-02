@@ -44,6 +44,9 @@ vi.mock("./StockPriceChart", () => ({
       data-overlay-colors={props.overlays
         .map((overlay) => overlay.color)
         .join(",")}
+      data-overlay-panes={props.overlays
+        .map((overlay) => overlay.placement)
+        .join(",")}
       data-loading={props.loading ? "true" : "false"}
     />
   ),
@@ -104,7 +107,8 @@ function detailsFixture(): StockDetailsResponse {
     // Deliberately partial: only some catalog entries have data, so the rest must render as
     // discoverable-but-unavailable rather than disappearing.
     technicals: [
-      { date: "2026-08-27", sma50d: 219, sma20w: 215 },
+      // rsi21d never materializes, so the RSI periods prove per-period availability.
+      { date: "2026-08-27", sma50d: 219, sma20w: 215, rsi7d: 41.2 },
       {
         date: "2026-08-28",
         sma50d: 220,
@@ -112,6 +116,8 @@ function detailsFixture(): StockDetailsResponse {
         ema20d: 225,
         sma20w: 216,
         ema50w: 208,
+        rsi7d: 66.8,
+        rsi14d: 58.4,
       },
     ],
     intrinsicValues: [
@@ -303,7 +309,7 @@ describe("StockDetails", () => {
     return screen.getByRole("dialog", { name: "Indicators" });
   }
 
-  it("offers the whole canonical catalog in its four ordered groups", async () => {
+  it("offers the whole canonical catalog in its ordered groups", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     const user = setupUser();
 
@@ -316,6 +322,7 @@ describe("StockDetails", () => {
     ).toEqual([
       "Moving averages — Daily",
       "Moving averages — Weekly",
+      "Oscillators",
       "Intrinsic Value — Blends",
       "Intrinsic Value — Models",
     ]);
@@ -351,6 +358,7 @@ describe("StockDetails", () => {
     for (const name of [
       "SMA 100D Unavailable",
       "SMA 200W Unavailable",
+      "RSI 21D Unavailable",
       "Graham Unavailable",
       "Dividend Unavailable",
       "Dividend Discount (DDM) Unavailable",
@@ -443,6 +451,78 @@ describe("StockDetails", () => {
     // Price remains the base series with no overlays at all.
     expect(chart().dataset.overlays).toBe("");
     expect(Number(chart().dataset.pointCount)).toBeGreaterThan(0);
+  });
+
+  it("keeps every oscillator toggle off by default, in canonical order", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    const oscillators = within(panel).getAllByRole("checkbox", {
+      name: /^RSI/,
+    }) as HTMLInputElement[];
+    expect(
+      oscillators.map((option) =>
+        option.closest("label")?.textContent?.trim(),
+      ),
+    ).toEqual(["RSI 7D", "RSI 14D", "RSI 21D Unavailable"]);
+    for (const option of oscillators) {
+      expect(option.checked).toBe(false);
+    }
+    // Availability is per period: 7D and 14D have evaluable points, 21D never warmed up.
+    expect(oscillators[0]?.disabled).toBe(false);
+    expect(oscillators[1]?.disabled).toBe(false);
+    expect(oscillators[2]?.disabled).toBe(true);
+  });
+
+  it("routes RSI to the oscillator pane beside price overlays, canonically ordered", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 14D" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 7D" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+
+    // Catalog order, not click order; the oscillator pane never replaces the price overlays.
+    expect(chart().dataset.overlays).toBe(
+      "SMA_50D:2,RSI_7D:2,RSI_14D:1,BALANCED:2",
+    );
+    expect(chart().dataset.overlayPanes).toBe(
+      "PRICE_OVERLAY,OSCILLATOR_PANE,OSCILLATOR_PANE,PRICE_OVERLAY",
+    );
+    const colors = chart().dataset.overlayColors!.split(",");
+    expect(new Set(colors).size).toBe(colors.length);
+  });
+
+  it("toggles each RSI period independently through the full lifecycle", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const user = setupUser();
+
+    const panel = await openIndicators(user);
+    await user.click(within(panel).getByRole("checkbox", { name: "Balanced" }));
+
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 7D" }));
+    expect(chart().dataset.overlays).toBe("RSI_7D:2");
+
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 14D" }));
+    expect(chart().dataset.overlays).toBe("RSI_7D:2,RSI_14D:1");
+
+    // Deselecting one period removes only its line.
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 7D" }));
+    expect(chart().dataset.overlays).toBe("RSI_14D:1");
+
+    // Deselecting the last period leaves the price chart with no oscillator at all.
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 14D" }));
+    expect(chart().dataset.overlays).toBe("");
+    expect(chart().dataset.overlayPanes).toBe("");
+
+    // And the cycle repeats without accumulating anything.
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 14D" }));
+    expect(chart().dataset.overlays).toBe("RSI_14D:1");
+    expect(chart().dataset.overlayPanes).toBe("OSCILLATOR_PANE");
   });
 
   it("shows a layout-shaped loading state while the request is in flight", () => {

@@ -4,9 +4,20 @@
   height: 280px;
 }
 
+/* The shared oscillator pane sits below the price pane inside the same canvas, so the wrapper
+   grows while it is present: the price pane keeps a useful height and the oscillator pane stays
+   readable, on phones included. */
+.wrapper[data-oscillator-pane="true"] {
+  height: 380px;
+}
+
 @media (min-width: 880px) {
   .wrapper {
     height: 360px;
+  }
+
+  .wrapper[data-oscillator-pane="true"] {
+    height: 480px;
   }
 }
 

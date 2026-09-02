@@ -13,6 +13,11 @@ export const CHART_COLORS = {
   axisBorder: "#e6eaf5",
   crosshair: "#b9c6e8",
   text: "#667085",
+  /**
+   * The 30/50/70 reference levels of the oscillator pane. Deliberately muted: the levels orient
+   * the reading without competing with the data lines.
+   */
+  oscillatorReference: "#b9c6e8",
 } as const;
 
 /**
