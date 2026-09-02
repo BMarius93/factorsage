@@ -172,6 +172,25 @@ describe("daily derived state persistence", () => {
     expect(read?.weeklySourceWeekStart).toBe(expected.weeklySourceWeekStart);
   });
 
+  it("has a PostgreSQL column for every registered moving average", async () => {
+    // The wide-column model means a registry entry is only real once a migration adds its column.
+    // Without this guard, adding a period and forgetting the migration persists nothing at all:
+    // the mapper writes a key Prisma silently ignores and every read returns absent, which is
+    // indistinguishable from a warm-up gap. Asserted against the live schema, not the Prisma
+    // client's types, so a drifted migration is caught too.
+    const columns = await prisma.$queryRaw<{ column_name: string }[]>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'DailyDerivedState'
+    `;
+    const columnNames = new Set(columns.map((column) => column.column_name));
+
+    expect(columnNames.size).toBeGreaterThan(0);
+    for (const average of MATERIALIZED_MOVING_AVERAGES) {
+      expect(columnNames).toContain(average.field);
+    }
+  });
+
   it("keeps unavailable technical values absent instead of turning them into zero", async () => {
     const earlyDate = prices[0]!.date;
     const [read] = await store.getDailyDerivedState(securityId, {

@@ -502,6 +502,28 @@ describe("Stock Details API", () => {
     ]);
   });
 
+  it("accepts every catalog moving-average id and projects that series alone", async () => {
+    // Completeness rather than a spot check: a catalog entry the API cannot address, or one whose
+    // id resolves to the wrong persisted field, fails here instead of only being noticed when the
+    // picker draws an empty overlay.
+    for (const series of MOVING_AVERAGE_SERIES) {
+      if (series.source.kind !== "MOVING_AVERAGE") {
+        throw new Error("unreachable");
+      }
+      const response = await request(app.getHttpServer())
+        .get(
+          `/stocks/${baseSymbol}/technicals/daily?from=2026-08-28&to=2026-08-28&series=${series.id}`,
+        )
+        .expect(200);
+
+      const row = response.body[0] as Record<string, unknown>;
+      expect(Object.keys(row).sort()).toEqual(
+        ["date", series.source.field].sort(),
+      );
+      expect(row[series.source.field]).toBeTypeOf("number");
+    }
+  });
+
   it("rejects selection identifiers that are not in the canonical catalog", async () => {
     for (const series of ["SMA_300W", "sma_20w", "BALANCED", "PRICE"]) {
       await request(app.getHttpServer())
