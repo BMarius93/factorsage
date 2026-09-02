@@ -331,9 +331,8 @@ export function StockPriceChart({
     }
     if (owner) {
       // Keep the price pane dominant: the oscillator pane takes roughly a quarter of the height.
-      chart
-        .panes()
-        [OSCILLATOR_PANE_INDEX]?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
+      const oscillatorPane = chart.panes()[OSCILLATOR_PANE_INDEX];
+      oscillatorPane?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
     }
 
     chart.timeScale().fitContent();
