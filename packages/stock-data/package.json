@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/valuation build && pnpm --filter @intrinsic/testing build && vitest run --exclude src/live-fmp.integration.test.ts",
     "test:redis": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/valuation build && pnpm --filter @intrinsic/testing build && vitest run src/redis.integration.test.ts",
-    "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/fmp build && vitest run src/live-fmp.integration.test.ts"
+    "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/testing build && vitest run src/live-fmp.integration.test.ts"
   },
   "dependencies": {
     "@intrinsic/database": "workspace:*",

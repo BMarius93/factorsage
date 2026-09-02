@@ -1,10 +1,24 @@
+/**
+ * Live FMP verification of the daily technical calculator against the provider's own oracle.
+ *
+ * This suite NEVER runs by default and is excluded from normal CI. `RUN_LIVE_FMP_TESTS=1` is the
+ * only thing that authorizes it — an `FMP_API_KEY` present in a developer's `.env` does not, which
+ * is what previously let a direct `vitest` invocation (bypassing the package script's
+ * `--exclude`) fire real requests. Run it deliberately with:
+ *
+ *   RUN_LIVE_FMP_TESTS=1 pnpm --filter @intrinsic/stock-data test:live
+ */
 import { getFmpConfig, loadRootEnv } from "@intrinsic/config";
 import { FmpClient } from "@intrinsic/fmp";
-import { describe, expect, it } from "vitest";
+import {
+  assertLiveFmpCredentials,
+  liveFmpTestsEnabled,
+} from "@intrinsic/testing";
+import { beforeAll, describe, expect, it } from "vitest";
 import { calculateDailyTechnicals } from "./technicals.js";
 
 loadRootEnv();
-const liveEnabled = Boolean(process.env.FMP_API_KEY?.trim());
+const describeLive = liveFmpTestsEnabled() ? describe : describe.skip;
 
 async function getFmpTechnical(
   type: "sma" | "ema",
@@ -37,8 +51,15 @@ async function getFmpTechnical(
   });
 }
 
-describe.runIf(liveEnabled)("live FMP verification", () => {
+describeLive("live FMP verification", () => {
   const client = new FmpClient(() => getFmpConfig());
+
+  // Inside beforeAll, not at module scope: the suite must skip cleanly when the gate is off,
+  // whatever the local environment carries. With the gate on, missing or placeholder credentials
+  // fail loudly instead of sending a request that cannot succeed.
+  beforeAll(() => {
+    assertLiveFmpCredentials();
+  });
 
   it("maps the AAPL company profile", async () => {
     const profile = await client.getProfile("AAPL");

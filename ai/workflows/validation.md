@@ -71,15 +71,52 @@ runs inside normal `pnpm test` and requires reachable PostgreSQL and Redis
 pnpm --filter @intrinsic/api test:infrastructure
 ```
 
-The opt-in live smoke suite never runs by default or in CI:
+## Live FMP suites are opt-in at the suite level
+
+Two suites can call the real provider:
+
+- `apps/api/src/stocks/stocks.live-fmp.integration.test.ts`
+- `packages/stock-data/src/live-fmp.integration.test.ts`
+
+**`RUN_LIVE_FMP_TESTS=1` is the only thing that authorizes a live call.** Both
+suites resolve `liveFmpTestsEnabled()` from `@intrinsic/testing` and become
+`describe.skip` without it, so the gate holds even when a suite is reached
+directly:
+
+```ts
+const describeLive = liveFmpTestsEnabled() ? describe : describe.skip;
+```
+
+An `FMP_API_KEY` in `.env` is **not** authorization. Package scripts also pass
+`--exclude`, but that only hides the files from a default run — a direct
+`vitest path/to/live-fmp.integration.test.ts` bypasses it, which is exactly how
+a live suite once fired real requests while gated on the key alone. The
+suite-level gate is what makes that impossible; the script exclusion is
+convenience on top of it.
+
+A placeholder key (`changeme`, `your-api-key`, `<key>`, blank …) is never a
+credential. With the opt-in on, `assertLiveFmpCredentials()` throws inside
+`beforeAll` rather than sending a request that cannot succeed.
+
+`packages/stock-data/src/live-fmp-gate.test.ts` proves all of this offline: the
+opt-in permutations, placeholder rejection, that the gate is closed during the
+deterministic run, that the repository contains exactly the two known live
+suites, and that each is gated through the shared helper and nothing else.
+
+Run them deliberately:
 
 ```bash
 RUN_LIVE_FMP_TESTS=1 TEST_DATABASE_URL=... FMP_API_KEY=... \
   pnpm --filter @intrinsic/api test:live
+
+RUN_LIVE_FMP_TESTS=1 FMP_API_KEY=... \
+  pnpm --filter @intrinsic/stock-data test:live
 ```
 
-It refuses to run against `DATABASE_URL` and asserts invariants only, never
-exact FMP values.
+The API suite refuses to run against `DATABASE_URL` and both assert invariants
+only, never exact FMP values. Playwright never calls FMP: the QA seed writes
+deterministic data and coverage watermarks that keep the loader off the
+provider.
 
 For a migrated financial behavior:
 1. port the old test or create an equivalent characterization test,
