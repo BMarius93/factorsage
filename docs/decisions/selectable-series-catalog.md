@@ -3,16 +3,16 @@
 ## Status
 
 Product decision for the single series catalog shared by Stock Details chart overlays and strategy
-condition operands. This decision supersedes only the previously-undecided weekly period catalog
-in `stock-data-foundation.md`; all completed-week, point-in-time, materialization, and provenance
-rules remain unchanged.
+Metric/Value selections. This decision supersedes only the previously-undecided weekly period
+catalog in `stock-data-foundation.md`; all completed-week, point-in-time, materialization, and
+provenance rules remain unchanged.
 
 ## Invariant
 
 There is exactly one canonical product catalog of selectable technical and intrinsic-value series.
-Stock Details consumes the full catalog as a multi-select overlay picker. Strategy predicates
-consume filtered single-select views according to operand compatibility. Neither consumer owns or
-duplicates the catalog.
+Stock Details consumes the full catalog as a multi-select overlay picker. Strategy consumes
+compatible filtered views according to the Metric/Condition/Trigger/Value rules in
+`../../ai/product/strategies.md`. Neither consumer owns or duplicates the catalog.
 
 Price is canonical daily close and is always present as the chart's base series; it is not a
 selectable catalog entry.
@@ -86,10 +86,15 @@ model, or a future completed-week value.
 ## Consumer filtering
 
 - Stock Details: all 21 entries, multi-select.
-- Price-versus-series strategy predicate: all 21 entries.
-- Discount/premium strategy predicates: the 7 intrinsic-value entries only.
-- Moving-average-versus-moving-average predicate: the 14 moving-average entries only, filtered to
-  the left operand's timeframe and excluding the same identity.
+- Strategy `Price` Metric: the Value picker may consume compatible price-valued canonical series;
+  with the current catalog this includes the 14 moving averages and 7 intrinsic-value sources.
+- Strategy `Margin of Safety`: the selected valuation source is one of the 7 intrinsic-value
+  entries. MOS itself is a derived Strategy metric, not another selectable-series catalog entry.
+- Strategy Gain/Loss: position-state metrics and percentage Values; they do not consume this
+  historical selectable-series catalog.
+- Future Strategy metrics must declare compatibility explicitly in `ai/product/strategies.md` and
+  reuse this catalog where the Value or source is one of its entries. Numeric type compatibility
+  alone is not sufficient reason to expose an arbitrary comparison.
 
 Catalog ordering and labels are product metadata. Backend/domain identities remain structured
 (moving-average type, period, timeframe; or intrinsic source identity) rather than UI labels.
@@ -101,10 +106,10 @@ Package ownership follows the dependency rules in `AGENTS.md`:
 - `@intrinsic/contracts` owns the catalog itself (`packages/contracts/src/selectable-series.ts`):
   the 21 entries with their stable id, group, label, canonical order, and a structured `source`
   discriminator. It is the only package the web app may depend on and is equally available to the
-  API and worker, so Stock Details, the API's selection validation and future Strategy operand
-  pickers all read the same list. The consumer filters from this decision (`MOVING_AVERAGE_SERIES`,
-  `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it rather than in feature code,
-  as do `INTRINSIC_VALUE_BLEND_OPTIONS` and `INTRINSIC_VALUE_MODEL_OPTIONS`, which project the
+  API and worker, so Stock Details, the API's selection validation and future Strategy Value/source
+  pickers all read the same list. Compatible Strategy filtering belongs in canonical contracts or
+  domain definitions shared by UI validation and backend validation rather than duplicated in
+  feature code. `INTRINSIC_VALUE_BLEND_OPTIONS` and `INTRINSIC_VALUE_MODEL_OPTIONS` project the
   catalog into the `blendId`/`model` vocabulary the intrinsic-value endpoints speak so a consumer
   of those responses never needs its own ordered list.
 - Each series has exactly **one** product label, used by the dropdown, the chart legend and the
