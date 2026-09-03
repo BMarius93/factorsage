@@ -227,6 +227,9 @@ function StockDetailsContent({
             overlays={chartOverlays}
             currency={security.currency}
             loading={needsExtended && extended.status === "loading"}
+            // Picking a range is the only thing that reframes the chart. Panning and zooming
+            // inside it stays the user's, through overlay toggles and data updates alike.
+            fitKey={range}
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}
           />
 

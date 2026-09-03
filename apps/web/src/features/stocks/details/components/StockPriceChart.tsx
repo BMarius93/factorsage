@@ -8,6 +8,7 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LogicalRange,
   type MouseEventParams,
   type Time,
 } from "lightweight-charts";
@@ -52,6 +53,12 @@ export type StockPriceChartProps = {
   readonly currency: string;
   /** Dims the chart while a fuller history range is being loaded. */
   readonly loading?: boolean;
+  /**
+   * Identifies the viewport the chart should frame. The chart fits its content once per value,
+   * so a new selected range reframes and everything else — new data for the same range, a new
+   * overlay, any other rerender — leaves the window the user is looking at alone.
+   */
+  readonly fitKey: string;
   readonly ariaLabel: string;
 };
 
@@ -94,8 +101,10 @@ export function StockPriceChart({
   overlays,
   currency,
   loading = false,
+  fitKey,
   ariaLabel,
 }: StockPriceChartProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -110,6 +119,8 @@ export function StockPriceChart({
   // The crosshair handler is subscribed once; refs keep it reading current props.
   const crosshairContextRef = useRef<CrosshairContext>({ overlays, currency });
   crosshairContextRef.current = { overlays, currency };
+  // The last `fitKey` this chart framed. Anything else that changes leaves the viewport alone.
+  const fittedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -140,8 +151,21 @@ export function StockPriceChart({
         horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
         vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
       },
-      handleScroll: false,
-      handleScale: false,
+      // Standard Lightweight Charts navigation: drag the plot to pan through history, wheel or
+      // pinch to zoom the time scale. `vertTouchDrag` stays off so a vertical swipe on a phone
+      // keeps scrolling the page instead of being captured by the chart.
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: { time: true, price: false },
+        axisDoubleClickReset: { time: true, price: true },
+      },
     });
     const priceSeries = chart.addSeries(AreaSeries, {
       lineColor: CHART_COLORS.price,
@@ -195,6 +219,24 @@ export function StockPriceChart({
     };
     chart.subscribeCrosshairMove(onCrosshairMove);
 
+    // The visible window lives on the canvas, so the wrapper carries it as the DOM-visible
+    // contract browser tests assert pan and zoom through — the same approach the oscillator
+    // reference levels use. Written imperatively: a viewport change must never cost a render.
+    const onVisibleLogicalRangeChange = (range: LogicalRange | null) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) {
+        return;
+      }
+      if (!range) {
+        delete wrapper.dataset.visibleRange;
+        return;
+      }
+      wrapper.dataset.visibleRange = `${range.from.toFixed(2)}|${range.to.toFixed(2)}`;
+    };
+    chart
+      .timeScale()
+      .subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
+
     chartRef.current = chart;
     priceSeriesRef.current = priceSeries;
     const overlaySeries = overlaySeriesRef.current;
@@ -203,6 +245,9 @@ export function StockPriceChart({
       // chart.remove() disposes every series, pane, price line and subscription the instance
       // owns; the refs are cleared so a later effect run cannot touch disposed handles.
       chart.unsubscribeCrosshairMove(onCrosshairMove);
+      chart
+        .timeScale()
+        .unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
       chart.remove();
       chartRef.current = null;
       priceSeriesRef.current = null;
@@ -228,8 +273,16 @@ export function StockPriceChart({
     priceSeries.setData(
       points.map((point) => ({ time: point.date as Time, value: point.value })),
     );
-    chart.timeScale().fitContent();
-  }, [points]);
+    // Framing happens once per selected range: on its first drawable frame, and again when the
+    // fuller history behind a long range finishes arriving. After that the viewport belongs to
+    // the user, and an ordinary data update or rerender must not snap it back.
+    if (points.length > 0 && fittedKeyRef.current !== fitKey) {
+      chart.timeScale().fitContent();
+      if (!loading) {
+        fittedKeyRef.current = fitKey;
+      }
+    }
+  }, [points, fitKey, loading]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -334,8 +387,8 @@ export function StockPriceChart({
       const oscillatorPane = chart.panes()[OSCILLATOR_PANE_INDEX];
       oscillatorPane?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
     }
-
-    chart.timeScale().fitContent();
+    // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
+    // reframe the history the user has scrolled to.
   }, [overlays]);
 
   const empty = points.length < 2;
@@ -345,6 +398,7 @@ export function StockPriceChart({
 
   return (
     <div
+      ref={wrapperRef}
       className={styles.wrapper}
       data-loading={loading}
       data-oscillator-pane={hasOscillatorPane ? "true" : undefined}

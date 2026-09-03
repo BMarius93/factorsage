@@ -72,12 +72,15 @@
   border-radius: 999px;
 }
 
+/* Both full-bleed states sit over the plot, so they must stay transparent to pointer events:
+   an overlay that swallows drags is indistinguishable from a chart that cannot be panned. */
 .emptyMessage {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
   margin: 0;
+  pointer-events: none;
   color: var(--color-text-secondary);
   font-size: 14px;
   background: var(--color-surface-muted);
@@ -90,6 +93,7 @@
   z-index: 3;
   display: grid;
   place-items: center;
+  pointer-events: none;
 }
 
 .spinner {

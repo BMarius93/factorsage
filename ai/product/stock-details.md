@@ -31,6 +31,26 @@ All catalog entries remain discoverable. An entry whose series is unavailable fo
 selected range is disabled and identified as unavailable; it is never replaced by zero or silently
 substituted.
 
+## Chart window and navigation
+
+- The page opens on approximately one year and asks the API for exactly that window. It never
+  leaves the range open for the shared loader to fill in, and it never loads long history it does
+  not display. `../architecture/system-overview.md` and
+  `../../docs/decisions/caller-scoped-history-materialization.md` cover what the loader then
+  materializes.
+- `1M`/`3M`/`6M`/`1Y` are filtered from the loaded window with no further request. `5Y` and `MAX`
+  load lazily, each asking only for its own start — `MAX` is the single unbounded case. What has
+  been loaded is kept, so returning to a range already inside it refetches nothing, and a widening
+  load leaves the narrower history on screen while it runs.
+- The chart uses standard Lightweight Charts navigation: drag to pan through history, wheel or
+  pinch to zoom the time scale. A vertical touch drag scrolls the page rather than the chart.
+- The chart frames itself once per selected range — on that range's first drawable frame, and
+  again when a long range's fuller history arrives. After that the visible window belongs to the
+  user: new data, an overlay toggle and any other rerender leave it exactly where they found it.
+  Only picking a different range reframes.
+- The visible window is published on the chart wrapper as `data-visible-range`, which is how
+  browser tests assert pan and zoom against a canvas.
+
 ## Series behavior
 
 - The picker supports multiple simultaneous overlays.

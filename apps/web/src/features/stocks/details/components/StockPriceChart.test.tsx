@@ -21,11 +21,14 @@ type FakeChart = {
     api: FakeSeries;
   }>;
   panesList: FakePane[];
+  options: Record<string, unknown>;
   addSeries: Mock;
   removeSeries: Mock;
   applyOptions: Mock;
   timeScale: Mock;
   fitContent: Mock;
+  subscribeVisibleLogicalRangeChange: Mock;
+  unsubscribeVisibleLogicalRangeChange: Mock;
   panes: Mock;
   subscribeCrosshairMove: Mock;
   unsubscribeCrosshairMove: Mock;
@@ -35,9 +38,13 @@ type FakeChart = {
 // jsdom cannot rasterize a canvas; the library boundary is mocked and the assertions target the
 // data and options our component feeds into it.
 vi.mock("lightweight-charts", () => {
-  const createChartMock = vi.fn(() => {
+  const createChartMock = vi.fn(
+    (_container: unknown, options: Record<string, unknown>) => {
     const fitContent = vi.fn();
+    const subscribeVisibleLogicalRangeChange = vi.fn();
+    const unsubscribeVisibleLogicalRangeChange = vi.fn();
     const chart: FakeChart = {
+      options,
       addedSeries: [],
       panesList: [
         { setStretchFactor: vi.fn() },
@@ -63,15 +70,22 @@ vi.mock("lightweight-charts", () => {
       ),
       removeSeries: vi.fn(),
       applyOptions: vi.fn(),
-      timeScale: vi.fn(() => ({ fitContent })),
+      timeScale: vi.fn(() => ({
+        fitContent,
+        subscribeVisibleLogicalRangeChange,
+        unsubscribeVisibleLogicalRangeChange,
+      })),
       fitContent,
+      subscribeVisibleLogicalRangeChange,
+      unsubscribeVisibleLogicalRangeChange,
       panes: vi.fn(() => chart.panesList),
       subscribeCrosshairMove: vi.fn(),
       unsubscribeCrosshairMove: vi.fn(),
       remove: vi.fn(),
     };
     return chart;
-  });
+    },
+  );
   return {
     createChart: createChartMock,
     AreaSeries: "AreaSeries",
@@ -97,6 +111,7 @@ describe("StockPriceChart", () => {
         points={POINTS}
         overlays={[]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -125,6 +140,7 @@ describe("StockPriceChart", () => {
         points={POINTS}
         overlays={[overlay]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -142,6 +158,7 @@ describe("StockPriceChart", () => {
         points={POINTS}
         overlays={[]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -177,6 +194,7 @@ describe("StockPriceChart", () => {
         points={POINTS}
         overlays={overlays}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -213,6 +231,7 @@ describe("StockPriceChart", () => {
         points={POINTS}
         overlays={[{ ...weekly, color: overlayColorAt(0) }]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -236,6 +255,7 @@ describe("StockPriceChart", () => {
           { ...weekly, color: overlayColorAt(1) },
         ]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -251,6 +271,7 @@ describe("StockPriceChart", () => {
         points={[{ date: "2026-08-28", value: 10 }]}
         overlays={[]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="NEWCO chart"
       />,
     );
@@ -267,6 +288,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         loading
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -276,12 +298,171 @@ describe("StockPriceChart", () => {
     ).toBeDefined();
   });
 
+  it("enables the standard pan and zoom gestures", () => {
+    render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    const chart = lastChart();
+    // Dragging the plot pans through history; wheel and pinch zoom the time scale.
+    expect(chart.options.handleScroll).toMatchObject({
+      pressedMouseMove: true,
+      horzTouchDrag: true,
+      // A vertical swipe belongs to the page on a phone, not to the chart.
+      vertTouchDrag: false,
+    });
+    expect(chart.options.handleScale).toMatchObject({
+      mouseWheel: true,
+      pinch: true,
+    });
+  });
+
+  it("keeps the viewport across data updates and overlay changes", () => {
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    expect(chart.fitContent).toHaveBeenCalledTimes(1);
+
+    // A fuller dataset for the same range — the kind of update that arrives behind the user's
+    // back — must not snap the window they scrolled to back to the whole series.
+    rerender(
+      <StockPriceChart
+        points={[{ date: "2026-08-26", value: 190 }, ...POINTS]}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    // Neither does enabling an indicator.
+    rerender(
+      <StockPriceChart
+        points={[{ date: "2026-08-26", value: 190 }, ...POINTS]}
+        overlays={[priceOverlay(0)]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    expect(chart.fitContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("reframes when the selected range changes", () => {
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="5Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    expect(chart.fitContent).toHaveBeenCalledTimes(2);
+  });
+
+  it("reframes again once a long range finishes loading its fuller history", () => {
+    // Switching to 5Y frames whatever is already loaded, then reframes when the real five years
+    // arrive. Only then is the range considered framed, so nothing refits afterwards.
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        loading
+        fitKey="5Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const longHistory = [{ date: "2022-01-03", value: 90 }, ...POINTS];
+    rerender(
+      <StockPriceChart
+        points={longHistory}
+        overlays={[]}
+        currency="USD"
+        fitKey="5Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(chart.fitContent).toHaveBeenCalledTimes(3);
+
+    rerender(
+      <StockPriceChart
+        points={longHistory}
+        overlays={[priceOverlay(0)]}
+        currency="USD"
+        fitKey="5Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(chart.fitContent).toHaveBeenCalledTimes(3);
+  });
+
+  it("publishes the visible range so the window is observable from the DOM", () => {
+    const { container } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const wrapper = container.firstElementChild as HTMLElement;
+
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+    onRangeChange({ from: 12.5, to: 40.25 });
+    expect(wrapper.dataset.visibleRange).toBe("12.50|40.25");
+
+    onRangeChange(null);
+    expect(wrapper.dataset.visibleRange).toBeUndefined();
+  });
+
   it("tears the chart instance down on unmount", () => {
     const { unmount } = render(
       <StockPriceChart
         points={POINTS}
         overlays={[]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -368,6 +549,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[priceOverlay(0), rsiOverlay("RSI_14D", "RSI 14D", 1, 54.32)]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -408,6 +590,7 @@ describe("StockPriceChart oscillator pane", () => {
           rsiOverlay("RSI_14D", "RSI 14D", 1, 54.3),
         ]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -438,6 +621,7 @@ describe("StockPriceChart oscillator pane", () => {
           rsiOverlay("RSI_21D", "RSI 21D", 2, 48.9),
         ]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -457,6 +641,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={both}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -469,6 +654,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3)]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -482,6 +668,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={both}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -497,6 +684,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2)]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -511,6 +699,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -530,6 +719,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[overlay]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -541,6 +731,7 @@ describe("StockPriceChart oscillator pane", () => {
           points={POINTS}
           overlays={[]}
           currency="USD"
+          fitKey="1Y"
           ariaLabel="AAPL chart"
         />,
       );
@@ -549,6 +740,7 @@ describe("StockPriceChart oscillator pane", () => {
           points={POINTS}
           overlays={[overlay]}
           currency="USD"
+          fitKey="1Y"
           ariaLabel="AAPL chart"
         />,
       );
@@ -580,6 +772,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[rsi7]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -591,6 +784,7 @@ describe("StockPriceChart oscillator pane", () => {
           points={POINTS}
           overlays={overlays}
           currency="USD"
+          fitKey="1Y"
           ariaLabel="AAPL chart"
         />,
       );
@@ -647,6 +841,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[rsi14]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -658,6 +853,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={[rsi7, rsi14]}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
@@ -680,6 +876,7 @@ describe("StockPriceChart oscillator pane", () => {
         points={POINTS}
         overlays={overlays}
         currency="USD"
+        fitKey="1Y"
         ariaLabel="AAPL chart"
       />,
     );
