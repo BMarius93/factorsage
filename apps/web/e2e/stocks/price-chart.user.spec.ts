@@ -8,16 +8,18 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * `pnpm test:securities:seed` shortly before the run, so the deterministic QA history is present
  * and the loader stays off any market-data provider.
  *
- * The visible window lives on a canvas, so it is asserted through `data-visible-range` — the DOM
- * contract the chart publishes for exactly this purpose, in the same way the oscillator pane
- * publishes its reference levels.
+ * The visible window lives on a canvas, so it is asserted through the DOM contract the chart
+ * publishes for exactly this purpose, in the same way the oscillator pane publishes its reference
+ * levels: `data-visible-range` carries the window in dates, which is what "the user is looking at
+ * older history" means and what survives a load prepending bars in front of it, and
+ * `data-visible-logical` carries the raw bar-index range.
  */
 
 const QA_SYMBOL = "QATEST1";
 
 const DESKTOP = { width: 1440, height: 900 };
 
-type VisibleRange = { readonly from: number; readonly to: number };
+type VisibleRange = { readonly from: string; readonly to: string };
 
 function priceChart(page: Page): Locator {
   return page.getByRole("img", {
@@ -54,11 +56,11 @@ async function openStock(page: Page): Promise<void> {
   // The chart publishes its window as soon as it has framed the data.
   await expect(chartWrapper(page)).toHaveAttribute(
     "data-visible-range",
-    /^-?\d+\.\d\d\|-?\d+\.\d\d$/,
+    /^\d{4}-\d{2}-\d{2}\|\d{4}-\d{2}-\d{2}$/,
   );
 }
 
-async function visibleRange(page: Page): Promise<VisibleRange> {
+async function settleFrames(page: Page): Promise<void> {
   // The library repositions on an animation frame; settle two before reading.
   await page.evaluate(
     () =>
@@ -66,15 +68,33 @@ async function visibleRange(page: Page): Promise<VisibleRange> {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))),
       ),
   );
+}
+
+async function visibleRange(page: Page): Promise<VisibleRange> {
+  await settleFrames(page);
   const raw = await chartWrapper(page).getAttribute("data-visible-range");
   expect(raw).not.toBeNull();
-  const [from, to] = raw!.split("|").map(Number);
-  expect(Number.isFinite(from) && Number.isFinite(to)).toBe(true);
+  const [from, to] = raw!.split("|");
+  expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  expect(to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   return { from: from!, to: to! };
 }
 
+/** Calendar days the visible window spans. */
 function width(range: VisibleRange): number {
-  return range.to - range.from;
+  return (Date.parse(range.to) - Date.parse(range.from)) / 86_400_000;
+}
+
+/**
+ * Waits out any history load a gesture started.
+ *
+ * Panning past the oldest loaded bar is a request for older history, and that request finishing is
+ * exactly what must *not* move the viewport. Settling it first is what makes the assertion about
+ * a preserved window a real assertion rather than a race that happens to pass.
+ */
+async function settleHistoryLoad(page: Page): Promise<void> {
+  await expect(chartWrapper(page)).toHaveAttribute("data-loading", "false");
+  await settleFrames(page);
 }
 
 /** Drags horizontally across the middle of the plot. Negative `dx` walks forward in time. */
@@ -101,16 +121,17 @@ test.describe("QA_USER Stock Details price chart navigation", () => {
     await dragChart(page, 240);
     const after = await visibleRange(page);
 
-    expect(after.from).toBeLessThan(before.from - 1);
-    expect(after.to).toBeLessThan(before.to - 1);
-    // A pan moves the window; it never rescales it.
-    expect(Math.abs(width(after) - width(before))).toBeLessThan(1);
+    expect(after.from < before.from).toBe(true);
+    expect(after.to < before.to).toBe(true);
+    // A pan moves the window; it never rescales it. A few days of slack absorbs the fact that a
+    // window's edges land on trading days, which are not evenly spaced.
+    expect(Math.abs(width(after) - width(before))).toBeLessThan(10);
 
     // And it works in the other direction, back towards the latest close.
     await dragChart(page, -240);
     const returned = await visibleRange(page);
-    expect(returned.from).toBeGreaterThan(after.from + 1);
-    expect(Math.abs(width(returned) - width(after))).toBeLessThan(1);
+    expect(returned.from > after.from).toBe(true);
+    expect(Math.abs(width(returned) - width(after))).toBeLessThan(10);
   });
 
   test("zooms the time scale with the wheel", async ({ page }) => {
@@ -125,6 +146,8 @@ test.describe("QA_USER Stock Details price chart navigation", () => {
     }
     const zoomedIn = await visibleRange(page);
     expect(width(zoomedIn)).toBeLessThan(width(before) * 0.9);
+    // Zooming in keeps drawing: the window still resolves to real trading days.
+    expect(width(zoomedIn)).toBeGreaterThan(0);
 
     for (let tick = 0; tick < 10; tick += 1) {
       await page.mouse.wheel(0, 120);
@@ -138,8 +161,11 @@ test.describe("QA_USER Stock Details price chart navigation", () => {
   }) => {
     await openStock(page);
 
-    // Put the chart somewhere the user chose and nothing else would have picked.
+    // Put the chart somewhere the user chose and nothing else would have picked. Dragging past
+    // the loaded edge starts a history load, so settle it before reading the chosen window —
+    // otherwise the assertion would race the very thing it is checking is harmless.
     await dragChart(page, 200);
+    await settleHistoryLoad(page);
     const box = await priceChart(page).boundingBox();
     await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
     for (let tick = 0; tick < 3; tick += 1) {
@@ -171,6 +197,7 @@ test.describe("QA_USER Stock Details price chart navigation", () => {
   }) => {
     await openStock(page);
     await dragChart(page, 220);
+    await settleHistoryLoad(page);
     const panned = await visibleRange(page);
 
     // An explicit range change is the one thing that is allowed to move the window.
@@ -184,6 +211,6 @@ test.describe("QA_USER Stock Details price chart navigation", () => {
     // ...and the new range is then the user's to navigate again.
     await dragChart(page, 160);
     const afterPan = await visibleRange(page);
-    expect(afterPan.from).toBeLessThan(reframed.from - 1);
+    expect(afterPan.from < reframed.from).toBe(true);
   });
 });

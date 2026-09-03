@@ -1095,6 +1095,79 @@ describe("canonical full-stock hydration", () => {
     });
   });
 
+  it("reports how far back Stock Details may explore this security", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    // A permission, not a promise: the bound reaches the full horizon even though this load only
+    // materialized a year of it, because that is how far the surface is allowed to navigate.
+    expect(details.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
+    });
+  });
+
+  it("stops the reported bound at a listing date inside the horizon", async () => {
+    const store = new FakeStore();
+    store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
+    const provider = new FakeProvider();
+    const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    const loader = createService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    // `LISTING` is what lets a client say "this is where the security starts" rather than
+    // implying the thirty-year limit was reached.
+    expect(details.history).toEqual({
+      start: "2020-06-01",
+      end: CANONICAL_RANGE.to,
+      startOrigin: "LISTING",
+    });
+  });
+
+  it("narrows the reported bound to a product limit tighter than the retained horizon", async () => {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    const loader = new CanonicalStockDataService(
+      store,
+      provider,
+      new MemoryCache(),
+      new InMemoryLoadCoordinator(),
+      {
+        historyYears: 30,
+        stockDetailsHistoryYears: 10,
+        recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
+        fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
+        recentTailCalendarDays: 10,
+        now: () => new Date(NOW),
+      },
+    );
+
+    const details = await loader.getStockDetails("AAPL");
+
+    // The surface stops at its own limit; what a backtest may still reach for is unchanged.
+    expect(details.history.start).toBe("2016-08-24");
+  });
+
   it("keeps the catalog identity on stock details when the provider has no profile", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();

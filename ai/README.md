@@ -17,8 +17,10 @@ For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
 For strategy work, also read `product/strategies.md`.
-For Stock Details or selectable-series work, also read `product/stock-details.md` and
-`../docs/decisions/selectable-series-catalog.md`.
+For Stock Details or selectable-series work, also read `product/stock-details.md`,
+`../docs/decisions/selectable-series-catalog.md`, and — for the chart's history window, its
+30-year bound and how the viewport drives loading —
+`../docs/decisions/viewport-driven-stock-details-history.md`.
 
 For any work on calculated daily series — moving averages, oscillators (RSI), intrinsic-value
 models and blends, the derived state, or adding a new series or family — read these in order:

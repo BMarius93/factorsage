@@ -8,6 +8,7 @@ import {
   type SecurityProfileResponse,
   type SecurityResponse,
   type StockDetailsResponse,
+  type StockHistoryBoundsResponse,
   type StockSearchResultResponse,
 } from "@intrinsic/contracts";
 import {
@@ -36,7 +37,14 @@ import {
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { STOCK_DATA_SERVICE } from "./stock-data.tokens";
+import {
+  STOCK_DATA_SERVICE,
+  STOCK_DETAILS_RETENTION_YEARS,
+} from "./stock-data.tokens";
+import {
+  clampStockDetailsRange,
+  stockDetailsHistoryBounds,
+} from "./stock-details-history";
 
 function range(from?: string, to?: string, required = false): DateRange {
   if (required && (!from || !to)) {
@@ -241,7 +249,24 @@ export class StocksController {
   constructor(
     @Inject(STOCK_DATA_SERVICE)
     private readonly stocks: StockDataService,
+    @Inject(STOCK_DETAILS_RETENTION_YEARS)
+    private readonly retentionYears: number,
   ) {}
+
+  /**
+   * The bound every Stock Details read is clamped to, before any security is resolved.
+   *
+   * Only the horizon half is knowable here; the listing date narrows the bound this surface
+   * *reports*, and the canonical loader applies it to what it materializes. Clamping the
+   * horizon at the edge is what keeps a hand-written `from=1900-01-01` from turning into an
+   * unbounded backend request.
+   */
+  private horizonBounds(): StockHistoryBoundsResponse {
+    return stockDetailsHistoryBounds({
+      today: new Date().toISOString().slice(0, 10),
+      retentionYears: this.retentionYears,
+    });
+  }
 
   /**
    * Global stock search.
@@ -269,7 +294,8 @@ export class StocksController {
     @Query("from") from?: string,
     @Query("to") to?: string,
   ): Promise<StockDetailsResponse> {
-    const query = range(from, to);
+    const horizon = this.horizonBounds();
+    const query = clampStockDetailsRange(range(from, to), horizon);
     return this.execute(async () => {
       const details = await this.stocks.getStockDetails(symbol, query);
       return {
@@ -277,6 +303,10 @@ export class StocksController {
         ...(details.profile
           ? { profile: profileResponse(details.profile) }
           : {}),
+        // Reported by the loader, which owns the clock and the retained horizon. The clamp above
+        // is the surface's own coarse guard; the bound a client navigates by is the one the
+        // loader will actually honour.
+        history: details.history,
         prices: details.prices.map(priceResponse),
         technicals: details.technicals.map((technical) =>
           technicalResponse(technical),
@@ -293,7 +323,7 @@ export class StocksController {
     @Query("from") from?: string,
     @Query("to") to?: string,
   ): Promise<DailyPriceResponse[]> {
-    const query = range(from, to, true);
+    const query = clampStockDetailsRange(range(from, to, true), this.horizonBounds());
     return this.execute(async () =>
       (await this.stocks.getDailyPrices(symbol, query)).map(priceResponse),
     );
@@ -311,7 +341,7 @@ export class StocksController {
     @Query("to") to?: string,
     @Query("series") seriesQuery?: string | string[],
   ): Promise<DailyTechnicalResponse[]> {
-    const query = range(from, to, true);
+    const query = clampStockDetailsRange(range(from, to, true), this.horizonBounds());
     const fields = technicalFields(seriesQuery);
     return this.execute(async () =>
       (await this.stocks.getDailyTechnicals(symbol, query)).map((technical) =>
@@ -328,7 +358,7 @@ export class StocksController {
     @Query("asOf") asOfQuery?: string,
     @Query("models") modelsQuery?: string | string[],
   ): Promise<IntrinsicValueResponse[]> {
-    const query = range(from, to);
+    const query = clampStockDetailsRange(range(from, to), this.horizonBounds());
     const models = selections<IntrinsicValueModel>(
       modelsQuery,
       INTRINSIC_VALUE_MODELS,
@@ -354,7 +384,7 @@ export class StocksController {
     @Query("asOf") asOfQuery?: string,
     @Query("blendIds") blendsQuery?: string | string[],
   ): Promise<IntrinsicValueBlendResponse[]> {
-    const query = range(from, to);
+    const query = clampStockDetailsRange(range(from, to), this.horizonBounds());
     const blendIds = selections<IntrinsicValueBlendId>(
       blendsQuery,
       INTRINSIC_VALUE_BLEND_IDS,

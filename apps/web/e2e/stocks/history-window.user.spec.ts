@@ -49,6 +49,13 @@ function spanInDays({ from, to }: HistoryRequest): number {
   return (Date.parse(to) - Date.parse(from)) / 86_400_000;
 }
 
+/** Thirty years before today, the Stock Details bound this deployment reports. */
+function historyBoundStart(): string {
+  const today = new Date();
+  today.setUTCFullYear(today.getUTCFullYear() - 30);
+  return today.toISOString().slice(0, 10);
+}
+
 test.describe("QA_USER Stock Details history window", () => {
   test("opens on a bounded one-year window and loads longer history only on request", async ({
     page,
@@ -71,8 +78,10 @@ test.describe("QA_USER Stock Details history window", () => {
     expect(initial.path).toBe(`/stocks/${QA_SYMBOL}`);
     expect(spanInDays(initial)).toBeGreaterThanOrEqual(364);
     expect(spanInDays(initial)).toBeLessThanOrEqual(367);
+    // Thirty years are permitted; none of them are downloaded to draw twelve months.
+    expect(initial.from > historyBoundStart()).toBe(true);
 
-    // Switching between ranges inside that window filters what is loaded; no new read at all.
+    // Switching between ranges inside that window is a viewport change; no new read at all.
     for (const range of ["1M", "3M", "6M", "1Y"]) {
       await page
         .getByRole("group", { name: "Chart range" })
@@ -81,8 +90,8 @@ test.describe("QA_USER Stock Details history window", () => {
     }
     expect(requests).toHaveLength(1);
 
-    // Only asking for a longer range loads more, and it asks for that range — five years, not
-    // everything the API is willing to serve.
+    // Only asking for a longer range loads more, and it asks for the *gap*: everything back to
+    // five years, ending where the loaded window already starts.
     await page
       .getByRole("group", { name: "Chart range" })
       .getByText("5Y", { exact: true })
@@ -93,11 +102,13 @@ test.describe("QA_USER Stock Details history window", () => {
     const fiveYear = requests.slice(1);
     expect(fiveYear.length).toBeGreaterThan(0);
     for (const request of fiveYear) {
-      expect(spanInDays(request)).toBeGreaterThan(365 * 5 - 3);
-      expect(spanInDays(request)).toBeLessThan(365 * 5 + 3);
+      // Five years back from today, ending just before the year already on screen.
+      expect(spanInDays({ ...request, to: initial.to })).toBeGreaterThan(365 * 5 - 3);
+      expect(spanInDays({ ...request, to: initial.to })).toBeLessThan(365 * 5 + 3);
+      expect(request.to < initial.from).toBe(true);
     }
 
-    // MAX is the one range that is genuinely unbounded, and only then is everything requested.
+    // MAX is the thirty-year product bound, not an unbounded read, and never reaches past it.
     const beforeMax = requests.length;
     await page
       .getByRole("group", { name: "Chart range" })
@@ -106,8 +117,15 @@ test.describe("QA_USER Stock Details history window", () => {
     await expect
       .poll(() => requests.length, { timeout: 15_000 })
       .toBeGreaterThan(beforeMax);
+    const bound = historyBoundStart();
     for (const request of requests.slice(beforeMax)) {
-      expect(spanInDays(request)).toBeGreaterThan(365 * 5 + 3);
+      expect(spanInDays({ ...request, to: initial.to })).toBeGreaterThan(365 * 5 + 3);
+      // Within a day of the bound: the request is the bound, not an open-ended read.
+      expect(Math.abs(Date.parse(request.from) - Date.parse(bound))).toBeLessThanOrEqual(
+        86_400_000,
+      );
     }
+    // Nothing before the boundary, ever.
+    expect(requests.every((request) => request.from >= bound)).toBe(true);
   });
 });

@@ -494,9 +494,24 @@ export type StockDatasetState = {
   lastSyncedAt?: Instant;
 };
 
+/**
+ * How far back the Stock Details surface may explore one security, and why it stops there.
+ *
+ * A permission, not a promise that data exists that far back: `HORIZON` is the configured
+ * product limit, `LISTING` the security's own listing date when that is later. Where a
+ * security's real history begins is answered by the rows a bounded read returns.
+ */
+export type StockHistoryBounds = {
+  start: LocalDate;
+  end: LocalDate;
+  startOrigin: "HORIZON" | "LISTING";
+};
+
 export type StockDetails = {
   security: Security;
   profile?: SecurityProfile;
+  /** The window this surface is allowed to explore for this security. */
+  history: StockHistoryBounds;
   prices: DailyPrice[];
   technicals: DailyTechnical[];
   intrinsicValues: IntrinsicValuePoint[];

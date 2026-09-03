@@ -146,10 +146,36 @@ export type IntrinsicValueBlendResponse = {
   currency: string;
 };
 
-/** Composite payload for the future bounded Stock Details endpoint. */
+/**
+ * Maximum historical horizon the Stock Details surface may explore, in years.
+ *
+ * This is the one definition of that product limit. The API derives every `history.start` it
+ * reports from it and clamps every Stock Details range read to it, and the web app navigates
+ * against the reported bound rather than a second copy of the number. It is a limit on *this*
+ * surface only: a backtest names its own period through the loader and is unaffected.
+ */
+export const STOCK_DETAILS_MAX_HISTORY_YEARS = 30;
+
+/**
+ * How far back Stock Details may go for one security, and why it stops there.
+ *
+ * `start` is the earliest date this surface will request: the 30-year product horizon, or the
+ * security's listing date when that is later. It is a *permission*, not a promise that data
+ * exists that far back — where a security's real history begins is answered by the rows the
+ * bounded reads return, which is how the chart learns to stop before the horizon.
+ */
+export type StockHistoryBoundsResponse = {
+  start: string;
+  end: string;
+  startOrigin: "HORIZON" | "LISTING";
+};
+
+/** Composite payload for the bounded Stock Details endpoint. */
 export type StockDetailsResponse = {
   security: SecurityResponse;
   profile?: SecurityProfileResponse;
+  /** The window this surface is allowed to explore for this security. */
+  history: StockHistoryBoundsResponse;
   prices: DailyPriceResponse[];
   technicals: DailyTechnicalResponse[];
   intrinsicValues: IntrinsicValueResponse[];

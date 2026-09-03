@@ -23,6 +23,7 @@ import {
   type SecuritySearchQuery,
   type StockDataService,
   type StockDetails,
+  type StockHistoryBounds,
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort } from "@intrinsic/fmp";
 import {
@@ -187,6 +188,12 @@ export class StockDataValidationError extends Error {
 export type CanonicalStockDataServiceOptions = {
   defaultHistoryDays?: number;
   historyYears?: number;
+  /**
+   * Retained years the Stock Details surface may explore, when that is narrower than the
+   * loader's own retention horizon. Defaults to the horizon, so an unconfigured service
+   * reports exactly what it retains. A backtest names its own period and is unaffected.
+   */
+  stockDetailsHistoryYears?: number;
   recentPriceFreshnessMs?: number;
   fundamentalsFreshnessMs?: number;
   recentTailCalendarDays?: number;
@@ -196,6 +203,7 @@ export type CanonicalStockDataServiceOptions = {
 export class CanonicalStockDataService implements StockDataService {
   private readonly defaultHistoryDays: number;
   private readonly historyYears: number;
+  private readonly stockDetailsHistoryYears: number;
   private readonly recentPriceFreshnessMs: number;
   private readonly fundamentalsFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
@@ -210,6 +218,10 @@ export class CanonicalStockDataService implements StockDataService {
   ) {
     this.defaultHistoryDays = options.defaultHistoryDays ?? 365;
     this.historyYears = options.historyYears ?? 30;
+    this.stockDetailsHistoryYears = Math.min(
+      this.historyYears,
+      options.stockDetailsHistoryYears ?? this.historyYears,
+    );
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.fundamentalsFreshnessMs =
@@ -428,6 +440,7 @@ export class CanonicalStockDataService implements StockDataService {
     return {
       security,
       ...(profile ? { profile } : {}),
+      history: this.stockDetailsHistoryBounds(security),
       prices,
       technicals: dailyState.map(toDailyTechnical),
       intrinsicValues: toIntrinsicValuePoints(dailyState, {
@@ -1462,6 +1475,23 @@ export class CanonicalStockDataService implements StockDataService {
         : required.from,
       to: required.to,
     };
+  }
+
+  /**
+   * How far back Stock Details may go for this security.
+   *
+   * Computed here rather than at the HTTP edge because this is where the clock and the retained
+   * horizon live: a bound derived from a second clock or a second copy of the horizon would be a
+   * bound the loader does not actually honour. The listing date wins when it is later, so a
+   * client can say "this is where the security starts" instead of implying the limit was reached.
+   */
+  private stockDetailsHistoryBounds(security: Security): StockHistoryBounds {
+    const today = this.today();
+    const horizonStart = subtractYears(today, this.stockDetailsHistoryYears);
+    const listing = security.ipoDate;
+    return listing !== undefined && listing > horizonStart
+      ? { start: listing, end: today, startOrigin: "LISTING" }
+      : { start: horizonStart, end: today, startOrigin: "HORIZON" };
   }
 
   private canonicalTarget(security: Security): Required<DateRange> {

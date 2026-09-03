@@ -48,7 +48,25 @@ vi.mock("./StockPriceChart", () => ({
         .map((overlay) => overlay.placement)
         .join(",")}
       data-loading={props.loading ? "true" : "false"}
-    />
+      data-fit-key={props.fitKey}
+      data-frame-from={props.frameFrom}
+      data-frame-to={props.frameTo}
+      data-history-exhausted={props.historyExhausted ? "true" : "false"}
+    >
+      {/* The two ways a viewport reaches unloaded history, as the real chart reports them:
+          a pan that has just crossed the oldest bar, and a zoom-out that opened up years of
+          empty space in one gesture. */}
+      <button
+        type="button"
+        data-testid="pan-past-edge"
+        onClick={() => props.onReachHistoryEdge?.(30)}
+      />
+      <button
+        type="button"
+        data-testid="zoom-out-past-edge"
+        onClick={() => props.onReachHistoryEdge?.(5000)}
+      />
+    </div>
   ),
 }));
 
@@ -86,10 +104,18 @@ function bar(date: string, close: number): DailyPriceResponse {
   };
 }
 
+/** Thirty years before the frozen test date; AAPL listed long before it, so the horizon wins. */
+const HISTORY_BOUNDS = {
+  start: "1996-08-28",
+  end: "2026-08-28",
+  startOrigin: "HORIZON",
+} as const;
+
 /** Fixture anchored to the frozen test date 2026-08-28 (window 2025-08-28 → 2026-08-28). */
 function detailsFixture(): StockDetailsResponse {
   return {
     security: { ...SECURITY },
+    history: { ...HISTORY_BOUNDS },
     profile: {
       description: "Designs, manufactures and markets consumer electronics.",
       website: "https://www.apple.com",
@@ -147,13 +173,6 @@ function detailsFixture(): StockDetailsResponse {
     ],
   };
 }
-
-const EXTENDED_PRICES = [
-  bar("2010-01-04", 50),
-  bar("2022-08-30", 150),
-  bar("2024-01-05", 180),
-  bar("2026-08-28", 232),
-];
 
 function chart(): HTMLElement {
   return screen.getByTestId("price-chart");
@@ -239,28 +258,31 @@ describe("StockDetails", () => {
     ).toBe("https://www.apple.com");
   });
 
-  it("switches short ranges by filtering loaded data, without refetching", async () => {
+  it("frames a shorter range out of the loaded window without refetching", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     const user = setupUser();
 
     render(<StockDetails symbol="AAPL" />);
     await screen.findByTestId("price-chart");
 
+    // Every range inside the loaded window is a viewport change. The chart keeps the whole loaded
+    // history — that is what makes panning out of the selected range instant — and is told which
+    // window to show.
     await user.click(screen.getByRole("radio", { name: "1M" }));
-    expect(chart().dataset.pointCount).toBe("3");
-    expect(chart().dataset.firstDate).toBe("2026-07-30");
+    expect(chart().dataset.frameFrom).toBe("2026-07-28");
+    expect(chart().dataset.pointCount).toBe("6");
 
     await user.click(screen.getByRole("radio", { name: "3M" }));
-    expect(chart().dataset.pointCount).toBe("4");
+    expect(chart().dataset.frameFrom).toBe("2026-05-28");
 
     await user.click(screen.getByRole("radio", { name: "6M" }));
-    expect(chart().dataset.pointCount).toBe("5");
+    expect(chart().dataset.frameFrom).toBe("2026-02-28");
 
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
     expect(fetchDailyPriceHistoryMock).not.toHaveBeenCalled();
   });
 
-  it("loads only the history a long range needs and keeps it for later switches", async () => {
+  it("loads only the gap a long range needs and keeps it for later switches", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     let releaseExtended: (rows: DailyPriceResponse[]) => void = () => {};
     fetchDailyPriceHistoryMock.mockReturnValue(
@@ -275,42 +297,265 @@ describe("StockDetails", () => {
 
     await user.click(screen.getByRole("radio", { name: "5Y" }));
     expect(chart().dataset.loading).toBe("true");
-    // Five years, not the listing date: a long range asks for its own start and nothing older.
+    // Five years, and only the part that is missing: the year already on screen is not refetched.
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledWith(
       "AAPL",
-      { from: "2021-08-28", to: "2026-08-28" },
+      { from: "2021-08-28", to: "2025-08-27" },
       expect.anything(),
     );
 
-    releaseExtended(EXTENDED_PRICES);
+    releaseExtended([bar("2022-08-30", 150), bar("2024-01-05", 180)]);
     await waitFor(() => expect(chart().dataset.loading).toBe("false"));
-    // 5Y keeps dates from 2021-08-28 onward.
-    expect(chart().dataset.pointCount).toBe("3");
+    // Merged in front of the details window, ascending and without a duplicate at the seam.
+    expect(chart().dataset.pointCount).toBe("8");
     expect(chart().dataset.firstDate).toBe("2022-08-30");
+    expect(chart().dataset.lastDate).toBe("2026-08-28");
 
-    // MAX is the one unbounded range, so it widens the load back to the listing date — and the
-    // history already on screen stays there while it does.
+    // MAX is the 30-year product bound, not the listing date, and it asks only for what is left.
+    let releaseMax: (rows: DailyPriceResponse[]) => void = () => {};
+    fetchDailyPriceHistoryMock.mockReturnValue(
+      new Promise((resolve) => {
+        releaseMax = resolve;
+      }),
+    );
     await user.click(screen.getByRole("radio", { name: "MAX" }));
-    expect(chart().dataset.pointCount).toBe("4");
-    expect(chart().dataset.firstDate).toBe("2010-01-04");
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2);
     expect(fetchDailyPriceHistoryMock).toHaveBeenLastCalledWith(
       "AAPL",
-      { from: "1980-12-12", to: "2026-08-28" },
+      { from: "1996-08-28", to: "2021-08-27" },
       expect.anything(),
     );
-    await waitFor(() => expect(chart().dataset.loading).toBe("false"));
+    // The history already on screen stays there while the older years are on their way.
+    expect(chart().dataset.pointCount).toBe("8");
 
-    // Returning to a short range falls back to the detail window's own data.
+    releaseMax([bar("2010-01-04", 50)]);
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("9"));
+
+    // Returning to a shorter range is a viewport change over the same superset: nothing refetches.
     await user.click(screen.getByRole("radio", { name: "1Y" }));
-    expect(chart().dataset.pointCount).toBe("6");
-
-    // Re-entering a range already inside the loaded superset refetches nothing.
+    expect(chart().dataset.frameFrom).toBe("2025-08-28");
     await user.click(screen.getByRole("radio", { name: "5Y" }));
-    expect(chart().dataset.pointCount).toBe("3");
+    expect(chart().dataset.frameFrom).toBe("2021-08-28");
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2);
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens on its own window and asks for no history until the viewport needs it", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    expect(fetchStockDetailsMock).toHaveBeenCalledWith(
+      "AAPL",
+      { from: "2025-08-28", to: "2026-08-28" },
+      expect.anything(),
+    );
+    // Thirty years are permitted; none of them are downloaded to draw twelve months.
+    expect(fetchDailyPriceHistoryMock).not.toHaveBeenCalled();
+    expect(fetchDailyTechnicalHistoryMock).not.toHaveBeenCalled();
+    expect(chart().dataset.historyExhausted).toBe("false");
+  });
+
+  it("asks for nothing on open when the market has been closed for days", async () => {
+    // The requested window ends today; the last close inside it is days old. Anchoring the
+    // default range to that close puts its start before the year already loaded, and every single
+    // page view opens with a history request for the gap between them.
+    vi.setSystemTime(new Date("2026-08-31T12:00:00.000Z"));
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    expect(fetchStockDetailsMock).toHaveBeenCalledWith(
+      "AAPL",
+      { from: "2025-08-31", to: "2026-08-31" },
+      expect.anything(),
+    );
+    expect(fetchDailyPriceHistoryMock).not.toHaveBeenCalled();
+  });
+
+  it("loads older history when a pan reaches the edge, and keeps the range framed where it was", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([
+      bar("2024-09-03", 120),
+      bar("2025-03-03", 130),
+    ]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    const framedBefore = chart().dataset.fitKey;
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+
+    // One more year, measured from what is loaded — not a jump to the whole horizon.
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledWith(
+      "AAPL",
+      { from: "2024-08-28", to: "2025-08-27" },
+      expect.anything(),
+    );
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("8"));
+    expect(chart().dataset.firstDate).toBe("2024-09-03");
+    // Arriving history is not a reason to reframe: the window the user navigated to is theirs.
+    expect(chart().dataset.fitKey).toBe(framedBefore);
+    expect(chart().dataset.frameFrom).toBe("2025-08-28");
+  });
+
+  it("fills a wide zoom-out in one request sized to the viewport", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2005-06-01", 20)]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    await user.click(screen.getByTestId("zoom-out-past-edge"));
+
+    // Thousands of empty bars means years, asked for at once rather than a year at a time — and
+    // still not the whole horizon.
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledWith(
+      "AAPL",
+      { from: "2005-05-09", to: "2025-08-27" },
+      expect.anything(),
+    );
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("7"));
+    expect(chart().dataset.firstDate).toBe("2005-06-01");
+  });
+
+  it("does not refetch history it already holds", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("7"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+
+    // Panning back and forth across a range that is already loaded costs nothing. The edge is
+    // reported on every animation frame of a drag, so this is the difference between one request
+    // and hundreds.
+    await user.click(screen.getByRole("radio", { name: "1M" }));
+    await user.click(screen.getByRole("radio", { name: "1Y" }));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses a burst of edge reports into a single outstanding request", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    let release: (rows: DailyPriceResponse[]) => void = () => {};
+    fetchDailyPriceHistoryMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2005-06-01", 20)]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    // A fast drag past the edge, then a zoom-out, while the first load is still outstanding.
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await user.click(screen.getByTestId("zoom-out-past-edge"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+
+    release([bar("2024-09-03", 120)]);
+    // The widest ask survives and runs once; the duplicates collapsed into it.
+    await waitFor(() =>
+      expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2),
+    );
+    expect(fetchDailyPriceHistoryMock).toHaveBeenLastCalledWith(
+      "AAPL",
+      expect.objectContaining({ to: "2024-08-27" }),
+      expect.anything(),
+    );
+  });
+
+  it("stops at the 30-year boundary and never asks for anything older", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("1997-01-02", 5)]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    await user.click(screen.getByRole("radio", { name: "MAX" }));
+    await waitFor(() => expect(chart().dataset.historyExhausted).toBe("true"));
+
+    const requested = fetchDailyPriceHistoryMock.mock.calls.map(
+      (call) => call[1].from,
+    );
+    expect(requested.every((from) => from >= HISTORY_BOUNDS.start)).toBe(true);
+
+    // Once the boundary is reached, further navigation asks for nothing at all.
+    const before = fetchDailyPriceHistoryMock.mock.calls.length;
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await user.click(screen.getByTestId("zoom-out-past-edge"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(before);
+  });
+
+  it("stops at a security's first trading day, before the boundary", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    // Nothing older exists: the window before the security's real history can only come back
+    // empty, and asking again would repeat that answer for every remaining year.
+    fetchDailyPriceHistoryMock.mockResolvedValue([]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await waitFor(() => expect(chart().dataset.historyExhausted).toBe("true"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await user.click(screen.getByTestId("zoom-out-past-edge"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+    expect(chart().dataset.pointCount).toBe("6");
+  });
+
+  it("extends the enabled overlays with the newly loaded history", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2024-09-03", 120)]);
+    fetchDailyTechnicalHistoryMock.mockResolvedValue([
+      { date: "2024-09-03", sma50d: 118, rsi7d: 52.5, rsi14d: 48.1 },
+      { date: "2024-09-04", sma50d: 119, rsi7d: 53.5, rsi14d: 49.1 },
+    ]);
+    fetchIntrinsicValueBlendHistoryMock.mockResolvedValue([
+      {
+        valuationDate: "2024-09-03",
+        sourceDataAsOf: "2024-09-02T22:00:00.000Z",
+        blendId: "BALANCED",
+        valuePerShare: 130,
+        currency: "USD",
+      },
+    ]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    await user.click(screen.getByRole("button", { name: /Indicators/ }));
+    const panel = screen.getByRole("dialog", { name: "Indicators" });
+    await user.click(within(panel).getByRole("checkbox", { name: "RSI 14D" }));
+    await user.click(within(panel).getByRole("checkbox", { name: "SMA 50D" }));
+    await user.keyboard("{Escape}");
+
+    // Two RSI points and two SMA points over the details window, one Balanced pair.
+    expect(chart().dataset.overlays).toBe("SMA_50D:2,RSI_14D:1,BALANCED:2");
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("7"));
+
+    // Every enabled series grew with the price history — the oscillator included — and the
+    // warm-up day that has no RSI 14D value stays absent rather than becoming a zero.
+    expect(chart().dataset.overlays).toBe("SMA_50D:4,RSI_14D:3,BALANCED:3");
   });
 
   async function openIndicators(user: ReturnType<typeof setupUser>) {
@@ -593,6 +838,7 @@ describe("StockDetails", () => {
         isAdr: false,
         isActivelyTrading: false,
       },
+      history: { ...HISTORY_BOUNDS },
       prices: [bar("2026-08-28", 10)],
       technicals: [],
       intrinsicValues: [],

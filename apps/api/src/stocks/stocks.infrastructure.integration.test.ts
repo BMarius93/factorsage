@@ -72,6 +72,16 @@ const CANONICAL_START = "2022-08-24";
 // Fundamentals retention reaches back historyYears + 7 warm-up years, i.e. to 2015-08-24.
 const PRICE_FRESHNESS_MS = 60 * 60 * 1000;
 const FUNDAMENTALS_FRESHNESS_MS = 120 * 60 * 1000;
+/**
+ * A deeper retention horizon for the widening scenario, and its canonical start.
+ *
+ * The rest of the suite runs at four years, where the derived warm-up alone reaches the horizon
+ * and every request materializes all of it. A partially loaded stock only exists when the horizon
+ * is meaningfully deeper than one window plus that warm-up.
+ */
+const WIDENING_HISTORY_YEARS = 12;
+const WIDENING_START = "2014-08-24";
+
 const QUARTERLY_BACKFILL_LIMIT = (HISTORY_YEARS + 7) * 4 + 8;
 const ANNUAL_BACKFILL_LIMIT = HISTORY_YEARS + 7 + 2;
 
@@ -333,6 +343,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     authority: `E${suffix}`,
     lruOne: `L1${suffix}`,
     lruTwo: `L2${suffix}`,
+    widening: `G${suffix}`,
   };
 
   const clock = { instant: new Date(T0) };
@@ -351,6 +362,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     provider: FmpStockProviderPort;
     namespace: string;
     maxResidentStocks?: number;
+    historyYears?: number;
   }): Promise<INestApplication> {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(STOCK_DATA_PROVIDER)
@@ -377,7 +389,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           new LoggedStockDataService(
             new CanonicalStockDataService(store, stockProvider, cache, coordinator, {
               defaultHistoryDays: 365,
-              historyYears: HISTORY_YEARS,
+              historyYears: input.historyYears ?? HISTORY_YEARS,
               recentPriceFreshnessMs: PRICE_FRESHNESS_MS,
               fundamentalsFreshnessMs: FUNDAMENTALS_FRESHNESS_MS,
               recentTailCalendarDays: 10,
@@ -740,6 +752,13 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       prices: priceSeries("2026-06-01", TODAY, 300),
       statements: smallStatements(),
     });
+    // Price history across a horizon deep enough that a one-year window plus the derived warm-up
+    // is genuinely partial, with real rows before it — an empty answer would hide a missed gap.
+    provider.register(symbols.widening, {
+      name: "Widening History Corp",
+      prices: priceSeries(WIDENING_START, TODAY, 120),
+      statements: standardQuarters(fiscalQuarterRange(2007, "Q1", 2026, "Q2")),
+    });
 
     app = await createStockApp({ provider, namespace });
     prisma = app.get(PrismaService);
@@ -1072,6 +1091,123 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(point).not.toHaveProperty("calculationVersion");
       }
     });
+  });
+
+  describe("a partially loaded stock widening its history", () => {
+    // Its own app because the scenario needs a horizon deeper than one window plus the derived
+    // warm-up; everything else about the wiring — PostgreSQL, Redis, Redlock, the controller — is
+    // the same production stack the rest of the suite drives.
+    let wideningApp: INestApplication;
+
+    const wideningHttp = () => request(wideningApp.getHttpServer());
+
+    beforeAll(async () => {
+      wideningApp = await createStockApp({
+        provider,
+        namespace,
+        historyYears: WIDENING_HISTORY_YEARS,
+      });
+      closers.push(async () => wideningApp.close());
+    }, SLOW);
+
+    it(
+      "detects the missing older interval and fetches only that, once",
+      async () => {
+        const symbol = symbols.widening;
+        const priceRangesFor = () =>
+          provider.dailyPriceCalls.filter((call) => call.symbol === symbol);
+
+        // 1. The page opens on a bounded window, exactly as Stock Details asks for it.
+        await wideningHttp()
+          .get(`/stocks/${symbol}?from=2026-01-02&to=${TODAY}`)
+          .expect(200);
+        const securityId = await securityIdOf(symbol);
+
+        expect(priceRangesFor()).toHaveLength(1);
+        const resident = await readRedisManifest(securityId);
+        // Caller-scoped: the requested window plus the derived warm-up, not the whole horizon.
+        const coverageStart = resident?.coverageStart;
+        expect(coverageStart).toBeDefined();
+        expect(coverageStart! > WIDENING_START).toBe(true);
+
+        const rowsAfterOpen = await prisma.dailyPrice.count({ where: { securityId } });
+        expect(rowsAfterOpen).toBeGreaterThan(0);
+
+        // 2. The user pans back past what is resident. Price rows, a Redis manifest, a coverage
+        //    record and derived rows all already exist for this security — none of that may be
+        //    read as "the older interval is available".
+        const older = addDays(coverageStart!, -200);
+        const widened = await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
+          .expect(200);
+
+        expect(priceRangesFor()).toHaveLength(2);
+        // Only the prefix: the interval already covered is not requested from the provider again.
+        const delta = provider.dailyPriceCalls.at(-1)!;
+        expect(delta.to! < coverageStart!).toBe(true);
+        expect(delta.from! >= WIDENING_START).toBe(true);
+
+        // The older rows are genuinely there, ascending, and the widening never narrowed the tail.
+        const prices = widened.body as Array<{ date: string }>;
+        expect(prices[0]!.date < coverageStart!).toBe(true);
+        expect(prices.at(-1)!.date).toBe(TODAY);
+        expect([...prices].sort((a, b) => a.date.localeCompare(b.date))).toEqual(prices);
+
+        // 3. No duplicate rows at the seam between the two loads.
+        const dates = await prisma.dailyPrice.findMany({
+          where: { securityId },
+          select: { date: true },
+        });
+        expect(new Set(dates.map((row) => row.date.valueOf())).size).toBe(dates.length);
+
+        // 4. The derived state was materialized for the new interval too — with its own warm-up,
+        //    so the oldest newly visible day carries the series rather than an empty row.
+        const technicals = await wideningHttp()
+          .get(`/stocks/${symbol}/technicals/daily?from=${older}&to=${coverageStart}`)
+          .expect(200);
+        const technicalRows = technicals.body as Array<Record<string, unknown>>;
+        expect(technicalRows.length).toBeGreaterThan(0);
+        expect(technicalRows[0]!.sma20d).toBeTypeOf("number");
+        expect(technicalRows[0]!.rsi14d).toBeTypeOf("number");
+        expect(technicalRows[0]!.sma200d).toBeTypeOf("number");
+
+        // 5. Re-reading the same interval, and anything inside it, fetches nothing further.
+        await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
+          .expect(200);
+        await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${addDays(older, 40)}&to=${TODAY}`)
+          .expect(200);
+        expect(priceRangesFor()).toHaveLength(2);
+      },
+      SLOW,
+    );
+
+    it(
+      "reports the Stock Details bound and refuses to reach past it",
+      async () => {
+        const symbol = symbols.widening;
+
+        const details = await wideningHttp()
+          .get(`/stocks/${symbol}?from=1900-01-01&to=${TODAY}`)
+          .expect(200);
+
+        // The surface reports how far back it may go, from the loader that owns the clock and the
+        // horizon, so the client navigates against the bound that will actually be honoured.
+        expect(details.body.history).toEqual({
+          start: WIDENING_START,
+          end: TODAY,
+          startOrigin: "HORIZON",
+        });
+        // ...and an out-of-bound `from` is clamped at the edge rather than reaching further back.
+        expect(details.body.prices[0].date >= WIDENING_START).toBe(true);
+        const outOfBound = provider.dailyPriceCalls.filter(
+          (call) => call.symbol === symbol && call.from! < WIDENING_START,
+        );
+        expect(outOfBound).toEqual([]);
+      },
+      SLOW,
+    );
   });
 
   describe("point-in-time intrinsic lifecycle end to end", () => {

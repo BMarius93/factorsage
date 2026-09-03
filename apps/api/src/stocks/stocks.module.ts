@@ -1,3 +1,4 @@
+import { STOCK_DETAILS_MAX_HISTORY_YEARS } from "@intrinsic/contracts";
 import {
   getApiConfig,
   getFmpConfig,
@@ -42,6 +43,7 @@ import {
   STOCK_DATA_REDIS,
   STOCK_DATA_SERVICE,
   STOCK_DATA_STORE,
+  STOCK_DETAILS_RETENTION_YEARS,
 } from "./stock-data.tokens";
 import { StocksController } from "./stocks.controller";
 
@@ -149,6 +151,10 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
           {
             defaultHistoryDays: getStockDataConfig().defaultHistoryDays,
             historyYears: getStockDataConfig().historyYears,
+            // The Stock Details product limit, from the one place it is defined. It only ever
+            // narrows what that surface reports and reads; the retained horizon above is what a
+            // backtest still reaches for.
+            stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
             recentPriceFreshnessMs:
               getStockDataConfig().recentPriceFreshnessMs,
             fundamentalsFreshnessMs:
@@ -159,6 +165,10 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         );
         return new LoggedStockDataService(service, logger);
       },
+    },
+    {
+      provide: STOCK_DETAILS_RETENTION_YEARS,
+      useFactory: (): number => getStockDataConfig().historyYears,
     },
     {
       provide: SECURITY_CATALOG_SERVICE,

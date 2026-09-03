@@ -39,7 +39,6 @@ const SOURCE: SeriesSource = {
   ],
 };
 
-const identity = (points: { date: string; value: number }[]) => points;
 
 function series(id: SelectableSeriesId) {
   return SELECTABLE_SERIES_CATALOG.find((entry) => entry.id === id)!;
@@ -68,7 +67,6 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["RSI_7D", "SMA_50D"]),
-      identity,
     );
     expect(overlays.map((overlay) => [overlay.id, overlay.placement])).toEqual([
       ["SMA_50D", "PRICE_OVERLAY"],
@@ -153,7 +151,6 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["DCF_FCFF", "SMA_20W", "SMA_50D"]),
-      identity,
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual([
@@ -174,11 +171,10 @@ describe("series catalog projection", () => {
     expect(new Set(overlays.map((overlay) => overlay.color)).size).toBe(3);
   });
 
-  it("drops a selected series with no point in the visible range", () => {
+  it("drops a selected series the loaded history cannot draw", () => {
     const overlays = buildOverlays(
-      SOURCE,
+      { ...SOURCE, blends: [] },
       new Set<SelectableSeriesId>(["SMA_50D", "BALANCED"]),
-      (points) => points.filter((point) => point.date === "2026-08-27"),
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual(["SMA_50D"]);

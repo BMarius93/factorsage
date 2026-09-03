@@ -137,6 +137,11 @@ When it is introduced in V2:
 - Keep series colors centrally configured and semantically stable.
 - Price history, moving averages, intrinsic values/blends, and buy/sell/final-exit markers must remain legible together.
 - Do not compute canonical valuation models in React. The chart visualizes canonical data/contracts.
+- Time-series history loads from the viewport, not from a fixed range control: the chart reports
+  when the window reaches unloaded history and the feature fetches the missing interval through the
+  canonical API. Do not add a second stock-data fetching path in the web app, and do not let an
+  arriving load move a window the user chose. See
+  `../../docs/decisions/viewport-driven-stock-details-history.md`.
 - Verify desktop resize and mobile touch interaction.
 - Stock Details chart overlays and Strategy condition operands consume the canonical catalog in
   `../../docs/decisions/selectable-series-catalog.md`; feature components must not duplicate its

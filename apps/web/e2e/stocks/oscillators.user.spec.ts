@@ -37,6 +37,11 @@ function watchForIssues(page: Page): PageIssues {
     consoleErrors.push(error.message);
   });
   page.on("requestfailed", (request) => {
+    // An aborted request is a cancellation, not a failure: every history read is abortable and a
+    // development remount cancels the in-flight one on purpose.
+    if (request.failure()?.errorText === "net::ERR_ABORTED") {
+      return;
+    }
     failedRequests.push(`${request.method()} ${request.url()}`);
   });
   page.on("response", (response) => {

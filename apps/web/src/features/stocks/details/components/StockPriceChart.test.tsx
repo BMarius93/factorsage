@@ -13,6 +13,24 @@ type FakeSeries = {
 
 type FakePane = { setStretchFactor: Mock };
 
+/**
+ * The mocked time scale keeps real state for the visible range, because the viewport behaviour
+ * under test is a read-modify-write: the component reads the logical range before rewriting the
+ * series and writes a shifted one back. A pair of bare spies could not tell a correct shift from
+ * a missing one.
+ */
+type FakeTimeScale = {
+  logical: { from: number; to: number } | null;
+  fitContent: Mock;
+  getVisibleLogicalRange: Mock;
+  setVisibleLogicalRange: Mock;
+  getVisibleRange: Mock;
+  setVisibleRange: Mock;
+  applyOptions: Mock;
+  subscribeVisibleLogicalRangeChange: Mock;
+  unsubscribeVisibleLogicalRangeChange: Mock;
+};
+
 type FakeChart = {
   addedSeries: Array<{
     definition: unknown;
@@ -26,6 +44,7 @@ type FakeChart = {
   removeSeries: Mock;
   applyOptions: Mock;
   timeScale: Mock;
+  scale: FakeTimeScale;
   fitContent: Mock;
   subscribeVisibleLogicalRangeChange: Mock;
   unsubscribeVisibleLogicalRangeChange: Mock;
@@ -43,6 +62,19 @@ vi.mock("lightweight-charts", () => {
     const fitContent = vi.fn();
     const subscribeVisibleLogicalRangeChange = vi.fn();
     const unsubscribeVisibleLogicalRangeChange = vi.fn();
+    const scale: FakeTimeScale = {
+      logical: null,
+      fitContent,
+      getVisibleLogicalRange: vi.fn(() => scale.logical),
+      setVisibleLogicalRange: vi.fn((range: { from: number; to: number }) => {
+        scale.logical = range;
+      }),
+      getVisibleRange: vi.fn(() => null),
+      setVisibleRange: vi.fn(),
+      applyOptions: vi.fn(),
+      subscribeVisibleLogicalRangeChange,
+      unsubscribeVisibleLogicalRangeChange,
+    };
     const chart: FakeChart = {
       options,
       addedSeries: [],
@@ -70,11 +102,8 @@ vi.mock("lightweight-charts", () => {
       ),
       removeSeries: vi.fn(),
       applyOptions: vi.fn(),
-      timeScale: vi.fn(() => ({
-        fitContent,
-        subscribeVisibleLogicalRangeChange,
-        unsubscribeVisibleLogicalRangeChange,
-      })),
+      timeScale: vi.fn(() => scale),
+      scale,
       fitContent,
       subscribeVisibleLogicalRangeChange,
       unsubscribeVisibleLogicalRangeChange,
@@ -104,6 +133,17 @@ const POINTS = [
   { date: "2026-08-28", value: 232 },
 ];
 
+/**
+ * The window a selected range asks the chart to show. The default asks for exactly what `POINTS`
+ * holds, which is the ordinary case: the range fits inside the loaded history, so framing it is
+ * `fitContent()`.
+ */
+const FRAME = {
+  frameFrom: "2026-08-27",
+  frameTo: "2026-08-28",
+  historyExhausted: false,
+} as const;
+
 describe("StockPriceChart", () => {
   it("feeds the closing prices into the price series and fits the visible range", () => {
     render(
@@ -112,6 +152,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -141,6 +182,7 @@ describe("StockPriceChart", () => {
         overlays={[overlay]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -159,6 +201,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -195,6 +238,7 @@ describe("StockPriceChart", () => {
         overlays={overlays}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -232,6 +276,7 @@ describe("StockPriceChart", () => {
         overlays={[{ ...weekly, color: overlayColorAt(0) }]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -256,6 +301,7 @@ describe("StockPriceChart", () => {
         ]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -272,6 +318,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="NEWCO chart"
       />,
     );
@@ -289,6 +336,7 @@ describe("StockPriceChart", () => {
         currency="USD"
         loading
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -305,6 +353,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -330,6 +379,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -344,6 +394,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -354,6 +405,7 @@ describe("StockPriceChart", () => {
         overlays={[priceOverlay(0)]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -368,6 +420,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -379,6 +432,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="5Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -386,19 +440,61 @@ describe("StockPriceChart", () => {
     expect(chart.fitContent).toHaveBeenCalledTimes(2);
   });
 
-  it("reframes again once a long range finishes loading its fuller history", () => {
-    // Switching to 5Y frames whatever is already loaded, then reframes when the real five years
-    // arrive. Only then is the range considered framed, so nothing refits afterwards.
+  it("frames a window that lands inside the loaded history by date", () => {
+    // A narrower range than what is loaded is a window, not a fit: showing everything would
+    // ignore the range the user picked.
     const { rerender } = render(
       <StockPriceChart
         points={POINTS}
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
     const chart = lastChart();
+    expect(chart.fitContent).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="3M"
+        frameFrom="2026-08-28"
+        frameTo="2026-08-28"
+        historyExhausted={false}
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    expect(chart.scale.setVisibleRange).toHaveBeenCalledWith({
+      from: "2026-08-28",
+      to: "2026-08-28",
+    });
+    expect(chart.fitContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("reframes again once a long range finishes loading its fuller history", () => {
+    // The page changes the key when a range is picked and once more when that range's history is
+    // in; the chart frames on each and on nothing else.
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y|true"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const fiveYear = {
+      frameFrom: "2021-08-28",
+      frameTo: "2026-08-28",
+      historyExhausted: false,
+    } as const;
 
     rerender(
       <StockPriceChart
@@ -406,54 +502,261 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         loading
-        fitKey="5Y"
+        fitKey="5Y|false"
+        {...fiveYear}
         ariaLabel="AAPL chart"
       />,
     );
-    const longHistory = [{ date: "2022-01-03", value: 90 }, ...POINTS];
+    expect(chart.fitContent).toHaveBeenCalledTimes(2);
+
+    // A trading day rarely lands on the requested calendar start, so "the history arrived" is the
+    // page's answer, not something the chart infers from the oldest bar it happens to hold.
+    const longHistory = [{ date: "2021-08-30", value: 90 }, ...POINTS];
     rerender(
       <StockPriceChart
         points={longHistory}
         overlays={[]}
         currency="USD"
-        fitKey="5Y"
+        fitKey="5Y|true"
+        {...fiveYear}
         ariaLabel="AAPL chart"
       />,
     );
     expect(chart.fitContent).toHaveBeenCalledTimes(3);
 
+    // ...and an overlay toggle afterwards is not a request to reframe.
     rerender(
       <StockPriceChart
         points={longHistory}
         overlays={[priceOverlay(0)]}
         currency="USD"
-        fitKey="5Y"
+        fitKey="5Y|true"
+        {...fiveYear}
         ariaLabel="AAPL chart"
       />,
     );
     expect(chart.fitContent).toHaveBeenCalledTimes(3);
   });
 
-  it("publishes the visible range so the window is observable from the DOM", () => {
-    const { container } = render(
+  it("shifts the viewport by the bars an older window prepends", () => {
+    const { rerender } = render(
       <StockPriceChart
         points={POINTS}
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+
+    // The user has dragged left: thirty bars of empty space sit in front of the oldest bar.
+    chart.scale.logical = { from: -30, to: 2 };
+    const older = [
+      { date: "2026-08-24", value: 180 },
+      { date: "2026-08-25", value: 185 },
+      { date: "2026-08-26", value: 190 },
+      ...POINTS,
+    ];
+    rerender(
+      <StockPriceChart
+        points={older}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    // Three bars appeared in front of the window, so the same days stay on screen. Without the
+    // shift the library's index-anchored range would have walked the user three days backwards.
+    expect(chart.scale.setVisibleLogicalRange).toHaveBeenCalledWith({
+      from: -27,
+      to: 5,
+    });
+    // ...and this is not a reframe: the window the range asked for has not changed.
+    expect(chart.fitContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the viewport alone when the data grows at the tail", () => {
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    chart.scale.setVisibleLogicalRange.mockClear();
+    chart.scale.logical = { from: 0, to: 2 };
+
+    rerender(
+      <StockPriceChart
+        points={[...POINTS, { date: "2026-08-31", value: 240 }]}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    expect(chart.scale.setVisibleLogicalRange).not.toHaveBeenCalled();
+  });
+
+  it("reports how much empty history the viewport has reached", () => {
+    const onReachHistoryEdge = vi.fn();
+    render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        onReachHistoryEdge={onReachHistoryEdge}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+
+    // Well inside the data: nothing to load.
+    onRangeChange({ from: 120, to: 260 });
+    expect(onReachHistoryEdge).not.toHaveBeenCalled();
+
+    // Framing the whole loaded series leaves a fraction of a bar of padding at the left edge.
+    // Reading that as navigation would make every page view prefetch a year nobody asked for.
+    onRangeChange({ from: -0.5, to: 257.5 });
+    expect(onReachHistoryEdge).not.toHaveBeenCalled();
+
+    // A drag that has walked past the oldest bar reports the empty space it opened up.
+    onRangeChange({ from: -42.4, to: 90 });
+    expect(onReachHistoryEdge).toHaveBeenCalledWith(43);
+
+    // A wide zoom-out reports a much larger gap, which is what makes one request fill it.
+    onReachHistoryEdge.mockClear();
+    onRangeChange({ from: -4800, to: 200 });
+    expect(onReachHistoryEdge).toHaveBeenCalledWith(4800);
+  });
+
+  it("ignores a viewport report describing data it has not drawn yet", () => {
+    // The time scale reports a range while the series is being rewritten — the old, still-negative
+    // window against data that is about to grow — and a load resolving re-renders this component
+    // before the effect that draws the result. Acting on either report sizes the next request
+    // against a window the user is about to be moved out of, which made every pan fetch twice.
+    const onReachHistoryEdge = vi.fn();
+    const props = {
+      overlays: [],
+      currency: "USD",
+      fitKey: "1Y|true",
+      ...FRAME,
+      onReachHistoryEdge,
+      ariaLabel: "AAPL chart",
+    } as const;
+    const { rerender } = render(<StockPriceChart points={POINTS} {...props} />);
+    const chart = lastChart();
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+
+    // The user has dragged past the oldest bar and the older window has arrived. Replaying the
+    // pre-shift range from inside `setData` is what the library does on a real data update.
+    chart.addedSeries[0]!.api.setData.mockImplementationOnce(() =>
+      onRangeChange({ from: -60, to: 100 }),
+    );
+    const older = [{ date: "2026-08-20", value: 170 }, ...POINTS];
+    rerender(<StockPriceChart points={older} {...props} />);
+
+    expect(onReachHistoryEdge).not.toHaveBeenCalled();
+
+    // Once the series is drawn and the window repositioned, the same report is navigation again.
+    onRangeChange({ from: -60, to: 100 });
+    expect(onReachHistoryEdge).toHaveBeenCalledWith(60);
+  });
+
+  it("pins the left edge only once no older history can arrive", () => {
+    const { rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    // While history can still be loaded, the empty space to the left is how the user asks for it.
+    expect(chart.scale.applyOptions).toHaveBeenCalledWith({ fixLeftEdge: false });
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        historyExhausted
+        ariaLabel="AAPL chart"
+      />,
+    );
+    // At the boundary there is nothing left to fetch, so dragging on into blank space is stopped.
+    expect(chart.scale.applyOptions).toHaveBeenLastCalledWith({
+      fixLeftEdge: true,
+    });
+  });
+
+  it("publishes the visible window and the loaded history so both are observable from the DOM", () => {
+    const { container, rerender } = render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
     const chart = lastChart();
     const wrapper = container.firstElementChild as HTMLElement;
 
+    expect(wrapper.dataset.loadedFrom).toBe("2026-08-27");
+    expect(wrapper.dataset.historyExhausted).toBeUndefined();
+
     const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
       .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+    chart.scale.getVisibleRange.mockReturnValue({
+      from: "2026-08-27",
+      to: "2026-08-28",
+    });
     onRangeChange({ from: 12.5, to: 40.25 });
-    expect(wrapper.dataset.visibleRange).toBe("12.50|40.25");
+
+    // Dates are what "the user is looking at older history" means, and they survive a load that
+    // prepends bars in front of the window; the logical range is what measures a zoom.
+    expect(wrapper.dataset.visibleRange).toBe("2026-08-27|2026-08-28");
+    expect(wrapper.dataset.visibleLogical).toBe("12.50|40.25");
 
     onRangeChange(null);
     expect(wrapper.dataset.visibleRange).toBeUndefined();
+    expect(wrapper.dataset.visibleLogical).toBeUndefined();
+
+    rerender(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        historyExhausted
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(wrapper.dataset.historyExhausted).toBe("true");
   });
 
   it("tears the chart instance down on unmount", () => {
@@ -463,6 +766,7 @@ describe("StockPriceChart", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -550,6 +854,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[priceOverlay(0), rsiOverlay("RSI_14D", "RSI 14D", 1, 54.32)]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -591,6 +896,7 @@ describe("StockPriceChart oscillator pane", () => {
         ]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -622,6 +928,7 @@ describe("StockPriceChart oscillator pane", () => {
         ]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -642,6 +949,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={both}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -655,6 +963,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[rsiOverlay("RSI_14D", "RSI 14D", 0, 54.3)]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -669,6 +978,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={both}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -685,6 +995,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[rsiOverlay("RSI_7D", "RSI 7D", 0, 61.2)]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -700,6 +1011,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -720,6 +1032,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[overlay]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -732,6 +1045,7 @@ describe("StockPriceChart oscillator pane", () => {
           overlays={[]}
           currency="USD"
           fitKey="1Y"
+          {...FRAME}
           ariaLabel="AAPL chart"
         />,
       );
@@ -741,6 +1055,7 @@ describe("StockPriceChart oscillator pane", () => {
           overlays={[overlay]}
           currency="USD"
           fitKey="1Y"
+          {...FRAME}
           ariaLabel="AAPL chart"
         />,
       );
@@ -773,6 +1088,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[rsi7]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -785,6 +1101,7 @@ describe("StockPriceChart oscillator pane", () => {
           overlays={overlays}
           currency="USD"
           fitKey="1Y"
+          {...FRAME}
           ariaLabel="AAPL chart"
         />,
       );
@@ -842,6 +1159,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[rsi14]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -854,6 +1172,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={[rsi7, rsi14]}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );
@@ -877,6 +1196,7 @@ describe("StockPriceChart oscillator pane", () => {
         overlays={overlays}
         currency="USD"
         fitKey="1Y"
+        {...FRAME}
         ariaLabel="AAPL chart"
       />,
     );

@@ -61,10 +61,11 @@ export function seriesPoints(
 /**
  * Catalog entries the loaded payload can actually draw.
  *
- * Availability is answered from the always-loaded details window rather than the currently
- * selected chart range, so an option does not flicker between enabled and disabled while a longer
- * history loads. An entry outside this set stays visible in the picker and is marked unavailable;
- * it is never replaced by another period, another model, or by zero.
+ * Availability is answered over everything loaded, not over the currently visible window, so
+ * scrolling does not flicker an option between enabled and disabled and a series that becomes
+ * evaluable once older history arrives stops being reported as unavailable. An entry outside this
+ * set stays visible in the picker and is marked unavailable; it is never replaced by another
+ * period, another model, or by zero.
  */
 export function availableSeriesIds(
   source: SeriesSource,
@@ -82,8 +83,9 @@ export function availableSeriesIds(
  * Ordering is the catalog's, not the click order, so the legend, the chart and the picker always
  * agree and the deterministic colour policy assigns the same hue to the same selection every time.
  * Colour positions span the whole enabled set across both panes, so simultaneously enabled series
- * stay distinguishable wherever they are drawn. `sliceFrom` applies the chart's visible range; an
- * entry with no point in that range is dropped rather than drawn as an empty line.
+ * stay distinguishable wherever they are drawn. An entry with no point in the loaded history is
+ * dropped rather than drawn as an empty line; what of it is on screen is the viewport's business,
+ * not this module's.
  *
  * Placement comes from the catalog's structured source: an oscillator entry is routed to the
  * shared oscillator pane with its fixed catalog scale, and is never drawn over the price scale.
@@ -91,13 +93,12 @@ export function availableSeriesIds(
 export function buildOverlays(
   source: SeriesSource,
   selected: ReadonlySet<SelectableSeriesId>,
-  sliceFrom: (points: ChartPoint[]) => ChartPoint[],
 ): ChartOverlaySeries[] {
   const enabled = SELECTABLE_SERIES_CATALOG.filter((series) =>
     selected.has(series.id),
   );
   return enabled.flatMap((series, position) => {
-    const points = sliceFrom(seriesPoints(source, series));
+    const points = seriesPoints(source, series);
     return points.length === 0
       ? []
       : [
