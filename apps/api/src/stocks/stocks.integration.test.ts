@@ -12,7 +12,9 @@ import {
 } from "@intrinsic/domain";
 import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import {
+  addDays,
   DAILY_DERIVED_STATE_VARIANT,
+  DERIVED_SERIES_WARMUP_DAYS,
   InMemoryLoadCoordinator,
   NullStockDataCache,
 } from "@intrinsic/stock-data";
@@ -33,11 +35,30 @@ import {
 useTestDatabase();
 
 const runtimeToday = new Date().toISOString().slice(0, 10);
+
+function daysBeforeToday(days: number): string {
+  const date = new Date(`${runtimeToday}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
 const runtimeHistoryStart = (() => {
   const date = new Date(`${runtimeToday}T00:00:00.000Z`);
   date.setUTCFullYear(date.getUTCFullYear() - 30);
   return date.toISOString().slice(0, 10);
 })();
+
+/**
+ * Price fixture dates, anchored to the day the suite runs.
+ *
+ * Stock Details bounds an unranged request to a rolling one-year window, so a fixture pinned to
+ * absolute calendar dates silently changes meaning as the calendar moves and eventually falls out
+ * of the window it was written to sit inside. These three are relative by construction: two
+ * always inside the default window, one always outside it.
+ */
+const OLDEST_PRICE_DATE = daysBeforeToday(800);
+const OLDER_PRICE_DATE = daysBeforeToday(200);
+const LATEST_PRICE_DATE = daysBeforeToday(14);
 
 class FakeFmpProvider implements FmpStockProviderPort {
   allowedSymbol = "";
@@ -169,7 +190,7 @@ describe("Stock Details API", () => {
       data: [
         {
           securityId: security.id,
-          date: new Date("2026-08-20T00:00:00.000Z"),
+          date: new Date(`${LATEST_PRICE_DATE}T00:00:00.000Z`),
           open: 120,
           high: 125,
           low: 119,
@@ -178,12 +199,22 @@ describe("Stock Details API", () => {
         },
         {
           securityId: security.id,
-          date: new Date("2025-09-02T00:00:00.000Z"),
+          date: new Date(`${OLDER_PRICE_DATE}T00:00:00.000Z`),
           open: 100,
           high: 102,
           low: 99,
           close: 101,
           volume: 1_000n,
+        },
+        // Older than the one-year default window, so an unranged request must not return it.
+        {
+          securityId: security.id,
+          date: new Date(`${OLDEST_PRICE_DATE}T00:00:00.000Z`),
+          open: 80,
+          high: 82,
+          low: 79,
+          close: 81,
+          volume: 500n,
         },
       ],
     });
@@ -314,7 +345,7 @@ describe("Stock Details API", () => {
     }
   });
 
-  it("returns bounded Stock Details from durable data", async () => {
+  it("bounds an unranged Stock Details request to its default one-year window", async () => {
     const response = await request(app.getHttpServer())
       .get(`/stocks/${baseSymbol}`)
       .expect(200);
@@ -325,7 +356,10 @@ describe("Stock Details API", () => {
       exchangeCode: "NYSE",
     });
     expect(response.body.profile).toMatchObject({ employees: 1234 });
-    expect(response.body.prices).toHaveLength(2);
+    // The two prices inside the default year, never the one behind it.
+    expect(
+      response.body.prices.map((row: { date: string }) => row.date),
+    ).toEqual([OLDER_PRICE_DATE, LATEST_PRICE_DATE]);
     expect(provider.dailyCalls).toEqual([]);
   });
 
@@ -352,12 +386,15 @@ describe("Stock Details API", () => {
 
   it("returns historical prices in ascending order", async () => {
     const response = await request(app.getHttpServer())
-      .get(`/stocks/${baseSymbol}/prices?from=2025-09-01&to=2026-08-20`)
+      .get(
+        `/stocks/${baseSymbol}/prices?from=${OLDEST_PRICE_DATE}&to=${LATEST_PRICE_DATE}`,
+      )
       .expect(200);
 
     expect(response.body.map((row: { date: string }) => row.date)).toEqual([
-      "2025-09-02",
-      "2026-08-20",
+      OLDEST_PRICE_DATE,
+      OLDER_PRICE_DATE,
+      LATEST_PRICE_DATE,
     ]);
   });
 
@@ -667,18 +704,32 @@ describe("Stock Details API", () => {
     ]);
   });
 
-  it("hydrates one canonical horizon and reuses it for later projections", async () => {
+  it("materializes the requested window once and widens only for older history", async () => {
     const initial = `/stocks/${loadedSymbol}/prices?from=2020-01-01&to=2020-01-03`;
     await request(app.getHttpServer()).get(initial).expect(200);
     await request(app.getHttpServer()).get(initial).expect(200);
-    expect(provider.dailyCalls).toEqual([
-      { from: runtimeHistoryStart, to: runtimeToday },
-    ]);
 
+    // The requested window plus the derived warm-up. A cold stock opened for a short window must
+    // not pull the thirty-year retention horizon in behind it.
+    const firstLoad = {
+      from: addDays("2020-01-01", -DERIVED_SERIES_WARMUP_DAYS),
+      to: runtimeToday,
+    };
+    expect(provider.dailyCalls).toEqual([firstLoad]);
+    expect(firstLoad.from > runtimeHistoryStart).toBe(true);
+
+    // Reaching further back loads only the prefix that is still missing, never the whole window
+    // again — this is the lazy widening a longer Stock Details range relies on.
     const response = await request(app.getHttpServer())
       .get(`/stocks/${loadedSymbol}/prices?from=2019-12-30&to=2020-01-03`)
       .expect(200);
-    expect(provider.dailyCalls).toHaveLength(1);
+    expect(provider.dailyCalls).toEqual([
+      firstLoad,
+      {
+        from: addDays("2019-12-30", -DERIVED_SERIES_WARMUP_DAYS),
+        to: addDays(firstLoad.from, -1),
+      },
+    ]);
     expect(response.body.map((row: { date: string }) => row.date)).toEqual([
       "2019-12-31",
       "2020-01-03",
