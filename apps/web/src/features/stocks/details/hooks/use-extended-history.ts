@@ -55,17 +55,22 @@ export type ExtendedHistoryState = {
 };
 
 /**
- * One-time full-history load behind the long chart ranges (5Y/MAX).
+ * Lazy load of the history behind the long chart ranges (5Y/MAX).
  *
- * Nothing is fetched until `enabled` first becomes true for the symbol; from then on the request
- * stays latched, so leaving and re-entering a long range keeps the loaded superset and range
- * switching filters client-side instead of refetching. Prices are required; the technical and
- * intrinsic overlays degrade to empty series when their reads fail, because a price chart without
- * overlays is still a working chart.
+ * Nothing is fetched until a range actually reaches past the loaded window, and then only back to
+ * where that range starts — picking 5Y loads five years, not the whole retention horizon. `MAX` is
+ * the one unbounded case and resolves to the listing date when it is known.
+ *
+ * What has been loaded is latched per symbol at its widest: leaving and re-entering a long range
+ * keeps the superset and filters client-side, and widening fetches once more while the narrower
+ * history stays on screen. Prices are required; the technical and intrinsic overlays degrade to
+ * empty series when their reads fail, because a price chart without overlays is still a working
+ * chart.
  */
 export function useExtendedHistory(
   symbol: string,
   enabled: boolean,
+  from: string | undefined,
   ipoDate: string | undefined,
 ): ExtendedHistoryState {
   const [state, setState] = useState<Omit<ExtendedHistoryState, "retry">>({
@@ -73,28 +78,43 @@ export function useExtendedHistory(
   });
   const [attempt, setAttempt] = useState(0);
   // The latch is per symbol: a long range on one stock must not preload history for the next.
-  const [activatedFor, setActivatedFor] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<{ symbol: string; from: string } | null>(
+    null,
+  );
   const latestRequestRef = useRef(0);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
 
-  useEffect(() => {
-    if (enabled) {
-      setActivatedFor(symbol);
-    }
-  }, [enabled, symbol]);
+  // `MAX` has no start of its own, so it asks for everything the API retains.
+  const required = enabled ? (from ?? ipoDate ?? FULL_HISTORY_FROM) : undefined;
 
-  const active = activatedFor === symbol;
+  useEffect(() => {
+    if (!required) {
+      return;
+    }
+    setLoaded((current) =>
+      current && current.symbol === symbol && current.from <= required
+        ? current
+        : { symbol, from: required },
+    );
+  }, [symbol, required]);
+
+  const activeFrom = loaded?.symbol === symbol ? loaded.from : undefined;
 
   useEffect(() => {
     const requestId = ++latestRequestRef.current;
-    if (!active) {
+    if (!activeFrom) {
       setState({ status: "idle" });
       return;
     }
-    setState({ status: "loading" });
+    // A widening load keeps the narrower history on screen rather than dropping the chart back to
+    // the details window while the older years are on their way.
+    setState((current) => ({
+      status: "loading",
+      ...(current.history ? { history: current.history } : {}),
+    }));
     const controller = new AbortController();
     const window: StockHistoryWindow = {
-      from: ipoDate ?? FULL_HISTORY_FROM,
+      from: activeFrom,
       to: todayLocalDate(),
     };
     const optional = <T>(request: Promise<T[]>): Promise<T[]> =>
@@ -137,11 +157,14 @@ export function useExtendedHistory(
         if (requestId !== latestRequestRef.current || controller.signal.aborted) {
           return;
         }
-        setState({ status: "error" });
+        setState((current) => ({
+          status: "error",
+          ...(current.history ? { history: current.history } : {}),
+        }));
       });
 
     return () => controller.abort();
-  }, [symbol, active, ipoDate, attempt]);
+  }, [symbol, activeFrom, attempt]);
 
   return { ...state, retry };
 }

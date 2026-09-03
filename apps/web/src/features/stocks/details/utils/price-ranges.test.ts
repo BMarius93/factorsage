@@ -51,16 +51,25 @@ describe("rangeStartDate", () => {
 
 describe("rangeExceedsWindow", () => {
   const windowStart = "2025-08-28";
+  const windowEnd = "2026-08-28";
 
   it("keeps ranges inside a one-year window client-side", () => {
-    expect(rangeExceedsWindow("1M", windowStart, "2026-08-28")).toBe(false);
-    expect(rangeExceedsWindow("6M", windowStart, "2026-08-28")).toBe(false);
-    expect(rangeExceedsWindow("1Y", windowStart, "2026-08-28")).toBe(false);
+    expect(rangeExceedsWindow("1M", windowStart, windowEnd)).toBe(false);
+    expect(rangeExceedsWindow("6M", windowStart, windowEnd)).toBe(false);
+    expect(rangeExceedsWindow("1Y", windowStart, windowEnd)).toBe(false);
   });
 
   it("flags ranges that reach beyond the loaded window", () => {
-    expect(rangeExceedsWindow("5Y", windowStart, "2026-08-28")).toBe(true);
-    expect(rangeExceedsWindow("MAX", windowStart, "2026-08-28")).toBe(true);
+    expect(rangeExceedsWindow("5Y", windowStart, windowEnd)).toBe(true);
+    expect(rangeExceedsWindow("MAX", windowStart, windowEnd)).toBe(true);
+  });
+
+  it("does not make the default range look oversized while the market is closed", () => {
+    // The window still ends today; the last close is days old. Anchoring the range to that close
+    // used to place its start before the window and pull the entire history in on every open.
+    expect(rangeExceedsWindow("1Y", windowStart, windowEnd)).toBe(false);
+    expect(rangeStartDate("1Y", "2026-08-24")).toBe("2025-08-24");
+    expect(rangeStartDate("1Y", "2026-08-24")! < windowStart).toBe(true);
   });
 });
 

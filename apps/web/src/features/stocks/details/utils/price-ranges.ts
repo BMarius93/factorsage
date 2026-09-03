@@ -38,15 +38,22 @@ export function rangeStartDate(
 }
 
 /**
- * Whether a range reaches further back than an already-loaded data window, meaning the fuller
- * history must be loaded before the range can be rendered from real data.
+ * Whether a range reaches further back than the loaded window, meaning the fuller history must be
+ * loaded before the range can be rendered from real data.
+ *
+ * Both sides are anchored to the loaded window, never to the latest trading day. The two anchors
+ * differ by however long the market has been closed, so anchoring the range to the last close
+ * while comparing against a window that ends today makes the default one-year range look like it
+ * reaches past its own window — and every page view would then trigger the full-history load this
+ * lazy path exists to avoid. Where the range starts *on screen* is a separate question, answered
+ * by `rangeStartDate` against the latest close.
  */
 export function rangeExceedsWindow(
   range: PriceRangeKey,
   windowStart: string,
-  latestDate: string,
+  windowEnd: string,
 ): boolean {
-  const start = rangeStartDate(range, latestDate);
+  const start = rangeStartDate(range, windowEnd);
   return start === undefined || start < windowStart;
 }
 

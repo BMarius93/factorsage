@@ -35,10 +35,13 @@ Derived backtest-facing data is materialized per trading day into one `DailyDeri
 security per trading day, cached as `security:<securityId>:daily-state:<year>` chunks. Calculation
 versions are not stored: a methodology change rebuilds the current state.
 
-`@intrinsic/stock-data` owns canonical full-stock hydration: Redis READY check -> PostgreSQL
-canonical-horizon coverage -> missing FMP deltas -> derived calculation -> PostgreSQL ->
-yearly Redis chunks. Requested ranges are read projections, not hydration boundaries. Process
-adapters construct their own Prisma and Redis clients; they do not reimplement loading behavior.
+`@intrinsic/stock-data` owns canonical stock hydration: Redis READY check -> PostgreSQL coverage
+for the range this read needs -> missing FMP deltas -> derived calculation -> PostgreSQL ->
+yearly Redis chunks. The caller's requested range, widened by the derived-series warm-up and
+clamped to `STOCK_HISTORY_YEARS`, is what gets materialized: Stock Details pays for its own
+window, a backtest asks for decades explicitly, and widening later is incremental. See
+`../../docs/decisions/caller-scoped-history-materialization.md`. Process adapters construct their
+own Prisma and Redis clients; they do not reimplement loading behavior.
 
 One distributed lock coordinates hydration of a complete security across API and worker. A
 provider-wide Redis gate separately limits concurrent/rate traffic and shares 429 cooldown state

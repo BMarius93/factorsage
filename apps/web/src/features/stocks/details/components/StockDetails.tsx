@@ -136,10 +136,16 @@ function StockDetailsContent({
   );
 
   const latestDate = summary?.latestDate ?? window.to;
-  const needsExtended = rangeExceedsWindow(range, window.from, latestDate);
-  const extended = useExtendedHistory(symbol, needsExtended, security.ipoDate);
-  const extendedHistory =
-    extended.status === "ready" ? extended.history : undefined;
+  // Measured against the window that was requested, not the last close inside it.
+  const needsExtended = rangeExceedsWindow(range, window.from, window.to);
+  // The long range asks for exactly its own start; only MAX is unbounded.
+  const extended = useExtendedHistory(
+    symbol,
+    needsExtended,
+    rangeStartDate(range, window.to),
+    security.ipoDate,
+  );
+  const extendedHistory = extended.history;
   const prices =
     needsExtended && extendedHistory ? extendedHistory.prices : details.prices;
   const source: SeriesSource =

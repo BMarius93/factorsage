@@ -172,8 +172,12 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 - **Daily carry-forward.** The latest eligible weekly value is repeated on every later trading day
   until a newer completed week replaces it. Repetition is the data model, not duplication.
 - **Never averages daily indicators.** Weekly values come from weekly closes.
-- **Horizon vs listing.** A first week truncated only by the configured history horizon is dropped;
-  a genuine mid-week IPO week is kept (`WeeklyHistoryContext`).
+- **Load boundary vs listing.** A first week truncated only by where the load target starts is
+  dropped; a genuine mid-week IPO week is kept (`WeeklyHistoryContext`).
+- **Warm-up.** Two hundred completed weeks is the longest lookback in the catalog, so it is what
+  sets `DERIVED_SERIES_WARMUP_DAYS` — the history the loader materializes *before* a requested
+  window so every series is already warmed up on its first visible day. It is derived from the
+  registries, so adding a longer period widens it automatically.
 - `WeeklyPrice` is persisted as completed-week OHLCV **source data**, not a derived-series value.
   It has no read port: every rebuild re-aggregates from canonical `DailyPrice`.
 

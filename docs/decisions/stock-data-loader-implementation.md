@@ -5,7 +5,11 @@
 Implemented on the stock-data loader feature branch. This decision supersedes the foundation
 document wherever it previously implied request-range-driven hydration.
 
-> Requested ranges are read projections, not hydration boundaries.
+> **Amended by `caller-scoped-history-materialization.md`.** The caller's requested range, widened
+> by the derived-series warm-up and clamped to the configured horizon, is now what a hydration
+> materializes; the horizon is the outer bound rather than the target. Everything else below —
+> the lock protocol, coverage compaction, empty-interval durability, freshness, weekly rules,
+> point-in-time reads, manifest generations and LRU residency — is unchanged.
 
 ## Ownership
 
@@ -16,13 +20,15 @@ paths. PostgreSQL remains authoritative; Redis is disposable and reconstructible
 
 ## Canonical hydration
 
-`ensureStockHydrated` establishes all available canonical daily history up to
-`STOCK_HISTORY_YEARS` (30 by default), clipped by known IPO date, provider availability, and the
-current canonical date. It performs these steps under one stock hydration lock:
+`ensureStockHydrated` establishes the canonical daily history a caller needs, clipped by
+`STOCK_HISTORY_YEARS` (30 by default), known IPO date, provider availability, and the current
+canonical date. It performs these steps under one stock hydration lock:
 
-1. Recheck the v2 manifest after lock acquisition.
-2. Compute the canonical horizon independently of the caller's requested range.
-3. Subtract durable `StockDatasetCoverage` intervals from that horizon.
+1. Recheck the v2 manifest after lock acquisition, against the range this call requires.
+2. Compute the load target from the caller's range plus the derived-series warm-up, clamped to the
+   canonical horizon and unioned with whatever is already resident, so widening is incremental and
+   nothing already materialized is narrowed away.
+3. Subtract durable `StockDatasetCoverage` intervals from that target.
 4. Request only missing prefix, suffix, or internal intervals from FMP.
 5. Persist rows, successful provider-request coverage, and state transactionally. Coverage for an
    exact security/dataset/variant is compacted into disjoint maximal intervals; overlap and
@@ -34,7 +40,7 @@ current canonical date. It performs these steps under one stock hydration lock:
 
 A successful empty historical interval is durable request coverage. This distinguishes provider
 or pre-listing unavailability from missing trading rows and prevents repeated empty-prefix loads.
-It does not fabricate price rows. If PostgreSQL already covers the horizon, re-admission after LRU
+It does not fabricate price rows. If PostgreSQL already covers the target, re-admission after LRU
 eviction performs no historical FMP request.
 
 ## Freshness
@@ -153,7 +159,7 @@ completed week becomes eligible on its own final trading day's close, which is t
 bar of that week; earlier days in the same week must never see it. The ISO week containing the
 hydration cutoff is still in progress and is not aggregated, since its final trading day is not yet
 known. IPO mid-week, holiday-shortened, and cross-year weeks follow the same rule and use their
-actual final trading day. If the 30-year canonical horizon begins mid-week, that artificially
+actual final trading day. If the load target begins mid-week, that artificially
 truncated first week is omitted; a known IPO/listing that genuinely begins mid-week remains a valid
 completed week. `WeeklyPrice` keeps one durable row per completed week; only the derived weekly
 values are carried forward daily.

@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  DAILY_MOVING_AVERAGES,
+  DAILY_OSCILLATORS,
   FINANCIAL_STATEMENT_TYPES,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   TECHNICAL_SERIES_FIELDS,
+  WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
   type DailyPrice,
   type DailyTechnical,
@@ -77,6 +80,42 @@ const FUNDAMENTALS_CADENCES: readonly FinancialStatementCadence[] = [
  * derived rows, cached projections, API output and backtests all stay at the configured horizon.
  */
 export const VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7;
+
+const CALENDAR_DAYS_PER_WEEK = 7;
+const TRADING_DAYS_PER_WEEK = 5;
+/**
+ * Weeks kept beyond the exact longest lookback: one for the partial week a requested window can
+ * start inside, the rest so a holiday-shortened or untraded week cannot push a warmed-up series
+ * back off its first visible day.
+ */
+const DERIVED_SERIES_WARMUP_MARGIN_WEEKS = 8;
+
+/**
+ * Calendar days of price history the loader materializes *before* a requested window so every
+ * catalog derived series is already warmed up on its first trading day.
+ *
+ * The bound is derived from the canonical registries rather than a second copy of the period
+ * list: daily moving averages and oscillators count trading days, weekly moving averages count
+ * completed weeks, so both are expressed in weeks and the wider one wins. Today that is
+ * `SMA(200, 1W)` / `EMA(200, 1W)` at two hundred completed weeks.
+ *
+ * This is the only history Stock Details pulls in beyond what the caller asked for. It exists for
+ * calculation correctness, not as a retention policy: the configured `historyYears` horizon stays
+ * the outer bound a backtest can explicitly reach for, never an implicit floor for a page view.
+ */
+export const DERIVED_SERIES_WARMUP_DAYS =
+  (Math.max(
+    Math.ceil(
+      Math.max(
+        ...DAILY_MOVING_AVERAGES.map((average) => average.period),
+        ...DAILY_OSCILLATORS.map((oscillator) => oscillator.period),
+      ) / TRADING_DAYS_PER_WEEK,
+    ),
+    ...WEEKLY_MOVING_AVERAGES.map((average) => average.period),
+  ) +
+    DERIVED_SERIES_WARMUP_MARGIN_WEEKS) *
+  CALENDAR_DAYS_PER_WEEK;
+
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
 const FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT = 12;
@@ -204,7 +243,7 @@ export class CanonicalStockDataService implements StockDataService {
     // The cached identity is trusted only while its stock generation is READY. Outside that
     // window PostgreSQL decides: hydrating against a security row the durable store no longer
     // has would fail every dependent insert on its foreign key instead of re-resolving.
-    if (cached && this.isReady(await this.cache.getManifest(cached.id))) {
+    if (cached && this.isCurrent(await this.cache.getManifest(cached.id))) {
       return cached;
     }
     const persisted = await this.store.findSecurityByProviderSymbol(normalized);
@@ -235,20 +274,33 @@ export class CanonicalStockDataService implements StockDataService {
     return rankSecurityMatches(term, candidates, limit);
   }
 
-  async ensureStockHydrated(security: Security): Promise<void> {
+  /**
+   * Materializes at least `requested` for this security.
+   *
+   * The range is a parameter, never a default the loader picks for itself: a caller that wants
+   * decades of history says so, and a caller that wants one year pays for one year plus the
+   * derived warm-up. Anything already resident is kept, so widening is incremental.
+   */
+  async ensureStockHydrated(
+    security: Security,
+    required: Required<DateRange>,
+  ): Promise<void> {
     const manifest = await this.cache.getManifest(security.id);
-    if (this.isReady(manifest)) {
+    if (this.covers(manifest, required)) {
       return;
     }
     await this.coordinator.run(this.stockResource(security), async (lease) =>
-      this.hydrateWithinLease(security, lease),
+      this.hydrateWithinLease(security, required, lease),
     );
   }
 
-  async ensureStockFresh(security: Security): Promise<void> {
+  async ensureStockFresh(
+    security: Security,
+    required: Required<DateRange>,
+  ): Promise<void> {
     let manifest = await this.cache.getManifest(security.id);
-    if (!this.isReady(manifest)) {
-      await this.ensureStockHydrated(security);
+    if (!this.covers(manifest, required)) {
+      await this.ensureStockHydrated(security, required);
       manifest = await this.cache.getManifest(security.id);
     }
     if (
@@ -260,11 +312,11 @@ export class CanonicalStockDataService implements StockDataService {
 
     await this.coordinator.run(this.stockResource(security), async (lease) => {
       let lockedManifest = await this.cache.getManifest(security.id);
-      if (!this.isReady(lockedManifest)) {
-        await this.hydrateWithinLease(security, lease);
+      if (!this.covers(lockedManifest, required)) {
+        await this.hydrateWithinLease(security, required, lease);
         lockedManifest = await this.cache.getManifest(security.id);
       }
-      if (!this.isReady(lockedManifest)) {
+      if (!this.isCurrent(lockedManifest)) {
         return;
       }
       const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
@@ -273,14 +325,17 @@ export class CanonicalStockDataService implements StockDataService {
         return;
       }
 
+      // A refresh maintains exactly what is already resident. It must never narrow the cached
+      // range — that would silently drop history a wider caller has already paid to load — and
+      // never widen it either, which is what re-reading the configured horizon here used to do.
+      const target = this.maintainedTarget(required, lockedManifest);
       lease.assertOwned();
-      const hydrating = this.hydratingManifest(security, lockedManifest);
+      const hydrating = this.hydratingManifest(security, lockedManifest, target);
       if (!(await this.cache.beginRefresh(lockedManifest, hydrating))) {
-        await this.hydrateWithinLease(security, lease);
+        await this.hydrateWithinLease(security, required, lease);
         return;
       }
 
-      const target = this.canonicalTarget(security);
       let prices = await this.store.getDailyPrices(security.id, target);
       let lastPriceRefreshAt = lockedManifest.lastPriceRefreshAt;
       const rebuildStarts: (string | undefined)[] = [];
@@ -355,8 +410,11 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<StockDetails> {
     const bounded = this.defaultRange(range);
     const preHydration = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(preHydration);
-    await this.ensureStockFresh(preHydration);
+    // Stock Details asks for its own window. The one-year fallback below applies only when a
+    // caller sends no range at all; neither path may reach for the whole backtest horizon.
+    const load = this.loadTarget(preHydration, bounded);
+    await this.ensureStockHydrated(preHydration, load);
+    await this.ensureStockFresh(preHydration, load);
     // The first hydration enriches the catalog identity with profile-sync fields (CIK, ISIN,
     // IPO date, sector, ...). Re-resolving after hydration keeps the returned security and the
     // freshly read profile consistent; on the common READY path this is a cache read, not a
@@ -386,8 +444,9 @@ export class CanonicalStockDataService implements StockDataService {
   async getDailyPrices(symbol: string, range: DateRange) {
     const bounded = this.requireBoundedRange(range);
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
+    const load = this.loadTarget(security, bounded);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
     return this.readDailyPriceProjection(security, bounded);
   }
 
@@ -395,8 +454,9 @@ export class CanonicalStockDataService implements StockDataService {
   async getDailyDerivedState(symbol: string, range: DateRange) {
     const bounded = this.requireBoundedRange(range);
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
+    const load = this.loadTarget(security, bounded);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
     return this.readDailyDerivedStateProjection(security, bounded);
   }
 
@@ -412,19 +472,23 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<FinancialStatement[]> {
     assertDateRange(query);
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
     const bounded = this.boundFinancialQuery(security, query);
     if (bounded.from && bounded.to && bounded.from > bounded.to) {
       return [];
     }
+    const load = this.loadTarget(security, {
+      from: bounded.from ?? this.today(),
+      to: bounded.to ?? this.today(),
+    });
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
     const observedManifest = await this.cache.getManifest(security.id);
     let cached = await this.cache.readFinancialStatements(security.id, bounded);
     if (cached) {
       return cached;
     }
     await this.cache.invalidateManifest(observedManifest);
-    await this.ensureStockHydrated(security);
+    await this.ensureStockHydrated(security, load);
     cached = await this.cache.readFinancialStatements(security.id, bounded);
     return cached ?? this.store.getFinancialStatements(security.id, bounded);
   }
@@ -435,12 +499,13 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<IntrinsicValuePoint[]> {
     assertDateRange(query);
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
     const bounded = this.intrinsicReadRange(security, query);
     if (!bounded) {
       return [];
     }
+    const load = this.loadTarget(security, bounded);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
     return toIntrinsicValuePoints(
       await this.readDailyDerivedStateProjection(security, bounded),
       query,
@@ -453,12 +518,13 @@ export class CanonicalStockDataService implements StockDataService {
   ): Promise<IntrinsicValueBlendPoint[]> {
     assertDateRange(query);
     const security = await this.getSecurity(symbol);
-    await this.ensureStockHydrated(security);
-    await this.ensureStockFresh(security);
     const bounded = this.intrinsicReadRange(security, query);
     if (!bounded) {
       return [];
     }
+    const load = this.loadTarget(security, bounded);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
     return toIntrinsicValueBlendPoints(
       await this.readDailyDerivedStateProjection(security, bounded),
       query,
@@ -506,18 +572,24 @@ export class CanonicalStockDataService implements StockDataService {
 
   private async hydrateWithinLease(
     security: Security,
+    required: Required<DateRange>,
     lease: LoadLease,
   ): Promise<void> {
     const afterLock = await this.cache.getManifest(security.id);
-    if (this.isReady(afterLock)) {
+    if (this.covers(afterLock, required)) {
       return;
     }
-    const target = this.canonicalTarget(security);
+    // Widening is incremental: whatever is already resident stays, and only the prefix the
+    // caller newly needs is loaded on top of it.
+    const target = this.maintainedTarget(required, afterLock);
     const hydrating = this.hydratingManifest(security, afterLock, target);
     lease.assertOwned();
     if (!(await this.cache.beginHydration(afterLock, hydrating))) {
       const current = await this.cache.getManifest(security.id);
-      if (this.isReady(current)) {
+      // Only a competing hydration that already covers this request settles it. One that
+      // finished a narrower range leaves the prefix still missing, so this call must fail
+      // rather than report a range it did not load.
+      if (this.covers(current, required)) {
         return;
       }
       throw new Error("Stock cache hydration generation changed");
@@ -679,7 +751,15 @@ export class CanonicalStockDataService implements StockDataService {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
-    await this.ensureStockHydrated(security);
+    // Repairing a cache miss must not shrink the stock: the range the invalidated manifest was
+    // holding is rebuilt alongside the one this read needs.
+    await this.ensureStockHydrated(
+      security,
+      this.maintainedTarget(
+        this.loadTarget(security, projection),
+        observedManifest,
+      ),
+    );
     result = await this.cache.readDailyPrices(security.id, projection);
     return result ?? this.store.getDailyPrices(security.id, projection);
   }
@@ -701,7 +781,13 @@ export class CanonicalStockDataService implements StockDataService {
       return result;
     }
     await this.cache.invalidateManifest(observedManifest);
-    await this.ensureStockHydrated(security);
+    await this.ensureStockHydrated(
+      security,
+      this.maintainedTarget(
+        this.loadTarget(security, projection),
+        observedManifest,
+      ),
+    );
     result = await this.cache.readDailyDerivedState(security.id, projection);
     if (result && result.length > 0) {
       return result;
@@ -1237,7 +1323,7 @@ export class CanonicalStockDataService implements StockDataService {
   private hydratingManifest(
     security: Security,
     previous: StockManifest | null,
-    target = this.canonicalTarget(security),
+    target: Required<DateRange>,
   ): StockManifest {
     return {
       ...(previous ?? {}),
@@ -1254,7 +1340,13 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
-  private isReady(manifest: StockManifest | null): manifest is StockManifest {
+  /**
+   * Whether a READY manifest was produced by the current configuration and methodology.
+   *
+   * This says nothing about *how much* history it holds — see `covers` — so it stays the right
+   * question for callers that only need the cached identity or the refresh watermarks.
+   */
+  private isCurrent(manifest: StockManifest | null): manifest is StockManifest {
     return (
       manifest?.status === "READY" &&
       manifest.historyYears === this.historyYears &&
@@ -1264,8 +1356,30 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
+  /**
+   * Whether the resident state already reaches back far enough for a requested range.
+   *
+   * Readiness is per range, not global: a stock materialized for a one-year Stock Details window
+   * is genuinely ready for that window and genuinely not ready for a twenty-year backtest, which
+   * is what makes the wider request load the missing prefix instead of silently reading short.
+   *
+   * Only the start is a readiness question. How current the tail is stays a freshness question,
+   * owned by `ensureStockFresh` and its recent-tail refresh, so a day rollover keeps taking the
+   * cheap refresh path instead of re-entering cold hydration.
+   */
+  private covers(
+    manifest: StockManifest | null,
+    requested: Required<DateRange>,
+  ): manifest is StockManifest {
+    return (
+      this.isCurrent(manifest) &&
+      manifest.coverageStart !== undefined &&
+      manifest.coverageStart <= requested.from
+    );
+  }
+
   private isPriceFreshnessStale(manifest: StockManifest | null): boolean {
-    if (!this.isReady(manifest) || !manifest.lastPriceRefreshAt) {
+    if (!this.isCurrent(manifest) || !manifest.lastPriceRefreshAt) {
       return true;
     }
     const lastRefresh = Date.parse(manifest.lastPriceRefreshAt);
@@ -1276,7 +1390,7 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   private isFundamentalsFreshnessStale(manifest: StockManifest | null): boolean {
-    if (!this.isReady(manifest) || !manifest.lastFundamentalsRefreshAt) {
+    if (!this.isCurrent(manifest) || !manifest.lastFundamentalsRefreshAt) {
       return true;
     }
     const lastRefresh = Date.parse(manifest.lastFundamentalsRefreshAt);
@@ -1303,6 +1417,51 @@ export class CanonicalStockDataService implements StockDataService {
         .filter((date): date is string => date !== undefined)
         .sort()[0] ?? target.from
     );
+  }
+
+  /**
+   * The range the loader materializes to answer a requested read.
+   *
+   * The caller's window decides the load. Only the derived warm-up is added to it, and the
+   * configured retention horizon clamps it — the horizon is a ceiling, never the floor a page
+   * view silently falls back to. The upper bound stays today because a resident stock is only
+   * usable while its tail is current: freshness, the recent-tail refresh and the manifest all
+   * key off it, and nothing is saved by holding a stale tail.
+   */
+  private loadTarget(
+    security: Security,
+    requested: Required<DateRange>,
+  ): Required<DateRange> {
+    const horizon = this.canonicalTarget(security);
+    return {
+      from: maxDate(
+        horizon.from,
+        minDate(addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS), horizon.to),
+      ),
+      to: horizon.to,
+    };
+  }
+
+  /**
+   * The range one hydration or refresh cycle must leave materialized: the range this caller
+   * needs, unioned with what is already resident. Neither operation may narrow the cache.
+   *
+   * `required` is already a load target — the warm-up belongs to `loadTarget` and is applied
+   * exactly once, where the caller's window is translated into a load.
+   */
+  private maintainedTarget(
+    required: Required<DateRange>,
+    resident: StockManifest | null,
+  ): Required<DateRange> {
+    const residentStart = this.isCurrent(resident)
+      ? resident.coverageStart
+      : undefined;
+    return {
+      from: residentStart
+        ? minDate(residentStart, required.from)
+        : required.from,
+      to: required.to,
+    };
   }
 
   private canonicalTarget(security: Security): Required<DateRange> {

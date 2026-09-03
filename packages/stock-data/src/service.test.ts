@@ -1,5 +1,6 @@
 import {
   FINANCIAL_STATEMENT_TYPES,
+  TECHNICAL_SERIES_FIELDS,
   selectFinancialStatements,
   type FinancialStatementCadence,
   FinancialStatement,
@@ -31,8 +32,10 @@ import {
   DAILY_DERIVED_STATE_VARIANT,
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
+import { addDays } from "./dates.js";
 import {
   CanonicalStockDataService,
+  DERIVED_SERIES_WARMUP_DAYS,
   StockDataNotFoundError,
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
 } from "./service.js";
@@ -40,6 +43,19 @@ import type { WeeklyPrice } from "./weekly.js";
 
 const NOW = "2026-08-24T12:00:00.000Z";
 const CANONICAL_RANGE = { from: "1996-08-24", to: "2026-08-24" };
+
+/**
+ * The range the loader materializes to answer a requested window: the window plus the derived
+ * warm-up, clamped to the retention horizon.
+ *
+ * Tests state the expectation this way rather than as literal dates so they assert the rule —
+ * "what the caller asked for, plus what the calculators need" — instead of accidentally locking
+ * in the old behaviour of always reaching for the whole horizon.
+ */
+function loadRange(from: string, to = CANONICAL_RANGE.to) {
+  const warmedUp = addDays(from, -DERIVED_SERIES_WARMUP_DAYS);
+  return { from: warmedUp < CANONICAL_RANGE.from ? CANONICAL_RANGE.from : warmedUp, to };
+}
 
 const security: Security = {
   id: "security-1",
@@ -875,11 +891,10 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     const coordinator = new InMemoryLoadCoordinator();
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
-      price("2026-08-20"),
-    ]);
-    const loader = createService(store, provider, cache, coordinator);
     const requested = { from: "2026-01-01", to: "2026-08-24" };
+    const delta = loadRange(requested.from);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    const loader = createService(store, provider, cache, coordinator);
 
     const [first, second] = await Promise.all([
       loader.getDailyPrices("AAPL", requested),
@@ -887,7 +902,10 @@ describe("canonical full-stock hydration", () => {
     ]);
 
     expect(second).toEqual(first);
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    // One year of prices was asked for, so one year plus the derived warm-up is loaded — not the
+    // thirty-year retention horizon.
+    expect(provider.ranges).toEqual([delta]);
+    expect(delta.from > CANONICAL_RANGE.from).toBe(true);
   });
 
   it("does not serve a cached identity PostgreSQL no longer owns", async () => {
@@ -968,9 +986,8 @@ describe("canonical full-stock hydration", () => {
       },
       profile: { description: "Hydrated for an already-catalogued security" },
     };
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
-      price("2026-08-20"),
-    ]);
+    const delta = loadRange("2026-01-01");
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
     const cache = new MemoryCache();
     const loader = createService(
       store,
@@ -987,7 +1004,7 @@ describe("canonical full-stock hydration", () => {
 
     // Asking for data still hydrates prices and, once, the per-stock profile.
     await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.ranges).toEqual([delta]);
     expect(provider.profileCalls).toEqual([security.symbol]);
     expect(store.profileSaves).toEqual([security.id]);
   });
@@ -1082,9 +1099,10 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     provider.profile = null;
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
-      price("2026-08-20"),
-    ]);
+    // No range at all: Stock Details falls back to its documented one-year window, so the load is
+    // that year plus the derived warm-up.
+    const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
     const loader = createService(
       store,
       provider,
@@ -1107,9 +1125,8 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     provider.profile = null;
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
-      price("2026-08-20"),
-    ]);
+    const delta = loadRange("2026-01-01");
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
     const loader = createService(
       store,
       provider,
@@ -1181,17 +1198,19 @@ describe("canonical full-stock hydration", () => {
     const api = createService(store, provider, cache, coordinator);
     const worker = createService(store, provider, cache, coordinator);
 
+    // Both windows reach past the retention horizon, so both resolve to the same load target and
+    // one hydration settles them however the two instances interleave.
     const [older, newer] = await Promise.all([
-      api.getDailyPrices("AAPL", { from: "2010-01-01", to: "2020-12-31" }),
+      api.getDailyPrices("AAPL", { from: "1997-01-01", to: "2020-12-31" }),
       worker.getDailyPrices("AAPL", {
-        from: "2021-01-01",
+        from: "1999-01-01",
         to: "2025-12-31",
       }),
     ]);
 
     expect(provider.ranges).toEqual([{ from: "1996-08-24", to: "2014-12-31" }]);
     expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
-    expect(newer.map((row) => row.date)).toEqual(["2022-01-03"]);
+    expect(newer.map((row) => row.date)).toEqual(["2010-01-04", "2022-01-03"]);
     expect(cache.manifests.get(security.id)).toMatchObject({
       status: "READY",
       coverageStart: CANONICAL_RANGE.from,
@@ -1366,13 +1385,10 @@ describe("canonical full-stock hydration", () => {
       to: "2011-01-01",
     });
 
-    expect(provider.ranges).toEqual([
-      { from: CANONICAL_RANGE.from, to: "2009-12-31" },
-    ]);
+    const prefix = { from: loadRange("2010-01-01").from, to: "2009-12-31" };
+    expect(provider.ranges).toEqual([prefix]);
     expect(store.coverage.get("DAILY_PRICE:split-adjusted-eod-full")).toEqual(
-      expect.arrayContaining([
-        { from: CANONICAL_RANGE.from, to: "2009-12-31" },
-      ]),
+      expect.arrayContaining([prefix]),
     );
   });
 
@@ -1382,8 +1398,10 @@ describe("canonical full-stock hydration", () => {
     const cache = new MemoryCache();
     const priceKey = "DAILY_PRICE:split-adjusted-eod-full";
     const staleTailSync = "2026-08-23T01:00:00.000Z";
-    const prefix = { from: CANONICAL_RANGE.from, to: "2010-12-31" };
-    const suffix = { from: "2011-01-02", to: CANONICAL_RANGE.to };
+    // The gap sits inside the window this request materializes; history older than that is not
+    // this read's business and is deliberately left alone.
+    const prefix = { from: CANONICAL_RANGE.from, to: "2024-12-31" };
+    const suffix = { from: "2025-01-02", to: CANONICAL_RANGE.to };
     store.prices = [price("2026-08-20", 200)];
     store.coverage.set(priceKey, [prefix, suffix]);
     store.coverageSyncs.set(priceKey, [
@@ -1412,7 +1430,7 @@ describe("canonical full-stock hydration", () => {
     });
 
     expect(provider.ranges).toEqual([
-      { from: "2011-01-01", to: "2011-01-01" },
+      { from: "2025-01-01", to: "2025-01-01" },
       { from: "2026-08-14", to: "2026-08-24" },
     ]);
   });
@@ -3254,3 +3272,150 @@ function upsertBy<T>(
   for (const row of incoming) values.set(identity(row), row);
   return [...values.values()];
 }
+
+/**
+ * Which history a read actually materializes.
+ *
+ * The rule under test is that the caller's window decides the load: Stock Details opening on its
+ * one-year default must not drag in the retention horizon just because a backtest could ask for
+ * it. The warm-up the derived calculators need is the only thing added on top, and the tests below
+ * prove it is genuinely enough rather than merely small.
+ */
+describe("range-scoped materialization", () => {
+  const DEFAULT_DETAILS_FROM = addDays(CANONICAL_RANGE.to, -365);
+
+  /** Monday-Friday closes across an inclusive window, varied enough for every catalog series. */
+  function tradingDays(from: string, to: string): DailyPrice[] {
+    const rows: DailyPrice[] = [];
+    for (let date = from; date <= to; date = addDays(date, 1)) {
+      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      if (weekday === 0 || weekday === 6) {
+        continue;
+      }
+      rows.push(price(date, 100 + (rows.length % 41) * 0.6 + rows.length * 0.05));
+    }
+    return rows;
+  }
+
+  function coldService(provider: FakeProvider) {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+    return { store, cache, loader };
+  }
+
+  it("opens Stock Details on its default window without materializing the retention horizon", async () => {
+    const provider = new FakeProvider();
+    const expected = loadRange(DEFAULT_DETAILS_FROM);
+    provider.rowsByRange.set(`${expected.from}:${expected.to}`, [
+      price("2026-08-20"),
+    ]);
+    const { cache, loader } = coldService(provider);
+
+    await loader.getStockDetails("AAPL");
+
+    // One provider call, for the requested year plus the derived warm-up — not the horizon.
+    expect(provider.ranges).toEqual([expected]);
+    expect(expected.from > CANONICAL_RANGE.from).toBe(true);
+    expect(cache.priceYearWrites).toEqual([
+      yearSpan(expected.from, expected.to),
+    ]);
+    expect(yearSpan(expected.from, expected.to)).toHaveLength(6);
+    expect(yearSpan(CANONICAL_RANGE.from, CANONICAL_RANGE.to)).toHaveLength(31);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      status: "READY",
+      coverageStart: expected.from,
+    });
+  });
+
+  it("warms up every catalog series on the first visible day of that window", async () => {
+    // The reduced load is only correct if it still carries enough history for the slowest series.
+    // `SMA(200, 1W)` needs two hundred completed weekly bars, so this fails first if the warm-up
+    // is ever trimmed below what the canonical registries require.
+    const provider = new FakeProvider();
+    const expected = loadRange(DEFAULT_DETAILS_FROM);
+    provider.rowsByRange.set(
+      `${expected.from}:${expected.to}`,
+      tradingDays(expected.from, expected.to),
+    );
+    const { loader } = coldService(provider);
+
+    const details = await loader.getStockDetails("AAPL", {
+      from: DEFAULT_DETAILS_FROM,
+      to: CANONICAL_RANGE.to,
+    });
+
+    const first = details.technicals[0];
+    expect(first?.date).toBe("2025-08-25");
+    for (const field of TECHNICAL_SERIES_FIELDS) {
+      expect(first?.[field]).toBeTypeOf("number");
+    }
+    // Nothing from the warm-up leaks into the response: it is calculation input, not history.
+    expect(details.prices[0]?.date).toBe("2025-08-25");
+  });
+
+  it("widens lazily, loading only the history a longer range is still missing", async () => {
+    const provider = new FakeProvider();
+    const shortRange = loadRange(DEFAULT_DETAILS_FROM);
+    provider.rowsByRange.set(`${shortRange.from}:${shortRange.to}`, [
+      price("2026-08-20"),
+    ]);
+    const { loader } = coldService(provider);
+    await loader.getStockDetails("AAPL");
+
+    const longFrom = addDays(CANONICAL_RANGE.to, -5 * 365);
+    await loader.getStockDetails("AAPL", {
+      from: longFrom,
+      to: CANONICAL_RANGE.to,
+    });
+
+    // Only the older prefix is fetched; the year already resident is never re-requested.
+    expect(provider.ranges).toEqual([
+      shortRange,
+      { from: loadRange(longFrom).from, to: addDays(shortRange.from, -1) },
+    ]);
+  });
+
+  it("still lets a caller ask for the whole retention horizon explicitly", async () => {
+    // A backtest is not a page view: when the caller names decades, it gets decades. What changed
+    // is that this is now something a caller asks for, never something the loader assumes.
+    const provider = new FakeProvider();
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2010-01-04"),
+      price("2026-08-20"),
+    ]);
+    const { cache, loader } = coldService(provider);
+
+    const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(prices.map((row) => row.date)).toEqual([
+      "2010-01-04",
+      "2026-08-20",
+    ]);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      coverageStart: CANONICAL_RANGE.from,
+    });
+  });
+
+  it("never narrows what is already resident when a shorter window is read next", async () => {
+    const provider = new FakeProvider();
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("2010-01-04"),
+    ]);
+    const { cache, loader } = coldService(provider);
+    await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    await loader.getStockDetails("AAPL");
+
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      coverageStart: CANONICAL_RANGE.from,
+    });
+  });
+});

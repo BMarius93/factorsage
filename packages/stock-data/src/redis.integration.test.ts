@@ -1283,13 +1283,15 @@ describeInfrastructure("cross-process canonical hydration", () => {
 
       provider.delayMs = 3_500;
       const startedAt = Date.now();
+      // Both windows reach past the retention horizon, so both resolve to the same load target:
+      // whichever process wins the Redlock does the one delta and the other waits on it.
       const [older, newer] = await Promise.all([
         serviceA.getDailyPrices(symbol, {
-          from: "2010-01-01",
+          from: "1997-01-01",
           to: "2020-12-31",
         }),
         serviceB.getDailyPrices(symbol, {
-          from: "2021-01-01",
+          from: "1999-01-01",
           to: "2025-12-31",
         }),
       ]);
@@ -1299,7 +1301,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
       ]);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
-      expect(newer.map((row) => row.date)).toEqual(["2022-01-03"]);
+      expect(newer.map((row) => row.date)).toEqual([
+        "2010-01-04",
+        "2022-01-03",
+      ]);
       await expect(
         prismaA.stockDatasetState.findUnique({
           where: {

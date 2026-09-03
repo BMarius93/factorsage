@@ -260,7 +260,7 @@ describe("StockDetails", () => {
     expect(fetchDailyPriceHistoryMock).not.toHaveBeenCalled();
   });
 
-  it("loads the full history once for long ranges and keeps it for later switches", async () => {
+  it("loads only the history a long range needs and keeps it for later switches", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
     let releaseExtended: (rows: DailyPriceResponse[]) => void = () => {};
     fetchDailyPriceHistoryMock.mockReturnValue(
@@ -275,10 +275,11 @@ describe("StockDetails", () => {
 
     await user.click(screen.getByRole("radio", { name: "5Y" }));
     expect(chart().dataset.loading).toBe("true");
+    // Five years, not the listing date: a long range asks for its own start and nothing older.
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledWith(
       "AAPL",
-      { from: "1980-12-12", to: "2026-08-28" },
+      { from: "2021-08-28", to: "2026-08-28" },
       expect.anything(),
     );
 
@@ -288,17 +289,27 @@ describe("StockDetails", () => {
     expect(chart().dataset.pointCount).toBe("3");
     expect(chart().dataset.firstDate).toBe("2022-08-30");
 
+    // MAX is the one unbounded range, so it widens the load back to the listing date — and the
+    // history already on screen stays there while it does.
     await user.click(screen.getByRole("radio", { name: "MAX" }));
     expect(chart().dataset.pointCount).toBe("4");
     expect(chart().dataset.firstDate).toBe("2010-01-04");
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2);
+    expect(fetchDailyPriceHistoryMock).toHaveBeenLastCalledWith(
+      "AAPL",
+      { from: "1980-12-12", to: "2026-08-28" },
+      expect.anything(),
+    );
+    await waitFor(() => expect(chart().dataset.loading).toBe("false"));
 
     // Returning to a short range falls back to the detail window's own data.
     await user.click(screen.getByRole("radio", { name: "1Y" }));
     expect(chart().dataset.pointCount).toBe("6");
 
+    // Re-entering a range already inside the loaded superset refetches nothing.
     await user.click(screen.getByRole("radio", { name: "5Y" }));
     expect(chart().dataset.pointCount).toBe("3");
-    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2);
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
   });
 
