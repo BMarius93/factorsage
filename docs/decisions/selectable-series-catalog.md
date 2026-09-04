@@ -2,17 +2,20 @@
 
 ## Status
 
-Product decision for the single series catalog shared by Stock Details chart overlays and strategy
-condition operands. This decision supersedes only the previously-undecided weekly period catalog
-in `stock-data-foundation.md`; all completed-week, point-in-time, materialization, and provenance
-rules remain unchanged.
+Product decision for the single series catalog shared by Stock Details and Strategy-compatible
+series selections. This decision supersedes only the previously-undecided weekly period catalog in
+`stock-data-foundation.md`; all completed-week, point-in-time, materialization, and provenance rules
+remain unchanged.
+
+Strategy product grammar and Metric/Condition/Trigger/Value compatibility are defined separately in
+`../../ai/product/strategies.md`. Catalog membership alone never grants Strategy compatibility.
 
 ## Invariant
 
 There is exactly one canonical product catalog of selectable technical and intrinsic-value series.
-Stock Details consumes the full catalog as a multi-select overlay picker. Strategy predicates
-consume filtered single-select views according to operand compatibility. Neither consumer owns or
-duplicates the catalog.
+Stock Details consumes the full catalog as a multi-select chart series picker. Strategy consumes
+filtered views of the same canonical identities where `ai/product/strategies.md` explicitly allows
+them as Metric parameters or Values. Neither consumer owns or duplicates the catalog.
 
 Price is canonical daily close and is always present as the chart's base series; it is not a
 selectable catalog entry.
@@ -103,19 +106,21 @@ model, or a future completed-week value.
 ## Consumer filtering
 
 - Stock Details: all 24 entries, multi-select.
-- Price-versus-series strategy predicate: the price-scaled entries only — the 14 moving averages
-  and the 7 intrinsic-value sources. An oscillator is unitless and is never comparable with a
-  price.
-- Discount/premium strategy predicates: the 7 intrinsic-value entries only.
-- Moving-average-versus-moving-average predicate: the 14 moving-average entries only, filtered to
-  the left operand's timeframe and excluding the same identity.
-- Future oscillator predicates: an RSI operand is comparable with a numeric threshold inside its
-  own `0-100` range (for example `RSI 14D < 30`) or with another oscillator of the same type and
-  timeframe — never with price, a moving average or an intrinsic value. The conventional 30/70
-  oversold/overbought levels are chart orientation, not persisted strategy state.
+- Strategy `Price` Values: price-scaled entries only — the 14 moving averages and the 7
+  intrinsic-value sources. An oscillator is unitless and is never comparable with Price.
+- Strategy `RSI` Metrics: RSI 7D, RSI 14D and RSI 21D are first-class Strategy metrics. They compare
+  with a user-entered numeric threshold from `1` through `100`; supported Conditions are `is above`
+  and `is below`, and supported Triggers are `crosses above` and `crosses below`. RSI is not a
+  Price Value and does not support `is close to` in V1.
+- Strategy `Margin of Safety` source selection: the 7 intrinsic-value entries only. MOS itself is a
+  first-class Strategy metric defined in `ai/product/strategies.md`, not a catalog series identity.
+- Catalog helpers may expose additional structurally compatible subsets such as moving averages in
+  the same timeframe, but a helper does not create a user-visible Strategy predicate unless the
+  Strategy product document explicitly defines it.
 
 Catalog ordering and labels are product metadata. Backend/domain identities remain structured
-(moving-average type, period, timeframe; or intrinsic source identity) rather than UI labels.
+(moving-average type, period, timeframe; oscillator family/period/timeframe; or intrinsic source
+identity) rather than UI labels.
 
 ## Implementation
 
@@ -125,13 +130,15 @@ Package ownership follows the dependency rules in `AGENTS.md`:
   the 24 entries with their stable id, group, label, canonical order, default-selection flag, and a
   structured `source` discriminator. It is the only package the web app may depend on and is equally available to the
   API and worker, so Stock Details, the API's selection validation and future Strategy operand
-  pickers all read the same list. The consumer filters from this decision (`MOVING_AVERAGE_SERIES`,
-  `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it rather than in feature code,
-  as do `INTRINSIC_VALUE_BLEND_OPTIONS` and `INTRINSIC_VALUE_MODEL_OPTIONS`, which project the
-  catalog into the `blendId`/`model` vocabulary the intrinsic-value endpoints speak so a consumer
-  of those responses never needs its own ordered list. `OSCILLATOR_SERIES` and `TECHNICAL_SERIES`
-  (moving averages plus oscillators — the set the daily technical endpoint's `series=` filter
-  accepts) live beside them.
+  pickers all read the same list. Existing catalog projections and structural helpers
+  (`MOVING_AVERAGE_SERIES`, `INTRINSIC_VALUE_SERIES`, `comparableMovingAverages`) live beside it
+  rather than in feature code, as do `INTRINSIC_VALUE_BLEND_OPTIONS` and
+  `INTRINSIC_VALUE_MODEL_OPTIONS`, which project the catalog into the `blendId`/`model` vocabulary
+  the intrinsic-value endpoints speak so a consumer of those responses never needs its own ordered
+  list. `OSCILLATOR_SERIES` and `TECHNICAL_SERIES` (moving averages plus oscillators — the set the
+  daily technical endpoint's `series=` filter accepts) live beside them. Strategy-specific
+  compatibility should likewise be represented canonically rather than duplicated by API and web
+  when it is implemented.
 - Each series has exactly **one** product label, used by the dropdown, the chart legend and the
   valuation summary alike. A feature must never keep its own label map: the valuation summary's
   did, and had silently drifted to `Residual income` and `Dividend discount`. A short-lived
@@ -165,7 +172,7 @@ coverage. Migration `20260901234500_add_weekly_moving_averages` adds the nullabl
 them NULL, because the revision bump makes r2 coverage and r2 cache manifests report nothing for the
 current variant and the existing rebuild mechanism recalculates and replaces the affected rows.
 
-Overlay colour is deliberately not part of series identity: 21 permanently distinct, legible hues
-do not exist. `apps/web/src/features/stocks/details/utils/chart-theme.ts` owns one palette and
-assigns a colour by an enabled series' position in canonical catalog order, so a given selection
-always paints the same way and simultaneously enabled series stay distinguishable.
+Overlay colour is deliberately not part of series identity: permanently distinct, legible hues do
+not exist for every catalog entry. `apps/web/src/features/stocks/details/utils/chart-theme.ts` owns
+one palette and assigns a colour by an enabled series' position in canonical catalog order, so a
+given selection always paints the same way and simultaneously enabled series stay distinguishable.

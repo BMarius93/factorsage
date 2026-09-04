@@ -75,24 +75,43 @@ SelectableSeriesCatalog
   +-- daily oscillators (RSI 7D/14D/21D, shared 0-100 chart pane)
   +-- intrinsic-value models/blends
   +-- Stock Details overlays
-  +-- compatible Strategy condition operands
+  +-- compatible Strategy Metric/Value selections
 
 Strategy
   |
-  +-- ordered BUY/SELL/FINAL EXIT predicates
-  +-- entry fraction of one full position
-  +-- exit fraction of the remaining position
+  +-- ordered BUY levels
+  +-- ordered SELL levels
+  +-- optional FINAL EXIT
+  +-- each level owns one Signal
+  |    +-- zero or more Conditions, ANDed
+  |    +-- zero or one optional Trigger, ANDed with the Conditions
+  +-- Condition product grammar = Metric / Condition / Value
+  +-- Trigger product grammar = Metric / Trigger / Value
   +-- no global valuation source
-  +-- no portfolio-position limit
+  +-- no Stock List
+  +-- no capital/contributions/maximumPositions/date-range execution inputs
 
-Backtest
+Backtest configuration
+  |
+  +-- Strategy + StockList
+  +-- date range / capital / contributions / maximumPositions / execution assumptions
+
+Backtest run
   |
   +-- immutable execution snapshot + asynchronous worker execution
-  +-- capital/contributions/maximumPositions
-  +-- full position fraction = 1 / maximumPositions
+  +-- deterministic results / diagnostics
 
-Monitor = current-data evaluation using the same canonical strategy logic
+Monitor = current-data evaluation using the same canonical Strategy logic
 ```
+
+Historical market-derived Strategy predicates are conceptually evaluated as date-aligned logical
+series. Missing/warm-up/PIT-unavailable data remains `NOT_EVALUABLE`; it is never replaced by zero
+or future data. Position-dependent metrics such as Gain/Loss require simulated position state and
+must not be forced into a static historical-series model merely for implementation convenience.
+
+Catalog membership does not automatically define Strategy compatibility. For example, RSI is now a
+canonical calculated series family, but its Strategy operators/value presets remain a product
+decision until they are added to `product/strategies.md`.
 
 Historical index-membership PIT is excluded.
 
