@@ -146,6 +146,77 @@ export type DailyMovingAverageField =
 export type WeeklyMovingAverageField =
   (typeof WEEKLY_MOVING_AVERAGES)[number]["field"];
 
+export const OSCILLATOR_TYPES = ["RSI"] as const;
+export type OscillatorType = (typeof OSCILLATOR_TYPES)[number];
+
+/**
+ * An oscillator is a bounded, unitless technical series and is a separate family from the moving
+ * averages: it is never price-scaled, never drawn over the price series, and its value is never
+ * comparable with a price or a moving average — only with fixed thresholds inside its own range or
+ * with another oscillator of the same type and timeframe.
+ */
+export type OscillatorDefinition = {
+  type: OscillatorType;
+  /** Number of source bars in the oscillator window, never calendar days or weeks. */
+  period: number;
+  timeframe: TechnicalTimeframe;
+};
+
+/**
+ * Field carrying one oscillator on the persisted/derived daily state.
+ *
+ * The timeframe suffix follows the moving-average convention: `d` for daily bars. `rsi14d` can
+ * never alias a hypothetical weekly `rsi14w`, and an ambiguous `rsi14` is forbidden.
+ */
+export type OscillatorField =
+  | `${Lowercase<OscillatorType>}${number}d`
+  | `${Lowercase<OscillatorType>}${number}w`;
+
+export type MaterializedOscillator = OscillatorDefinition & {
+  /** Column/field the calculated value is materialized into on `DailyDerivedState`. */
+  field: OscillatorField;
+};
+
+/**
+ * Product-supported daily oscillators, materialized from canonical completed daily closes — the
+ * same close series the daily moving averages consume.
+ *
+ * All three RSI periods share one Wilder methodology; only the period differs. The period counts
+ * trading-day observations: RSI 14D needs fifteen daily closes (fourteen consecutive changes)
+ * before its first value, regardless of how many calendar days those bars span.
+ */
+export const DAILY_OSCILLATORS = [
+  { type: "RSI", period: 7, timeframe: "1D", field: "rsi7d" },
+  { type: "RSI", period: 14, timeframe: "1D", field: "rsi14d" },
+  { type: "RSI", period: 21, timeframe: "1D", field: "rsi21d" },
+] as const satisfies readonly MaterializedOscillator[];
+
+export type DailyOscillatorField = (typeof DAILY_OSCILLATORS)[number]["field"];
+
+/**
+ * Fixed unit range of every RSI value. The bounds are attained: an all-gain warm-up window is
+ * exactly 100 and an all-loss window exactly 0. The shared oscillator chart pane renders this
+ * range as its fixed scale, and future Strategy predicates compare RSI operands against
+ * thresholds inside it — never against a price.
+ */
+export const RSI_VALUE_RANGE = { min: 0, max: 100 } as const;
+
+/** Any field served by the daily technical projection: a moving average or a daily oscillator. */
+export type TechnicalSeriesField =
+  | DailyMovingAverageField
+  | WeeklyMovingAverageField
+  | DailyOscillatorField;
+
+/**
+ * Every technical-series field in canonical wire order: moving averages (daily, then weekly)
+ * first, oscillators after them. This is the order fields are projected by the API; the derived
+ * row is written from the same registries, so a registered series cannot go missing from either.
+ */
+export const TECHNICAL_SERIES_FIELDS: readonly TechnicalSeriesField[] = [
+  ...MATERIALIZED_MOVING_AVERAGES.map((average) => average.field),
+  ...DAILY_OSCILLATORS.map((oscillator) => oscillator.field),
+];
+
 /**
  * Daily technical read projection over `DailyDerivedState`.
  *
@@ -177,6 +248,14 @@ export type DailyTechnical = {
   ema20w?: number;
   ema50w?: number;
   ema200w?: number;
+  /**
+   * Daily Wilder RSI values over the same canonical daily closes as the daily moving averages.
+   * Unitless, bounded to `RSI_VALUE_RANGE`, and absent until the period's warm-up of `period + 1`
+   * closes is complete — never zero during warm-up.
+   */
+  rsi7d?: number;
+  rsi14d?: number;
+  rsi21d?: number;
 };
 
 /**
@@ -359,6 +438,14 @@ export type DailyDerivedState = {
   ema20w?: number;
   ema50w?: number;
   ema200w?: number;
+  /**
+   * Daily Wilder RSI oscillators, calculated per trading day from the same canonical daily closes
+   * as the daily moving averages. Values are unitless and lie in `RSI_VALUE_RANGE`; a period is
+   * absent until its warm-up of `period + 1` closes is complete, never zero.
+   */
+  rsi7d?: number;
+  rsi14d?: number;
+  rsi21d?: number;
   /** Per-model intrinsic value per share, present only for models eligible on this trading day. */
   intrinsicValues?: Partial<Record<IntrinsicValueModel, number>>;
   /** Per-blend intrinsic value per share, present only for blends computable on this trading day. */
@@ -407,9 +494,28 @@ export type StockDatasetState = {
   lastSyncedAt?: Instant;
 };
 
+/**
+ * How far back the Stock Details surface may explore one security, and why it stops there.
+ *
+ * `start` is the earliest date the surface will ask for, and the only boundary a client stops at:
+ * `HORIZON` is the configured product limit, `LISTING` the security's own listing date when that
+ * is later, and `PROVIDER` the earliest trading day the provider actually has — reported only
+ * once complete provider coverage proves that nothing older exists between the horizon-or-listing
+ * bound and that day. An empty bounded read is never evidence of where history begins.
+ */
+export type StockHistoryBounds = {
+  start: LocalDate;
+  end: LocalDate;
+  startOrigin: StockHistoryStartOrigin;
+};
+
+export type StockHistoryStartOrigin = "HORIZON" | "LISTING" | "PROVIDER";
+
 export type StockDetails = {
   security: Security;
   profile?: SecurityProfile;
+  /** The window this surface is allowed to explore for this security. */
+  history: StockHistoryBounds;
   prices: DailyPrice[];
   technicals: DailyTechnical[];
   intrinsicValues: IntrinsicValuePoint[];

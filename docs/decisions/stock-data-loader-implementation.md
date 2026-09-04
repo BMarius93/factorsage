@@ -5,7 +5,18 @@
 Implemented on the stock-data loader feature branch. This decision supersedes the foundation
 document wherever it previously implied request-range-driven hydration.
 
-> Requested ranges are read projections, not hydration boundaries.
+> **Amended by `caller-scoped-history-materialization.md`.** The caller's requested range, widened
+> by the derived-series warm-up and clamped to the configured horizon, is now what a hydration
+> materializes; the horizon is the outer bound rather than the target. Everything else below —
+> the lock protocol, coverage compaction, empty-interval durability, freshness, weekly rules,
+> point-in-time reads, manifest generations and LRU residency — is unchanged.
+
+> **Amended by `complete-price-coverage.md`.** A missing interval is fulfilled completely by the
+> adapter, which paginates past FMP's 5000-row per-response cap, and coverage is recorded only for
+> what was completely asked. What a coverage interval means is now revisioned by
+> `PRICE_DATASET_VERSION` (2), which names both the manifest's `priceDatasetVersion` and the
+> `DAILY_PRICE` variant `split-adjusted-eod-full:v2`. Steps 4–5, the empty-interval paragraph, the
+> manifest description and the FMP resilience section below are updated in place.
 
 ## Ownership
 
@@ -16,17 +27,24 @@ paths. PostgreSQL remains authoritative; Redis is disposable and reconstructible
 
 ## Canonical hydration
 
-`ensureStockHydrated` establishes all available canonical daily history up to
-`STOCK_HISTORY_YEARS` (30 by default), clipped by known IPO date, provider availability, and the
-current canonical date. It performs these steps under one stock hydration lock:
+`ensureStockHydrated` establishes the canonical daily history a caller needs, clipped by
+`STOCK_HISTORY_YEARS` (30 by default), known IPO date, provider availability, and the current
+canonical date. It performs these steps under one stock hydration lock:
 
-1. Recheck the v2 manifest after lock acquisition.
-2. Compute the canonical horizon independently of the caller's requested range.
-3. Subtract durable `StockDatasetCoverage` intervals from that horizon.
-4. Request only missing prefix, suffix, or internal intervals from FMP.
-5. Persist rows, successful provider-request coverage, and state transactionally. Coverage for an
-   exact security/dataset/variant is compacted into disjoint maximal intervals; overlap and
-   calendar-day adjacency merge while real gaps and other variants remain separate.
+1. Recheck the v2 manifest after lock acquisition, against the range this call requires.
+2. Compute the load target from the caller's range plus the derived-series warm-up, clamped to the
+   canonical horizon and unioned with whatever is already resident, so widening is incremental and
+   nothing already materialized is narrowed away.
+3. Subtract durable `StockDatasetCoverage` intervals from that target.
+4. Request only missing prefix, suffix, or internal intervals from FMP. Each delta is one
+   `getDailyPrices` call, and the adapter fulfils it completely: it paginates past the provider's
+   5000-row per-response cap until a page reaches the delta's start, so one delta is one complete
+   answer (`complete-price-coverage.md`).
+5. Persist rows, coverage for the intervals that were completely asked, and state transactionally.
+   Coverage for an exact security/dataset/variant is compacted into disjoint maximal intervals;
+   overlap and calendar-day adjacency merge while real gaps and other variants remain separate.
+   Superseded `DAILY_PRICE` coverage/state variants are removed in the same transaction that
+   records the current one.
 6. Rebuild the unified daily derived state from canonical price history.
 7. Publish complete yearly price and daily derived-state chunks. A partial rebuild still republishes
    every affected year in full from PostgreSQL, because a yearly chunk is replaced wholesale.
@@ -34,8 +52,12 @@ current canonical date. It performs these steps under one stock hydration lock:
 
 A successful empty historical interval is durable request coverage. This distinguishes provider
 or pre-listing unavailability from missing trading rows and prevents repeated empty-prefix loads.
-It does not fabricate price rows. If PostgreSQL already covers the horizon, re-admission after LRU
-eviction performs no historical FMP request.
+It does not fabricate price rows, and it is never an inference about the security's listing date
+or a boundary the product reports on its own: an interval is "covered, empty" only because it was
+asked for completely and nothing came back. Only coverage under the current variant,
+`split-adjusted-eod-full:v2`, is trusted; intervals recorded under the v1 variant were written when
+a capped response could pass for an empty one, and the loader never reads them. If PostgreSQL
+already covers the target, re-admission after LRU eviction performs no historical FMP request.
 
 ## Freshness
 
@@ -93,8 +115,10 @@ Range reads issue one multi-key read for the intersecting years, concatenate asc
 slice exact boundary dates. Exact HTTP/date-range response keys do not exist.
 
 The manifest contains status, configured horizon years, attempted coverage bounds, actual first
-and last available price dates when present, hydration/freshness instants, source-dataset versions,
-the derived-state methodology revision, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
+and last available price dates when present, hydration/freshness instants, source-dataset versions
+— `priceDatasetVersion` is the price-dataset revision `PRICE_DATASET_VERSION`, and a manifest from
+an earlier revision is stale however much it claims to cover — the derived-state methodology
+revision, and a unique hydration generation. HYDRATING is advisory and expires after 15 minutes;
 the distributed lock is authoritative. Every chunk, symbol mapping, and READY publication compares
 the active generation, so a stale owner cannot overwrite or register keys under a successor. A
 concurrent generation-less symbol lookup atomically joins the currently active HYDRATING lifetime
@@ -121,6 +145,13 @@ shortened by `FMP_RETRY_MAX_DELAY_MS`; that setting caps exponential backoff onl
 absent. `FMP_MAX_RETRY_WAIT_MS` may make the current caller fail instead of sleeping through a long
 cooldown and is enforced across cumulative retry sleep. Retries remain finite; 401/403 and other
 invalid 4xx requests are not aggressively retried.
+
+Completeness is part of resilience. `historical-price-eod/full` returns at most
+`FMP_EOD_MAX_ROWS_PER_RESPONSE` (5000) rows per response, newest first, and drops the rest without
+any signal. `FmpClient.getDailyPrices` therefore treats a full page as possibly truncated and asks
+again for `[from, earliest received - 1 day]` until a page comes back short, then returns the union
+ascending and unique by date. The constant and the rule live only in `@intrinsic/fmp`; the
+`@intrinsic/stock-data` live suite asserts that a 30-year `AAPL` read reaches its requested start.
 
 Every attempt passes through `RedisFmpRequestGate`. After waiting outside concurrency for any
 provider cooldown, one Redis Lua admission atomically checks cooldown, distributed concurrency,
@@ -153,7 +184,7 @@ completed week becomes eligible on its own final trading day's close, which is t
 bar of that week; earlier days in the same week must never see it. The ISO week containing the
 hydration cutoff is still in progress and is not aggregated, since its final trading day is not yet
 known. IPO mid-week, holiday-shortened, and cross-year weeks follow the same rule and use their
-actual final trading day. If the 30-year canonical horizon begins mid-week, that artificially
+actual final trading day. If the load target begins mid-week, that artificially
 truncated first week is omitted; a known IPO/listing that genuinely begins mid-week remains a valid
 completed week. `WeeklyPrice` keeps one durable row per completed week; only the derived weekly
 values are carried forward daily.

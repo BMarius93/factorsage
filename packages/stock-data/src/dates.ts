@@ -21,6 +21,29 @@ export function addDays(value: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Subtracts whole years from a `YYYY-MM-DD` date, clamping 29 February to 28 February.
+ *
+ * The one year arithmetic behind every historical bound — the retention horizon, the Stock
+ * Details limit and the QA seed's coverage start — so they agree on every calendar day. Rolling a
+ * leap day forward to 1 March instead would put a bound one day later than a clamp computed
+ * elsewhere, and a coverage interval starting on the clamped day would then read as incomplete.
+ */
+export function subtractYears(value: string, years: number): string {
+  if (!isLocalDate(value)) {
+    throw new Error(`Invalid local date '${value}'`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCFullYear(date.getUTCFullYear() - years);
+  const lastDayOfMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDayOfMonth));
+  return date.toISOString().slice(0, 10);
+}
+
 export function compareDates(left: string, right: string): number {
   return left.localeCompare(right);
 }

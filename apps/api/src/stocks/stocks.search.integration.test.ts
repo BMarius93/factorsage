@@ -8,7 +8,10 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { STOCK_DATA_SERVICE } from "./stock-data.tokens";
+import {
+  STOCK_DATA_SERVICE,
+  STOCK_DETAILS_RETENTION_YEARS,
+} from "./stock-data.tokens";
 import { StocksController } from "./stocks.controller";
 
 /**
@@ -66,6 +69,7 @@ describe("GET /stocks/search", () => {
           provide: STOCK_DATA_SERVICE,
           useValue: service as unknown as StockDataService,
         },
+        { provide: STOCK_DETAILS_RETENTION_YEARS, useValue: 30 },
       ],
     }).compile();
 

@@ -60,8 +60,7 @@ export type DailyPriceResponse = {
  * No calculation version is exposed: exactly one current methodology is materialized per trading
  * day, and a methodology change rebuilds that state rather than publishing a parallel version.
  */
-export type DailyTechnicalResponse = {
-  date: string;
+export type MovingAverageValuesResponse = {
   sma20d?: number;
   sma50d?: number;
   sma100d?: number;
@@ -78,11 +77,40 @@ export type DailyTechnicalResponse = {
   ema200w?: number;
 };
 
-/** Field on `DailyTechnicalResponse` that carries a moving average. */
-export type MovingAverageFieldResponse = Exclude<
-  keyof DailyTechnicalResponse,
-  "date"
->;
+/**
+ * Daily oscillator values riding on the same technical row.
+ *
+ * Wilder RSI over canonical completed daily closes, one field per period. Values are unitless and
+ * lie in `[0, 100]`; warm-up rows omit the field entirely — RSI 14D needs fifteen closes before
+ * its first value. An oscillator is not a moving average: it is a separate catalog family, drawn
+ * in its own chart pane, and its fields are deliberately not part of
+ * `MovingAverageFieldResponse`.
+ */
+export type OscillatorValuesResponse = {
+  rsi7d?: number;
+  rsi14d?: number;
+  rsi21d?: number;
+};
+
+export type DailyTechnicalResponse = { date: string } & MovingAverageValuesResponse &
+  OscillatorValuesResponse;
+
+/**
+ * Field on `DailyTechnicalResponse` that carries a moving average.
+ *
+ * Derived from the moving-average slice alone, not from the whole row: deriving it as
+ * `Exclude<keyof DailyTechnicalResponse, "date">` would silently classify every future non-average
+ * field (such as the RSI oscillators) as a moving average.
+ */
+export type MovingAverageFieldResponse = keyof MovingAverageValuesResponse;
+
+/** Field on `DailyTechnicalResponse` that carries a daily oscillator. */
+export type OscillatorFieldResponse = keyof OscillatorValuesResponse;
+
+/** Any value field the daily technical endpoint serves. */
+export type TechnicalSeriesFieldResponse =
+  | MovingAverageFieldResponse
+  | OscillatorFieldResponse;
 
 export type IntrinsicValueModelResponse =
   | "DCF_FCFF"
@@ -118,10 +146,48 @@ export type IntrinsicValueBlendResponse = {
   currency: string;
 };
 
-/** Composite payload for the future bounded Stock Details endpoint. */
+/**
+ * Maximum historical horizon the Stock Details surface may explore, in years.
+ *
+ * This is the one definition of that product limit. The API derives every `history.start` it
+ * reports from it and clamps every Stock Details range read to it, and the web app navigates
+ * against the reported bound rather than a second copy of the number. It is a limit on *this*
+ * surface only: a backtest names its own period through the loader and is unaffected.
+ */
+export const STOCK_DETAILS_MAX_HISTORY_YEARS = 30;
+
+/**
+ * How far back Stock Details may go for one security, and why it stops there.
+ *
+ * `start` is the earliest date this surface will request, and the only thing that ends a
+ * client's exploration. It comes from exactly one of three explicit boundaries:
+ *
+ * - `HORIZON`: the 30-year product limit;
+ * - `LISTING`: the security's listing date, when that is later than the horizon;
+ * - `PROVIDER`: the earliest trading day the market-data provider has for this security, reported
+ *   only once the loader has verified, with complete provider requests, that nothing older exists
+ *   between the horizon-or-listing bound and that day.
+ *
+ * Until a `PROVIDER` boundary is proven the surface reports the wider bound, and a client keeps
+ * asking, in bounded windows, until it reaches it. A window that comes back empty is never read
+ * as the start of the security's history: that inference is what turned a truncated provider
+ * response into a fake listing date.
+ */
+export type StockHistoryBoundsResponse = {
+  start: string;
+  end: string;
+  startOrigin: StockHistoryStartOrigin;
+};
+
+/** Why `StockHistoryBoundsResponse.start` is where it is. */
+export type StockHistoryStartOrigin = "HORIZON" | "LISTING" | "PROVIDER";
+
+/** Composite payload for the bounded Stock Details endpoint. */
 export type StockDetailsResponse = {
   security: SecurityResponse;
   profile?: SecurityProfileResponse;
+  /** The window this surface is allowed to explore for this security. */
+  history: StockHistoryBoundsResponse;
   prices: DailyPriceResponse[];
   technicals: DailyTechnicalResponse[];
   intrinsicValues: IntrinsicValueResponse[];

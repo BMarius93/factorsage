@@ -42,7 +42,11 @@ import {
   RedisStockDataCache,
   createStockDataRedisClient,
 } from "@intrinsic/stock-data";
-import { useTestDatabase } from "@intrinsic/testing";
+import {
+  assertLiveFmpCredentials,
+  liveFmpTestsEnabled,
+  useTestDatabase,
+} from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -60,8 +64,8 @@ import {
 } from "./stock-data.tokens";
 
 loadRootEnv();
-const enabled = process.env.RUN_LIVE_FMP_TESTS === "1";
-const describeLive = enabled ? describe : describe.skip;
+// One shared gate for every live suite, so the opt-in semantics cannot drift per file.
+const describeLive = liveFmpTestsEnabled() ? describe : describe.skip;
 
 const SYMBOL = "AAPL";
 const EXCHANGE_CODE = "NASDAQ";
@@ -172,11 +176,8 @@ describeLive("live FMP stock API smoke", () => {
   let liveProvider: CountingFmpProvider;
 
   beforeAll(async () => {
-    if (!process.env.FMP_API_KEY?.trim()) {
-      throw new Error(
-        "RUN_LIVE_FMP_TESTS=1 requires FMP_API_KEY to be set in the environment.",
-      );
-    }
+    // A placeholder key is not a credential: it fails here rather than sending a doomed request.
+    assertLiveFmpCredentials();
     // Inside beforeAll, not at module scope: this suite must still skip cleanly when the
     // RUN_LIVE_FMP_TESTS gate is off, whatever the local database configuration is.
     useTestDatabase();

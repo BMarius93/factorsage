@@ -25,8 +25,9 @@ drift. If you are an AI agent, or a human working quickly:
 2. **Let the completeness tests find what you missed.** Several tests iterate the registries rather
    than naming series, so a half-wired series fails them without anyone remembering to add an
    assertion:
-   - `packages/stock-data/src/daily-technicals.test.ts` and `weekly-technicals.test.ts` — every
-     registered period is calculated, with the documented warm-up.
+   - `packages/stock-data/src/daily-technicals.test.ts`, `daily-oscillators.test.ts` and
+     `weekly-technicals.test.ts` — every registered period is calculated, with the documented
+     warm-up.
    - `packages/stock-data/src/derived-state.integration.test.ts` — every registered field has a
      real PostgreSQL column (checked against `information_schema`) and survives a round trip.
    - `packages/stock-data/src/redis.integration.test.ts` — every registered field survives Redis
@@ -113,26 +114,36 @@ registry-driven, so they need no edit.
 The calculator, the API projection, the Indicators picker, the chart overlay, the legend and the
 colour assignment all follow the registry and the catalog. They need no edit.
 
-## Checklist: a new family (RSI, MACD, growth, ratios)
+## Checklist: a new family (MACD, growth, ratios)
 
-Everything above, plus the parts that assume "every series is a moving average":
+Everything above, plus the parts that assume "every series is a moving average". The daily RSI
+oscillators are the worked example of this checklist: `kind: "OSCILLATOR"`, `DAILY_OSCILLATORS`,
+`calculateDailyOscillators` and the shared chart pane were added exactly this way.
 
 1. **A new `SelectableSeriesSource` kind** — `packages/contracts/src/selectable-series.ts`. Do not
    disguise a non-average as `kind: "MOVING_AVERAGE"`; parameters (RSI period, MACD 12/26/9) belong
-   in the structured source, not parsed out of the id.
-2. **`MovingAverageFieldResponse`** — `packages/contracts/src/stock-data.ts` derives it as
-   `Exclude<keyof DailyTechnicalResponse, "date">`. Adding a non-average field to that response
-   silently widens the moving-average field type; restructure the derivation instead.
+   in the structured source, not parsed out of the id. A bounded unitless family also carries its
+   fixed `range` and `placement` there, the way the `OSCILLATOR` kind does.
+2. **The technical wire types** — `packages/contracts/src/stock-data.ts` composes
+   `DailyTechnicalResponse` from per-family slices (`MovingAverageValuesResponse`,
+   `OscillatorValuesResponse`) so each field union derives from its own slice. Add a new slice for
+   a new family; never derive a family's field type from every non-`date` key of the whole row, and
+   extend `TechnicalSeriesFieldResponse` through the slice union.
 3. **A registry for the family** and its own calculator, following
-   `calculateDailyTechnicals`/`calculateWeeklyTechnicalValues`: iterate the registry, return
-   `Partial<Record<Field, number>>`, leave warm-up absent.
+   `calculateDailyTechnicals`/`calculateDailyOscillators`/`calculateWeeklyTechnicalValues`: iterate
+   the registry, return `Partial<Record<Field, number>>`, leave warm-up absent. Extend the domain's
+   `TECHNICAL_SERIES_FIELDS` if the family is served by the technical projection.
 4. **`buildDailyDerivedState`** — `packages/stock-data/src/derived-state.ts`: merge the new family
    into the daily row. Keep merging by exact trading date; never invent a row.
 5. **API projection and validation** — `apps/api/src/stocks/stocks.controller.ts`:
-   `technicalResponse` projects `MATERIALIZED_MOVING_AVERAGES` and `technicalFields` rejects any
-   `source.kind !== "MOVING_AVERAGE"`. Both need widening, and `series=` must accept the new ids.
+   `technicalResponse` projects `TECHNICAL_SERIES_FIELDS` and `technicalFields` accepts exactly the
+   catalog's `TECHNICAL_SERIES` kinds. A family served by these lists needs no controller edit
+   beyond what the registries provide; a family with its own endpoint semantics (PIT rules,
+   provenance) gets its own projection instead.
 6. **Web dispatch** — `apps/web/src/features/stocks/details/utils/series-catalog.ts`: add the case
-   to the `seriesPoints` switch. It is exhaustive over the union, so TypeScript points at it.
+   to the `seriesPoints` switch. It is exhaustive over the union, so TypeScript points at it. A
+   family that is not price-scaled also needs `buildOverlays` to route it (see the
+   `OSCILLATOR_PANE` placement) and a pane decision in `StockPriceChart`.
 7. **Multi-output families (MACD)** — a scalar column per output, one catalog entry each, or an
    explicit product decision on how the picker groups them. `ChartPoint` is `{date, value}`: a
    composite value is not representable today.

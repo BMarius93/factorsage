@@ -6,6 +6,7 @@ import {
   StockDataset,
 } from "@intrinsic/database";
 import {
+  DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
@@ -31,7 +32,11 @@ import {
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
 import { aggregateCompletedWeeks } from "./weekly.js";
-import { WEEKLY_PRICE_VARIANT } from "./ports.js";
+import {
+  DAILY_PRICE_VARIANT,
+  PRICE_DATASET_VERSION,
+  WEEKLY_PRICE_VARIANT,
+} from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
 import {
   createStockDataRedisClient,
@@ -1108,7 +1113,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getDatasetCoverage(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           { from: "2026-01-01", to: "2026-12-31" },
         ),
       ).resolves.toEqual([
@@ -1127,7 +1132,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getLatestCoverageSyncContainingDate(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           "2026-08-24",
         ),
       ).resolves.toBe("2026-08-24T01:00:00.000Z");
@@ -1171,7 +1176,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getDatasetCoverage(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           { from: "2026-01-01", to: "2026-12-31" },
         ),
       ).resolves.toEqual([
@@ -1231,7 +1236,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           fromDate: new Date("2015-01-01T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
@@ -1282,13 +1287,15 @@ describeInfrastructure("cross-process canonical hydration", () => {
 
       provider.delayMs = 3_500;
       const startedAt = Date.now();
+      // Both windows reach past the retention horizon, so both resolve to the same load target:
+      // whichever process wins the Redlock does the one delta and the other waits on it.
       const [older, newer] = await Promise.all([
         serviceA.getDailyPrices(symbol, {
-          from: "2010-01-01",
+          from: "1997-01-01",
           to: "2020-12-31",
         }),
         serviceB.getDailyPrices(symbol, {
-          from: "2021-01-01",
+          from: "1999-01-01",
           to: "2025-12-31",
         }),
       ]);
@@ -1298,7 +1305,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
       ]);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
-      expect(newer.map((row) => row.date)).toEqual(["2022-01-03"]);
+      expect(newer.map((row) => row.date)).toEqual([
+        "2010-01-04",
+        "2022-01-03",
+      ]);
       await expect(
         prismaA.stockDatasetState.findUnique({
           where: {
@@ -1493,7 +1503,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           fromDate: new Date("1996-08-24T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
@@ -1650,14 +1660,25 @@ describeInfrastructure("cross-process canonical hydration", () => {
           persisted.at(-1)?.[average.field],
         );
       }
+      expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+      for (const oscillator of DAILY_OSCILLATORS) {
+        expect(cachedLast?.[oscillator.field]).toBeDefined();
+        expect(cachedLast?.[oscillator.field]).toBe(
+          persisted.at(-1)?.[oscillator.field],
+        );
+      }
       expect(cachedLast?.weeklySourceWeekStart).toBe(
         persisted.at(-1)?.weeklySourceWeekStart,
       );
 
-      // 2. A warm-up row keeps its weekly fields absent through serialization, never zero.
+      // 2. A warm-up row keeps its weekly and oscillator fields absent through serialization,
+      //    never zero.
       const cachedFirst = cached?.[0];
       for (const average of WEEKLY_MOVING_AVERAGES) {
         expect(cachedFirst && average.field in cachedFirst).toBe(false);
+      }
+      for (const oscillator of DAILY_OSCILLATORS) {
+        expect(cachedFirst && oscillator.field in cachedFirst).toBe(false);
       }
 
       // 3. Eviction removes the complete stock, not a partial dataset.
@@ -2033,7 +2054,7 @@ function readyManifest(securityId: string): StockManifest {
     hydratedAt: "2026-08-24T12:00:00.000Z",
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
     lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
-    priceDatasetVersion: 1,
+    priceDatasetVersion: PRICE_DATASET_VERSION,
     financialStatementVersion: 1,
     derivedStateRevision: DERIVED_STATE_REVISION,
   };

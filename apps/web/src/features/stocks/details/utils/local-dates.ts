@@ -33,3 +33,13 @@ export function shiftLocalDate(
   parsed.setUTCDate(Math.min(day, lastDayOfMonth));
   return parsed.toISOString().slice(0, 10);
 }
+
+/** Shifts a date by whole calendar days. */
+export function shiftLocalDateDays(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.valueOf())) {
+    throw new Error(`Invalid local date '${date}'`);
+  }
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}

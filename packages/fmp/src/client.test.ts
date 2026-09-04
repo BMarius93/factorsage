@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  FMP_EOD_MAX_ROWS_PER_RESPONSE,
   FmpClient,
   FmpProviderError,
   FmpRateLimitError,
@@ -399,5 +400,176 @@ describe("FMP retry policy", () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(cooldowns).toEqual([100, 200, 400]);
+  });
+});
+
+/** `count` consecutive weekday rows ending on `last`, newest first, the way FMP returns them. */
+function tradingDaysEndingOn(last: string, count: number) {
+  const rows: Array<{ date: string; open: number; high: number; low: number; close: number; volume: number }> = [];
+  const cursor = new Date(`${last}T00:00:00.000Z`);
+  while (rows.length < count) {
+    const weekday = cursor.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) {
+      const date = cursor.toISOString().slice(0, 10);
+      rows.push({ date, open: 10, high: 11, low: 9, close: 10.5, volume: 1_000 });
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return rows;
+}
+
+function requestedWindow(call: unknown[]): { from: string | null; to: string | null } {
+  const url = call[0] as URL;
+  return { from: url.searchParams.get("from"), to: url.searchParams.get("to") };
+}
+
+describe("FMP daily price pagination", () => {
+  it("returns a short page as-is, ascending, with one request", async () => {
+    const page = tradingDaysEndingOn("2024-03-08", 5);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response(page));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "aapl",
+      "security-1",
+      { from: "2024-03-01", to: "2024-03-08" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestedWindow(fetchMock.mock.calls[0]!)).toEqual({
+      from: "2024-03-01",
+      to: "2024-03-08",
+    });
+    expect(rows.map((row) => row.date)).toEqual(
+      [...page].map((row) => row.date).reverse(),
+    );
+  });
+
+  it("walks back past a full page until the provider answers short", async () => {
+    // A thirty-year window: the provider caps the first answer at its page limit and drops the
+    // oldest years without saying so. The adapter must notice the full page and ask again for
+    // everything before the oldest row it received, and stop only on a short page.
+    const first = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const oldestOfFirst = first.at(-1)!.date;
+    const dayBefore = new Date(`${oldestOfFirst}T00:00:00.000Z`);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    const second = tradingDaysEndingOn(dayBefore.toISOString().slice(0, 10), 2_545);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(first))
+      .mockResolvedValueOnce(response(second));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      { from: "1996-08-31", to: "2026-09-04" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestedWindow(fetchMock.mock.calls[0]!)).toEqual({
+      from: "1996-08-31",
+      to: "2026-09-04",
+    });
+    // The second page starts where the caller's window starts and ends the day before the oldest
+    // row already received, so the two pages cannot overlap.
+    expect(requestedWindow(fetchMock.mock.calls[1]!)).toEqual({
+      from: "1996-08-31",
+      to: dayBefore.toISOString().slice(0, 10),
+    });
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE + 2_545);
+    expect(rows[0]!.date).toBe(second.at(-1)!.date);
+    expect(rows.at(-1)!.date).toBe("2026-09-03");
+    expect(new Set(rows.map((row) => row.date)).size).toBe(rows.length);
+    for (let index = 1; index < rows.length; index += 1) {
+      expect(rows[index - 1]!.date < rows[index]!.date).toBe(true);
+    }
+  });
+
+  it("stops after a full page whose oldest row already reaches the requested start", async () => {
+    const page = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const from = page.at(-1)!.date;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response(page));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      { from, to: "2026-09-04" },
+    );
+
+    // Nothing older can exist inside the window, so a second request would only be an empty one.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE);
+  });
+
+  it("treats a full page followed by an empty one as complete", async () => {
+    const page = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(page))
+      .mockResolvedValueOnce(response([]));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      { from: "1996-08-31", to: "2026-09-04" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE);
+  });
+
+  it("keeps one row per date when a later page repeats a day", async () => {
+    const first = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const oldest = first.at(-1)!;
+    // A page that re-describes the oldest day already received, then older history.
+    const second = [oldest, ...tradingDaysEndingOn("2000-01-07", 3)];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(first))
+      .mockResolvedValueOnce(response(second));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      { from: "1996-08-31", to: "2026-09-04" },
+    );
+
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE + 3);
+    expect(new Set(rows.map((row) => row.date)).size).toBe(rows.length);
+  });
+
+  it("paginates an open-ended window until the provider runs out of history", async () => {
+    const first = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const second = tradingDaysEndingOn("2006-10-17", 10);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(first))
+      .mockResolvedValueOnce(response(second));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      {},
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestedWindow(fetchMock.mock.calls[0]!)).toEqual({ from: null, to: null });
+    expect(requestedWindow(fetchMock.mock.calls[1]!).from).toBeNull();
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE + 10);
+  });
+
+  it("ends the walk when a full page lies outside the window it was asked for", async () => {
+    // A provider answering with rows newer than `to` would otherwise steer the walk forwards
+    // forever. The adapter keeps what it received and stops.
+    const page = tradingDaysEndingOn("2026-09-03", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response(page));
+
+    const rows = await new FmpClient(config, fetchMock).getDailyPrices(
+      "AAPL",
+      "security-1",
+      { from: "1996-08-31", to: "2006-10-11" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE);
   });
 });

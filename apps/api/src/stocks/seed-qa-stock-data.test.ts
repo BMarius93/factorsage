@@ -1,4 +1,5 @@
 import {
+  DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLENDS,
   MATERIALIZED_MOVING_AVERAGES,
   WEEKLY_MOVING_AVERAGES,
@@ -6,6 +7,7 @@ import {
 import {
   aggregateCompletedWeeks,
   buildDailyDerivedState,
+  calculateWilderRsi,
 } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
@@ -70,6 +72,24 @@ describe("QA stock-data seed", () => {
       (candidate) => candidate.timeframe === "1D",
     )) {
       expect(lastRow[average.field]).toBeTypeOf("number");
+    }
+  });
+
+  it("materializes every RSI period through the production calculator", () => {
+    // The Playwright oscillator journey selects all three RSI periods on the seeded stock, so all
+    // three must be evaluable — and equal to what the production Wilder calculator produces over
+    // the seeded closes, because the seed calls buildDailyDerivedState rather than a copy.
+    expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+    const closes = prices.map((price) => price.close);
+    for (const oscillator of DAILY_OSCILLATORS) {
+      const expected = calculateWilderRsi(closes, oscillator.period);
+      expect(lastRow[oscillator.field]).toBe(expected.at(-1));
+      expect(lastRow[oscillator.field]).toBeTypeOf("number");
+      // Warm-up boundary: absent one day before the first evaluable close, present on it.
+      expect(rows[oscillator.period - 1]).not.toHaveProperty(oscillator.field);
+      expect(rows[oscillator.period]?.[oscillator.field]).toBe(
+        expected[oscillator.period],
+      );
     }
   });
 

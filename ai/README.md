@@ -17,11 +17,15 @@ For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
 For strategy work, also read `product/strategies.md`.
-For Stock Details or selectable-series work, also read `product/stock-details.md` and
-`../docs/decisions/selectable-series-catalog.md`.
+For Stock Details or selectable-series work, also read `product/stock-details.md`,
+`../docs/decisions/selectable-series-catalog.md`,
+`../docs/decisions/viewport-driven-stock-details-history.md` for the chart's history window, its
+30-year bound and how the viewport drives loading, and
+`../docs/decisions/complete-price-coverage.md` for what a persisted price-coverage interval
+means, how it is revisioned, and how the chart's boundary is reported.
 
-For any work on calculated daily series — moving averages, intrinsic-value models and blends, the
-derived state, or adding a new series or family — read these in order:
+For any work on calculated daily series — moving averages, oscillators (RSI), intrinsic-value
+models and blends, the derived state, or adding a new series or family — read these in order:
 
 1. `../docs/decisions/retain-wide-column-calculated-series-storage.md` — the accepted storage
    decision: explicit PostgreSQL columns, what is deferred, what is rejected, and the budgets and
@@ -36,6 +40,10 @@ derived state, or adding a new series or family — read these in order:
 
 Do not propose JSONB, EAV, a Redis redesign or a generic series endpoint as the current direction:
 the first document records why they are deferred or rejected.
+
+`DERIVED_STATE_REVISION` governs only the derived state. Historical _price_ coverage has its own
+revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;
+bumping one does not invalidate the other.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.
@@ -64,6 +72,7 @@ StockList (user-owned)
 SelectableSeriesCatalog
   |
   +-- daily/weekly moving averages
+  +-- daily oscillators (RSI 7D/14D/21D, shared 0-100 chart pane)
   +-- intrinsic-value models/blends
   +-- Stock Details overlays
   +-- compatible Strategy condition operands

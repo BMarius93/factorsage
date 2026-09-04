@@ -303,9 +303,12 @@ the keys it created, and never flushes.
   (HTTP → Nest → PostgreSQL → Redis → Redlock) with only the FMP provider boundary faked.
   It is part of `pnpm test`.
 - `pnpm --filter @intrinsic/stock-data test:redis` — real-Redis stock-data integration tests.
-- `pnpm --filter @intrinsic/api test:live` — opt-in live FMP smoke tests. Excluded from
-  `pnpm test` and from CI. Requires `RUN_LIVE_FMP_TESTS=1`, `FMP_API_KEY`, and a
-  `TEST_DATABASE_URL` that differs from `DATABASE_URL`. It asserts invariants only, never
+- `pnpm --filter @intrinsic/api test:live` and
+  `pnpm --filter @intrinsic/stock-data test:live` — opt-in live FMP suites. Excluded from
+  `pnpm test` and from CI, and skipped at the suite level unless `RUN_LIVE_FMP_TESTS=1` is
+  set, so a direct `vitest` run cannot reach the provider either. An `FMP_API_KEY` alone is
+  never authorization, and a placeholder key is never a credential. The API suite also needs a
+  `TEST_DATABASE_URL` that differs from `DATABASE_URL`. Both assert invariants only, never
   exact provider values.
 - `pnpm test:e2e:smoke` / `pnpm test:e2e` — Playwright authentication suite. Not part of
   `pnpm test`: it drives an already-running stack and needs the QA personas seeded with

@@ -25,7 +25,9 @@ const RANGE_SHIFTS: Record<
 
 /**
  * First calendar date included in a range that ends on `latestDate`.
- * `MAX` has no lower bound and returns `undefined`.
+ *
+ * `MAX` has no calendar shift of its own and returns `undefined`: its start is the security's
+ * permitted history bound, which the API reports and the page reads from there.
  */
 export function rangeStartDate(
   range: PriceRangeKey,
@@ -35,32 +37,4 @@ export function rangeStartDate(
     return undefined;
   }
   return shiftLocalDate(latestDate, RANGE_SHIFTS[range]);
-}
-
-/**
- * Whether a range reaches further back than an already-loaded data window, meaning the fuller
- * history must be loaded before the range can be rendered from real data.
- */
-export function rangeExceedsWindow(
-  range: PriceRangeKey,
-  windowStart: string,
-  latestDate: string,
-): boolean {
-  const start = rangeStartDate(range, latestDate);
-  return start === undefined || start < windowStart;
-}
-
-/**
- * Ascending dated rows on/after `from`; the whole input when `from` is undefined (MAX).
- * Client-side range switching filters already-loaded data instead of refetching.
- */
-export function sliceFromDate<T>(
-  rows: readonly T[],
-  from: string | undefined,
-  dateOf: (row: T) => string,
-): T[] {
-  if (from === undefined) {
-    return [...rows];
-  }
-  return rows.filter((row) => dateOf(row) >= from);
 }

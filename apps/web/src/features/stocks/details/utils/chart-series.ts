@@ -5,7 +5,7 @@ import type {
   IntrinsicValueBlendResponse,
   IntrinsicValueModelResponse,
   IntrinsicValueResponse,
-  MovingAverageFieldResponse,
+  TechnicalSeriesFieldResponse,
 } from "@intrinsic/contracts";
 
 /** One dated observation handed to the chart; dates stay canonical `YYYY-MM-DD` strings. */
@@ -14,11 +14,24 @@ export type ChartPoint = {
   value: number;
 };
 
-/** A named line drawn on top of the price series. */
+/**
+ * Where an enabled series is drawn. Price-scaled series overlay the price pane; a unitless
+ * oscillator is never drawn over the price scale and goes to the shared lower oscillator pane.
+ */
+export type ChartSeriesPlacement = "PRICE_OVERLAY" | "OSCILLATOR_PANE";
+
+/** A named line drawn beside the price series — on it, or in the shared oscillator pane. */
 export type ChartOverlaySeries = {
   id: string;
   label: string;
   color: string;
+  placement: ChartSeriesPlacement;
+  /**
+   * Fixed value scale of an oscillator-pane series, from the catalog's structured metadata. The
+   * pane renders this range rather than autoscaling, so every RSI shares the same 0-100 axis.
+   * Absent for price overlays, which share the price scale.
+   */
+  scale?: { min: number; max: number };
   points: readonly ChartPoint[];
 };
 
@@ -29,7 +42,7 @@ export function closeSeries(
 }
 
 /**
- * Moving-average line, daily or weekly.
+ * Technical-series line: a moving average (daily or weekly) or a daily oscillator.
  *
  * Warm-up days without a value are omitted entirely so the chart starts the line at its first real
  * observation instead of interpolating over missing data. A weekly field intentionally repeats the
@@ -38,7 +51,7 @@ export function closeSeries(
  */
 export function technicalSeries(
   technicals: readonly DailyTechnicalResponse[],
-  indicator: MovingAverageFieldResponse,
+  indicator: TechnicalSeriesFieldResponse,
 ): ChartPoint[] {
   return technicals.flatMap((row) => {
     const value = row[indicator];

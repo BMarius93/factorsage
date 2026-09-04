@@ -4,8 +4,11 @@ import {
   AreaSeries,
   createChart,
   LineSeries,
+  LineStyle,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
+  type LogicalRange,
   type MouseEventParams,
   type Time,
 } from "lightweight-charts";
@@ -13,7 +16,35 @@ import { useEffect, useRef } from "react";
 import type { ChartOverlaySeries, ChartPoint } from "../utils/chart-series";
 import { CHART_COLORS } from "../utils/chart-theme";
 import { formatLocalDate, formatMoney } from "../utils/format";
+import { HISTORY_EDGE_TRIGGER_BARS } from "../utils/history-window";
 import styles from "./StockPriceChart.module.css";
+
+/**
+ * The shared oscillator pane. Every oscillator series draws into this one native Lightweight
+ * Charts pane below the price pane, so all selected RSI periods share one fixed scale, one set of
+ * reference lines, and the price chart's time scale and crosshair by construction. The library
+ * creates the pane with the first series placed into it and removes it again with the last one.
+ */
+const OSCILLATOR_PANE_INDEX = 1;
+
+/** Relative height of the oscillator pane; the price pane keeps its default factor of 1. */
+const OSCILLATOR_PANE_STRETCH = 0.35;
+
+/**
+ * The 30/50/70 orientation levels, rendered once per pane on the canonically first oscillator
+ * series: 30 marks oversold, 70 overbought, 50 the midline. Muted, dashed and without axis labels
+ * so they orient the reading without competing with the data lines.
+ */
+const OSCILLATOR_REFERENCE_LEVELS = [
+  { price: 30, title: "Oversold 30" },
+  { price: 50, title: "50" },
+  { price: 70, title: "Overbought 70" },
+] as const;
+
+/** An oscillator is unitless: legend and hover values never read as money. */
+function formatOscillatorValue(value: number): string {
+  return value.toFixed(1);
+}
 
 export type StockPriceChartProps = {
   /** Ascending daily closing prices for the selected range. */
@@ -23,6 +54,27 @@ export type StockPriceChartProps = {
   readonly currency: string;
   /** Dims the chart while a fuller history range is being loaded. */
   readonly loading?: boolean;
+  /**
+   * Identifies the window the chart should frame. The chart frames exactly once per value, so
+   * everything the page does not encode into this key — new data, an overlay toggle, any other
+   * rerender — leaves the user's window where it found it. The page changes it when a range is
+   * picked, and once more when the history that range asked for has finished arriving.
+   */
+  readonly fitKey: string;
+  /** First date the `fitKey` window should show. */
+  readonly frameFrom: string;
+  /** Last date the `fitKey` window should show. */
+  readonly frameTo: string;
+  /**
+   * No older history can arrive. The time scale is pinned to the oldest bar, so the user cannot
+   * drag on into blank space beyond the 30-year boundary or the security's first trading day.
+   */
+  readonly historyExhausted: boolean;
+  /**
+   * The viewport has reached the oldest loaded bar. `barsBeforeLoaded` is how many trading days of
+   * empty space lie to the left of the data, which is what sizes the next history request.
+   */
+  readonly onReachHistoryEdge?: (barsBeforeLoaded: number) => void;
   readonly ariaLabel: string;
 };
 
@@ -57,24 +109,56 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
  *
  * The chart instance is created once and mutated through series `setData` calls; hover updates go
  * straight to a legend DOM node via the crosshair subscription so pointer movement never causes a
- * React render. Zoom/scroll gestures are disabled: the visible window is owned by the range
- * selector, and vertical touch gestures keep scrolling the page on mobile.
+ * React render.
+ *
+ * Navigation is the library's standard set — drag to pan, wheel or pinch to zoom — and the chart
+ * is where viewport-driven history loading starts: dragging or zooming past the oldest loaded bar
+ * reports how much empty space is on screen, the page turns that into an older window to fetch,
+ * and when it arrives the viewport is shifted by exactly the bars that appeared in front of it so
+ * the user keeps looking at the days they navigated to.
  */
 export function StockPriceChart({
   points,
   overlays,
   currency,
   loading = false,
+  fitKey,
+  frameFrom,
+  frameTo,
+  historyExhausted,
+  onReachHistoryEdge,
   ariaLabel,
 }: StockPriceChartProps) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const priceSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const overlaySeriesRef = useRef(new Map<string, ISeriesApi<"Line">>());
+  // The one set of oscillator reference lines, attached to the canonically first oscillator
+  // series. Tracking the owner is what keeps repeated toggling from duplicating the levels.
+  const oscillatorReferenceRef = useRef<{
+    owner: ISeriesApi<"Line">;
+    lines: IPriceLine[];
+  } | null>(null);
   // The crosshair handler is subscribed once; refs keep it reading current props.
   const crosshairContextRef = useRef<CrosshairContext>({ overlays, currency });
   crosshairContextRef.current = { overlays, currency };
+  // The time-scale subscription is registered once too, and reaching the history edge is reported
+  // through a ref for the same reason: it must keep calling the current handler without
+  // resubscribing, and without a viewport change ever costing a render.
+  const historyEdgeRef = useRef<((bars: number) => void) | undefined>(undefined);
+  historyEdgeRef.current = onReachHistoryEdge;
+  // The framing this chart has already applied. Anything not in this signature — new data for the
+  // same window, an overlay toggle, any other rerender — leaves the viewport alone.
+  const framedRef = useRef<string | null>(null);
+  // The oldest bar the price series is currently *drawing*, so a load that prepends older history
+  // can be recognised and the user's window shifted by exactly the bars that appeared in front of
+  // it. Paired with the oldest bar this render was *given*, the two also say whether the drawn
+  // series is up to date — which is what makes a viewport report trustworthy.
+  const drawnOldestRef = useRef<string | undefined>(undefined);
+  const givenOldestRef = useRef<string | undefined>(undefined);
+  givenOldestRef.current = points[0]?.date;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -105,8 +189,21 @@ export function StockPriceChart({
         horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
         vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
       },
-      handleScroll: false,
-      handleScale: false,
+      // Standard Lightweight Charts navigation: drag the plot to pan through history, wheel or
+      // pinch to zoom the time scale. `vertTouchDrag` stays off so a vertical swipe on a phone
+      // keeps scrolling the page instead of being captured by the chart.
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: false,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+        axisPressedMouseMove: { time: true, price: false },
+        axisDoubleClickReset: { time: true, price: true },
+      },
     });
     const priceSeries = chart.addSeries(AreaSeries, {
       lineColor: CHART_COLORS.price,
@@ -147,7 +244,10 @@ export function StockPriceChart({
           legend.append(
             legendRow(
               overlay.label,
-              formatMoney(data.value, currentCurrency),
+              // An oscillator is unitless; only price-scaled overlays read as money.
+              overlay.placement === "OSCILLATOR_PANE"
+                ? formatOscillatorValue(data.value)
+                : formatMoney(data.value, currentCurrency),
               overlay.color,
             ),
           );
@@ -157,16 +257,68 @@ export function StockPriceChart({
     };
     chart.subscribeCrosshairMove(onCrosshairMove);
 
+    // The visible window lives on the canvas, so the wrapper carries it as the DOM-visible
+    // contract browser tests assert pan and zoom through — the same approach the oscillator
+    // reference levels use. Written imperatively: a viewport change must never cost a render.
+    //
+    // Two forms, because they answer different questions. `data-visible-range` is the window in
+    // dates, which is what "the user is looking at older history now" means and is stable when a
+    // load prepends bars in front of it. `data-visible-logical` is the raw bar-index range, which
+    // is what measures a zoom and how far into empty space a drag has gone.
+    const onVisibleLogicalRangeChange = (range: LogicalRange | null) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) {
+        return;
+      }
+      if (!range) {
+        delete wrapper.dataset.visibleRange;
+        delete wrapper.dataset.visibleLogical;
+        return;
+      }
+      wrapper.dataset.visibleLogical = `${range.from.toFixed(2)}|${range.to.toFixed(2)}`;
+      const dates = chart.timeScale().getVisibleRange();
+      if (dates) {
+        wrapper.dataset.visibleRange = `${String(dates.from)}|${String(dates.to)}`;
+      }
+      // Empty space to the left of the oldest bar: the user has navigated, by dragging or by
+      // zooming out, into history that is not loaded yet. How much empty space there is decides
+      // how much history to ask for, so it is reported rather than a bare event.
+      // Only while the series on screen *is* the data this component was last given. Between a
+      // load resolving and the effect that draws it, the chart still holds the shorter series and
+      // the pre-shift window: reading that as navigation would size the next request against a
+      // window the user has already been moved out of, and every pan would fetch twice.
+      if (
+        drawnOldestRef.current === givenOldestRef.current &&
+        range.from < -HISTORY_EDGE_TRIGGER_BARS
+      ) {
+        historyEdgeRef.current?.(Math.ceil(-range.from));
+      }
+    };
+    chart
+      .timeScale()
+      .subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
+
     chartRef.current = chart;
     priceSeriesRef.current = priceSeries;
     const overlaySeries = overlaySeriesRef.current;
 
     return () => {
+      // chart.remove() disposes every series, pane, price line and subscription the instance
+      // owns; the refs are cleared so a later effect run cannot touch disposed handles.
       chart.unsubscribeCrosshairMove(onCrosshairMove);
+      chart
+        .timeScale()
+        .unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
       chart.remove();
       chartRef.current = null;
       priceSeriesRef.current = null;
       overlaySeries.clear();
+      oscillatorReferenceRef.current = null;
+      // Framing and the oldest drawn bar describe *this* chart instance. A replacement instance
+      // has neither, and carrying them over would leave the new chart unframed at whatever bar
+      // spacing the library defaults to — which is exactly what a development remount does.
+      framedRef.current = null;
+      drawnOldestRef.current = undefined;
     };
   }, []);
 
@@ -184,11 +336,53 @@ export function StockPriceChart({
     if (!chart || !priceSeries) {
       return;
     }
+    const timeScale = chart.timeScale();
+    const previousOldest = drawnOldestRef.current;
+    // Captured before the write: `setData` keeps the logical range, which is anchored to bar
+    // indices, so prepending older history would silently walk the user's window backwards.
+    const before = timeScale.getVisibleLogicalRange();
+
     priceSeries.setData(
       points.map((point) => ({ time: point.date as Time, value: point.value })),
     );
-    chart.timeScale().fitContent();
-  }, [points]);
+    drawnOldestRef.current = points[0]?.date;
+
+    // Older history arrived. Shifting the logical range by exactly the number of bars that
+    // appeared in front of it leaves the user looking at the same days, with the empty space they
+    // had dragged into now filled by the history fetched for it.
+    const prepended =
+      previousOldest === undefined
+        ? 0
+        : points.findIndex((point) => point.date === previousOldest);
+    if (prepended > 0 && before) {
+      timeScale.setVisibleLogicalRange({
+        from: before.from + prepended,
+        to: before.to + prepended,
+      });
+    }
+
+    // Framing happens once per `fitKey`, on that key's first drawable frame. After that the
+    // viewport belongs to the user, and an ordinary data update, an overlay toggle or any other
+    // rerender must not snap it back.
+    const oldest = points[0]?.date;
+    if (oldest === undefined || framedRef.current === fitKey) {
+      return;
+    }
+    framedRef.current = fitKey;
+    if (frameFrom <= oldest) {
+      // The window reaches at or past the oldest bar: everything loaded is what it asks for.
+      timeScale.fitContent();
+      return;
+    }
+    timeScale.setVisibleRange({ from: frameFrom as Time, to: frameTo as Time });
+  }, [points, fitKey, frameFrom, frameTo]);
+
+  // Pinning the left edge is what stops a drag at the boundary. It is only correct once nothing
+  // older can arrive: before that the empty space to the left of the oldest bar is exactly how the
+  // user asks for the next window of history.
+  useEffect(() => {
+    chartRef.current?.timeScale().applyOptions({ fixLeftEdge: historyExhausted });
+  }, [historyExhausted]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -199,6 +393,11 @@ export function StockPriceChart({
     const wanted = new Set(overlays.map((overlay) => overlay.id));
     for (const [id, series] of existing) {
       if (!wanted.has(id)) {
+        // Removing the reference-line owner disposes its lines with it; forgetting that here
+        // would try to detach lines from a dead series when the ownership moves on.
+        if (oscillatorReferenceRef.current?.owner === series) {
+          oscillatorReferenceRef.current = null;
+        }
         chart.removeSeries(series);
         existing.delete(id);
       }
@@ -206,12 +405,38 @@ export function StockPriceChart({
     for (const overlay of overlays) {
       let series = existing.get(overlay.id);
       if (!series) {
-        series = chart.addSeries(LineSeries, {
-          color: overlay.color,
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
+        series =
+          overlay.placement === "OSCILLATOR_PANE"
+            ? chart.addSeries(
+                LineSeries,
+                {
+                  color: overlay.color,
+                  lineWidth: 2,
+                  priceLineVisible: false,
+                  lastValueVisible: false,
+                  // The pane renders the catalog's fixed unit range instead of autoscaling, so
+                  // every oscillator of the family shares one stable axis.
+                  autoscaleInfoProvider: () => ({
+                    priceRange: {
+                      minValue: overlay.scale?.min ?? 0,
+                      maxValue: overlay.scale?.max ?? 100,
+                    },
+                  }),
+                  // Unitless axis labels; the chart-level formatter renders money.
+                  priceFormat: {
+                    type: "custom",
+                    formatter: formatOscillatorValue,
+                    minMove: 0.1,
+                  },
+                },
+                OSCILLATOR_PANE_INDEX,
+              )
+            : chart.addSeries(LineSeries, {
+                color: overlay.color,
+                lineWidth: 2,
+                priceLineVisible: false,
+                lastValueVisible: false,
+              });
         existing.set(overlay.id, series);
       } else {
         // Overlay colour is assigned by position within the enabled set, so a reused series can
@@ -225,13 +450,71 @@ export function StockPriceChart({
         })),
       );
     }
-    chart.timeScale().fitContent();
+
+    // One set of 30/50/70 reference levels per pane, owned by the canonically first oscillator
+    // series. When that series changes or disappears the lines move or vanish with it — never
+    // accumulating across repeated toggles.
+    const firstOscillator = overlays.find(
+      (overlay) => overlay.placement === "OSCILLATOR_PANE",
+    );
+    const owner = firstOscillator
+      ? existing.get(firstOscillator.id)
+      : undefined;
+    const reference = oscillatorReferenceRef.current;
+    if (reference && reference.owner !== owner) {
+      for (const line of reference.lines) {
+        reference.owner.removePriceLine(line);
+      }
+      oscillatorReferenceRef.current = null;
+    }
+    if (owner && !oscillatorReferenceRef.current) {
+      oscillatorReferenceRef.current = {
+        owner,
+        lines: OSCILLATOR_REFERENCE_LEVELS.map((level) =>
+          owner.createPriceLine({
+            price: level.price,
+            title: level.title,
+            color: CHART_COLORS.oscillatorReference,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: false,
+          }),
+        ),
+      };
+    }
+    if (owner) {
+      // Keep the price pane dominant: the oscillator pane takes roughly a quarter of the height.
+      const oscillatorPane = chart.panes()[OSCILLATOR_PANE_INDEX];
+      oscillatorPane?.setStretchFactor(OSCILLATOR_PANE_STRETCH);
+    }
+    // Deliberately no fitContent here: enabling or disabling an overlay is not a request to
+    // reframe the history the user has scrolled to.
   }, [overlays]);
 
   const empty = points.length < 2;
+  const hasOscillatorPane = overlays.some(
+    (overlay) => overlay.placement === "OSCILLATOR_PANE",
+  );
 
   return (
-    <div className={styles.wrapper} data-loading={loading}>
+    <div
+      ref={wrapperRef}
+      className={styles.wrapper}
+      data-loading={loading}
+      // What is loaded and whether anything older can still arrive. Published for the same reason
+      // the visible window is: both live on the canvas, and this is how a browser test tells
+      // "the history grew" from "the viewport moved".
+      data-loaded-from={points[0]?.date}
+      data-history-exhausted={historyExhausted ? "true" : undefined}
+      data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
+      // The reference levels are drawn on canvas, so this is the DOM-visible contract the
+      // browser tests assert them through.
+      data-oscillator-levels={
+        hasOscillatorPane
+          ? OSCILLATOR_REFERENCE_LEVELS.map((level) => level.price).join(",")
+          : undefined
+      }
+    >
       <div
         ref={containerRef}
         className={styles.canvas}

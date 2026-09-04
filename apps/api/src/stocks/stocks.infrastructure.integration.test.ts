@@ -38,11 +38,16 @@ import { createLogger } from "@intrinsic/observability";
 import {
   CanonicalStockDataService,
   DAILY_DERIVED_STATE_VARIANT,
+  DAILY_PRICE_FRESHNESS_VARIANT,
+  DAILY_PRICE_VARIANT,
   DERIVED_STATE_REVISION,
+  FINANCIAL_STATEMENT_VERSION,
   IoredisCacheClient,
+  PRICE_DATASET_VERSION,
   RedisStockDataCache,
   addDays,
   createStockDataRedisClient,
+  fundamentalsDatasetVariant,
   type StockManifest,
 } from "@intrinsic/stock-data";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -72,6 +77,25 @@ const CANONICAL_START = "2022-08-24";
 // Fundamentals retention reaches back historyYears + 7 warm-up years, i.e. to 2015-08-24.
 const PRICE_FRESHNESS_MS = 60 * 60 * 1000;
 const FUNDAMENTALS_FRESHNESS_MS = 120 * 60 * 1000;
+/**
+ * A deeper retention horizon for the widening scenario, and its canonical start.
+ *
+ * The rest of the suite runs at four years, where the derived warm-up alone reaches the horizon
+ * and every request materializes all of it. A partially loaded stock only exists when the horizon
+ * is meaningfully deeper than one window plus that warm-up.
+ */
+const WIDENING_HISTORY_YEARS = 12;
+const WIDENING_START = "2014-08-24";
+/**
+ * The state the v1 price loader left behind, reproduced for one stock at the widening horizon:
+ * the provider's history begins years after that horizon, and only its last two years were ever
+ * persisted — what one capped response happened to return — while coverage claimed the horizon.
+ */
+const LEGACY_PROVIDER_START = "2018-01-02";
+const LEGACY_PERSISTED_START = "2024-08-26";
+/** The unversioned v1 coverage variant, spelled out: the loader must never read it again. */
+const LEGACY_DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
+
 const QUARTERLY_BACKFILL_LIMIT = (HISTORY_YEARS + 7) * 4 + 8;
 const ANNUAL_BACKFILL_LIMIT = HISTORY_YEARS + 7 + 2;
 
@@ -333,6 +357,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     authority: `E${suffix}`,
     lruOne: `L1${suffix}`,
     lruTwo: `L2${suffix}`,
+    widening: `G${suffix}`,
+    legacy: `V${suffix}`,
   };
 
   const clock = { instant: new Date(T0) };
@@ -351,6 +377,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
     provider: FmpStockProviderPort;
     namespace: string;
     maxResidentStocks?: number;
+    historyYears?: number;
   }): Promise<INestApplication> {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(STOCK_DATA_PROVIDER)
@@ -377,7 +404,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           new LoggedStockDataService(
             new CanonicalStockDataService(store, stockProvider, cache, coordinator, {
               defaultHistoryDays: 365,
-              historyYears: HISTORY_YEARS,
+              historyYears: input.historyYears ?? HISTORY_YEARS,
               recentPriceFreshnessMs: PRICE_FRESHNESS_MS,
               fundamentalsFreshnessMs: FUNDAMENTALS_FRESHNESS_MS,
               recentTailCalendarDays: 10,
@@ -468,12 +495,20 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
   }
 
   async function readDbStockSnapshot(securityId: string) {
+    // Ordered explicitly: two reads of unchanged rows must compare equal, and without an order the
+    // planner is free to return them in heap order one time and index order the next.
     const [prices, statements, derived, states, coverage] = await Promise.all([
       prisma.dailyPrice.count({ where: { securityId } }),
       prisma.financialStatement.count({ where: { securityId } }),
       prisma.dailyDerivedState.count({ where: { securityId } }),
-      prisma.stockDatasetState.findMany({ where: { securityId } }),
-      prisma.stockDatasetCoverage.findMany({ where: { securityId } }),
+      prisma.stockDatasetState.findMany({
+        where: { securityId },
+        orderBy: [{ dataset: "asc" }, { variant: "asc" }],
+      }),
+      prisma.stockDatasetCoverage.findMany({
+        where: { securityId },
+        orderBy: [{ dataset: "asc" }, { variant: "asc" }, { fromDate: "asc" }],
+      }),
     ]);
     return { prices, statements, derived, states, coverage };
   }
@@ -740,6 +775,21 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       prices: priceSeries("2026-06-01", TODAY, 300),
       statements: smallStatements(),
     });
+    // Price history across a horizon deep enough that a one-year window plus the derived warm-up
+    // is genuinely partial, with real rows before it — an empty answer would hide a missed gap.
+    provider.register(symbols.widening, {
+      name: "Widening History Corp",
+      prices: priceSeries(WIDENING_START, TODAY, 120),
+      statements: standardQuarters(fiscalQuarterRange(2007, "Q1", 2026, "Q2")),
+    });
+    // A provider whose history begins years after the widening horizon, so the boundary it proves
+    // is distinct from the horizon. Its fundamentals are seeded as already resident, so the scenario
+    // never asks it for statements.
+    provider.register(symbols.legacy, {
+      name: "Legacy Revision Corp",
+      prices: priceSeries(LEGACY_PROVIDER_START, TODAY, 90),
+      statements: new Map(),
+    });
 
     app = await createStockApp({ provider, namespace });
     prisma = app.get(PrismaService);
@@ -918,9 +968,9 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(derivedState?.variant).toBe(
           `daily-derived-state:r${DERIVED_STATE_REVISION}`,
         );
-        // r3 is the current methodology: daily technicals, the seven catalog weekly moving
-        // averages, and materialized intrinsic values/blends.
-        expect(DERIVED_STATE_REVISION).toBe(3);
+        // r4 is the current methodology: daily technicals, the seven catalog weekly moving
+        // averages, materialized intrinsic values/blends, and the daily RSI oscillators.
+        expect(DERIVED_STATE_REVISION).toBe(4);
         const fundamentalsVariants = snapshot.states
           .filter((state) =>
             ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"].includes(state.dataset),
@@ -1072,6 +1122,438 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(point).not.toHaveProperty("calculationVersion");
       }
     });
+  });
+
+  describe("a partially loaded stock widening its history", () => {
+    // Its own app because the scenario needs a horizon deeper than one window plus the derived
+    // warm-up; everything else about the wiring — PostgreSQL, Redis, Redlock, the controller — is
+    // the same production stack the rest of the suite drives.
+    let wideningApp: INestApplication;
+
+    const wideningHttp = () => request(wideningApp.getHttpServer());
+
+    beforeAll(async () => {
+      wideningApp = await createStockApp({
+        provider,
+        namespace,
+        historyYears: WIDENING_HISTORY_YEARS,
+      });
+      closers.push(async () => wideningApp.close());
+    }, SLOW);
+
+    it(
+      "detects the missing older interval and fetches only that, once",
+      async () => {
+        const symbol = symbols.widening;
+        const priceRangesFor = () =>
+          provider.dailyPriceCalls.filter((call) => call.symbol === symbol);
+
+        // 1. The page opens on a bounded window, exactly as Stock Details asks for it.
+        await wideningHttp()
+          .get(`/stocks/${symbol}?from=2026-01-02&to=${TODAY}`)
+          .expect(200);
+        const securityId = await securityIdOf(symbol);
+
+        expect(priceRangesFor()).toHaveLength(1);
+        const resident = await readRedisManifest(securityId);
+        // Caller-scoped: the requested window plus the derived warm-up, not the whole horizon.
+        const coverageStart = resident?.coverageStart;
+        expect(coverageStart).toBeDefined();
+        expect(coverageStart! > WIDENING_START).toBe(true);
+
+        const rowsAfterOpen = await prisma.dailyPrice.count({ where: { securityId } });
+        expect(rowsAfterOpen).toBeGreaterThan(0);
+
+        // 2. The user pans back past what is resident. Price rows, a Redis manifest, a coverage
+        //    record and derived rows all already exist for this security — none of that may be
+        //    read as "the older interval is available".
+        const older = addDays(coverageStart!, -200);
+        const widened = await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
+          .expect(200);
+
+        expect(priceRangesFor()).toHaveLength(2);
+        // Only the prefix: the interval already covered is not requested from the provider again.
+        const delta = provider.dailyPriceCalls.at(-1)!;
+        expect(delta.to! < coverageStart!).toBe(true);
+        expect(delta.from! >= WIDENING_START).toBe(true);
+
+        // The older rows are genuinely there, ascending, and the widening never narrowed the tail.
+        const prices = widened.body as Array<{ date: string }>;
+        expect(prices[0]!.date < coverageStart!).toBe(true);
+        expect(prices.at(-1)!.date).toBe(TODAY);
+        expect([...prices].sort((a, b) => a.date.localeCompare(b.date))).toEqual(prices);
+
+        // 3. No duplicate rows at the seam between the two loads.
+        const dates = await prisma.dailyPrice.findMany({
+          where: { securityId },
+          select: { date: true },
+        });
+        expect(new Set(dates.map((row) => row.date.valueOf())).size).toBe(dates.length);
+
+        // 4. The derived state was materialized for the new interval too — with its own warm-up,
+        //    so the oldest newly visible day carries the series rather than an empty row.
+        const technicals = await wideningHttp()
+          .get(`/stocks/${symbol}/technicals/daily?from=${older}&to=${coverageStart}`)
+          .expect(200);
+        const technicalRows = technicals.body as Array<Record<string, unknown>>;
+        expect(technicalRows.length).toBeGreaterThan(0);
+        expect(technicalRows[0]!.sma20d).toBeTypeOf("number");
+        expect(technicalRows[0]!.rsi14d).toBeTypeOf("number");
+        expect(technicalRows[0]!.sma200d).toBeTypeOf("number");
+
+        // 5. Re-reading the same interval, and anything inside it, fetches nothing further.
+        await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${older}&to=${TODAY}`)
+          .expect(200);
+        await wideningHttp()
+          .get(`/stocks/${symbol}/prices?from=${addDays(older, 40)}&to=${TODAY}`)
+          .expect(200);
+        expect(priceRangesFor()).toHaveLength(2);
+      },
+      SLOW,
+    );
+
+    it(
+      "reports the Stock Details bound and refuses to reach past it",
+      async () => {
+        const symbol = symbols.widening;
+
+        const details = await wideningHttp()
+          .get(`/stocks/${symbol}?from=1900-01-01&to=${TODAY}`)
+          .expect(200);
+
+        // The surface reports how far back it may go, from the loader that owns the clock and the
+        // horizon, so the client navigates against the bound that will actually be honoured.
+        expect(details.body.history).toEqual({
+          start: WIDENING_START,
+          end: TODAY,
+          startOrigin: "HORIZON",
+        });
+        // ...and an out-of-bound `from` is clamped at the edge rather than reaching further back.
+        expect(details.body.prices[0].date >= WIDENING_START).toBe(true);
+        const outOfBound = provider.dailyPriceCalls.filter(
+          (call) => call.symbol === symbol && call.from! < WIDENING_START,
+        );
+        expect(outOfBound).toEqual([]);
+      },
+      SLOW,
+    );
+  });
+
+  describe("a stock persisted under price-dataset revision 1 heals itself", () => {
+    // The state the v1 loader left behind for a long-listed stock, as AAPL was found: durable
+    // coverage and a READY manifest claiming the whole horizon, price and derived rows only from
+    // the day the provider's capped response happened to start, derived coverage claiming the
+    // horizon too, and the fundamentals datasets already resident. The current loader can no
+    // longer produce this state, so it is seeded directly, then driven through the same production
+    // stack as the widening scenario at the same deeper horizon — no manual reset anywhere.
+    let legacyApp: INestApplication;
+    let securityId: string;
+    let fixture: StockFixture;
+    let manifestKey: string;
+    let registryKey: string;
+
+    const legacyHttp = () => request(legacyApp.getHttpServer());
+    const priceCallsFor = () =>
+      provider.dailyPriceCalls.filter((call) => call.symbol === symbols.legacy);
+    const statementCallsFor = () =>
+      provider.statementCalls.filter((call) => call.symbol === symbols.legacy);
+    const dbDate = (date: string) => new Date(`${date}T00:00:00.000Z`);
+    const isoDate = (date: Date) => date.toISOString().slice(0, 10);
+    const persistedPriceDates = async () =>
+      (
+        await prisma.dailyPrice.findMany({
+          where: { securityId },
+          select: { date: true },
+          orderBy: { date: "asc" },
+        })
+      ).map((row) => isoDate(row.date));
+
+    beforeAll(async () => {
+      legacyApp = await createStockApp({
+        provider,
+        namespace,
+        historyYears: WIDENING_HISTORY_YEARS,
+      });
+      closers.push(async () => legacyApp.close());
+
+      securityId = await securityIdOf(symbols.legacy);
+      fixture = provider.fixtures.get(symbols.legacy)!;
+      manifestKey = `${namespace}:security:${securityId}:manifest`;
+      registryKey = `${namespace}:security:${securityId}:keys`;
+      const persisted = fixture.prices.filter(
+        (row) => row.date >= LEGACY_PERSISTED_START,
+      );
+      const syncedAt = clock.instant;
+
+      // Price rows: only the tail one capped v1 response returned. Derived rows exist for exactly
+      // those days and nothing older.
+      await prisma.dailyPrice.createMany({
+        data: persisted.map((row) => ({
+          securityId,
+          date: dbDate(row.date),
+          open: row.open,
+          high: row.high,
+          low: row.low,
+          close: row.close,
+          volume: BigInt(row.volume),
+        })),
+      });
+      await prisma.dailyDerivedState.createMany({
+        data: persisted.map((row) => ({ securityId, date: dbDate(row.date) })),
+      });
+
+      // Coverage and state under the unversioned v1 variant claim the whole horizon, and so does
+      // the derived coverage: nothing durable admits that the older years were never loaded.
+      const horizonClaim = {
+        fromDate: dbDate(WIDENING_START),
+        toDate: dbDate(TODAY),
+        lastSuccessfulSyncAt: syncedAt,
+      };
+      await prisma.stockDatasetCoverage.createMany({
+        data: [
+          {
+            securityId,
+            dataset: StockDataset.DAILY_PRICE,
+            variant: LEGACY_DAILY_PRICE_VARIANT,
+            ...horizonClaim,
+          },
+          {
+            securityId,
+            dataset: StockDataset.DAILY_DERIVED_STATE,
+            variant: DAILY_DERIVED_STATE_VARIANT,
+            ...horizonClaim,
+          },
+        ],
+      });
+      const horizonState = {
+        earliestDate: dbDate(WIDENING_START),
+        latestDate: dbDate(TODAY),
+        lastSuccessfulSyncAt: syncedAt,
+      };
+      await prisma.stockDatasetState.createMany({
+        data: [
+          {
+            securityId,
+            dataset: StockDataset.DAILY_PRICE,
+            variant: LEGACY_DAILY_PRICE_VARIANT,
+            ...horizonState,
+          },
+          // The recent-tail freshness watermark is not revisioned, and the tail was current.
+          {
+            securityId,
+            dataset: StockDataset.DAILY_PRICE,
+            variant: DAILY_PRICE_FRESHNESS_VARIANT,
+            earliestDate: dbDate(TODAY),
+            latestDate: dbDate(TODAY),
+            lastSuccessfulSyncAt: syncedAt,
+          },
+          {
+            securityId,
+            dataset: StockDataset.DAILY_DERIVED_STATE,
+            variant: DAILY_DERIVED_STATE_VARIANT,
+            ...horizonState,
+          },
+          // Fundamentals were resident and current: the price revision is the only stale thing.
+          ...(
+            ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"] as const
+          ).flatMap((dataset) =>
+            (["QUARTERLY", "ANNUAL"] as const).map((cadence) => ({
+              securityId,
+              dataset: StockDataset[dataset],
+              variant: fundamentalsDatasetVariant(
+                cadence,
+                WIDENING_HISTORY_YEARS,
+              ),
+              lastSuccessfulSyncAt: syncedAt,
+            })),
+          ),
+        ],
+      });
+
+      // The v1 READY manifest, registered exactly as the cache registers its own keys, with the
+      // stock resident in the LRU. Everything but the price-dataset revision is current.
+      const legacyManifest: StockManifest = {
+        securityId,
+        status: "READY",
+        historyYears: WIDENING_HISTORY_YEARS,
+        coverageStart: WIDENING_START,
+        coverageEnd: TODAY,
+        canonicalHistoryStart: persisted[0]!.date,
+        canonicalHistoryEnd: persisted.at(-1)!.date,
+        hydratedAt: syncedAt.toISOString(),
+        lastPriceRefreshAt: syncedAt.toISOString(),
+        lastFundamentalsRefreshAt: syncedAt.toISOString(),
+        priceDatasetVersion: 1,
+        financialStatementVersion: FINANCIAL_STATEMENT_VERSION,
+        derivedStateRevision: DERIVED_STATE_REVISION,
+      };
+      await redis.set(manifestKey, JSON.stringify(legacyManifest));
+      await redis.sadd(registryKey, manifestKey);
+      await redis.zadd(
+        `${namespace}:resident-stocks`,
+        await redis.incr(`${namespace}:access-sequence`),
+        securityId,
+      );
+    }, SLOW);
+
+    it(
+      "recovers the history the v1 claim hid and moves the stock to the current revision",
+      async () => {
+        expect(priceCallsFor()).toEqual([]);
+        const expectedDates = fixture.prices.map((row) => row.date);
+
+        const healed = await legacyHttp()
+          .get(
+            `/stocks/${symbols.legacy}/prices?from=${WIDENING_START}&to=${TODAY}`,
+          )
+          .expect(200);
+
+        // HTTP: the provider's complete history, from its first trading day through today, each
+        // day once and in order.
+        const dates = (healed.body as Array<{ date: string }>).map(
+          (row) => row.date,
+        );
+        expect(dates[0]).toBe(LEGACY_PROVIDER_START);
+        expect(dates.at(-1)).toBe(TODAY);
+        expect(dates).toEqual(expectedDates);
+
+        // Provider boundary: the v1 claim was not evidence. The caller's whole target was asked
+        // for again, exactly once, and the resident fundamentals were left alone.
+        expect(priceCallsFor()).toEqual([
+          { symbol: symbols.legacy, from: WIDENING_START, to: TODAY },
+        ]);
+        expect(statementCallsFor()).toEqual([]);
+
+        // PostgreSQL: every provider row persisted once; one generation of price coverage, under
+        // the current revision and spanning the target; the v1 rows gone from both tables and
+        // the freshness watermark kept.
+        expect(await persistedPriceDates()).toEqual(expectedDates);
+        const priceCoverage = await prisma.stockDatasetCoverage.findMany({
+          where: { securityId, dataset: StockDataset.DAILY_PRICE },
+        });
+        expect(
+          priceCoverage.map((row) => ({
+            variant: row.variant,
+            from: isoDate(row.fromDate),
+            to: isoDate(row.toDate),
+          })),
+        ).toEqual([
+          { variant: DAILY_PRICE_VARIANT, from: WIDENING_START, to: TODAY },
+        ]);
+        const priceStates = await prisma.stockDatasetState.findMany({
+          where: { securityId, dataset: StockDataset.DAILY_PRICE },
+        });
+        expect(priceStates.map((row) => row.variant).sort()).toEqual(
+          [DAILY_PRICE_VARIANT, DAILY_PRICE_FRESHNESS_VARIANT].sort(),
+        );
+
+        // Derived state: rebuilt from the recovered origin rather than patched in front of the
+        // rows that used to exist. One row per trading day; a day a year into the recovered
+        // prefix carries the warmed-up series, and so does the last day, whose seeded row had none.
+        const derived = await prisma.dailyDerivedState.findMany({
+          where: { securityId },
+          orderBy: { date: "asc" },
+        });
+        expect(derived.map((row) => isoDate(row.date))).toEqual(expectedDates);
+        const yearIn = addDays(LEGACY_PROVIDER_START, 365);
+        const insidePrefix = derived.find(
+          (row) => isoDate(row.date) >= yearIn,
+        )!;
+        expect(isoDate(insidePrefix.date) < LEGACY_PERSISTED_START).toBe(true);
+        for (const row of [insidePrefix, derived.at(-1)!]) {
+          expect(row.sma20d?.toNumber()).toBeTypeOf("number");
+          expect(row.sma200d?.toNumber()).toBeTypeOf("number");
+          expect(row.rsi14d?.toNumber()).toBeTypeOf("number");
+        }
+
+        // Redis: a READY manifest on the current revision, describing the recovered history.
+        expect(await readRedisManifest(securityId)).toMatchObject({
+          status: "READY",
+          historyYears: WIDENING_HISTORY_YEARS,
+          priceDatasetVersion: PRICE_DATASET_VERSION,
+          coverageStart: WIDENING_START,
+          coverageEnd: TODAY,
+          canonicalHistoryStart: LEGACY_PROVIDER_START,
+          canonicalHistoryEnd: TODAY,
+        });
+      },
+      SLOW,
+    );
+
+    it(
+      "reports the proven provider boundary as the history start without inventing a listing date",
+      async () => {
+        const details = await legacyHttp()
+          .get(
+            `/stocks/${symbols.legacy}?from=${addDays(TODAY, -365)}&to=${TODAY}`,
+          )
+          .expect(200);
+
+        // Complete current-revision coverage from the horizon to the day before the first row is
+        // the proof that the provider has nothing older, so the boundary is the provider's...
+        expect(details.body.history).toEqual({
+          start: LEGACY_PROVIDER_START,
+          end: TODAY,
+          startOrigin: "PROVIDER",
+        });
+        // ...and a boundary is not a listing date: the catalog identity is exactly as seeded.
+        expect(details.body.security).not.toHaveProperty("ipoDate");
+        const security = await prisma.security.findUniqueOrThrow({
+          where: { id: securityId },
+        });
+        expect(security.ipoDate).toBeNull();
+        expect(priceCallsFor()).toHaveLength(1);
+      },
+      SLOW,
+    );
+
+    it(
+      "asks the provider nothing further once the repair is durable, even after Redis loses the stock",
+      async () => {
+        const expectedDates = fixture.prices.map((row) => row.date);
+        const dbBefore = await readDbStockSnapshot(securityId);
+
+        // The same range again, then a narrower one inside it.
+        await legacyHttp()
+          .get(
+            `/stocks/${symbols.legacy}/prices?from=${WIDENING_START}&to=${TODAY}`,
+          )
+          .expect(200);
+        await legacyHttp()
+          .get(`/stocks/${symbols.legacy}/prices?from=2020-01-02&to=2020-12-31`)
+          .expect(200);
+        expect(priceCallsFor()).toHaveLength(1);
+
+        // Lose only this stock's Redis state; PostgreSQL is untouched.
+        const registered = await readRedisStockKeys(securityId);
+        expect(registered).toContain(manifestKey);
+        await redis.del(...registered, registryKey);
+        await redis.zrem(`${namespace}:resident-stocks`, securityId);
+
+        const recovered = await legacyHttp()
+          .get(
+            `/stocks/${symbols.legacy}/prices?from=${WIDENING_START}&to=${TODAY}`,
+          )
+          .expect(200);
+        expect(
+          (recovered.body as Array<{ date: string }>).map((row) => row.date),
+        ).toEqual(expectedDates);
+        // Current-revision coverage is durable evidence, so nothing is refetched and nothing
+        // durable changes; the cache is rebuilt on the current revision.
+        expect(priceCallsFor()).toHaveLength(1);
+        expect(statementCallsFor()).toEqual([]);
+        expect(await readDbStockSnapshot(securityId)).toEqual(dbBefore);
+        expect(await readRedisManifest(securityId)).toMatchObject({
+          status: "READY",
+          priceDatasetVersion: PRICE_DATASET_VERSION,
+          coverageStart: WIDENING_START,
+          canonicalHistoryStart: LEGACY_PROVIDER_START,
+        });
+      },
+      SLOW,
+    );
   });
 
   describe("point-in-time intrinsic lifecycle end to end", () => {

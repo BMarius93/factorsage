@@ -109,6 +109,8 @@ For every trading day in the supported history, persist the values that were eli
 Examples of daily-materialized derived values include:
 
 - daily SMA/EMA values;
+- daily RSI oscillator values (added by the selectable-series catalog's Oscillators family; same
+  canonical daily closes, same warm-up-is-absent rule);
 - weekly SMA/EMA values carried forward from the latest completed weekly period;
 - intrinsic-value model results carried forward from the latest eligible fundamentals-driven calculation;
 - intrinsic-value blend results carried forward from the latest eligible component values;
@@ -145,7 +147,7 @@ Rules that later work must not reverse:
 6. Do not denormalize canonical source data into it. `DailyPrice`, point-in-time
    `FinancialStatement` revisions, and `Security` identity/profile stay separate and keep their own
    natural cadence. `WeeklyPrice` remains a completed-week aggregate at weekly cadence; only the
-   derived weekly *indicator* values are carried forward daily.
+   derived weekly _indicator_ values are carried forward daily.
 7. An absent value means not yet eligible or insufficient warm-up. Never write zero, and never
    back-fill a value before its first eligible trading day.
 8. Point-in-time provenance is per intrinsic-value model (one nullable timestamp column per
@@ -320,7 +322,7 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 5. If a new shared application package is introduced for loader orchestration, update architecture/dependency documentation explicitly.
 6. PostgreSQL is authoritative. Redis is disposable and rebuildable.
 7. Redis LRU residency is symbol-level. Eviction removes the complete cached symbol.
-8. Cache misses hydrate the configured canonical horizon, but PostgreSQL coverage ensures FMP receives only missing canonical deltas. Caller ranges only slice reads.
+8. Cache misses hydrate the configured canonical horizon, but PostgreSQL coverage ensures FMP receives only missing canonical deltas. Caller ranges only slice reads. A coverage interval means the provider was asked for every date in it completely and every returned row is persisted; `complete-price-coverage.md` fixes that meaning and the revision that guards it.
 9. Historical reads are deterministic and ascending by effective date.
 10. Derived values are persisted for performance but reproducible from canonical inputs under the current methodology.
 11. Never fill missing technical warm-up values, unavailable intrinsic-value models, or unknown provider fields with fabricated zero/default financial values.
@@ -330,7 +332,7 @@ A Stock Details page load and a worker backtest asking for the same symbol/range
 15. Backtests may only use completed weekly periods. Do not expose a Friday-complete value to earlier dates in that same week.
 16. Materialize the latest eligible weekly indicator on every trading day until the next completed-week value becomes eligible. Do not make the backtest resolve sparse weekly snapshots itself.
 17. Materialize eligible intrinsic-value model and blend results on every trading day; do not require backtests to carry sparse valuation events forward.
-17b. Keep all daily-materialized derived families in one `DailyDerivedState` row keyed by
+    17b. Keep all daily-materialized derived families in one `DailyDerivedState` row keyed by
     `(securityId, date)`. Never add a calculation version to daily derived identity, never split a
     family into its own daily table, and never cache a key per indicator/model/blend.
 18. Every Redis-resident stock must expose the complete configured daily historical state needed by backtests. Redis eviction is complete-stock LRU, never partial-dataset product eviction.
@@ -372,7 +374,7 @@ Redis memory-limit/eviction configuration may be used as a safety net, but produ
 11. Weekly daily-materialization tests prove the latest completed weekly value is repeated on each subsequent trading day and replaced only when a newer completed weekly value becomes eligible.
 12. Historical intrinsic-value daily materialization never uses a source whose `sourceDataAsOf` is after the materialized trading-day cutoff and never backfills a value before its first eligibility date.
 13. Blend calculation validates weights, uses only eligible components, handles DDM-not-applicable explicitly, and materializes only valid daily blend values.
-13b. Persistence proves exactly one derived row per `(securityId, date)`, ascending range reads by
+    13b. Persistence proves exactly one derived row per `(securityId, date)`, ascending range reads by
     `securityId`/date, and that no methodology version can coexist for the same day.
 14. Redis symbol LRU evicts a complete symbol and never leaves partial product datasets resident.
 15. Redis re-admission reconstructs the same daily-materialized derived history as the durable PostgreSQL representation.

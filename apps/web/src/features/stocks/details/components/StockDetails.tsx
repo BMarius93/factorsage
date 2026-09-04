@@ -5,13 +5,14 @@ import type {
   StockDetailsResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageContainer } from "../../../../components/layout/PageContainer";
 import type { StockHistoryWindow } from "../api/stock-details-api";
-import { useExtendedHistory } from "../hooks/use-extended-history";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
 import { useStockDetails } from "../hooks/use-stock-details";
+import { useStockHistory } from "../hooks/use-stock-history";
 import { closeSeries } from "../utils/chart-series";
+import { historyRequestStart } from "../utils/history-window";
 import {
   availableSeriesIds,
   buildOverlays,
@@ -19,9 +20,7 @@ import {
 } from "../utils/series-catalog";
 import {
   DEFAULT_PRICE_RANGE,
-  rangeExceedsWindow,
   rangeStartDate,
-  sliceFromDate,
   type PriceRangeKey,
 } from "../utils/price-ranges";
 import { summarizePrices } from "../utils/price-summary";
@@ -136,52 +135,84 @@ function StockDetailsContent({
   );
 
   const latestDate = summary?.latestDate ?? window.to;
-  const needsExtended = rangeExceedsWindow(range, window.from, latestDate);
-  const extended = useExtendedHistory(symbol, needsExtended, security.ipoDate);
-  const extendedHistory =
-    extended.status === "ready" ? extended.history : undefined;
-  const prices =
-    needsExtended && extendedHistory ? extendedHistory.prices : details.prices;
-  const source: SeriesSource =
-    needsExtended && extendedHistory
-      ? {
-          technicals: extendedHistory.technicals,
-          blends: extendedHistory.intrinsicValueBlends,
-          intrinsicValues: extendedHistory.intrinsicValues,
-        }
-      : {
-          technicals: details.technicals,
-          blends: details.intrinsicValueBlends,
-          intrinsicValues: details.intrinsicValues,
-        };
 
-  // Option availability is answered from the always-loaded details window, so the picker does not
-  // reshuffle between enabled and disabled while a longer history is still loading.
-  const detailsSource: SeriesSource = useMemo(
+  // Everything the chart draws, extended backwards on demand. The page opened on the composite
+  // endpoint's bounded window; from here the viewport decides what else is loaded.
+  const initial = useMemo(
     () => ({
+      prices: details.prices,
       technicals: details.technicals,
-      blends: details.intrinsicValueBlends,
       intrinsicValues: details.intrinsicValues,
+      intrinsicValueBlends: details.intrinsicValueBlends,
     }),
-    [details.technicals, details.intrinsicValueBlends, details.intrinsicValues],
+    [details],
   );
-  const available = useMemo(
-    () => availableSeriesIds(detailsSource),
-    [detailsSource],
+  const loaded = useStockHistory({
+    symbol,
+    bounds: details.history,
+    initial,
+    initialFrom: window.from,
+  });
+
+  // The window a selected range asks to see. `MAX` is the whole permitted horizon — the 30-year
+  // product limit, or this security's listing date when that is later — and no longer unbounded.
+  //
+  // Anchored to the window the page was loaded for, never to the last close inside it. The two
+  // differ by however long the market has been closed, so anchoring to the close would put the
+  // default one-year range a few days before the year that was already loaded — and every page
+  // view would open with a history request for those few days.
+  const frameFrom = rangeStartDate(range, window.to) ?? loaded.historyStart;
+  const { requestFrom } = loaded;
+
+  // Whether the history a selected range asks for is all in. A calendar start rarely lands on a
+  // trading day, so this is answered from what has been *asked for*, not from the oldest bar —
+  // and exhaustion counts, because a range reaching past a security's first trading day is as
+  // satisfied as it will ever be.
+  const frameLoaded = loaded.exhausted || loaded.loadedFrom <= frameFrom;
+
+  // Picking a range that reaches past what is loaded is a history request like any other; the
+  // chart keeps showing what it already has while the rest arrives.
+  useEffect(() => {
+    requestFrom(frameFrom);
+  }, [requestFrom, frameFrom]);
+
+  // Panning or zooming past the oldest loaded bar. The chart reports how much empty space is on
+  // screen and this turns it into a bounded older window, never a jump to the whole horizon.
+  const onReachHistoryEdge = useCallback(
+    (barsBeforeLoaded: number) => {
+      const next = historyRequestStart({
+        loadedFrom: loaded.loadedFrom,
+        barsBeforeLoaded,
+        historyStart: loaded.historyStart,
+      });
+      if (next) {
+        requestFrom(next);
+      }
+    },
+    [requestFrom, loaded.loadedFrom, loaded.historyStart],
   );
+
+  const source: SeriesSource = useMemo(
+    () => ({
+      technicals: loaded.history.technicals,
+      blends: loaded.history.intrinsicValueBlends,
+      intrinsicValues: loaded.history.intrinsicValues,
+    }),
+    [loaded.history],
+  );
+  // Availability is answered over everything loaded, so a series that only becomes evaluable once
+  // older history arrives stops being reported as unavailable. It never narrows: the chosen set
+  // survives, because a widening load can only add.
+  const available = useMemo(() => availableSeriesIds(source), [source]);
   const { selected, toggle } = useIndicatorSelection(available);
 
-  const rangeStart = rangeStartDate(range, latestDate);
   const chartPoints = useMemo(
-    () => sliceFromDate(closeSeries(prices), rangeStart, (point) => point.date),
-    [prices, rangeStart],
+    () => closeSeries(loaded.history.prices),
+    [loaded.history.prices],
   );
   const chartOverlays = useMemo(
-    () =>
-      buildOverlays(source, selected, (points) =>
-        sliceFromDate(points, rangeStart, (point) => point.date),
-      ),
-    [source, selected, rangeStart],
+    () => buildOverlays(source, selected),
+    [source, selected],
   );
   // The legend and the picker read the same assignment, so a swatch always matches its line.
   const overlayColors = useMemo(
@@ -220,17 +251,25 @@ function StockDetailsContent({
             points={chartPoints}
             overlays={chartOverlays}
             currency={security.currency}
-            loading={needsExtended && extended.status === "loading"}
+            loading={loaded.status === "loading"}
+            // The two moments a range is allowed to reframe the chart: when it is picked, and
+            // when the history it asked for has arrived. Panning and zooming in between stays
+            // the user's, through overlay toggles and data updates alike.
+            fitKey={`${range}|${frameLoaded}`}
+            frameFrom={frameFrom}
+            frameTo={latestDate}
+            historyExhausted={loaded.exhausted}
+            onReachHistoryEdge={onReachHistoryEdge}
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}
           />
 
-          {needsExtended && extended.status === "error" ? (
+          {loaded.status === "error" ? (
             <p className={styles.chartError} role="alert">
-              The full price history could not be loaded.{" "}
+              Older price history could not be loaded.{" "}
               <button
                 type="button"
                 className={styles.inlineRetry}
-                onClick={extended.retry}
+                onClick={loaded.retry}
               >
                 Try again
               </button>

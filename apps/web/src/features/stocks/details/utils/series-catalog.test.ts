@@ -15,8 +15,9 @@ import {
 
 const SOURCE: SeriesSource = {
   technicals: [
-    { date: "2026-08-27", sma50d: 219, sma20w: 215 },
-    { date: "2026-08-28", sma50d: 220, sma20w: 216 },
+    // rsi14d and rsi21d stay in warm-up: availability must be answered per period.
+    { date: "2026-08-27", sma50d: 219, sma20w: 215, rsi7d: 41.2 },
+    { date: "2026-08-28", sma50d: 220, sma20w: 216, rsi7d: 66.8 },
   ],
   blends: [
     {
@@ -38,7 +39,6 @@ const SOURCE: SeriesSource = {
   ],
 };
 
-const identity = (points: { date: string; value: number }[]) => points;
 
 function series(id: SelectableSeriesId) {
   return SELECTABLE_SERIES_CATALOG.find((entry) => entry.id === id)!;
@@ -53,6 +53,60 @@ describe("series catalog projection", () => {
 
   it("starts with Balanced enabled and nothing else", () => {
     expect(DEFAULT_SELECTED_SERIES).toEqual(["BALANCED"]);
+  });
+
+  it("reads an oscillator from its own contract field and routes it off the price scale", () => {
+    expect(seriesPoints(SOURCE, series("RSI_7D"))).toEqual([
+      { date: "2026-08-27", value: 41.2 },
+      { date: "2026-08-28", value: 66.8 },
+    ]);
+    // Warm-up periods stay empty; a shorter period never stands in for a longer one.
+    expect(seriesPoints(SOURCE, series("RSI_14D"))).toEqual([]);
+    expect(seriesPoints(SOURCE, series("RSI_21D"))).toEqual([]);
+
+    const overlays = buildOverlays(
+      SOURCE,
+      new Set<SelectableSeriesId>(["RSI_7D", "SMA_50D"]),
+    );
+    expect(overlays.map((overlay) => [overlay.id, overlay.placement])).toEqual([
+      ["SMA_50D", "PRICE_OVERLAY"],
+      ["RSI_7D", "OSCILLATOR_PANE"],
+    ]);
+    // The pane's fixed scale is the catalog's structured 0-100 range, not a hardcoded copy.
+    expect(overlays[1]?.scale).toEqual({ min: 0, max: 100 });
+    expect(overlays[0]?.scale).toBeUndefined();
+    // Colour positions span both panes, so simultaneously enabled series stay distinct.
+    expect(overlays.map((overlay) => overlay.color)).toEqual([
+      overlayColorAt(0),
+      overlayColorAt(1),
+    ]);
+  });
+
+  it("answers oscillator availability independently per period", () => {
+    const available = availableSeriesIds(SOURCE);
+    expect(available.has("RSI_7D")).toBe(true);
+    expect(available.has("RSI_14D")).toBe(false);
+    expect(available.has("RSI_21D")).toBe(false);
+  });
+
+  it("keeps a series available when only later points are evaluable", () => {
+    // A long response begins inside the warm-up: the leading rows carry nothing, later rows do.
+    // Availability must come from the whole window, not from the first row.
+    const partialWarmup: SeriesSource = {
+      technicals: [
+        { date: "2026-08-24" },
+        { date: "2026-08-25" },
+        { date: "2026-08-26", rsi14d: 55.5 },
+        { date: "2026-08-27", rsi14d: 58.1 },
+      ],
+      blends: [],
+      intrinsicValues: [],
+    };
+    expect(availableSeriesIds(partialWarmup).has("RSI_14D")).toBe(true);
+    expect(seriesPoints(partialWarmup, series("RSI_14D"))).toEqual([
+      { date: "2026-08-26", value: 55.5 },
+      { date: "2026-08-27", value: 58.1 },
+    ]);
   });
 
   it("reads a daily, a weekly, a blend and a model from their own contract fields", () => {
@@ -83,6 +137,7 @@ describe("series catalog projection", () => {
     expect([...availableSeriesIds(SOURCE)].sort()).toEqual([
       "BALANCED",
       "DCF_FCFF",
+      "RSI_7D",
       "SMA_20W",
       "SMA_50D",
     ]);
@@ -96,7 +151,6 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["DCF_FCFF", "SMA_20W", "SMA_50D"]),
-      identity,
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual([
@@ -117,11 +171,10 @@ describe("series catalog projection", () => {
     expect(new Set(overlays.map((overlay) => overlay.color)).size).toBe(3);
   });
 
-  it("drops a selected series with no point in the visible range", () => {
+  it("drops a selected series the loaded history cannot draw", () => {
     const overlays = buildOverlays(
-      SOURCE,
+      { ...SOURCE, blends: [] },
       new Set<SelectableSeriesId>(["SMA_50D", "BALANCED"]),
-      (points) => points.filter((point) => point.date === "2026-08-27"),
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual(["SMA_50D"]);

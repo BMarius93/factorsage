@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DAILY_MOVING_AVERAGES,
+  DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLENDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
+  RSI_VALUE_RANGE,
+  TECHNICAL_SERIES_FIELDS,
   TECHNICAL_TIMEFRAMES,
   WEEKLY_MOVING_AVERAGES,
   WEEKLY_TECHNICAL_BACKTEST_POLICY,
@@ -70,6 +73,43 @@ describe("stock data foundation", () => {
   it("keeps timeframe explicit and locks the weekly backtest policy", () => {
     expect(TECHNICAL_TIMEFRAMES).toEqual(["1D", "1W"]);
     expect(WEEKLY_TECHNICAL_BACKTEST_POLICY).toBe("COMPLETED_PERIODS_ONLY");
+  });
+
+  it("defines the agreed daily oscillator registry, in canonical order", () => {
+    expect(DAILY_OSCILLATORS).toEqual([
+      { type: "RSI", period: 7, timeframe: "1D", field: "rsi7d" },
+      { type: "RSI", period: 14, timeframe: "1D", field: "rsi14d" },
+      { type: "RSI", period: 21, timeframe: "1D", field: "rsi21d" },
+    ]);
+  });
+
+  it("derives each oscillator field from its own type, period and timeframe", () => {
+    expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
+    for (const oscillator of DAILY_OSCILLATORS) {
+      expect(oscillator.timeframe).toBe("1D");
+      expect(oscillator.field).toBe(
+        `${oscillator.type.toLowerCase()}${oscillator.period}d`,
+      );
+      expect(Number.isInteger(oscillator.period)).toBe(true);
+      expect(oscillator.period).toBeGreaterThan(1);
+    }
+  });
+
+  it("locks the RSI unit range the shared oscillator pane renders", () => {
+    expect(RSI_VALUE_RANGE).toEqual({ min: 0, max: 100 });
+  });
+
+  it("serves moving averages first and oscillators after them, with no field collision", () => {
+    // This is the canonical wire/materialization field order: a registered technical series
+    // appears here exactly once, so the API projection and the persisted row cannot drop or
+    // duplicate one.
+    expect(TECHNICAL_SERIES_FIELDS).toEqual([
+      ...MATERIALIZED_MOVING_AVERAGES.map((average) => average.field),
+      ...DAILY_OSCILLATORS.map((oscillator) => oscillator.field),
+    ]);
+    expect(new Set(TECHNICAL_SERIES_FIELDS).size).toBe(
+      TECHNICAL_SERIES_FIELDS.length,
+    );
   });
 
   it("defines only the agreed V1 intrinsic-value models", () => {

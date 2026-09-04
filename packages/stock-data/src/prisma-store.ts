@@ -31,6 +31,7 @@ import {
 import {
   DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
+  DAILY_PRICE_VARIANT_FAMILY,
   WEEKLY_PRICE_VARIANT,
   type PersistedDatasetState,
   type PersistedStockDataset,
@@ -85,6 +86,9 @@ type DailyDerivedStateRow = {
   ema20w: DecimalLike | null;
   ema50w: DecimalLike | null;
   ema200w: DecimalLike | null;
+  rsi7d: DecimalLike | null;
+  rsi14d: DecimalLike | null;
+  rsi21d: DecimalLike | null;
   dcfFcff: DecimalLike | null;
   residualIncome: DecimalLike | null;
   ddm: DecimalLike | null;
@@ -155,6 +159,9 @@ function dailyDerivedStateFromRow(
     ...(row.ema20w === null ? {} : { ema20w: row.ema20w.toNumber() }),
     ...(row.ema50w === null ? {} : { ema50w: row.ema50w.toNumber() }),
     ...(row.ema200w === null ? {} : { ema200w: row.ema200w.toNumber() }),
+    ...(row.rsi7d === null ? {} : { rsi7d: row.rsi7d.toNumber() }),
+    ...(row.rsi14d === null ? {} : { rsi14d: row.rsi14d.toNumber() }),
+    ...(row.rsi21d === null ? {} : { rsi21d: row.rsi21d.toNumber() }),
     ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
@@ -190,6 +197,9 @@ function dailyDerivedStateToRow(
     ema20w: row.ema20w ?? null,
     ema50w: row.ema50w ?? null,
     ema200w: row.ema200w ?? null,
+    rsi7d: row.rsi7d ?? null,
+    rsi14d: row.rsi14d ?? null,
+    rsi21d: row.rsi21d ?? null,
     dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
     residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
     ddm: row.intrinsicValues?.DDM ?? null,
@@ -719,6 +729,15 @@ export class PrismaStockDataStore implements StockDataStore {
     }));
   }
 
+  async getEarliestDailyPriceDate(securityId: string): Promise<string | null> {
+    const row = await this.prisma.dailyPrice.findFirst({
+      where: { securityId },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    });
+    return row ? fromDatabaseDate(row.date) : null;
+  }
+
   async saveDailyPriceSync(
     input: Parameters<StockDataStore["saveDailyPriceSync"]>[0],
   ): Promise<{ earliestChangedDate?: string }> {
@@ -779,6 +798,21 @@ export class PrismaStockDataStore implements StockDataStore {
           syncedAt: input.syncedAt,
         });
       }
+      // One generation of price coverage per stock. Intervals recorded under a superseded
+      // `PRICE_DATASET_VERSION` described what the loader no longer trusts; once the current
+      // variant is established they are removed rather than left to read as resident history.
+      // Same predicate as `isSupersededDailyPriceVariant`, expressed for the database: earlier
+      // revisions of this dataset family only, never an unrelated variant of the same dataset.
+      const superseded = {
+        securityId: input.securityId,
+        dataset: StockDataset.DAILY_PRICE,
+        variant: {
+          startsWith: DAILY_PRICE_VARIANT_FAMILY,
+          notIn: [DAILY_PRICE_VARIANT, DAILY_PRICE_FRESHNESS_VARIANT],
+        },
+      };
+      await transaction.stockDatasetCoverage.deleteMany({ where: superseded });
+      await transaction.stockDatasetState.deleteMany({ where: superseded });
       if (input.freshThrough && input.freshThrough >= input.tailDate) {
         await this.advanceFreshnessState(transaction, {
           securityId: input.securityId,

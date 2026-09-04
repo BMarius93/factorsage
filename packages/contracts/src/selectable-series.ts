@@ -2,6 +2,7 @@ import type {
   IntrinsicValueBlendIdResponse,
   IntrinsicValueModelResponse,
   MovingAverageFieldResponse,
+  OscillatorFieldResponse,
 } from "./stock-data.js";
 
 /**
@@ -27,6 +28,7 @@ import type {
 export const SELECTABLE_SERIES_GROUPS = [
   "MOVING_AVERAGES_DAILY",
   "MOVING_AVERAGES_WEEKLY",
+  "OSCILLATORS",
   "INTRINSIC_VALUE_BLENDS",
   "INTRINSIC_VALUE_MODELS",
 ] as const;
@@ -37,12 +39,14 @@ export type SelectableSeriesGroupId = (typeof SELECTABLE_SERIES_GROUPS)[number];
 export const SELECTABLE_SERIES_GROUP_LABELS = {
   MOVING_AVERAGES_DAILY: "Moving averages — Daily",
   MOVING_AVERAGES_WEEKLY: "Moving averages — Weekly",
+  OSCILLATORS: "Oscillators",
   INTRINSIC_VALUE_BLENDS: "Intrinsic Value — Blends",
   INTRINSIC_VALUE_MODELS: "Intrinsic Value — Models",
 } as const satisfies Record<SelectableSeriesGroupId, string>;
 
 export type MovingAverageTypeResponse = "SMA" | "EMA";
 export type TechnicalTimeframeResponse = "1D" | "1W";
+export type OscillatorTypeResponse = "RSI";
 
 /**
  * Structured identity of one catalog entry.
@@ -61,6 +65,22 @@ export type SelectableSeriesSource =
       timeframe: TechnicalTimeframeResponse;
       field: MovingAverageFieldResponse;
     }
+  | {
+      kind: "OSCILLATOR";
+      /**
+       * Oscillator family. It doubles as the pane-compatibility group: series of one family share
+       * one chart pane and one fixed scale, so every `RSI` entry draws into the single RSI pane.
+       */
+      type: OscillatorTypeResponse;
+      /** Number of source bars in the window, never calendar days or weeks. */
+      period: number;
+      timeframe: TechnicalTimeframeResponse;
+      field: OscillatorFieldResponse;
+      /** Fixed unit range every value lies within; the shared pane renders it as its scale. */
+      range: { min: number; max: number };
+      /** Oscillators are unitless and are never drawn over the price scale. */
+      placement: "SEPARATE_PANE";
+    }
   | { kind: "INTRINSIC_VALUE_BLEND"; blendId: IntrinsicValueBlendIdResponse }
   | { kind: "INTRINSIC_VALUE_MODEL"; model: IntrinsicValueModelResponse };
 
@@ -68,6 +88,13 @@ export type SelectableSeries = {
   /** Stable identity used by selection state, API filters and future strategy persistence. */
   id: SelectableSeriesId;
   group: SelectableSeriesGroupId;
+  /**
+   * Present with `true` only on the entries Stock Details enables before any user interaction.
+   * Omission is the catalog's explicit "off by default": every oscillator, for example, starts
+   * unchecked. The web derives its initial selection from this flag rather than keeping a second
+   * default list.
+   */
+  defaultSelected?: true;
   /**
    * The one product label, used by every surface: the dropdown, the chart legend and the
    * valuation summary.
@@ -261,9 +288,52 @@ export const SELECTABLE_SERIES_CATALOG = [
     },
   },
   {
+    id: "RSI_7D",
+    group: "OSCILLATORS",
+    label: "RSI 7D",
+    source: {
+      kind: "OSCILLATOR",
+      type: "RSI",
+      period: 7,
+      timeframe: "1D",
+      field: "rsi7d",
+      range: { min: 0, max: 100 },
+      placement: "SEPARATE_PANE",
+    },
+  },
+  {
+    id: "RSI_14D",
+    group: "OSCILLATORS",
+    label: "RSI 14D",
+    source: {
+      kind: "OSCILLATOR",
+      type: "RSI",
+      period: 14,
+      timeframe: "1D",
+      field: "rsi14d",
+      range: { min: 0, max: 100 },
+      placement: "SEPARATE_PANE",
+    },
+  },
+  {
+    id: "RSI_21D",
+    group: "OSCILLATORS",
+    label: "RSI 21D",
+    source: {
+      kind: "OSCILLATOR",
+      type: "RSI",
+      period: 21,
+      timeframe: "1D",
+      field: "rsi21d",
+      range: { min: 0, max: 100 },
+      placement: "SEPARATE_PANE",
+    },
+  },
+  {
     id: "BALANCED",
     group: "INTRINSIC_VALUE_BLENDS",
     label: "Balanced",
+    defaultSelected: true,
     source: { kind: "INTRINSIC_VALUE_BLEND", blendId: "BALANCED" },
   },
   {
@@ -324,6 +394,18 @@ export const SELECTABLE_SERIES_GROUPED: readonly {
   series: SELECTABLE_SERIES_CATALOG.filter((entry) => entry.group === group),
 }));
 
+/**
+ * Entries Stock Details enables before any user interaction, in canonical order.
+ *
+ * Derived from the per-entry `defaultSelected` flag so the initial chart state is catalog product
+ * metadata rather than a second list kept by the web app. Everything not listed here — every
+ * oscillator included — starts off.
+ */
+export const DEFAULT_SELECTED_SERIES_IDS: readonly SelectableSeriesId[] =
+  SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+    "defaultSelected" in entry && entry.defaultSelected ? [entry.id] : [],
+  );
+
 const SERIES_BY_ID = new Map<string, SelectableSeries>(
   SELECTABLE_SERIES_CATALOG.map((entry) => [entry.id, entry]),
 );
@@ -378,9 +460,28 @@ export const MOVING_AVERAGE_SERIES: readonly SelectableSeries[] =
     (entry) => entry.source.kind === "MOVING_AVERAGE",
   );
 
+export const OSCILLATOR_SERIES: readonly SelectableSeries[] =
+  SELECTABLE_SERIES_CATALOG.filter(
+    (entry) => entry.source.kind === "OSCILLATOR",
+  );
+
+/**
+ * Every series the daily technical endpoint serves and its `series=` filter accepts: the moving
+ * averages plus the daily oscillators. The intrinsic entries are deliberately not here — they are
+ * served by the intrinsic-value and blend endpoints, which apply their own point-in-time rules.
+ */
+export const TECHNICAL_SERIES: readonly SelectableSeries[] =
+  SELECTABLE_SERIES_CATALOG.filter(
+    (entry) =>
+      entry.source.kind === "MOVING_AVERAGE" ||
+      entry.source.kind === "OSCILLATOR",
+  );
+
 export const INTRINSIC_VALUE_SERIES: readonly SelectableSeries[] =
   SELECTABLE_SERIES_CATALOG.filter(
-    (entry) => entry.source.kind !== "MOVING_AVERAGE",
+    (entry) =>
+      entry.source.kind === "INTRINSIC_VALUE_BLEND" ||
+      entry.source.kind === "INTRINSIC_VALUE_MODEL",
   );
 
 /**

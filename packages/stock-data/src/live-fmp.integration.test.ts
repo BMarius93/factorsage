@@ -1,10 +1,24 @@
+/**
+ * Live FMP verification of the daily technical calculator against the provider's own oracle.
+ *
+ * This suite NEVER runs by default and is excluded from normal CI. `RUN_LIVE_FMP_TESTS=1` is the
+ * only thing that authorizes it — an `FMP_API_KEY` present in a developer's `.env` does not, which
+ * is what previously let a direct `vitest` invocation (bypassing the package script's
+ * `--exclude`) fire real requests. Run it deliberately with:
+ *
+ *   RUN_LIVE_FMP_TESTS=1 pnpm --filter @intrinsic/stock-data test:live
+ */
 import { getFmpConfig, loadRootEnv } from "@intrinsic/config";
-import { FmpClient } from "@intrinsic/fmp";
-import { describe, expect, it } from "vitest";
+import { FMP_EOD_MAX_ROWS_PER_RESPONSE, FmpClient } from "@intrinsic/fmp";
+import {
+  assertLiveFmpCredentials,
+  liveFmpTestsEnabled,
+} from "@intrinsic/testing";
+import { beforeAll, describe, expect, it } from "vitest";
 import { calculateDailyTechnicals } from "./technicals.js";
 
 loadRootEnv();
-const liveEnabled = Boolean(process.env.FMP_API_KEY?.trim());
+const describeLive = liveFmpTestsEnabled() ? describe : describe.skip;
 
 async function getFmpTechnical(
   type: "sma" | "ema",
@@ -37,8 +51,15 @@ async function getFmpTechnical(
   });
 }
 
-describe.runIf(liveEnabled)("live FMP verification", () => {
+describeLive("live FMP verification", () => {
   const client = new FmpClient(() => getFmpConfig());
+
+  // Inside beforeAll, not at module scope: the suite must skip cleanly when the gate is off,
+  // whatever the local environment carries. With the gate on, missing or placeholder credentials
+  // fail loudly instead of sending a request that cannot succeed.
+  beforeAll(() => {
+    assertLiveFmpCredentials();
+  });
 
   it("maps the AAPL company profile", async () => {
     const profile = await client.getProfile("AAPL");
@@ -60,6 +81,29 @@ describe.runIf(liveEnabled)("live FMP verification", () => {
     const preSplit = prices.find((price) => price.date === "2020-08-28");
     expect(preSplit?.close).toBeCloseTo(124.81, 0);
     expect(preSplit?.close).toBeLessThan(200);
+  });
+
+  it("paginates a thirty-year AAPL read past the provider's page cap", async () => {
+    // The endpoint silently caps one response at `FMP_EOD_MAX_ROWS_PER_RESPONSE` rows and drops
+    // the oldest. Apple has traded since 1980, so a thirty-year window holds well over that many
+    // trading days: reaching the requested start proves the adapter walked past the cap, and the
+    // row count proves the cap is still what the adapter assumes. A provider that lowers the cap
+    // makes the first assertion fail here instead of silently shortening every long history.
+    const from = "1996-09-04";
+    const to = new Date().toISOString().slice(0, 10);
+    const prices = await client.getDailyPrices("AAPL", "live-aapl", { from, to });
+
+    expect(prices.length).toBeGreaterThan(FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    // The first trading day at or after the requested start, within a week of it.
+    expect(prices[0]?.date ?? "").not.toBe("");
+    expect(prices[0]!.date >= from).toBe(true);
+    expect(Date.parse(prices[0]!.date) - Date.parse(from)).toBeLessThanOrEqual(
+      7 * 86_400_000,
+    );
+    expect(new Set(prices.map((price) => price.date)).size).toBe(prices.length);
+    for (let index = 1; index < prices.length; index += 1) {
+      expect(prices[index - 1]!.date < prices[index]!.date).toBe(true);
+    }
   });
 
   it("matches FMP SMA20 and EMA20 oracle values within 0.10", async () => {

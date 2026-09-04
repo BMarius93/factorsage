@@ -176,10 +176,13 @@ Current coverage: guest reaches sign-in and registration, a product route bounce
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
 across navigation and is denied the ADMIN route, `QA_ADMIN` reaches the ADMIN route, and signing
 out ends the session. `e2e/lists` covers the full stock-list journey; `e2e/stocks` covers the
-Stock Details `Indicators` catalog — all four groups, all 21 entries, the default `Balanced`
-selection, daily/weekly/model/blend overlays together, deselection, the disabled unavailable
-state, the always-visible price series, desktop and phone viewports, keyboard operation, and the
-absence of console errors or failed requests.
+Stock Details `Indicators` catalog — every group and entry (counts derive from
+`@intrinsic/contracts`, never a copy), the default `Balanced` selection,
+daily/weekly/model/blend overlays together, deselection, the disabled unavailable state, the
+always-visible price series, desktop and phone viewports, keyboard operation, and the absence of
+console errors or failed requests — plus the RSI oscillator journey: the shared lower pane's full
+selection lifecycle, the 30/50/70 levels, unitless legend readings beside price overlays, and
+duplication-free repeated toggling.
 
 ## 8. Storage state
 
