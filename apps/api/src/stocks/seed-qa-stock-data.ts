@@ -16,10 +16,10 @@ import {
   fundamentalsDatasetOperations,
   PrismaStockDataStore,
   startOfIsoWeek,
+  subtractYears,
   type EvaluatedIntrinsicModel,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "./seed-qa-securities";
-import { subtractYears } from "./stock-details-history";
 
 /**
  * Deterministic market data for the fictional QA securities.

@@ -43,6 +43,7 @@ import {
   assertDateRange,
   endOfLocalDate,
   missingCoverageRanges,
+  subtractYears,
 } from "./dates.js";
 import {
   buildDailyDerivedState,
@@ -1736,11 +1737,6 @@ function toIntrinsicValueBlendPoints(
   );
 }
 
-function subtractYears(value: string, years: number): string {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCFullYear(date.getUTCFullYear() - years);
-  return date.toISOString().slice(0, 10);
-}
 
 function maxDate(left: string, right: string): string {
   return left > right ? left : right;

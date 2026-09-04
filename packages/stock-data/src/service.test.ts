@@ -381,8 +381,17 @@ class FakeStore implements StockDataStore {
     _securityId: string,
     dataset: PersistedStockDataset,
     variant: string,
-    _range: Required<DateRange>,
+    range: Required<DateRange>,
   ) {
+    // The boundary computation reads price coverage over the whole permitted range; hydration
+    // reads it over a load target, which in these tests never spans the full horizon.
+    if (
+      dataset === "DAILY_PRICE" &&
+      range.from === CANONICAL_RANGE.from &&
+      range.to === CANONICAL_RANGE.to
+    ) {
+      this.noteBoundaryRead();
+    }
     return this.coverage.get(`${dataset}:${variant}`) ?? [];
   }
   async getLatestCoverageSyncContainingDate(
@@ -421,7 +430,23 @@ class FakeStore implements StockDataStore {
       .filter((row) => !range.to || row.date <= range.to)
       .sort((left, right) => left.date.localeCompare(right.date));
   }
+  /**
+   * A stand-in for a prefix load committing between the two reads the Stock Details boundary is
+   * built from: it runs at the start of whichever of those reads comes second, so the test holds
+   * the loader to a safe order rather than to the order it happens to use today.
+   */
+  commitBetweenBoundaryReads?: () => void;
+  private boundaryReads = 0;
+  private noteBoundaryRead() {
+    this.boundaryReads += 1;
+    if (this.boundaryReads === 2) {
+      const commit = this.commitBetweenBoundaryReads;
+      this.commitBetweenBoundaryReads = undefined;
+      commit?.();
+    }
+  }
   async getEarliestDailyPriceDate(_securityId: string) {
+    this.noteBoundaryRead();
     return this.prices.map((row) => row.date).sort()[0] ?? null;
   }
   async getFinancialStatements(
@@ -3761,6 +3786,52 @@ describe("complete price coverage", () => {
     expect(store.currentSecurity?.ipoDate).toBe("1980-12-12");
     expect(store.profileSaves).toEqual([]);
     expect(provider.ranges).toEqual([empty]);
+  });
+
+  it("does not report a provider boundary from a prefix that commits between its two reads", async () => {
+    // The bound is computed outside the stock lock from two separate reads. A prefix load commits
+    // its rows and coverage atomically; if that lands between them, the coverage snapshot taken
+    // first is still incomplete and the wider bound is reported. The other order would pair the
+    // old earliest row with the new, complete coverage and pin the client at a row that persisted
+    // history already precedes.
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = [price("2006-10-12"), price("2026-08-20")];
+    store.coverage.set(CURRENT_KEY, [{ from: "2006-01-02", to: CANONICAL_RANGE.to }]);
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    // The prefix reaches to within a weekend of the horizon, so once both reads see it the
+    // boundary is the horizon. Read in the unsafe order, the stale 2006 row paired with the new
+    // complete coverage would instead prove a PROVIDER start at 2006-10-12.
+    store.commitBetweenBoundaryReads = () => {
+      store.prices = [price("1996-08-26"), ...store.prices];
+      store.coverage.set(CURRENT_KEY, [
+        { from: CANONICAL_RANGE.from, to: "2006-01-01" },
+        { from: "2006-01-02", to: CANONICAL_RANGE.to },
+      ]);
+    };
+    const loader = currentService(store, new FakeProvider(), cache);
+
+    const racing = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+    expect(racing.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
+    });
+
+    // Once both reads see the committed prefix, the horizon is the boundary for good.
+    const settled = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+    expect(settled.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
+    });
   });
 
   it("keeps the listing date as the boundary when it is later than the horizon", async () => {

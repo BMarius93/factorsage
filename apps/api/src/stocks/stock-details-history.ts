@@ -3,6 +3,7 @@ import {
   type StockHistoryBoundsResponse,
 } from "@intrinsic/contracts";
 import type { DateRange } from "@intrinsic/domain";
+import { subtractYears } from "@intrinsic/stock-data";
 
 /**
  * The historical bound of the Stock Details surface.
@@ -17,21 +18,12 @@ import type { DateRange } from "@intrinsic/domain";
  * Widening or narrowing the product limit must not silently change what a backtest can reach.
  */
 
-/** Subtracts whole years from a `YYYY-MM-DD` date, clamping 29 February to 28 February. */
-export function subtractYears(date: string, years: number): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  if (Number.isNaN(parsed.valueOf())) {
-    throw new Error(`Invalid local date '${date}'`);
-  }
-  const day = parsed.getUTCDate();
-  parsed.setUTCDate(1);
-  parsed.setUTCFullYear(parsed.getUTCFullYear() - years);
-  const lastDayOfMonth = new Date(
-    Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  parsed.setUTCDate(Math.min(day, lastDayOfMonth));
-  return parsed.toISOString().slice(0, 10);
-}
+/**
+ * The one year arithmetic every historical bound uses, re-exported so this module's callers and
+ * tests keep their import. The loader's horizon, the Stock Details limit and the QA seed's
+ * coverage start all come from it, so they agree on 29 February as on every other day.
+ */
+export { subtractYears } from "@intrinsic/stock-data";
 
 /**
  * The retained years this deployment may serve Stock Details from.
