@@ -38,10 +38,52 @@ export type PersistedSecurityCatalogEntry = {
   security: Security;
 };
 
-export const DAILY_PRICE_VARIANT = "split-adjusted-eod-full";
+/**
+ * Revision of the canonical daily price dataset: what a persisted coverage interval *means*.
+ *
+ * Like `DERIVED_STATE_REVISION` for calculated series, this is a rebuild trigger and never a row
+ * identity. It is recorded in two places that must agree — the durable coverage/state variant
+ * (`DAILY_PRICE_VARIANT`) and the Redis manifest field `priceDatasetVersion` — so bumping it makes
+ * every earlier manifest stale and every earlier coverage interval invisible to the loader. The
+ * affected range is then re-verified against the provider lazily, on the next read that needs it;
+ * already-persisted rows are kept and deduplicated on write, so a bump costs provider requests,
+ * never data.
+ *
+ * Revision history:
+ * - v1: one provider request per missing interval, and the whole interval recorded as covered.
+ *   `historical-price-eod/full` silently caps a response at 5000 rows, so any interval longer than
+ *   about twenty trading years was persisted short and its oldest years recorded as "covered, no
+ *   rows" — for `AAPL`, coverage from 1996 with a first row in 2006. A v1 interval therefore does
+ *   not prove that the provider was asked for every date in it.
+ * - v2: the adapter paginates every request to completeness, so coverage means "asked for every
+ *   date in the interval with complete requests, and every returned row persisted". v1 coverage
+ *   and manifests are not trusted; a stock heals itself on its next read.
+ */
+export const PRICE_DATASET_VERSION = 2;
+
+/** The provider dataset every price-dataset revision describes; revisions share this prefix. */
+export const DAILY_PRICE_VARIANT_FAMILY = "split-adjusted-eod-full";
+export const DAILY_PRICE_VARIANT = `${DAILY_PRICE_VARIANT_FAMILY}:v${PRICE_DATASET_VERSION}`;
 export const WEEKLY_PRICE_VARIANT = "completed-weeks";
-export const DAILY_PRICE_FRESHNESS_VARIANT =
-  "split-adjusted-eod-full:recent-tail";
+/**
+ * Recent-tail freshness watermark. Not coverage: it records through which day the bounded tail
+ * refresh last succeeded, and the tail window is far below the provider's page cap, so it is
+ * deliberately not revisioned with `PRICE_DATASET_VERSION`.
+ */
+export const DAILY_PRICE_FRESHNESS_VARIANT = `${DAILY_PRICE_VARIANT_FAMILY}:recent-tail`;
+
+/**
+ * Whether a persisted `DAILY_PRICE` variant is an earlier revision of the canonical price
+ * dataset — the unversioned v1 name or a `:v<N>` other than the current one. Unrelated variants
+ * of the same dataset are not superseded by a revision bump and are left alone.
+ */
+export function isSupersededDailyPriceVariant(variant: string): boolean {
+  return (
+    variant.startsWith(DAILY_PRICE_VARIANT_FAMILY) &&
+    variant !== DAILY_PRICE_VARIANT &&
+    variant !== DAILY_PRICE_FRESHNESS_VARIANT
+  );
+}
 
 export interface StockDataStore {
   findSecurityByProviderSymbol(symbol: string): Promise<Security | null>;
@@ -99,6 +141,19 @@ export interface StockDataStore {
     date: string,
   ): Promise<string | null>;
   getDailyPrices(securityId: string, range: DateRange): Promise<DailyPrice[]>;
+  /**
+   * The earliest persisted trading day for the security, or `null` when it has no price rows.
+   * Together with complete coverage back to the permitted bound, this is what proves that the
+   * provider has nothing older — the one durable basis for reporting a `PROVIDER` history start.
+   */
+  getEarliestDailyPriceDate(securityId: string): Promise<string | null>;
+  /**
+   * Persists provider rows and records `successfulCoverage` under the current
+   * `DAILY_PRICE_VARIANT`. Each interval must have been asked for completely: the adapter's
+   * pagination is what makes that true, and a coverage interval is the durable claim that asking
+   * again is pointless. Coverage and state rows of superseded price-dataset variants are removed
+   * in the same transaction, so a stock never carries two generations of coverage.
+   */
   saveDailyPriceSync(input: {
     securityId: string;
     prices: readonly DailyPrice[];

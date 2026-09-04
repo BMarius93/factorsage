@@ -205,7 +205,10 @@ describe("StockDetails", () => {
 
     render(<StockDetails symbol="AAPL" />);
 
-    const heading = await screen.findByRole("heading", { level: 1, name: /AAPL/ });
+    const heading = await screen.findByRole("heading", {
+      level: 1,
+      name: /AAPL/,
+    });
     expect(heading.textContent).toContain("Apple Inc.");
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
     expect(fetchStockDetailsMock).toHaveBeenCalledWith(
@@ -218,7 +221,9 @@ describe("StockDetails", () => {
     expect(screen.getByText(/\+\$32\.00 \(\+16\.00%\)/)).toBeDefined();
     expect(screen.getByText(/At close · Aug 28, 2026/)).toBeDefined();
     // The exchange shows in the header badges and again under key facts.
-    expect(screen.getAllByText("NASDAQ Global Select").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("NASDAQ Global Select").length).toBeGreaterThan(
+      0,
+    );
     expect(chart().dataset.pointCount).toBe("6");
   });
 
@@ -501,23 +506,103 @@ describe("StockDetails", () => {
   });
 
   it("stops at a security's first trading day, before the boundary", async () => {
+    // The provider's history for this security starts inside the permitted horizon, and the API
+    // reports that day as the boundary — proven by complete coverage, never guessed from an
+    // empty answer. The chart walks back to it a year at a time and stops exactly there.
+    const providerBounds = {
+      start: "2020-03-02",
+      end: HISTORY_BOUNDS.end,
+      startOrigin: "PROVIDER",
+    } as const;
+    fetchStockDetailsMock.mockResolvedValue({
+      ...detailsFixture(),
+      history: { ...providerBounds },
+    });
+    fetchDailyPriceHistoryMock.mockImplementation(async (_symbol, window) => [
+      bar(window.from, 50),
+    ]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    // A year per pan, measured from the loaded edge (2024 is a leap year, hence the 29ths), until
+    // the last window is clamped to the reported start. Nothing is ever asked for before it, and
+    // only the request that starts at the boundary exhausts the history — not one earlier.
+    const windows = [
+      { from: "2024-08-28", to: "2025-08-27" },
+      { from: "2023-08-29", to: "2024-08-27" },
+      { from: "2022-08-29", to: "2023-08-28" },
+      { from: "2021-08-29", to: "2022-08-28" },
+      { from: "2020-08-29", to: "2021-08-28" },
+      { from: providerBounds.start, to: "2020-08-28" },
+    ];
+    for (const [index, window] of windows.entries()) {
+      await user.click(screen.getByTestId("pan-past-edge"));
+      expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(index + 1);
+      expect(fetchDailyPriceHistoryMock).toHaveBeenLastCalledWith(
+        "AAPL",
+        window,
+        expect.anything(),
+      );
+      expect(window.from >= providerBounds.start).toBe(true);
+      await waitFor(() =>
+        expect(chart().dataset.pointCount).toBe(String(7 + index)),
+      );
+      expect(chart().dataset.historyExhausted).toBe(
+        window.from === providerBounds.start ? "true" : "false",
+      );
+    }
+
+    // At the boundary, further navigation asks for nothing at all.
+    await user.click(screen.getByTestId("pan-past-edge"));
+    await user.click(screen.getByTestId("zoom-out-past-edge"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(windows.length);
+    expect(chart().dataset.pointCount).toBe(String(6 + windows.length));
+    expect(chart().dataset.firstDate).toBe(providerBounds.start);
+  });
+
+  it("keeps asking for older history after an empty window, until the reported boundary", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
-    // Nothing older exists: the window before the security's real history can only come back
-    // empty, and asking again would repeat that answer for every remaining year.
-    fetchDailyPriceHistoryMock.mockResolvedValue([]);
+    // The first window comes back empty. That is not where history begins — a provider can have
+    // nothing inside one window and rows before it — so the chart must not pin itself there.
+    let releaseEmpty: (rows: DailyPriceResponse[]) => void = () => {};
+    fetchDailyPriceHistoryMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        releaseEmpty = resolve;
+      }),
+    );
+    fetchDailyPriceHistoryMock.mockResolvedValue([bar("2023-09-01", 90)]);
     const user = setupUser();
 
     render(<StockDetails symbol="AAPL" />);
     await screen.findByTestId("price-chart");
 
     await user.click(screen.getByTestId("pan-past-edge"));
-    await waitFor(() => expect(chart().dataset.historyExhausted).toBe("true"));
     expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+    expect(chart().dataset.loading).toBe("true");
 
-    await user.click(screen.getByTestId("pan-past-edge"));
-    await user.click(screen.getByTestId("zoom-out-past-edge"));
-    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(1);
+    releaseEmpty([]);
+    await waitFor(() => expect(chart().dataset.loading).toBe("false"));
+    // Nothing arrived, and nothing was concluded from that: the boundary is still ahead.
     expect(chart().dataset.pointCount).toBe("6");
+    expect(chart().dataset.historyExhausted).toBe("false");
+
+    // The empty window is not asked for again; the next pan asks for the window just before it.
+    await user.click(screen.getByTestId("pan-past-edge"));
+    expect(fetchDailyPriceHistoryMock).toHaveBeenCalledTimes(2);
+    const [first, second] = fetchDailyPriceHistoryMock.mock.calls.map(
+      (call) => call[1],
+    );
+    expect(first).toEqual({ from: "2024-08-28", to: "2025-08-27" });
+    expect(second).toEqual({ from: "2023-08-29", to: "2024-08-27" });
+    expect(second!.from < first!.from).toBe(true);
+    // Contiguous with the empty window: its `to` is the day before that window's `from`.
+    expect(second!.to).toBe("2024-08-27");
+
+    await waitFor(() => expect(chart().dataset.pointCount).toBe("7"));
+    expect(chart().dataset.firstDate).toBe("2023-09-01");
+    expect(chart().dataset.historyExhausted).toBe("false");
   });
 
   it("extends the enabled overlays with the newly loaded history", async () => {
@@ -719,9 +804,7 @@ describe("StockDetails", () => {
       name: /^RSI/,
     }) as HTMLInputElement[];
     expect(
-      oscillators.map((option) =>
-        option.closest("label")?.textContent?.trim(),
-      ),
+      oscillators.map((option) => option.closest("label")?.textContent?.trim()),
     ).toEqual(["RSI 7D", "RSI 14D", "RSI 21D Unavailable"]);
     for (const option of oscillators) {
       expect(option.checked).toBe(false);
@@ -799,9 +882,13 @@ describe("StockDetails", () => {
     expect(
       await screen.findByRole("heading", { name: "Stock not found" }),
     ).toBeDefined();
-    expect(screen.getByText(/GHOST is not in the supported stock catalog/)).toBeDefined();
     expect(
-      screen.getByRole("link", { name: "Back to Dashboard" }).getAttribute("href"),
+      screen.getByText(/GHOST is not in the supported stock catalog/),
+    ).toBeDefined();
+    expect(
+      screen
+        .getByRole("link", { name: "Back to Dashboard" })
+        .getAttribute("href"),
     ).toBe("/dashboard");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
@@ -853,7 +940,9 @@ describe("StockDetails", () => {
     expect(screen.queryByText(/%\)/)).toBeNull();
     expect(screen.getByText("Not actively trading")).toBeDefined();
     expect(
-      screen.getByText("No intrinsic-value estimates are available for this stock yet."),
+      screen.getByText(
+        "No intrinsic-value estimates are available for this stock yet.",
+      ),
     ).toBeDefined();
     expect(screen.queryByRole("heading", { name: "Technicals" })).toBeNull();
     // The catalog stays discoverable even with no derived data: every entry is disabled and

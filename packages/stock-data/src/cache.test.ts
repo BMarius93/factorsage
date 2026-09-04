@@ -1,6 +1,7 @@
 import type { DailyPrice, Security } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { DERIVED_STATE_REVISION } from "./derived-state.js";
+import { PRICE_DATASET_VERSION } from "./ports.js";
 import {
   RedisStockDataCache,
   type RedisCacheClient,
@@ -184,7 +185,7 @@ function readyManifest(securityId: string): StockManifest {
     hydratedAt: "2026-08-24T12:00:00.000Z",
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
     lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
-    priceDatasetVersion: 1,
+    priceDatasetVersion: PRICE_DATASET_VERSION,
     financialStatementVersion: 1,
     derivedStateRevision: DERIVED_STATE_REVISION,
   };

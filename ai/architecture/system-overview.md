@@ -40,8 +40,11 @@ for the range this read needs -> missing FMP deltas -> derived calculation -> Po
 yearly Redis chunks. The caller's requested range, widened by the derived-series warm-up and
 clamped to `STOCK_HISTORY_YEARS`, is what gets materialized: Stock Details pays for its own
 window, a backtest asks for decades explicitly, and widening later is incremental. See
-`../../docs/decisions/caller-scoped-history-materialization.md`. Process adapters construct their
-own Prisma and Redis clients; they do not reimplement loading behavior.
+`../../docs/decisions/caller-scoped-history-materialization.md`. Provider deltas are paginated to
+completeness inside `@intrinsic/fmp`, and a persisted coverage interval means complete
+materialization — asked completely, every returned row persisted — under the price-dataset
+revision `PRICE_DATASET_VERSION`; see `../../docs/decisions/complete-price-coverage.md`. Process
+adapters construct their own Prisma and Redis clients; they do not reimplement loading behavior.
 
 One distributed lock coordinates hydration of a complete security across API and worker. A
 provider-wide Redis gate separately limits concurrent/rate traffic and shares 429 cooldown state

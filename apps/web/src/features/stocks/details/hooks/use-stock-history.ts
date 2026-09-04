@@ -49,7 +49,12 @@ export type StockHistoryState = {
   readonly loadedFrom: string;
   /** Earliest date this surface may ever request for this security. */
   readonly historyStart: string;
-  /** Nothing older can arrive: the boundary is reached, or the security has no earlier history. */
+  /**
+   * Nothing older can arrive: a load has asked for history back to `historyStart`, the boundary
+   * the API reports (the 30-year horizon, the listing date, or the provider's first day proven by
+   * complete coverage). This comes from that report and from nothing else — an empty window is
+   * never evidence of where history begins.
+   */
   readonly exhausted: boolean;
   readonly status: StockHistoryStatus;
   /** Asks for history back to `from`. Already-covered, in-flight and out-of-bound asks are no-ops. */
@@ -71,6 +76,14 @@ export type StockHistoryState = {
  * loader materializes that window plus its own derived warm-up, so the oldest newly arrived day
  * carries the same complete set of moving averages, oscillators and intrinsic values as any other
  * day. Nothing is calculated here; a series that has no value on a day stays absent.
+ *
+ * History is exhausted only when a load has asked for the boundary the API reports as
+ * `history.start` — the 30-year horizon, the listing date, or the provider's first day, which the
+ * API reports only once it has proven complete coverage. An empty window is never evidence of
+ * where history begins: a provider can answer one window with nothing and still hold rows before
+ * it, and reading emptiness as the listing date is exactly what turned a truncated provider
+ * response into a fake listing date. An empty window still advances `loadedFrom`, so it is never
+ * asked for again; the next gesture asks for the next older window, until the boundary.
  *
  * Prices are required. The technical and intrinsic reads degrade to empty on failure, because a
  * price chart without overlays is still a working chart.
@@ -175,11 +188,10 @@ export function useStockHistory(input: {
               (row) => row.valuationDate,
             ),
           }));
-          // An empty gap is the security's real first trading day, not a transport failure: price
-          // history is contiguous from listing, so a window before it can only ever be empty.
-          // Asking again would repeat the same empty answer for every remaining year.
-          const reachedBoundary = from <= historyStart;
-          if (reachedBoundary || prices.length === 0) {
+          // Only the reported boundary exhausts history. An empty gap says nothing about where
+          // history begins — it is recorded as loaded above so it is not asked for again, and the
+          // next gesture simply asks for the window before it.
+          if (from <= historyStart) {
             exhaustedRef.current = true;
             setExhausted(true);
           }

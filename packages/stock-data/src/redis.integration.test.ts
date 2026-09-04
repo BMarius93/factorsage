@@ -32,7 +32,11 @@ import {
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
 import { aggregateCompletedWeeks } from "./weekly.js";
-import { WEEKLY_PRICE_VARIANT } from "./ports.js";
+import {
+  DAILY_PRICE_VARIANT,
+  PRICE_DATASET_VERSION,
+  WEEKLY_PRICE_VARIANT,
+} from "./ports.js";
 import { RedisFmpRequestGate } from "./fmp-gate.js";
 import {
   createStockDataRedisClient,
@@ -1109,7 +1113,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getDatasetCoverage(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           { from: "2026-01-01", to: "2026-12-31" },
         ),
       ).resolves.toEqual([
@@ -1128,7 +1132,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getLatestCoverageSyncContainingDate(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           "2026-08-24",
         ),
       ).resolves.toBe("2026-08-24T01:00:00.000Z");
@@ -1172,7 +1176,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         storeA.getDatasetCoverage(
           security.id,
           "DAILY_PRICE",
-          "split-adjusted-eod-full",
+          DAILY_PRICE_VARIANT,
           { from: "2026-01-01", to: "2026-12-31" },
         ),
       ).resolves.toEqual([
@@ -1232,7 +1236,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           fromDate: new Date("2015-01-01T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
@@ -1499,7 +1503,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
         data: {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           fromDate: new Date("1996-08-24T00:00:00.000Z"),
           toDate: new Date("2026-08-24T00:00:00.000Z"),
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
@@ -2050,7 +2054,7 @@ function readyManifest(securityId: string): StockManifest {
     hydratedAt: "2026-08-24T12:00:00.000Z",
     lastPriceRefreshAt: "2026-08-24T12:00:00.000Z",
     lastFundamentalsRefreshAt: "2026-08-24T12:00:00.000Z",
-    priceDatasetVersion: 1,
+    priceDatasetVersion: PRICE_DATASET_VERSION,
     financialStatementVersion: 1,
     derivedStateRevision: DERIVED_STATE_REVISION,
   };

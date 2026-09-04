@@ -4,9 +4,9 @@
 
 **Accepted.**
 
-Supersedes one rule of `stock-data-loader-implementation.md`: the line *"Requested ranges are read
-projections, not hydration boundaries"* and step 2 of its canonical-hydration sequence, *"Compute
-the canonical horizon independently of the caller's requested range."* Everything else in that
+Supersedes one rule of `stock-data-loader-implementation.md`: the line _"Requested ranges are read
+projections, not hydration boundaries"_ and step 2 of its canonical-hydration sequence, _"Compute
+the canonical horizon independently of the caller's requested range."_ Everything else in that
 document — the lock protocol, coverage compaction, empty-interval durability, freshness, weekly
 rules, point-in-time reads, manifest generations and LRU residency — stands unchanged.
 
@@ -50,8 +50,11 @@ bound that range is clamped to, never a floor a read falls back to.**
 4. **Readiness is per range.** The cache manifest already carried `coverageStart`; it is now part
    of the readiness question. A stock materialized for one year is ready for that year and not
    ready for twenty, which is what makes the wider request load the missing prefix instead of
-   silently reading short. How current the *tail* is remains a freshness question, so a day
+   silently reading short. How current the _tail_ is remains a freshness question, so a day
    rollover still takes the cheap recent-tail path rather than re-entering cold hydration.
+   `coverageStart` is a trustworthy readiness input only because, under `PRICE_DATASET_VERSION` 2,
+   every provider request behind it was complete; a manifest from an earlier version is stale
+   however far back it claims to reach (`complete-price-coverage.md`).
 5. **Widening is incremental and never narrows.** A hydration or refresh maintains the union of
    what this caller needs and what is already resident, so a backtest's twenty years survive the
    next page view, and repairing a cache miss rebuilds the range the invalidated manifest held.

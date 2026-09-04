@@ -26,7 +26,12 @@ import type {
   SecurityCatalogEntry,
   StockDataStore,
 } from "./ports.js";
-import { WEEKLY_PRICE_VARIANT } from "./ports.js";
+import {
+  DAILY_PRICE_VARIANT,
+  isSupersededDailyPriceVariant,
+  PRICE_DATASET_VERSION,
+  WEEKLY_PRICE_VARIANT,
+} from "./ports.js";
 import {
   assertOneRowPerTradingDay,
   DAILY_DERIVED_STATE_VARIANT,
@@ -386,7 +391,7 @@ class FakeStore implements StockDataStore {
     variant: string,
     date: string,
   ) {
-    if (dataset === "DAILY_PRICE" && variant === "split-adjusted-eod-full") {
+    if (dataset === "DAILY_PRICE" && variant === DAILY_PRICE_VARIANT) {
       const freshness = this.states.get(
         "DAILY_PRICE:split-adjusted-eod-full:recent-tail",
       );
@@ -415,6 +420,9 @@ class FakeStore implements StockDataStore {
       .filter((row) => !range.from || row.date >= range.from)
       .filter((row) => !range.to || row.date <= range.to)
       .sort((left, right) => left.date.localeCompare(right.date));
+  }
+  async getEarliestDailyPriceDate(_securityId: string) {
+    return this.prices.map((row) => row.date).sort()[0] ?? null;
   }
   async getFinancialStatements(
     _securityId: string,
@@ -545,7 +553,18 @@ class FakeStore implements StockDataStore {
     this.prices = [...existing.values()].sort((left, right) =>
       left.date.localeCompare(right.date),
     );
-    const key = "DAILY_PRICE:split-adjusted-eod-full";
+    const key = `DAILY_PRICE:${DAILY_PRICE_VARIANT}`;
+    // Mirrors the real store: establishing the current variant removes superseded generations.
+    for (const existing of [...this.coverage.keys(), ...this.states.keys()]) {
+      if (
+        existing.startsWith("DAILY_PRICE:") &&
+        isSupersededDailyPriceVariant(existing.slice("DAILY_PRICE:".length))
+      ) {
+        this.coverage.delete(existing);
+        this.coverageSyncs.delete(existing);
+        this.states.delete(existing);
+      }
+    }
     const priorCoverage = this.coverage.get(key) ?? [];
     const priorSyncedAt = this.states.get(key)?.lastSyncedAt;
     this.coverage.set(key, [...priorCoverage, ...input.successfulCoverage]);
@@ -566,7 +585,7 @@ class FakeStore implements StockDataStore {
     this.states.set(key, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: allCoverage.map((range) => range.from).sort()[0],
       latestDate: allCoverage
         .map((range) => range.to)
@@ -775,11 +794,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -850,11 +869,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -869,7 +888,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       derivedStateRevision: DERIVED_STATE_REVISION,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
     } as StockManifest);
     const loader = createService(
       store,
@@ -1232,7 +1251,7 @@ describe("canonical full-stock hydration", () => {
       status: "READY",
       historyYears: 30,
       hydratedAt: NOW,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1255,10 +1274,10 @@ describe("canonical full-stock hydration", () => {
     const cache = new MemoryCache();
     const coordinator = new InMemoryLoadCoordinator();
     store.prices = [price("2022-01-03", 150)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       { from: "2015-01-01", to: CANONICAL_RANGE.to },
     ]);
-    store.coverageSyncs.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverageSyncs.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       {
         range: { from: "2015-01-01", to: CANONICAL_RANGE.to },
         syncedAt: NOW,
@@ -1303,13 +1322,13 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1342,11 +1361,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1385,13 +1404,13 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2025-12-31", 199), price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1431,10 +1450,10 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2010-01-04")];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       { from: "2010-01-01", to: CANONICAL_RANGE.to },
     ]);
-    store.coverageSyncs.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverageSyncs.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       {
         range: { from: "2010-01-01", to: CANONICAL_RANGE.to },
         syncedAt: NOW,
@@ -1460,7 +1479,7 @@ describe("canonical full-stock hydration", () => {
 
     const prefix = { from: loadRange("2010-01-01").from, to: "2009-12-31" };
     expect(provider.ranges).toEqual([prefix]);
-    expect(store.coverage.get("DAILY_PRICE:split-adjusted-eod-full")).toEqual(
+    expect(store.coverage.get(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`)).toEqual(
       expect.arrayContaining([prefix]),
     );
   });
@@ -1469,7 +1488,7 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
-    const priceKey = "DAILY_PRICE:split-adjusted-eod-full";
+    const priceKey = `DAILY_PRICE:${DAILY_PRICE_VARIANT}`;
     const staleTailSync = "2026-08-23T01:00:00.000Z";
     // The gap sits inside the window this request materializes; history older than that is not
     // this read's business and is deliberately left alone.
@@ -1484,7 +1503,7 @@ describe("canonical full-stock hydration", () => {
     store.states.set(priceKey, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: staleTailSync,
@@ -1513,13 +1532,13 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
@@ -1542,7 +1561,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1588,13 +1607,13 @@ describe("canonical full-stock hydration", () => {
       date: row.date,
       sma20d: row.close,
     }));
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
@@ -1623,7 +1642,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1663,7 +1682,7 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
     await cache.setManifest({
@@ -1675,7 +1694,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1703,11 +1722,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1730,7 +1749,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: staleFundamentals,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentals,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1761,11 +1780,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
@@ -1780,7 +1799,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: NOW,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1809,11 +1828,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1827,7 +1846,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1864,11 +1883,11 @@ describe("canonical full-stock hydration", () => {
     let now = new Date(firstAttemptAt);
 
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1883,7 +1902,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: staleFundamentalsAt,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentalsAt,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -1937,11 +1956,11 @@ describe("canonical full-stock hydration", () => {
     const cache = new MemoryCache();
     const staleFundamentalsAt = "2026-08-24T01:00:00.000Z";
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -1956,7 +1975,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: staleFundamentalsAt,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: staleFundamentalsAt,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -2007,11 +2026,11 @@ describe("canonical full-stock hydration", () => {
     const baseline = financialStatementRow("INCOME", "Q1", "2026-03-31", 100);
     store.financialStatements = [baseline];
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -2025,7 +2044,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: "2026-08-24T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -2069,11 +2088,11 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -2126,13 +2145,13 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     let now = new Date(NOW);
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
     });
     await cache.setSecurity(security);
@@ -2146,7 +2165,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: "2026-08-23T01:00:00.000Z",
       lastPriceRefreshAt: "2026-08-23T01:00:00.000Z",
       lastFundamentalsRefreshAt: "2026-08-23T01:00:00.000Z",
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     });
@@ -2215,7 +2234,7 @@ describe("canonical full-stock hydration", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: DERIVED_STATE_REVISION,
     };
@@ -2247,13 +2266,13 @@ describe("daily materialized intrinsic projections", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       CANONICAL_RANGE,
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       lastSyncedAt: NOW,
     });
     store.dailyState = rows;
@@ -2637,11 +2656,11 @@ describe("intrinsic values in the derived-state lifecycle", () => {
     const store = new FakeStore();
     store.prices = TRADING_DATES.map((date, index) => price(date, 100 + index));
     store.financialStatements = [...statements];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -2972,11 +2991,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-19", 199), price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3002,7 +3021,7 @@ describe("derived-state revision and valuation warm-up retention", () => {
       hydratedAt: NOW,
       lastPriceRefreshAt: NOW,
       lastFundamentalsRefreshAt: NOW,
-      priceDatasetVersion: 1,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
       derivedStateRevision: 1,
     });
@@ -3037,11 +3056,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3086,13 +3105,13 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const cache = new MemoryCache();
     store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
       { from: "2020-06-01", to: CANONICAL_RANGE.to },
     ]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: "2020-06-01",
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3125,11 +3144,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3175,11 +3194,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const cache = new MemoryCache();
     const firstVisibleDay = "1996-08-26";
     store.prices = [price(firstVisibleDay, 100), price("1996-08-27", 101)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3219,11 +3238,11 @@ describe("derived-state revision and valuation warm-up retention", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set("DAILY_PRICE:split-adjusted-eod-full", [CANONICAL_RANGE]);
-    store.states.set("DAILY_PRICE:split-adjusted-eod-full", {
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
-      variant: "split-adjusted-eod-full",
+      variant: DAILY_PRICE_VARIANT,
       earliestDate: CANONICAL_RANGE.from,
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: NOW,
@@ -3354,21 +3373,21 @@ function upsertBy<T>(
  * it. The warm-up the derived calculators need is the only thing added on top, and the tests below
  * prove it is genuinely enough rather than merely small.
  */
+/** Monday-Friday closes across an inclusive window, varied enough for every catalog series. */
+function tradingDays(from: string, to: string): DailyPrice[] {
+  const rows: DailyPrice[] = [];
+  for (let date = from; date <= to; date = addDays(date, 1)) {
+    const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    if (weekday === 0 || weekday === 6) {
+      continue;
+    }
+    rows.push(price(date, 100 + (rows.length % 41) * 0.6 + rows.length * 0.05));
+  }
+  return rows;
+}
+
 describe("range-scoped materialization", () => {
   const DEFAULT_DETAILS_FROM = addDays(CANONICAL_RANGE.to, -365);
-
-  /** Monday-Friday closes across an inclusive window, varied enough for every catalog series. */
-  function tradingDays(from: string, to: string): DailyPrice[] {
-    const rows: DailyPrice[] = [];
-    for (let date = from; date <= to; date = addDays(date, 1)) {
-      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-      if (weekday === 0 || weekday === 6) {
-        continue;
-      }
-      rows.push(price(date, 100 + (rows.length % 41) * 0.6 + rows.length * 0.05));
-    }
-    return rows;
-  }
 
   function coldService(provider: FakeProvider) {
     const store = new FakeStore();
@@ -3490,5 +3509,360 @@ describe("range-scoped materialization", () => {
     expect(cache.manifests.get(security.id)).toMatchObject({
       coverageStart: CANONICAL_RANGE.from,
     });
+  });
+});
+
+describe("complete price coverage", () => {
+  /** The durable coverage key the loader trusts, and the one it no longer does. */
+  const CURRENT_KEY = `DAILY_PRICE:${DAILY_PRICE_VARIANT}`;
+  const LEGACY_KEY = "DAILY_PRICE:split-adjusted-eod-full";
+
+  /**
+   * The state the v1 loader left behind for a long-listed stock: coverage and a READY manifest
+   * claiming the whole horizon, price and derived rows only from the day the provider's truncated
+   * response happened to start, and derived coverage claiming the horizon too.
+   */
+  function legacyState(rows: DailyPrice[]) {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = rows;
+    store.coverage.set(LEGACY_KEY, [CANONICAL_RANGE]);
+    store.states.set(LEGACY_KEY, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: "split-adjusted-eod-full",
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    const derivedKey = `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`;
+    store.coverage.set(derivedKey, [CANONICAL_RANGE]);
+    store.states.set(derivedKey, {
+      securityId: security.id,
+      dataset: "DAILY_DERIVED_STATE",
+      variant: DAILY_DERIVED_STATE_VARIANT,
+      earliestDate: CANONICAL_RANGE.from,
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    cache.manifests.set(security.id, {
+      securityId: security.id,
+      status: "READY",
+      historyYears: 30,
+      coverageStart: CANONICAL_RANGE.from,
+      coverageEnd: CANONICAL_RANGE.to,
+      canonicalHistoryStart: rows[0]!.date,
+      canonicalHistoryEnd: rows.at(-1)!.date,
+      hydratedAt: NOW,
+      lastPriceRefreshAt: NOW,
+      lastFundamentalsRefreshAt: NOW,
+      priceDatasetVersion: 1,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+    });
+    cache.prices.set(security.id, rows);
+    return { store, cache };
+  }
+
+  function currentService(store: FakeStore, provider: FakeProvider, cache: MemoryCache) {
+    return createService(store, provider, cache, new InMemoryLoadCoordinator());
+  }
+
+  it("recovers the missing historical prefix behind a stale manifest that claims it", async () => {
+    // AAPL as found: coverage and manifest from 1996, rows from 2006, and a provider that has
+    // had 1996–2006 all along. Asking for 1996 must fetch what is missing and persist it.
+    const persisted = [price("2006-10-12"), price("2016-01-04"), price("2026-08-20")];
+    const { store, cache } = legacyState(persisted);
+    const provider = new FakeProvider();
+    const complete = [price("1996-09-03"), price("2001-01-02"), ...persisted];
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, complete);
+    const loader = currentService(store, provider, cache);
+
+    const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    // One complete provider ask for the caller's target: v1 coverage is not evidence.
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
+    expect(store.prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
+    expect(new Set(store.prices.map((row) => row.date)).size).toBe(store.prices.length);
+    // The dataset now extends to 1996 under the current revision, and the v1 generation is gone.
+    expect(store.coverage.get(CURRENT_KEY)).toEqual([CANONICAL_RANGE]);
+    expect(store.coverage.has(LEGACY_KEY)).toBe(false);
+    expect(store.states.has(LEGACY_KEY)).toBe(false);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      status: "READY",
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      coverageStart: CANONICAL_RANGE.from,
+      canonicalHistoryStart: "1996-09-03",
+    });
+    // An older prefix changes every recurrence after it: the derived state is rebuilt from the
+    // canonical origin, not patched from the first day that used to exist.
+    expect(store.derivedWrites[0]?.derivedDates[0]).toBe("1996-09-03");
+    expect(store.derivedWrites[0]?.derivedDates).toContain("2026-08-20");
+  });
+
+  it("materializes a cold stock from the provider's complete history with no prior state", async () => {
+    const provider = new FakeProvider();
+    const complete = [price("1996-09-03"), price("2006-10-12"), price("2026-08-20")];
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, complete);
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    const loader = currentService(store, provider, cache);
+
+    const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(prices[0]?.date).toBe("1996-09-03");
+    expect(store.coverage.get(CURRENT_KEY)).toEqual([CANONICAL_RANGE]);
+    expect([...store.coverage.keys()].filter((key) => key.startsWith("DAILY_PRICE:"))).toEqual([
+      CURRENT_KEY,
+    ]);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      coverageStart: CANONICAL_RANGE.from,
+      canonicalHistoryStart: "1996-09-03",
+    });
+  });
+
+  it("does not trust a previous price-dataset revision as coverage, even inside its claim", async () => {
+    // A window the v1 state says is covered. The current loader must re-verify it with the
+    // provider rather than serve the v1 claim, and leave the stock on the current revision.
+    const { store, cache } = legacyState([price("2006-10-12"), price("2026-08-20")]);
+    const provider = new FakeProvider();
+    const target = loadRange("2010-01-04");
+    provider.rowsByRange.set(`${target.from}:${target.to}`, [
+      price("2006-10-12"),
+      price("2010-01-04"),
+      price("2026-08-20"),
+    ]);
+    const loader = currentService(store, provider, cache);
+
+    await loader.getDailyPrices("AAPL", { from: "2010-01-04", to: "2010-12-31" });
+
+    expect(provider.ranges).toEqual([target]);
+    expect(store.coverage.get(CURRENT_KEY)).toEqual([target]);
+    expect(store.coverage.has(LEGACY_KEY)).toBe(false);
+    expect(cache.manifests.get(security.id)).toMatchObject({
+      status: "READY",
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      coverageStart: target.from,
+    });
+  });
+
+  it("asks the provider nothing further once the repair is durable", async () => {
+    const persisted = [price("2006-10-12"), price("2026-08-20")];
+    const { store, cache } = legacyState(persisted);
+    const provider = new FakeProvider();
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("1996-09-03"),
+      ...persisted,
+    ]);
+    const loader = currentService(store, provider, cache);
+    await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+    expect(provider.ranges).toHaveLength(1);
+
+    // The same range, a narrower one, and the same range again after Redis lost the stock.
+    await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+    await loader.getDailyPrices("AAPL", { from: "2000-01-03", to: "2010-12-31" });
+    await cache.evict(security.id);
+    await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    expect(provider.ranges).toHaveLength(1);
+    expect(store.priceSaves).toBe(1);
+  });
+
+  it("fetches only the missing prefix when current coverage already reaches part of the way", async () => {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = [price("2000-01-03"), price("2026-08-20")];
+    store.coverage.set(CURRENT_KEY, [{ from: "2000-01-01", to: CANONICAL_RANGE.to }]);
+    store.states.set(CURRENT_KEY, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: "2000-01-01",
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const provider = new FakeProvider();
+    const prefix = { from: CANONICAL_RANGE.from, to: "1999-12-31" };
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [price("1996-09-03")]);
+    const loader = currentService(store, provider, cache);
+
+    const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
+
+    expect(provider.ranges).toEqual([prefix]);
+    expect(prices.map((row) => row.date)).toEqual([
+      "1996-09-03",
+      "2000-01-03",
+      "2026-08-20",
+    ]);
+    expect(store.coverage.get(CURRENT_KEY)).toEqual(
+      expect.arrayContaining([prefix, { from: "2000-01-01", to: CANONICAL_RANGE.to }]),
+    );
+  });
+
+  it("never turns an empty provider window into a listing date, and reports the provider boundary only once it is proven", async () => {
+    const listed: Security = { ...security, ipoDate: "1980-12-12" };
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.currentSecurity = listed;
+    store.prices = [price("2006-10-12"), price("2026-08-20")];
+    store.coverage.set(CURRENT_KEY, [{ from: "2006-01-02", to: CANONICAL_RANGE.to }]);
+    store.states.set(CURRENT_KEY, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: "2006-01-02",
+      latestDate: CANONICAL_RANGE.to,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const provider = new FakeProvider();
+    const loader = currentService(store, provider, cache);
+
+    // Before anything older has been asked for, the surface may still explore to the horizon.
+    const before = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+    expect(before.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
+    });
+
+    // The provider has nothing between the horizon and the first row.
+    const empty = { from: CANONICAL_RANGE.from, to: "2006-01-01" };
+    const older = await loader.getDailyPrices("AAPL", {
+      from: CANONICAL_RANGE.from,
+      to: "2006-01-01",
+    });
+    expect(older).toEqual([]);
+    expect(provider.ranges).toEqual([empty]);
+
+    // That is durable coverage, so the boundary is now proven and reported as the provider's —
+    // and the security's listing date is exactly what it was.
+    const after = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+    expect(after.history).toEqual({
+      start: "2006-10-12",
+      end: CANONICAL_RANGE.to,
+      startOrigin: "PROVIDER",
+    });
+    expect(after.security.ipoDate).toBe("1980-12-12");
+    expect(store.currentSecurity?.ipoDate).toBe("1980-12-12");
+    expect(store.profileSaves).toEqual([]);
+    expect(provider.ranges).toEqual([empty]);
+  });
+
+  it("keeps the listing date as the boundary when it is later than the horizon", async () => {
+    const listed: Security = { ...security, ipoDate: "2004-08-19" };
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.currentSecurity = listed;
+    store.prices = [price("2004-08-19"), price("2026-08-20")];
+    store.coverage.set(CURRENT_KEY, [{ from: "2004-08-19", to: CANONICAL_RANGE.to }]);
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const loader = currentService(store, new FakeProvider(), cache);
+
+    const details = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+
+    expect(details.history).toEqual({
+      start: "2004-08-19",
+      end: CANONICAL_RANGE.to,
+      startOrigin: "LISTING",
+    });
+  });
+
+  it("never asks the provider for anything before the Stock Details horizon", async () => {
+    const provider = new FakeProvider();
+    // The horizon start is a Saturday; the first trading day after it is the following Monday.
+    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+      price("1996-08-26"),
+      price("2026-08-20"),
+    ]);
+    const store = new FakeStore();
+    const loader = currentService(store, provider, new MemoryCache());
+
+    const details = await loader.getStockDetails("AAPL", {
+      from: "1900-01-01",
+      to: CANONICAL_RANGE.to,
+    });
+
+    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    // A weekend between the horizon and the first row is not a provider boundary.
+    expect(details.history).toEqual({
+      start: CANONICAL_RANGE.from,
+      end: CANONICAL_RANGE.to,
+      startOrigin: "HORIZON",
+    });
+    expect(details.prices[0]?.date).toBe("1996-08-26");
+  });
+
+  it("reports the provider boundary only for a verified gap longer than a market closure", async () => {
+    const store = new FakeStore();
+    const cache = new MemoryCache();
+    store.prices = [price("1996-09-02"), price("2026-08-20")];
+    store.coverage.set(CURRENT_KEY, [CANONICAL_RANGE]);
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const loader = currentService(store, new FakeProvider(), cache);
+
+    const details = await loader.getStockDetails("AAPL", {
+      from: "2026-01-02",
+      to: CANONICAL_RANGE.to,
+    });
+
+    // Nine verified-empty calendar days before the first row: longer than any weekend or holiday
+    // closure, so the provider's history genuinely starts here.
+    expect(details.history).toEqual({
+      start: "1996-09-02",
+      end: CANONICAL_RANGE.to,
+      startOrigin: "PROVIDER",
+    });
+  });
+
+  it("carries every catalog series across a recovered historical prefix", async () => {
+    // Rows the v1 loader left: late 2006 onwards. The provider has history back to 2001, which is
+    // enough warm-up for the slowest catalog series on the first day of a 2005 window.
+    const persisted = tradingDays("2006-10-12", "2007-12-31");
+    const { store, cache } = legacyState(persisted);
+    const requested = { from: "2005-01-03", to: "2005-02-01" };
+    const target = loadRange(requested.from);
+    const provider = new FakeProvider();
+    provider.rowsByRange.set(
+      `${target.from}:${target.to}`,
+      tradingDays(target.from, "2007-12-31"),
+    );
+    const loader = currentService(store, provider, cache);
+
+    const technicals = await loader.getDailyTechnicals("AAPL", requested);
+
+    expect(provider.ranges).toEqual([target]);
+    expect(technicals[0]?.date).toBe("2005-01-03");
+    for (const field of TECHNICAL_SERIES_FIELDS) {
+      expect(technicals[0]?.[field]).toBeTypeOf("number");
+    }
+    // Recalculated from the recovered origin, and the days that already existed were replaced
+    // rather than kept beside the new prefix: still exactly one row per trading day.
+    const write = store.derivedWrites[0]!;
+    expect(write.derivedDates[0]).toBe(tradingDays(target.from, target.from)[0]?.date ?? target.from);
+    expect(write.derivedDates).toContain("2006-10-12");
+    expect(new Set(store.dailyState.map((row) => row.date)).size).toBe(store.dailyState.length);
+    expect(store.prices.map((row) => row.date)).toEqual(
+      tradingDays(target.from, "2007-12-31").map((row) => row.date),
+    );
   });
 });

@@ -28,7 +28,6 @@ import {
 import type { FmpStockProviderPort } from "@intrinsic/fmp";
 import {
   FINANCIAL_STATEMENT_VERSION,
-  PRICE_DATASET_VERSION,
   yearsInRange,
   type StockDataCache,
   type StockManifest,
@@ -52,6 +51,7 @@ import {
 } from "./derived-state.js";
 import {
   DAILY_PRICE_VARIANT,
+  PRICE_DATASET_VERSION,
   type PersistedDatasetState,
   type StockDataStore,
 } from "./ports.js";
@@ -116,6 +116,17 @@ export const DERIVED_SERIES_WARMUP_DAYS =
   ) +
     DERIVED_SERIES_WARMUP_MARGIN_WEEKS) *
   CALENDAR_DAYS_PER_WEEK;
+
+/**
+ * Calendar days the earliest persisted row must lie beyond the permitted Stock Details start
+ * before that row is reported as the provider's own boundary.
+ *
+ * The permitted start is a calendar date; the first trading day at or after it can trail it by a
+ * weekend and a holiday, and that gap says nothing about the provider. A gap longer than a week
+ * cannot be a market closure, so only then is a verified-empty span reported as `PROVIDER`.
+ * Exhaustion is unaffected either way: the chart pins at the first bar it holds.
+ */
+const PROVIDER_BOUNDARY_MIN_GAP_DAYS = 7;
 
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
@@ -432,15 +443,16 @@ export class CanonicalStockDataService implements StockDataService {
     // freshly read profile consistent; on the common READY path this is a cache read, not a
     // database query.
     const security = await this.getSecurity(symbol);
-    const [profile, prices, dailyState] = await Promise.all([
+    const [profile, prices, dailyState, history] = await Promise.all([
       this.store.getProfile(security.id),
       this.readDailyPriceProjection(security, bounded),
       this.readDailyDerivedStateProjection(security, bounded),
+      this.stockDetailsHistoryBounds(security),
     ]);
     return {
       security,
       ...(profile ? { profile } : {}),
-      history: this.stockDetailsHistoryBounds(security),
+      history,
       prices,
       technicals: dailyState.map(toDailyTechnical),
       intrinsicValues: toIntrinsicValuePoints(dailyState, {
@@ -1478,20 +1490,54 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /**
-   * How far back Stock Details may go for this security.
+   * How far back Stock Details may go for this security, and why it stops there.
    *
-   * Computed here rather than at the HTTP edge because this is where the clock and the retained
-   * horizon live: a bound derived from a second clock or a second copy of the horizon would be a
-   * bound the loader does not actually honour. The listing date wins when it is later, so a
-   * client can say "this is where the security starts" instead of implying the limit was reached.
+   * Computed here rather than at the HTTP edge because this is where the clock, the retained
+   * horizon and the durable coverage live: a bound derived from a second clock or a second copy of
+   * the horizon would be a bound the loader does not actually honour. The listing date wins when
+   * it is later than the horizon, so a client can say "this is where the security starts" instead
+   * of implying the limit was reached.
+   *
+   * The provider's own boundary is reported only when it is proven: every date between the
+   * permitted start and the day before the earliest persisted row is covered under the current
+   * `PRICE_DATASET_VERSION`, which means the provider was asked for all of it with complete
+   * requests and returned nothing. Until then the wider bound is reported and the client keeps
+   * asking in bounded windows. Nothing here is inferred from a window that came back empty, and
+   * nothing here ever changes the security's listing date.
    */
-  private stockDetailsHistoryBounds(security: Security): StockHistoryBounds {
+  private async stockDetailsHistoryBounds(
+    security: Security,
+  ): Promise<StockHistoryBounds> {
     const today = this.today();
     const horizonStart = subtractYears(today, this.stockDetailsHistoryYears);
     const listing = security.ipoDate;
-    return listing !== undefined && listing > horizonStart
-      ? { start: listing, end: today, startOrigin: "LISTING" }
-      : { start: horizonStart, end: today, startOrigin: "HORIZON" };
+    const permitted: StockHistoryBounds =
+      listing !== undefined && listing > horizonStart
+        ? { start: listing, end: today, startOrigin: "LISTING" }
+        : { start: horizonStart, end: today, startOrigin: "HORIZON" };
+    // Coverage is read before the earliest row, deliberately. A prefix load commits its rows and
+    // the coverage describing them in one transaction; if that commit lands between these two
+    // reads, coverage read first is still incomplete and the wider bound is reported, whereas the
+    // other order could pair a pre-commit earliest row with post-commit coverage and pin the
+    // client at a row that persisted history now precedes.
+    const coverage = await this.store.getDatasetCoverage(
+      security.id,
+      "DAILY_PRICE",
+      DAILY_PRICE_VARIANT,
+      { from: permitted.start, to: permitted.end },
+    );
+    const earliestRow = await this.store.getEarliestDailyPriceDate(security.id);
+    if (
+      earliestRow === null ||
+      earliestRow <= addDays(permitted.start, PROVIDER_BOUNDARY_MIN_GAP_DAYS)
+    ) {
+      return permitted;
+    }
+    const unproven = { from: permitted.start, to: addDays(earliestRow, -1) };
+    if (missingCoverageRanges(unproven, coverage).length > 0) {
+      return permitted;
+    }
+    return { start: earliestRow, end: today, startOrigin: "PROVIDER" };
   }
 
   private canonicalTarget(security: Security): Required<DateRange> {

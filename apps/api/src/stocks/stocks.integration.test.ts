@@ -14,6 +14,7 @@ import type { FmpStockProviderPort, MappedFmpProfile } from "@intrinsic/fmp";
 import {
   addDays,
   DAILY_DERIVED_STATE_VARIANT,
+  DAILY_PRICE_VARIANT,
   DERIVED_SERIES_WARMUP_DAYS,
   InMemoryLoadCoordinator,
   NullStockDataCache,
@@ -297,7 +298,7 @@ describe("Stock Details API", () => {
         {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
           latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
@@ -317,7 +318,7 @@ describe("Stock Details API", () => {
         {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
-          variant: "split-adjusted-eod-full",
+          variant: DAILY_PRICE_VARIANT,
           fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
           toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),

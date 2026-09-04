@@ -45,12 +45,16 @@ export function stockDetailsHistoryYears(retentionYears: number): number {
 }
 
 /**
- * How far back Stock Details may go for one security.
+ * How far back Stock Details may request for one security: the permitted bound this edge clamps
+ * reads to.
  *
  * The listing date wins when it is later than the horizon: there is nothing before a security
  * exists, and reporting `LISTING` lets the client say so rather than implying the 30-year limit
- * was reached. A security whose real price history starts later still reports the earlier bound —
- * where the data actually begins is discovered from the rows the bounded reads return.
+ * was reached. A security whose provider history starts later than either still gets this wider
+ * bound as its clamp. Where the data actually begins is not decided here and never from an empty
+ * read: the loader reports a `PROVIDER` start only once complete coverage proves nothing older
+ * exists (`docs/decisions/complete-price-coverage.md`), and that report is what the client
+ * navigates against.
  */
 export function stockDetailsHistoryBounds(input: {
   readonly today: string;

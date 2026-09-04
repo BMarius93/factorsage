@@ -78,3 +78,15 @@ purpose: `DERIVED_STATE_REVISION` moves 3 -> 4 in the same change, r3 coverage a
 manifests report nothing for the current variant, and the canonical rebuild recalculates and
 replaces the affected rows lazily on next access — the revision stays global, so this one bump
 covers all three periods and every security.
+
+No migration accompanies `docs/decisions/complete-price-coverage.md`. Historical price coverage is
+revisioned the same way the derived state is: `PRICE_DATASET_VERSION`
+(`packages/stock-data/src/ports.ts`, 1 -> 2) is the price-dataset revision, recorded in the Redis
+manifest as `priceDatasetVersion` and in the `DAILY_PRICE` coverage/state variant, now
+`split-adjusted-eod-full:v2`. Rows under the v1 variant `split-adjusted-eod-full` were written
+when a provider response capped at 5000 rows could be recorded as complete coverage; the v2 loader
+never reads them, re-verifies the caller's target lazily on next access with complete provider
+requests, and deletes the superseded `DAILY_PRICE` variants in the transaction that records the
+current one. The freshness watermark `split-adjusted-eod-full:recent-tail` is unchanged. This is
+the `DERIVED_STATE_REVISION` mechanism applied to prices: global, lazy, no schema change and no
+data migration.

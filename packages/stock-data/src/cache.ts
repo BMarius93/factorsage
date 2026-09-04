@@ -13,7 +13,6 @@ import {
   selectFinancialStatements,
 } from "@intrinsic/domain";
 
-export const PRICE_DATASET_VERSION = 1;
 export const FINANCIAL_STATEMENT_VERSION = 1;
 
 export type StockManifest = {
@@ -29,6 +28,11 @@ export type StockManifest = {
   lastFundamentalsRefreshAt?: string;
   hydrationId?: string;
   hydratingAt?: string;
+  /**
+   * `PRICE_DATASET_VERSION` the resident price history and its `coverageStart` were produced
+   * under. A manifest from an earlier revision is stale regardless of how much it claims to
+   * cover: its `coverageStart` was recorded under semantics the loader no longer trusts.
+   */
   priceDatasetVersion: number;
   financialStatementVersion: number;
   /**

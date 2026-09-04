@@ -19,6 +19,7 @@ import {
   type EvaluatedIntrinsicModel,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "./seed-qa-securities";
+import { subtractYears } from "./stock-details-history";
 
 /**
  * Deterministic market data for the fictional QA securities.
@@ -171,11 +172,10 @@ export async function seedQaStockData(
   // The canonical target the loader will ask for: the whole configured horizon up to today. The
   // seeded rows only span the recent part of it, which is normal — coverage is a watermark, not a
   // promise that every calendar day inside it has a market row.
-  const horizonStart = (() => {
-    const date = new Date(`${today}T00:00:00.000Z`);
-    date.setUTCFullYear(date.getUTCFullYear() - historyYears);
-    return date.toISOString().slice(0, 10);
-  })();
+  // The same year arithmetic the loader and the Stock Details bound use (29 February clamps to
+  // 28 February), so the seeded coverage starts exactly on the permitted start and the QA stock's
+  // boundary is provable as `PROVIDER` on every calendar day, leap days included.
+  const horizonStart = subtractYears(today, historyYears);
 
   await store.saveDailyPriceSync({
     securityId,

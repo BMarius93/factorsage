@@ -8,6 +8,14 @@ Builds on `caller-scoped-history-materialization.md`, which made the loader mate
 caller asks for. This decision is about who asks, and for what. `ai/product/stock-details.md`
 describes the resulting product surface.
 
+> **Amended by `complete-price-coverage.md`.** Decision 5 below — exhaustion discovered from an
+> empty read — is superseded: the API now reports an explicit boundary (`history.startOrigin` of
+> `HORIZON`, `LISTING` or `PROVIDER`) and the web app stops only there. The `AAPL` observation in
+> Context described a defect, not a legitimate state, and the Consequences bullet saying nothing
+> about coverage or revisions changed no longer holds. Everything else — viewport-driven requests,
+> the 30-year limit, the server-side clamp, the single in-flight request and the stable viewport —
+> stands.
+
 ## Context
 
 `caller-scoped-history-materialization.md` gave the loader a correct answer to "materialize this
@@ -38,9 +46,15 @@ Two further problems compounded it:
 A separate observation from the live stack shaped the boundary rule. A security's manifest can
 legitimately report coverage back thirty years while its first real price row is much later: for
 `AAPL`, coverage from 1996 and a first trading row in 2006. Coverage is a record of what was
-*asked for* — including intervals that came back empty, which is what stops the loader asking
+_asked for_ — including intervals that came back empty, which is what stops the loader asking
 again — not a promise that rows exist. A chart that navigates to the coverage start therefore
 walks into ten years of legitimately blank canvas.
+
+> **This observation is now known to have described a defect.** `AAPL`'s coverage from 1996 was
+> recorded from a single provider response that FMP had silently capped at 5000 rows; the decade it
+> "covered" with no rows had never been asked for completely, and the provider has it. Coverage is
+> now defined as complete materialization and revisioned so that state is invisible to the loader:
+> see `complete-price-coverage.md`.
 
 ## Decision
 
@@ -58,7 +72,7 @@ user's window.**
    HTTP edge from a second clock would be a bound the loader does not honour.
 3. **The surface is clamped server-side.** Every `/stocks/*` read clamps its range to the horizon
    before it reaches the loader, so a hand-written `from=1900-01-01` cannot become an unbounded
-   backend request. The clamp is at the controller because `/stocks/*` *is* the Stock Details
+   backend request. The clamp is at the controller because `/stocks/*` _is_ the Stock Details
    surface; a backtest names its own period straight through `StockDataService` and is unaffected.
 4. **Gestures request history.** The chart reports how many bars of empty space the viewport has
    opened up to the left. The page turns that into a bounded older window — at least a year, more
@@ -68,7 +82,13 @@ user's window.**
    no older rows means the security's history starts there. Price history is contiguous from
    listing, so an earlier window can only ever be empty too. The chart then pins its left edge and
    stops asking. This is what keeps `AAPL` from offering ten years of blank canvas back to a
-   coverage start that predates its first row.
+   coverage start that predates its first row. _Superseded by `complete-price-coverage.md`:_ an
+   empty read is not evidence of where history begins — the empty window that pinned `AAPL` at 2006
+   was a truncated provider response recorded as coverage. The API now reports the boundary
+   explicitly, `history.start` with `startOrigin` `HORIZON`, `LISTING` or `PROVIDER` (the last
+   only once complete coverage proves nothing older exists), and the chart pins its left edge only
+   when the requested start reaches it. An empty window advances the watermark, and the next
+   gesture asks for the next older one.
 6. **One request outstanding, and nothing refetched.** A watermark of what has been asked for
    rejects already-covered asks; a single in-flight slot with one pending "widest ask" collapses a
    fast drag — which reports the edge on every animation frame — into one request.
@@ -94,7 +114,10 @@ user's window.**
 - Nothing about persisted coverage, manifests or revisions changed. A security loaded before this
   work needs no migration, cache flush or reseed: its manifest already records what interval is
   resident, and a request for an older one already takes the gap path. What changed is that the
-  product surface now issues that request.
+  product surface now issues that request. _Superseded by `complete-price-coverage.md`:_
+  `PRICE_DATASET_VERSION` moved to 2, which makes every earlier manifest and every earlier-variant
+  coverage row invisible; a security loaded before it re-verifies its target lazily on next
+  access — still with no migration, cache flush or reseed.
 
 ## Rejected
 

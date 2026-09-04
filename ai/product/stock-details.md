@@ -36,11 +36,13 @@ substituted.
 ## Chart window and navigation
 
 The chart explores at most **30 years** of history. That limit is
-`STOCK_DETAILS_MAX_HISTORY_YEARS` in `@intrinsic/contracts` and exists once: the API resolves it
-against each security's listing date and the deployment's retained horizon, reports the result as
-`history` on the Stock Details response, and clamps every Stock Details read to it. The web app
-navigates against the reported bound and never recomputes it. A backtest names its own period
-through the loader and is unaffected by this limit.
+`STOCK_DETAILS_MAX_HISTORY_YEARS` in `@intrinsic/contracts` and exists once: the API clamps every
+Stock Details read to it, and reports as `history` on the Stock Details response the boundary the
+chart should navigate to — that limit narrowed by the deployment's retained horizon, the security's
+listing date and, once proven, the provider's earliest trading day. The clamp itself stays at the
+horizon: it bounds requests, it does not answer where history begins. The web app navigates against
+the reported bound and never recomputes it. A backtest names its own period through the loader and
+is unaffected by this limit.
 
 - The page opens on approximately one year and asks the API for exactly that window. It never
   leaves the range open for the shared loader to fill in, and it never loads long history it does
@@ -51,14 +53,24 @@ through the loader and is unaffected by this limit.
   what asks for older history: the chart reports how much empty space the window has opened up,
   the page turns that into a bounded older window — about a year for a pan, enough to fill the
   screen for a wide zoom-out — and fetches only the interval that is missing. This repeats
-  incrementally until one of two boundaries is reached: the 30-year bound, or the security's real
-  first trading day, which is discovered when a bounded read comes back with nothing older.
-- **The chart stops at that boundary.** Once nothing older can arrive the time scale is pinned to
-  the oldest bar, so there is no dragging on into meaningless blank space.
+  incrementally until the requested start reaches the boundary the API reported as
+  `history.start`.
+- **The boundary is reported, never inferred.** `history.startOrigin` says why the boundary is
+  where it is: `HORIZON` (the 30-year limit), `LISTING` (the security's listing date, when later)
+  or `PROVIDER` (the earliest trading day the provider has, reported only once complete coverage
+  proves nothing older exists for more than a week before it — a shorter verified gap is
+  indistinguishable from a weekend or holiday closure and keeps the `HORIZON`/`LISTING` origin).
+  An empty window never ends exploration: it advances the
+  loaded-from watermark so it is not asked for again, and the next gesture asks for the next older
+  window. The QA stock `QATEST1` reaches a `PROVIDER` boundary — its seed covers the whole horizon
+  while its synthetic rows span 160 weeks. `../../docs/decisions/complete-price-coverage.md` is
+  the decision.
+- **The chart stops at that boundary.** Once the loaded history reaches `history.start` the time
+  scale is pinned to the oldest bar, so there is no dragging on into meaningless blank space.
 - `1M`/`3M`/`6M`/`1Y`/`5Y`/`MAX` set the visible window over everything loaded. A range inside the
   loaded history costs no request at all; one that reaches past it asks for the missing interval
-  and leaves the narrower history on screen while it arrives. `MAX` is the 30-year bound, not an
-  unbounded read.
+  and leaves the narrower history on screen while it arrives. `MAX` is the reported bound — 30
+  years, or the nearer `LISTING`/`PROVIDER` boundary — not an unbounded read.
 - History already loaded is never fetched again, and only one history request is ever outstanding:
   a fast drag past the edge collapses into a single widest request rather than one per frame.
 - The chart uses standard Lightweight Charts navigation: drag to pan through history, wheel or

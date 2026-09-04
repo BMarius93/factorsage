@@ -159,16 +159,28 @@ export const STOCK_DETAILS_MAX_HISTORY_YEARS = 30;
 /**
  * How far back Stock Details may go for one security, and why it stops there.
  *
- * `start` is the earliest date this surface will request: the 30-year product horizon, or the
- * security's listing date when that is later. It is a *permission*, not a promise that data
- * exists that far back — where a security's real history begins is answered by the rows the
- * bounded reads return, which is how the chart learns to stop before the horizon.
+ * `start` is the earliest date this surface will request, and the only thing that ends a
+ * client's exploration. It comes from exactly one of three explicit boundaries:
+ *
+ * - `HORIZON`: the 30-year product limit;
+ * - `LISTING`: the security's listing date, when that is later than the horizon;
+ * - `PROVIDER`: the earliest trading day the market-data provider has for this security, reported
+ *   only once the loader has verified, with complete provider requests, that nothing older exists
+ *   between the horizon-or-listing bound and that day.
+ *
+ * Until a `PROVIDER` boundary is proven the surface reports the wider bound, and a client keeps
+ * asking, in bounded windows, until it reaches it. A window that comes back empty is never read
+ * as the start of the security's history: that inference is what turned a truncated provider
+ * response into a fake listing date.
  */
 export type StockHistoryBoundsResponse = {
   start: string;
   end: string;
-  startOrigin: "HORIZON" | "LISTING";
+  startOrigin: StockHistoryStartOrigin;
 };
+
+/** Why `StockHistoryBoundsResponse.start` is where it is. */
+export type StockHistoryStartOrigin = "HORIZON" | "LISTING" | "PROVIDER";
 
 /** Composite payload for the bounded Stock Details endpoint. */
 export type StockDetailsResponse = {

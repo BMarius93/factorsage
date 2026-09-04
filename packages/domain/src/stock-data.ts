@@ -497,15 +497,19 @@ export type StockDatasetState = {
 /**
  * How far back the Stock Details surface may explore one security, and why it stops there.
  *
- * A permission, not a promise that data exists that far back: `HORIZON` is the configured
- * product limit, `LISTING` the security's own listing date when that is later. Where a
- * security's real history begins is answered by the rows a bounded read returns.
+ * `start` is the earliest date the surface will ask for, and the only boundary a client stops at:
+ * `HORIZON` is the configured product limit, `LISTING` the security's own listing date when that
+ * is later, and `PROVIDER` the earliest trading day the provider actually has — reported only
+ * once complete provider coverage proves that nothing older exists between the horizon-or-listing
+ * bound and that day. An empty bounded read is never evidence of where history begins.
  */
 export type StockHistoryBounds = {
   start: LocalDate;
   end: LocalDate;
-  startOrigin: "HORIZON" | "LISTING";
+  startOrigin: StockHistoryStartOrigin;
 };
+
+export type StockHistoryStartOrigin = "HORIZON" | "LISTING" | "PROVIDER";
 
 export type StockDetails = {
   security: Security;

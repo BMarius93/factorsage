@@ -1,4 +1,5 @@
 import type {
+  DailyPrice,
   DateRange,
   FinancialStatementCadence,
   FinancialStatementDraft,
@@ -91,6 +92,24 @@ const directGate: FmpRequestGate = {
  */
 const STOCK_UNIVERSE_REQUEST_LIMIT = 20_000;
 
+/**
+ * The most rows `historical-price-eod/full` returns in one response.
+ *
+ * The endpoint honours `from`/`to`, but it also caps every response at 5000 rows, newest first,
+ * and silently drops everything older — there is no error, no pagination hint and no partial
+ * flag. Verified live on 2026-09-04: `AAPL` for 1996-08-31 → 2026-09-04 came back as exactly 5000
+ * rows starting 2006-10-18, while the same account answered 1996-08-31 → 2006-10-11 with 2545
+ * rows starting 1996-09-03. A window that spans more than this many trading days can only be
+ * completed by asking again for what precedes the oldest row returned.
+ *
+ * This is a provider fact, so it lives here and nowhere else. `getDailyPrices` uses it to decide
+ * whether a page may have been truncated; a page with fewer rows is complete by construction. The
+ * live suite in `@intrinsic/stock-data` asserts the paginated 30-year read reaches its requested
+ * start, so a provider that lowers this cap fails that suite rather than silently shortening
+ * every long history again.
+ */
+export const FMP_EOD_MAX_ROWS_PER_RESPONSE = 5000;
+
 export class FmpClient
   implements FmpStockProviderPort, FmpSecurityCatalogPort
 {
@@ -140,16 +159,46 @@ export class FmpClient
     return mapFmpStockUniverse(payload);
   }
 
+  /**
+   * Every daily row the provider has inside `range`, ascending and unique by date.
+   *
+   * One response holds at most `FMP_EOD_MAX_ROWS_PER_RESPONSE` rows and drops the oldest, so a
+   * full page is treated as possibly truncated: the window is asked for again from `from` up to
+   * the day before the oldest row received, until a page comes back short. The caller's coverage
+   * bookkeeping relies on this — an interval it marks as covered must have been asked for
+   * completely, and that promise is kept here rather than by every caller knowing the cap.
+   */
   async getDailyPrices(symbol: string, securityId: string, range: DateRange) {
-    const payload = await this.request<FmpDailyPriceDto[]>(
-      "historical-price-eod/full",
-      {
-        symbol: symbol.toUpperCase(),
-        ...(range.from ? { from: range.from } : {}),
-        ...(range.to ? { to: range.to } : {}),
-      },
-    );
-    return mapFmpDailyPrices(securityId, payload);
+    const rows: DailyPrice[] = [];
+    let to = range.to;
+    for (;;) {
+      const page = mapFmpDailyPrices(
+        securityId,
+        await this.request<FmpDailyPriceDto[]>("historical-price-eod/full", {
+          symbol: symbol.toUpperCase(),
+          ...(range.from ? { from: range.from } : {}),
+          ...(to ? { to } : {}),
+        }),
+      );
+      rows.push(...page);
+      const oldest = page[0]?.date;
+      if (
+        page.length < FMP_EOD_MAX_ROWS_PER_RESPONSE ||
+        oldest === undefined ||
+        (range.from !== undefined && oldest <= range.from)
+      ) {
+        break;
+      }
+      // Strictly older than anything received: the next page cannot overlap this one, and the
+      // walk terminates because each request ends before the previous page began. A provider that
+      // answered outside the window it was asked for ends the walk instead of steering it.
+      const next = previousDay(oldest);
+      if (to !== undefined && next >= to) {
+        break;
+      }
+      to = next;
+    }
+    return dedupeByDate(rows);
   }
 
   async getFinancialStatements(
@@ -282,6 +331,25 @@ export class FmpClient
     );
     return Math.min(bounded + jitter, maxDelayMs);
   }
+}
+
+function previousDay(date: string): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  parsed.setUTCDate(parsed.getUTCDate() - 1);
+  return parsed.toISOString().slice(0, 10);
+}
+
+/** Ascending by date, one row per date; a later page never re-describes a day already received. */
+function dedupeByDate(rows: readonly DailyPrice[]): DailyPrice[] {
+  const byDate = new Map<string, DailyPrice>();
+  for (const row of rows) {
+    if (!byDate.has(row.date)) {
+      byDate.set(row.date, row);
+    }
+  }
+  return [...byDate.values()].sort((left, right) =>
+    left.date.localeCompare(right.date),
+  );
 }
 
 export function parseRetryAfter(

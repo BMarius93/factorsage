@@ -1,3 +1,4 @@
+import type { StockDetailsResponse } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
@@ -15,15 +16,22 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * and the loader stays off any market-data provider.
  *
  * `QATEST1` is seeded with roughly three years of trading days inside a thirty-year permitted
- * bound, which is what makes it a realistic subject: the chart must load the history that exists,
- * discover where it ends, and stop there rather than at the horizon.
+ * bound, and its durable coverage is complete from that bound, so the API reports the first seeded
+ * trading day as the boundary (`startOrigin: "PROVIDER"`). That is what makes it a realistic
+ * subject: the chart must load the history that exists and stop at the boundary the API reports —
+ * the provider boundary proven by complete coverage, not the horizon, and never a window that
+ * merely came back empty.
  */
 
 const QA_SYMBOL = "QATEST1";
 
 const DESKTOP = { width: 1440, height: 900 };
 
-type HistoryRequest = { readonly path: string; readonly from: string; readonly to: string };
+type HistoryRequest = {
+  readonly path: string;
+  readonly from: string;
+  readonly to: string;
+};
 
 function priceChart(page: Page): Locator {
   return page.getByRole("img", {
@@ -61,6 +69,23 @@ function watchPriceRequests(page: Page): HistoryRequest[] {
 
 function priceReads(requests: readonly HistoryRequest[]): HistoryRequest[] {
   return requests.filter((request) => request.path.endsWith("/prices"));
+}
+
+/**
+ * The composite Stock Details response the page opens with. Its `history` is the boundary the API
+ * reports for this security — what the chart navigates against and what it must stop at.
+ */
+function watchDetailsResponse(page: Page): Promise<StockDetailsResponse> {
+  return page
+    .waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname.endsWith(`/stocks/${QA_SYMBOL}`) &&
+        url.searchParams.has("from") &&
+        url.searchParams.has("to")
+      );
+    })
+    .then((response) => response.json() as Promise<StockDetailsResponse>);
 }
 
 /** Thirty years before today: the Stock Details bound this deployment reports. */
@@ -131,7 +156,11 @@ async function dragChart(page: Page, dx: number): Promise<void> {
   await page.mouse.up();
 }
 
-async function wheelOverChart(page: Page, deltaY: number, ticks: number): Promise<void> {
+async function wheelOverChart(
+  page: Page,
+  deltaY: number,
+  ticks: number,
+): Promise<void> {
   const box = await priceChart(page).boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
@@ -143,7 +172,10 @@ async function wheelOverChart(page: Page, deltaY: number, ticks: number): Promis
 /** Drags left until nothing older can arrive, or the attempt budget runs out. */
 async function panToBoundary(page: Page, attempts = 25): Promise<boolean> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    if ((await chartWrapper(page).getAttribute("data-history-exhausted")) === "true") {
+    if (
+      (await chartWrapper(page).getAttribute("data-history-exhausted")) ===
+      "true"
+    ) {
       return true;
     }
     await dragChart(page, 400);
@@ -169,7 +201,9 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     const chosen = await visibleRange(page);
 
     // The gesture is what asks for history, and one gesture costs one bounded request.
-    await expect.poll(() => priceReads(requests).length, { timeout: 15_000 }).toBe(1);
+    await expect
+      .poll(() => priceReads(requests).length, { timeout: 15_000 })
+      .toBe(1);
     const [older] = priceReads(requests);
     expect(older!.from < openedAt).toBe(true);
     // Only the gap: the year already on screen is not fetched again.
@@ -187,7 +221,17 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     // ...and arriving history did not move the user. This is the regression that made panning
     // feel broken even once loading worked: the logical range is anchored to bar indices, so
     // prepending a year silently walks the window a year backwards unless it is shifted back.
-    expect(await visibleRange(page)).toEqual(chosen);
+    //
+    // Compared edge by edge rather than as one equal range, because the chart reports the visible
+    // range in *bar* dates: the empty space the drag opened up has no dates until the year that
+    // fills it arrives, so `chosen.from` is the oldest bar at the time of the read, whichever side
+    // of the load that read landed on. The right edge is a real bar throughout and must not move;
+    // the left edge may only gain history, never jump forward; and the bar the page opened on
+    // stays on screen where the user left it.
+    const settled = await visibleRange(page);
+    expect(settled.to).toBe(chosen.to);
+    expect(settled.from <= chosen.from).toBe(true);
+    expect(settled.from <= openedAt && openedAt <= settled.to).toBe(true);
   });
 
   test("zooms out past the loaded history and fills the window instead of leaving it blank", async ({
@@ -203,7 +247,8 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
 
     // A wide zoom-out asks for the years the viewport opened up, in one request rather than a
     // year at a time — and still never past the boundary.
-    await expect.poll(() => priceReads(requests).length, { timeout: 15_000 })
+    await expect
+      .poll(() => priceReads(requests).length, { timeout: 15_000 })
       .toBeGreaterThan(0);
     await settleHistoryLoad(page);
 
@@ -220,7 +265,9 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     expect(spanDays(populated)).toBeGreaterThan(365);
   });
 
-  test("keeps drawing when zooming back in, without reframing", async ({ page }) => {
+  test("keeps drawing when zooming back in, without reframing", async ({
+    page,
+  }) => {
     await openStock(page);
 
     await wheelOverChart(page, 120, 10);
@@ -247,7 +294,8 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     await openStock(page);
 
     await dragChart(page, 420);
-    await expect.poll(() => priceReads(requests).length, { timeout: 15_000 })
+    await expect
+      .poll(() => priceReads(requests).length, { timeout: 15_000 })
       .toBeGreaterThan(0);
     await settleHistoryLoad(page);
     const afterFirstPan = priceReads(requests).length;
@@ -268,19 +316,35 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     page,
   }) => {
     const requests = watchPriceRequests(page);
+    const details = watchDetailsResponse(page);
     await openStock(page);
+
+    // The QA stock's boundary is the provider's first day, reported because its coverage is
+    // complete from the horizon — not inferred from a window that happened to come back empty.
+    const { history } = await details;
+    expect(history.startOrigin).toBe("PROVIDER");
+    expect(history.start >= historyBoundStart()).toBe(true);
 
     const reached = await panToBoundary(page);
     expect(reached).toBe(true);
 
-    // Every request stayed inside the permitted bound, boundary included.
+    // Every request stayed inside the permitted bound, boundary included — and inside the
+    // reported one: nothing before the provider's first day was ever asked for.
     const bound = historyBoundStart();
-    expect(priceReads(requests).every((request) => request.from >= bound)).toBe(true);
+    expect(priceReads(requests).every((request) => request.from >= bound)).toBe(
+      true,
+    );
+    expect(
+      priceReads(requests).every((request) => request.from >= history.start),
+    ).toBe(true);
 
     // At the boundary the chart is pinned: dragging further neither fetches nor opens up blank
     // space before the oldest bar.
     const settled = priceReads(requests).length;
     const oldest = await loadedFrom(page);
+    // The oldest bar on screen is the boundary itself: history was loaded all the way to where
+    // the API says it begins, not to wherever an empty window fell.
+    expect(oldest).toBe(history.start);
     await dragChart(page, 600);
     await settleFrames(page);
     await page.waitForTimeout(500);
@@ -299,7 +363,10 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
     await panel.getByRole("checkbox", { name: "RSI 14D", exact: true }).check();
     await page.keyboard.press("Escape");
     await expect(panel).toBeHidden();
-    await expect(chartWrapper(page)).toHaveAttribute("data-oscillator-pane", "true");
+    await expect(chartWrapper(page)).toHaveAttribute(
+      "data-oscillator-pane",
+      "true",
+    );
 
     const openedAt = await loadedFrom(page);
 
@@ -310,9 +377,15 @@ test.describe("QA_USER Stock Details viewport-driven history", () => {
 
     // The pane survived the load and the crosshair reads an RSI value inside the newly loaded
     // history — the series was extended, not merely redrawn over the old window.
-    await expect(chartWrapper(page)).toHaveAttribute("data-oscillator-pane", "true");
+    await expect(chartWrapper(page)).toHaveAttribute(
+      "data-oscillator-pane",
+      "true",
+    );
     const box = await priceChart(page).boundingBox();
-    await page.mouse.move(box!.x + box!.width * 0.2, box!.y + box!.height * 0.4);
+    await page.mouse.move(
+      box!.x + box!.width * 0.2,
+      box!.y + box!.height * 0.4,
+    );
     const legend = page.getByTestId("chart-legend");
     await expect(legend).toContainText("RSI 14D");
   });
