@@ -21,6 +21,7 @@ type LevelSectionProps = {
   readonly touch: (path: StrategyIssuePath) => void;
   readonly dispatch: (action: StrategyDraftAction) => void;
   readonly onFocusHelp: (focus: HelpFocus) => void;
+  readonly focus: HelpFocus;
 };
 
 /** All the BUY levels or all the SELL levels, in the order the strategy defines them. */
@@ -33,6 +34,7 @@ export function LevelSection({
   touch,
   dispatch,
   onFocusHelp,
+  focus,
 }: LevelSectionProps) {
   const sectionPath: StrategyIssuePath = { levelKind, part: "STRATEGY" };
   const sectionMessage = messageAt(
@@ -88,6 +90,7 @@ export function LevelSection({
               touch={touch}
               dispatch={dispatch}
               onFocusHelp={onFocusHelp}
+              focus={focus}
             />
           ))}
         </ul>

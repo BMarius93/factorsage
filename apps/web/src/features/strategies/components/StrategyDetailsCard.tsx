@@ -52,12 +52,18 @@ export function StrategyDetailsCard({
           maxLength={STRATEGY_NAME_MAX_LENGTH}
           placeholder="e.g. Deep value entries"
           aria-invalid={nameMessage !== null || undefined}
-          {...(nameMessage ? { "aria-describedby": "strategy-name-error" } : {})}
+          {...(nameMessage
+            ? { "aria-describedby": "strategy-name-error" }
+            : {})}
           onChange={(event) => onNameChange(event.target.value)}
           onBlur={() => touch(NAME_PATH)}
         />
         {nameMessage ? (
-          <p className={styles.fieldError} id="strategy-name-error" role="alert">
+          <p
+            className={styles.fieldError}
+            id="strategy-name-error"
+            role="alert"
+          >
             {nameMessage}
           </p>
         ) : null}

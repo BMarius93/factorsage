@@ -38,7 +38,8 @@ export function StrategiesPage() {
           <div>
             <h1 className={styles.title}>Strategies</h1>
             <p className={styles.lead}>
-              Reusable buy, sell and final-exit logic for backtests and monitors.
+              Reusable buy, sell and final-exit logic for backtests and
+              monitors.
             </p>
           </div>
           {status === "ready" && strategies.length > 0 ? (
@@ -83,8 +84,8 @@ export function StrategiesPage() {
             <h2 className={styles.statusTitle}>No strategies yet</h2>
             <p className={styles.statusBody}>
               A strategy is the reusable logic that decides when to buy and when
-              to sell — conditions such as{" "}
-              <em>Price is above EMA 200D</em>, and the event that fires them.
+              to sell — conditions such as <em>Price is above EMA 200D</em>, and
+              the event that fires them.
             </p>
             <Link
               className={styles.primaryLink}
@@ -114,7 +115,9 @@ export function StrategiesPage() {
                     <span className={styles.cardShape}>
                       {strategyShapeLabel(strategy)}
                     </span>
-                    <span>Updated {formatStrategyDate(strategy.updatedAt)}</span>
+                    <span>
+                      Updated {formatStrategyDate(strategy.updatedAt)}
+                    </span>
                   </span>
                 </Link>
                 <div className={styles.cardActions}>

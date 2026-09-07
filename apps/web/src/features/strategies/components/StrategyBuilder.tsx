@@ -174,8 +174,8 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
               {saved ? "Edit strategy" : "New strategy"}
             </h1>
             <p className={styles.pageLead}>
-              Buy, sell and final-exit logic. A backtest decides which stocks and
-              how much capital to run it with — a strategy never does.
+              Buy, sell and final-exit logic. A backtest decides which stocks
+              and how much capital to run it with — a strategy never does.
             </p>
           </header>
 
@@ -200,6 +200,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
             touch={touch}
             dispatch={dispatch}
             onFocusHelp={setFocus}
+            focus={focus}
           />
 
           <LevelSection
@@ -211,6 +212,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
             touch={touch}
             dispatch={dispatch}
             onFocusHelp={setFocus}
+            focus={focus}
           />
 
           <section className={styles.section} data-testid="section-FINAL_EXIT">
@@ -243,6 +245,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
                   touch={touch}
                   dispatch={dispatch}
                   onFocusHelp={setFocus}
+                  focus={focus}
                 />
               </ul>
             ) : (
@@ -255,7 +258,9 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
         </div>
 
         <aside className={panel.panel} data-testid="strategy-explanation">
-          <ExplanationPanel focus={shownFocus} />
+          <div className={panel.sideExplanation}>
+            <ExplanationPanel focus={shownFocus} />
+          </div>
           <LogicPreview definition={definition} />
         </aside>
       </div>

@@ -21,6 +21,7 @@ type SignalEditorProps = {
   readonly touch: (path: StrategyIssuePath) => void;
   readonly dispatch: (action: StrategyDraftAction) => void;
   readonly onFocusHelp: (focus: HelpFocus) => void;
+  readonly focus: HelpFocus;
 };
 
 /**
@@ -40,6 +41,7 @@ export function SignalEditor({
   touch,
   dispatch,
   onFocusHelp,
+  focus,
 }: SignalEditorProps) {
   const atConditionLimit =
     signal.conditions.length >= STRATEGY_MAX_CONDITIONS_PER_SIGNAL;
@@ -93,6 +95,7 @@ export function SignalEditor({
                   })
                 }
                 onFocusHelp={onFocusHelp}
+                focus={focus}
               />
             ))}
           </ul>
@@ -145,8 +148,11 @@ export function SignalEditor({
                   value,
                 })
               }
-              onRemove={() => dispatch({ type: "removeTrigger", ref: levelRef })}
+              onRemove={() =>
+                dispatch({ type: "removeTrigger", ref: levelRef })
+              }
               onFocusHelp={onFocusHelp}
+              focus={focus}
             />
           </ul>
         ) : (

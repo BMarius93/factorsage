@@ -59,7 +59,23 @@ function titleAndHelp(
  * repetition, precedence between a partial sell and a final exit, and candidate ordering are open
  * decisions and must not appear here as established behaviour.
  */
-export function ExplanationPanel({ focus }: { readonly focus: HelpFocus }) {
+export function ExplanationPanel({
+  focus,
+  testId = "explanation-panel",
+  compact = false,
+}: {
+  readonly focus: HelpFocus;
+  /** The two placements — beside the editor and inline under a row — are addressed separately. */
+  readonly testId?: string;
+  /**
+   * Puts the formula, examples and notes behind a disclosure.
+   *
+   * Used by the row-level placement: on a phone the full Margin of Safety explanation is taller
+   * than the level it sits inside and would bury the trigger below it. Same content and the same
+   * semantics — only how much is shown before a tap differs.
+   */
+  readonly compact?: boolean;
+}) {
   const current = titleAndHelp(focus);
 
   if (!current) {
@@ -67,13 +83,12 @@ export function ExplanationPanel({ focus }: { readonly focus: HelpFocus }) {
   }
 
   const { title, help } = current;
+  const hasDetail = Boolean(
+    help.formula ?? help.examples ?? help.notes ?? help.notEvaluableWhen,
+  );
 
-  return (
-    <section className={styles.panelCard} data-testid="explanation-panel">
-      <h2 className={styles.panelHeading}>{title}</h2>
-      <p className={styles.panelSummary}>{help.summary}</p>
-      <p className={styles.panelBody}>{help.detail}</p>
-
+  const detail = (
+    <>
       {help.formula ? (
         <p className={styles.panelFormula} data-testid="help-formula">
           {help.formula}
@@ -105,10 +120,28 @@ export function ExplanationPanel({ focus }: { readonly focus: HelpFocus }) {
 
       {help.notEvaluableWhen ? (
         <p className={styles.panelUnavailable} data-testid="help-not-evaluable">
-          <span className={styles.panelUnavailableLabel}>Not evaluable when</span>{" "}
+          <span className={styles.panelUnavailableLabel}>
+            Not evaluable when
+          </span>{" "}
           {help.notEvaluableWhen}
         </p>
       ) : null}
+    </>
+  );
+
+  return (
+    <section className={styles.panelCard} data-testid={testId}>
+      <h2 className={styles.panelHeading}>{title}</h2>
+      <p className={styles.panelSummary}>{help.summary}</p>
+      <p className={styles.panelBody}>{help.detail}</p>
+      {compact && hasDetail ? (
+        <details className={styles.moreDetail}>
+          <summary className={styles.moreSummary}>Formula and examples</summary>
+          <div className={styles.moreBody}>{detail}</div>
+        </details>
+      ) : (
+        detail
+      )}
     </section>
   );
 }

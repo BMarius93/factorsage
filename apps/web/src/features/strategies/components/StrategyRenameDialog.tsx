@@ -68,7 +68,11 @@ export function StrategyRenameDialog({
   };
 
   return (
-    <Modal title="Edit strategy" onClose={onClose} testId="strategy-rename-dialog">
+    <Modal
+      title="Edit strategy"
+      onClose={onClose}
+      testId="strategy-rename-dialog"
+    >
       <form className={forms.form} onSubmit={submit} noValidate>
         <div className={forms.field}>
           <label className={forms.label} htmlFor="strategy-rename-name">

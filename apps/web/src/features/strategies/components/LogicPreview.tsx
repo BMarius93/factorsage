@@ -23,57 +23,67 @@ export function LogicPreview({
   const lines = describeStrategy(definition);
 
   return (
-    <section className={styles.panelCard} data-testid="logic-preview">
-      <h2 className={styles.panelHeading}>Strategy logic</h2>
-      {lines.length === 0 ? (
-        <p className={styles.panelEmpty}>
-          Add a buy level to see this strategy in words.
-        </p>
-      ) : (
-        <ol className={styles.previewList}>
-          {lines.map((line, index) => {
-            if (line.kind === "LEVEL") {
-              const basis =
-                line.levelKind === "FINAL_EXIT" || line.percentage === undefined
-                  ? null
-                  : `${line.percentage}% ${STRATEGY_LEVEL_PERCENTAGE_BASIS[line.levelKind]}`;
+    // A disclosure on mobile, where a long preview would otherwise push the editor off screen;
+    // opened and flattened into a plain card on desktop, where the side column has the room.
+    <details
+      className={styles.previewDisclosure}
+      data-testid="logic-preview"
+      open
+    >
+      <summary className={styles.previewSummary}>Strategy logic</summary>
+      <section className={styles.panelCard}>
+        <h2 className={styles.panelHeading}>Strategy logic</h2>
+        {lines.length === 0 ? (
+          <p className={styles.panelEmpty}>
+            Add a buy level to see this strategy in words.
+          </p>
+        ) : (
+          <ol className={styles.previewList}>
+            {lines.map((line, index) => {
+              if (line.kind === "LEVEL") {
+                const basis =
+                  line.levelKind === "FINAL_EXIT" ||
+                  line.percentage === undefined
+                    ? null
+                    : `${line.percentage}% ${STRATEGY_LEVEL_PERCENTAGE_BASIS[line.levelKind]}`;
+                return (
+                  <li
+                    key={index}
+                    className={styles.previewLevel}
+                    data-tone={line.levelKind}
+                  >
+                    {STRATEGY_LEVEL_LABELS[line.levelKind]}
+                    {line.index === undefined ? "" : ` ${line.index}`}
+                    {basis ? (
+                      <span className={styles.previewBasis}> · {basis}</span>
+                    ) : null}
+                  </li>
+                );
+              }
+              if (line.kind === "EMPTY") {
+                return (
+                  <li key={index} className={styles.previewEmpty}>
+                    No conditions or trigger yet
+                  </li>
+                );
+              }
               return (
-                <li
-                  key={index}
-                  className={styles.previewLevel}
-                  data-tone={line.levelKind}
-                >
-                  {STRATEGY_LEVEL_LABELS[line.levelKind]}
-                  {line.index === undefined ? "" : ` ${line.index}`}
-                  {basis ? (
-                    <span className={styles.previewBasis}> · {basis}</span>
+                <li key={index} className={styles.previewRule}>
+                  {line.connector ? (
+                    <span className={styles.previewConnector}>
+                      {line.connector}{" "}
+                    </span>
+                  ) : null}
+                  {line.text}
+                  {line.kind === "TRIGGER" ? (
+                    <span className={styles.previewTag}> (trigger)</span>
                   ) : null}
                 </li>
               );
-            }
-            if (line.kind === "EMPTY") {
-              return (
-                <li key={index} className={styles.previewEmpty}>
-                  No conditions or trigger yet
-                </li>
-              );
-            }
-            return (
-              <li key={index} className={styles.previewRule}>
-                {line.connector ? (
-                  <span className={styles.previewConnector}>
-                    {line.connector}{" "}
-                  </span>
-                ) : null}
-                {line.text}
-                {line.kind === "TRIGGER" ? (
-                  <span className={styles.previewTag}> (trigger)</span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </section>
+            })}
+          </ol>
+        )}
+      </section>
+    </details>
   );
 }

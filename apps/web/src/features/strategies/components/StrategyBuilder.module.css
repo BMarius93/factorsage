@@ -253,6 +253,9 @@
 }
 
 .segment {
+  /* Positions the visually hidden radio inside its own label rather than against a distant
+     ancestor, which would place it off-screen. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -283,7 +286,6 @@
   white-space: nowrap;
 }
 
-.segmentInput:focus-visible + * ,
 .segment:has(.segmentInput:focus-visible) {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;
@@ -446,15 +448,19 @@
 
 .saveBar {
   position: sticky;
-  bottom: 0;
+  /*
+   * Parks above the fixed mobile navigation and the device safe area rather than behind them.
+   * `bottom` is what sticky resolves against, so a margin alone would leave the bar overlapping
+   * the nav; the margin below is what keeps the last card scrollable clear of it.
+   */
+  bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 8px);
   z-index: 5;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  /* Clears the mobile bottom navigation and the device safe area. */
-  margin-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+  margin-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 16px);
   padding: 10px 14px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-surface);
@@ -595,7 +601,12 @@
     gap: 8px;
   }
 
+}
+
+/* The bottom navigation is gone at this width, so the bar sits on the viewport edge again. */
+@media (min-width: 880px) {
   .saveBar {
+    bottom: 0;
     margin-bottom: 0;
   }
 }

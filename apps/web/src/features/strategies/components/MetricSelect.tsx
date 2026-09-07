@@ -89,13 +89,18 @@ export function MetricSelect({
         change. Rendering it keeps the row readable instead of silently showing the wrong metric;
         validation is what reports it.
       */}
-      {options.some((option) => metricKey(option.metric) === selected) ? null : (
+      {options.some(
+        (option) => metricKey(option.metric) === selected,
+      ) ? null : (
         <option value={selected}>Unavailable metric</option>
       )}
       {groups.map((group) => (
         <optgroup key={group.id} label={group.label}>
           {group.options.map((option) => (
-            <option key={metricKey(option.metric)} value={metricKey(option.metric)}>
+            <option
+              key={metricKey(option.metric)}
+              value={metricKey(option.metric)}
+            >
               {option.label}
             </option>
           ))}

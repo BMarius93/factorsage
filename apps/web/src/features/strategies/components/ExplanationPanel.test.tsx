@@ -81,7 +81,9 @@ describe("explanation panel", () => {
     render(<StrategyBuilder strategy={MOS_STRATEGY} />);
     const panel = screen.getByTestId("explanation-panel");
 
-    expect(within(panel).getByText(/Margin of Safety \(DCF \(FCFF\)\)/)).toBeDefined();
+    expect(
+      within(panel).getByText(/Margin of Safety \(DCF \(FCFF\)\)/),
+    ).toBeDefined();
     expect(within(panel).getByTestId("help-formula").textContent).toBe(
       "Margin of Safety = (Intrinsic Value - Price) / Intrinsic Value * 100",
     );
@@ -118,9 +120,9 @@ describe("explanation panel", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder strategy={MOS_STRATEGY} />);
 
-    const operator = within(screen.getByTestId("level-card-BUY")).getAllByTestId(
-      "operator-select",
-    )[0];
+    const operator = within(
+      screen.getByTestId("level-card-BUY"),
+    ).getAllByTestId("operator-select")[0];
     await user.click(operator!);
     const panel = screen.getByTestId("explanation-panel");
     expect(within(panel).getByText("is above")).toBeDefined();
@@ -166,11 +168,42 @@ describe("explanation panel", () => {
     await user.click(
       within(buyCard).getByRole("button", { name: "Remove condition 1" }),
     );
-    await user.click(within(buyCard).getByRole("button", { name: "Remove trigger" }));
+    await user.click(
+      within(buyCard).getByRole("button", { name: "Remove trigger" }),
+    );
 
     expect(screen.getByTestId("logic-preview").textContent).toContain(
       "No conditions or trigger yet",
     );
+  });
+
+  it("moves the same explanation next to the row being edited, for mobile", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={MOS_STRATEGY} />);
+
+    expect(screen.queryByTestId("inline-help")).toBeNull();
+    const buyCard = screen.getByTestId("level-card-BUY");
+    await user.click(within(buyCard).getAllByTestId("metric-select")[0]!);
+
+    const inline = within(screen.getByTestId("inline-help")).getByTestId(
+      "inline-explanation-panel",
+    );
+    // One explanation, two placements. The row copy puts the formula and examples behind a
+    // disclosure so it does not bury the rest of the level on a phone, but says the same things.
+    const side = screen.getByTestId("explanation-panel").textContent ?? "";
+    expect(inline.textContent).toContain("Margin of Safety (DCF (FCFF))");
+    expect(side).toContain("Margin of Safety (DCF (FCFF))");
+    // The formula reaches both placements; only the row copy hides it behind a tap.
+    expect(inline.textContent).toContain("Intrinsic Value * 100");
+    expect(side).toContain("Intrinsic Value * 100");
+    expect(within(inline).getByText("Formula and examples")).toBeDefined();
+    expect(
+      within(screen.getByTestId("explanation-panel")).queryByText(
+        "Formula and examples",
+      ),
+    ).toBeNull();
+    // Only the focused row carries one.
+    expect(screen.getAllByTestId("inline-help")).toHaveLength(1);
   });
 
   it("describes the signal and never the backtest lifecycle", () => {

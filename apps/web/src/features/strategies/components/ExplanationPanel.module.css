@@ -180,6 +180,88 @@
   font-style: italic;
 }
 
+/*
+ * Mobile placement.
+ *
+ * The explanation moves out of the side column and directly under the row being edited, which is
+ * where a phone user can read it without losing the control it describes. The side column keeps
+ * only the strategy preview, inside a collapsible surface so it does not push the editor down.
+ */
+.inlineHelp {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.moreDetail {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+.moreSummary {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.moreSummary::-webkit-details-marker {
+  display: none;
+}
+
+.moreSummary::after {
+  content: " ›";
+}
+
+.moreDetail[open] .moreSummary::after {
+  content: " ⌄";
+}
+
+.moreBody {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.previewDisclosure {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-muted);
+}
+
+.previewSummary {
+  padding: 12px 14px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.previewSummary::-webkit-details-marker {
+  display: none;
+}
+
+.previewSummary::after {
+  content: " ›";
+  color: var(--color-text-muted);
+}
+
+.previewDisclosure[open] .previewSummary::after {
+  content: " ⌄";
+}
+
+.previewDisclosure .panelCard {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+}
+
+.previewDisclosure .panelHeading {
+  display: none;
+}
+
 @media (min-width: 960px) {
   .panel {
     position: sticky;
@@ -187,5 +269,36 @@
     top: calc(var(--topbar-height-wide) + 16px);
     max-height: calc(100vh - var(--topbar-height-wide) - 32px);
     overflow-y: auto;
+  }
+
+  /* Desktop shows one panel beside the editor, never a copy inside a row. */
+  .inlineHelp {
+    display: none;
+  }
+
+  .previewDisclosure {
+    border: none;
+    background: none;
+  }
+
+  .previewSummary {
+    display: none;
+  }
+
+  .previewDisclosure .panelCard {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-surface);
+    background: var(--color-surface-muted);
+  }
+
+  .previewDisclosure .panelHeading {
+    display: block;
+  }
+}
+
+/* Below the desktop breakpoint the side column's explanation card is the row's job instead. */
+@media (max-width: 959px) {
+  .sideExplanation {
+    display: none;
   }
 }

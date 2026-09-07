@@ -16,9 +16,9 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("../api/strategies-api", async () => {
-  const actual = await vi.importActual<
-    typeof import("../api/strategies-api")
-  >("../api/strategies-api");
+  const actual = await vi.importActual<typeof import("../api/strategies-api")>(
+    "../api/strategies-api",
+  );
   return {
     ...actual,
     createStrategy: vi.fn(),
@@ -75,9 +75,14 @@ describe("StrategyBuilder", () => {
   it("opens a new strategy without a wall of red, and cannot be saved yet", async () => {
     render(<StrategyBuilder />);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("save-strategy")).toHaveProperty(
+      "disabled",
+      true,
+    );
     // A strategy with no BUY level can never buy anything, so the issue count is non-zero.
-    expect(screen.getByTestId("issue-count").textContent).toMatch(/issues to fix/);
+    expect(screen.getByTestId("issue-count").textContent).toMatch(
+      /issues to fix/,
+    );
   });
 
   it("reveals a field's issue only once that field is touched", async () => {
@@ -103,7 +108,10 @@ describe("StrategyBuilder", () => {
     expect(priceOptions).toEqual(["is above", "is below", "is close to"]);
 
     // RSI does not expose `is close to` in V1.
-    await user.selectOptions(screen.getByTestId("metric-select"), "OSCILLATOR:RSI_14D");
+    await user.selectOptions(
+      screen.getByTestId("metric-select"),
+      "OSCILLATOR:RSI_14D",
+    );
     expect(
       within(screen.getByTestId("operator-select"))
         .getAllByRole("option")
@@ -133,7 +141,10 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
-    await user.selectOptions(screen.getByTestId("metric-select"), "OSCILLATOR:RSI_14D");
+    await user.selectOptions(
+      screen.getByTestId("metric-select"),
+      "OSCILLATOR:RSI_14D",
+    );
 
     const value = screen.getByTestId("value-control");
     expect(value.getAttribute("type")).toBe("number");
@@ -168,7 +179,9 @@ describe("StrategyBuilder", () => {
     await user.click(screen.getByTestId("add-level-FINAL_EXIT"));
 
     expect(
-      within(screen.getByTestId("level-card-BUY")).getByTestId("level-percentage"),
+      within(screen.getByTestId("level-card-BUY")).getByTestId(
+        "level-percentage",
+      ),
     ).toBeDefined();
     expect(
       within(screen.getByTestId("level-card-FINAL_EXIT")).queryByTestId(
@@ -191,7 +204,10 @@ describe("StrategyBuilder", () => {
     // Both rows default to the same metric, operator and value.
     expect(screen.getAllByTestId("predicate-row")).toHaveLength(2);
     // Save stays disabled, so the issue count is the way to see what is wrong.
-    expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("save-strategy")).toHaveProperty(
+      "disabled",
+      true,
+    );
     await user.click(screen.getByTestId("issue-count"));
     expect(await screen.findByText(/repeats condition 1/)).toBeDefined();
     expect(screen.getAllByTestId("predicate-row")).toHaveLength(2);

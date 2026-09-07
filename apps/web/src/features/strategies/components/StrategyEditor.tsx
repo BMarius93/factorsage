@@ -13,7 +13,11 @@ import styles from "./StrategyBuilder.module.css";
  * A 404 is a product state, not a failure: a deleted strategy, or one belonging to someone else,
  * gets its own surface rather than a retry button that can never succeed.
  */
-export function StrategyEditor({ strategyId }: { readonly strategyId: string }) {
+export function StrategyEditor({
+  strategyId,
+}: {
+  readonly strategyId: string;
+}) {
   const { status, strategy, retry } = useStrategy(strategyId);
 
   if (status === "loading") {
@@ -30,8 +34,8 @@ export function StrategyEditor({ strategyId }: { readonly strategyId: string }) 
         <div className={styles.statusPanel} data-testid="strategy-not-found">
           <h1 className={styles.statusTitle}>Strategy not found</h1>
           <p className={styles.statusBody}>
-            It may have been deleted, or the link may point at someone else&apos;s
-            strategy.
+            It may have been deleted, or the link may point at someone
+            else&apos;s strategy.
           </p>
           <Link className={forms.secondaryButton} href="/strategies">
             Back to strategies

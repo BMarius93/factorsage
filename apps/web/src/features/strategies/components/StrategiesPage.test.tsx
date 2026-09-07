@@ -113,9 +113,7 @@ describe("StrategiesPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Delete strategy" }));
     await waitFor(() => expect(deleteStrategyMock).toHaveBeenCalledWith("s1"));
-    await waitFor(() =>
-      expect(screen.queryByText("Doomed")).toBeNull(),
-    );
+    await waitFor(() => expect(screen.queryByText("Doomed")).toBeNull());
   });
 
   it("offers a retry when the collection cannot be loaded", async () => {

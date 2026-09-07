@@ -26,6 +26,7 @@ type LevelCardProps = {
   readonly touch: (path: StrategyIssuePath) => void;
   readonly dispatch: (action: StrategyDraftAction) => void;
   readonly onFocusHelp: (focus: HelpFocus) => void;
+  readonly focus: HelpFocus;
 };
 
 /**
@@ -48,6 +49,7 @@ export function LevelCard({
   touch,
   dispatch,
   onFocusHelp,
+  focus,
 }: LevelCardProps) {
   const levelRef: LevelRef =
     levelIndex === undefined ? { levelKind } : { levelKind, levelIndex };
@@ -76,7 +78,9 @@ export function LevelCard({
         >
           {title}
         </button>
-        {levelKind !== "FINAL_EXIT" && percentage !== undefined && levelIndex !== undefined ? (
+        {levelKind !== "FINAL_EXIT" &&
+        percentage !== undefined &&
+        levelIndex !== undefined ? (
           <LevelPercentageSelect
             levelKind={levelKind}
             levelIndex={levelIndex}
@@ -143,6 +147,7 @@ export function LevelCard({
         touch={touch}
         dispatch={dispatch}
         onFocusHelp={onFocusHelp}
+        focus={focus}
       />
     </li>
   );

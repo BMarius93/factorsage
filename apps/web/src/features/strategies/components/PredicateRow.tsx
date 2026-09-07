@@ -17,7 +17,9 @@ import styles from "./StrategyBuilder.module.css";
 import { MetricSelect } from "./MetricSelect";
 import { OperatorSelect } from "./OperatorSelect";
 import { ValueControl } from "./ValueControl";
-import type { HelpFocus } from "./help-focus";
+import { ExplanationPanel } from "./ExplanationPanel";
+import panel from "./ExplanationPanel.module.css";
+import { rowOriginKey, type HelpFocus } from "./help-focus";
 
 type PredicateRowProps = {
   readonly levelKind: StrategyLevelKind;
@@ -33,6 +35,7 @@ type PredicateRowProps = {
   readonly onRemove: () => void;
   readonly onFocusHelp: (focus: HelpFocus) => void;
   readonly removeLabel: string;
+  readonly focus: HelpFocus;
 };
 
 /**
@@ -55,8 +58,17 @@ export function PredicateRow({
   onRemove,
   onFocusHelp,
   removeLabel,
+  focus,
 }: PredicateRowProps) {
-  const pathFor = (field: "METRIC" | "OPERATOR" | "VALUE"): StrategyIssuePath => ({
+  const origin = rowOriginKey(
+    ref_.levelKind,
+    ref_.levelIndex,
+    ref_.part,
+    ref_.conditionIndex,
+  );
+  const pathFor = (
+    field: "METRIC" | "OPERATOR" | "VALUE",
+  ): StrategyIssuePath => ({
     ...ref_,
     field,
   });
@@ -75,7 +87,10 @@ export function PredicateRow({
 
   return (
     <li className={styles.predicateRow} data-testid="predicate-row">
-      <span className={styles.connector} aria-hidden={connector ? undefined : "true"}>
+      <span
+        className={styles.connector}
+        aria-hidden={connector ? undefined : "true"}
+      >
         {connector ?? ""}
       </span>
       <div className={styles.predicateFields}>
@@ -89,7 +104,7 @@ export function PredicateRow({
             touch(pathFor("METRIC"));
             onSetMetric(metric);
           }}
-          onFocus={(metric) => onFocusHelp({ kind: "METRIC", metric })}
+          onFocus={(metric) => onFocusHelp({ kind: "METRIC", metric, origin })}
           onBlur={() => touch(pathFor("METRIC"))}
         />
         <OperatorSelect
@@ -104,7 +119,7 @@ export function PredicateRow({
             onSetOperator(operator);
           }}
           onFocus={(operator: ConditionOperator | TriggerOperator) =>
-            onFocusHelp({ kind: "OPERATOR", operator })
+            onFocusHelp({ kind: "OPERATOR", operator, origin })
           }
           onBlur={() => touch(pathFor("OPERATOR"))}
         />
@@ -130,6 +145,15 @@ export function PredicateRow({
         <p className={styles.rowError} id={errorId} role="alert">
           {message}
         </p>
+      ) : null}
+      {focus?.origin === origin ? (
+        <div className={panel.inlineHelp} data-testid="inline-help">
+          <ExplanationPanel
+            focus={focus}
+            testId="inline-explanation-panel"
+            compact
+          />
+        </div>
       ) : null}
     </li>
   );
