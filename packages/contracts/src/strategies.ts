@@ -950,6 +950,18 @@ export const STRATEGY_OPERATOR_HELP: Record<
   },
 };
 
+/**
+ * What a level's percentage is a percentage *of*, in one canonical phrase per level kind.
+ *
+ * A BUY level's percentage is a fraction of one full position; a SELL level's is a fraction of the
+ * position remaining at execution time. FINAL EXIT has no percentage and so has no basis. The
+ * phrase lives here so the logic preview and any future surface cannot word it differently.
+ */
+export const STRATEGY_LEVEL_PERCENTAGE_BASIS = {
+  BUY: "of a full position",
+  SELL: "of the remaining position",
+} as const satisfies Record<"BUY" | "SELL", string>;
+
 export const STRATEGY_LEVEL_HELP: Record<StrategyLevelKind, StrategyHelpEntry> =
   {
     BUY: {

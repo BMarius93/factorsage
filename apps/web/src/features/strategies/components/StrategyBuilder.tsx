@@ -23,7 +23,10 @@ import {
   emptyDraft,
   type StrategyDraftState,
 } from "../utils/strategy-draft";
+import { ExplanationPanel } from "./ExplanationPanel";
 import type { HelpFocus } from "./help-focus";
+import { LogicPreview } from "./LogicPreview";
+import panel from "./ExplanationPanel.module.css";
 import { LevelCard } from "./LevelCard";
 import { LevelSection } from "./LevelSection";
 import styles from "./StrategyBuilder.module.css";
@@ -48,7 +51,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
   );
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [, setFocus] = useState<HelpFocus>(null);
+  const [focus, setFocus] = useState<HelpFocus>(null);
 
   const binding = useStrategyDraft(
     strategy ? draftFrom(strategy) : emptyDraft(),
@@ -77,6 +80,16 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
 
   const definition = draft.definition;
   const canSave = dirty && issueCount === 0 && !pending;
+
+  /**
+   * What the explanation panel describes before anything is focused: the first rule in the
+   * document, which is the one a reader's eye lands on anyway.
+   */
+  const firstRow =
+    definition.buyLevels[0]?.signal.conditions[0] ??
+    definition.buyLevels[0]?.signal.trigger;
+  const shownFocus: HelpFocus =
+    focus ?? (firstRow ? { kind: "METRIC", metric: firstRow.metric } : null);
 
   const save = async () => {
     markSaveAttempted();
@@ -240,6 +253,11 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
             )}
           </section>
         </div>
+
+        <aside className={panel.panel} data-testid="strategy-explanation">
+          <ExplanationPanel focus={shownFocus} />
+          <LogicPreview definition={definition} />
+        </aside>
       </div>
 
       <div className={styles.saveBar} data-testid="strategy-save-bar">

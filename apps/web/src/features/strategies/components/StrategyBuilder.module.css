@@ -602,10 +602,22 @@
 
 @media (min-width: 960px) {
   .builder {
+    /*
+     * The accepted desktop composition: the strategy stays the primary content at roughly
+     * two-thirds, with the explanation and preview beside it at roughly one-third.
+     */
+    grid-template-columns: minmax(0, 67fr) minmax(0, 33fr);
+    align-items: start;
+    gap: 24px;
     padding-top: 24px;
   }
 
   .pageTitle {
     font-size: 26px;
+  }
+
+  .saveBar {
+    /* Spans both columns so the save surface is never hidden behind the panel. */
+    grid-column: 1 / -1;
   }
 }
