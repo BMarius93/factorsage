@@ -42,6 +42,13 @@ A strategy version contains:
 Each level owns one **Signal**. The signal decides whether that level matches on a given eligible
 date. The level then carries the action metadata appropriate to BUY, SELL or FINAL EXIT.
 
+A Strategy must contain **at least one BUY level** to be saved: without one, nothing can ever be
+bought and the strategy is inert. SELL levels and FINAL EXIT remain optional — a strategy that only
+buys and holds is valid.
+
+Strategy identity is the Strategy id. Names are **not** unique per user: the same person may keep
+two strategies both called `Value Strategy`, and they remain distinct records.
+
 ## Signal model
 
 A Signal contains:
@@ -267,6 +274,42 @@ Supported initial operators:
 - Conditions: `is above`, `is below`, `is close to`;
 - Triggers: `crosses above`, `crosses below`.
 
+### Moving averages
+
+The canonical moving averages are first-class Strategy metrics, not only Values. This enables the
+natural moving-average relationships a user expects to express directly:
+
+```text
+Metric -> EMA 50D
+Trigger -> crosses above
+Value -> SMA 200D
+```
+
+```text
+Metric -> SMA 50D
+Condition -> is above
+Value -> SMA 200D
+```
+
+Compatibility is explicit, never inferred from the fact that two series are numeric. For a selected
+moving-average Metric, the permitted Values are exactly the canonical compatible set for that
+series:
+
+- the same timeframe only — a daily moving average compares with daily moving averages, a weekly
+  with weekly. Daily-versus-weekly comparisons are not part of V1;
+- never the metric itself.
+
+This is the rule the selectable-series catalog already expresses as `comparableMovingAverages`, and
+it remains the single source of that compatibility. API validation and the Strategy Builder both
+read it; neither restates it.
+
+Supported V1 operators:
+
+- Conditions: `is above`, `is below`, `is close to`;
+- Triggers: `crosses above`, `crosses below`.
+
+The fixed 2% tolerance defined above applies to `is close to` here exactly as it does for Price.
+
 ### RSI
 
 The canonical RSI series are first-class Strategy metrics:
@@ -345,17 +388,55 @@ Trigger -> crosses above
 Value -> 25%
 ```
 
-Conceptually:
+#### Canonical formula
 
 ```text
 MOS = (Intrinsic Value - Price) / Intrinsic Value * 100
 ```
 
-Therefore:
+**The denominator is Intrinsic Value, never Price.** Margin of Safety is the discount to intrinsic
+value. It must not be confused with upside, which divides by Price and answers a different
+question:
+
+```text
+Intrinsic Value = 100, Price = 75
+
+MOS    = (100 - 75) / 100 * 100 = 25%
+upside = (100 - 75) /  75 * 100 = 33.33%
+```
+
+These are intentionally different concepts. The product exposes MOS; it does not expose upside.
+
+Further canonical examples:
+
+```text
+Intrinsic Value = 100, Price = 100  -> MOS =   0%
+Intrinsic Value = 100, Price = 120  -> MOS = -20%
+```
+
+Interpretation:
 
 - positive MOS means Price is below the selected intrinsic value;
 - `0%` means Price is at the selected intrinsic value;
 - negative MOS means Price is above the selected intrinsic value.
+
+#### Availability and point-in-time rules
+
+If the selected point-in-time intrinsic value is `<= 0`, MOS is `NOT_EVALUABLE`. The ratio is
+undefined at zero and sign-inverted below it, so a negative intrinsic value would otherwise report
+a large positive margin of safety for a stock trading far above it.
+
+Each MOS metric uses the point-in-time series of **its own explicitly selected** intrinsic-value
+source: `Margin of Safety (DCF)`, `Margin of Safety (Graham)` and `Margin of Safety (Balanced)` are
+different metrics over different series. Never substitute zero, future data, a current-day
+intrinsic value applied to a historical date, or another intrinsic-value model. Every existing
+point-in-time and no-look-ahead rule continues to apply unchanged.
+
+#### Value domain
+
+Any finite percentage `<= 100%`. There is no artificial lower bound, and decimal thresholds such as
+`22.5` are allowed. The upper bound is the metric's own mathematics rather than a product limit:
+with a positive price and a positive intrinsic value, MOS is always below `100`.
 
 Supported initial operators:
 
@@ -383,6 +464,47 @@ Trigger -> crosses above
 Value -> 10%
 ```
 
+#### Canonical definitions
+
+Both metrics are measured against the position's **average cost**:
+
+```text
+Gain = (Price - AverageCost) / AverageCost * 100
+
+Loss = max(0, (AverageCost - Price) / AverageCost * 100)
+```
+
+**Gain is signed.** It is negative while the position is underwater:
+
+```text
+Price = 125, AverageCost = 100  -> Gain =  25%
+Price =  85, AverageCost = 100  -> Gain = -15%
+```
+
+**Loss is a non-negative loss-from-average-cost metric**, clamped at zero. It is deliberately *not*
+an unclamped negative mirror of Gain:
+
+```text
+Price = 125, AverageCost = 100  -> Loss =  0%
+Price =  85, AverageCost = 100  -> Loss = 15%
+```
+
+So a rule reads exactly as a user expects it to:
+
+```text
+Loss is above 10%
+```
+
+means the current price is more than 10% below the position's average cost.
+
+#### Value domains
+
+- `Gain`: any finite percentage `>= -100%`, no artificial upper bound, decimals allowed;
+- `Loss`: `0%` through `100%`, decimals allowed.
+
+Both bounds are the metrics' own mathematics rather than product limits: with a positive price, a
+long position can never lose more than its entire cost.
+
 Supported initial operators:
 
 - Conditions: `is above`, `is below`;
@@ -393,18 +515,20 @@ precomputed from market history alone because they depend on the simulated posit
 technical design must treat this difference explicitly rather than forcing Gain/Loss into a static
 historical array.
 
-The exact cost-basis semantics used by Gain/Loss must be confirmed as a product decision before
-implementation if they are not already authoritative elsewhere.
+How average cost evolves across repeated BUY levels and partial SELLs during one position
+lifecycle is execution behaviour and stays with the backtest design; the Strategy-facing definition
+above is what the metric means and does not depend on that answer.
 
 ## Metric compatibility table — current V1 baseline
 
 | Metric | Condition operators | Trigger operators | Value type | Allowed in |
 | --- | --- | --- | --- | --- |
 | Price | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series | BUY, SELL, FINAL EXIT |
+| Moving average (any of the 14 canonical series) | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
 | RSI 7D / 14D / 21D | `is above`, `is below` | `crosses above`, `crosses below` | user-entered numeric threshold `1..100` | BUY, SELL, FINAL EXIT |
-| Margin of Safety (selected IV source) | `is above`, `is below` | `crosses above`, `crosses below` | percentage | BUY, SELL, FINAL EXIT |
-| Gain | `is above`, `is below` | `crosses above`, `crosses below` | percentage | SELL, FINAL EXIT |
-| Loss | `is above`, `is below` | `crosses above`, `crosses below` | percentage | SELL, FINAL EXIT |
+| Margin of Safety (selected IV source) | `is above`, `is below` | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed | BUY, SELL, FINAL EXIT |
+| Gain | `is above`, `is below` | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed | SELL, FINAL EXIT |
+| Loss | `is above`, `is below` | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed | SELL, FINAL EXIT |
 
 This is the current baseline, not a declaration that these are the only eventual metrics.
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with
@@ -413,7 +537,7 @@ values are numeric.
 
 ## BUY levels
 
-A Strategy may contain multiple ordered BUY levels.
+A Strategy may contain multiple ordered BUY levels, and must contain at least one.
 
 Each BUY level contains:
 
@@ -478,12 +602,21 @@ not already a product decision.
 
 At minimum, Strategy validation must enforce:
 
+- at least one BUY level in every saved Strategy;
 - at least one Condition or Trigger in every Signal;
 - no more than one Trigger in a Signal;
 - only operators supported by the selected Metric;
 - only Value types compatible with the selected Metric/operator;
 - `is close to` only where explicitly supported;
 - RSI Values constrained to numeric thresholds from `1` through `100`;
+- moving-average Values restricted to the canonical compatible set for the selected moving-average
+  Metric — same timeframe, never the metric itself, and never inferred from numeric similarity;
+- percentage Values inside their metric's own semantic domain: Margin of Safety `<= 100`, Gain
+  `>= -100`, Loss `0..100`. There is no single shared percentage range;
+- no two semantically identical Conditions inside one Signal. A duplicate is rejected with an error
+  pointing at the duplicated row; it is never silently removed, because ANDing a predicate with
+  itself is a no-op and always a mistake. Identity is semantic — same Metric, same operator, same
+  Value — not object or row identity;
 - no Gain/Loss metrics in BUY rules;
 - no unavailable or arbitrary series identifiers outside the canonical catalogs/registries;
 - valid BUY/SELL level percentages;
@@ -529,6 +662,42 @@ Each Signal visually separates:
 
 Do not put Stock List selection, backtest period, initial capital, monthly contributions,
 `maximumPositions`, fees or other backtest-run parameters into Strategy Builder.
+
+### Contextual metric explanation
+
+Rule rows stay simple. A metric that needs explaining is explained beside the row, never by adding
+inputs to it.
+
+`Margin of Safety` is the clearest case. Its row stays exactly three fields:
+
+```text
+Metric -> Margin of Safety (DCF)
+Condition -> is above
+Value -> 25%
+```
+
+There are no formula-configuration inputs: the intrinsic-value source is part of the Metric, and
+the formula is fixed. The Builder must instead explain the metric contextually, covering:
+
+- what Margin of Safety means;
+- the canonical formula, with Intrinsic Value as the denominator;
+- a simple numerical example;
+- the distinction between MOS and upside;
+- the meaning of positive, zero and negative MOS.
+
+On desktop this belongs in the right-hand explanation panel. On mobile the equivalent explanation
+appears near the relevant Metric or through the Builder's compact expandable help surface. The
+rendering may differ between the two; the semantics must not.
+
+Explanation content must be derived from canonical Strategy metric metadata — the same registry
+definitions that supply Metric, operator and Value options — rather than hard-coded inside the
+Strategy Builder feature. Two surfaces explaining one metric differently is the drift the single
+canonical catalog and registry exist to prevent.
+
+Builder help text describes **what a signal means**, never what the backtest engine does with it.
+Execution behaviour that is still an open decision — whether a level fires once or repeatedly, how
+two matching levels interact, how SELL and FINAL EXIT resolve on the same date — must not appear in
+help text as established fact.
 
 ## Strategy Builder UX direction
 

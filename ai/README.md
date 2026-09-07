@@ -16,7 +16,13 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
-For strategy work, also read `product/strategies.md`.
+For strategy work, also read `product/strategies.md`. Two architecture documents sit beside it:
+`architecture/strategy-builder.md` is the implementation plan for the Create/Edit Strategy vertical
+slice — canonical types, the shared compatibility registry, validation, schema, contracts and the
+desktop and mobile compositions. Its product questions are all closed. `architecture/strategy-evaluation.md`
+is the technical design for evaluating those semantics over historical data, including the
+reusable-component map and the open product questions that still block the backtest day loop.
+Builder work needs the first; backtest-engine work needs the second.
 For Stock Details or selectable-series work, also read `product/stock-details.md`,
 `../docs/decisions/selectable-series-catalog.md`,
 `../docs/decisions/viewport-driven-stock-details-history.md` for the chart's history window, its
@@ -109,9 +115,12 @@ series. Missing/warm-up/PIT-unavailable data remains `NOT_EVALUABLE`; it is neve
 or future data. Position-dependent metrics such as Gain/Loss require simulated position state and
 must not be forced into a static historical-series model merely for implementation convenience.
 
-Catalog membership does not automatically define Strategy compatibility. For example, RSI is now a
-canonical calculated series family, but its Strategy operators/value presets remain a product
-decision until they are added to `product/strategies.md`.
+Catalog membership does not automatically define Strategy compatibility: a series becomes a usable
+Metric or Value only when `product/strategies.md` says so, and its operators and value domains are
+a product decision there. RSI and the moving averages have been through that step — both are now
+first-class Strategy Metrics, with moving-average Values resolved through the catalog's own
+`comparableMovingAverages` (same timeframe, never itself). Percentage domains are metric-specific:
+Margin of Safety `<= 100`, Gain `>= -100`, Loss `0..100`.
 
 Historical index-membership PIT is excluded.
 

@@ -114,9 +114,16 @@ model, or a future completed-week value.
   Price Value and does not support `is close to` in V1.
 - Strategy `Margin of Safety` source selection: the 7 intrinsic-value entries only. MOS itself is a
   first-class Strategy metric defined in `ai/product/strategies.md`, not a catalog series identity.
-- Catalog helpers may expose additional structurally compatible subsets such as moving averages in
-  the same timeframe, but a helper does not create a user-visible Strategy predicate unless the
-  Strategy product document explicitly defines it.
+- Strategy moving-average Metrics: the 14 moving averages are first-class Strategy metrics, not only
+  Values. For a selected moving-average Metric the permitted Values are exactly
+  `comparableMovingAverages(id)` — the same timeframe, never the series itself. Daily-versus-weekly
+  comparisons are not part of V1. Supported Conditions are `is above`, `is below` and `is close to`;
+  supported Triggers are `crosses above` and `crosses below`.
+- Catalog helpers may expose additional structurally compatible subsets, but a helper does not
+  create a user-visible Strategy predicate on its own: the Strategy product document has to define
+  it. `comparableMovingAverages` is the worked example — it existed as a structural helper first,
+  and became a user-visible predicate only when `ai/product/strategies.md` admitted moving averages
+  as Metrics. It remains the single source of that compatibility; no surface restates it.
 
 Catalog ordering and labels are product metadata. Backend/domain identities remain structured
 (moving-average type, period, timeframe; oscillator family/period/timeframe; or intrinsic source
