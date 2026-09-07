@@ -2,19 +2,40 @@
 
 ## Status
 
-Plan only. Nothing here is implemented. `apps/web/src/app/(app)/strategies/page.tsx` is still a
-`RoutePlaceholder`, and no Strategy type, contract, schema or endpoint exists.
+**Implemented.** Phases A–F of § 13 are in the repository; this document is now the record of what
+was built rather than a plan for it.
 
-All Builder product questions are closed (§ 15); the registry is ready to be frozen in Phase A.
+| Phase | Content | State |
+| --- | --- | --- |
+| A | Strategy types, compatibility registry, validator, normalizer, `describeStrategy`, help metadata, limits | Implemented in `packages/contracts/src/strategies.ts` |
+| B | `Strategy` + `StrategyVersion`, migration `20260907072239_add_strategies`, `docs/decisions/strategy-definition-storage.md`, `apps/api/src/strategies/` | Implemented |
+| C | `/strategies` collection page | Implemented in `apps/web/src/features/strategies/` |
+| D | Builder core, `/strategies/new` and `/strategies/[id]` | Implemented |
+| E | Explanation panel and logic preview | Implemented |
+| F | Mobile composition and the Playwright journeys | Implemented |
+
+All Builder product questions were closed (§ 15) before Phase A froze the registry.
+
+The **backtest evaluator and engine remain unimplemented** and out of scope here: no signal
+evaluation over historical data, no tri-state arrays, no day loop, no worker queue, no portfolio
+simulation. `strategy-evaluation.md` is the design for that work and its open questions stay open.
+
+Six deviations from the plan sketches below were made during implementation, each noted at the
+relevant section: `StrategyIssuePath.levelKind` is optional because a name issue belongs to no
+level; a `DESCRIPTION` issue part was added; `valueSpecFor`/`defaultValueFor` take no operator
+because no V1 operator narrows a Value domain; the metric group union gained `MOVING_AVERAGES`;
+`METRIC_SERIES_UNSUPPORTED` and `DUPLICATE_ID` were added as validation codes; and
+`CreateStrategyRequest.definition` is required, because a strategy with no BUY level is not
+saveable and so there is no name-only strategy to create.
 
 Scope is the **Create/Edit Strategy vertical slice**: defining reusable BUY / SELL / FINAL EXIT
 logic, validating it, saving it and editing it again. `ai/product/strategies.md` is the
 authoritative product definition; this document does not restate or alter it.
 
-**Explicitly out of scope**: the backtest day loop, worker queue, execution-price model,
-contribution processing, candidate ordering and the portfolio simulator. Those are designed in
-`strategy-evaluation.md`, which stays as written — its Phase 1–4 findings and its thirteen open
-questions remain the record for that work. Only the small number of those questions that change
+**Explicitly out of scope, and still unimplemented**: the backtest day loop, worker queue,
+execution-price model, contribution processing, candidate ordering and the portfolio simulator.
+Those are designed in `strategy-evaluation.md`, which stays as written — its Phase 1–4 findings and
+its thirteen open questions remain the record for that work. Only the small number of those questions that change
 *what a user can define* are pulled forward here; § 12 lists which, and why the rest stay deferred.
 
 A useful property of this slice: **it needs no market data**. The operand catalog is static in

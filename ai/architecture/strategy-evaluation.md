@@ -2,8 +2,19 @@
 
 ## Status
 
-Design only. **Nothing in this document is implemented.** No Strategy or Backtest code, contract,
-schema or worker processor exists in the repository at the time of writing.
+Design only. **Nothing in this document is implemented**: there is no signal evaluation over
+historical data, no tri-state result representation, no position model, no backtest day loop, no
+worker processor and no portfolio simulation anywhere in the repository.
+
+What *has* since been built is the Create/Edit Strategy slice designed in `strategy-builder.md`:
+the canonical Strategy model, compatibility registry and validator in `@intrinsic/contracts`, the
+`Strategy`/`StrategyVersion` tables and CRUD API, and the Strategy Builder UI. That slice defines
+and saves the semantics this document evaluates; it evaluates nothing. The Phase 1 inventory below
+was written before it existed and is preserved as the record of that starting point — see
+§ 1.1 for what has changed since.
+
+**Every open product question in this document remains open.** None of them was answered by
+building the Builder, because none of them changes what a user can define.
 
 This document is the technical design for evaluating `ai/product/strategies.md` semantics over
 historical data and for the backtest engine that consumes that evaluation. It does **not** define
@@ -28,7 +39,15 @@ Written in bounded phases so the work survives context loss:
 
 Verified by direct inspection of the repository, not inferred from documentation.
 
-**Does not exist anywhere:**
+> **Superseded in part.** The Create/Edit Strategy slice has since been implemented, so three
+> items in the list below are no longer true: `Strategy` and `StrategyVersion` **do** exist in
+> `packages/database/prisma/schema.prisma`, `@intrinsic/contracts` **does** export a Strategy
+> model, registry and validator from `strategies.ts`, and `/strategies` is a real product surface
+> rather than a placeholder. Everything else in this section still holds: there is still no
+> evaluator, no position model, no portfolio simulation, and no backtest schema, contract or
+> worker processor. The list is kept as written because the rest of the design reasons from it.
+
+**Did not exist when this design was written:**
 
 - no `Strategy`, `StrategyVersion`, `BacktestConfiguration`, `BacktestRun` or job/queue model in
   `packages/database/prisma/schema.prisma`. Its complete model list is `User`, `OAuthAccount`,

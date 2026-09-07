@@ -450,6 +450,27 @@ export function valueSpecFor(metric: StrategyMetric): StrategyValueSpec {
 }
 
 /**
+ * The operator a freshly added row starts from: the first one the metric's registry entry lists.
+ *
+ * Every metric declares at least one of each, which a registry-integrity test asserts, so the
+ * fallbacks are unreachable. They live here rather than in the Builder so no surface has to know
+ * an operator name to create a row.
+ */
+export function defaultConditionOperatorFor(
+  metric: StrategyMetric,
+): ConditionOperator {
+  const [first] = conditionOperatorsFor(metric);
+  return first ?? CONDITION_OPERATORS[0];
+}
+
+export function defaultTriggerOperatorFor(
+  metric: StrategyMetric,
+): TriggerOperator {
+  const [first] = triggerOperatorsFor(metric);
+  return first ?? TRIGGER_OPERATORS[0];
+}
+
+/**
  * The Value a freshly selected Metric starts from, or `undefined` when the metric permits none.
  *
  * Every default is derived rather than invented: the first permitted series in canonical catalog

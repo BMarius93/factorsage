@@ -201,28 +201,40 @@ describe("strategy draft reducer", () => {
     const state = apply(
       withOneBuyLevel(),
       { type: "addLevel", levelKind: "BUY" },
-      { type: "setPercentage", ref: { levelKind: "BUY", levelIndex: 1 }, percentage: 100 },
-      { type: "moveLevel", ref: { levelKind: "BUY", levelIndex: 1 }, direction: -1 },
+      {
+        type: "setPercentage",
+        ref: { levelKind: "BUY", levelIndex: 1 },
+        percentage: 100,
+      },
+      {
+        type: "moveLevel",
+        ref: { levelKind: "BUY", levelIndex: 1 },
+        direction: -1,
+      },
     );
-    expect(state.definition.buyLevels.map((level) => level.percentage)).toEqual([
-      100, 25,
-    ]);
+    expect(state.definition.buyLevels.map((level) => level.percentage)).toEqual(
+      [100, 25],
+    );
     // Moving past the ends is a no-op rather than a wrap-around.
     const clamped = apply(state, {
       type: "moveLevel",
       ref: { levelKind: "BUY", levelIndex: 0 },
       direction: -1,
     });
-    expect(clamped.definition.buyLevels.map((level) => level.percentage)).toEqual(
-      [100, 25],
-    );
+    expect(
+      clamped.definition.buyLevels.map((level) => level.percentage),
+    ).toEqual([100, 25]);
   });
 
   it("never gives FINAL EXIT a percentage", () => {
     const state = apply(
       emptyDraft(),
       { type: "addLevel", levelKind: "FINAL_EXIT" },
-      { type: "setPercentage", ref: { levelKind: "FINAL_EXIT" }, percentage: 100 },
+      {
+        type: "setPercentage",
+        ref: { levelKind: "FINAL_EXIT" },
+        percentage: 100,
+      },
     );
     expect(state.definition.finalExit).toBeDefined();
     expect(state.definition.finalExit).not.toHaveProperty("percentage");

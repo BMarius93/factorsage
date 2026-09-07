@@ -1,6 +1,9 @@
 "use client";
 
-import type { StrategySummaryResponse } from "@intrinsic/contracts";
+import {
+  describeCondition,
+  type StrategySummaryResponse,
+} from "@intrinsic/contracts";
 import Link from "next/link";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
@@ -11,6 +14,17 @@ import { useStrategies } from "../hooks/use-strategies";
 import { formatStrategyDate, strategyShapeLabel } from "../utils/format";
 import styles from "./StrategiesPage.module.css";
 import { StrategyRenameDialog } from "./StrategyRenameDialog";
+
+/**
+ * One illustrative rule for the empty state, composed from the canonical labels rather than typed
+ * out, so the copy cannot drift from the series catalog.
+ */
+const EXAMPLE_CONDITION = describeCondition({
+  id: "example",
+  metric: { kind: "PRICE" },
+  operator: "IS_ABOVE",
+  value: { kind: "SERIES", seriesId: "EMA_200D" },
+});
 
 type DialogState =
   | { kind: "closed" }
@@ -84,8 +98,8 @@ export function StrategiesPage() {
             <h2 className={styles.statusTitle}>No strategies yet</h2>
             <p className={styles.statusBody}>
               A strategy is the reusable logic that decides when to buy and when
-              to sell — conditions such as <em>Price is above EMA 200D</em>, and
-              the event that fires them.
+              to sell — conditions such as <em>{EXAMPLE_CONDITION}</em>, and the
+              event that fires them.
             </p>
             <Link
               className={styles.primaryLink}

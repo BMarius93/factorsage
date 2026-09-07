@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CONDITION_OPERATORS,
   STRATEGY_LEVEL_HELP,
   STRATEGY_LEVEL_LABELS,
   STRATEGY_METRIC_HELP,
@@ -14,12 +15,6 @@ import {
 } from "@intrinsic/contracts";
 import type { HelpFocus } from "./help-focus";
 import styles from "./ExplanationPanel.module.css";
-
-const CONDITION_OPERATORS: readonly string[] = [
-  "IS_ABOVE",
-  "IS_BELOW",
-  "IS_CLOSE_TO",
-];
 
 function titleAndHelp(
   focus: HelpFocus,
@@ -35,7 +30,7 @@ function titleAndHelp(
   }
   if (focus.kind === "OPERATOR") {
     return {
-      title: CONDITION_OPERATORS.includes(focus.operator)
+      title: (CONDITION_OPERATORS as readonly string[]).includes(focus.operator)
         ? conditionOperatorLabel(focus.operator as ConditionOperator)
         : triggerOperatorLabel(focus.operator as TriggerOperator),
       help: STRATEGY_OPERATOR_HELP[focus.operator],

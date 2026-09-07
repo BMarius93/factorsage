@@ -4,6 +4,8 @@ import {
   SELL_LEVEL_PERCENTAGES,
   checkStrategyValue,
   conditionOperatorsFor,
+  defaultConditionOperatorFor,
+  defaultTriggerOperatorFor,
   defaultValueFor,
   emptyStrategyDefinition,
   strategyMetricOptions,
@@ -94,22 +96,20 @@ function firstMetricFor(levelKind: StrategyLevelKind): StrategyMetric {
 
 function newCondition(levelKind: StrategyLevelKind): StrategyCondition {
   const metric = firstMetricFor(levelKind);
-  const [operator] = conditionOperatorsFor(metric);
   return {
     id: newRowId("condition"),
     metric,
-    operator: operator ?? "IS_ABOVE",
+    operator: defaultConditionOperatorFor(metric),
     value: defaultValueFor(metric) ?? { kind: "PERCENT", value: 0 },
   };
 }
 
 function newTrigger(levelKind: StrategyLevelKind): StrategyTrigger {
   const metric = firstMetricFor(levelKind);
-  const [operator] = triggerOperatorsFor(metric);
   return {
     id: newRowId("trigger"),
     metric,
-    operator: operator ?? "CROSSES_ABOVE",
+    operator: defaultTriggerOperatorFor(metric),
     value: defaultValueFor(metric) ?? { kind: "PERCENT", value: 0 },
   };
 }
@@ -124,7 +124,9 @@ export function emptyDraft(): StrategyDraftState {
 }
 
 /** The draft a saved strategy is edited from. */
-export function draftFrom(strategy: StrategyDetailResponse): StrategyDraftState {
+export function draftFrom(
+  strategy: StrategyDetailResponse,
+): StrategyDraftState {
   return {
     name: strategy.name,
     description: strategy.description ?? "",
@@ -226,7 +228,9 @@ function withSignal(
   return {
     ...definition,
     [key]: levelsOf(definition, ref.levelKind).map((level, index) =>
-      index === ref.levelIndex ? { ...level, signal: change(level.signal) } : level,
+      index === ref.levelIndex
+        ? { ...level, signal: change(level.signal) }
+        : level,
     ),
   } as StrategyDefinition;
 }
@@ -325,7 +329,10 @@ export function strategyDraftReducer(
       const key = levelKind === "BUY" ? "buyLevels" : "sellLevels";
       return {
         ...state,
-        definition: { ...state.definition, [key]: levels } as StrategyDefinition,
+        definition: {
+          ...state.definition,
+          [key]: levels,
+        } as StrategyDefinition,
       };
     }
 
