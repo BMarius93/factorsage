@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import forms from "./lists-forms.module.css";
+import forms from "./forms.module.css";
 import { Modal } from "./Modal";
 
 type ConfirmDialogProps = {
@@ -14,7 +14,7 @@ type ConfirmDialogProps = {
   readonly onClose: () => void;
 };
 
-/** Confirmation gate for destructive list actions (delete list, remove stock). */
+/** Confirmation gate for a destructive action: deleting a list, a strategy, or a member row. */
 export function ConfirmDialog({
   title,
   body,

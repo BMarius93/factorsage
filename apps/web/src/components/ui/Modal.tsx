@@ -14,9 +14,9 @@ type ModalProps = {
 };
 
 /**
- * Feature-local modal over the native `<dialog>` element, which supplies the top layer, focus
+ * Shared modal over the native `<dialog>` element, which supplies the top layer, focus
  * containment, and Escape handling for free. Mount it only while open; it shows itself modally on
- * mount. Promote to `components/ui` once a second feature genuinely needs it.
+ * mount.
  */
 export function Modal({ title, onClose, children, testId, wide }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);

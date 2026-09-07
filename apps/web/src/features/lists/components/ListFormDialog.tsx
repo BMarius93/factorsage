@@ -10,8 +10,8 @@ import {
 import { useState } from "react";
 import { ApiError } from "../../../lib/api/client";
 import { createStockList, updateStockList } from "../api/stock-lists-api";
-import forms from "./lists-forms.module.css";
-import { Modal } from "./Modal";
+import forms from "../../../components/ui/forms.module.css";
+import { Modal } from "../../../components/ui/Modal";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
 
 type CreateProps = {

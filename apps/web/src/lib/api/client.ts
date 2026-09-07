@@ -14,6 +14,15 @@ export class ApiError extends Error {
     message: string,
     /** Stable machine-readable code from the API, when it sends one. */
     readonly code?: string,
+    /**
+     * Path-addressed validation issues, when the API rejected a document it validated with a
+     * canonical validator the client also runs.
+     *
+     * Defence in depth: a UI that validates with the same rules should never produce a 400, but a
+     * stale client or a concurrent edit can, and a generic banner would be a dead end. Typed as
+     * `unknown[]` here because this module owns HTTP mechanics, not any feature's shapes.
+     */
+    readonly issues?: readonly unknown[],
   ) {
     super(message);
     this.name = "ApiError";
@@ -29,17 +38,22 @@ export class ApiError extends Error {
 async function toApiError(response: Response, path: string): Promise<ApiError> {
   let message: string | undefined;
   let code: string | undefined;
+  let issues: unknown[] | undefined;
 
   try {
     const body = (await response.json()) as {
       message?: unknown;
       code?: unknown;
+      issues?: unknown;
     };
     if (typeof body.message === "string") {
       message = body.message;
     }
     if (typeof body.code === "string") {
       code = body.code;
+    }
+    if (Array.isArray(body.issues)) {
+      issues = body.issues;
     }
   } catch {
     // Fall through to the status-only error.
@@ -49,6 +63,7 @@ async function toApiError(response: Response, path: string): Promise<ApiError> {
     response.status,
     message ?? `Request to ${path} failed`,
     code,
+    issues,
   );
 }
 

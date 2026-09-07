@@ -8,9 +8,9 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { ListFormDialog } from "./ListFormDialog";
-import forms from "./lists-forms.module.css";
+import forms from "../../../components/ui/forms.module.css";
 import styles from "./ListsPage.module.css";
 
 type DialogState =

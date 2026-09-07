@@ -13,8 +13,8 @@ import {
   toEditableRanges,
   type EditableBuyWindowRange,
 } from "../utils/buy-windows";
-import forms from "./lists-forms.module.css";
-import { Modal } from "./Modal";
+import forms from "../../../components/ui/forms.module.css";
+import { Modal } from "../../../components/ui/Modal";
 import styles from "./BuyWindowEditor.module.css";
 
 type BuyWindowEditorProps = {

@@ -18,9 +18,9 @@ import { useStockList } from "../hooks/use-stock-list";
 import { buyWindowLabel } from "../utils/buy-windows";
 import { stockCountLabel } from "../utils/format";
 import { BuyWindowEditor } from "./BuyWindowEditor";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { ListFormDialog } from "./ListFormDialog";
-import forms from "./lists-forms.module.css";
+import forms from "../../../components/ui/forms.module.css";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
 import styles from "./ListDetail.module.css";
 

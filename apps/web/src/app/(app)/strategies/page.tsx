@@ -1,10 +1,5 @@
-import { RoutePlaceholder } from "../_placeholder/RoutePlaceholder";
+import { StrategiesPage } from "../../../features/strategies/components/StrategiesPage";
 
-export default function StrategiesPage() {
-  return (
-    <RoutePlaceholder
-      title="Strategies"
-      description="Valuation, margin-of-safety, and entry/exit rules arrive in the Strategies slice."
-    />
-  );
+export default function Page() {
+  return <StrategiesPage />;
 }
