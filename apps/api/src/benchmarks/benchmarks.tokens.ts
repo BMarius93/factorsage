@@ -1,0 +1,1 @@
+export const BENCHMARKS_LOGGER = Symbol("BENCHMARKS_LOGGER");

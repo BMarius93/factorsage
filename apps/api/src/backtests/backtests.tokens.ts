@@ -1,0 +1,1 @@
+export const BACKTESTS_LOGGER = Symbol("BACKTESTS_LOGGER");

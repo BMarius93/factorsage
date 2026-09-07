@@ -70,6 +70,7 @@ model User {
   verificationTokens EmailVerificationToken[]
   stockLists         StockList[]
   strategies         Strategy[]
+  backtestRuns       BacktestRun[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -99,33 +100,35 @@ model EmailVerificationToken {
 }
 
 model Security {
-  id                String       @id @default(uuid())
-  providerSymbol    String       @unique
-  symbol            String
-  name              String
-  exchangeCode      String
-  exchangeName      String?
-  currency          String
-  cik               String?
-  isin              String?
-  cusip             String?
-  country           String?
-  sector            String?
-  industry          String?
-  ipoDate           DateTime?    @db.Date
-  type              SecurityType
-  isAdr             Boolean
-  isActivelyTrading Boolean
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  profile           SecurityProfile?
-  datasetStates     StockDatasetState[]
-  datasetCoverage   StockDatasetCoverage[]
-  dailyPrices       DailyPrice[]
-  weeklyPrices      WeeklyPrice[]
-  dailyDerivedState DailyDerivedState[]
+  id                  String                 @id @default(uuid())
+  providerSymbol      String                 @unique
+  symbol              String
+  name                String
+  exchangeCode        String
+  exchangeName        String?
+  currency            String
+  cik                 String?
+  isin                String?
+  cusip               String?
+  country             String?
+  sector              String?
+  industry            String?
+  ipoDate             DateTime?              @db.Date
+  type                SecurityType
+  isAdr               Boolean
+  isActivelyTrading   Boolean
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  profile             SecurityProfile?
+  datasetStates       StockDatasetState[]
+  datasetCoverage     StockDatasetCoverage[]
+  dailyPrices         DailyPrice[]
+  weeklyPrices        WeeklyPrice[]
+  dailyDerivedState   DailyDerivedState[]
   financialStatements FinancialStatement[]
-  stockListItems    StockListItem[]
+  stockListItems      StockListItem[]
+  backtestTrades      BacktestTrade[]
+  backtestPositions   BacktestPosition[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -134,14 +137,15 @@ model Security {
 /// User-owned reusable stock universe. Mutable configuration: future backtests must snapshot the
 /// membership and buy-window state they ran with instead of referencing this row's current state.
 model StockList {
-  id          String          @id @default(uuid())
-  userId      String
-  name        String
-  description String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items       StockListItem[]
+  id           String          @id @default(uuid())
+  userId       String
+  name         String
+  description  String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items        StockListItem[]
+  backtestRuns BacktestRun[]
 
   @@index([userId])
 }
@@ -169,14 +173,15 @@ model StockListItem {
 /// history holding the actual BUY / SELL / FINAL EXIT logic. Names are deliberately not unique per
 /// user — identity is this row's id, and two strategies may both be called `Value Strategy`.
 model Strategy {
-  id          String            @id @default(uuid())
-  userId      String
-  name        String
-  description String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  versions    StrategyVersion[]
+  id           String            @id @default(uuid())
+  userId       String
+  name         String
+  description  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions     StrategyVersion[]
+  backtestRuns BacktestRun[]
 
   @@index([userId])
   @@index([userId, updatedAt])
@@ -193,13 +198,14 @@ model Strategy {
 /// appends a version while genuine reordering does. See
 /// `docs/decisions/strategy-definition-storage.md`.
 model StrategyVersion {
-  id             String   @id @default(uuid())
+  id             String        @id @default(uuid())
   strategyId     String
   versionNumber  Int
   definition     Json
   definitionHash String
-  createdAt      DateTime @default(now())
-  strategy       Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  strategy       Strategy      @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  backtestRuns   BacktestRun[]
 
   @@unique([strategyId, versionNumber])
   @@index([strategyId])
@@ -221,36 +227,36 @@ model StockListBuyWindow {
 }
 
 model SecurityProfile {
-  securityId    String   @id
-  description   String?
-  website       String?
-  logoUrl       String?
-  ceo           String?
-  employees     Int?
-  addressStreet String?
-  addressCity   String?
-  addressState  String?
-  postalCode    String?
+  securityId     String   @id
+  description    String?
+  website        String?
+  logoUrl        String?
+  ceo            String?
+  employees      Int?
+  addressStreet  String?
+  addressCity    String?
+  addressState   String?
+  postalCode     String?
   addressCountry String?
-  updatedAt     DateTime @updatedAt
-  security      Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  updatedAt      DateTime @updatedAt
+  security       Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
 }
 
 model FinancialStatement {
-  id                    String                 @id @default(uuid())
-  securityId            String
-  statementType         FinancialStatementType
-  fiscalDate            DateTime               @db.Date
-  fiscalYear            Int
-  period                FinancialPeriod
-  reportedCurrency      String
-  filingDate            DateTime               @db.Date
-  availableFromDate     DateTime               @db.Date
-  providerAcceptedDate  String?
-  contentHash           String
-  observedAt            DateTime               @default(now())
-  values                Json
-  security              Security               @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  id                   String                 @id @default(uuid())
+  securityId           String
+  statementType        FinancialStatementType
+  fiscalDate           DateTime               @db.Date
+  fiscalYear           Int
+  period               FinancialPeriod
+  reportedCurrency     String
+  filingDate           DateTime               @db.Date
+  availableFromDate    DateTime               @db.Date
+  providerAcceptedDate String?
+  contentHash          String
+  observedAt           DateTime               @default(now())
+  values               Json
+  security             Security               @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@unique([securityId, statementType, fiscalDate, period, filingDate, contentHash])
   @@index([securityId, statementType, period, fiscalDate])
@@ -258,26 +264,26 @@ model FinancialStatement {
 }
 
 model StockDatasetState {
-  securityId             String
-  dataset                StockDataset
-  variant                String       @default("")
-  earliestDate           DateTime?    @db.Date
-  latestDate             DateTime?    @db.Date
-  lastSuccessfulSyncAt   DateTime?
-  security               Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  securityId           String
+  dataset              StockDataset
+  variant              String       @default("")
+  earliestDate         DateTime?    @db.Date
+  latestDate           DateTime?    @db.Date
+  lastSuccessfulSyncAt DateTime?
+  security             Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@id([securityId, dataset, variant])
 }
 
 model StockDatasetCoverage {
-  id                       String       @id @default(uuid())
-  securityId               String
-  dataset                  StockDataset
-  variant                  String       @default("")
-  fromDate                 DateTime     @db.Date
-  toDate                   DateTime     @db.Date
-  lastSuccessfulSyncAt     DateTime
-  security                 Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  id                   String       @id @default(uuid())
+  securityId           String
+  dataset              StockDataset
+  variant              String       @default("")
+  fromDate             DateTime     @db.Date
+  toDate               DateTime     @db.Date
+  lastSuccessfulSyncAt DateTime
+  security             Security     @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@unique([securityId, dataset, variant, fromDate, toDate], map: "StockDatasetCoverage_range_key")
   @@index([securityId, dataset, variant, fromDate, toDate], map: "StockDatasetCoverage_lookup_idx")
@@ -299,16 +305,16 @@ model DailyPrice {
 }
 
 model WeeklyPrice {
-  securityId        String
-  weekStartDate     DateTime @db.Date
-  weekEndDate       DateTime @db.Date
-  eligibleDate      DateTime @db.Date
-  open              Decimal  @db.Decimal(20, 8)
-  high              Decimal  @db.Decimal(20, 8)
-  low               Decimal  @db.Decimal(20, 8)
-  close             Decimal  @db.Decimal(20, 8)
-  volume            BigInt
-  security          Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+  securityId    String
+  weekStartDate DateTime @db.Date
+  weekEndDate   DateTime @db.Date
+  eligibleDate  DateTime @db.Date
+  open          Decimal  @db.Decimal(20, 8)
+  high          Decimal  @db.Decimal(20, 8)
+  low           Decimal  @db.Decimal(20, 8)
+  close         Decimal  @db.Decimal(20, 8)
+  volume        BigInt
+  security      Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@id([securityId, weekStartDate])
   @@index([securityId, eligibleDate])
@@ -385,4 +391,330 @@ model DailyDerivedState {
   security                 Security  @relation(fields: [securityId], references: [id], onDelete: Cascade)
 
   @@id([securityId, date])
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark: product identity + market data, deliberately separate from Security
+// ---------------------------------------------------------------------------
+
+/// How a benchmark's market data is obtained. V1 ships one kind; the enum exists so a future
+/// index-backed or composite benchmark is an added member rather than a reinterpretation of
+/// existing rows.
+enum BenchmarkSourceKind {
+  FMP_SYMBOL
+}
+
+/// Datasets a benchmark materializes. Deliberately separate from `StockDataset`: a benchmark has
+/// no fundamentals, no derived technicals and no intrinsic values, and must never acquire them
+/// merely because it shares a provider with stocks.
+enum BenchmarkDataset {
+  DAILY_PRICE
+}
+
+/// A system-owned comparison series. A benchmark is **not** a portfolio `Security`: it is never
+/// bought, never consumes cash or a position slot, and carries no derived series. Its identity is
+/// snapshotted into every `BacktestRun`, so replacing the data source behind a code (SPY today,
+/// a direct index tomorrow) can never reinterpret a completed run.
+model Benchmark {
+  id                 String                     @id @default(uuid())
+  /// Stable product code snapshotted by runs, e.g. `SP500`.
+  code               String                     @unique
+  name               String
+  description        String?
+  sourceKind         BenchmarkSourceKind
+  /// Provider identifier for `FMP_SYMBOL` benchmarks, e.g. `SPY`.
+  providerSymbol     String
+  currency           String
+  /// Revision of what this benchmark's series *means*. Bumping it makes a new run incomparable to
+  /// an older one on purpose; the run snapshot records the value it executed under.
+  methodologyVersion Int                        @default(1)
+  isActive           Boolean                    @default(true)
+  displayOrder       Int                        @default(0)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  dailyPrices        BenchmarkDailyPrice[]
+  datasetStates      BenchmarkDatasetState[]
+  datasetCoverage    BenchmarkDatasetCoverage[]
+  backtestRuns       BacktestRun[]
+
+  @@index([isActive, displayOrder])
+}
+
+/// Canonical daily bar of a benchmark series, stored separately from `DailyPrice` so benchmark
+/// data can never be mistaken for a tradable security's price history.
+model BenchmarkDailyPrice {
+  benchmarkId String
+  date        DateTime  @db.Date
+  open        Decimal   @db.Decimal(20, 8)
+  high        Decimal   @db.Decimal(20, 8)
+  low         Decimal   @db.Decimal(20, 8)
+  close       Decimal   @db.Decimal(20, 8)
+  volume      BigInt
+  benchmark   Benchmark @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+
+  @@id([benchmarkId, date])
+}
+
+/// Watermark of the benchmark dataset. Same meaning as `StockDatasetState`, keyed by benchmark.
+model BenchmarkDatasetState {
+  benchmarkId          String
+  dataset              BenchmarkDataset
+  variant              String           @default("")
+  earliestDate         DateTime?        @db.Date
+  latestDate           DateTime?        @db.Date
+  lastSuccessfulSyncAt DateTime?
+  benchmark            Benchmark        @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+
+  @@id([benchmarkId, dataset, variant])
+}
+
+/// Exact successful coverage interval. Same contract as `StockDatasetCoverage`: the provider was
+/// asked for every date in the interval with complete (paginated) requests and every returned row
+/// is persisted, under the recorded variant.
+model BenchmarkDatasetCoverage {
+  id                   String           @id @default(uuid())
+  benchmarkId          String
+  dataset              BenchmarkDataset
+  variant              String           @default("")
+  fromDate             DateTime         @db.Date
+  toDate               DateTime         @db.Date
+  lastSuccessfulSyncAt DateTime
+  benchmark            Benchmark        @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+
+  @@unique([benchmarkId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_range_key")
+  @@index([benchmarkId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_lookup_idx")
+}
+
+// ---------------------------------------------------------------------------
+// Backtest runs, durable jobs, progress and results
+// ---------------------------------------------------------------------------
+
+enum BacktestRunStatus {
+  QUEUED
+  PREPARING_DATA
+  RUNNING
+  FINALIZING
+  COMPLETED
+  FAILED
+}
+
+enum BacktestJobStatus {
+  QUEUED
+  CLAIMED
+  COMPLETED
+  FAILED
+}
+
+enum BacktestTradeAction {
+  BUY
+  SELL
+  FINAL_EXIT
+}
+
+/// One immutable execution of a backtest configuration.
+///
+/// `snapshot` is the reproducibility authority: strategy identity and normalized definition,
+/// resolved securities with their normalized BUY windows, period, capital, contribution,
+/// `maximumPositions` and the derived full-position policy, the benchmark identity/source, and
+/// every methodology version. The `strategyId`/`strategyVersionId`/`stockListId` foreign keys are
+/// nullable and `onDelete: SetNull` **on purpose**: deleting a strategy or list must never delete
+/// or reinterpret a completed run, and nothing in the read path depends on those rows.
+model BacktestRun {
+  id                  String                @id @default(uuid())
+  userId              String
+  strategyId          String?
+  strategyVersionId   String?
+  stockListId         String?
+  benchmarkId         String
+  status              BacktestRunStatus     @default(QUEUED)
+  /// Denormalized configuration. The snapshot remains authoritative; these columns exist so the
+  /// collection page can sort and filter without opening a JSON document.
+  startDate           DateTime              @db.Date
+  endDate             DateTime              @db.Date
+  initialCapital      Decimal               @db.Decimal(20, 2)
+  monthlyContribution Decimal               @db.Decimal(20, 2)
+  maximumPositions    Int
+  strategyName        String
+  stockListName       String
+  securityCount       Int
+  snapshot            Json
+  /// SHA-256 of `canonicalBacktestSnapshotDocument(snapshot)` from `@intrinsic/contracts`: the
+  /// document with `submittedAt` removed and object keys sorted. Excluding the timestamp makes the
+  /// digest an identity of *inputs* — two runs with the same hash executed the same configuration
+  /// under the same methodology versions — and sorting the keys keeps it verifiable against this
+  /// `JSONB` column, which does not preserve key order.
+  snapshotHash        String
+  queuedAt            DateTime              @default(now())
+  startedAt           DateTime?
+  completedAt         DateTime?
+  /// Stable machine-readable failure code; `failureMessage` is the sanitized user-facing text.
+  failureCode         String?
+  failureMessage      String?
+  /// Developer diagnostics. Never exposed by any API contract.
+  failureDetail       Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy            Strategy?             @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  strategyVersion     StrategyVersion?      @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
+  stockList           StockList?            @relation(fields: [stockListId], references: [id], onDelete: SetNull)
+  benchmark           Benchmark             @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
+  job                 BacktestJob?
+  progress            BacktestRunProgress?
+  summary             BacktestRunSummary?
+  trades              BacktestTrade[]
+  equityPoints        BacktestDailyEquity[]
+  positions           BacktestPosition[]
+
+  @@index([userId, queuedAt])
+  @@index([userId, status])
+}
+
+/// The durable queue. One row per run, created in the same transaction as the run, so the queue
+/// and the execution record are the same source of truth and cannot diverge. A worker claims with
+/// `SELECT ... FOR UPDATE SKIP LOCKED` and holds the row through a renewable lease; an expired
+/// lease is reclaimable, which is what makes a crashed worker self-healing.
+model BacktestJob {
+  id             String            @id @default(uuid())
+  runId          String            @unique
+  status         BacktestJobStatus @default(QUEUED)
+  /// Earliest instant this job may be claimed. Retries push it forward.
+  availableAt    DateTime          @default(now())
+  attempts       Int               @default(0)
+  maxAttempts    Int               @default(3)
+  claimedBy      String?
+  claimedAt      DateTime?
+  leaseExpiresAt DateTime?
+  heartbeatAt    DateTime?
+  lastError      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  run            BacktestRun       @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([status, leaseExpiresAt])
+}
+
+/// Live execution progress and the latest checkpoint snapshot.
+///
+/// Separate from `BacktestRun` because these columns are written repeatedly while the run
+/// executes, whereas the run row — including its immutable submission snapshot — is not. The
+/// snapshot here is a bounded, downsampled projection for the running UI; it is never the durable
+/// result, which lands in the summary/equity/trade tables when execution completes.
+model BacktestRunProgress {
+  runId            String      @id
+  percent          Int         @default(0)
+  message          String?
+  simulatedThrough DateTime?   @db.Date
+  /// Monotonic checkpoint counter. A poller can tell a newer snapshot from an older one without
+  /// comparing clocks across processes.
+  sequence         Int         @default(0)
+  snapshot         Json?
+  updatedAt        DateTime    @updatedAt
+  run              BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+/// One executed order. `sequence` is the deterministic execution order inside the run: two runs of
+/// the same snapshot produce identical sequences.
+model BacktestTrade {
+  id                 String              @id @default(uuid())
+  runId              String
+  sequence           Int
+  date               DateTime            @db.Date
+  securityId         String
+  /// Denormalized identity so results render without joining the mutable catalog.
+  symbol             String
+  name               String
+  action             BacktestTradeAction
+  /// Strategy level that produced the order; null for FINAL EXIT, which has no percentage.
+  levelId            String?
+  levelPercentage    Int?
+  shares             Decimal             @db.Decimal(28, 10)
+  price              Decimal             @db.Decimal(20, 8)
+  amount             Decimal             @db.Decimal(20, 2)
+  fees               Decimal             @db.Decimal(20, 2)
+  realizedPnl        Decimal?            @db.Decimal(20, 2)
+  realizedPnlPercent Decimal?            @db.Decimal(20, 8)
+  cashAfter          Decimal             @db.Decimal(20, 2)
+  sharesAfter        Decimal             @db.Decimal(28, 10)
+  averageCostAfter   Decimal?            @db.Decimal(20, 8)
+  run                BacktestRun         @relation(fields: [runId], references: [id], onDelete: Cascade)
+  security           Security            @relation(fields: [securityId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, sequence])
+  @@index([runId, date])
+}
+
+/// One portfolio valuation per simulated trading date.
+///
+/// `returnIndex` and `benchmarkIndex` are growth indices based at 1.0 on the first simulated date,
+/// which is what makes portfolio and benchmark percentage growth directly comparable. The
+/// portfolio index is time-weighted, so a monthly contribution raises value without inventing
+/// return. `benchmarkIndex` is null on a date the benchmark has no value at or before — never
+/// fabricated.
+model BacktestDailyEquity {
+  runId           String
+  date            DateTime    @db.Date
+  cash            Decimal     @db.Decimal(20, 2)
+  positionsValue  Decimal     @db.Decimal(20, 2)
+  totalValue      Decimal     @db.Decimal(20, 2)
+  investedCapital Decimal     @db.Decimal(20, 2)
+  returnIndex     Decimal     @db.Decimal(20, 10)
+  benchmarkIndex  Decimal?    @db.Decimal(20, 10)
+  openPositions   Int
+  run             BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@id([runId, date])
+}
+
+/// A position still open on the final simulated date.
+model BacktestPosition {
+  id                   String      @id @default(uuid())
+  runId                String
+  securityId           String
+  symbol               String
+  name                 String
+  openedDate           DateTime    @db.Date
+  shares               Decimal     @db.Decimal(28, 10)
+  averageCost          Decimal     @db.Decimal(20, 8)
+  lastPrice            Decimal     @db.Decimal(20, 8)
+  lastPriceDate        DateTime    @db.Date
+  marketValue          Decimal     @db.Decimal(20, 2)
+  unrealizedPnl        Decimal     @db.Decimal(20, 2)
+  unrealizedPnlPercent Decimal     @db.Decimal(20, 8)
+  allocationPercent    Decimal     @db.Decimal(20, 8)
+  run                  BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  security             Security    @relation(fields: [securityId], references: [id], onDelete: Restrict)
+
+  @@unique([runId, securityId])
+}
+
+/// Aggregate result metrics, one row per completed run, sufficient to render the completed detail
+/// page without replaying the simulation.
+model BacktestRunSummary {
+  runId                       String      @id
+  firstSimulatedDate          DateTime    @db.Date
+  lastSimulatedDate           DateTime    @db.Date
+  tradingDays                 Int
+  investedCapital             Decimal     @db.Decimal(20, 2)
+  finalCash                   Decimal     @db.Decimal(20, 2)
+  finalPositionsValue         Decimal     @db.Decimal(20, 2)
+  finalValue                  Decimal     @db.Decimal(20, 2)
+  netProfit                   Decimal     @db.Decimal(20, 2)
+  portfolioReturnPercent      Decimal     @db.Decimal(20, 8)
+  benchmarkReturnPercent      Decimal?    @db.Decimal(20, 8)
+  alphaPercent                Decimal?    @db.Decimal(20, 8)
+  portfolioCagrPercent        Decimal?    @db.Decimal(20, 8)
+  maxDrawdownPercent          Decimal     @db.Decimal(20, 8)
+  benchmarkMaxDrawdownPercent Decimal?    @db.Decimal(20, 8)
+  realizedPnl                 Decimal     @db.Decimal(20, 2)
+  unrealizedPnl               Decimal     @db.Decimal(20, 2)
+  totalTrades                 Int
+  buyTrades                   Int
+  sellTrades                  Int
+  finalExitTrades             Int
+  winningTrades               Int
+  losingTrades                Int
+  openPositions               Int
+  run                         BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 }

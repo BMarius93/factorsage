@@ -53,7 +53,10 @@ function nextCalendarDay(value: LocalDate): LocalDate {
 }
 
 function assertValidRange(range: BuyWindowRange): void {
-  if (typeof range.startDate !== "string" || !isValidLocalDate(range.startDate)) {
+  if (
+    typeof range.startDate !== "string" ||
+    !isValidLocalDate(range.startDate)
+  ) {
     throw new BuyWindowValidationError(
       "Every buy window needs a valid start date in YYYY-MM-DD form",
     );
@@ -108,7 +111,11 @@ export function normalizeBuyWindowRanges(
     if (left.endDate === null || right.endDate === null) {
       return left.endDate === null ? (right.endDate === null ? 0 : -1) : 1;
     }
-    return left.endDate > right.endDate ? -1 : left.endDate < right.endDate ? 1 : 0;
+    return left.endDate > right.endDate
+      ? -1
+      : left.endDate < right.endDate
+        ? 1
+        : 0;
   });
 
   const merged: { startDate: LocalDate; endDate: LocalDate | null }[] = [];
@@ -160,4 +167,28 @@ export function normalizeBuyWindowConfiguration(
     );
   }
   return { mode: "CUSTOM", ranges };
+}
+
+/**
+ * Whether a new BUY may be opened for this list item on `date`.
+ *
+ * `FULL` is eligible on every date. `CUSTOM` is eligible only inside its canonical normalized
+ * ranges, which are inclusive on both ends; `endDate: null` is open-ended. Selling is never
+ * restricted by a buy window, so nothing here is consulted on an exit.
+ *
+ * This lives beside the normalizer on purpose: buy-window meaning has exactly one owner, and a
+ * backtest engine must not restate the comparison.
+ */
+export function isBuyWindowEligible(
+  configuration: BuyWindowConfiguration,
+  date: LocalDate,
+): boolean {
+  if (configuration.mode === "FULL") {
+    return true;
+  }
+  return configuration.ranges.some(
+    (range) =>
+      range.startDate <= date &&
+      (range.endDate === null || date <= range.endDate),
+  );
 }

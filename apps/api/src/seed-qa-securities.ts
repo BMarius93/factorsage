@@ -1,5 +1,6 @@
 import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import { seedQaBenchmarkData } from "./benchmarks/seed-qa-benchmark-data";
 import {
   assertQaSecuritySeedingAllowed,
   seedQaSecurities,
@@ -8,7 +9,9 @@ import { seedQaStockData } from "./stocks/seed-qa-stock-data";
 
 /**
  * Seeds the deterministic fictional QA catalog rows the E2E suites use, plus the market data the
- * first of them needs so Stock Details can be exercised without a market-data provider.
+ * first of them needs so Stock Details can be exercised without a market-data provider, plus the
+ * benchmark history a backtest compares against — the V1 benchmark is sourced from a real provider
+ * symbol, so without it an E2E run would reach FMP.
  *
  * Targets DATABASE_URL — the database the running stack Playwright drives uses — and refuses to
  * run when NODE_ENV is production.
@@ -35,6 +38,11 @@ async function seed(): Promise<void> {
           `${seededData.from} to ${seededData.to}.`,
       );
     }
+    const benchmark = await seedQaBenchmarkData(prisma);
+    console.log(
+      `${benchmark.code} benchmark data ready: ${benchmark.tradingDays} trading days, ` +
+        `${benchmark.from} to ${benchmark.to}.`,
+    );
   } finally {
     await prisma.$disconnect();
   }

@@ -36,6 +36,13 @@ function integer(env: Environment, names: string[], fallback: number): number {
   return value;
 }
 
+/**
+ * Upper bound on forked backtest workers. Beyond this the processes contend for the same
+ * PostgreSQL, Redis and FMP budgets instead of adding throughput, so an obvious typo
+ * (`BACKTEST_WORKER_PROCESSES=200`) is rejected at startup rather than at exhaustion.
+ */
+const MAX_BACKTEST_WORKER_PROCESSES = 32;
+
 function runtimeEnvironment(env: Environment): RuntimeEnvironment {
   const value = optional(env, "NODE_ENV") ?? "development";
   if (value === "development" || value === "test" || value === "production") {
@@ -79,11 +86,7 @@ function commaSeparated(
   return values.length > 0 ? values : fallback;
 }
 
-function boolean(
-  env: Environment,
-  name: string,
-  fallback: boolean,
-): boolean {
+function boolean(env: Environment, name: string, fallback: boolean): boolean {
   const raw = optional(env, name);
   if (raw === undefined) {
     return fallback;
@@ -102,7 +105,11 @@ function boolean(
 }
 
 /** Parses an absolute http(s) URL and returns it without a trailing slash. */
-function absoluteUrl(env: Environment, name: string, fallback?: string): string {
+function absoluteUrl(
+  env: Environment,
+  name: string,
+  fallback?: string,
+): string {
   const raw = optional(env, name) ?? fallback;
   if (raw === undefined) {
     throw new Error(`Invalid application configuration: ${name} is required`);
@@ -298,7 +305,9 @@ export type SmtpConfig = {
  * configured, `SMTP_HOST` and `SMTP_FROM` are mandatory and credentials are all-or-nothing, so a
  * local unauthenticated relay stays valid while a half-configured production relay is rejected.
  */
-export function getSmtpConfig(env: Environment = process.env): SmtpConfig | null {
+export function getSmtpConfig(
+  env: Environment = process.env,
+): SmtpConfig | null {
   const host = optional(env, "SMTP_HOST");
   const from = optional(env, "SMTP_FROM");
   const user = optional(env, "SMTP_USER");
@@ -384,6 +393,48 @@ export function getAdminBootstrapConfig(env: Environment = process.env) {
 export function getWorkerConfig(env: Environment = process.env) {
   return {
     ...getAppConfig(env),
+  } as const;
+}
+
+/**
+ * Durable backtest execution settings, read once per worker process.
+ *
+ * `processes` is how many OS processes claim jobs; each executes at most one backtest at a time
+ * and one simulation is never split across them, so raising it buys throughput across independent
+ * runs, never speed on a single run. The default is deliberately small because a laptop normally
+ * runs PostgreSQL, Redis, the API and the web app beside it.
+ *
+ * The lease/heartbeat pair is what makes a crashed worker self-healing: a claim is held only as
+ * long as it is renewed, and an expired lease is reclaimable. Keep the heartbeat interval well
+ * under the lease so a slow database round trip does not cost a worker its job.
+ */
+export function getBacktestWorkerConfig(env: Environment = process.env) {
+  const processes = integer(env, ["BACKTEST_WORKER_PROCESSES"], 2);
+  if (processes > MAX_BACKTEST_WORKER_PROCESSES) {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_WORKER_PROCESSES must be between 1 and " +
+        `${MAX_BACKTEST_WORKER_PROCESSES}`,
+    );
+  }
+
+  return {
+    processes,
+    pollIntervalMs: integer(env, ["BACKTEST_JOB_POLL_INTERVAL_MS"], 1_000),
+    leaseMs: integer(env, ["BACKTEST_JOB_LEASE_MS"], 60_000),
+    heartbeatIntervalMs: integer(
+      env,
+      ["BACKTEST_JOB_HEARTBEAT_INTERVAL_MS"],
+      15_000,
+    ),
+    maxAttempts: integer(env, ["BACKTEST_JOB_MAX_ATTEMPTS"], 3),
+    retryBackoffMs: integer(env, ["BACKTEST_JOB_RETRY_BACKOFF_MS"], 15_000),
+    checkpointEveryDays: integer(env, ["BACKTEST_CHECKPOINT_EVERY_DAYS"], 5),
+    checkpointMinIntervalMs: integer(
+      env,
+      ["BACKTEST_CHECKPOINT_MIN_INTERVAL_MS"],
+      1_000,
+    ),
+    frameConcurrency: integer(env, ["BACKTEST_FRAME_LOAD_CONCURRENCY"], 4),
   } as const;
 }
 

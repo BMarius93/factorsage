@@ -1,10 +1,9 @@
-import { RoutePlaceholder } from "../_placeholder/RoutePlaceholder";
+import type { Metadata } from "next";
+import { BacktestsPage } from "../../../features/backtests/components/BacktestsPage";
 
-export default function BacktestsPage() {
-  return (
-    <RoutePlaceholder
-      title="Backtests"
-      description="Asynchronous historical backtest runs arrive in the Backtests slice."
-    />
-  );
+export const metadata: Metadata = { title: "Backtests · FactorSage" };
+
+/** Thin route boundary; the feature owns loading, empty and error states. */
+export default function BacktestsRoute() {
+  return <BacktestsPage />;
 }

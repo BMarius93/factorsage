@@ -29,12 +29,15 @@ Current callers:
 - `apps/api/src/auth/auth.integration.test.ts`
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
+- `apps/api/src/backtests/backtests.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
+- `apps/worker/src/backtest/job-repository.integration.test.ts`
+- `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`
 - `packages/stock-data/src/financial-statements.test.ts`
 - `packages/stock-data/src/redis.integration.test.ts`
@@ -157,6 +160,42 @@ rows; its `StockDatasetCoverage` and `StockDatasetState` rows for
 `stock-data:v2:symbol:<symbol>:security` mapping and its entry in
 `stock-data:v2:resident-stocks`. Never touch users, authentication, lists or
 the `Security` row, and never flush Redis or drop tables to get there.
+
+## Backtests
+
+`packages/strategy` is pure and needs no infrastructure: the engine suites — allocation math, level
+firing, average cost, contributions, buy windows, candidate ordering, benchmark normalization,
+alpha, the no-lookahead prefix test and deterministic replay — run offline in
+`pnpm --filter @intrinsic/strategy test`.
+
+`packages/stock-data/src/benchmark-data.integration.test.ts` needs PostgreSQL and Redis. It is what
+proves benchmark loading reuses coverage and the Redis projection rather than re-reading the
+provider, and that a current durable freshness watermark means **no provider call at all** — the
+property the deterministic E2E path depends on.
+
+`apps/worker/src/backtest/job-repository.integration.test.ts` needs PostgreSQL. It proves the claim
+protocol: two workers never take one job, two jobs are claimed independently, an expired lease is
+recovered, an exhausted job fails terminally, and a terminal job is never reclaimed. `apps/worker`
+now has its own suite, so `pnpm test` runs it:
+
+```bash
+pnpm --filter @intrinsic/worker test
+```
+
+The Playwright backtest suite drives a **running stack with a running worker**. Beyond the QA
+personas it needs `pnpm test:securities:seed`, which now also seeds the deterministic `SP500`
+benchmark history and its coverage/freshness watermarks. Both the QA security's and the benchmark's
+watermarks carry the seed's own timestamp, so run the seed shortly before the suite; otherwise the
+loader treats the tail as stale and reaches for the provider.
+
+```bash
+pnpm infra:up
+pnpm test:users:seed && pnpm test:securities:seed
+pnpm dev:api        # and, in another shell:
+pnpm --filter @intrinsic/worker dev
+pnpm --filter @intrinsic/web dev
+pnpm test:e2e
+```
 
 ## Authentication and Playwright
 

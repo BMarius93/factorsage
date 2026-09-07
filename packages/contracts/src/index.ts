@@ -85,3 +85,4 @@ export * from "./selectable-series.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";
 export * from "./strategies.js";
+export * from "./backtests.js";

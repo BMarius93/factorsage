@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BuyWindowValidationError,
+  isBuyWindowEligible,
   normalizeBuyWindowConfiguration,
   normalizeBuyWindowRanges,
   type BuyWindowRange,
@@ -101,10 +102,7 @@ describe("normalizeBuyWindowRanges", () => {
         range("2023-01-01", null),
         range("2018-01-01", "2020-12-31"),
       ]),
-    ).toEqual([
-      range("2018-01-01", "2020-12-31"),
-      range("2023-01-01", null),
-    ]);
+    ).toEqual([range("2018-01-01", "2020-12-31"), range("2023-01-01", null)]);
   });
 
   it("lets an open-ended range absorb every later range so only one survives", () => {
@@ -160,7 +158,9 @@ describe("normalizeBuyWindowRanges", () => {
 
     expect(normalizeBuyWindowRanges(shuffled)).toEqual(canonical);
     // Same dates, different submission order: identical canonical output.
-    expect(normalizeBuyWindowRanges([...shuffled].reverse())).toEqual(canonical);
+    expect(normalizeBuyWindowRanges([...shuffled].reverse())).toEqual(
+      canonical,
+    );
   });
 
   it("rejects an inverted range", () => {
@@ -185,9 +185,9 @@ describe("normalizeBuyWindowRanges", () => {
     expect(() =>
       normalizeBuyWindowRanges([range("01/01/2020", "2020-12-31")]),
     ).toThrow(BuyWindowValidationError);
-    expect(() =>
-      normalizeBuyWindowRanges([range("", null)]),
-    ).toThrow(BuyWindowValidationError);
+    expect(() => normalizeBuyWindowRanges([range("", null)])).toThrow(
+      BuyWindowValidationError,
+    );
   });
 });
 
@@ -232,5 +232,46 @@ describe("normalizeBuyWindowConfiguration", () => {
         ranges: [range("2021-01-01", "2020-01-01")],
       }),
     ).toThrow(BuyWindowValidationError);
+  });
+});
+
+describe("buy eligibility", () => {
+  it("admits every date under FULL", () => {
+    const configuration = { mode: "FULL" as const, ranges: [] };
+    expect(isBuyWindowEligible(configuration, "1999-01-01")).toBe(true);
+    expect(isBuyWindowEligible(configuration, "2030-12-31")).toBe(true);
+  });
+
+  it("admits only dates inside a CUSTOM range, inclusive on both ends", () => {
+    const configuration = {
+      mode: "CUSTOM" as const,
+      ranges: [range("2020-03-01", "2020-03-31")],
+    };
+    expect(isBuyWindowEligible(configuration, "2020-02-29")).toBe(false);
+    expect(isBuyWindowEligible(configuration, "2020-03-01")).toBe(true);
+    expect(isBuyWindowEligible(configuration, "2020-03-31")).toBe(true);
+    expect(isBuyWindowEligible(configuration, "2020-04-01")).toBe(false);
+  });
+
+  it("treats a null end date as open-ended", () => {
+    const configuration = {
+      mode: "CUSTOM" as const,
+      ranges: [range("2020-03-01", null)],
+    };
+    expect(isBuyWindowEligible(configuration, "2020-02-29")).toBe(false);
+    expect(isBuyWindowEligible(configuration, "2099-01-01")).toBe(true);
+  });
+
+  it("admits a date inside any one of several ranges", () => {
+    const configuration = {
+      mode: "CUSTOM" as const,
+      ranges: [
+        range("2020-01-01", "2020-01-31"),
+        range("2021-01-01", "2021-01-31"),
+      ],
+    };
+    expect(isBuyWindowEligible(configuration, "2020-01-15")).toBe(true);
+    expect(isBuyWindowEligible(configuration, "2020-06-15")).toBe(false);
+    expect(isBuyWindowEligible(configuration, "2021-01-15")).toBe(true);
   });
 });

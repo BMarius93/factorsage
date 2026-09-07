@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { EvaluationFrame, OperandKey } from "@intrinsic/strategy";
 import {
   DAILY_MOVING_AVERAGES,
   DAILY_OSCILLATORS,
@@ -33,6 +34,10 @@ import {
   type StockManifest,
 } from "./cache.js";
 import type { LoadLease, LoadCoordinator } from "./coordination.js";
+import {
+  projectEvaluationFrame,
+  TRIGGER_CONTEXT_CALENDAR_DAYS,
+} from "./evaluation-frame.js";
 import { materializeDailyIntrinsicValues } from "./intrinsic-value-materializer.js";
 import {
   blendSourceDataAsOf,
@@ -42,6 +47,8 @@ import {
   addDays,
   assertDateRange,
   endOfLocalDate,
+  maxDate,
+  minDate,
   missingCoverageRanges,
   subtractYears,
 } from "./dates.js";
@@ -344,7 +351,8 @@ export class CanonicalStockDataService implements StockDataService {
         return;
       }
       const refreshPrices = this.isPriceFreshnessStale(lockedManifest);
-      const refreshFundamentals = this.isFundamentalsFreshnessStale(lockedManifest);
+      const refreshFundamentals =
+        this.isFundamentalsFreshnessStale(lockedManifest);
       if (!refreshPrices && !refreshFundamentals) {
         return;
       }
@@ -354,7 +362,11 @@ export class CanonicalStockDataService implements StockDataService {
       // never widen it either, which is what re-reading the configured horizon here used to do.
       const target = this.maintainedTarget(required, lockedManifest);
       lease.assertOwned();
-      const hydrating = this.hydratingManifest(security, lockedManifest, target);
+      const hydrating = this.hydratingManifest(
+        security,
+        lockedManifest,
+        target,
+      );
       if (!(await this.cache.beginRefresh(lockedManifest, hydrating))) {
         await this.hydrateWithinLease(security, required, lease);
         return;
@@ -390,7 +402,10 @@ export class CanonicalStockDataService implements StockDataService {
       // Newly eligible fundamentals change intrinsic values even when prices did not move, so the
       // unified derived state is rebuilt from the earliest cause of this cycle and the affected
       // Redis years are republished once.
-      const derivedRebuildStart = this.boundedRebuildStart(target, rebuildStarts);
+      const derivedRebuildStart = this.boundedRebuildStart(
+        target,
+        rebuildStarts,
+      );
       if (derivedRebuildStart) {
         lease.assertOwned();
         await this.rebuildDailyDerivedState(
@@ -484,6 +499,44 @@ export class CanonicalStockDataService implements StockDataService {
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
     return this.readDailyDerivedStateProjection(security, bounded);
+  }
+
+  /**
+   * Projects one security into the columnar evaluation frame the backtest engine consumes.
+   *
+   * `Security`-keyed rather than symbol-keyed: a backtest already holds resolved securities from its
+   * immutable snapshot, and re-resolving a symbol per read would be pure overhead — and symbol is
+   * never durable identity anyway.
+   *
+   * The frame starts a few calendar days **before** the requested period so a Trigger has its
+   * `t - 1` value on the very first simulated day; `periodStartIndex` marks where the period
+   * actually begins, and nothing before it may produce an action. Those context rows cost nothing
+   * to materialize because `loadTarget` already widens the load by the derived-series warm-up.
+   */
+  async getDailyEvaluationFrame(
+    security: Security,
+    range: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame> {
+    const period = this.requireBoundedRange(range);
+    const context = {
+      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
+      to: period.to,
+    };
+    const load = this.loadTarget(security, context);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
+    const [prices, derived] = await Promise.all([
+      this.readDailyPriceProjection(security, context),
+      this.readDailyDerivedStateProjection(security, context),
+    ]);
+    return projectEvaluationFrame({
+      security,
+      prices,
+      derived,
+      operands,
+      periodStart: period.from,
+    }).frame;
   }
 
   async getDailyTechnicals(symbol: string, range: DateRange) {
@@ -1038,7 +1091,10 @@ export class CanonicalStockDataService implements StockDataService {
     derivedRebuildStart: string;
   }> {
     const refreshRange = {
-      from: maxDate(addDays(target.to, -this.recentTailCalendarDays), target.from),
+      from: maxDate(
+        addDays(target.to, -this.recentTailCalendarDays),
+        target.from,
+      ),
       to: target.to,
     };
     const previousState = await this.store.getDatasetState(
@@ -1082,7 +1138,10 @@ export class CanonicalStockDataService implements StockDataService {
     lease.assertOwned();
 
     if (change.earliestChangedDate) {
-      const affectedRange = yearBoundedRange(change.earliestChangedDate, target.to);
+      const affectedRange = yearBoundedRange(
+        change.earliestChangedDate,
+        target.to,
+      );
       await this.cache.writeDailyPriceYears(
         security.id,
         await this.store.getDailyPrices(security.id, affectedRange),
@@ -1229,7 +1288,9 @@ export class CanonicalStockDataService implements StockDataService {
       syncedAt,
     });
     input.lease.assertOwned();
-    const sortedFiscalDates = statements.map((statement) => statement.fiscalDate).sort();
+    const sortedFiscalDates = statements
+      .map((statement) => statement.fiscalDate)
+      .sort();
     await this.store.upsertDatasetState({
       securityId: input.security.id,
       dataset: input.operation.dataset,
@@ -1247,7 +1308,9 @@ export class CanonicalStockDataService implements StockDataService {
         saved.insertedRevisionCount > 0
           ? [
               ...new Set(
-                statements.map((statement) => Number(statement.fiscalDate.slice(0, 4))),
+                statements.map((statement) =>
+                  Number(statement.fiscalDate.slice(0, 4)),
+                ),
               ),
             ].sort((left, right) => left - right)
           : [],
@@ -1262,16 +1325,16 @@ export class CanonicalStockDataService implements StockDataService {
     operations: readonly FundamentalsOperation[],
     run: (operation: FundamentalsOperation) => Promise<T>,
   ): Promise<T[]> {
-    const settled = await Promise.allSettled(operations.map((operation) => run(operation)));
+    const settled = await Promise.allSettled(
+      operations.map((operation) => run(operation)),
+    );
     const firstRejected = settled.find(
       (result): result is PromiseRejectedResult => result.status === "rejected",
     );
     if (firstRejected) {
       throw toError(firstRejected.reason);
     }
-    return settled.map(
-      (result) => (result as PromiseFulfilledResult<T>).value,
-    );
+    return settled.map((result) => (result as PromiseFulfilledResult<T>).value);
   }
 
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
@@ -1279,8 +1342,11 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /** Request capacity must cover the retained years plus the existing safety tails. */
-  private fundamentalsBackfillLimit(cadence: FinancialStatementCadence): number {
-    const retainedYears = this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
+  private fundamentalsBackfillLimit(
+    cadence: FinancialStatementCadence,
+  ): number {
+    const retainedYears =
+      this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
     return cadence === QUARTERLY_CADENCE
       ? retainedYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
       : retainedYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
@@ -1415,7 +1481,9 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
-  private isFundamentalsFreshnessStale(manifest: StockManifest | null): boolean {
+  private isFundamentalsFreshnessStale(
+    manifest: StockManifest | null,
+  ): boolean {
     if (!this.isCurrent(manifest) || !manifest.lastFundamentalsRefreshAt) {
       return true;
     }
@@ -1462,7 +1530,10 @@ export class CanonicalStockDataService implements StockDataService {
     return {
       from: maxDate(
         horizon.from,
-        minDate(addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS), horizon.to),
+        minDate(
+          addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS),
+          horizon.to,
+        ),
       ),
       to: horizon.to,
     };
@@ -1735,15 +1806,6 @@ function toIntrinsicValueBlendPoints(
           ];
     }),
   );
-}
-
-
-function maxDate(left: string, right: string): string {
-  return left > right ? left : right;
-}
-
-function minDate(left: string, right: string): string {
-  return left < right ? left : right;
 }
 
 function minOptionalDate(left?: string, right?: string): string | undefined {

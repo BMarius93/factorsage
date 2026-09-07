@@ -369,7 +369,11 @@ describeRedis("real Redis stock-data infrastructure", () => {
     const ttlNamespace = `${namespace}:abandoned-hydration`;
     const ttlSecurityId = `${securityId}-abandoned`;
     const symbol = "ABANDONED";
-    const hydrationTtlMs = 300;
+    // The margins here are wall-clock, and the assertions only hold while the writes and the reads
+    // between them fit inside one TTL. Under a loaded run — this package's suites share one
+    // PostgreSQL and one Redis — a 300 ms budget is not enough for that, so the whole timeline is
+    // scaled up. It asserts exactly the same thing: alive before the TTL, gone after it.
+    const hydrationTtlMs = 1_200;
     const cache = new RedisStockDataCache(
       new IoredisCacheClient(redisA),
       2,
@@ -382,7 +386,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     await expect(cache.beginHydration(null, hydrating)).resolves.toBe(true);
     await cache.setSecurity(cacheSecurity(ttlSecurityId, symbol));
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, 180);
+      setTimeout(resolve, hydrationTtlMs * 0.6);
     });
     await writeRepresentativeHydration(cache, ttlSecurityId, hydrating);
     expect(await redisA.pttl(keys.registry)).toBeGreaterThan(0);
@@ -392,7 +396,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.pttl(keys.financial)).toBeGreaterThan(0);
 
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, 150);
+      setTimeout(resolve, hydrationTtlMs * 0.5);
     });
 
     expect(await redisA.get(keys.manifest)).not.toBeNull();
@@ -402,7 +406,7 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(await redisA.get(keys.financial)).not.toBeNull();
 
     await new Promise<void>((resolve) => {
-      setTimeout(resolve, 200);
+      setTimeout(resolve, hydrationTtlMs * 0.7);
     });
 
     expect(await redisA.get(keys.manifest)).toBeNull();

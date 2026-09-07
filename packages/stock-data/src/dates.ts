@@ -44,6 +44,16 @@ export function subtractYears(value: string, years: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Later of two canonical `YYYY-MM-DD` dates. Lexical order is chronological order in this form. */
+export function maxDate(left: string, right: string): string {
+  return left > right ? left : right;
+}
+
+/** Earlier of two canonical `YYYY-MM-DD` dates. */
+export function minDate(left: string, right: string): string {
+  return left < right ? left : right;
+}
+
 export function compareDates(left: string, right: string): number {
   return left.localeCompare(right);
 }

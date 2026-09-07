@@ -104,3 +104,41 @@ requests, and deletes the superseded `DAILY_PRICE` variants in the transaction t
 current one. The freshness watermark `split-adjusted-eod-full:recent-tail` is unchanged. This is
 the `DERIVED_STATE_REVISION` mechanism applied to prices: global, lazy, no schema change and no
 data migration.
+
+Migration `20260907195815_add_backtests_and_benchmarks` adds the Backtest V1 slice in two parts.
+
+**Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `sourceKind`,
+`providerSymbol`, `currency`, `methodologyVersion`, `isActive`, `displayOrder`) with
+`BenchmarkDailyPrice` keyed `@@id([benchmarkId, date])`, plus `BenchmarkDatasetState` and
+`BenchmarkDatasetCoverage` mirroring the stock dataset watermark/coverage contract exactly. They are
+deliberately **separate tables from `Security`/`DailyPrice`**: a benchmark is passive comparison
+data with no fundamentals, no derived state and no position, and folding it into the security
+catalog would drag all of that along with it. `BenchmarkSourceKind` ships one member, `FMP_SYMBOL`;
+`BenchmarkDataset` ships one member, `DAILY_PRICE`. See `benchmark-data.md`.
+
+**Backtests.** `BacktestRun` carries ownership, denormalized configuration columns for the
+collection page, and the immutable `snapshot` JSON plus its `snapshotHash`. Its
+`strategyId`/`strategyVersionId`/`stockListId` foreign keys are **nullable and `onDelete: SetNull`
+on purpose**: deleting a strategy or a list must never delete or reinterpret a completed run, and
+no read path depends on those rows — the snapshot is the authority. `benchmarkId` is
+`onDelete: Restrict` because a benchmark is system-owned and never product-deleted.
+
+`BacktestJob` is the durable queue: one row per run (`runId @unique`), created in the same
+transaction as the run so queue and execution record cannot diverge, with `availableAt`, `attempts`,
+`maxAttempts`, `claimedBy`, `claimedAt`, `leaseExpiresAt` and `heartbeatAt`. It is indexed by
+`(status, availableAt)` for claiming and `(status, leaseExpiresAt)` for stale recovery. No queue
+library and no second migration history.
+
+`BacktestRunProgress` (1:1, `runId @id`) holds the hot-path progress columns and the latest live
+checkpoint `snapshot`. It is a separate table because those columns are rewritten every few
+simulated trading days while the run row — including its large immutable submission snapshot — is
+not. `sequence` is a monotonic counter so a poller can discard an out-of-order response without
+comparing clocks across processes.
+
+Results are normalized: `BacktestDailyEquity` (`@@id([runId, date])`, carrying the time-weighted
+`returnIndex` and the nullable `benchmarkIndex` — null means the benchmark had no value at or before
+that date, never zero), `BacktestTrade` (`@@unique([runId, sequence])`, the deterministic execution
+order), `BacktestPosition` (final open positions) and `BacktestRunSummary` (one row of aggregates).
+`BacktestTrade.securityId` and `BacktestPosition.securityId` are `onDelete: Restrict` for the same
+reason `StockListItem.securityId` is, and both denormalize `symbol`/`name` so a completed result
+renders without joining the mutable catalog.
