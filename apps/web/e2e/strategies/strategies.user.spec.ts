@@ -49,6 +49,31 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
+/**
+ * Answers the builder's unsaved-changes confirmation and records what it asked. Playwright
+ * dismisses dialogs when nothing listens, so a test asserting "no prompt" needs a listener too.
+ * A `beforeunload` prompt is always accepted: it belongs to a test's own `page.goto`, not to the
+ * in-app navigation under test.
+ */
+function watchUnsavedPrompts(page: Page, answer: { stay: boolean }) {
+  const prompts: string[] = [];
+  page.on("dialog", async (dialog) => {
+    if (dialog.type() !== "confirm") {
+      await dialog.accept();
+      return;
+    }
+    prompts.push(dialog.message());
+    await (answer.stay ? dialog.dismiss() : dialog.accept());
+  });
+  return prompts;
+}
+
+function navLink(page: Page, nav: "Primary" | "Primary mobile", label: string) {
+  return page
+    .getByRole("navigation", { name: nav })
+    .getByRole("link", { name: label });
+}
+
 test.describe("strategy builder", () => {
   test.afterEach(async ({ page }) => {
     await deleteStrategyIfPresent(page, STRATEGY_NAME);
@@ -164,6 +189,60 @@ test.describe("strategy builder", () => {
   });
 });
 
+
+test.describe("strategy builder unsaved changes", () => {
+  test.afterEach(async ({ page }) => {
+    await deleteStrategyIfPresent(page, STRATEGY_NAME);
+  });
+
+  test("asks before a navigation link discards the draft, and stops once it is saved", async ({
+    page,
+  }) => {
+    const answer = { stay: true };
+    const prompts = watchUnsavedPrompts(page, answer);
+
+    // Nothing unsaved: navigation is untouched.
+    await page.goto("/strategies/new");
+    await navLink(page, "Primary", "Backtests").click();
+    await expect(page).toHaveURL(/\/backtests$/);
+    expect(prompts).toEqual([]);
+
+    // Unsaved: cancelling keeps the page and the in-memory draft exactly as they were.
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByTestId("add-level-BUY").click();
+    await navLink(page, "Primary", "Backtests").click();
+    await expect(page).toHaveURL(/\/strategies\/new$/);
+    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    await expect(page.getByTestId("level-card-BUY")).toHaveCount(1);
+    expect(prompts).toHaveLength(1);
+
+    // Saved: the draft is no longer at risk, so navigation stops asking.
+    await page.getByTestId("save-strategy").click();
+    await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
+    await expect(page.getByText("All changes saved")).toBeVisible();
+    await navLink(page, "Primary", "Strategies").click();
+    await expect(page).toHaveURL(/\/strategies$/);
+    expect(prompts).toHaveLength(1);
+  });
+
+  test("leaves and discards the draft once the user confirms", async ({
+    page,
+  }) => {
+    const prompts = watchUnsavedPrompts(page, { stay: false });
+
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await navLink(page, "Primary", "Backtests").click();
+    await expect(page).toHaveURL(/\/backtests$/);
+    expect(prompts).toHaveLength(1);
+
+    // Discarded means discarded: nothing was stashed for the next visit.
+    await page.goto("/strategies/new");
+    await expect(page.getByLabel("Name")).toHaveValue("");
+  });
+});
+
 test.describe("strategy builder on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -221,5 +300,19 @@ test.describe("strategy builder on a phone", () => {
       "RSI 14D is below 30",
     );
     await expectNoHorizontalScroll(page);
+  });
+
+  test("asks before the bottom navigation discards an unsaved draft", async ({
+    page,
+  }) => {
+    const prompts = watchUnsavedPrompts(page, { stay: true });
+
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await navLink(page, "Primary mobile", "Backtests").click();
+
+    await expect(page).toHaveURL(/\/strategies\/new$/);
+    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    expect(prompts).toHaveLength(1);
   });
 });

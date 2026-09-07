@@ -1,7 +1,8 @@
 import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { guardNavigation } from "../../../components/layout/unsaved-changes";
 import {
   createStrategy,
   replaceStrategyDefinition,
@@ -63,6 +64,17 @@ function savedStrategy(): StrategyDetailResponse {
     },
   };
 }
+
+/** Stands in for a click on a shell navigation link, which is what the guard intercepts. */
+function navigateAway() {
+  const event = { preventDefault: vi.fn() };
+  guardNavigation(event);
+  return event;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   replace.mockReset();
@@ -276,6 +288,55 @@ describe("StrategyBuilder", () => {
     expect(screen.getAllByTestId("level-card-BUY")).toHaveLength(2);
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.getAllByTestId("level-card-BUY")).toHaveLength(1);
+  });
+
+  it("keeps the draft on the page when the user cancels leaving it", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<StrategyBuilder />);
+
+    await user.type(screen.getByLabelText("Name"), "Deep value");
+    await user.click(screen.getByTestId("add-level-BUY"));
+
+    expect(navigateAway().preventDefault).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(1);
+    // Staying keeps the draft exactly as it was; nothing is stashed or reloaded.
+    expect(screen.getByLabelText("Name")).toHaveProperty("value", "Deep value");
+    expect(screen.getAllByTestId("level-card-BUY")).toHaveLength(1);
+    expect(screen.getByText("Unsaved changes")).toBeDefined();
+  });
+
+  it("lets the user leave and discard the draft once they confirm", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<StrategyBuilder />);
+
+    await user.type(screen.getByLabelText("Name"), "Deep value");
+
+    expect(navigateAway().preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("never asks when there is nothing unsaved", () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<StrategyBuilder strategy={savedStrategy()} />);
+
+    expect(navigateAway().preventDefault).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("never asks again once the strategy has been saved", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    createStrategyMock.mockResolvedValue(savedStrategy());
+    render(<StrategyBuilder />);
+
+    await user.type(screen.getByLabelText("Name"), "Deep value");
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("save-strategy"));
+    await screen.findByText("All changes saved");
+
+    expect(navigateAway().preventDefault).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("offers no control for anything that belongs to a backtest", () => {

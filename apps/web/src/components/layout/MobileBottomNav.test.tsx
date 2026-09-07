@@ -1,16 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AppTopbar } from "./AppTopbar";
+import { MobileBottomNav } from "./MobileBottomNav";
 import { PRIMARY_NAV_ITEMS } from "./navigation";
 import { useUnsavedChangesGuard } from "./unsaved-changes";
 
-/** Destinations a click actually reached, once the guard let it through. */
+/** Destinations a tap actually reached, once the guard let it through. */
 const { navigated } = vi.hoisted(() => ({ navigated: [] as string[] }));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/lists",
-  useRouter: () => ({ push: vi.fn() }),
+  usePathname: () => "/strategies/new",
 }));
 
 /**
@@ -49,14 +48,6 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-vi.mock("next/image", () => ({
-  default: ({ alt }: { alt: string }) => <img alt={alt} />,
-}));
-
-/**
- * The topbar composes the stock-search feature. These assertions exist so adding it cannot quietly
- * displace the brand, the primary navigation, or the account slot.
- */
 function GuardedPage() {
   useUnsavedChangesGuard(true, "Leave and discard?");
   return null;
@@ -67,40 +58,18 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("AppTopbar", () => {
-  it("keeps the brand link, primary navigation and account slot alongside the search", () => {
-    render(<AppTopbar actions={<button type="button">Account</button>} />);
-
-    expect(screen.getByRole("link", { name: "FactorSage home" })).toBeDefined();
-
-    const nav = screen.getByRole("navigation", { name: "Primary" });
-    for (const item of PRIMARY_NAV_ITEMS) {
-      expect(nav.querySelector(`a[href="${item.href}"]`)).not.toBeNull();
-    }
-
-    expect(screen.getByRole("button", { name: "Account" })).toBeDefined();
-    expect(
-      screen.getByRole("combobox", { name: "Search stocks" }),
-    ).toBeDefined();
-  });
-
-  it("still marks the active destination", () => {
-    render(<AppTopbar />);
-
-    const active = screen
-      .getByRole("navigation", { name: "Primary" })
-      .querySelector('a[aria-current="page"]');
-
-    expect(active?.getAttribute("href")).toBe("/lists");
-  });
-
-  it("keeps a page's unsaved work from being discarded by a navigation link", async () => {
+/**
+ * The bottom navigation is the only primary navigation a phone has, so it must honour the same
+ * unsaved-changes guard as the desktop topbar.
+ */
+describe("MobileBottomNav", () => {
+  it("keeps a page's unsaved work from being discarded by a tap", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(
       <>
         <GuardedPage />
-        <AppTopbar />
+        <MobileBottomNav />
       </>,
     );
 
@@ -113,24 +82,29 @@ describe("AppTopbar", () => {
     expect(navigated).toEqual(["/backtests"]);
   });
 
-  it("guards the brand link and every primary destination", () => {
+  it("guards every primary destination", () => {
     vi.spyOn(window, "confirm").mockReturnValue(false);
     render(
       <>
         <GuardedPage />
-        <AppTopbar />
+        <MobileBottomNav />
       </>,
     );
 
-    const links = [
-      screen.getByRole("link", { name: "FactorSage home" }),
-      ...PRIMARY_NAV_ITEMS.map((item) =>
-        screen.getByRole("link", { name: item.label }),
-      ),
-    ];
-    for (const link of links) {
-      link.click();
+    for (const item of PRIMARY_NAV_ITEMS) {
+      screen.getByRole("link", { name: item.label }).click();
     }
     expect(navigated).toEqual([]);
+  });
+
+  it("leaves navigation alone when nothing is unsaved", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm");
+    render(<MobileBottomNav />);
+
+    await user.click(screen.getByRole("link", { name: "Lists" }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(navigated).toEqual(["/lists"]);
   });
 });

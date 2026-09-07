@@ -7,8 +7,9 @@ import {
   type StrategyDetailResponse,
 } from "@intrinsic/contracts";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { useUnsavedChangesGuard } from "../../../components/layout/unsaved-changes";
 import { ApiError } from "../../../lib/api/client";
 import {
   createStrategy,
@@ -31,6 +32,10 @@ import { LevelCard } from "./LevelCard";
 import { LevelSection } from "./LevelSection";
 import styles from "./StrategyBuilder.module.css";
 import { StrategyDetailsCard } from "./StrategyDetailsCard";
+
+/** Asked before an in-app navigation would discard the draft. */
+const UNSAVED_CHANGES_PROMPT =
+  "This strategy has unsaved changes. Leave the page and discard them?";
 
 type StrategyBuilderProps = {
   /** Absent when creating; the saved strategy when editing. */
@@ -68,15 +73,10 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
     markSaved,
   } = binding;
 
-  // Leaving with unsaved work is almost always a mistake, so the browser asks first.
-  useEffect(() => {
-    if (!dirty) {
-      return;
-    }
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  // Leaving with unsaved work is almost always a mistake, so both a reload and an in-app
+  // navigation ask first. Nothing is autosaved or stashed: staying keeps the draft in memory,
+  // leaving discards it.
+  useUnsavedChangesGuard(dirty, UNSAVED_CHANGES_PROMPT);
 
   const definition = draft.definition;
   const canSave = dirty && issueCount === 0 && !pending;

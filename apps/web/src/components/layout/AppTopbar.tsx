@@ -12,6 +12,7 @@ import {
   PRIMARY_NAV_ITEMS,
   isNavItemActive,
 } from "./navigation";
+import { guardNavigation } from "./unsaved-changes";
 
 type AppTopbarProps = {
   /**
@@ -30,6 +31,7 @@ export function AppTopbar({ actions }: AppTopbarProps) {
         href={APP_HOME_HREF}
         className={styles.brandLink}
         aria-label={`${BRAND_NAME} home`}
+        onNavigate={guardNavigation}
       >
         <BrandMark />
       </Link>
@@ -49,6 +51,7 @@ export function AppTopbar({ actions }: AppTopbarProps) {
                   className={styles.navLink}
                   data-active={active}
                   aria-current={active ? "page" : undefined}
+                  onNavigate={guardNavigation}
                 >
                   {item.label}
                 </Link>

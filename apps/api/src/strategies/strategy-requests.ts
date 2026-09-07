@@ -71,7 +71,10 @@ function parseDescription(value: unknown): string | null {
 export type ParsedCreateStrategyRequest = {
   name: string;
   description: string | null;
-  /** Absent when the caller saved only a name; the service then stores an empty first version. */
+  /**
+   * Optional in the envelope only: an omitted definition is validated as an empty one, so the
+   * service rejects it for having no BUY level. There is no name-only strategy.
+   */
   definition?: unknown;
 };
 
