@@ -6,6 +6,7 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health.controller";
 import { ListsModule } from "./lists/lists.module";
 import { StocksModule } from "./stocks/stocks.module";
+import { StrategiesModule } from "./strategies/strategies.module";
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { StocksModule } from "./stocks/stocks.module";
     AdminModule,
     ListsModule,
     StocksModule,
+    StrategiesModule,
   ],
   controllers: [HealthController],
   providers: [],

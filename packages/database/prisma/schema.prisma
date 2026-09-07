@@ -69,6 +69,7 @@ model User {
   oauthAccounts      OAuthAccount[]
   verificationTokens EmailVerificationToken[]
   stockLists         StockList[]
+  strategies         Strategy[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -162,6 +163,46 @@ model StockListItem {
 
   @@unique([stockListId, securityId])
   @@index([securityId])
+}
+
+/// User-owned strategy identity: the name and description a user renames freely, plus the version
+/// history holding the actual BUY / SELL / FINAL EXIT logic. Names are deliberately not unique per
+/// user — identity is this row's id, and two strategies may both be called `Value Strategy`.
+model Strategy {
+  id          String            @id @default(uuid())
+  userId      String
+  name        String
+  description String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions    StrategyVersion[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
+}
+
+/// One immutable strategy definition. `definition` is written once and never updated: a change
+/// appends a new version, so a strategy referenced by a completed backtest can never be altered
+/// retroactively. The highest `versionNumber` is the current one, so no pointer column and no
+/// circular relation is needed.
+///
+/// `definition` is the canonical JSON document produced by `normalizeStrategyDefinition` in
+/// `@intrinsic/contracts`, carrying its own `schemaVersion`; nothing queries inside it in SQL.
+/// `definitionHash` covers that document with row identifiers stripped, so re-keying a row never
+/// appends a version while genuine reordering does. See
+/// `docs/decisions/strategy-definition-storage.md`.
+model StrategyVersion {
+  id             String   @id @default(uuid())
+  strategyId     String
+  versionNumber  Int
+  definition     Json
+  definitionHash String
+  createdAt      DateTime @default(now())
+  strategy       Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@unique([strategyId, versionNumber])
+  @@index([strategyId])
 }
 
 /// One canonical CUSTOM buy-window range. Writers must persist only the deterministic normalized

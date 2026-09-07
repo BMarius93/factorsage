@@ -41,6 +41,20 @@ vanish through a catalog mutation. The migration also carries three auto-generat
 PostgreSQL's 63-character identifier limit, so every database holds the truncated names and
 Prisma reconciles them to its canonical truncation. See `ai/product/lists.md` for the invariants.
 
+Migration `20260907072239_add_strategies` adds the user-owned strategy slice: `Strategy`
+(cascades from `User`, indexed by `userId` and by `(userId, updatedAt)` for the collection's
+newest-changed ordering) and `StrategyVersion` with `@@unique([strategyId, versionNumber])`.
+`StrategyVersion.definition` is a `Json` column holding the canonical document produced by
+`normalizeStrategyDefinition` in `@intrinsic/contracts`, carrying its own `schemaVersion`;
+`definitionHash` covers that document with row identifiers stripped, so re-keying a Builder row
+never appends a version while genuine reordering does. Version rows are written once and never
+updated: a strategy referenced by a completed backtest can never be altered retroactively, and the
+current version is simply the highest `versionNumber`. Strategy names are deliberately **not**
+unique per user — there is no `(userId, name)` constraint, because identity is the strategy id.
+Nothing queries inside the document in SQL. See
+`../../docs/decisions/strategy-definition-storage.md` for the accepted decision and
+`../product/strategies.md` for the product invariants.
+
 Migration `20260830210000_unify_daily_derived_state` replaces the per-family derived tables
 (`DailyTechnical`, `WeeklyTechnical`, `IntrinsicValue`, `IntrinsicValueBlend`) with one
 `DailyDerivedState` table keyed by `(securityId, date)`. Every calculation-version dimension is

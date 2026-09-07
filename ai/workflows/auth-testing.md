@@ -158,7 +158,9 @@ pnpm --filter @intrinsic/web exec playwright install chromium
 Preconditions for every run: the stack is up, migrations are applied, and `pnpm test:users:seed`
 has been run at least once since the personas' credentials last changed. The lists suite
 (`e2e/lists`) and the Stock Details suite (`e2e/stocks`) additionally need the deterministic
-fictional QA catalog rows: run `pnpm test:securities:seed` (idempotent, refuses
+fictional QA catalog rows. `e2e/strategies` needs **neither** seed beyond the personas: a strategy
+references the static series catalog in `@intrinsic/contracts`, so it touches no securities, no
+market data and no provider. To seed the catalog rows the other two suites need: run `pnpm test:securities:seed` (idempotent, refuses
 `NODE_ENV=production`; seeds `QATEST1`/`QATEST2`). E2E never assumes real market symbols exist in
 an environment's catalog.
 
@@ -175,7 +177,12 @@ produces the same data for the same day. `QATEST2` deliberately stays identity-o
 Current coverage: guest reaches sign-in and registration, a product route bounces an anonymous
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
 across navigation and is denied the ADMIN route, `QA_ADMIN` reaches the ADMIN route, and signing
-out ends the session. `e2e/lists` covers the full stock-list journey; `e2e/stocks` covers the
+out ends the session. `e2e/strategies` covers the Strategy Builder journey on desktop — create,
+edit, reload, rename, delete, the not-found surface for a deleted strategy, and the
+duplicate-condition rejection reached through the issue count — and on a 390px phone, asserting one
+column with no horizontal scrolling, the save surface clear of the bottom navigation, contextual
+help beside the edited row, and the canonical Margin of Safety explanation.
+`e2e/lists` covers the full stock-list journey; `e2e/stocks` covers the
 Stock Details `Indicators` catalog — every group and entry (counts derive from
 `@intrinsic/contracts`, never a copy), the default `Balanced` selection,
 daily/weekly/model/blend overlays together, deselection, the disabled unavailable state, the

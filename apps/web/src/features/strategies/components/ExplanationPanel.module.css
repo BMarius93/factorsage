@@ -1,0 +1,304 @@
+/*
+ * The contextual explanation and logic preview.
+ *
+ * On desktop these sit in the builder's right-hand column; on mobile they move into the flow
+ * beneath the editor. The rendering differs between the two; the semantics do not.
+ */
+
+.panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.panelCard {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-muted);
+}
+
+.panelHeading {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.panelSummary {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.panelBody,
+.panelEmpty {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.panelFormula {
+  margin: 2px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.examples {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.example {
+  display: grid;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.exampleGiven {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.exampleResult {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.exampleResult strong {
+  color: var(--color-text-primary);
+}
+
+.notes {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.note {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.panelUnavailable {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  background: var(--color-warning-soft);
+  color: var(--color-text-body);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.panelUnavailableLabel {
+  color: var(--color-warning);
+  font-weight: 700;
+}
+
+/* --- Logic preview --- */
+
+.previewList {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.previewLevel {
+  margin-top: 8px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.previewLevel:first-child {
+  margin-top: 0;
+}
+
+.previewLevel[data-tone="BUY"] {
+  color: var(--color-positive);
+}
+
+.previewLevel[data-tone="SELL"] {
+  color: var(--color-negative);
+}
+
+.previewLevel[data-tone="FINAL_EXIT"] {
+  color: var(--color-warning);
+}
+
+.previewBasis {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.previewRule {
+  padding-left: 14px;
+  color: var(--color-text-body);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.previewConnector {
+  color: var(--color-text-muted);
+  font-weight: 700;
+}
+
+.previewTag {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.previewEmpty {
+  padding-left: 14px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/*
+ * Mobile placement.
+ *
+ * The explanation moves out of the side column and directly under the row being edited, which is
+ * where a phone user can read it without losing the control it describes. The side column keeps
+ * only the strategy preview, inside a collapsible surface so it does not push the editor down.
+ */
+.inlineHelp {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.moreDetail {
+  border-top: 1px solid var(--color-border);
+  padding-top: 8px;
+}
+
+.moreSummary {
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.moreSummary::-webkit-details-marker {
+  display: none;
+}
+
+.moreSummary::after {
+  content: " ›";
+}
+
+.moreDetail[open] .moreSummary::after {
+  content: " ⌄";
+}
+
+.moreBody {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.previewDisclosure {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface-muted);
+}
+
+.previewSummary {
+  padding: 12px 14px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.previewSummary::-webkit-details-marker {
+  display: none;
+}
+
+.previewSummary::after {
+  content: " ›";
+  color: var(--color-text-muted);
+}
+
+.previewDisclosure[open] .previewSummary::after {
+  content: " ⌄";
+}
+
+.previewDisclosure .panelCard {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+}
+
+.previewDisclosure .panelHeading {
+  display: none;
+}
+
+@media (min-width: 960px) {
+  .panel {
+    position: sticky;
+    /* Clears the app topbar so the panel stays readable while the editor scrolls. */
+    top: calc(var(--topbar-height-wide) + 16px);
+    max-height: calc(100vh - var(--topbar-height-wide) - 32px);
+    overflow-y: auto;
+  }
+
+  /* Desktop shows one panel beside the editor, never a copy inside a row. */
+  .inlineHelp {
+    display: none;
+  }
+
+  .previewDisclosure {
+    border: none;
+    background: none;
+  }
+
+  .previewSummary {
+    display: none;
+  }
+
+  .previewDisclosure .panelCard {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-surface);
+    background: var(--color-surface-muted);
+  }
+
+  .previewDisclosure .panelHeading {
+    display: block;
+  }
+}
+
+/* Below the desktop breakpoint the side column's explanation card is the row's job instead. */
+@media (max-width: 959px) {
+  .sideExplanation {
+    display: none;
+  }
+}

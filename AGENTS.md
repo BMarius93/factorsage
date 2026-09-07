@@ -25,6 +25,13 @@ Read `ai/README.md` before substantial work.
    `docs/development/adding-a-calculated-series.md` to add one.
 10. `maximumPositions` belongs to a Backtest execution, not a Strategy. A full-position fraction is
     derived as `1 / maximumPositions`; do not introduce a user-entered max-allocation percentage.
+11. Strategy signal semantics are defined in `ai/product/strategies.md`. Keep Strategy, Stock List,
+    Backtest configuration and Backtest run as separate concepts. A Signal has zero or more
+    Conditions plus at most one optional Trigger; Conditions are ANDed and the optional Trigger is
+    ANDed with them for the same date. Do not silently add operators, metric/value compatibility,
+    multiple triggers, or backtest execution parameters to the Strategy model. Strategy Builder and
+    backend validation must share canonical compatibility definitions rather than maintaining
+    separate matrices.
 
 ## Dependency rules
 

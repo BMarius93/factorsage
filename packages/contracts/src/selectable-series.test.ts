@@ -8,6 +8,8 @@ import {
   INTRINSIC_VALUE_SERIES,
   MOVING_AVERAGE_SERIES,
   OSCILLATOR_SERIES,
+  PRICE_COMPARABLE_SERIES,
+  PRICE_SCALE_SOURCE_KINDS,
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
   SELECTABLE_SERIES_GROUPS,
@@ -115,6 +117,43 @@ describe("selectable series catalog", () => {
     );
     expect(
       INTRINSIC_VALUE_SERIES.some((entry) => entry.source.kind === "OSCILLATOR"),
+    ).toBe(false);
+  });
+
+  it("serves the price-scaled set as the explicitly approved families, in catalog order", () => {
+    expect(PRICE_COMPARABLE_SERIES.map((entry) => entry.id)).toEqual(
+      SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+        (PRICE_SCALE_SOURCE_KINDS as readonly string[]).includes(
+          entry.source.kind,
+        )
+          ? [entry.id]
+          : [],
+      ),
+    );
+    expect(PRICE_COMPARABLE_SERIES).toHaveLength(
+      SELECTABLE_SERIES_CATALOG.length - OSCILLATOR_SERIES.length,
+    );
+  });
+
+  it("admits a family only once Strategy has approved it, never merely for not being an oscillator", () => {
+    // Membership is an allow-list over source kinds. A future catalog family — a volume band, a
+    // spread, a valuation ratio — is absent until a product decision adds its kind, rather than
+    // becoming a Strategy `Price` Value the moment it is added to the catalog.
+    expect([...PRICE_SCALE_SOURCE_KINDS].sort()).toEqual([
+      "INTRINSIC_VALUE_BLEND",
+      "INTRINSIC_VALUE_MODEL",
+      "MOVING_AVERAGE",
+    ]);
+    const unapproved = [
+      ...new Set(SELECTABLE_SERIES_CATALOG.map((entry) => entry.source.kind)),
+    ].filter(
+      (kind) => !(PRICE_SCALE_SOURCE_KINDS as readonly string[]).includes(kind),
+    );
+    expect(unapproved).toEqual(["OSCILLATOR"]);
+    expect(
+      PRICE_COMPARABLE_SERIES.some(
+        (entry) => entry.source.kind === "OSCILLATOR",
+      ),
     ).toBe(false);
   });
 

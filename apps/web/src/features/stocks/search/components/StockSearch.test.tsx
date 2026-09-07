@@ -2,6 +2,7 @@ import type { StockSearchResultResponse } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useUnsavedChangesGuard } from "../../../../components/layout/unsaved-changes";
 import { StockSearch } from "./StockSearch";
 
 const push = vi.fn();
@@ -290,5 +291,66 @@ describe("StockSearch", () => {
     await waitFor(() =>
       expect(optionTexts()).toEqual(["AAPLApple Inc.NASDAQ"]),
     );
+  });
+});
+
+/**
+ * Search is in the shared topbar, so selecting a stock leaves whatever page is open. A page
+ * holding an unsaved draft must get the same say it gets over a navigation link.
+ */
+describe("StockSearch with an unsaved page", () => {
+  function GuardedPage() {
+    useUnsavedChangesGuard(true, "Leave and discard?");
+    return null;
+  }
+
+  it("stays put and keeps the query when the user cancels leaving", async () => {
+    respondWith();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <>
+        <GuardedPage />
+        <StockSearch />
+      </>,
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: /AAPL/ }));
+
+    expect(confirm).toHaveBeenCalledWith("Leave and discard?");
+    expect(push).not.toHaveBeenCalled();
+    // Nothing about the search was reset, so the user can pick again without retyping.
+    expect(screen.getByRole("listbox")).toBeDefined();
+  });
+
+  it("navigates once the user confirms leaving", async () => {
+    respondWith();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <>
+        <GuardedPage />
+        <StockSearch />
+      </>,
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: /AAPL/ }));
+
+    expect(push).toHaveBeenCalledWith("/stocks/AAPL");
+  });
+
+  it("asks nothing when no page has unsaved work", async () => {
+    respondWith();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: /AAPL/ }));
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/stocks/AAPL");
   });
 });

@@ -16,7 +16,13 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
-For strategy work, also read `product/strategies.md`.
+For strategy work, also read `product/strategies.md`. Two architecture documents sit beside it:
+`architecture/strategy-builder.md` is the implementation plan for the Create/Edit Strategy vertical
+slice — canonical types, the shared compatibility registry, validation, schema, contracts and the
+desktop and mobile compositions. Its product questions are all closed. `architecture/strategy-evaluation.md`
+is the technical design for evaluating those semantics over historical data, including the
+reusable-component map and the open product questions that still block the backtest day loop.
+Builder work needs the first; backtest-engine work needs the second.
 For Stock Details or selectable-series work, also read `product/stock-details.md`,
 `../docs/decisions/selectable-series-catalog.md`,
 `../docs/decisions/viewport-driven-stock-details-history.md` for the chart's history window, its
@@ -75,24 +81,46 @@ SelectableSeriesCatalog
   +-- daily oscillators (RSI 7D/14D/21D, shared 0-100 chart pane)
   +-- intrinsic-value models/blends
   +-- Stock Details overlays
-  +-- compatible Strategy condition operands
+  +-- compatible Strategy Metric/Value selections
 
 Strategy
   |
-  +-- ordered BUY/SELL/FINAL EXIT predicates
-  +-- entry fraction of one full position
-  +-- exit fraction of the remaining position
+  +-- ordered BUY levels
+  +-- ordered SELL levels
+  +-- optional FINAL EXIT
+  +-- each level owns one Signal
+  |    +-- zero or more Conditions, ANDed
+  |    +-- zero or one optional Trigger, ANDed with the Conditions
+  +-- Condition product grammar = Metric / Condition / Value
+  +-- Trigger product grammar = Metric / Trigger / Value
   +-- no global valuation source
-  +-- no portfolio-position limit
+  +-- no Stock List
+  +-- no capital/contributions/maximumPositions/date-range execution inputs
 
-Backtest
+Backtest configuration
+  |
+  +-- Strategy + StockList
+  +-- date range / capital / contributions / maximumPositions / execution assumptions
+
+Backtest run
   |
   +-- immutable execution snapshot + asynchronous worker execution
-  +-- capital/contributions/maximumPositions
-  +-- full position fraction = 1 / maximumPositions
+  +-- deterministic results / diagnostics
 
-Monitor = current-data evaluation using the same canonical strategy logic
+Monitor = current-data evaluation using the same canonical Strategy logic
 ```
+
+Historical market-derived Strategy predicates are conceptually evaluated as date-aligned logical
+series. Missing/warm-up/PIT-unavailable data remains `NOT_EVALUABLE`; it is never replaced by zero
+or future data. Position-dependent metrics such as Gain/Loss require simulated position state and
+must not be forced into a static historical-series model merely for implementation convenience.
+
+Catalog membership does not automatically define Strategy compatibility: a series becomes a usable
+Metric or Value only when `product/strategies.md` says so, and its operators and value domains are
+a product decision there. RSI and the moving averages have been through that step — both are now
+first-class Strategy Metrics, with moving-average Values resolved through the catalog's own
+`comparableMovingAverages` (same timeframe, never itself). Percentage domains are metric-specific:
+Margin of Safety `<= 100`, Gain `>= -100`, Loss `0..100`.
 
 Historical index-membership PIT is excluded.
 

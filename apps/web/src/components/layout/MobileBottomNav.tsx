@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import styles from "./MobileBottomNav.module.css";
 import { NAV_ICONS } from "./nav-icons";
 import { PRIMARY_NAV_ITEMS, isNavItemActive } from "./navigation";
+import { guardNavigation } from "./unsaved-changes";
 
 /**
  * Fixed bottom navigation for the same primary destinations the desktop
@@ -26,6 +27,7 @@ export function MobileBottomNav() {
             className={styles.navLink}
             data-active={active}
             aria-current={active ? "page" : undefined}
+            onNavigate={guardNavigation}
           >
             <Icon className={styles.icon} />
             <span className={styles.label}>{item.label}</span>
