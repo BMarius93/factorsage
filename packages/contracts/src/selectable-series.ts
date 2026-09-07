@@ -461,20 +461,32 @@ export const MOVING_AVERAGE_SERIES: readonly SelectableSeries[] =
   );
 
 /**
- * Every catalog entry that is measured on the price scale: the moving averages and the
- * intrinsic-value sources.
+ * The catalog source families that have been explicitly approved as price-scale series.
+ *
+ * This is an **allow-list, not a deny-list**. Catalog membership alone never grants Strategy
+ * compatibility, so a future family — a volume band, a spread, a valuation ratio — is excluded
+ * until `docs/decisions/selectable-series-catalog.md` and `ai/product/strategies.md` admit it and
+ * its `kind` is added here. Deriving the set as "everything that is not an oscillator" would have
+ * let a new family become a Strategy `Price` Value with no product decision at all.
+ */
+export const PRICE_SCALE_SOURCE_KINDS = [
+  "MOVING_AVERAGE",
+  "INTRINSIC_VALUE_BLEND",
+  "INTRINSIC_VALUE_MODEL",
+] as const satisfies readonly SelectableSeriesSource["kind"][];
+
+/**
+ * Every catalog entry measured on the price scale, in canonical catalog order: the moving averages
+ * and the intrinsic-value blends and models.
  *
  * This is the set `docs/decisions/selectable-series-catalog.md` § Consumer filtering permits as a
- * Strategy `Price` Value. It is derived by excluding oscillators rather than listed, because the
- * reason an oscillator is absent is structural — RSI is unitless and is never comparable with a
- * price — so a new price-scaled family joins this set automatically while a new oscillator cannot.
- *
- * Catalog membership alone still grants no Strategy compatibility: `ai/product/strategies.md`
- * admits this subset as `Price` Values, and `strategies.ts` is where that decision is encoded.
+ * Strategy `Price` Value. The individual ids are never listed — membership follows from the
+ * approved families above — and an oscillator is structurally absent because RSI is unitless and
+ * is never comparable with a price.
  */
 export const PRICE_COMPARABLE_SERIES: readonly SelectableSeries[] =
-  SELECTABLE_SERIES_CATALOG.filter(
-    (entry) => entry.source.kind !== "OSCILLATOR",
+  SELECTABLE_SERIES_CATALOG.filter((entry) =>
+    (PRICE_SCALE_SOURCE_KINDS as readonly string[]).includes(entry.source.kind),
   );
 
 export const OSCILLATOR_SERIES: readonly SelectableSeries[] =

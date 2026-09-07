@@ -657,7 +657,8 @@ export type StrategyPreviewLine =
       percentage?: number;
     }
   | { kind: "CONDITION"; text: string; connector?: "AND" }
-  | { kind: "TRIGGER"; text: string }
+  /** `connector` is present exactly when Conditions precede the Trigger it is ANDed with. */
+  | { kind: "TRIGGER"; text: string; connector?: "AND" }
   | { kind: "EMPTY"; levelKind: StrategyLevelKind };
 
 export function describeCondition(condition: StrategyCondition): string {
@@ -684,7 +685,14 @@ function describeSignal(signal: StrategySignal): StrategyPreviewLine[] {
           },
   );
   if (signal.trigger) {
-    lines.push({ kind: "TRIGGER", text: describeTrigger(signal.trigger) });
+    const text = describeTrigger(signal.trigger);
+    // The Trigger is ANDed with the Conditions for the same date, so the preview keeps the
+    // connector a reader would expect. A trigger-only Signal has nothing to join and carries none.
+    lines.push(
+      lines.length === 0
+        ? { kind: "TRIGGER", text }
+        : { kind: "TRIGGER", text, connector: "AND" },
+    );
   }
   return lines;
 }
@@ -771,7 +779,10 @@ export type StrategyHelpEntry = {
 
 const CLOSE_TO_PERCENT = `${IS_CLOSE_TO_TOLERANCE * 100}%`;
 
-export const STRATEGY_METRIC_HELP = {
+export const STRATEGY_METRIC_HELP: Record<
+  StrategyMetricKind,
+  StrategyHelpEntry
+> = {
   PRICE: {
     summary: "The stock's end-of-day close.",
     detail:
@@ -794,20 +805,23 @@ export const STRATEGY_METRIC_HELP = {
     summary: "Relative Strength Index over the selected period.",
     detail:
       "RSI compares with a threshold you type, anywhere from 1 to 100 — it is not restricted to conventional levels such as 30 or 70. RSI is unitless, so it is never compared with a price or with another series.",
+    // Deliberately period-neutral. One help entry serves RSI 7D, RSI 14D and RSI 21D, so naming a
+    // period here would show the wrong one beside two of the three metrics; the row itself already
+    // names the selected series.
     examples: [
       {
-        given: "RSI 14D is below 30",
-        result: "true on every date RSI 14D is under 30",
+        given: "the selected RSI is below 30",
+        result: "true on every date it is under 30",
         meaning: "A state that can stay true for several days in a row.",
       },
       {
-        given: "RSI 14D crosses above 30",
+        given: "the selected RSI crosses above 30",
         result: "true only on the date it moves from 30 or below to above 30",
         meaning: "A single event, not a state.",
       },
     ],
     notEvaluableWhen:
-      "The period is still warming up, so RSI has no value for the date. RSI 14D needs fifteen closes before its first value.",
+      "The selected period is still warming up, so it has no RSI value for the date yet.",
   },
   MARGIN_OF_SAFETY: {
     summary:
@@ -881,9 +895,12 @@ export const STRATEGY_METRIC_HELP = {
     ],
     notEvaluableWhen: "There is no open position, so there is no average cost.",
   },
-} as const satisfies Record<StrategyMetricKind, StrategyHelpEntry>;
+};
 
-export const STRATEGY_OPERATOR_HELP = {
+export const STRATEGY_OPERATOR_HELP: Record<
+  ConditionOperator | TriggerOperator,
+  StrategyHelpEntry
+> = {
   IS_ABOVE: {
     summary: "A state: the metric is strictly greater than the value.",
     detail:
@@ -931,29 +948,27 @@ export const STRATEGY_OPERATOR_HELP = {
     notEvaluableWhen:
       "Either the current or the previous value is unavailable.",
   },
-} as const satisfies Record<
-  ConditionOperator | TriggerOperator,
-  StrategyHelpEntry
->;
+};
 
-export const STRATEGY_LEVEL_HELP = {
-  BUY: {
-    summary: "Buys a fraction of one full position when its Signal matches.",
-    detail:
-      "The percentage is a fraction of one full position, not of the whole portfolio; how large a full position is comes from the backtest inputs. A BUY Signal may use only market-derived metrics, because Gain and Loss need a position that does not exist yet.",
-  },
-  SELL: {
-    summary:
-      "Sells a fraction of the position remaining at execution time when its Signal matches.",
-    detail:
-      "SELL Signals may use market-derived metrics and the position-dependent Gain and Loss. Two successive 50% partial sells leave a quarter of the original position.",
-  },
-  FINAL_EXIT: {
-    summary: "Closes the entire remaining position when its Signal matches.",
-    detail:
-      "FINAL EXIT is a distinct concept rather than a `SELL 100%` level, so it has no percentage: keeping it separate is what lets reporting tell partial profit-taking apart from the condition that ends the position.",
-  },
-} as const satisfies Record<StrategyLevelKind, StrategyHelpEntry>;
+export const STRATEGY_LEVEL_HELP: Record<StrategyLevelKind, StrategyHelpEntry> =
+  {
+    BUY: {
+      summary: "Buys a fraction of one full position when its Signal matches.",
+      detail:
+        "The percentage is a fraction of one full position, not of the whole portfolio; how large a full position is comes from the backtest inputs. A BUY Signal may use only market-derived metrics, because Gain and Loss need a position that does not exist yet.",
+    },
+    SELL: {
+      summary:
+        "Sells a fraction of the position remaining at execution time when its Signal matches.",
+      detail:
+        "SELL Signals may use market-derived metrics and the position-dependent Gain and Loss. Two successive 50% partial sells leave a quarter of the original position.",
+    },
+    FINAL_EXIT: {
+      summary: "Closes the entire remaining position when its Signal matches.",
+      detail:
+        "FINAL EXIT is a distinct concept rather than a `SELL 100%` level, so it has no percentage: keeping it separate is what lets reporting tell partial profit-taking apart from the condition that ends the position.",
+    },
+  };
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -978,6 +993,7 @@ export const STRATEGY_VALIDATION_CODES = [
   "SERIES_UNKNOWN",
   "SERIES_NOT_COMPARABLE",
   "DUPLICATE_CONDITION",
+  "DUPLICATE_ID",
 ] as const;
 
 export type StrategyValidationCode = (typeof STRATEGY_VALIDATION_CODES)[number];
@@ -1108,8 +1124,42 @@ function boundsText(min?: number, max?: number): string {
 const BACKTEST_FIELD_HINT =
   "A stock list, capital, contributions, maximum positions and the backtest date range belong to a backtest configuration, not to a strategy.";
 
-class IssueList {
+/**
+ * The state of one validation pass: the issues found so far, and the ids already claimed.
+ *
+ * Ids are checked across the **whole definition** rather than within one level, because they are
+ * persisted and are what future per-level diagnostics and evaluator references address. Levels and
+ * predicates keep separate namespaces: a level and a condition sharing a string are addressing
+ * different things and never collide.
+ */
+class ValidationContext {
   readonly issues: StrategyValidationIssue[] = [];
+  private readonly levelIds = new Set<string>();
+  private readonly predicateIds = new Set<string>();
+
+  /**
+   * Records `id` in one namespace, reporting the **later** occurrence when it is already taken.
+   * A duplicate is never regenerated or dropped: two rows claiming one identity is a real
+   * ambiguity, and silently re-keying one of them would move the user's rule somewhere they did
+   * not put it.
+   */
+  claimId(
+    namespace: "LEVEL" | "PREDICATE",
+    id: string,
+    path: StrategyIssuePath,
+    what: string,
+  ): void {
+    const taken = namespace === "LEVEL" ? this.levelIds : this.predicateIds;
+    if (taken.has(id)) {
+      this.add(
+        "DUPLICATE_ID",
+        path,
+        `Another ${what} already uses the identifier \`${id}\`.`,
+      );
+      return;
+    }
+    taken.add(id);
+  }
 
   add(
     code: StrategyValidationCode,
@@ -1139,7 +1189,7 @@ function parseMetric(
   raw: unknown,
   location: PredicateLocation,
   levelKind: StrategyLevelKind,
-  issues: IssueList,
+  issues: ValidationContext,
 ): StrategyMetric | undefined {
   const path = predicatePath(location, "METRIC");
   if (!isRecord(raw)) {
@@ -1215,7 +1265,7 @@ function parseMetric(
 function parseValue(
   raw: unknown,
   location: PredicateLocation,
-  issues: IssueList,
+  issues: ValidationContext,
 ): StrategyValue | undefined {
   const path = predicatePath(location, "VALUE");
   if (!isRecord(raw)) {
@@ -1262,7 +1312,7 @@ function checkValueAgainstMetric(
   metric: StrategyMetric,
   value: StrategyValue,
   location: PredicateLocation,
-  issues: IssueList,
+  issues: ValidationContext,
 ): void {
   const path = predicatePath(location, "VALUE");
   const spec = valueSpecFor(metric);
@@ -1356,7 +1406,7 @@ function validatePredicate(
   raw: unknown,
   location: PredicateLocation,
   levelKind: StrategyLevelKind,
-  issues: IssueList,
+  issues: ValidationContext,
 ): string | undefined {
   const rowPath = predicatePath(location);
   if (!isRecord(raw)) {
@@ -1372,6 +1422,8 @@ function validatePredicate(
   issues.rejectUnknownKeys(raw, PREDICATE_KEYS, rowPath);
   if (typeof raw.id !== "string" || raw.id.trim().length === 0) {
     issues.add("SHAPE_INVALID", rowPath, "This row is missing its identifier.");
+  } else {
+    issues.claimId("PREDICATE", raw.id, rowPath, "condition or trigger");
   }
 
   const metric = parseMetric(raw.metric, location, levelKind, issues);
@@ -1414,7 +1466,7 @@ function validateSignal(
   raw: unknown,
   levelKind: StrategyLevelKind,
   levelIndex: number | undefined,
-  issues: IssueList,
+  issues: ValidationContext,
 ): void {
   const levelPath = issuePath({ levelKind, levelIndex, part: "LEVEL" });
   if (!isRecord(raw)) {
@@ -1486,7 +1538,7 @@ function validateLevel(
   raw: unknown,
   levelKind: StrategyLevelKind,
   levelIndex: number | undefined,
-  issues: IssueList,
+  issues: ValidationContext,
 ): void {
   const levelPath = issuePath({ levelKind, levelIndex, part: "LEVEL" });
   if (!isRecord(raw)) {
@@ -1523,6 +1575,8 @@ function validateLevel(
       levelPath,
       "This level is missing its identifier.",
     );
+  } else {
+    issues.claimId("LEVEL", raw.id, levelPath, "level");
   }
 
   if (levelKind !== "FINAL_EXIT") {
@@ -1547,7 +1601,7 @@ function validateLevelList(
   raw: unknown,
   levelKind: "BUY" | "SELL",
   maximum: number,
-  issues: IssueList,
+  issues: ValidationContext,
 ): void {
   const listPath = issuePath({ levelKind, part: "STRATEGY" });
   if (!Array.isArray(raw)) {
@@ -1577,7 +1631,7 @@ function validateLevelList(
   });
 }
 
-function validateDefinition(raw: unknown, issues: IssueList): void {
+function validateDefinition(raw: unknown, issues: ValidationContext): void {
   const strategyPath = issuePath({ part: "STRATEGY" });
   if (!isRecord(raw)) {
     issues.add(
@@ -1617,7 +1671,7 @@ function validateDefinition(raw: unknown, issues: IssueList): void {
 export function validateStrategyDefinition(
   definition: unknown,
 ): readonly StrategyValidationIssue[] {
-  const issues = new IssueList();
+  const issues = new ValidationContext();
   validateDefinition(definition, issues);
   return issues.issues;
 }
@@ -1626,7 +1680,7 @@ export function validateStrategyDefinition(
 export function validateStrategy(
   strategy: unknown,
 ): readonly StrategyValidationIssue[] {
-  const issues = new IssueList();
+  const issues = new ValidationContext();
   if (!isRecord(strategy)) {
     issues.add(
       "SHAPE_INVALID",

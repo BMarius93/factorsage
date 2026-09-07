@@ -57,11 +57,22 @@ function percent(value: number): StrategyValue {
   return { kind: "PERCENT", value };
 }
 
+/**
+ * Rows carry stable ids that must be unique across a definition, so fixtures mint their own unless
+ * a test is specifically about identifiers and passes one.
+ */
+let nextFixtureId = 0;
+
+function fixtureId(prefix: string): string {
+  nextFixtureId += 1;
+  return `${prefix}-${nextFixtureId}`;
+}
+
 function condition(
   metric: StrategyMetric,
   operator: StrategyCondition["operator"],
   value: StrategyValue,
-  id = "condition-1",
+  id = fixtureId("condition"),
 ): StrategyCondition {
   return { id, metric, operator, value };
 }
@@ -70,7 +81,7 @@ function trigger(
   metric: StrategyMetric,
   operator: StrategyTrigger["operator"],
   value: StrategyValue,
-  id = "trigger-1",
+  id = fixtureId("trigger"),
 ): StrategyTrigger {
   return { id, metric, operator, value };
 }
@@ -84,11 +95,10 @@ function signal(
     : { conditions: conditions };
 }
 
-const PRICE_ABOVE_EMA_200D = condition(
-  { kind: "PRICE" },
-  "IS_ABOVE",
-  series("EMA_200D"),
-);
+/** A valid, uninteresting BUY-safe condition; a fresh row each call, so ids never collide. */
+function priceAboveEma200D(): StrategyCondition {
+  return condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"));
+}
 
 /** One BUY level over the given signal; the minimum a saveable strategy needs. */
 function definitionOf(
@@ -119,7 +129,7 @@ function definitionInLevel(
   if (levelKind === "BUY") {
     return definitionOf(levelSignal);
   }
-  const base = definitionOf(signal([PRICE_ABOVE_EMA_200D]));
+  const base = definitionOf(signal([priceAboveEma200D()]));
   return levelKind === "SELL"
     ? {
         ...base,
@@ -336,6 +346,29 @@ describe("strategy metric registry", () => {
     }
   });
 
+  it("never names one catalog series in help shared by a whole metric family", () => {
+    // One help entry serves all three RSI periods and all seven intrinsic sources, so naming a
+    // series would show the wrong one beside every other member of the family.
+    const text = STRATEGY_METRIC_KINDS.flatMap((kind) => {
+      const help = STRATEGY_METRIC_HELP[kind];
+      return [
+        help.summary,
+        help.detail,
+        help.formula ?? "",
+        help.notEvaluableWhen ?? "",
+        ...(help.notes ?? []),
+        ...(help.examples ?? []).flatMap((example) => [
+          example.given,
+          example.result,
+          example.meaning,
+        ]),
+      ];
+    }).join(" ");
+    for (const entry of SELECTABLE_SERIES_CATALOG) {
+      expect(text).not.toContain(entry.label);
+    }
+  });
+
   it("explains Margin of Safety with Intrinsic Value as the denominator", () => {
     const help = STRATEGY_METRIC_HELP.MARGIN_OF_SAFETY;
     expect(help.formula).toBe(
@@ -480,7 +513,7 @@ describe("strategy shape", () => {
 
   it("accepts a buy-and-hold strategy with no SELL level and no FINAL EXIT", () => {
     expect(
-      validateStrategyDefinition(definitionOf(signal([PRICE_ABOVE_EMA_200D]))),
+      validateStrategyDefinition(definitionOf(signal([priceAboveEma200D()]))),
     ).toEqual([]);
   });
 
@@ -503,7 +536,7 @@ describe("strategy shape", () => {
   });
 
   it("requires a name but does not require it to be unique", () => {
-    const definition = definitionOf(signal([PRICE_ABOVE_EMA_200D]));
+    const definition = definitionOf(signal([priceAboveEma200D()]));
     expect(codesOf(validateStrategy({ name: "  ", definition }))).toEqual([
       "NAME_REQUIRED",
     ]);
@@ -525,7 +558,7 @@ describe("strategy shape", () => {
         validateStrategy({
           name: "Long",
           description: "d".repeat(501),
-          definition: definitionOf(signal([PRICE_ABOVE_EMA_200D])),
+          definition: definitionOf(signal([priceAboveEma200D()])),
         }),
       ),
     ).toEqual(["DESCRIPTION_TOO_LONG"]);
@@ -829,7 +862,7 @@ describe("level rules", () => {
         validateStrategyDefinition({
           schemaVersion: STRATEGY_SCHEMA_VERSION,
           buyLevels: [
-            { id: "buy-1", percentage, signal: signal([PRICE_ABOVE_EMA_200D]) },
+            { id: "buy-1", percentage, signal: signal([priceAboveEma200D()]) },
           ],
           sellLevels: [],
         }),
@@ -838,7 +871,7 @@ describe("level rules", () => {
     for (const percentage of SELL_LEVEL_PERCENTAGES) {
       const definition = definitionInLevel(
         "SELL",
-        signal([PRICE_ABOVE_EMA_200D]),
+        signal([priceAboveEma200D()]),
       );
       expect(
         validateStrategyDefinition({
@@ -854,12 +887,12 @@ describe("level rules", () => {
 
   it("rejects a 100% SELL level, which is FINAL EXIT rather than a partial sell", () => {
     const issues = validateStrategyDefinition({
-      ...definitionInLevel("SELL", signal([PRICE_ABOVE_EMA_200D])),
+      ...definitionInLevel("SELL", signal([priceAboveEma200D()])),
       sellLevels: [
         {
           id: "sell-1",
           percentage: 100,
-          signal: signal([PRICE_ABOVE_EMA_200D]),
+          signal: signal([priceAboveEma200D()]),
         },
       ],
     });
@@ -881,7 +914,7 @@ describe("level rules", () => {
             {
               id: "buy-1",
               percentage: 30,
-              signal: signal([PRICE_ABOVE_EMA_200D]),
+              signal: signal([priceAboveEma200D()]),
             },
           ],
           sellLevels: [],
@@ -892,16 +925,16 @@ describe("level rules", () => {
 
   it("gives FINAL EXIT a signal and no percentage", () => {
     const valid = validateStrategyDefinition(
-      definitionInLevel("FINAL_EXIT", signal([PRICE_ABOVE_EMA_200D])),
+      definitionInLevel("FINAL_EXIT", signal([priceAboveEma200D()])),
     );
     expect(valid).toEqual([]);
 
     const withPercentage = validateStrategyDefinition({
-      ...definitionInLevel("FINAL_EXIT", signal([PRICE_ABOVE_EMA_200D])),
+      ...definitionInLevel("FINAL_EXIT", signal([priceAboveEma200D()])),
       finalExit: {
         id: "exit-1",
         percentage: 100,
-        signal: signal([PRICE_ABOVE_EMA_200D]),
+        signal: signal([priceAboveEma200D()]),
       },
     });
     expect(withPercentage).toHaveLength(1);
@@ -917,7 +950,7 @@ describe("level rules", () => {
     const buyLevels = Array.from({ length: 11 }, (_unused, index) => ({
       id: `buy-${index}`,
       percentage: 25,
-      signal: signal([PRICE_ABOVE_EMA_200D]),
+      signal: signal([priceAboveEma200D()]),
     }));
     expect(
       codesOf(
@@ -1031,6 +1064,211 @@ describe("duplicate conditions", () => {
   });
 });
 
+describe("stable identifiers", () => {
+  it("accepts a definition whose level and predicate ids are each unique", () => {
+    expect(validateStrategyDefinition(completeDefinition())).toEqual([]);
+  });
+
+  it("rejects two BUY levels sharing an id, pointing at the later one", () => {
+    const issues = validateStrategyDefinition({
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "level-1",
+          percentage: 25,
+          signal: signal([priceAboveEma200D()]),
+        },
+        {
+          id: "level-1",
+          percentage: 50,
+          signal: signal([
+            condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_50D"), "c2"),
+          ]),
+        },
+      ],
+      sellLevels: [],
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.code).toBe("DUPLICATE_ID");
+    expect(issues[0]?.path).toEqual({
+      levelKind: "BUY",
+      levelIndex: 1,
+      part: "LEVEL",
+    });
+  });
+
+  it("rejects a level id reused across BUY and SELL", () => {
+    const issues = validateStrategyDefinition({
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "level-1",
+          percentage: 25,
+          signal: signal([priceAboveEma200D()]),
+        },
+      ],
+      sellLevels: [
+        {
+          id: "level-1",
+          percentage: 25,
+          signal: signal([
+            condition({ kind: "GAIN" }, "IS_ABOVE", percent(10), "c2"),
+          ]),
+        },
+      ],
+    });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.code).toBe("DUPLICATE_ID");
+    expect(issues[0]?.path).toEqual({
+      levelKind: "SELL",
+      levelIndex: 0,
+      part: "LEVEL",
+    });
+  });
+
+  it("rejects a level id reused by FINAL EXIT", () => {
+    const issues = validateStrategyDefinition({
+      ...definitionInLevel("FINAL_EXIT", signal([priceAboveEma200D()])),
+      finalExit: { id: "buy-1", signal: signal([priceAboveEma200D()]) },
+    });
+    expect(codesOf(issues)).toContain("DUPLICATE_ID");
+    expect(issues.find((issue) => issue.code === "DUPLICATE_ID")?.path).toEqual(
+      { levelKind: "FINAL_EXIT", part: "LEVEL" },
+    );
+  });
+
+  it("rejects two conditions sharing an id, separately from a semantic duplicate", () => {
+    const issues = validateStrategyDefinition(
+      definitionOf(
+        signal([
+          condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"), "row-1"),
+          condition({ kind: "PRICE" }, "IS_BELOW", series("EMA_50D"), "row-1"),
+        ]),
+      ),
+    );
+    // The rules are independent: these two rows are different conditions that merely collide on
+    // their identifier, so only the id rule fires.
+    expect(codesOf(issues)).toEqual(["DUPLICATE_ID"]);
+    expect(issues[0]?.path).toEqual({
+      levelKind: "BUY",
+      levelIndex: 0,
+      part: "CONDITION",
+      conditionIndex: 1,
+    });
+  });
+
+  it("reports both rules when two rows are semantically identical and share an id", () => {
+    const issues = validateStrategyDefinition(
+      definitionOf(
+        signal([
+          condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"), "row-1"),
+          condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"), "row-1"),
+        ]),
+      ),
+    );
+    expect(codesOf(issues).sort()).toEqual([
+      "DUPLICATE_CONDITION",
+      "DUPLICATE_ID",
+    ]);
+  });
+
+  it("rejects a condition id colliding with the trigger id in the same signal", () => {
+    const issues = validateStrategyDefinition(
+      definitionOf(
+        signal(
+          [
+            condition(
+              { kind: "PRICE" },
+              "IS_ABOVE",
+              series("EMA_200D"),
+              "row-1",
+            ),
+          ],
+          trigger(
+            { kind: "PRICE" },
+            "CROSSES_ABOVE",
+            series("EMA_50D"),
+            "row-1",
+          ),
+        ),
+      ),
+    );
+    expect(codesOf(issues)).toEqual(["DUPLICATE_ID"]);
+    expect(issues[0]?.path).toEqual({
+      levelKind: "BUY",
+      levelIndex: 0,
+      part: "TRIGGER",
+    });
+  });
+
+  it("rejects a predicate id reused in a different level", () => {
+    const issues = validateStrategyDefinition({
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "buy-1",
+          percentage: 25,
+          signal: signal([
+            condition(
+              { kind: "PRICE" },
+              "IS_ABOVE",
+              series("EMA_200D"),
+              "row-1",
+            ),
+          ]),
+        },
+        {
+          id: "buy-2",
+          percentage: 50,
+          signal: signal([
+            condition(
+              { kind: "PRICE" },
+              "IS_BELOW",
+              series("EMA_50D"),
+              "row-1",
+            ),
+          ]),
+        },
+      ],
+      sellLevels: [],
+    });
+    expect(codesOf(issues)).toEqual(["DUPLICATE_ID"]);
+    expect(issues[0]?.path.levelIndex).toBe(1);
+  });
+
+  it("keeps level and predicate identifiers in separate namespaces", () => {
+    expect(
+      validateStrategyDefinition(
+        definitionOf(
+          signal([
+            condition(
+              { kind: "PRICE" },
+              "IS_ABOVE",
+              series("EMA_200D"),
+              "buy-1",
+            ),
+          ]),
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("never regenerates or drops a duplicate identifier", () => {
+    const definition = definitionOf(
+      signal([
+        condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"), "row-1"),
+        condition({ kind: "PRICE" }, "IS_BELOW", series("EMA_50D"), "row-1"),
+      ]),
+    );
+    expect(() => normalizeStrategyDefinition(definition)).toThrow(
+      StrategyValidationError,
+    );
+    expect(
+      definition.buyLevels[0]?.signal.conditions.map((row) => row.id),
+    ).toEqual(["row-1", "row-1"]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Unknown identifiers and foreign fields
 // ---------------------------------------------------------------------------
@@ -1100,7 +1338,7 @@ describe("unknown identifiers and foreign fields", () => {
       "startDate",
     ]) {
       const issues = validateStrategyDefinition({
-        ...definitionOf(signal([PRICE_ABOVE_EMA_200D])),
+        ...definitionOf(signal([priceAboveEma200D()])),
         [key]: 10,
       });
       expect(issues).toHaveLength(1);
@@ -1114,7 +1352,7 @@ describe("unknown identifiers and foreign fields", () => {
   it("rejects a backtest field on the strategy itself", () => {
     const issues = validateStrategy({
       name: "With a list",
-      definition: definitionOf(signal([PRICE_ABOVE_EMA_200D])),
+      definition: definitionOf(signal([priceAboveEma200D()])),
       stockListId: "list-1",
     });
     expect(codesOf(issues)).toEqual(["UNKNOWN_FIELD"]);
@@ -1124,7 +1362,7 @@ describe("unknown identifiers and foreign fields", () => {
     expect(
       codesOf(
         validateStrategyDefinition({
-          ...definitionOf(signal([PRICE_ABOVE_EMA_200D])),
+          ...definitionOf(signal([priceAboveEma200D()])),
           schemaVersion: 2,
         }),
       ),
@@ -1153,7 +1391,7 @@ describe("normalization", () => {
     const normalized = normalizeStrategy({
       name: "  Value strategy  ",
       description: "   ",
-      definition: definitionOf(signal([PRICE_ABOVE_EMA_200D])),
+      definition: definitionOf(signal([priceAboveEma200D()])),
     });
     expect(normalized.name).toBe("Value strategy");
     expect("description" in normalized).toBe(false);
@@ -1189,7 +1427,11 @@ describe("describeStrategy", () => {
         text: "Margin of Safety (DCF (FCFF)) is above 25%",
         connector: "AND",
       },
-      { kind: "TRIGGER", text: "Price crosses above EMA 50D" },
+      {
+        kind: "TRIGGER",
+        text: "Price crosses above EMA 50D",
+        connector: "AND",
+      },
       { kind: "LEVEL", levelKind: "BUY", index: 2, percentage: 50 },
       { kind: "CONDITION", text: "EMA 50D is above SMA 200D" },
       { kind: "LEVEL", levelKind: "SELL", index: 1, percentage: 50 },
@@ -1198,6 +1440,87 @@ describe("describeStrategy", () => {
       { kind: "TRIGGER", text: "Loss crosses above 10%" },
     ]);
     expect(describeStrategy(completeDefinition())).toEqual(lines);
+  });
+
+  it("keeps the AND connector before a trigger that follows conditions", () => {
+    const lines = describeStrategy(
+      definitionOf(
+        signal(
+          [
+            condition({ kind: "PRICE" }, "IS_ABOVE", series("EMA_200D"), "c1"),
+            condition(
+              { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+              "IS_BELOW",
+              { kind: "NUMBER", value: 30 },
+              "c2",
+            ),
+          ],
+          trigger({ kind: "PRICE" }, "CROSSES_ABOVE", series("EMA_50D"), "t1"),
+        ),
+      ),
+    );
+    expect(lines).toEqual([
+      { kind: "LEVEL", levelKind: "BUY", index: 1, percentage: 25 },
+      { kind: "CONDITION", text: "Price is above EMA 200D" },
+      { kind: "CONDITION", text: "RSI 14D is below 30", connector: "AND" },
+      {
+        kind: "TRIGGER",
+        text: "Price crosses above EMA 50D",
+        connector: "AND",
+      },
+    ]);
+  });
+
+  it("gives a single condition followed by a trigger the connector too", () => {
+    expect(
+      describeStrategy(
+        definitionOf(
+          signal(
+            [
+              condition(
+                { kind: "PRICE" },
+                "IS_ABOVE",
+                series("EMA_200D"),
+                "c1",
+              ),
+            ],
+            trigger(
+              { kind: "PRICE" },
+              "CROSSES_ABOVE",
+              series("EMA_50D"),
+              "t1",
+            ),
+          ),
+        ),
+      ).filter((line) => line.kind === "TRIGGER"),
+    ).toEqual([
+      {
+        kind: "TRIGGER",
+        text: "Price crosses above EMA 50D",
+        connector: "AND",
+      },
+    ]);
+  });
+
+  it("gives a trigger-only signal no connector, because it joins nothing", () => {
+    expect(
+      describeStrategy(
+        definitionOf(
+          signal(
+            [],
+            trigger(
+              { kind: "PRICE" },
+              "CROSSES_ABOVE",
+              series("EMA_50D"),
+              "t1",
+            ),
+          ),
+        ),
+      ),
+    ).toEqual([
+      { kind: "LEVEL", levelKind: "BUY", index: 1, percentage: 25 },
+      { kind: "TRIGGER", text: "Price crosses above EMA 50D" },
+    ]);
   });
 
   it("renders an explicit placeholder for an incomplete level", () => {
