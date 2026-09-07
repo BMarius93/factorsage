@@ -460,6 +460,23 @@ export const MOVING_AVERAGE_SERIES: readonly SelectableSeries[] =
     (entry) => entry.source.kind === "MOVING_AVERAGE",
   );
 
+/**
+ * Every catalog entry that is measured on the price scale: the moving averages and the
+ * intrinsic-value sources.
+ *
+ * This is the set `docs/decisions/selectable-series-catalog.md` § Consumer filtering permits as a
+ * Strategy `Price` Value. It is derived by excluding oscillators rather than listed, because the
+ * reason an oscillator is absent is structural — RSI is unitless and is never comparable with a
+ * price — so a new price-scaled family joins this set automatically while a new oscillator cannot.
+ *
+ * Catalog membership alone still grants no Strategy compatibility: `ai/product/strategies.md`
+ * admits this subset as `Price` Values, and `strategies.ts` is where that decision is encoded.
+ */
+export const PRICE_COMPARABLE_SERIES: readonly SelectableSeries[] =
+  SELECTABLE_SERIES_CATALOG.filter(
+    (entry) => entry.source.kind !== "OSCILLATOR",
+  );
+
 export const OSCILLATOR_SERIES: readonly SelectableSeries[] =
   SELECTABLE_SERIES_CATALOG.filter(
     (entry) => entry.source.kind === "OSCILLATOR",

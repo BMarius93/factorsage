@@ -8,6 +8,7 @@ import {
   INTRINSIC_VALUE_SERIES,
   MOVING_AVERAGE_SERIES,
   OSCILLATOR_SERIES,
+  PRICE_COMPARABLE_SERIES,
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
   SELECTABLE_SERIES_GROUPS,
@@ -116,6 +117,19 @@ describe("selectable series catalog", () => {
     expect(
       INTRINSIC_VALUE_SERIES.some((entry) => entry.source.kind === "OSCILLATOR"),
     ).toBe(false);
+  });
+
+  it("serves the price-scaled set as everything that is not an oscillator", () => {
+    // Derived, never listed: an oscillator is unitless and is never comparable with a price, so a
+    // new price-scaled family joins this set automatically while a new oscillator cannot.
+    expect(PRICE_COMPARABLE_SERIES.map((entry) => entry.id)).toEqual(
+      SELECTABLE_SERIES_CATALOG.flatMap((entry) =>
+        entry.source.kind === "OSCILLATOR" ? [] : [entry.id],
+      ),
+    );
+    expect(PRICE_COMPARABLE_SERIES).toHaveLength(
+      SELECTABLE_SERIES_CATALOG.length - OSCILLATOR_SERIES.length,
+    );
   });
 
   it("serves the technical endpoint's addressable set as moving averages plus oscillators", () => {
