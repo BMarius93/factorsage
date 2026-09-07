@@ -41,12 +41,21 @@ export function useUnsavedChangesGuard(
 }
 
 /**
+ * Asks the guarded page's confirmation before an imperative navigation, such as the topbar
+ * search's `router.push`. True means the caller may navigate; false means the user chose to stay.
+ * With no guard registered nothing is asked and the answer is always true.
+ */
+export function canNavigate(): boolean {
+  return confirmLeaving === null || confirmLeaving();
+}
+
+/**
  * `onNavigate` handler for the shell's links: cancels the client-side navigation when a guarded
  * page has unsaved work and the user chooses to stay. With no guard registered, navigation is
  * untouched.
  */
 export function guardNavigation(event: { preventDefault: () => void }): void {
-  if (confirmLeaving !== null && !confirmLeaving()) {
+  if (!canNavigate()) {
     event.preventDefault();
   }
 }

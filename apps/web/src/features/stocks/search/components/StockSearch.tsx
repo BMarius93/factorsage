@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { canNavigate } from "../../../../components/layout/unsaved-changes";
 import { useStockSearch } from "../hooks/use-stock-search";
 import { POPULAR_STOCK_SEARCHES } from "../utils/popular-stocks";
 import { stockDetailsHref } from "../utils/stock-routes";
@@ -59,6 +60,11 @@ export function StockSearch() {
 
   const select = useCallback(
     (option: SearchOption) => {
+      // Search sits in the shared topbar, so it leaves a page exactly like a navigation link does:
+      // a page holding unsaved work gets to ask first, and staying leaves the search as it was.
+      if (!canNavigate()) {
+        return;
+      }
       setQuery("");
       collapse();
       inputRef.current?.blur();
