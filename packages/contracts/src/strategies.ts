@@ -1308,80 +1308,98 @@ function parseValue(
     : { kind: "PERCENT", value: raw.value };
 }
 
+/**
+ * Whether one Value may be compared with one Metric, and why not when it may not.
+ *
+ * The single answer to that question. The validator turns a rejection into a path-addressed issue;
+ * the Strategy Builder's draft reducer asks the same function whether a Value survives a change of
+ * Metric. Neither restates the rule, so a Value the Builder keeps can never be one the API rejects.
+ */
+export type StrategyValueCompatibility =
+  | { compatible: true }
+  | {
+      compatible: false;
+      code:
+        "VALUE_KIND_MISMATCH" | "SERIES_NOT_COMPARABLE" | "VALUE_OUT_OF_DOMAIN";
+      message: string;
+    };
+
+export function checkStrategyValue(
+  metric: StrategyMetric,
+  value: StrategyValue,
+): StrategyValueCompatibility {
+  const spec = valueSpecFor(metric);
+  const metricLabel = strategyMetricLabel(metric);
+
+  if (spec.kind === "SERIES") {
+    if (value.kind !== "SERIES") {
+      return {
+        compatible: false,
+        code: "VALUE_KIND_MISMATCH",
+        message: `${metricLabel} is compared with another series, not with a typed number.`,
+      };
+    }
+    if (!spec.seriesIds.includes(value.seriesId)) {
+      return {
+        compatible: false,
+        code: "SERIES_NOT_COMPARABLE",
+        message:
+          metric.kind === "MOVING_AVERAGE"
+            ? strategyMetricSeriesId(metric) === value.seriesId
+              ? `${metricLabel} cannot be compared with itself.`
+              : `${metricLabel} compares only with moving averages of the same timeframe, so ${strategyValueLabel(value)} is not available here.`
+            : `${strategyValueLabel(value)} is not a series ${metricLabel} can be compared with.`,
+      };
+    }
+    return { compatible: true };
+  }
+
+  if (spec.kind === "NUMBER") {
+    if (value.kind !== "NUMBER") {
+      return {
+        compatible: false,
+        code: "VALUE_KIND_MISMATCH",
+        message: `${metricLabel} is compared with a number you type.`,
+      };
+    }
+    return Number.isFinite(value.value) &&
+      value.value >= spec.min &&
+      value.value <= spec.max
+      ? { compatible: true }
+      : {
+          compatible: false,
+          code: "VALUE_OUT_OF_DOMAIN",
+          message: `${metricLabel} needs a threshold ${boundsText(spec.min, spec.max)}.`,
+        };
+  }
+
+  if (value.kind !== "PERCENT") {
+    return {
+      compatible: false,
+      code: "VALUE_KIND_MISMATCH",
+      message: `${metricLabel} is compared with a percentage.`,
+    };
+  }
+  return Number.isFinite(value.value) &&
+    (spec.min === undefined || value.value >= spec.min) &&
+    (spec.max === undefined || value.value <= spec.max)
+    ? { compatible: true }
+    : {
+        compatible: false,
+        code: "VALUE_OUT_OF_DOMAIN",
+        message: `${metricLabel} needs a percentage ${boundsText(spec.min, spec.max)}.`,
+      };
+}
+
 function checkValueAgainstMetric(
   metric: StrategyMetric,
   value: StrategyValue,
   location: PredicateLocation,
   issues: ValidationContext,
 ): void {
-  const path = predicatePath(location, "VALUE");
-  const spec = valueSpecFor(metric);
-  const metricLabel = strategyMetricLabel(metric);
-
-  if (spec.kind === "SERIES") {
-    if (value.kind !== "SERIES") {
-      issues.add(
-        "VALUE_KIND_MISMATCH",
-        path,
-        `${metricLabel} is compared with another series, not with a typed number.`,
-      );
-      return;
-    }
-    if (!spec.seriesIds.includes(value.seriesId)) {
-      issues.add(
-        "SERIES_NOT_COMPARABLE",
-        path,
-        metric.kind === "MOVING_AVERAGE"
-          ? strategyMetricSeriesId(metric) === value.seriesId
-            ? `${metricLabel} cannot be compared with itself.`
-            : `${metricLabel} compares only with moving averages of the same timeframe, so ${strategyValueLabel(value)} is not available here.`
-          : `${strategyValueLabel(value)} is not a series ${metricLabel} can be compared with.`,
-      );
-    }
-    return;
-  }
-
-  if (spec.kind === "NUMBER") {
-    if (value.kind !== "NUMBER") {
-      issues.add(
-        "VALUE_KIND_MISMATCH",
-        path,
-        `${metricLabel} is compared with a number you type.`,
-      );
-      return;
-    }
-    if (
-      !Number.isFinite(value.value) ||
-      value.value < spec.min ||
-      value.value > spec.max
-    ) {
-      issues.add(
-        "VALUE_OUT_OF_DOMAIN",
-        path,
-        `${metricLabel} needs a threshold ${boundsText(spec.min, spec.max)}.`,
-      );
-    }
-    return;
-  }
-
-  if (value.kind !== "PERCENT") {
-    issues.add(
-      "VALUE_KIND_MISMATCH",
-      path,
-      `${metricLabel} is compared with a percentage.`,
-    );
-    return;
-  }
-  if (
-    !Number.isFinite(value.value) ||
-    (spec.min !== undefined && value.value < spec.min) ||
-    (spec.max !== undefined && value.value > spec.max)
-  ) {
-    issues.add(
-      "VALUE_OUT_OF_DOMAIN",
-      path,
-      `${metricLabel} needs a percentage ${boundsText(spec.min, spec.max)}.`,
-    );
+  const result = checkStrategyValue(metric, value);
+  if (!result.compatible) {
+    issues.add(result.code, predicatePath(location, "VALUE"), result.message);
   }
 }
 
