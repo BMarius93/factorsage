@@ -1850,3 +1850,115 @@ export function normalizeStrategy(strategy: unknown): StrategyDraft {
   }
   return normalized;
 }
+
+// ---------------------------------------------------------------------------
+// Definition fingerprint
+// ---------------------------------------------------------------------------
+
+/**
+ * A canonical string identifying one strategy's **logic**, ignoring row identifiers.
+ *
+ * Ids are client-generated and exist so diagnostics can address a row; re-keying a row does not
+ * change what the strategy does, so it must not create a new persisted version. Genuine reordering
+ * does, which is why order is preserved rather than sorted — level order is product-meaningful.
+ *
+ * The value is a deterministic serialization, not a hash: hashing belongs to the persistence layer,
+ * which has `node:crypto`, while the knowledge of which fields carry meaning belongs here with the
+ * model. Two definitions produce the same string exactly when they express the same logic.
+ */
+export function strategyDefinitionFingerprint(
+  definition: StrategyDefinition,
+): string {
+  const value = (input: StrategyValue): unknown =>
+    input.kind === "SERIES"
+      ? [input.kind, input.seriesId]
+      : [input.kind, input.value];
+  const metric = (input: StrategyMetric): unknown => [
+    input.kind,
+    strategyMetricSeriesId(input) ?? null,
+  ];
+  const predicate = (input: StrategyCondition | StrategyTrigger): unknown => [
+    metric(input.metric),
+    input.operator,
+    value(input.value),
+  ];
+  const signalOf = (input: StrategySignal): unknown => [
+    input.conditions.map(predicate),
+    input.trigger ? predicate(input.trigger) : null,
+  ];
+  return JSON.stringify([
+    definition.schemaVersion,
+    definition.buyLevels.map((level) => [
+      level.percentage,
+      signalOf(level.signal),
+    ]),
+    definition.sellLevels.map((level) => [
+      level.percentage,
+      signalOf(level.signal),
+    ]),
+    definition.finalExit ? signalOf(definition.finalExit.signal) : null,
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// API contracts
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of `GET /strategies`.
+ *
+ * Counts rather than the definition, so the collection page renders without loading every
+ * document — the same reasoning as `StockListSummaryResponse.itemCount`.
+ */
+export type StrategySummaryResponse = {
+  id: string;
+  name: string;
+  description?: string;
+  buyLevelCount: number;
+  sellLevelCount: number;
+  hasFinalExit: boolean;
+  versionNumber: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StrategyDetailResponse = StrategySummaryResponse & {
+  definition: StrategyDefinition;
+};
+
+/**
+ * Creates a strategy: its name plus its rules, saved in one atomic request.
+ *
+ * `definition` is required because a strategy needs at least one BUY level to be saveable, so
+ * there is no name-only strategy to create. The Builder holds the draft until it is valid; an
+ * omitted definition is validated as an empty one and rejected for the same reason.
+ */
+export type CreateStrategyRequest = {
+  name: string;
+  description?: string;
+  definition: StrategyDefinition;
+};
+
+/** At least one field must be present. `description: null` clears the description. */
+export type UpdateStrategyRequest = {
+  name?: string;
+  description?: string | null;
+};
+
+/** Replaces the COMPLETE definition atomically and returns the canonical normalized result. */
+export type ReplaceStrategyDefinitionRequest = {
+  definition: StrategyDefinition;
+};
+
+/** The `code` a 400 carries when the canonical validator rejected a submitted strategy. */
+export const STRATEGY_INVALID_CODE = "STRATEGY_INVALID" as const;
+
+/**
+ * The 400 body for an invalid strategy: the same path-addressed issues the Builder renders
+ * inline, so a stale client or a concurrent edit produces row-level errors rather than a banner.
+ */
+export type StrategyValidationErrorResponse = {
+  message: string;
+  code: typeof STRATEGY_INVALID_CODE;
+  issues: StrategyValidationIssue[];
+};
