@@ -15,6 +15,7 @@ import {
   type StrategyCondition,
   type StrategyDefinition,
   type StrategyDetailResponse,
+  type StrategyDraft,
   type StrategyLevelKind,
   type StrategyMetric,
   type StrategySignal,
@@ -444,7 +445,7 @@ export function strategyDraftReducer(
 }
 
 /** The strategy a draft would save, with a blank description dropped. */
-export function draftPayload(draft: StrategyDraftState) {
+export function draftPayload(draft: StrategyDraftState): StrategyDraft {
   const description = draft.description.trim();
   return {
     name: draft.name.trim(),

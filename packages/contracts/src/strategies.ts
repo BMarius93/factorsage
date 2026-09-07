@@ -185,7 +185,12 @@ export type StrategyDefinition = {
   finalExit?: StrategyFinalExit;
 };
 
-/** A complete Strategy as authored: identity fields plus the definition document. */
+/**
+ * A complete Strategy as authored: identity fields plus the definition document.
+ *
+ * This is the shape `validateStrategy` expects and the shape the Strategy Builder saves, so the
+ * two cannot drift.
+ */
 export type StrategyDraft = {
   name: string;
   description?: string;
@@ -1879,27 +1884,6 @@ export function normalizeStrategyDefinition(
     throw new StrategyValidationError(issues);
   }
   return buildDefinition(definition as StrategyDefinition);
-}
-
-/**
- * Validates and canonicalizes a complete strategy, throwing `StrategyValidationError` when it is
- * not valid. The name is trimmed and a blank description becomes absent.
- */
-export function normalizeStrategy(strategy: unknown): StrategyDraft {
-  const issues = validateStrategy(strategy);
-  if (issues.length > 0) {
-    throw new StrategyValidationError(issues);
-  }
-  const input = strategy as StrategyDraft;
-  const description = input.description?.trim();
-  const normalized: StrategyDraft = {
-    name: input.name.trim(),
-    definition: buildDefinition(input.definition),
-  };
-  if (description !== undefined && description.length > 0) {
-    normalized.description = description;
-  }
-  return normalized;
 }
 
 // ---------------------------------------------------------------------------

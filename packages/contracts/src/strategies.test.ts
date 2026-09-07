@@ -17,7 +17,6 @@ import {
   describeStrategy,
   emptyStrategyDefinition,
   IS_CLOSE_TO_TOLERANCE,
-  normalizeStrategy,
   normalizeStrategyDefinition,
   SELL_LEVEL_PERCENTAGES,
   STRATEGY_LEVEL_KINDS,
@@ -1385,16 +1384,6 @@ describe("normalization", () => {
       "c2",
       "c3",
     ]);
-  });
-
-  it("trims the name and drops a blank description", () => {
-    const normalized = normalizeStrategy({
-      name: "  Value strategy  ",
-      description: "   ",
-      definition: definitionOf(signal([priceAboveEma200D()])),
-    });
-    expect(normalized.name).toBe("Value strategy");
-    expect("description" in normalized).toBe(false);
   });
 
   it("throws a StrategyValidationError carrying the same issues the validator reports", () => {

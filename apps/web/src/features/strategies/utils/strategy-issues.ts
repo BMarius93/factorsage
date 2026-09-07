@@ -41,7 +41,7 @@ export function groupStrategyIssues(
   return grouped;
 }
 
-export function issuesAt(
+function issuesAt(
   lookup: StrategyIssueLookup,
   path: StrategyIssuePath,
 ): readonly StrategyValidationIssue[] {
