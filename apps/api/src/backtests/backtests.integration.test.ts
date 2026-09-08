@@ -32,6 +32,7 @@ import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
 import { BenchmarksModule } from "../benchmarks/benchmarks.module";
 import { BacktestsModule } from "./backtests.module";
+import { EXECUTION_CALENDAR_REFERENCE } from "./backtests.tokens";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
@@ -1270,53 +1271,61 @@ describe("backtests", () => {
   });
 
   it("refuses to accept a run when the system execution calendar is not registered", async () => {
-    const store = new PrismaBenchmarkDataStore(prisma);
-    const code = `NOCAL_${suffix.slice(0, 8).toUpperCase()}`;
-    await store.reconcileBenchmarkCatalog([
-      {
-        code,
-        name: "Comparison Only",
-        sourceKind: "FMP_SYMBOL",
-        providerSymbol: "CMPONLY",
-        currency: "USD",
-        methodologyVersion: 1,
-        isActive: true,
-        displayOrder: 60,
-      },
-    ]);
+    const runsBeforeRefusal = await prisma.backtestRun.count({
+      where: { userId: ownerUserId },
+    });
 
-    // The reference is resolved by code, so renaming it makes it unresolvable without deleting
-    // anything — a stand-in for a deployment whose catalog has not been reconciled.
-    const reference = await prisma.benchmark.findUniqueOrThrow({
-      where: { code: "SP500" },
-    });
-    const parked = `PARKED_${suffix.slice(0, 8).toUpperCase()}`;
-    await prisma.benchmark.update({
-      where: { id: reference.id },
-      data: { code: parked },
-    });
+    // A second app, wired to a reference code that is not in the catalog.
+    //
+    // Deliberately *not* by renaming the canonical `SP500` row: that row is global, and another
+    // suite's module boot reconciles the catalog at any moment — recreating `SP500` while it is
+    // parked, so restoring it collides on the unique code. A test that has to vandalize shared
+    // state to reach a local behaviour is testing the wrong seam.
+    const isolated = await Test.createTestingModule({
+      imports: [
+        ConfigurationModule,
+        DatabaseModule,
+        AuthModule,
+        BacktestsModule,
+        BenchmarksModule,
+      ],
+    })
+      .overrideProvider(EXECUTION_CALENDAR_REFERENCE)
+      .useValue(`ABSENT_${suffix.slice(0, 8).toUpperCase()}`)
+      .compile();
+    const isolatedApp = isolated.createNestApplication();
+    await isolatedApp.init();
 
     try {
+      const client = request.agent(isolatedApp.getHttpServer());
+      await client
+        .post("/auth/login")
+        .send({ email: ownerEmail, password })
+        .expect(200);
+
       // 503, not 400: nothing about the submission is wrong, and retrying it later is right.
-      const response = await owner
+      const response = await client
         .post("/backtests")
-        .send(submission({ benchmarkCode: code }))
+        .send(submission())
         .expect(503);
       expect((response.body as { message: string }).message).toContain(
         "market calendar",
       );
+
       // And no half-created run: the refusal happens before the row exists.
-      expect(
-        await prisma.backtestRun.count({
-          where: { benchmark: { code }, userId: { not: undefined } },
-        }),
-      ).toBe(0);
-    } finally {
-      await prisma.benchmark.update({
-        where: { id: reference.id },
-        data: { code: "SP500" },
+      const runsAfter = await prisma.backtestRun.count({
+        where: { userId: ownerUserId },
       });
+      expect(runsAfter).toBe(runsBeforeRefusal);
+    } finally {
+      await isolatedApp.close();
     }
+
+    // The canonical catalog is untouched, which is the whole point of the seam.
+    const reference = await prisma.benchmark.findUnique({
+      where: { code: "SP500" },
+    });
+    expect(reference).not.toBeNull();
   });
 
   it("keeps engine-methodology diagnostics server-side", async () => {

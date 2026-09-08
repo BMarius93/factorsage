@@ -33,7 +33,6 @@ import {
 } from "@intrinsic/database";
 import {
   DEFAULT_BENCHMARK_CODE,
-  EXECUTION_CALENDAR_REFERENCE_CODE,
   normalizeBuyWindowConfiguration,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -42,7 +41,10 @@ import { getBacktestWorkerConfig } from "@intrinsic/config";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
-import { BACKTESTS_LOGGER } from "./backtests.tokens";
+import {
+  BACKTESTS_LOGGER,
+  EXECUTION_CALENDAR_REFERENCE,
+} from "./backtests.tokens";
 import type { ParsedCreateBacktestRunRequest } from "./backtest-requests";
 
 /**
@@ -622,6 +624,8 @@ export class BacktestsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(BACKTESTS_LOGGER) private readonly logger: StructuredLogger,
+    @Inject(EXECUTION_CALENDAR_REFERENCE)
+    private readonly executionCalendarReference: string,
   ) {}
 
   /**
@@ -708,7 +712,7 @@ export class BacktestsService {
     // a methodology it never recorded. Better to not create it.
     const executionCalendarSeries = (
       await this.prisma.benchmark.findFirst({
-        where: { code: EXECUTION_CALENDAR_REFERENCE_CODE },
+        where: { code: this.executionCalendarReference },
         include: { series: { orderBy: { version: "desc" }, take: 1 } },
       })
     )?.series[0];
@@ -788,7 +792,7 @@ export class BacktestsService {
         // The dates this run simulates come from a series the *engine* names, never from the
         // comparison above: two runs differing only in what they are compared against must
         // execute identically.
-        referenceCode: EXECUTION_CALENDAR_REFERENCE_CODE,
+        referenceCode: this.executionCalendarReference,
         seriesId: executionCalendarSeries.id,
         seriesVersion: executionCalendarSeries.version,
       },
