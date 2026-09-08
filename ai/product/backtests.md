@@ -51,6 +51,35 @@ the execution engine.
   ordinary day is left alone, and a level whose Trigger did not fire on the contribution date does
   not top up.
 
+### What V1 does not model
+
+These are the assumptions a reader must not mistake for modelling. None of them is a bug, and none
+is implemented in V1.
+
+- **Uninvested cash earns nothing** (`cashYield: zero-interest@1`). A portfolio sitting in cash —
+  before its first security lists, or between exits — grows by exactly zero, where a real one would
+  have earned a money-market or T-bill yield.
+- **Dividends are not modelled.** Market data comes from the provider's end-of-day price series,
+  and the engine applies no cash dividend, no reinvestment and no adjustment for one. **A V1 result
+  is therefore a price return, not a total return.** The same applies to the comparison: `SP500` is
+  sourced from the `SPY` ETF's price history, so it is a price-return proxy for the index and
+  **must not be described as an S&P 500 total-return index**. Comparing a price-return portfolio to
+  a price-return proxy is at least consistent, but neither figure includes the income a holder
+  would actually have received.
+- **A stock list is a static, present-day set.** Membership is frozen at submission as the exact
+  securities the list held then. A list a user calls "Dow Jones" and runs for thirty years means
+  _today's chosen securities, evaluated historically as their data becomes available_ — **not** the
+  index's constituents as they stood on each historical date. Choosing today's members introduces
+  survivorship and current-membership bias: the companies that failed or were removed are simply
+  absent. Point-in-time membership is a future capability, not a V1 one.
+- **Same-day close execution is a simplification, not a realistic fill.** An order fills at the
+  close of the date whose signal produced it — but that close is also what the signal was computed
+  from, so the decision uses a price that is only known once the session has ended. It is a
+  deliberate, versioned simplification (`same-day-close/…`), and it must not be described as
+  behaviour a trader could reproduce. Evaluating "signal at D's close, execute at D+1's open" is a
+  separate decision, not a V1 one.
+- **An ended price history is not a delisting.** See below.
+
 The remaining execution rules — exits before entries, a BUY level as a target fill, one firing per
 level per position lifecycle plus the contribution-date top-up above, FINAL EXIT outranking a
 partial SELL, no same-date re-entry, and the candidate ordering used when cash or slots cannot
@@ -105,6 +134,10 @@ A stock list is a list of securities, not a guarantee that each one traded acros
   actually quoted, never a mark that was never observed. The holdings panel shows that close's date
   whenever it is earlier than the run's own last simulated date, so a stale valuation is visible
   rather than silent.
+
+**This is not a delisting or corporate-action model.** A holding whose history ends is carried at
+its last observed close and reported with that close's date; the engine never claims the company was
+liquidated, acquired, or that a holder received anything. It has simply stopped observing prices.
 
 **Open methodology question — delisting is not modelled.** FactorSage cannot currently tell a
 delisting from a data gap point-in-time. The provider's profile carries a listing date and a

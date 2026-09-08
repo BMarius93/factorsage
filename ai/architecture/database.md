@@ -113,8 +113,10 @@ phase column.
 **Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `description`,
 `isActive`, `displayOrder`). Everything that decides what its numbers _are_ lives on
 `BenchmarkSeries` — an **append-only** definition (`sourceKind`, `providerSymbol`, `currency`,
-`methodologyVersion`) with `@@unique([benchmarkId, version])` and a definition unique key that makes
-reconciliation idempotent. `BenchmarkDailyPrice` is keyed `@@id([seriesId, date])`, and
+`methodologyVersion`) with `@@unique([benchmarkId, version])`. Reconciliation compares against the
+version currently in force and appends when it differs, which is what makes it idempotent — there is
+deliberately no unique constraint over the definition itself, because that would make returning a
+benchmark to a source it used before impossible. `BenchmarkDailyPrice` is keyed `@@id([seriesId, date])`, and
 `BenchmarkDatasetState`/`BenchmarkDatasetCoverage` are keyed by `seriesId` too, mirroring the stock
 dataset watermark/coverage contract exactly.
 

@@ -1,4 +1,5 @@
 import { BACKTEST_SNAPSHOT_VERSION } from "@intrinsic/contracts";
+import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import type { BenchmarkSeries, Security } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
@@ -62,7 +63,7 @@ function snapshotDocument(overrides: Record<string, unknown> = {}) {
       seriesId: CALENDAR_SERIES,
       seriesVersion: 1,
     },
-    methodology: {},
+    methodology: { ...BACKTEST_METHODOLOGY },
     dataRevisions: { priceDatasetVersion: 1, derivedStateRevision: 1 },
     ...overrides,
   };
@@ -81,6 +82,8 @@ function claimOf(snapshot: unknown, attempt = 1): ClaimedBacktestJob {
 /** Accepts every write and remembers only the failure, which is what these cases are about. */
 class RecordingRepository implements BacktestJobRepository {
   readonly failures: BacktestFailureWrite[] = [];
+  readonly released: string[] = [];
+  readonly results: string[] = [];
 
   async claimNextJob(): Promise<ClaimedBacktestJob | null> {
     return null;
@@ -94,14 +97,16 @@ class RecordingRepository implements BacktestJobRepository {
   async updateProgress(): Promise<boolean> {
     return true;
   }
-  async persistResult(): Promise<boolean> {
+  async persistResult(write: { runId: string }): Promise<boolean> {
+    this.results.push(write.runId);
     return true;
   }
   async failJob(write: BacktestFailureWrite): Promise<boolean> {
     this.failures.push(write);
     return true;
   }
-  async releaseJob(): Promise<boolean> {
+  async releaseJob(_jobId: string, runId: string): Promise<boolean> {
+    this.released.push(runId);
     return true;
   }
 }
@@ -217,5 +222,114 @@ describe("the pinned execution calendar", () => {
     expect(seen[1]).toEqual(seen[0]);
     expect(seen[2]).toEqual(seen[0]);
     expect(seen[0]).toContain(CALENDAR_SERIES);
+  });
+});
+
+/**
+ * A queued run may not cross an engine deploy.
+ *
+ * The failure this guards against leaves no trace: a run submitted under `execution@2` and claimed
+ * by a worker that implements `execution@3` would execute the new rules and persist the result
+ * beside the old version stamps. Nothing would look wrong — the numbers would simply not be the
+ * ones the snapshot says were produced, and the record that exists to make a run reproducible
+ * would be the thing that lied.
+ */
+describe("engine methodology compatibility", () => {
+  /** Every field is execution-affecting, so every field is checked. */
+  const FIELDS = Object.keys(
+    BACKTEST_METHODOLOGY,
+  ) as (keyof typeof BACKTEST_METHODOLOGY)[];
+
+  it("executes normally when the snapshot names exactly this build's methodology", async () => {
+    const benchmarks = new RecordingBenchmarks(new Set([CALENDAR_SERIES]));
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    // It got past the guard and failed on the calendar instead, which is the next thing it does.
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(benchmarks.requested).toContain(CALENDAR_SERIES);
+  });
+
+  it.each(FIELDS)(
+    "refuses a run whose %s methodology this build does not implement",
+    async (field) => {
+      const benchmarks = new RecordingBenchmarks();
+      const { processor, repository } = processorWith(benchmarks);
+      const stale = snapshotDocument({
+        methodology: {
+          ...BACKTEST_METHODOLOGY,
+          [field]: "queued-under-something-else@0",
+        },
+      });
+
+      await processor.process(claimOf(stale), lease);
+
+      expect(repository.failures).toHaveLength(1);
+      expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+      // Before anything is loaded: not the calendar, not a security. The answer cannot change
+      // with effort spent, so no effort is spent.
+      expect(benchmarks.requested).toEqual([]);
+    },
+  );
+
+  it("refuses a run that recorded no methodology at all", async () => {
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const withoutMethodology = snapshotDocument();
+    delete (withoutMethodology as Record<string, unknown>).methodology;
+
+    await processor.process(claimOf(withoutMethodology), lease);
+
+    expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+  });
+
+  it("neither rewrites the snapshot nor re-submits the run", async () => {
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const stale = snapshotDocument({
+      methodology: { ...BACKTEST_METHODOLOGY, execution: "older@1" },
+    });
+    const before = JSON.stringify(stale);
+    const claim = claimOf(stale);
+
+    await processor.process(claim, lease);
+
+    // The document the worker was handed is untouched, so nothing can have been written back to
+    // the row it came from — a run's recorded methodology is what it was submitted under, forever.
+    expect(JSON.stringify(claim.snapshot)).toBe(before);
+    expect(repository.released).toEqual([]);
+    expect(repository.results).toEqual([]);
+  });
+
+  it("fails terminally and sanitizes: the user is told to re-run, versions stay server-side", async () => {
+    const { processor, repository } = processorWith(new RecordingBenchmarks());
+    const stale = snapshotDocument({
+      methodology: { ...BACKTEST_METHODOLOGY, returns: "internal-revision@9" },
+    });
+
+    await processor.process(claimOf(stale), lease);
+
+    const failure = repository.failures[0];
+    expect(failure?.message).toContain("Run it again");
+    expect(failure?.message).not.toContain("internal-revision@9");
+    expect(failure?.message).not.toContain("time-weighted");
+    // Developer detail travels in `detail`, which no API contract projects.
+    expect(JSON.stringify(failure?.detail)).toContain(
+      "ENGINE_VERSION_MISMATCH",
+    );
+  });
+
+  it("keeps refusing on every retry rather than drifting into the new methodology", async () => {
+    const stale = snapshotDocument({
+      methodology: { ...BACKTEST_METHODOLOGY, calendar: "older-axis@0" },
+    });
+    for (const attempt of [1, 2, 3]) {
+      const benchmarks = new RecordingBenchmarks();
+      const { processor, repository } = processorWith(benchmarks);
+      await processor.process(claimOf(stale, attempt), lease);
+      expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+      expect(benchmarks.requested).toEqual([]);
+    }
   });
 });

@@ -77,13 +77,14 @@ loop reads an indexed byte. SELL and FINAL EXIT gates carry only their market-de
 ANDed with live position predicates while a position is open.
 
 The portfolio's date axis is the **union** of the eligible trading dates of the securities in the
-run **and of the benchmark**, restricted to the period (`CALENDAR_METHODOLOGY_VERSION`). Predicates
+run **and of the pinned execution calendar**, restricted to the period
+(`CALENDAR_METHODOLOGY_VERSION`). Predicates
 are never carried forward — a security with no row that day simply takes no action — while
 _valuation_ is carried forward at the position's most recent close, which is the only
 point-in-time-correct value available.
 
-The benchmark is in the union because a portfolio exists from the first day of the requested period
-even while it holds nothing but cash. Without it, a run whose securities all list after its start
+The execution calendar is in the union because a portfolio exists from the first day of the
+requested period even while it holds nothing but cash. Without it, a run whose securities all list after its start
 would not exist until the first of them began trading, its curve would appear to start at the first
 BUY rather than flat at 0% from the beginning, and every contribution before that date would be
 skipped. On an execution-calendar-only date no security has a row, so every predicate is
@@ -144,6 +145,28 @@ into every run snapshot so a later change cannot reinterpret an old run.
 | Monthly contribution      | `first-eligible-trading-day-of-month@1`: the run's first simulated date is funded by the initial capital and receives no contribution on top of it; from the next calendar month onwards the contribution lands on that month's first simulated trading date, before the day's trading, so it is spendable that same date. A calendar month with no simulated trading date receives none, and nothing is carried forward                                                                                                               |
 | BUY windows               | a window gates every BUY in that stock, opening or topping up. Selling is never restricted                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
+## Open execution questions
+
+Two behaviours below are what the engine does today. They are recorded here as _choices not yet
+argued_, so the next iteration of the execution methodology decides them deliberately rather than
+inheriting them by accident. Neither is changed in V1; both are pinned by tests.
+
+**Several BUY levels true on the same date.** Per security per date the engine takes the single
+highest-percentage level whose gate is TRUE, funds it, and marks **only that level** fired. The
+lower levels stay unfired. The first time one of them is TRUE again it is compared against the
+position's current value: normally it is already above that smaller target, so it is retired with no
+trade — but if the position has since fallen below it, it fires and buys the shortfall **on an
+ordinary day**. The product rule "a position that merely drifted below target on an ordinary day is
+left alone" therefore holds for a single-level strategy and not for a multi-level one. Whether a
+lower level should be considered satisfied by a larger fill is the open question.
+
+**A BUY target larger than the cash available.** The engine spends what it has —
+`spend = min(shortfall, cash)` — and marks the level fired, so a level that could only be filled to
+2% of its target is done for the rest of the position's lifecycle (barring a contribution date).
+There is one sharp edge: with _zero_ cash the write is skipped before the level is marked, so a
+level that finds nothing stays live while a level that finds a cent is retired. Whether a partial
+fill should satisfy a level at all is the open question.
+
 ## Returns, benchmark and alpha
 
 `time-weighted-index@1`. Both curves are growth indices based at 1.0 on the first simulated date, so
@@ -159,8 +182,16 @@ the UI compares percentage growth from the same starting point.
   estimate.
 - Max drawdown is measured on the growth index, so a contribution cannot mask a drawdown.
 
-The benchmark never joins the union calendar, never consumes cash and never occupies a position
-slot. It also never shortens the run: unlike the legacy implementation, the requested period is not
+The benchmark never contributes a date to the execution calendar, never consumes cash and never
+occupies a position slot.
+
+**A benchmark whose history starts after the run does not produce a comparable figure.** The cursor
+bases its growth index at the first close it sees, so such a benchmark reports growth from _its_
+start while the portfolio reports growth from the run's. V1 is unaffected — `SPY` predates the
+30-year maximum period — but a comparability rule (rebase, refuse, or report the shortened window)
+must be decided **before** any benchmark with a later inception is added to the catalog. Until then,
+do not present a mid-period benchmark growth figure as comparable to portfolio growth measured from
+an earlier date. It also never shortens the run: unlike the legacy implementation, the requested period is not
 clamped to the benchmark's last available date.
 
 ## Durable work

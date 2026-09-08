@@ -129,6 +129,7 @@ export type BacktestMethodologyResponse = {
   candidateOrdering: string;
   execution: string;
   executionCosts: string;
+  cashYield: string;
   contribution: string;
   returns: string;
   costBasis: string;
@@ -340,6 +341,13 @@ export const BACKTEST_FAILURE_CODES = [
    * rather than quietly simulate a different set of dates.
    */
   "EXECUTION_CALENDAR_UNAVAILABLE",
+  /**
+   * The run was queued under a methodology this build does not implement.
+   *
+   * A deploy between queueing and claiming would otherwise let a worker execute today's rules and
+   * store the result under the versions the snapshot recorded yesterday.
+   */
+  "ENGINE_VERSION_MISMATCH",
   "NO_TRADING_DAYS",
   "EXECUTION_FAILED",
   "ABANDONED",

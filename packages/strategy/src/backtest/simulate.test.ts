@@ -1053,6 +1053,111 @@ describe("annual milestone checkpoints", () => {
  * portfolio that holds nothing but cash has a real, knowable value and a return of exactly zero;
  * a curve that only began at the first BUY would hide years of the decision not to buy.
  */
+/**
+ * What the engine does today, recorded so the docs cannot drift from it.
+ *
+ * These are not arguments that the behaviour is right — `ai/architecture/backtest-execution.md`
+ * lists both as open questions for the next execution-methodology iteration. They are here so that
+ * changing either is a deliberate act with a failing test attached, rather than a silent shift in
+ * what a strategy means.
+ */
+describe("pinned execution choices, not yet argued", () => {
+  it("funds only the highest matching BUY level and leaves the lower ones unfired", async () => {
+    const dates = tradingDates("2020-01-06", 6);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [
+            buyLevel("b25", 25, priceBelowSignal(1_000)),
+            buyLevel("b50", 50, priceBelowSignal(1_000)),
+            buyLevel("b100", 100, priceBelowSignal(1_000)),
+          ],
+        }),
+        securities: [securityInput(frame)],
+        initialCapital: 100_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    // One trade, at the largest target. The 25 and 50 levels neither trade nor re-trade later:
+    // the position already exceeds their smaller targets, so they retire without buying.
+    expect(result.trades.map((trade) => [trade.levelId, trade.amount])).toEqual(
+      [["b100", 100_000]],
+    );
+  });
+
+  it("lets an unfired lower BUY level buy on an ordinary day once the position falls below it", async () => {
+    const dates = tradingDates("2020-01-06", 8);
+    // Filled at 100 on day 0, then the price collapses to a tenth.
+    const closes = dates.map((_unused, index) => (index === 0 ? 100 : 10));
+    const frame = frameOf({ symbol: "AAA", dates, closes });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [
+            buyLevel("b25", 25, priceBelowSignal(1_000)),
+            buyLevel("b100", 100, priceBelowSignal(1_000)),
+          ],
+        }),
+        securities: [securityInput(frame)],
+        initialCapital: 100_000,
+        maximumPositions: 4,
+      }),
+    );
+
+    // No contribution was made on that day, so this *is* a top-up on an ordinary day — reachable
+    // only because `b25` never fired. A single-level strategy cannot produce it.
+    expect(result.trades.map((trade) => [trade.date, trade.levelId])).toEqual([
+      [dates[0], "b100"],
+      [dates[1], "b25"],
+    ]);
+  });
+
+  it("fills a BUY as far as the cash goes and marks the level done anyway", async () => {
+    const dates = tradingDates("2020-01-06", 8);
+    // AAA fills first and then multiplies, which inflates every later target while the cash left
+    // behind stays where it was.
+    const aaa = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map((_unused, index) => (index === 0 ? 100 : 1_000)),
+    });
+    const ccc = frameOf({
+      symbol: "CCC",
+      dates: dates.slice(1),
+      closes: dates.slice(1).map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b100", 100, priceBelowSignal(5_000))],
+        }),
+        securities: [securityInput(aaa), securityInput(ccc)],
+        startDate: dates[0] as string,
+        endDate: dates[dates.length - 1] as string,
+        executionCalendar: dates,
+        initialCapital: 1_000,
+        maximumPositions: 3,
+      }),
+    );
+
+    // CCC's target was several thousand and it bought 666.67 — every cent left — and never
+    // returned to the level on any later day.
+    const cccTrades = result.trades.filter((trade) => trade.symbol === "CCC");
+    expect(cccTrades).toHaveLength(1);
+    expect(cccTrades[0]?.amount).toBeCloseTo(666.67, 2);
+    expect(result.summary.finalCash).toBeCloseTo(0, 8);
+  });
+});
+
 describe("the comparison benchmark is passive", () => {
   const MARKET_DATES = tradingDates("2020-01-06", 200);
 

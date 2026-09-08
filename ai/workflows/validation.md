@@ -216,6 +216,11 @@ pnpm dev:worker
 pnpm dev:web
 ```
 
+> **Do not run `pnpm test` while the deterministic E2E stack is up.** They share
+> `TEST_DATABASE_URL`, and a running `dev:worker:e2e` will claim the queued backtest jobs the API
+> integration suite creates — the suite then sees them mid-execution instead of `QUEUED`. Stop the
+> E2E stack first; the two are alternatives, not companions.
+
 ### Deterministic Playwright
 
 The E2E stack replaces the development stack — both bind the same ports, so stop one before

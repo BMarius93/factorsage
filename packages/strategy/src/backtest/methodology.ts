@@ -6,6 +6,12 @@
  * submission and are never read back out of it to *drive* behaviour — a completed run is data, and
  * re-running it under a newer engine is a new run.
  *
+ * They are, however, read back to *refuse* behaviour. A run queued at 10:00 under `execution@2` and
+ * claimed at 10:10 by a worker deployed at 10:05 with `execution@3` would otherwise execute the new
+ * rules and store a result stamped with the old ones — a lie in the one record that exists to make
+ * a run reproducible. `methodologyMismatches` is what a worker checks before it starts; see
+ * `ai/architecture/backtest-execution.md`.
+ *
  * Bump a version when the rule it names changes in a way that can move a number.
  */
 
@@ -56,6 +62,19 @@ export const EXECUTION_METHODOLOGY_VERSION =
  */
 export const EXECUTION_COST_METHODOLOGY_VERSION =
   "zero-fees/zero-slippage@1" as const;
+
+/**
+ * What uninvested cash earns.
+ *
+ * `zero-interest@1`: nothing. A portfolio sitting in cash for years — before its first security
+ * lists, or between exits — grows by exactly zero, where a real one would have earned a money
+ * market or T-bill yield. It is not modelled, and saying so is the point of naming it.
+ *
+ * Stated as its own version rather than folded into `executionCosts` because it is a different
+ * assumption about a different thing — what money costs to move versus what money earns while
+ * still — and introducing a yield later must be a visible bump, not a silent restatement.
+ */
+export const CASH_YIELD_METHODOLOGY_VERSION = "zero-interest@1" as const;
 
 /**
  * Which dates a run simulates.
@@ -132,12 +151,56 @@ export const BACKTEST_METHODOLOGY = {
   candidateOrdering: CANDIDATE_ORDERING_METHODOLOGY_VERSION,
   execution: EXECUTION_METHODOLOGY_VERSION,
   executionCosts: EXECUTION_COST_METHODOLOGY_VERSION,
+  cashYield: CASH_YIELD_METHODOLOGY_VERSION,
   contribution: CONTRIBUTION_METHODOLOGY_VERSION,
   returns: RETURN_METHODOLOGY_VERSION,
   costBasis: "AVERAGE_COST" as const,
 } as const;
 
 export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;
+
+/** One methodology field a queued run disagrees with this build about. */
+export type BacktestMethodologyMismatch = {
+  field: keyof BacktestMethodology;
+  expected: string;
+  actual: string | null;
+};
+
+/**
+ * Every field of a recorded methodology that this build cannot honour.
+ *
+ * **All of them are execution-affecting**, which is why none is excluded: the calendar and its
+ * source decide which dates are simulated, `contribution` when money lands, `candidateOrdering`
+ * who is funded first, `execution` what a day does, `executionCosts` and `cashYield` what it costs
+ * and earns, `costBasis` what a sale realizes, and `returns` how the curve reports all of it. A run
+ * that disagreed about any one of them would produce different numbers than the ones its snapshot
+ * claims it produced.
+ *
+ * A missing field counts as a mismatch: it means the run was queued by a build that did not record
+ * that decision at all, so nothing establishes it made the same one.
+ */
+export function methodologyMismatches(
+  recorded: unknown,
+): BacktestMethodologyMismatch[] {
+  const document =
+    typeof recorded === "object" &&
+    recorded !== null &&
+    !Array.isArray(recorded)
+      ? (recorded as Record<string, unknown>)
+      : {};
+  const mismatches: BacktestMethodologyMismatch[] = [];
+  for (const [field, expected] of Object.entries(BACKTEST_METHODOLOGY)) {
+    const actual = document[field];
+    if (actual !== expected) {
+      mismatches.push({
+        field: field as keyof BacktestMethodology,
+        expected,
+        actual: typeof actual === "string" ? actual : null,
+      });
+    }
+  }
+  return mismatches;
+}
 
 /** V1 executes with no transaction costs. Kept as a named seam rather than a scattered `0`. */
 export const V1_FEE_PER_TRADE = 0;

@@ -16,6 +16,7 @@ import type {
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   collectOperands,
+  methodologyMismatches,
   simulateBacktest,
   type BacktestCheckpoint,
   type BacktestResult,
@@ -124,6 +125,9 @@ const FAILURE_MESSAGES: Record<BacktestFailureCode, string> = {
   EXECUTION_CALENDAR_UNAVAILABLE:
     "The market calendar this backtest runs on could not be loaded, so it was stopped rather " +
     "than run over a different set of trading days. Try again shortly.",
+  ENGINE_VERSION_MISMATCH:
+    "This backtest was queued under an older execution methodology. Run it again to use the " +
+    "current version.",
   NO_TRADING_DAYS:
     "The requested period contains no trading day for the stocks in this list.",
   EXECUTION_FAILED:
@@ -141,6 +145,12 @@ class BacktestRunFailure extends Error {
      * not be prepared. Never a provider name, a URL, a credential or a stack.
      */
     readonly context?: string,
+    /**
+     * Diagnostics for whoever has to explain the failure later. Merged into `failureDetail`, which
+     * no API contract projects, and never into the message a user reads — internal engine revision
+     * strings would tell them nothing and are not theirs to see.
+     */
+    readonly developerDetail?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "BacktestRunFailure";
@@ -196,6 +206,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       });
 
       phase = "PREPARING_DATA";
+      this.assertMethodologySupported(claim, snapshot);
       const prepared = await this.prepare(claim, lease, snapshot, period);
 
       phase = "RUNNING";
@@ -227,6 +238,54 @@ export class BacktestProcessor implements BacktestJobProcessor {
    * than failing the run: a thirty-year period over a list containing a recent listing is a normal
    * backtest, not an error. Losing *every* security is different — there is nothing to simulate.
    */
+  /**
+   * Refuses a run this build cannot execute as recorded.
+   *
+   * A queued run carries the methodology versions it was submitted under, and a deploy between
+   * queueing and claiming can leave the worker implementing different ones. Executing anyway would
+   * produce numbers under today's rules and store them beside yesterday's version stamps, which is
+   * precisely the record that exists to make a run reproducible.
+   *
+   * The refusal is deliberately dumb: no registry of past engines, no rewriting the snapshot to
+   * today's versions, no re-submitting on the user's behalf. The run is data, and re-running it
+   * under a newer engine is a *new* run — which is exactly what the message asks the user to do.
+   *
+   * Checked before anything is hydrated: the answer cannot change with effort spent.
+   */
+  private assertMethodologySupported(
+    claim: ClaimedBacktestJob,
+    snapshot: BacktestRunSnapshot,
+  ): void {
+    const mismatches = methodologyMismatches(snapshot.methodology);
+    if (mismatches.length === 0) {
+      return;
+    }
+    // Which versions disagree is developer detail: it names internal engine revisions and would
+    // mean nothing to a user, who only needs to know the run is stale. It reaches the logs and
+    // `failureDetail`, never the HTTP contract.
+    const described = mismatches.map(
+      (mismatch) =>
+        `${mismatch.field}: snapshot=${mismatch.actual ?? "<absent>"} ` +
+        `worker=${mismatch.expected}`,
+    );
+    this.dependencies.logger.error({
+      event: "backtest.methodology.unsupported",
+      runId: claim.runId,
+      jobId: claim.jobId,
+      attempt: claim.attempt,
+      mismatches: described,
+    });
+    throw new BacktestRunFailure(
+      "ENGINE_VERSION_MISMATCH",
+      FAILURE_MESSAGES.ENGINE_VERSION_MISMATCH,
+      undefined,
+      {
+        failureCode: "ENGINE_VERSION_MISMATCH",
+        methodologyMismatches: described,
+      },
+    );
+  }
+
   private async prepare(
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
@@ -729,6 +788,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
         phase,
         name: error.name,
         message: error.message,
+        ...(err instanceof BacktestRunFailure && err.developerDetail
+          ? err.developerDetail
+          : {}),
         ...(error.stack ? { stack: error.stack } : {}),
       },
     });

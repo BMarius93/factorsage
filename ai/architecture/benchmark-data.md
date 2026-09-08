@@ -34,7 +34,9 @@ So reconciliation is **append-only** for the definition:
 
 - the product row's words (name, description, ordering, selectability) are corrected on every boot;
 - a definition that differs from the one in force creates `BenchmarkSeries` version _n+1_;
-- an identical definition matches the definition unique key and creates nothing, so reruns converge;
+- a definition identical to the one **currently in force** creates nothing, so reruns converge;
+- returning to a source used before is a _new_ version, not a resurrection of the old one: its data
+  is fetched under it, because a history restated years later is not the history already stored;
 - market data, coverage, watermarks and the Redis projection are all keyed by `seriesId`.
 
 A `BacktestRun` therefore pins `benchmarkSeriesId` at submission and the worker resolves **by id**.

@@ -1319,6 +1319,44 @@ describe("backtests", () => {
     }
   });
 
+  it("keeps engine-methodology diagnostics server-side", async () => {
+    const run = await submit();
+    await prisma.backtestRun.update({
+      where: { id: run.id },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        failureCode: "ENGINE_VERSION_MISMATCH",
+        failurePhase: "PREPARING_DATA",
+        failureMessage:
+          "This backtest was queued under an older execution methodology. Run it again to use " +
+          "the current version.",
+        failureDetail: {
+          phase: "PREPARING_DATA",
+          name: "BacktestRunFailure",
+          methodologyMismatches: [
+            "execution: snapshot=same-day-close/internal@2 worker=same-day-close/internal@3",
+          ],
+          stack: "Error: at BacktestProcessor.assertMethodologySupported",
+        },
+      },
+    });
+
+    for (const path of [
+      `/backtests/${run.id}`,
+      `/backtests/${run.id}/progress`,
+    ]) {
+      const response = await owner.get(path).expect(200);
+      const serialized = JSON.stringify(response.body);
+      // The user learns the run is stale and what to do; which internal revisions disagreed is
+      // developer detail and would mean nothing to them.
+      expect(serialized).toContain("Run it again");
+      expect(serialized).not.toContain("methodologyMismatches");
+      expect(serialized).not.toContain("internal@2");
+      expect(serialized).not.toContain("assertMethodologySupported");
+    }
+  });
+
   it("reports no phase rather than one the browser cannot label", async () => {
     const run = await submit();
     await prisma.backtestRun.update({

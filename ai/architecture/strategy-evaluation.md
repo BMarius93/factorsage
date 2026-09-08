@@ -769,8 +769,14 @@ instead of mysterious.
 
 There is no trading-calendar table and each security has its own eligible dates (Phase 1, fact 1),
 so the portfolio needs one axis. **Use the ascending union of the eligible dates of every security
-in the run, derived from the loaded frames.** The intersection would silently drop dates, and
-adopting a benchmark's calendar would add a data dependency and a product decision.
+in the run and of the run's pinned execution calendar**, restricted to the period. The intersection
+would silently drop dates.
+
+The execution calendar is a required system input taken from a reference series the engine
+designates — never from the comparison benchmark the user selected, which contributes no dates at
+all. Without it a run whose securities all list after its start would not exist until the first of
+them began trading, and every monthly contribution before that date would be skipped. It is decided
+and versioned in `backtest-execution.md`; there is no securities-only fallback.
 
 Two rules keep the union honest:
 
