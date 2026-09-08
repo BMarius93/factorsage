@@ -178,3 +178,40 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* The date input keeps its own width and the MAX action sits beside it, so the row stays one line
+   on a phone instead of pushing the control narrow enough to clip the native date picker. */
+.dateRow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.dateRow > input {
+  flex: 1;
+  min-width: 0;
+}
+
+.maxButton {
+  flex: none;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-primary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.maxButton:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.maxButton:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

@@ -701,6 +701,7 @@ describe("backtests", () => {
           shares: 12.5,
           averageCost: 100,
           lastPrice: 110,
+          lastPriceDate: "2020-06-30",
           marketValue: 1_375,
           unrealizedPnlPercent: 10,
           allocationPercent: 1.33,
@@ -1010,6 +1011,7 @@ describe("backtests", () => {
       shares: 5,
       averageCost: 200,
       lastPrice: 260,
+      lastPriceDate: "2020-12-31",
       marketValue: 1_300,
       unrealizedPnlPercent: 30,
       allocationPercent: 1.3,
@@ -1063,6 +1065,7 @@ describe("backtests", () => {
         startedAt: new Date(),
         completedAt: new Date(),
         failureCode: "DATA_UNAVAILABLE",
+        failurePhase: "PREPARING_DATA",
         failureMessage:
           "Price history is not available for the requested period",
         failureDetail: {
@@ -1077,6 +1080,7 @@ describe("backtests", () => {
     const detailBody = detail.body as BacktestRunDetailResponse;
     expect(detailBody.failure).toEqual({
       code: "DATA_UNAVAILABLE",
+      phase: "PREPARING_DATA",
       message: "Price history is not available for the requested period",
     });
     expect(detailBody.result).toBeNull();
@@ -1090,6 +1094,7 @@ describe("backtests", () => {
     const progressBody = progress.body as BacktestProgressResponse;
     expect(progressBody.failure).toEqual({
       code: "DATA_UNAVAILABLE",
+      phase: "PREPARING_DATA",
       message: "Price history is not available for the requested period",
     });
     expect(progressBody.live).toBeNull();
@@ -1099,6 +1104,69 @@ describe("backtests", () => {
       expect(serialized).not.toContain("failureDetail");
       expect(serialized).not.toContain("ECONNREFUSED");
       expect(serialized).not.toContain("example.invalid");
+      expect(serialized).not.toContain(suffix);
     }
+  });
+
+  it("serves the years a run has finished, in order, on both surfaces", async () => {
+    const run = await submit();
+    await prisma.backtestRunMilestone.createMany({
+      data: ["2015", "2016", "2017"].map((year, index) => ({
+        runId: run.id,
+        sequence: index + 1,
+        year,
+        simulatedThrough: new Date(`${year}-12-31T00:00:00.000Z`),
+        percent: (index + 1) * 30,
+        completedDays: (index + 1) * 252,
+        totalDays: 756,
+        cash: 1_000,
+        totalValue: 11_000 + index,
+        investedCapital: 10_000,
+        portfolioReturnPercent: index * 5,
+        benchmarkReturnPercent: index * 4,
+        alphaPercent: index,
+        maxDrawdownPercent: 6,
+        tradeCount: index * 3,
+        openPositions: 2,
+      })),
+    });
+
+    for (const path of [
+      `/backtests/${run.id}`,
+      `/backtests/${run.id}/progress`,
+    ]) {
+      const response = await owner.get(path).expect(200);
+      const body = response.body as
+        BacktestRunDetailResponse | BacktestProgressResponse;
+      expect(body.milestones.map((entry) => entry.year)).toEqual([
+        "2015",
+        "2016",
+        "2017",
+      ]);
+      expect(body.milestones.map((entry) => entry.sequence)).toEqual([1, 2, 3]);
+      expect(body.milestones[0]?.simulatedThrough).toBe("2015-12-31");
+      expect(body.milestones[2]?.portfolioReturnPercent).toBe(10);
+      // Compact by design: a milestone is a scalar snapshot, never a copy of the curve.
+      expect(Object.keys(body.milestones[0] ?? {})).not.toContain("curve");
+    }
+  });
+
+  it("reports no phase rather than one the browser cannot label", async () => {
+    const run = await submit();
+    await prisma.backtestRun.update({
+      where: { id: run.id },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+        // A phase written by an older or newer worker than this API. Labelling is the browser's
+        // job and it only knows the contract's values, so an unknown one is reported as none.
+        failurePhase: "DECOMMISSIONING_THE_UNIVERSE",
+      },
+    });
+
+    const detail = await owner.get(`/backtests/${run.id}`).expect(200);
+    const body = detail.body as BacktestRunDetailResponse;
+    expect(body.failure?.phase).toBeNull();
+    expect(body.failure?.code).toBe("EXECUTION_FAILED");
   });
 });

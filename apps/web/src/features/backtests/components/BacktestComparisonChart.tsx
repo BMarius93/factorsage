@@ -21,6 +21,12 @@ export type BacktestComparisonChartProps = {
   /** The benchmark's own product name, read from the run's snapshot — never hard-coded. */
   readonly benchmarkName: string;
   readonly ariaLabel: string;
+  /**
+   * The configured period. It fixes the horizontal axis for the whole run, so the not-yet-simulated
+   * part stays empty instead of the chart reframing itself around whatever has been computed.
+   */
+  readonly periodStart: string;
+  readonly periodEnd: string;
 };
 
 function legendRow(label: string, value: string, color?: string): HTMLElement {
@@ -50,17 +56,28 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
  *
  * The chart instance is created once and mutated through `setData`, so a checkpoint extends the
  * curve without remounting anything and without a layout jump.
+ *
+ * The horizontal axis is the **configured period**, fixed for the whole run. A running backtest
+ * that reframed itself to whatever it had computed so far would rescale on every checkpoint, and
+ * the curve would appear to stand still while the axis raced ahead of it. Anchoring the scale to
+ * `periodStart`..`periodEnd` instead means the not-yet-simulated part of the run is simply empty
+ * and the line fills in from the left. The anchors are whitespace points — a time with no value —
+ * so nothing is added to either return series.
  */
 export function BacktestComparisonChart({
   points,
   benchmarkName,
   ariaLabel,
+  periodStart,
+  periodEnd,
 }: BacktestComparisonChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const portfolioRef = useRef<ISeriesApi<"Line"> | null>(null);
   const benchmarkRef = useRef<ISeriesApi<"Line"> | null>(null);
+  // Whitespace-only series whose two points pin the time scale to the configured period.
+  const anchorRef = useRef<ISeriesApi<"Line"> | null>(null);
   // How many points are currently drawn, so a checkpoint that extends the curve can be told from
   // a rerender that changed nothing.
   const drawnCountRef = useRef(0);
@@ -131,6 +148,13 @@ export function BacktestComparisonChart({
       priceLineVisible: false,
       lastValueVisible: false,
     });
+    const anchor = chart.addSeries(LineSeries, {
+      color: "rgba(0,0,0,0)",
+      lineWidth: 1,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
     // Break-even. Both series start at zero by construction, so this is the line that says whether
     // either of them is up or down on the run.
     portfolio.createPriceLine({
@@ -180,6 +204,7 @@ export function BacktestComparisonChart({
     chartRef.current = chart;
     portfolioRef.current = portfolio;
     benchmarkRef.current = benchmark;
+    anchorRef.current = anchor;
 
     return () => {
       // chart.remove() disposes every series, price line and subscription the instance owns; the
@@ -189,6 +214,7 @@ export function BacktestComparisonChart({
       chartRef.current = null;
       portfolioRef.current = null;
       benchmarkRef.current = null;
+      anchorRef.current = null;
       drawnCountRef.current = 0;
     };
   }, []);
@@ -217,15 +243,26 @@ export function BacktestComparisonChart({
       ),
     );
 
-    // A backtest curve is a whole-run view that grows with each checkpoint, not navigable history:
-    // keeping the entire run framed is what "watch it progress" means. Framing only when the curve
-    // actually grew leaves an unrelated rerender alone, and polling stops at completion, so a
-    // finished chart is never refit under a user exploring it.
-    if (points.length > drawnCountRef.current) {
-      chart.timeScale().fitContent();
-    }
     drawnCountRef.current = points.length;
   }, [points]);
+
+  // The configured period owns the axis. The anchor series carries only whitespace — the two
+  // endpoints of the run, and nothing else — so the time scale spans the whole period from the
+  // first render, before a single day has been simulated, and stops moving as checkpoints arrive.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const anchor = anchorRef.current;
+    if (!chart || !anchor || !periodStart || !periodEnd) {
+      return;
+    }
+    anchor.setData([
+      { time: periodStart as Time },
+      { time: periodEnd as Time },
+    ]);
+    chart
+      .timeScale()
+      .setVisibleRange({ from: periodStart as Time, to: periodEnd as Time });
+  }, [periodStart, periodEnd]);
 
   const benchmarkPoints = points.reduce(
     (total, point) =>
@@ -242,7 +279,10 @@ export function BacktestComparisonChart({
       data-series-count={benchmarkPoints > 0 ? 2 : 1}
       data-portfolio-points={points.length}
       data-benchmark-points={benchmarkPoints}
+      data-curve-from={points[0]?.date}
       data-curve-through={points.at(-1)?.date}
+      data-period-start={periodStart}
+      data-period-end={periodEnd}
     >
       <div className={styles.wrapper}>
         <div

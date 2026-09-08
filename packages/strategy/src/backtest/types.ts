@@ -123,6 +123,14 @@ export type BacktestSummary = {
  */
 export type BacktestCheckpoint = {
   simulatedThrough: LocalDate;
+  /**
+   * The calendar year this checkpoint completes, or null for an ordinary cadence checkpoint.
+   *
+   * A milestone is the progression a user follows on a decades-long run, so it must survive the
+   * worker's write throttle. There are at most about thirty in a V1 run, which is what makes
+   * persisting every one of them bounded and cheap.
+   */
+  milestone: string | null;
   /** Simulated trading dates completed, and how many the calendar holds in total. */
   completedDays: number;
   totalDays: number;
@@ -156,6 +164,7 @@ export type BacktestCheckpointHolding = {
   shares: number;
   averageCost: number;
   lastPrice: number;
+  lastPriceDate: LocalDate;
   marketValue: number;
   unrealizedPnlPercent: number;
   allocationPercent: number;

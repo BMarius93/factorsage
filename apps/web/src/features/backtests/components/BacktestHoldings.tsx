@@ -11,6 +11,12 @@ export type BacktestHoldingsProps = {
   readonly holdings: readonly BacktestHoldingResponse[];
   readonly title: string;
   readonly emptyMessage: string;
+  /**
+   * The date the run has simulated through. A holding priced before it is being carried at its
+   * last real close because the security stopped producing prices, which is worth saying out loud
+   * rather than presenting a stale mark as current.
+   */
+  readonly asOf?: string;
 };
 
 /**
@@ -23,6 +29,7 @@ export function BacktestHoldings({
   holdings,
   title,
   emptyMessage,
+  asOf,
 }: BacktestHoldingsProps) {
   return (
     <section className={styles.card} aria-labelledby="backtest-holdings-title">
@@ -80,6 +87,15 @@ export function BacktestHoldings({
                   <dd>{formatMoney(holding.lastPrice)}</dd>
                 </div>
               </dl>
+              {asOf !== undefined && holding.lastPriceDate < asOf ? (
+                <p
+                  className={styles.stale}
+                  data-testid={`backtest-holding-stale-${holding.symbol}`}
+                >
+                  Priced at its last available close, {holding.lastPriceDate}.
+                  No later price exists for this security in the run.
+                </p>
+              ) : null}
               {/* Allocation is the reason this panel exists; the bar makes concentration
                   visible without the user comparing eight percentages by eye. */}
               <div

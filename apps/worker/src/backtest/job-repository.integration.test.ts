@@ -329,6 +329,7 @@ describe("backtest job claiming", () => {
         now: new Date(),
         code: "EXECUTION_FAILED",
         message: "Written by the wrong worker",
+        phase: "RUNNING",
         detail: { phase: "RUNNING", name: "Error", message: "nope" },
       }),
     ).toBe(false);
@@ -382,6 +383,111 @@ describe("backtest job claiming", () => {
     expect((await run(seeded.runId)).status).toBe(BacktestRunStatus.QUEUED);
   });
 
+  it("records one milestone per completed year, in the order they finished", async () => {
+    const seeded = await seedJob();
+    await repository.claimNextJob(workerA, new Date(), LEASE_MS);
+
+    for (const year of ["2015", "2016", "2017"]) {
+      expect(
+        await repository.updateProgress({
+          jobId: seeded.jobId,
+          runId: seeded.runId,
+          workerId: workerA,
+          now: new Date(),
+          leaseMs: LEASE_MS,
+          status: BacktestRunStatus.RUNNING,
+          percent: 30,
+          message: `Simulated through ${year}`,
+          simulatedThrough: `${year}-12-31`,
+          milestone: milestone(year),
+        }),
+      ).toBe(true);
+    }
+
+    const milestones = await prisma.backtestRunMilestone.findMany({
+      where: { runId: seeded.runId },
+      orderBy: { sequence: "asc" },
+    });
+    expect(milestones.map((row) => [row.sequence, row.year])).toEqual([
+      [1, "2015"],
+      [2, "2016"],
+      [3, "2017"],
+    ]);
+    // The trail is what the run went through, so a milestone is written once and never updated.
+    expect(
+      milestones.map((row) => row.simulatedThrough.toISOString().slice(0, 10)),
+    ).toEqual(["2015-12-31", "2016-12-31", "2017-12-31"]);
+
+    // A re-delivered checkpoint is idempotent rather than a constraint error.
+    expect(
+      await repository.updateProgress({
+        jobId: seeded.jobId,
+        runId: seeded.runId,
+        workerId: workerA,
+        now: new Date(),
+        leaseMs: LEASE_MS,
+        percent: 30,
+        message: "Redelivered",
+        milestone: milestone("2017"),
+      }),
+    ).toBe(true);
+    expect(
+      await prisma.backtestRunMilestone.count({
+        where: { runId: seeded.runId },
+      }),
+    ).toBe(3);
+  });
+
+  it("discards a dead attempt's milestones when the run is requeued", async () => {
+    const seeded = await seedJob();
+    // Claimed two minutes ago under a one-second lease: expired, with nothing left to renew it.
+    const first = await repository.claimNextJob(
+      workerA,
+      new Date(Date.now() - 120_000),
+      1_000,
+    );
+    expect(first?.jobId).toBe(seeded.jobId);
+    await prisma.backtestRunMilestone.createMany({
+      data: [
+        milestoneRow(seeded.runId, 1, "2015"),
+        milestoneRow(seeded.runId, 2, "2016"),
+      ],
+    });
+
+    const recovery = await repository.recoverStaleJobs(new Date(), 0);
+    expect(recovery.requeued).toBeGreaterThanOrEqual(1);
+
+    // A retry re-simulates from the first day, so the dead attempt's years would otherwise be
+    // replayed alongside the new ones.
+    expect(
+      await prisma.backtestRunMilestone.count({
+        where: { runId: seeded.runId },
+      }),
+    ).toBe(0);
+  });
+
+  it("discards milestones when a graceful shutdown hands the run back", async () => {
+    const seeded = await seedJob();
+    await repository.claimNextJob(workerA, new Date(), LEASE_MS);
+    await prisma.backtestRunMilestone.createMany({
+      data: [milestoneRow(seeded.runId, 1, "2015")],
+    });
+
+    expect(
+      await repository.releaseJob(
+        seeded.jobId,
+        seeded.runId,
+        workerA,
+        new Date(),
+      ),
+    ).toBe(true);
+    expect(
+      await prisma.backtestRunMilestone.count({
+        where: { runId: seeded.runId },
+      }),
+    ).toBe(0);
+  });
+
   it("completes the run and its job in one write when the result is persisted", async () => {
     const seeded = await seedJob();
     const claim = await repository.claimNextJob(workerA, new Date(), LEASE_MS);
@@ -420,6 +526,35 @@ describe("backtest job claiming", () => {
 });
 
 /** A minimal completed run: no trades and no open positions, but a real equity curve. */
+function milestone(year: string) {
+  return {
+    year,
+    simulatedThrough: `${year}-12-31`,
+    percent: 30,
+    completedDays: 252,
+    totalDays: 840,
+    cash: 1_000,
+    totalValue: 11_000,
+    investedCapital: 10_000,
+    portfolioReturnPercent: 10,
+    benchmarkReturnPercent: 8,
+    alphaPercent: 2,
+    maxDrawdownPercent: 5,
+    tradeCount: 4,
+    openPositions: 2,
+  };
+}
+
+function milestoneRow(runId: string, sequence: number, year: string) {
+  const written = milestone(year);
+  return {
+    runId,
+    sequence,
+    ...written,
+    simulatedThrough: new Date(`${written.simulatedThrough}T00:00:00.000Z`),
+  };
+}
+
 function emptyResult(): BacktestResult {
   return {
     trades: [],

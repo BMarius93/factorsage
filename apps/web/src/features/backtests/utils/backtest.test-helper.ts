@@ -4,6 +4,7 @@ import type {
   BacktestProgressResponse,
   BacktestResultResponse,
   BacktestRunConfigurationResponse,
+  BacktestMilestoneResponse,
   BacktestRunDetailResponse,
   BacktestRunStatus,
 } from "@intrinsic/contracts";
@@ -41,6 +42,7 @@ export function testConfiguration(
       methodologyVersion: 1,
     },
     methodology: {
+      calendar: "calendar@1",
       candidateOrdering: "candidate-ordering@1",
       execution: "execution@1",
       executionCosts: "execution-costs@1",
@@ -138,6 +140,7 @@ export function testResult(
         shares: 10,
         averageCost: 100,
         lastPrice: 130,
+        lastPriceDate: "2024-12-31",
         marketValue: 1_300,
         unrealizedPnlPercent: 30,
         allocationPercent: 12.5,
@@ -145,6 +148,28 @@ export function testResult(
     ],
     ...overrides,
   };
+}
+
+export function testMilestones(
+  years: readonly string[],
+): BacktestMilestoneResponse[] {
+  return years.map((year, index) => ({
+    sequence: index + 1,
+    year,
+    simulatedThrough: `${year}-12-31`,
+    percent: Math.round(((index + 1) / years.length) * 100),
+    completedDays: (index + 1) * 252,
+    totalDays: years.length * 252,
+    cash: 1_000,
+    totalValue: 10_000 + index * 1_000,
+    investedCapital: 10_000,
+    portfolioReturnPercent: index * 5,
+    benchmarkReturnPercent: index * 4,
+    alphaPercent: index,
+    maxDrawdownPercent: 6,
+    tradeCount: index * 3,
+    openPositions: 2,
+  }));
 }
 
 export function testDetail(
@@ -166,6 +191,7 @@ export function testDetail(
       updatedAt: null,
     },
     live: null,
+    milestones: [],
     result: null,
     failure: null,
     ...overrides,
@@ -182,6 +208,7 @@ export function testProgress(
     status,
     percent: 0,
     message: null,
+    milestones: [],
     simulatedThrough: null,
     sequence,
     updatedAt: "2026-09-01T10:00:05.000Z",

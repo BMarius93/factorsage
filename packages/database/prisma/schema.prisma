@@ -550,6 +550,10 @@ model BacktestRun {
   /// Stable machine-readable failure code; `failureMessage` is the sanitized user-facing text.
   failureCode         String?
   failureMessage      String?
+  /// Which execution phase failed, as a product-safe label. It is the first thing a user needs in
+  /// order to act — "preparing data" and "running" mean very different things — so it is a column
+  /// rather than a field of `failureDetail`, which never crosses the HTTP boundary.
+  failurePhase        String?
   /// Developer diagnostics. Never exposed by any API contract.
   failureDetail       Json?
   createdAt           DateTime              @default(now())
@@ -561,6 +565,7 @@ model BacktestRun {
   benchmark           Benchmark             @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
   job                 BacktestJob?
   progress            BacktestRunProgress?
+  milestones          BacktestRunMilestone[]
   summary             BacktestRunSummary?
   trades              BacktestTrade[]
   equityPoints        BacktestDailyEquity[]
@@ -612,6 +617,45 @@ model BacktestRunProgress {
   snapshot         Json?
   updatedAt        DateTime    @updatedAt
   run              BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+/// One completed calendar year of a run, persisted as it happens.
+///
+/// The latest live snapshot is a *replacement*: each checkpoint overwrites the previous one, so a
+/// browser that polls more slowly than the worker simulates sees only wherever the run had got to.
+/// For a thirty-year run the progression itself is the thing a user follows, so each completed year
+/// is also written here, ordered and never overwritten. A V1 run is capped at thirty years, which
+/// makes the whole progression at most about thirty small rows.
+///
+/// Deliberately carries no curve: the curve belongs to the live snapshot and to the durable
+/// `BacktestDailyEquity` rows, and storing a downsampled copy of it thirty times would duplicate
+/// the run's daily history for no gain.
+model BacktestRunMilestone {
+  runId                  String
+  /// 1-based order of completion. A client keeps the highest it has consumed.
+  sequence               Int
+  /// The calendar year this milestone completes, as `YYYY`.
+  year                   String
+  simulatedThrough       DateTime    @db.Date
+  percent                Int
+  completedDays          Int
+  totalDays              Int
+  cash                   Decimal     @db.Decimal(20, 2)
+  totalValue             Decimal     @db.Decimal(20, 2)
+  investedCapital        Decimal     @db.Decimal(20, 2)
+  portfolioReturnPercent Decimal     @db.Decimal(20, 8)
+  benchmarkReturnPercent Decimal?    @db.Decimal(20, 8)
+  alphaPercent           Decimal?    @db.Decimal(20, 8)
+  maxDrawdownPercent     Decimal     @db.Decimal(20, 8)
+  tradeCount             Int
+  openPositions          Int
+  createdAt              DateTime    @default(now())
+  run                    BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@id([runId, sequence])
+  /// A year is completed once. The constraint is what makes a re-delivered checkpoint idempotent:
+  /// the insert is skipped rather than appended under a fresh sequence.
+  @@unique([runId, year])
 }
 
 /// One executed order. `sequence` is the deterministic execution order inside the run: two runs of

@@ -124,6 +124,7 @@ export type BacktestBenchmarkSnapshotResponse = {
 
 /** The methodology versions a run executed under, straight from its snapshot. */
 export type BacktestMethodologyResponse = {
+  calendar: string;
   candidateOrdering: string;
   execution: string;
   executionCosts: string;
@@ -216,6 +217,15 @@ export type BacktestHoldingResponse = {
   shares: number;
   averageCost: number;
   lastPrice: number;
+  /**
+   * The date `lastPrice` was quoted on.
+   *
+   * Usually the run's last simulated date. It is earlier when the security stopped producing
+   * prices before the run ended — a security whose history simply ends is carried at its last real
+   * close rather than marked to a price that was never quoted. Surfacing the date is what makes
+   * that visible instead of silent; see `ai/product/backtests.md`.
+   */
+  lastPriceDate: string;
   marketValue: number;
   unrealizedPnlPercent: number;
   allocationPercent: number;
@@ -253,6 +263,36 @@ export type BacktestLiveSnapshotResponse = {
 };
 
 /**
+ * One completed calendar year of a run.
+ *
+ * The live snapshot is a replacement — each checkpoint overwrites the previous one — so a browser
+ * polling more slowly than the worker simulates sees only wherever the run had got to. Milestones
+ * are the ordered progression that survives that: every completed year is persisted and none is
+ * ever overwritten, so a run that finishes between two polls still reports the whole progression it
+ * actually went through. A V1 run is capped at thirty years, so this list is at most about thirty
+ * small entries and carries no curve of its own.
+ */
+export type BacktestMilestoneResponse = {
+  /** 1-based order of completion. A client keeps the highest sequence it has consumed. */
+  sequence: number;
+  /** The calendar year this milestone completes, as `YYYY`. */
+  year: string;
+  simulatedThrough: string;
+  percent: number;
+  completedDays: number;
+  totalDays: number;
+  cash: number;
+  totalValue: number;
+  investedCapital: number;
+  portfolioReturnPercent: number;
+  benchmarkReturnPercent: number | null;
+  alphaPercent: number | null;
+  maxDrawdownPercent: number;
+  tradeCount: number;
+  openPositions: number;
+};
+
+/**
  * Why a run failed, in terms safe to show a user.
  *
  * `code` is stable and machine-readable; `message` is product prose. Provider names, credentials,
@@ -262,7 +302,31 @@ export type BacktestLiveSnapshotResponse = {
 export type BacktestFailureResponse = {
   code: string;
   message: string;
+  /**
+   * The phase that failed, as a product-safe label.
+   *
+   * It is the first thing a user needs in order to act: "preparing data" points at the stocks in
+   * the list and their history, "running" at the strategy and the simulation, "finalizing" at
+   * saving the result. Null for a run that failed before a phase was entered.
+   */
+  phase: BacktestFailurePhase | null;
 };
+
+/** The phases a run can fail in, in the order it passes through them. */
+export const BACKTEST_FAILURE_PHASES = [
+  "PREPARING_DATA",
+  "RUNNING",
+  "FINALIZING",
+] as const;
+
+export type BacktestFailurePhase = (typeof BACKTEST_FAILURE_PHASES)[number];
+
+/** The one product label per failure phase; no surface keeps a second map. */
+export const BACKTEST_FAILURE_PHASE_LABELS = {
+  PREPARING_DATA: "Preparing data",
+  RUNNING: "Running",
+  FINALIZING: "Finalizing",
+} as const satisfies Record<BacktestFailurePhase, string>;
 
 /** Stable failure codes. Anything unexpected is reported as `EXECUTION_FAILED`. */
 export const BACKTEST_FAILURE_CODES = [
@@ -292,6 +356,8 @@ export type BacktestProgressResponse = {
   startedAt: string | null;
   completedAt: string | null;
   live: BacktestLiveSnapshotResponse | null;
+  /** Every completed year so far, ascending. Bounded by the thirty-year period limit. */
+  milestones: BacktestMilestoneResponse[];
   failure: BacktestFailureResponse | null;
 };
 
@@ -358,6 +424,8 @@ export type BacktestRunDetailResponse = {
     updatedAt: string | null;
   };
   live: BacktestLiveSnapshotResponse | null;
+  /** Every completed year of the run, ascending. Bounded by the thirty-year period limit. */
+  milestones: BacktestMilestoneResponse[];
   result: BacktestResultResponse | null;
   failure: BacktestFailureResponse | null;
 };

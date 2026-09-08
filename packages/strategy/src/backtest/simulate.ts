@@ -106,6 +106,7 @@ export async function simulateBacktest(
     runtimes.map((runtime) => runtime.frame),
     input.startDate,
     input.endDate,
+    input.benchmark?.dates ?? [],
   );
   if (calendar.length === 0) {
     throw new BacktestExecutionError(
@@ -146,6 +147,7 @@ export async function simulateBacktest(
 
   for (let day = 0; day < calendar.length; day += 1) {
     const date = calendar[day] as LocalDate;
+    const year = date.slice(0, 4);
 
     // 1. Cash in.
     const contribution =
@@ -476,12 +478,18 @@ export async function simulateBacktest(
 
     // The first simulated day always checkpoints, so the running page can replace its placeholder
     // with a real curve almost immediately instead of waiting for the first cadence boundary.
+    //
+    // A year boundary — the last simulated date of a calendar year, and the final date — is a
+    // *milestone*: it is the progression a user actually follows on a decades-long run, and it is
+    // marked so the worker can persist it even inside its throttle window. There are at most about
+    // thirty of them in a V1 run, which is what makes keeping every one of them cheap.
     const isLastDay = day === calendar.length - 1;
-    if (
-      options.onCheckpoint &&
-      !isLastDay &&
-      (day === 0 || (day + 1) % checkpointEveryDays === 0)
-    ) {
+    const nextDate = calendar[day + 1];
+    const isYearBoundary =
+      isLastDay || (nextDate !== undefined && nextDate.slice(0, 4) !== year);
+    const isCadence = day === 0 || (day + 1) % checkpointEveryDays === 0;
+
+    if (options.onCheckpoint && !isLastDay && (isCadence || isYearBoundary)) {
       await options.onCheckpoint(
         buildCheckpoint({
           date,
@@ -499,6 +507,7 @@ export async function simulateBacktest(
           curve,
           maxCurvePoints,
           recentTradeCount,
+          milestone: isYearBoundary ? year : null,
         }),
       );
     }
@@ -730,6 +739,7 @@ function buildCheckpoint(input: {
   curve: readonly BacktestCurvePoint[];
   maxCurvePoints: number;
   recentTradeCount: number;
+  milestone: string | null;
 }): BacktestCheckpoint {
   const portfolioReturnPercent = indexToPercent(input.returnIndex);
   const benchmarkReturnPercent =
@@ -745,6 +755,7 @@ function buildCheckpoint(input: {
       shares: position.shares,
       averageCost: averageCost(position),
       lastPrice: position.lastPrice,
+      lastPriceDate: position.lastPriceDate,
       marketValue,
       unrealizedPnlPercent:
         position.costTotal > 0
@@ -757,6 +768,7 @@ function buildCheckpoint(input: {
 
   return {
     simulatedThrough: input.date,
+    milestone: input.milestone,
     completedDays: input.completedDays,
     totalDays: input.totalDays,
     cash: input.cash,

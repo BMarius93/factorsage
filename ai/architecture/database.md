@@ -106,6 +106,9 @@ the `DERIVED_STATE_REVISION` mechanism applied to prices: global, lazy, no schem
 data migration.
 
 Migration `20260907195815_add_backtests_and_benchmarks` adds the Backtest V1 slice in two parts.
+`20260908075035_add_backtest_run_milestones`, `20260908090000_unique_backtest_milestone_year` and
+`20260908080859_add_backtest_failure_phase` extend it with the annual milestone table and the user-facing failure
+phase column.
 
 **Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `sourceKind`,
 `providerSymbol`, `currency`, `methodologyVersion`, `isActive`, `displayOrder`) with
@@ -134,6 +137,13 @@ checkpoint `snapshot`. It is a separate table because those columns are rewritte
 simulated trading days while the run row — including its large immutable submission snapshot — is
 not. `sequence` is a monotonic counter so a poller can discard an out-of-order response without
 comparing clocks across processes.
+
+`BacktestRunMilestone` (`@@id([runId, sequence])`, `@@unique([runId, year])`) is the durable
+counterpart: one append-only row per calendar year a run finishes, holding only that year's scalars
+and **never a curve**, so a thirty-year run adds thirty small rows rather than thirty copies of a
+daily series. The year is unique per run so a re-delivered checkpoint is skipped rather than
+appended under a fresh sequence. Rows are deleted with the attempt that wrote them when a run is
+requeued or released, because a retry re-simulates from the first day.
 
 Results are normalized: `BacktestDailyEquity` (`@@id([runId, date])`, carrying the time-weighted
 `returnIndex` and the nullable `benchmarkIndex` — null means the benchmark had no value at or before

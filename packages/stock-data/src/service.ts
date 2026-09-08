@@ -204,6 +204,29 @@ export class StockDataValidationError extends Error {
   }
 }
 
+/**
+ * Why the loader reached the provider.
+ *
+ * Every historical fetch is meant to be explainable: a run that repeats an identical backtest and
+ * still sees provider traffic should be able to answer "for what?" from the logs rather than from
+ * a packet capture.
+ */
+export type ProviderRequestReason =
+  | "PROFILE_SYNC"
+  | "MISSING_COVERAGE"
+  | "RECENT_TAIL_STALE"
+  | "FUNDAMENTALS_BACKFILL";
+
+export type ProviderRequestEvent = {
+  symbol: string;
+  securityId: string;
+  dataset: "SECURITY_PROFILE" | "DAILY_PRICE" | "FINANCIAL_STATEMENTS";
+  reason: ProviderRequestReason;
+  from?: string;
+  to?: string;
+  detail?: string;
+};
+
 export type CanonicalStockDataServiceOptions = {
   defaultHistoryDays?: number;
   historyYears?: number;
@@ -217,6 +240,13 @@ export type CanonicalStockDataServiceOptions = {
   fundamentalsFreshnessMs?: number;
   recentTailCalendarDays?: number;
   now?: () => Date;
+  /**
+   * Called immediately before each provider request, with the reason for it.
+   *
+   * An observer rather than a logger: `@intrinsic/stock-data` has no logging dependency and should
+   * not grow one. The API and worker composition roots point this at their own structured logger.
+   */
+  onProviderRequest?: (event: ProviderRequestEvent) => void;
 };
 
 export class CanonicalStockDataService implements StockDataService {
@@ -227,6 +257,7 @@ export class CanonicalStockDataService implements StockDataService {
   private readonly fundamentalsFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
+  private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
 
   constructor(
     private readonly store: StockDataStore,
@@ -247,6 +278,7 @@ export class CanonicalStockDataService implements StockDataService {
       options.fundamentalsFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
+    this.onProviderRequest = options.onProviderRequest ?? (() => {});
     for (const [name, value] of Object.entries({
       defaultHistoryDays: this.defaultHistoryDays,
       historyYears: this.historyYears,
@@ -634,6 +666,12 @@ export class CanonicalStockDataService implements StockDataService {
     if (state?.lastSyncedAt) {
       return security;
     }
+    this.onProviderRequest({
+      symbol: security.symbol,
+      securityId: security.id,
+      dataset: "SECURITY_PROFILE",
+      reason: "PROFILE_SYNC",
+    });
     const mapped = await this.provider.getProfile(security.symbol);
     if (!mapped) {
       return security;
@@ -700,6 +738,14 @@ export class CanonicalStockDataService implements StockDataService {
     );
     const loaded = [];
     for (const delta of missing) {
+      this.onProviderRequest({
+        symbol: security.symbol,
+        securityId: security.id,
+        dataset: "DAILY_PRICE",
+        reason: "MISSING_COVERAGE",
+        from: delta.from,
+        to: delta.to,
+      });
       loaded.push(
         ...(await this.provider.getDailyPrices(
           security.symbol,
@@ -1102,6 +1148,14 @@ export class CanonicalStockDataService implements StockDataService {
       "DAILY_PRICE",
       DAILY_PRICE_VARIANT,
     );
+    this.onProviderRequest({
+      symbol: security.symbol,
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      reason: "RECENT_TAIL_STALE",
+      from: refreshRange.from,
+      to: refreshRange.to,
+    });
     const loaded = await this.provider.getDailyPrices(
       security.symbol,
       security.id,
@@ -1266,6 +1320,13 @@ export class CanonicalStockDataService implements StockDataService {
     operation: FundamentalsOperation;
     changedYears: number[];
   }> {
+    this.onProviderRequest({
+      symbol: input.security.symbol,
+      securityId: input.security.id,
+      dataset: "FINANCIAL_STATEMENTS",
+      reason: "FUNDAMENTALS_BACKFILL",
+      detail: `${input.operation.statementType}/${input.operation.cadence}`,
+    });
     const loaded = await this.provider.getFinancialStatements(
       input.security.symbol,
       input.security.id,

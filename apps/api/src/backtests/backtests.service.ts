@@ -3,14 +3,17 @@ import {
   BACKTEST_MAX_SECURITIES,
   BACKTEST_RESULT_MAX_CURVE_POINTS,
   BACKTEST_RESULT_MAX_TRADES,
+  BACKTEST_FAILURE_PHASES,
   BACKTEST_SNAPSHOT_VERSION,
   canonicalBacktestSnapshotDocument,
   isTerminalBacktestStatus,
   normalizeStrategyDefinition,
   type BacktestCurvePointResponse,
+  type BacktestFailurePhase,
   type BacktestFailureResponse,
   type BacktestHoldingResponse,
   type BacktestLiveSnapshotResponse,
+  type BacktestMilestoneResponse,
   type BacktestProgressResponse,
   type BacktestResultResponse,
   type BacktestResultSummaryResponse,
@@ -78,9 +81,15 @@ export class BacktestConfigurationError extends Error {
  * thousands of them and a QUEUED or RUNNING run has none worth reading. They are fetched, bounded,
  * only once a run is COMPLETED.
  */
+/** Milestones are bounded by the thirty-year period limit, so the whole progression loads. */
+const MILESTONE_ORDER = {
+  orderBy: { sequence: "asc" as const },
+} satisfies Prisma.BacktestRun$milestonesArgs;
+
 const RUN_DETAIL_INCLUDE = {
   progress: true,
   summary: true,
+  milestones: MILESTONE_ORDER,
 } satisfies Prisma.BacktestRunInclude;
 
 type RunDetailRow = Prisma.BacktestRunGetPayload<{
@@ -103,7 +112,10 @@ type RunListRow = Prisma.BacktestRunGetPayload<{
   include: typeof RUN_LIST_INCLUDE;
 }>;
 
-const PROGRESS_INCLUDE = { progress: true } satisfies Prisma.BacktestRunInclude;
+const PROGRESS_INCLUDE = {
+  progress: true,
+  milestones: MILESTONE_ORDER,
+} satisfies Prisma.BacktestRunInclude;
 
 type RunProgressRow = Prisma.BacktestRunGetPayload<{
   include: typeof PROGRESS_INCLUDE;
@@ -113,6 +125,7 @@ type TradeRow = Prisma.BacktestTradeGetPayload<true>;
 type EquityRow = Prisma.BacktestDailyEquityGetPayload<true>;
 type PositionRow = Prisma.BacktestPositionGetPayload<true>;
 type SummaryRow = Prisma.BacktestRunSummaryGetPayload<true>;
+type MilestoneRow = Prisma.BacktestRunMilestoneGetPayload<true>;
 
 const STOCK_LIST_ITEM_INCLUDE = {
   security: true,
@@ -329,13 +342,22 @@ function failureOf(run: {
   status: BacktestRunStatus;
   failureCode: string | null;
   failureMessage: string | null;
+  failurePhase: string | null;
 }): BacktestFailureResponse | null {
   if (run.status !== "FAILED" && run.failureCode === null) {
     return null;
   }
+  // The phase is validated against the contract rather than passed through: a stored value the
+  // browser does not know how to label would be worse than none.
+  const phase = (BACKTEST_FAILURE_PHASES as readonly string[]).includes(
+    run.failurePhase ?? "",
+  )
+    ? (run.failurePhase as BacktestFailurePhase)
+    : null;
   return {
     code: run.failureCode ?? "EXECUTION_FAILED",
     message: run.failureMessage ?? "The backtest could not be completed",
+    phase,
   };
 }
 
@@ -499,6 +521,7 @@ function holdingOf(row: PositionRow): BacktestHoldingResponse {
     shares: toNumber(row.shares),
     averageCost: toNumber(row.averageCost),
     lastPrice: toNumber(row.lastPrice),
+    lastPriceDate: fromDatabaseDate(row.lastPriceDate),
     marketValue: toNumber(row.marketValue),
     unrealizedPnlPercent: toNumber(row.unrealizedPnlPercent),
     allocationPercent: toNumber(row.allocationPercent),
@@ -529,8 +552,35 @@ function detailOf(
       updatedAt: row.progress?.updatedAt.toISOString() ?? null,
     },
     live: liveOf(row.status, row.progress),
+    milestones: row.milestones.map(milestoneOf),
     result,
     failure: failureOf(row),
+  };
+}
+
+/**
+ * One completed year of the run.
+ *
+ * Milestones are ordered and never overwritten, which is what lets a browser that polls more slowly
+ * than the worker simulates still see the whole progression a run went through.
+ */
+function milestoneOf(row: MilestoneRow): BacktestMilestoneResponse {
+  return {
+    sequence: row.sequence,
+    year: row.year,
+    simulatedThrough: fromDatabaseDate(row.simulatedThrough),
+    percent: row.percent,
+    completedDays: row.completedDays,
+    totalDays: row.totalDays,
+    cash: toNumber(row.cash),
+    totalValue: toNumber(row.totalValue),
+    investedCapital: toNumber(row.investedCapital),
+    portfolioReturnPercent: toNumber(row.portfolioReturnPercent),
+    benchmarkReturnPercent: toNullableNumber(row.benchmarkReturnPercent),
+    alphaPercent: toNullableNumber(row.alphaPercent),
+    maxDrawdownPercent: toNumber(row.maxDrawdownPercent),
+    tradeCount: row.tradeCount,
+    openPositions: row.openPositions,
   };
 }
 
@@ -550,6 +600,7 @@ function progressOf(row: RunProgressRow): BacktestProgressResponse {
     completedAt:
       row.completedAt === null ? null : row.completedAt.toISOString(),
     live: liveOf(row.status, row.progress),
+    milestones: row.milestones.map(milestoneOf),
     failure: failureOf(row),
   };
 }

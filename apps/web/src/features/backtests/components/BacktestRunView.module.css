@@ -372,3 +372,117 @@
     align-items: start;
   }
 }
+
+/* The run's completed years. A long simulation can finish between two polls, so this is often the
+   only place the progression it went through is visible at all. */
+.milestoneCard {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+}
+
+.milestones {
+  display: grid;
+  gap: 8px;
+}
+
+.milestoneCaption {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.milestoneList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.milestone {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.milestoneYear {
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.milestoneReturn[data-tone="positive"] {
+  color: var(--color-positive);
+}
+
+.milestoneReturn[data-tone="negative"] {
+  color: var(--color-negative);
+}
+
+/* What a user needs in order to act on a failure, and to quote it back to someone. */
+.failureFacts {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.failureFact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.failureFact dt {
+  min-width: 96px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.failureFact dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.failureFact code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.runId {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.copyButton {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  color: var(--color-text-body);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copyButton:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}

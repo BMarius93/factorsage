@@ -77,9 +77,28 @@ loop reads an indexed byte. SELL and FINAL EXIT gates carry only their market-de
 ANDed with live position predicates while a position is open.
 
 The portfolio's date axis is the **union** of the eligible trading dates of the securities in the
-run, restricted to the period. Predicates are never carried forward — a security with no row that
-day simply takes no action — while _valuation_ is carried forward at the position's most recent
-close, which is the only point-in-time-correct value available.
+run **and of the benchmark**, restricted to the period (`CALENDAR_METHODOLOGY_VERSION`). Predicates
+are never carried forward — a security with no row that day simply takes no action — while
+_valuation_ is carried forward at the position's most recent close, which is the only
+point-in-time-correct value available.
+
+The benchmark is in the union because a portfolio exists from the first day of the requested period
+even while it holds nothing but cash. Without it, a run whose securities all list after its start
+would not exist until the first of them began trading, and its curve would appear to start at the
+first BUY rather than flat at 0% from the beginning. The benchmark is the market's own calendar for
+exactly this period and is loaded anyway, so it costs nothing and invents nothing: on a
+benchmark-only date no security has a row, so every predicate is `NOT_EVALUABLE`, valuation carries
+forward, and the portfolio still has a real value because cash is real. A run whose benchmark has no
+data of its own falls back to the securities' union unchanged.
+
+This is versioned methodology rather than an implementation detail because it decides which date is
+"the first simulated date of a month" — and therefore when a contribution lands — and which date the
+return index is based at.
+
+A security whose history **ends** before the period does the same thing in reverse: its rows simply
+stop, no predicate is evaluable after that, and an open position is carried at its last real close
+for the rest of the run. That is not a delisting model. See the open methodology question in
+`../product/backtests.md`.
 
 For each date, in this fixed order:
 
@@ -208,12 +227,30 @@ The legacy 45/54 split is not product semantics and is not reproduced.
 
 A checkpoint persists a bounded live snapshot to `BacktestRunProgress`: simulated-through date,
 portfolio and benchmark curves, current value, cash, returns, alpha, max drawdown, holdings, trade
-count and recent trades. Cadence is every 5 simulated trading days **and** the first simulated day,
-throttled so no more than one write lands per `BACKTEST_CHECKPOINT_MIN_INTERVAL_MS`. The curve is
-downsampled by the engine, so the payload is the same size for a one-year run and a thirty-year one.
+count and recent trades. Cadence is every 5 simulated trading days **and** the first simulated day
+**and** the last simulated day of every calendar year, throttled so no more than one write lands per
+`BACKTEST_CHECKPOINT_MIN_INTERVAL_MS`. The curve is downsampled by the engine, so the payload is the
+same size for a one-year run and a thirty-year one.
 
-Checkpoints are pure observation: the day loop never reads them back, so the cadence cannot change a
-result. `packages/strategy/src/backtest/simulate.test.ts` asserts exactly that.
+**A year boundary is exempt from the throttle.** The cadence checkpoint is a sample — dropping one
+loses nothing, because the next carries the same kind of state a moment later. A year boundary is
+not: it is the one checkpoint that becomes a durable milestone, and a fast machine simulating
+several years inside one throttle window would silently lose years from the run's recorded
+progression. So the engine marks that checkpoint with the year it completes and the worker lets it
+through, while every unmarked checkpoint stays throttled. Nothing sleeps and nothing is slowed to
+make progress observable; the run simply reports every year it actually finished.
+
+`BacktestRunMilestone` is that durable record: `(runId, sequence)` with `(runId, year)` unique,
+carrying only scalars — the year, its simulated-through date, percent, value, cash, returns, alpha,
+drawdown, trade and position counts. **It never carries a curve.** A thirty-year run therefore adds
+thirty rows of roughly a hundred bytes each, not thirty copies of a daily series, and the table is
+bounded by the run's own length rather than by how often it checkpoints. Milestones are append-only
+within an attempt and are deleted with the attempt when a run is requeued or handed back, because a
+retry re-simulates from the first day and would otherwise replay years the user already saw.
+
+Checkpoints are pure observation: the day loop never reads them back, so neither the cadence nor the
+milestones can change a result. `packages/strategy/src/backtest/simulate.test.ts` asserts exactly
+that.
 
 The live snapshot is **not** the result. Results are persisted in `BacktestRunSummary`,
 `BacktestDailyEquity`, `BacktestTrade` and `BacktestPosition` when execution completes.
@@ -244,10 +281,25 @@ A failed run is terminal, keeps a stable `failureCode` and a sanitized `failureM
 developer diagnostics in `failureDetail`, which **no API contract exposes**. Provider names, URLs,
 credentials and stack traces never cross the HTTP boundary.
 
+It also keeps `failurePhase` — `PREPARING_DATA`, `RUNNING` or `FINALIZING` — as a column rather than
+a field of `failureDetail`, precisely because it _is_ safe to show. The user-facing failure view
+renders the phase, the failure code and the run id, so a report is actionable without a developer
+reading logs first. The API validates the stored phase against the contract before returning it: a
+value the browser cannot label is reported as no phase rather than passed through.
+
+Where a specific security is legitimately the cause, the sanitized message names the symbols that
+produced no usable data, capped at five plus a count. Symbols are the user's own list, so naming
+them leaks nothing and is the difference between "try again" and "check these two stocks".
+
 Structured events, all carrying `runId` and `component: backtest`:
 `backtest.queued`, `backtest.claimed`, `backtest.started`, `backtest.frames.loaded`,
 `backtest.progress` (debug), `backtest.completed`, `backtest.failed`, `backtest.job.recovered`.
 There is deliberately no per-day logging.
+
+`backtest.failed` carries `runId`, `jobId`, `workerId`, `attempt`, `failureCode`, `phase`,
+`durationMs`, the sanitized `failureContext` when there is one, and `err` — the original `Error`,
+serialized by `@intrinsic/observability` with its name, message and stack. The translation into
+product prose happens after that log, so nothing about the real cause is lost.
 
 ## Cancellation — deferred
 
@@ -268,3 +320,9 @@ additive: a `cancelRequestedAt` column, a status member, and a check at the exis
   visibly slower. `backtest.frames.loaded` carries `durationMs` and the security count.
 - Submission rejects a universe larger than `BACKTEST_MAX_SECURITIES`: failing fast at submission
   is far better than an OS-killed worker twenty minutes in.
+- Per-run persistence is bounded by the run, not by its duration: one replaceable progress row, one
+  milestone row per completed year, and the durable result. There is no append-only event log.
+- Bulk writes that materialize a long history — daily prices, derived state, financial statements —
+  run under an explicit 120 s transaction timeout. Prisma's 5 s default is sized for request-shaped
+  work, and a backtest is the first caller to write thirty years of derived state in one
+  transaction; exceeding it aborts with `P2028` after the work is already done.

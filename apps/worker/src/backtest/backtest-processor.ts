@@ -1,5 +1,6 @@
 import type {
   BacktestFailureCode,
+  BacktestFailurePhase,
   BacktestLiveSnapshotResponse,
   BacktestRunSnapshot,
   BacktestSnapshotSecurity,
@@ -30,6 +31,7 @@ import {
 import {
   ABANDONED_FAILURE_MESSAGE,
   type BacktestJobRepository,
+  type BacktestMilestoneWrite,
   type ClaimedBacktestJob,
 } from "./job-repository.js";
 import { toLiveSnapshotResponse } from "./live-snapshot.js";
@@ -78,8 +80,33 @@ export type BacktestProcessorDependencies = {
   logger: StructuredLogger;
 };
 
-/** The execution phase a failure happened in. Developer diagnostics only. */
-type ExecutionPhase = "SNAPSHOT" | "PREPARING_DATA" | "RUNNING" | "FINALIZING";
+/**
+ * The execution phase a failure happened in.
+ *
+ * `SNAPSHOT` covers everything before a phase is entered — reading and parsing the submission — and
+ * has no product label, because a user cannot act on it. The other three are shown.
+ */
+type ExecutionPhase = "SNAPSHOT" | BacktestFailurePhase;
+
+/**
+ * Names the stocks that produced no usable data, bounded so a 200-security list cannot turn a
+ * failure message into a wall of text.
+ */
+function skippedContext(symbols: readonly string[]): string | undefined {
+  if (symbols.length === 0) {
+    return undefined;
+  }
+  const sorted = [...symbols].sort();
+  const shown = sorted.slice(0, 5).join(", ");
+  return sorted.length > 5
+    ? `No market data was found for ${shown} and ${sorted.length - 5} more.`
+    : `No market data was found for ${shown}.`;
+}
+
+/** The phases a user is told about. `SNAPSHOT` is ours, not theirs. */
+function userFacingPhase(phase: ExecutionPhase): BacktestFailurePhase | null {
+  return phase === "SNAPSHOT" ? null : phase;
+}
 
 /**
  * What a user is told, per failure code. Product prose only: provider names, URLs, credentials and
@@ -100,6 +127,11 @@ class BacktestRunFailure extends Error {
   constructor(
     readonly code: BacktestFailureCode,
     message: string,
+    /**
+     * Sanitized product context appended to the user-facing message, such as which stocks could
+     * not be prepared. Never a provider name, a URL, a credential or a stack.
+     */
+    readonly context?: string,
   ) {
     super(message);
     this.name = "BacktestRunFailure";
@@ -213,6 +245,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const total = snapshot.securities.length;
     let completed = 0;
     let skipped = 0;
+    const skippedSymbols: string[] = [];
     let lastReportAt = 0;
 
     // Resident frames complete in microseconds, so this is throttled exactly like a checkpoint;
@@ -253,6 +286,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
           };
         } else {
           skipped += 1;
+          skippedSymbols.push(member.symbol);
         }
 
         completed += 1;
@@ -269,6 +303,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
       durationMs: Date.now() - startedAt,
       securityCount: securities.length,
       skippedCount: skipped,
+      ...(skippedSymbols.length > 0
+        ? { skippedSymbols: [...skippedSymbols].sort() }
+        : {}),
       operandCount: operands.length,
     });
 
@@ -276,6 +313,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
       throw new BacktestRunFailure(
         "DATA_UNAVAILABLE",
         `No security in the run produced usable daily data between ${period.from} and ${period.to}`,
+        // Symbols are the user's own list, so naming them is safe and is what makes the failure
+        // actionable: it points at which stocks to check rather than at "try again".
+        skippedContext(skippedSymbols),
       );
     }
     // The engine simulates the union of the frames' own trading days inside the period. When no
@@ -441,8 +481,13 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
           // A short run can checkpoint hundreds of times a second; the first one always lands, so
           // the running page has something to show immediately, and the rest are throttled.
+          //
+          // A completed year is never throttled away. It is the progression a user follows on a
+          // decades-long run, and a V1 run has at most about thirty of them, so keeping every one
+          // costs a bounded number of small writes even when the simulation outruns the clock.
           const at = this.now().getTime();
           if (
+            checkpoint.milestone === null &&
             lastCheckpointAt !== 0 &&
             at - lastCheckpointAt < this.options.checkpointMinIntervalMs
           ) {
@@ -489,6 +534,26 @@ export class BacktestProcessor implements BacktestJobProcessor {
       message: `Running backtest — simulated through ${checkpoint.simulatedThrough}`,
       simulatedThrough: checkpoint.simulatedThrough,
       snapshot: toLiveSnapshotResponse(checkpoint),
+      ...(checkpoint.milestone
+        ? {
+            milestone: {
+              year: checkpoint.milestone,
+              simulatedThrough: checkpoint.simulatedThrough,
+              percent,
+              completedDays: checkpoint.completedDays,
+              totalDays: checkpoint.totalDays,
+              cash: checkpoint.cash,
+              totalValue: checkpoint.totalValue,
+              investedCapital: checkpoint.investedCapital,
+              portfolioReturnPercent: checkpoint.portfolioReturnPercent,
+              benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
+              alphaPercent: checkpoint.alphaPercent,
+              maxDrawdownPercent: checkpoint.maxDrawdownPercent,
+              tradeCount: checkpoint.tradeCount,
+              openPositions: checkpoint.openPositions,
+            },
+          }
+        : {}),
     });
   }
 
@@ -531,11 +596,20 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
     // The original error is logged before it is translated, so its name, message and stack survive
     // even though none of them may reach the user-facing failure message.
+    // Everything needed to find this run and this attempt, plus the original error object so its
+    // name, message and stack survive the translation into product prose.
     this.dependencies.logger.error({
       event: "backtest.failed",
       durationMs: Date.now() - startedAt,
+      runId: claim.runId,
+      jobId: claim.jobId,
+      workerId: this.options.workerId,
+      attempt: claim.attempt,
       failureCode: code,
       phase,
+      ...(err instanceof BacktestRunFailure && err.context
+        ? { failureContext: err.context }
+        : {}),
       err: error,
     });
 
@@ -545,7 +619,11 @@ export class BacktestProcessor implements BacktestJobProcessor {
       workerId: this.options.workerId,
       now: this.now(),
       code,
-      message: FAILURE_MESSAGES[code],
+      message:
+        err instanceof BacktestRunFailure && err.context
+          ? `${FAILURE_MESSAGES[code]} ${err.context}`
+          : FAILURE_MESSAGES[code],
+      phase: userFacingPhase(phase),
       detail: {
         phase,
         name: error.name,
@@ -574,6 +652,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
       message: string;
       simulatedThrough?: LocalDate;
       snapshot?: BacktestLiveSnapshotResponse;
+      // Declared so the compiler checks it. A conditional spread at the call site is not subject
+      // to excess-property checking, so an undeclared field would be forwarded silently and a
+      // rename would go unnoticed here.
+      milestone?: BacktestMilestoneWrite;
     },
   ): Promise<void> {
     const held = await this.dependencies.repository.updateProgress({

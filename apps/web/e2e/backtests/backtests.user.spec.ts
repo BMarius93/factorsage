@@ -76,7 +76,9 @@ async function createStrategy(page: Page, name: string) {
   await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
   await page.getByTestId("save-strategy").click();
   // Saving navigates to the new strategy, and the dev server compiles that route on first use.
-  await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/, { timeout: 20_000 });
+  await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/, {
+    timeout: 20_000,
+  });
 }
 
 /** Best-effort teardown so a failure cannot leave the shared persona accumulating strategies. */
@@ -163,7 +165,10 @@ async function deleteListIfPresent(page: Page, name: string) {
  * Fills and submits the form, or skips the test when the environment cannot supply a benchmark.
  * Returns the submitted run's URL.
  */
-async function submitBacktest(page: Page): Promise<string> {
+async function submitBacktest(
+  page: Page,
+  options: { startDate?: string } = {},
+): Promise<string> {
   await page.goto("/backtests/new");
   const listSelect = page.getByTestId("backtest-list");
   // The form enables its selects only once strategies, lists and benchmarks have all arrived —
@@ -184,6 +189,9 @@ async function submitBacktest(page: Page): Promise<string> {
     .getByTestId("backtest-strategy")
     .selectOption({ label: STRATEGY_NAME });
   await listSelect.selectOption({ label: LIST_NAME });
+  if (options.startDate) {
+    await page.getByTestId("backtest-start").fill(options.startDate);
+  }
   await page.getByTestId("backtest-capital").fill("25000");
   await page.getByTestId("backtest-contribution").fill("500");
   await page.getByTestId("backtest-max-positions").fill("5");
@@ -387,6 +395,67 @@ test.describe("QA_USER backtests", () => {
         .filter({ hasText: STRATEGY_NAME })
         .first(),
     ).toBeVisible();
+  });
+
+  test("frames the chart on the configured period from the first render", async ({
+    page,
+  }) => {
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+
+    await page.goto("/backtests/new");
+    await expect(page.getByTestId("backtest-list")).toBeEnabled({
+      timeout: 20_000,
+    });
+    const start = page.getByTestId("backtest-start");
+    const end = page.getByTestId("backtest-end");
+
+    // MAX asks for the longest period the product allows, and the form must accept its own
+    // control: a browser-side period check that disagreed with the API would reject it here.
+    await page.getByTestId("backtest-start-max").click();
+    const maxStart = await start.inputValue();
+    const endDate = await end.inputValue();
+    expect(maxStart).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(
+      Number(endDate.slice(0, 4)) - Number(maxStart.slice(0, 4)),
+      "MAX did not produce the full supported period",
+    ).toBe(30);
+
+    const runUrl = await submitBacktest(page, { startDate: maxStart });
+    expect(runUrl).toMatch(/\/backtests\/[0-9a-f-]{36}$/);
+
+    // The axis is the *requested* period, not the simulated part of it, and it is fixed from the
+    // moment a curve first appears — before the run has computed anything near its end date.
+    const chart = page.getByTestId("backtest-chart");
+    await expect(chart).toBeVisible({ timeout: RUN_TIMEOUT_MS });
+    await expect(chart).toHaveAttribute("data-period-start", maxStart);
+    await expect(chart).toHaveAttribute("data-period-end", endDate);
+
+    const observation = await watchUntilTerminal(page);
+    test.skip(
+      observation.status === "FAILED",
+      `The run failed (${observation.failureMessage ?? "no message"}). This suite needs ` +
+        "hydrated price history over the full supported period.",
+    );
+
+    // Still the requested period once the run is over: completing does not reframe the chart.
+    await expect(chart).toHaveAttribute("data-period-start", maxStart);
+    await expect(chart).toHaveAttribute("data-period-end", endDate);
+
+    // The curve is framed by the period but bounded by the data that exists: on a seeded stack the
+    // securities and the benchmark start well after 1996, and inventing dates before either would
+    // be fabrication. That the run begins at its period rather than at its first trade is decided
+    // in the engine and asserted there, over calendars this environment cannot guarantee.
+    const firstPoint = await chart.getAttribute("data-curve-from");
+    expect(firstPoint, "The chart carried no first point").not.toBeNull();
+    expect(firstPoint as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // A multi-decade run reports the years it finished, and keeps them after it ends.
+    const years = page.getByTestId("backtest-milestone-years");
+    await expect(years).toBeVisible();
+    expect(
+      Number(await years.getAttribute("data-milestone-count")),
+      "A thirty-year run recorded no annual milestones",
+    ).toBeGreaterThan(1);
   });
 
   test("resumes from persisted progress after a mid-run reload", async ({

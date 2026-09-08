@@ -268,9 +268,7 @@ function financialStatementContentHash(
     filingDate: statement.filingDate,
     values: statement.values,
   };
-  return createHash("sha256")
-    .update(stableStringify(canonical))
-    .digest("hex");
+  return createHash("sha256").update(stableStringify(canonical)).digest("hex");
 }
 
 function financialStatementIdentityKey(statement: {
@@ -333,7 +331,12 @@ function statementPeriods(cadence?: FinancialStatementQuery["cadence"]) {
     return [FinancialPeriodEnum.FY];
   }
   if (cadence === "QUARTERLY") {
-    return [FinancialPeriodEnum.Q1, FinancialPeriodEnum.Q2, FinancialPeriodEnum.Q3, FinancialPeriodEnum.Q4];
+    return [
+      FinancialPeriodEnum.Q1,
+      FinancialPeriodEnum.Q2,
+      FinancialPeriodEnum.Q3,
+      FinancialPeriodEnum.Q4,
+    ];
   }
   return undefined;
 }
@@ -405,6 +408,25 @@ type PrismaTransaction = Parameters<
   Parameters<PrismaClient["$transaction"]>[0]
 >[0];
 
+/**
+ * How long a bulk historical write may hold its transaction.
+ *
+ * Prisma's interactive-transaction default is five seconds. That is ample for a Stock Details
+ * window of a year or two, and far too little for the first caller that materializes decades: a
+ * thirty-year derived-state rebuild writes roughly 7,500 rows behind an advisory lock and passes
+ * five seconds on ordinary hardware, at which point the transaction expires with P2028 and the
+ * whole hydration fails. Backtests are that caller, so the budget is stated rather than inherited.
+ * These transactions are per security per hydration, not per read.
+ */
+const BULK_WRITE_TRANSACTION_TIMEOUT_MS = 120_000;
+/** Waiting for a connection must not be what fails a hydration on a busy pool. */
+const BULK_WRITE_TRANSACTION_MAX_WAIT_MS = 30_000;
+
+const BULK_WRITE_TRANSACTION_OPTIONS = {
+  timeout: BULK_WRITE_TRANSACTION_TIMEOUT_MS,
+  maxWait: BULK_WRITE_TRANSACTION_MAX_WAIT_MS,
+} as const;
+
 export class PrismaStockDataStore implements StockDataStore {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -456,7 +478,12 @@ export class PrismaStockDataStore implements StockDataStore {
       const rows = await this.prisma.security.findMany({
         where: {
           providerSymbol: {
-            in: [...providerSymbols.slice(start, start + SECURITY_CATALOG_READ_CHUNK)],
+            in: [
+              ...providerSymbols.slice(
+                start,
+                start + SECURITY_CATALOG_READ_CHUNK,
+              ),
+            ],
           },
         },
       });
@@ -767,7 +794,9 @@ export class PrismaStockDataStore implements StockDataStore {
       .sort()[0];
     await this.prisma.$transaction(async (transaction) => {
       await this.lockStockWrite(transaction, input.securityId);
-      const affectedDates = [...new Set(input.prices.map((price) => toDatabaseDate(price.date)))];
+      const affectedDates = [
+        ...new Set(input.prices.map((price) => toDatabaseDate(price.date))),
+      ];
       if (affectedDates.length > 0) {
         await transaction.dailyPrice.deleteMany({
           where: {
@@ -821,7 +850,7 @@ export class PrismaStockDataStore implements StockDataStore {
         });
       }
       input.assertOwned?.();
-    });
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
     return earliestChangedDate ? { earliestChangedDate } : {};
   }
 
@@ -850,10 +879,9 @@ export class PrismaStockDataStore implements StockDataStore {
           where: { securityId: input.securityId, date: { in: affectedDates } },
         });
         await transaction.dailyDerivedState.createMany({
-          data: input.rows.map((row) => dailyDerivedStateToRow(
-            input.securityId,
-            row,
-          )),
+          data: input.rows.map((row) =>
+            dailyDerivedStateToRow(input.securityId, row),
+          ),
         });
       }
       await this.advanceState(transaction, {
@@ -902,7 +930,7 @@ export class PrismaStockDataStore implements StockDataStore {
         syncedAt: input.syncedAt,
       });
       input.assertOwned?.();
-    });
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
   async getFinancialStatements(
@@ -924,7 +952,9 @@ export class PrismaStockDataStore implements StockDataStore {
         ...(statementPeriods(query.cadence)
           ? { period: { in: statementPeriods(query.cadence) } }
           : {}),
-        ...(query.from ? { fiscalDate: { gte: toDatabaseDate(query.from) } } : {}),
+        ...(query.from
+          ? { fiscalDate: { gte: toDatabaseDate(query.from) } }
+          : {}),
         ...(query.to ? { fiscalDate: { lte: toDatabaseDate(query.to) } } : {}),
         ...(query.asOf
           ? { availableFromDate: { lte: toDatabaseDate(query.asOf) } }
@@ -938,7 +968,10 @@ export class PrismaStockDataStore implements StockDataStore {
         { observedAt: "asc" },
       ],
     });
-    return selectFinancialStatements(rows.map(financialStatementFromRow), query);
+    return selectFinancialStatements(
+      rows.map(financialStatementFromRow),
+      query,
+    );
   }
 
   async saveFinancialStatements(input: {
@@ -1013,7 +1046,10 @@ export class PrismaStockDataStore implements StockDataStore {
           period: statement.period,
           contentHash,
         });
-        if (existingByRevision.has(revisionKey) || plannedRevisions.has(revisionKey)) {
+        if (
+          existingByRevision.has(revisionKey) ||
+          plannedRevisions.has(revisionKey)
+        ) {
           unchangedCount += 1;
           continue;
         }
@@ -1027,9 +1063,11 @@ export class PrismaStockDataStore implements StockDataStore {
           fiscalYear: statement.fiscalYear,
           period: statement.period,
         });
-        const latestKnownFilingDate = latestKnownFilingDateByIdentity.get(identity);
+        const latestKnownFilingDate =
+          latestKnownFilingDateByIdentity.get(identity);
         const canUseInitialAvailability =
-          !latestKnownFilingDate || filingDate.valueOf() > latestKnownFilingDate.valueOf();
+          !latestKnownFilingDate ||
+          filingDate.valueOf() > latestKnownFilingDate.valueOf();
         const availableFromDate = canUseInitialAvailability
           ? new Date(filingDate.valueOf() + 24 * 60 * 60 * 1_000)
           : new Date(
@@ -1053,7 +1091,10 @@ export class PrismaStockDataStore implements StockDataStore {
           values: statement.values as Prisma.InputJsonValue,
         });
         const knownFilingDate = latestKnownFilingDateByIdentity.get(identity);
-        if (!knownFilingDate || filingDate.valueOf() > knownFilingDate.valueOf()) {
+        if (
+          !knownFilingDate ||
+          filingDate.valueOf() > knownFilingDate.valueOf()
+        ) {
           latestKnownFilingDateByIdentity.set(identity, filingDate);
         }
         insertedRevisionCount += 1;
@@ -1066,7 +1107,7 @@ export class PrismaStockDataStore implements StockDataStore {
       }
 
       return { insertedRevisionCount, unchangedCount };
-    });
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
   async getFinancialStatementRevisions(input: {
@@ -1081,8 +1122,7 @@ export class PrismaStockDataStore implements StockDataStore {
         securityId: input.securityId,
         ...(input.statementType
           ? {
-              statementType:
-                FinancialStatementTypeEnum[input.statementType],
+              statementType: FinancialStatementTypeEnum[input.statementType],
             }
           : {}),
         ...(statementPeriods(input.cadence)

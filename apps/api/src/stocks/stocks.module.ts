@@ -8,10 +8,7 @@ import {
 } from "@intrinsic/config";
 import type { StockDataService } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
-import {
-  createLogger,
-  type StructuredLogger,
-} from "@intrinsic/observability";
+import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import {
   CanonicalSecurityCatalogService,
   CanonicalStockDataService,
@@ -155,12 +152,19 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
             // narrows what that surface reports and reads; the retained horizon above is what a
             // backtest still reaches for.
             stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
-            recentPriceFreshnessMs:
-              getStockDataConfig().recentPriceFreshnessMs,
+            recentPriceFreshnessMs: getStockDataConfig().recentPriceFreshnessMs,
             fundamentalsFreshnessMs:
               getStockDataConfig().fundamentalsFreshnessMs,
-            recentTailCalendarDays:
-              getStockDataConfig().recentTailCalendarDays,
+            recentTailCalendarDays: getStockDataConfig().recentTailCalendarDays,
+            // Every historical provider request explains itself. `debug`, because a warm read
+            // makes none at all and a cold one makes a bounded burst — useful for diagnosing
+            // "why is it calling FMP again?", never for production noise.
+            onProviderRequest: (request) => {
+              logger.debug({
+                event: "stock-data.provider.request",
+                ...request,
+              });
+            },
           },
         );
         return new LoggedStockDataService(service, logger);

@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 import {
   defaultBacktestPeriod,
+  maximumBacktestStart,
   fullPositionHelpText,
   validateBacktestForm,
   type BacktestFormValues,
@@ -119,5 +120,40 @@ describe("defaultBacktestPeriod", () => {
         endDate: "2026-09-07",
       },
     );
+  });
+});
+
+describe("maximumBacktestStart", () => {
+  it("is exactly the canonical horizon back from today", () => {
+    expect(maximumBacktestStart(new Date("2026-09-08T11:00:00.000Z"))).toBe(
+      "1996-09-08",
+    );
+  });
+
+  it("clamps a leap day rather than rolling into March", () => {
+    // A naive setUTCFullYear on 29 February rolls forward to 1 March, which would put the horizon
+    // on a different day every fourth year. The canonical helper clamps to 28 February.
+    expect(maximumBacktestStart(new Date("2024-02-29T00:00:00.000Z"))).toBe(
+      "1994-02-28",
+    );
+  });
+
+  it("agrees with the shared period limit", () => {
+    const now = new Date("2020-06-15T00:00:00.000Z");
+    const start = maximumBacktestStart(now);
+    expect(Number(start.slice(0, 4))).toBe(2020 - BACKTEST_MAX_PERIOD_YEARS);
+    // And the period it produces is accepted by the form's own validation.
+    const { errors } = validateBacktestForm({
+      strategyId: "s1",
+      stockListId: "l1",
+      benchmarkCode: "SP500",
+      startDate: start,
+      endDate: "2020-06-15",
+      initialCapital: "10000",
+      monthlyContribution: "",
+      maximumPositions: "10",
+    });
+    expect(errors.startDate).toBeUndefined();
+    expect(errors.endDate).toBeUndefined();
   });
 });

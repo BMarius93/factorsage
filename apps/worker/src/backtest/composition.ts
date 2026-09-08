@@ -5,6 +5,7 @@ import {
   getStockDataConfig,
 } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import type { StructuredLogger } from "@intrinsic/observability";
 import { FmpClient } from "@intrinsic/fmp";
 import {
   CanonicalBenchmarkDataService,
@@ -50,8 +51,13 @@ export type BacktestRuntime = {
  * go through the same package.
  *
  * The process owns its own Prisma client and its own Redis connection, per the database rules.
+ *
+ * The logger is passed in so every provider request can say why it happened: a repeated backtest
+ * that still reaches FMP should be explainable from this process's own log.
  */
-export function createBacktestRuntime(): BacktestRuntime {
+export function createBacktestRuntime(
+  logger: StructuredLogger,
+): BacktestRuntime {
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
 
@@ -90,6 +96,11 @@ export function createBacktestRuntime(): BacktestRuntime {
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
+      // Every historical provider request explains itself, so "why did an identical second run
+      // still call FMP?" is answerable from the worker's own log rather than from a packet trace.
+      onProviderRequest: (request) => {
+        logger.debug({ event: "stock-data.provider.request", ...request });
+      },
     },
   );
 
@@ -102,6 +113,11 @@ export function createBacktestRuntime(): BacktestRuntime {
       historyYears: stockDataConfig.historyYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
+      // Every historical provider request explains itself, so "why did an identical second run
+      // still call FMP?" is answerable from the worker's own log rather than from a packet trace.
+      onProviderRequest: (request) => {
+        logger.debug({ event: "stock-data.provider.request", ...request });
+      },
     },
   );
 

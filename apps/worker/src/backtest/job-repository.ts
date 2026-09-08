@@ -1,5 +1,6 @@
 import type {
   BacktestFailureCode,
+  BacktestFailurePhase,
   BacktestLiveSnapshotResponse,
 } from "@intrinsic/contracts";
 import {
@@ -54,6 +55,31 @@ export type BacktestProgressWrite = {
   message: string;
   simulatedThrough?: LocalDate;
   snapshot?: BacktestLiveSnapshotResponse;
+  /**
+   * A completed calendar year, written alongside the progress row and never overwritten.
+   *
+   * The progress snapshot is a replacement, so a browser polling more slowly than the worker
+   * simulates would otherwise lose every intermediate state. A V1 run is capped at thirty years,
+   * so keeping the whole progression costs at most about thirty small rows.
+   */
+  milestone?: BacktestMilestoneWrite;
+};
+
+export type BacktestMilestoneWrite = {
+  year: string;
+  simulatedThrough: LocalDate;
+  percent: number;
+  completedDays: number;
+  totalDays: number;
+  cash: number;
+  totalValue: number;
+  investedCapital: number;
+  portfolioReturnPercent: number;
+  benchmarkReturnPercent: number | null;
+  alphaPercent: number | null;
+  maxDrawdownPercent: number;
+  tradeCount: number;
+  openPositions: number;
 };
 
 export type BacktestResultWrite = {
@@ -73,6 +99,8 @@ export type BacktestFailureWrite = {
   code: BacktestFailureCode;
   /** Sanitized product prose. Never carries provider names, URLs, credentials or a stack. */
   message: string;
+  /** Product-safe phase label, shown to the user beside the reason. */
+  phase: BacktestFailurePhase | null;
   /** Developer diagnostics, never exposed by any API contract. */
   detail: {
     phase: string;
@@ -265,6 +293,14 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         WHERE j."id" = stale."id"
         RETURNING j."runId"
       ),
+      discarded AS (
+        -- The dead attempt's milestones go with it. A retry re-simulates from the first day, so
+        -- keeping them would append a second copy of every year to the progression.
+        DELETE FROM "BacktestRunMilestone" m
+        USING released
+        WHERE m."runId" = released."runId"
+        RETURNING m."runId"
+      ),
       cleared AS (
         -- The dead attempt's progress must not survive it: a QUEUED run advertising 94% and a live
         -- curve that no process is producing is worse than no progress at all. This is a sibling
@@ -370,6 +406,39 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
           ...snapshot,
         },
       });
+
+      if (write.milestone) {
+        // Ordered by completion and never updated. A year is unique per run, so `skipDuplicates`
+        // makes a re-delivered checkpoint a no-op rather than a second row for the same year under
+        // the next sequence; a retried attempt re-simulates from the first day, and its predecessor's
+        // milestones were already discarded when the run was requeued.
+        const previous = await tx.backtestRunMilestone.count({
+          where: { runId: write.runId },
+        });
+        await tx.backtestRunMilestone.createMany({
+          data: [
+            {
+              runId: write.runId,
+              sequence: previous + 1,
+              year: write.milestone.year,
+              simulatedThrough: toDate(write.milestone.simulatedThrough),
+              percent: write.milestone.percent,
+              completedDays: write.milestone.completedDays,
+              totalDays: write.milestone.totalDays,
+              cash: write.milestone.cash,
+              totalValue: write.milestone.totalValue,
+              investedCapital: write.milestone.investedCapital,
+              portfolioReturnPercent: write.milestone.portfolioReturnPercent,
+              benchmarkReturnPercent: write.milestone.benchmarkReturnPercent,
+              alphaPercent: write.milestone.alphaPercent,
+              maxDrawdownPercent: write.milestone.maxDrawdownPercent,
+              tradeCount: write.milestone.tradeCount,
+              openPositions: write.milestone.openPositions,
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
 
       if (write.status) {
         await tx.backtestRun.updateMany({
@@ -576,6 +645,7 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
           completedAt: write.now,
           failureCode: write.code,
           failureMessage: write.message,
+          failurePhase: write.phase,
           failureDetail: jsonDocument(write.detail),
         },
       });
@@ -636,6 +706,7 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
       // producing, and the next attempt re-simulates from the first day anyway. Raw SQL because
       // clearing a Json column through the query builder needs the Prisma namespace as a runtime
       // value, and `@intrinsic/database` deliberately exports it as a type only.
+      await tx.backtestRunMilestone.deleteMany({ where: { runId } });
       await tx.$executeRaw`
         UPDATE "BacktestRunProgress"
         SET "percent" = 0,

@@ -955,6 +955,406 @@ describe("end-to-end methodology ledger", () => {
   });
 });
 
+/**
+ * A decades-long run's user-visible progression is its years. They are emitted as milestones so a
+ * worker can persist every one of them even inside its write throttle, and there are at most about
+ * thirty of them in a V1 run.
+ */
+describe("annual milestone checkpoints", () => {
+  function yearsOfWeekdays(startYear: number, years: number): string[] {
+    const out: string[] = [];
+    const cursor = new Date(Date.UTC(startYear, 0, 1));
+    const end = new Date(Date.UTC(startYear + years, 0, 1));
+    while (cursor < end) {
+      const day = cursor.getUTCDay();
+      if (day !== 0 && day !== 6) {
+        out.push(cursor.toISOString().slice(0, 10));
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return out;
+  }
+
+  async function runYears(years: number) {
+    const dates = yearsOfWeekdays(1996, years);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map((_, index) => 100 + index * 0.01),
+    });
+    const seen: BacktestCheckpoint[] = [];
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 25, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: dates[0] as string,
+        endDate: dates[dates.length - 1] as string,
+      }),
+      {
+        checkpointEveryDays: 5,
+        onCheckpoint: (checkpoint) => {
+          seen.push(checkpoint);
+        },
+      },
+    );
+    return { dates, seen, result };
+  }
+
+  it("emits one milestone per completed calendar year, in order", async () => {
+    const { seen } = await runYears(30);
+    const milestones = seen
+      .filter((checkpoint) => checkpoint.milestone !== null)
+      .map((checkpoint) => checkpoint.milestone);
+
+    // 1996..2024 complete inside the run; 2025 is closed by the final date, which is the result
+    // rather than a checkpoint.
+    expect(milestones).toEqual(
+      Array.from({ length: 29 }, (_, index) => String(1996 + index)),
+    );
+  });
+
+  it("marks a milestone on the last simulated date of its year, not the first of the next", async () => {
+    const { seen } = await runYears(3);
+    const first = seen.find((checkpoint) => checkpoint.milestone === "1996");
+    expect(first?.simulatedThrough.slice(0, 4)).toBe("1996");
+    expect(first?.simulatedThrough).toBe("1996-12-31");
+  });
+
+  it("carries real simulated state at each milestone, monotonic in days and curve length", async () => {
+    const { seen } = await runYears(5);
+    const milestones = seen.filter(
+      (checkpoint) => checkpoint.milestone !== null,
+    );
+
+    expect(milestones.length).toBeGreaterThanOrEqual(4);
+    for (let index = 1; index < milestones.length; index += 1) {
+      const previous = milestones[index - 1] as BacktestCheckpoint;
+      const current = milestones[index] as BacktestCheckpoint;
+      expect(current.simulatedThrough > previous.simulatedThrough).toBe(true);
+      expect(current.completedDays).toBeGreaterThan(previous.completedDays);
+      expect(current.curve.at(-1)?.date).toBe(current.simulatedThrough);
+      expect(current.totalValue).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps milestones bounded: a 30-year run produces about one per year", async () => {
+    const { seen } = await runYears(30);
+    const milestones = seen.filter(
+      (checkpoint) => checkpoint.milestone !== null,
+    );
+    expect(milestones.length).toBeLessThanOrEqual(31);
+  });
+});
+
+/**
+ * A backtest exists from the first day of its period, whatever its securities were doing then. A
+ * portfolio that holds nothing but cash has a real, knowable value and a return of exactly zero;
+ * a curve that only began at the first BUY would hide years of the decision not to buy.
+ */
+describe("the period, not the data, defines the run", () => {
+  it("reports a flat 0% for the months before the first trade", async () => {
+    const dates = tradingDates("2020-01-06", 60);
+    // Nothing satisfies the BUY rule until the price finally drops on day 41.
+    const closes = dates.map((_, index) => (index < 40 ? 100 : 80));
+    const frame = frameOf({ symbol: "AAA", dates, closes });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceBelowSignal(90))],
+        }),
+        securities: [securityInput(frame)],
+        initialCapital: 100_000,
+      }),
+    );
+
+    const firstTrade = result.trades[0]?.date as string;
+    const beforeTrading = result.equity.filter(
+      (point) => point.date < firstTrade,
+    );
+    expect(beforeTrading).toHaveLength(40);
+    expect(beforeTrading.every((point) => point.returnIndex === 1)).toBe(true);
+    expect(beforeTrading.every((point) => point.totalValue === 100_000)).toBe(
+      true,
+    );
+    expect(result.equity[0]?.date).toBe(dates[0]);
+  });
+
+  it("simulates from the period start even when every security lists years later", async () => {
+    // The securities begin trading in the third year; the benchmark covers the whole period.
+    const benchmarkDates = tradingDates("2020-01-06", 780);
+    const lateDates = benchmarkDates.slice(520);
+    const frame = frameOf({
+      symbol: "IPO",
+      dates: lateDates,
+      closes: lateDates.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: benchmarkDates[0] as string,
+        endDate: benchmarkDates[benchmarkDates.length - 1] as string,
+        initialCapital: 100_000,
+        benchmark: benchmarkSeries({
+          dates: benchmarkDates,
+          closes: benchmarkDates.map((_, index) => 400 + index * 0.1),
+        }),
+      }),
+    );
+
+    // The run exists from its first day: cash only, 0%, no position, no fabricated price.
+    expect(result.equity[0]?.date).toBe(benchmarkDates[0]);
+    expect(result.equity[0]?.totalValue).toBe(100_000);
+    expect(result.summary.firstSimulatedDate).toBe(benchmarkDates[0]);
+    const beforeListing = result.equity.filter(
+      (point) => point.date < (lateDates[0] as string),
+    );
+    expect(beforeListing.length).toBeGreaterThan(400);
+    expect(beforeListing.every((point) => point.openPositions === 0)).toBe(
+      true,
+    );
+    expect(beforeListing.every((point) => point.returnIndex === 1)).toBe(true);
+    // The benchmark is normalized from the same first day, so the comparison starts together.
+    expect(result.equity[0]?.benchmarkIndex).toBeCloseTo(1, 9);
+    // And the security participates from its first real price, never before it.
+    expect(result.trades[0]?.date).toBe(lateDates[0]);
+  });
+
+  it("keeps the securities' own axis when the run has no benchmark", async () => {
+    const dates = tradingDates("2020-01-06", 10);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 25, priceBelowSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+      }),
+    );
+
+    expect(result.equity).toHaveLength(dates.length);
+  });
+
+  it("begins on the first eligible trading day when the requested start is a weekend", async () => {
+    const dates = tradingDates("2020-01-06", 10);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 25, priceBelowSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        // Saturday. No market data exists for it, so the first financial point is the Monday.
+        startDate: "2020-01-04",
+        endDate: dates[dates.length - 1] as string,
+      }),
+    );
+
+    expect(result.summary.firstSimulatedDate).toBe("2020-01-06");
+    expect(result.equity[0]?.date).toBe("2020-01-06");
+  });
+});
+
+/**
+ * Securities whose history does not span the run.
+ *
+ * These are pinned rather than designed: what a security's missing trailing history *means* —
+ * delisting, a suspension, or a provider gap — is not something the available data can tell us,
+ * so the engine's behaviour is documented and tested exactly as it is.
+ */
+describe("securities whose history does not span the run", () => {
+  it("cannot buy, hold or price a security before its first trading day", async () => {
+    const full = tradingDates("2020-01-06", 40);
+    const late = full.slice(20);
+    const older = frameOf({
+      symbol: "OLD",
+      dates: full,
+      closes: full.map(() => 100),
+    });
+    const listedLater = frameOf({
+      symbol: "NEW",
+      dates: late,
+      closes: late.map(() => 50),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(older), securityInput(listedLater)],
+        startDate: full[0] as string,
+        endDate: full[full.length - 1] as string,
+        maximumPositions: 2,
+      }),
+    );
+
+    const newTrades = result.trades.filter((trade) => trade.symbol === "NEW");
+    expect(newTrades[0]?.date).toBe(late[0]);
+    // Before its listing it occupies no slot and contributes no value: the equity points in that
+    // window hold exactly one position, the older security's.
+    const beforeListing = result.equity.filter(
+      (point) => point.date < (late[0] as string),
+    );
+    expect(beforeListing.every((point) => point.openPositions === 1)).toBe(
+      true,
+    );
+  });
+
+  it("never lets a Trigger use a fabricated previous value on a security's first day", async () => {
+    const full = tradingDates("2020-01-06", 20);
+    const late = full.slice(10);
+    const frame = frameOf({
+      symbol: "NEW",
+      dates: late,
+      closes: late.map(() => 120),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          // A crossing needs a previous eligible value; the security's first day has none.
+          buyLevels: [buyLevel("b1", 100, priceCrossesAboveSignal(100))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: full[0] as string,
+        endDate: full[full.length - 1] as string,
+      }),
+    );
+
+    expect(result.trades).toHaveLength(0);
+  });
+
+  it("carries a position at its last known close when the security stops reporting", async () => {
+    // PINNED, NOT DESIGNED. The provider gives a current `isActivelyTrading` flag and a listing
+    // date, but no point-in-time delisting date — and today's flag says nothing about a simulated
+    // 2008. A missing trailing price is therefore indistinguishable from a suspension or a data
+    // gap, so the engine carries the last real close forward and reports the date it came from.
+    // Neither a forced liquidation nor a write-down may be invented from absence.
+    const full = tradingDates("2020-01-06", 40);
+    const truncated = full.slice(0, 20);
+    const frame = frameOf({
+      symbol: "GONE",
+      dates: truncated,
+      closes: truncated.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: full[0] as string,
+        endDate: full[full.length - 1] as string,
+        initialCapital: 100_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    const position = result.positions[0];
+    expect(position?.symbol).toBe("GONE");
+    // The value is held at the last real close, and the date that close came from is reported, so
+    // a stale holding is visible rather than silent.
+    expect(position?.lastPrice).toBe(100);
+    expect(position?.lastPriceDate).toBe(truncated[truncated.length - 1]);
+    // With no benchmark and no other security still reporting, there are no market dates left to
+    // simulate, so the run ends where its data ends rather than inventing days to fill the period.
+    expect(result.summary.lastSimulatedDate).toBe(
+      truncated[truncated.length - 1],
+    );
+    // No trade is invented after the data ends.
+    expect(
+      result.trades.every(
+        (trade) => trade.date <= (truncated[truncated.length - 1] as string),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps valuing a stale holding to the end of the period when the benchmark still trades", async () => {
+    const full = tradingDates("2020-01-06", 40);
+    const truncated = full.slice(0, 20);
+    const frame = frameOf({
+      symbol: "GONE",
+      dates: truncated,
+      closes: truncated.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: full[0] as string,
+        endDate: full[full.length - 1] as string,
+        initialCapital: 100_000,
+        maximumPositions: 1,
+        benchmark: benchmarkSeries({
+          dates: full,
+          closes: full.map((_, index) => 400 + index),
+        }),
+      }),
+    );
+
+    // The market calendar continues, so the run does too — and the holding is carried at the last
+    // close it actually had, with the date that close came from reported alongside it.
+    expect(result.summary.lastSimulatedDate).toBe(full[full.length - 1]);
+    expect(result.positions[0]?.lastPrice).toBe(100);
+    expect(result.positions[0]?.lastPriceDate).toBe(
+      truncated[truncated.length - 1],
+    );
+    const afterData = result.equity.filter(
+      (point) => point.date > (truncated[truncated.length - 1] as string),
+    );
+    expect(afterData.length).toBeGreaterThan(0);
+    expect(
+      afterData.every((point) => point.totalValue === afterData[0]?.totalValue),
+    ).toBe(true);
+  });
+
+  it("takes no action for a security on the dates it has no price", async () => {
+    const full = tradingDates("2020-01-06", 30);
+    const gapped = [...full.slice(0, 10), ...full.slice(20)];
+    const frame = frameOf({
+      symbol: "GAP",
+      dates: gapped,
+      closes: gapped.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 25, priceAboveSignal(0))],
+          sellLevels: [sellLevel("s1", 25, gainAboveSignal(-1000))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: full[0] as string,
+        endDate: full[full.length - 1] as string,
+      }),
+    );
+
+    const inGap = new Set(full.slice(10, 20));
+    expect(result.trades.every((trade) => !inGap.has(trade.date))).toBe(true);
+  });
+});
+
 describe("guards", () => {
   it("rejects a period with no eligible trading day", async () => {
     const dates = tradingDates("2020-01-06", 2);

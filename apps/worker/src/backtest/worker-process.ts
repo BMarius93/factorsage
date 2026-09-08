@@ -36,7 +36,7 @@ const logger = createLogger({
   base: { component: "backtest", workerId },
 });
 
-const runtime = createBacktestRuntime();
+const runtime = createBacktestRuntime(logger);
 
 const loop = new BacktestWorkerLoop(
   runtime.repository,

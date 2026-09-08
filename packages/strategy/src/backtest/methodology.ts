@@ -58,6 +58,27 @@ export const EXECUTION_COST_METHODOLOGY_VERSION =
   "zero-fees/zero-slippage@1" as const;
 
 /**
+ * Which dates a run simulates.
+ *
+ * `securities-union-with-benchmark@1`: the ascending union of the eligible trading dates of every
+ * security in the run **and of the benchmark**, restricted to the requested period. There is no
+ * trading-calendar table, so a union is what makes a portfolio-level loop possible; the benchmark
+ * contributes its dates because a portfolio exists from the first day of the period even while it
+ * holds only cash, and the benchmark is the market's own calendar for exactly that period.
+ *
+ * This is a versioned methodology and not an implementation detail because it decides which dates
+ * are "the first simulated date of a month" and which date the return index is based at — so it
+ * can move a contribution and, through it, a number.
+ *
+ * Revision history:
+ * - v1: introduced with Backtest V1. Runs snapshotted before this field existed simulated the
+ *   securities-only union, which began at the first date any security traded rather than at the
+ *   start of the requested period.
+ */
+export const CALENDAR_METHODOLOGY_VERSION =
+  "securities-union-with-benchmark@1" as const;
+
+/**
  * When a monthly contribution lands.
  *
  * `first-eligible-trading-day-of-month@1`: the run's first simulated date is funded by the initial
@@ -84,6 +105,7 @@ export const RETURN_METHODOLOGY_VERSION = "time-weighted-index@1" as const;
 
 /** The complete set stamped into a run snapshot. */
 export const BACKTEST_METHODOLOGY = {
+  calendar: CALENDAR_METHODOLOGY_VERSION,
   candidateOrdering: CANDIDATE_ORDERING_METHODOLOGY_VERSION,
   execution: EXECUTION_METHODOLOGY_VERSION,
   executionCosts: EXECUTION_COST_METHODOLOGY_VERSION,

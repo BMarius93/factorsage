@@ -153,3 +153,11 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* A holding carried at a close older than the run's own last simulated date. */
+.stale {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}

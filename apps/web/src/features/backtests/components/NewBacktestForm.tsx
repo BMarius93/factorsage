@@ -4,6 +4,7 @@ import {
   BACKTEST_MAX_INITIAL_CAPITAL,
   BACKTEST_MAX_MAXIMUM_POSITIONS,
   BACKTEST_MAX_MONTHLY_CONTRIBUTION,
+  BACKTEST_MAX_PERIOD_YEARS,
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   DEFAULT_BENCHMARK_CODE,
@@ -19,6 +20,7 @@ import { useBacktestOptions } from "../hooks/use-backtest-options";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
+  maximumBacktestStart,
   validateBacktestForm,
   type BacktestFormErrors,
   type BacktestFormValues,
@@ -313,15 +315,32 @@ export function NewBacktestForm() {
                 <label className={forms.label} htmlFor="backtest-start">
                   Start date
                 </label>
-                <input
-                  id="backtest-start"
-                  className={forms.input}
-                  data-testid="backtest-start"
-                  type="date"
-                  value={values.startDate}
-                  aria-invalid={errors.startDate !== undefined}
-                  onChange={(event) => update("startDate", event.target.value)}
-                />
+                <div className={styles.dateRow}>
+                  <input
+                    id="backtest-start"
+                    className={forms.input}
+                    data-testid="backtest-start"
+                    type="date"
+                    value={values.startDate}
+                    aria-invalid={errors.startDate !== undefined}
+                    onChange={(event) =>
+                      update("startDate", event.target.value)
+                    }
+                  />
+                  {/* The furthest back a V1 run may reach. It moves only the start: the end date
+                      is the user's, and the ordinary period validation still applies. */}
+                  <button
+                    type="button"
+                    className={styles.maxButton}
+                    data-testid="backtest-start-max"
+                    onClick={() =>
+                      update("startDate", maximumBacktestStart(new Date()))
+                    }
+                    title={`Earliest available start — ${BACKTEST_MAX_PERIOD_YEARS} years back`}
+                  >
+                    MAX
+                  </button>
+                </div>
                 {errors.startDate ? (
                   <p className={forms.hint} role="alert">
                     {errors.startDate}

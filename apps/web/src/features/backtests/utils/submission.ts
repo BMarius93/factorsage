@@ -3,6 +3,7 @@ import {
   BACKTEST_MAX_MAXIMUM_POSITIONS,
   BACKTEST_MAX_MONTHLY_CONTRIBUTION,
   BACKTEST_MAX_PERIOD_YEARS,
+  subtractYears,
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   type CreateBacktestRunRequest,
@@ -41,9 +42,6 @@ export type BacktestFormValidation = {
   readonly request: CreateBacktestRunRequest | null;
 };
 
-const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
-const DAYS_PER_YEAR = 365.25;
-
 /** Canonical `YYYY-MM-DD` at UTC midnight, or null when the value is not a usable date. */
 function parseDay(value: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -63,6 +61,17 @@ function toDay(timestamp: number): string {
  * Taken from an injected clock rather than read at module scope because it must be computed after
  * mount — the server and the browser would not agree on "today" during hydration.
  */
+/**
+ * The earliest start a V1 backtest may request: the canonical horizon back from today.
+ *
+ * `subtractYears` is the repository's one implementation of that arithmetic — the same one the
+ * loader clamps its retention with — so the browser and the server land on the same day, 29
+ * February included.
+ */
+export function maximumBacktestStart(now: Date): string {
+  return subtractYears(toDay(now.valueOf()), BACKTEST_MAX_PERIOD_YEARS);
+}
+
 export function defaultBacktestPeriod(now: Date): {
   readonly startDate: string;
   readonly endDate: string;
@@ -130,9 +139,13 @@ export function validateBacktestForm(
   if (start !== null && end !== null) {
     if (end <= start) {
       errors.endDate = "The end date must be after the start date.";
+      // Calendar years, not average ones. Dividing elapsed days by 365.25 makes a period of
+      // exactly the maximum measure slightly over it — thirty calendar years is 10,957 or 10,958
+      // days depending on leap days — so the browser would reject the very range the MAX control
+      // produces and the API accepts. This mirrors the API's own calendar comparison.
     } else if (
-      (end - start) / MILLISECONDS_PER_DAY / DAYS_PER_YEAR >
-      BACKTEST_MAX_PERIOD_YEARS
+      values.startDate <
+      subtractYears(values.endDate, BACKTEST_MAX_PERIOD_YEARS)
     ) {
       errors.endDate = `A backtest period cannot be longer than ${BACKTEST_MAX_PERIOD_YEARS} years.`;
     }

@@ -6,6 +6,7 @@ import {
   isTerminalBacktestStatus,
   type BacktestFailureResponse,
   type BacktestLiveSnapshotResponse,
+  type BacktestMilestoneResponse,
   type BacktestProgressResponse,
   type BacktestRunDetailResponse,
   type BacktestRunStatus,
@@ -31,6 +32,14 @@ export type BacktestRunState = {
   readonly percent: number;
   readonly message: string | null;
   readonly live: BacktestLiveSnapshotResponse | null;
+  /**
+   * Every completed year the run has reported, ascending and never shortened.
+   *
+   * The live snapshot is a replacement, so a run that finishes between two polls would otherwise
+   * leave the page with only its final state. Milestones are ordered and durable, so the first
+   * answer after a fast run still carries the whole progression it went through.
+   */
+  readonly milestones: readonly BacktestMilestoneResponse[];
   readonly failure: BacktestFailureResponse | null;
   /** True while the page is still asking for checkpoints. */
   readonly polling: boolean;
@@ -200,6 +209,12 @@ export function useBacktestRun(runId: string): BacktestRunState {
     // detail's `live` would resurrect the snapshot the page happened to load with and render it as
     // a finished run's result for one poll interval.
     live: progress ? progress.live : (run?.live ?? null),
+    // The longer list wins: milestones only ever grow, and a payload that raced in with fewer of
+    // them must not shorten a progression the page has already shown.
+    milestones:
+      (progress?.milestones.length ?? 0) >= (run?.milestones.length ?? 0)
+        ? (progress?.milestones ?? run?.milestones ?? [])
+        : (run?.milestones ?? []),
     failure: progress?.failure ?? run?.failure ?? null,
     polling,
     retry,

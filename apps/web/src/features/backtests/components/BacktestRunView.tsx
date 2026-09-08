@@ -1,16 +1,18 @@
 "use client";
 
 import {
+  BACKTEST_FAILURE_PHASE_LABELS,
   BACKTEST_RUN_STATUS_LABELS,
   isTerminalBacktestStatus,
   type BacktestCurvePointResponse,
   type BacktestHoldingResponse,
+  type BacktestMilestoneResponse,
   type BacktestRunConfigurationResponse,
   type BacktestRunStatus,
   type BacktestTradeResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import forms from "../../../components/ui/forms.module.css";
 import { useBacktestRun } from "../hooks/use-backtest-run";
@@ -20,6 +22,7 @@ import {
   formatDerivedPercent,
   formatMoney,
   formatPeriod,
+  formatSignedPercent,
   formatTimestamp,
 } from "../utils/format";
 import {
@@ -46,6 +49,8 @@ type RunSnapshotView = {
   readonly metrics: BacktestMetricsView;
   /** The run's true trade count, which can exceed the rows the payload carries. */
   readonly tradeCount: number;
+  /** The date these holdings are valued at, so a staler holding price can be called out. */
+  readonly asOf: string;
 };
 
 function statusTone(status: BacktestRunStatus): string {
@@ -121,9 +126,99 @@ export type BacktestRunViewProps = {
  * navigation, a reload or a layout jump — the chart replaces its own placeholder inside a frame
  * that already has the height it will keep.
  */
+/**
+ * The run's completed years, in order.
+ *
+ * A thirty-year simulation can finish between two polls, so the live snapshot alone would show a
+ * user nothing but the final state. Milestones are persisted per completed year and never
+ * overwritten, so this reads the progression the run actually went through — including afterwards.
+ */
+function BacktestMilestoneTrail({
+  milestones,
+}: {
+  readonly milestones: readonly BacktestMilestoneResponse[];
+}) {
+  if (milestones.length === 0) {
+    return null;
+  }
+  const latest = milestones[milestones.length - 1] as BacktestMilestoneResponse;
+  return (
+    <div className={styles.milestones} data-testid="backtest-milestones">
+      <p className={styles.milestoneCaption}>
+        {formatCount(milestones.length)} simulated{" "}
+        {milestones.length === 1 ? "year" : "years"} · through {latest.year}
+      </p>
+      <ol
+        className={styles.milestoneList}
+        data-testid="backtest-milestone-years"
+        data-milestone-count={milestones.length}
+      >
+        {milestones.map((milestone) => (
+          <li
+            key={milestone.sequence}
+            className={styles.milestone}
+            data-year={milestone.year}
+            title={`${milestone.year}: ${formatSignedPercent(
+              milestone.portfolioReturnPercent,
+            )} after ${formatCount(milestone.tradeCount)} trades`}
+          >
+            <span className={styles.milestoneYear}>{milestone.year}</span>
+            <span
+              className={styles.milestoneReturn}
+              data-tone={
+                milestone.portfolioReturnPercent >= 0 ? "positive" : "negative"
+              }
+            >
+              {formatSignedPercent(milestone.portfolioReturnPercent)}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * The run's own id, selectable and copyable.
+ *
+ * A failed run is the one moment a user needs to quote an identifier back to someone, so it is
+ * offered rather than left to be read off the address bar. Clipboard access can be refused, so the
+ * id stays visible and selectable whether or not the copy succeeds.
+ */
+function RunIdentifier({ runId }: { readonly runId: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className={styles.runId}>
+      <code data-testid="backtest-run-id">{runId}</code>
+      <button
+        type="button"
+        className={styles.copyButton}
+        data-testid="backtest-copy-run-id"
+        onClick={() => {
+          void navigator.clipboard
+            ?.writeText(runId)
+            .then(() => setCopied(true))
+            .catch(() => setCopied(false));
+        }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
+  );
+}
+
 export function BacktestRunView({ runId }: BacktestRunViewProps) {
-  const { loadStatus, run, status, percent, message, live, failure, retry } =
-    useBacktestRun(runId);
+  const {
+    loadStatus,
+    run,
+    status,
+    percent,
+    message,
+    live,
+    milestones,
+    failure,
+    retry,
+  } = useBacktestRun(runId);
   // The terminal checkpoint arrives one request before the refetched detail that carries the
   // durable result. Retaining the last snapshot is what keeps the chart, KPIs, holdings and trade
   // log on screen across that gap instead of blinking back to their empty states.
@@ -195,6 +290,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         holdings: result.holdings,
         metrics: resultMetrics(result.summary),
         tradeCount: result.summary.totalTrades,
+        asOf: result.summary.lastSimulatedDate,
       }
     : live
       ? {
@@ -203,6 +299,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           holdings: live.holdings,
           metrics: liveMetrics(live),
           tradeCount: live.tradeCount,
+          asOf: live.simulatedThrough,
         }
       : null;
   if (arrived) {
@@ -252,6 +349,15 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           <ConfigurationFacts configuration={configuration} />
         </section>
 
+        {terminal && milestones.length > 0 ? (
+          <section
+            className={styles.milestoneCard}
+            data-testid="backtest-milestones-summary"
+            aria-label="Simulated years"
+          >
+            <BacktestMilestoneTrail milestones={milestones} />
+          </section>
+        ) : null}
         {terminal ? null : (
           <section
             className={styles.progressCard}
@@ -297,6 +403,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 {formatCount(live.totalDays)}
               </p>
             ) : null}
+            <BacktestMilestoneTrail milestones={milestones} />
           </section>
         )}
 
@@ -306,13 +413,41 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             role="alert"
             data-testid="backtest-failure"
           >
-            <h2 className={styles.failureTitle}>
-              This backtest could not finish
-            </h2>
+            <h2 className={styles.failureTitle}>Backtest failed</h2>
             <p className={styles.failureBody}>
               {failure?.message ??
                 "The run stopped before it produced a result."}
             </p>
+            {/* Enough to act on, and enough to report: which phase failed, the stable code, and
+                the run's own id. Nothing here is internal — provider detail and stack traces stay
+                on the server. */}
+            <dl
+              className={styles.failureFacts}
+              data-testid="backtest-failure-facts"
+            >
+              {failure?.phase ? (
+                <div className={styles.failureFact}>
+                  <dt>Phase</dt>
+                  <dd data-testid="backtest-failure-phase">
+                    {BACKTEST_FAILURE_PHASE_LABELS[failure.phase]}
+                  </dd>
+                </div>
+              ) : null}
+              {failure?.code ? (
+                <div className={styles.failureFact}>
+                  <dt>Failure code</dt>
+                  <dd data-testid="backtest-failure-code">
+                    <code>{failure.code}</code>
+                  </dd>
+                </div>
+              ) : null}
+              <div className={styles.failureFact}>
+                <dt>Run ID</dt>
+                <dd>
+                  <RunIdentifier runId={runId} />
+                </dd>
+              </div>
+            </dl>
             <Link className={styles.primaryLink} href="/backtests/new">
               Start a new backtest
             </Link>
@@ -337,6 +472,8 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 points={curve}
                 benchmarkName={configuration.benchmark.name}
                 ariaLabel={`Portfolio growth against ${configuration.benchmark.name}`}
+                periodStart={configuration.startDate}
+                periodEnd={configuration.endDate}
               />
             ) : (
               <p
@@ -362,6 +499,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         <div className={styles.columns}>
           <BacktestHoldings
             holdings={snapshot?.holdings ?? []}
+            {...(snapshot ? { asOf: snapshot.asOf } : {})}
             title={completed ? "Final holdings" : "Holdings"}
             emptyMessage={
               completed

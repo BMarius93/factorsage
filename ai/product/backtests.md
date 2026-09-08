@@ -9,7 +9,8 @@ A submitted run selects:
 
 - one immutable strategy version;
 - one stock list resolved to canonical security identities and per-symbol BUY windows;
-- requested historical period;
+- requested historical period, up to 30 years — the **MAX** control on the form asks for exactly
+  that horizon back from today, using the same calendar arithmetic the API validates with;
 - initial capital;
 - optional monthly contribution;
 - `maximumPositions`;
@@ -77,6 +78,35 @@ Portfolio and benchmark are reported as percentage growth from the run's first s
 two curves are directly comparable, and `alpha` is their difference. A date on which the benchmark
 has no value at or before it reports no benchmark value; a gap is never fabricated.
 
+The benchmark also supplies the run's date axis. A portfolio exists from the first day of the
+requested period even while it holds nothing but cash, so a run whose securities all list later than
+its start still simulates from the start — flat at 0% until the first position is opened. See
+`../architecture/backtest-execution.md`.
+
+## Securities whose history does not span the run
+
+A stock list is a list of securities, not a guarantee that each one traded across the whole period.
+
+- **A security that listed after the run's start** simply has no rows before its first close. Every
+  predicate is `NOT_EVALUABLE` there, so nothing can be bought before the data exists. It becomes
+  tradeable on its own first eligible date and no earlier — the no-lookahead rule, not a special
+  case.
+- **A security whose history ends before the run's end** stops producing prices. An open position in
+  it is carried at its most recent real close for the rest of the run: the last price that was
+  actually quoted, never a mark that was never observed. The holdings panel shows that close's date
+  whenever it is earlier than the run's own last simulated date, so a stale valuation is visible
+  rather than silent.
+
+**Open methodology question — delisting is not modelled.** FactorSage cannot currently tell a
+delisting from a data gap point-in-time. The provider's profile carries a listing date and a
+_current_ `isActivelyTrading` flag, but no delisting date; reading today's flag inside a historical
+simulation would be look-ahead. So V1 neither liquidates a position at a delisting price nor writes
+it down: it carries the last observed close, which is a knowable number, and makes the staleness
+visible. Modelling delisting properly needs a point-in-time delisting date and a decided treatment
+(final proceeds, write-down, or exclusion). Until both exist, there is no delisting rule to follow —
+the behaviour above is what a run does, and it is pinned by tests rather than presented as a
+financial decision.
+
 ## Reproducibility
 
 A submitted run must snapshot every input that can affect results, including at least:
@@ -100,11 +130,22 @@ simulates it persists a live snapshot every few simulated trading days: the simu
 the portfolio and benchmark curves so far, current value, cash, returns, alpha, max drawdown,
 holdings, trade count and recent trades.
 
-The running page shows that curve as it grows and transitions to the completed view in place. 100%
+Alongside that replaceable snapshot, a run records one durable **milestone** per calendar year it
+finishes: the year, the date it was simulated through, and that year's scalar state. Milestones are
+append-only and never carry a curve, so a thirty-year run adds thirty small rows rather than thirty
+copies of a daily series. They are what makes long-run progress legible — the page shows the years
+already behind the run, and keeps showing them after it finishes.
+
+The running page shows the curve as it grows and transitions to the completed view in place. Its
+horizontal axis is the **requested period**, fixed from the first render: the not-yet-simulated part
+of a run is empty rather than the chart reframing itself around whatever has been computed. 100%
 means successfully completed and nothing else.
 
-A failed run is terminal, keeps a reason a user can act on, and never leaks provider or internal
-detail.
+A failed run is terminal and never leaks provider or internal detail. It keeps a reason a user can
+act on, and shows the phase it failed in, a stable failure code and its own run id, so a user can
+report it precisely. Developer diagnostics — the original error, its stack, and the identifiers of
+the worker and attempt that produced it — stay in the run's server-side detail and in the worker's
+logs; they never cross the HTTP boundary.
 
 V1 has no cancellation; the reasoning is recorded in `../architecture/backtest-execution.md`.
 

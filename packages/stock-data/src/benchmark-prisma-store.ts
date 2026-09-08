@@ -40,6 +40,19 @@ type DecimalLike = { toNumber(): number };
  * What it does not mirror is the surface: there is no profile, no fundamentals and no derived
  * state to persist for a comparison series.
  */
+/**
+ * How long the benchmark's bulk write may hold its transaction.
+ *
+ * The same budget, and the same reason, as `PrismaStockDataStore`: a benchmark's first hydration
+ * over a thirty-year backtest period writes roughly 7,500 daily rows in one transaction, which
+ * passes Prisma's five-second interactive-transaction default and expires with P2028 after the work
+ * is already done. A seeded QA benchmark writes a few hundred rows and never reveals it.
+ */
+const BULK_WRITE_TRANSACTION_OPTIONS = {
+  timeout: 120_000,
+  maxWait: 30_000,
+} as const;
+
 export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -217,7 +230,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
       // The lease is asserted immediately before the transaction commits: a worker that lost its
       // hydration lock must not land a write recorded as complete coverage.
       input.assertOwned?.();
-    });
+    }, BULK_WRITE_TRANSACTION_OPTIONS);
   }
 
   private async advanceState(

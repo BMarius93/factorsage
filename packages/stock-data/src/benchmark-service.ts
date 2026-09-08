@@ -14,6 +14,7 @@ import {
   type BenchmarkDataStore,
 } from "./benchmark-ports.js";
 import type { LoadCoordinator } from "./coordination.js";
+import type { ProviderRequestEvent } from "./service.js";
 import {
   addDays,
   assertDateRange,
@@ -35,6 +36,8 @@ export type CanonicalBenchmarkDataServiceOptions = {
   recentPriceFreshnessMs?: number;
   recentTailCalendarDays?: number;
   now?: () => Date;
+  /** Called before each provider request, with the reason. See `CanonicalStockDataServiceOptions`. */
+  onProviderRequest?: (event: ProviderRequestEvent) => void;
 };
 
 /**
@@ -55,6 +58,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   private readonly recentPriceFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
+  private readonly onProviderRequest: (event: ProviderRequestEvent) => void;
 
   constructor(
     private readonly store: BenchmarkDataStore,
@@ -68,6 +72,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
     this.now = options.now ?? (() => new Date());
+    this.onProviderRequest = options.onProviderRequest ?? (() => {});
   }
 
   async listBenchmarks(): Promise<Benchmark[]> {
@@ -158,6 +163,18 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
 
     const syncedAt = this.now().toISOString();
     for (const range of ranges) {
+      this.onProviderRequest({
+        symbol: benchmark.providerSymbol,
+        securityId: benchmark.id,
+        dataset: "DAILY_PRICE",
+        reason:
+          tail !== null && range === tail
+            ? "RECENT_TAIL_STALE"
+            : "MISSING_COVERAGE",
+        from: range.from,
+        to: range.to,
+        detail: `benchmark:${benchmark.code}`,
+      });
       const prices = await this.provider.getBenchmarkDailyPrices(
         benchmark.providerSymbol,
         benchmark.id,

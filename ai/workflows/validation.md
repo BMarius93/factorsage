@@ -188,6 +188,16 @@ benchmark history and its coverage/freshness watermarks. Both the QA security's 
 watermarks carry the seed's own timestamp, so run the seed shortly before the suite; otherwise the
 loader treats the tail as stale and reaches for the provider.
 
+> **The benchmark seed overwrites the real `SP500` row.** Unlike the QA securities, which are
+> synthetic symbols nobody trades, the benchmark seed writes about three years of deterministic
+> history into the one product benchmark and — following the same convention as the QA stock seed —
+> records coverage for the whole retention horizon so the loader never reaches for the provider.
+> That is what makes the E2E suite deterministic, and it also means a **manual** backtest run on a
+> seeded machine compares against seeded data: a thirty-year run shows a benchmark line covering
+> only the seeded window, because the loader has been told everything older is already materialized.
+> To get real SPY history back, clear the benchmark's rows, coverage and dataset state and let a run
+> re-hydrate it from the provider.
+
 ```bash
 pnpm infra:up
 pnpm test:users:seed && pnpm test:securities:seed

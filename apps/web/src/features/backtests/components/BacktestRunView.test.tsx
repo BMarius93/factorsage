@@ -1,6 +1,7 @@
 import {
   BACKTEST_PENDING_POLL_INTERVAL_MS,
   BACKTEST_RUNNING_POLL_INTERVAL_MS,
+  type BacktestHoldingResponse,
 } from "@intrinsic/contracts";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +11,7 @@ import {
   testCurve,
   testDetail,
   testLive,
+  testMilestones,
   testProgress,
   testResult,
 } from "../utils/backtest.test-helper";
@@ -29,7 +31,7 @@ vi.mock("lightweight-charts", () => ({
       applyOptions: vi.fn(),
       createPriceLine: vi.fn(),
     })),
-    timeScale: vi.fn(() => ({ fitContent: vi.fn() })),
+    timeScale: vi.fn(() => ({ fitContent: vi.fn(), setVisibleRange: vi.fn() })),
     applyOptions: vi.fn(),
     subscribeCrosshairMove: vi.fn(),
     unsubscribeCrosshairMove: vi.fn(),
@@ -202,7 +204,10 @@ describe("BacktestRunView", () => {
         percent: 34,
         failure: {
           code: "DATA_UNAVAILABLE",
-          message: "Price history is unavailable for part of this period.",
+          phase: "PREPARING_DATA",
+          message:
+            "Price history is unavailable for part of this period. " +
+            "No market data was found for ZZZZ.",
         },
       }),
     );
@@ -215,6 +220,17 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("backtest-failure").textContent).toContain(
       "Price history is unavailable for part of this period.",
     );
+    // Actionable without being internal: which stock, which phase, which code, which run.
+    expect(screen.getByTestId("backtest-failure").textContent).toContain(
+      "No market data was found for ZZZZ.",
+    );
+    expect(screen.getByTestId("backtest-failure-phase").textContent).toBe(
+      "Preparing data",
+    );
+    expect(screen.getByTestId("backtest-failure-code").textContent).toBe(
+      "DATA_UNAVAILABLE",
+    );
+    expect(screen.getByTestId("backtest-run-id").textContent).toBe("run-1");
     expect(screen.getByTestId("backtest-status").textContent).toContain(
       "Failed",
     );
@@ -223,6 +239,113 @@ describe("BacktestRunView", () => {
       "This run produced no comparison curve.",
     );
     expect(screen.queryByTestId("backtest-progress")).toBeNull();
+  });
+
+  it("omits the phase row when the failure has no user-facing phase", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
+    fetchProgressMock.mockResolvedValue(
+      testProgress("FAILED", 3, {
+        percent: 0,
+        failure: {
+          code: "ABANDONED",
+          phase: null,
+          message: "The run was abandoned after repeated failures.",
+        },
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    await flush();
+
+    expect(screen.queryByTestId("backtest-failure-phase")).toBeNull();
+    expect(screen.getByTestId("backtest-failure-code").textContent).toBe(
+      "ABANDONED",
+    );
+    expect(screen.getByTestId("backtest-run-id").textContent).toBe("run-1");
+  });
+
+  it("shows the years a run has finished, and keeps them after it ends", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("RUNNING"));
+    fetchProgressMock.mockResolvedValue(
+      testProgress("RUNNING", 4, {
+        percent: 40,
+        live: testLive(),
+        milestones: testMilestones(["1996", "1997", "1998"]),
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    await flush();
+
+    const years = screen.getByTestId("backtest-milestone-years");
+    expect(years.getAttribute("data-milestone-count")).toBe("3");
+    expect(
+      [...years.querySelectorAll("[data-year]")].map((node) =>
+        node.getAttribute("data-year"),
+      ),
+    ).toEqual(["1996", "1997", "1998"]);
+    expect(screen.getByTestId("backtest-milestones").textContent).toContain(
+      "3 simulated years",
+    );
+
+    // A finished run keeps its progression: the trail is what the run went through, not a
+    // transient loading affordance.
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: testResult(),
+        milestones: testMilestones(["1996", "1997", "1998", "1999"]),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(
+      testProgress("COMPLETED", 5, {
+        percent: 100,
+        milestones: testMilestones(["1996", "1997", "1998", "1999"]),
+      }),
+    );
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    await flush();
+
+    expect(
+      screen
+        .getByTestId("backtest-milestone-years")
+        .getAttribute("data-milestone-count"),
+    ).toBe("4");
+  });
+
+  it("says when a holding is carried at a price older than the run's last day", async () => {
+    const result = testResult();
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: {
+          ...result,
+          holdings: [
+            {
+              ...(result.holdings[0] as BacktestHoldingResponse),
+              symbol: "GONE",
+              lastPriceDate: "2023-04-11",
+            },
+            {
+              ...(result.holdings[0] as BacktestHoldingResponse),
+              symbol: "LIVE",
+              lastPriceDate: result.summary.lastSimulatedDate,
+            },
+          ],
+        },
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    expect(
+      screen.getByTestId("backtest-holding-stale-GONE").textContent,
+    ).toContain("2023-04-11");
+    expect(screen.queryByTestId("backtest-holding-stale-LIVE")).toBeNull();
   });
 
   it("treats a run it cannot see as missing rather than broken", async () => {

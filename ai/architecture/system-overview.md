@@ -51,6 +51,19 @@ provider-wide Redis gate separately limits concurrent/rate traffic and shares 42
 across processes. Recent mutable EOD data is refreshed as a bounded tail without rebuilding closed
 historical years.
 
+**What a repeated read costs.** PostgreSQL, not Redis, is the authority for coverage: an identical
+second read over an already-materialized range makes **zero** provider requests, and so does the
+same read after a full Redis flush — the cache is rebuilt from PostgreSQL. The only provider traffic
+a warm range can still produce is the bounded recent tail, once its freshness window has expired,
+and a widened range's genuinely missing prefix or suffix. `provider-reuse.integration.test.ts` pins
+all of that against a counting provider, benchmarks included.
+
+Every historical provider request explains itself. `CanonicalStockDataService` and
+`CanonicalBenchmarkDataService` take an `onProviderRequest` hook, and the API and worker wire it to
+a `stock-data.provider.request` debug log carrying the symbol, dataset, requested range and a
+`reason` — `PROFILE_SYNC`, `MISSING_COVERAGE`, `RECENT_TAIL_STALE` or `FUNDAMENTALS_BACKFILL`. "Why
+is it calling FMP again?" is a question the logs answer directly.
+
 ## Main boundary
 
 ```text

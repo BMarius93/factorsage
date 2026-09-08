@@ -59,6 +59,7 @@ function toHolding(
     shares: holding.shares,
     averageCost: holding.averageCost,
     lastPrice: holding.lastPrice,
+    lastPriceDate: holding.lastPriceDate,
     marketValue: holding.marketValue,
     unrealizedPnlPercent: holding.unrealizedPnlPercent,
     allocationPercent: holding.allocationPercent,

@@ -3,23 +3,37 @@ import type { EvaluationFrame } from "../frame.js";
 
 /**
  * The portfolio's date axis: the ascending union of the eligible trading dates of every security in
- * the run, restricted to the requested period.
+ * the run **and of the benchmark**, restricted to the requested period.
  *
- * There is no trading-calendar table and each security has its own eligible dates, so the union is
- * what makes a portfolio-level loop possible. The intersection would silently drop dates, and
- * adopting the benchmark's calendar would add a data dependency and a product decision.
+ * There is no trading-calendar table and each security has its own eligible dates, so a union is
+ * what makes a portfolio-level loop possible; an intersection would silently drop dates.
  *
- * Two rules keep it honest, and both live in the day loop rather than here:
- * - predicates are never carried forward — a security with no row on a union date takes no action;
- * - valuation *is* carried forward — a held position is valued at its most recent close at or
- *   before the date, which is the only point-in-time-correct value available.
+ * The benchmark's dates are included because a portfolio exists from the moment the run starts,
+ * even while it holds nothing but cash. A run whose securities all list years after its start
+ * would otherwise simply not exist until the first of them began trading — its curve would appear
+ * to start at the first BUY rather than at 0% from the beginning of the period. The benchmark is
+ * the market's own calendar and is already loaded for exactly this period, so using it costs
+ * nothing and invents nothing: on a benchmark-only date no security has a row, so
+ *
+ * - every predicate is NOT_EVALUABLE and no action is taken — the existing rule, unchanged;
+ * - a held position is valued at its most recent close at or before the date — also unchanged;
+ * - the portfolio still has a real, knowable value, because cash is real.
+ *
+ * When the benchmark has no data of its own the axis is exactly what it was before: the securities'
+ * union. Nothing is fabricated in either case.
  */
 export function buildUnionCalendar(
   frames: readonly EvaluationFrame[],
   startDate: LocalDate,
   endDate: LocalDate,
+  benchmarkDates: readonly LocalDate[] = [],
 ): LocalDate[] {
   const dates = new Set<LocalDate>();
+  const add = (candidate: LocalDate): void => {
+    if (candidate >= startDate && candidate <= endDate) {
+      dates.add(candidate);
+    }
+  };
   for (const frame of frames) {
     for (
       let index = frame.periodStartIndex;
@@ -27,14 +41,14 @@ export function buildUnionCalendar(
       index += 1
     ) {
       const date = frame.dates[index] as LocalDate;
-      if (date < startDate) {
-        continue;
-      }
       if (date > endDate) {
         break;
       }
-      dates.add(date);
+      add(date);
     }
+  }
+  for (const date of benchmarkDates) {
+    add(date);
   }
   return [...dates].sort();
 }
