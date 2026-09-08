@@ -335,6 +335,78 @@ describe("engine methodology compatibility", () => {
     expect(repository.failures[0]?.message).not.toContain("priceDataset");
   });
 
+  it.each(FIELDS)("refuses a run that recorded no %s at all", async (field) => {
+    // The inverse deploy order: an *older* API queued a run before this field was a decision,
+    // so nothing establishes it was made the same way. Silence is not agreement.
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const methodology: Record<string, unknown> = { ...BACKTEST_METHODOLOGY };
+    delete methodology[field];
+
+    await processor.process(claimOf(snapshotDocument({ methodology })), lease);
+
+    expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+    expect(benchmarks.requested).toEqual([]);
+  });
+
+  it.each(DATA_FIELDS)(
+    "refuses a run that recorded no %s revision at all",
+    async (field) => {
+      const benchmarks = new RecordingBenchmarks();
+      const { processor, repository } = processorWith(benchmarks);
+      const dataRevisions: Record<string, unknown> = {
+        ...BACKTEST_DATA_REVISIONS,
+      };
+      delete dataRevisions[field];
+
+      await processor.process(
+        claimOf(snapshotDocument({ dataRevisions })),
+        lease,
+      );
+
+      expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+      expect(benchmarks.requested).toEqual([]);
+    },
+  );
+
+  it("refuses a run naming a methodology field this build has never heard of", async () => {
+    // The rolling-deploy race from the other direction: a newer API writes a decision an older
+    // worker cannot implement. Comparing only the keys this build knows would find nothing wrong.
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const fromTheFuture = snapshotDocument({
+      methodology: { ...BACKTEST_METHODOLOGY, borrowCost: "margin-rates@1" },
+    });
+
+    await processor.process(claimOf(fromTheFuture), lease);
+
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+    expect(benchmarks.requested).toEqual([]);
+    const detail = JSON.stringify(repository.failures[0]?.detail);
+    expect(detail).toContain("methodology.borrowCost");
+    expect(detail).toContain("<unsupported>");
+  });
+
+  it("refuses a run naming a data revision this build has never heard of", async () => {
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const fromTheFuture = snapshotDocument({
+      dataRevisions: {
+        ...BACKTEST_DATA_REVISIONS,
+        corporateActionsRevision: 1,
+      },
+    });
+
+    await processor.process(claimOf(fromTheFuture), lease);
+
+    expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+    expect(benchmarks.requested).toEqual([]);
+    expect(JSON.stringify(repository.failures[0]?.detail)).toContain(
+      "dataRevisions.corporateActionsRevision",
+    );
+  });
+
   it("refuses a run that recorded no methodology at all", async () => {
     const benchmarks = new RecordingBenchmarks();
     const { processor, repository } = processorWith(benchmarks);

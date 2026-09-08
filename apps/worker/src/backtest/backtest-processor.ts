@@ -286,7 +286,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const described = mismatches.map(
       (mismatch) =>
         `${mismatch.field}: snapshot=${mismatch.actual ?? "<absent>"} ` +
-        `worker=${mismatch.expected}`,
+        `worker=${mismatch.expected ?? "<unsupported>"}`,
     );
     this.dependencies.logger.error({
       event: "backtest.runtime.unsupported",

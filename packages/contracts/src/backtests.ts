@@ -509,16 +509,24 @@ export type BacktestSnapshotSecurity = {
 /** One recorded revision a build cannot honour. */
 export type BacktestRevisionMismatch = {
   field: string;
-  expected: string;
+  /** What this build implements, or null when it does not know the field at all. */
+  expected: string | null;
+  /** What the run recorded, or null when it recorded nothing usable. */
   actual: string | null;
 };
 
 /**
- * Every field of a recorded revision set that differs from what a build supports.
+ * Every difference between a recorded revision set and what a build supports, in **both**
+ * directions.
  *
- * The snapshot records what a run was submitted under; this is what a worker uses to decide it
- * must not execute that run. A missing field counts as a mismatch — it means the queueing build
- * did not record that decision at all, so nothing establishes it made the same one.
+ * The obvious half is a value this build disagrees with, or one the run never recorded. The other
+ * half is the one that bites during a rolling deploy: a *newer* API writes a snapshot naming a
+ * revision an *older* worker has never heard of. Comparing only the keys this build knows would
+ * find nothing wrong, and the old worker would execute a run governed by a decision it cannot
+ * implement — the same reproducibility failure, arriving from the opposite direction.
+ *
+ * `BACKTEST_SNAPSHOT_VERSION` does not cover this: adding a methodology field does not bump it, and
+ * in practice several have been added without one. So the key sets must match exactly.
  *
  * Lives here rather than in the engine because it is about the shape of the snapshot, and because
  * both the execution methodology (`@intrinsic/strategy`) and the data revisions
@@ -534,6 +542,11 @@ export function revisionMismatches(
     !Array.isArray(recorded)
       ? (recorded as Record<string, unknown>)
       : {};
+  const scalar = (value: unknown): string | null =>
+    typeof value === "string" || typeof value === "number"
+      ? String(value)
+      : null;
+
   const mismatches: BacktestRevisionMismatch[] = [];
   for (const [field, expected] of Object.entries(supported)) {
     const actual = document[field];
@@ -541,10 +554,19 @@ export function revisionMismatches(
       mismatches.push({
         field,
         expected: String(expected),
-        actual:
-          typeof actual === "string" || typeof actual === "number"
-            ? String(actual)
-            : null,
+        actual: scalar(actual),
+      });
+    }
+  }
+  for (const field of Object.keys(document)) {
+    // `hasOwn`, not `in`: a snapshot key that happens to name something on `Object.prototype`
+    // (`constructor`, `__proto__`) would otherwise look supported and slip through unchecked.
+    if (!Object.prototype.hasOwnProperty.call(supported, field)) {
+      // Recorded by a build that knew something this one does not.
+      mismatches.push({
+        field,
+        expected: null,
+        actual: scalar(document[field]),
       });
     }
   }
