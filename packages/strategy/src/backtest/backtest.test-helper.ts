@@ -195,7 +195,10 @@ export function executionInput(
   const sorted = [...new Set(dates)].sort();
   return {
     benchmark: null,
-    executionCalendar: [],
+    // The securities' own dates, so a focused test that does not care about the calendar behaves
+    // exactly as it did before the calendar became a separate required input. A test that *is*
+    // about the calendar passes its own.
+    executionCalendar: sorted,
     startDate: input.startDate ?? (sorted[0] as LocalDate),
     endDate: input.endDate ?? (sorted[sorted.length - 1] as LocalDate),
     initialCapital: input.initialCapital ?? 100_000,

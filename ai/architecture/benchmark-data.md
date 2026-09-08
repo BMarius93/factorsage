@@ -56,9 +56,13 @@ trades and an identical portfolio return.
 The engine names its own reference series for this — `EXECUTION_CALENDAR_REFERENCE_CODE` — and a run
 pins that series version too, in `snapshot.executionCalendar`. It is the same code the product also
 offers as a comparison today, which costs nothing: one hydration serves both roles, and the
-separation lives in the code and the snapshot rather than in duplicated bytes. When the reference
-has no data over the period, the engine falls back to the securities' own union — a narrower axis,
-never a fabricated one.
+separation lives in the code and the snapshot rather than in duplicated bytes.
+
+The pin is **required**: `BacktestRun.executionCalendarSeriesId` is `NOT NULL` behind an
+`onDelete: Restrict` foreign key, a submission that cannot resolve the reference is refused with
+`503`, and an attempt that cannot read the pinned series fails with
+`EXECUTION_CALENDAR_UNAVAILABLE`. The comparison benchmark may still degrade to a null comparison,
+because it changes nothing about the portfolio; the calendar may not.
 
 `packages/strategy/src/backtest/simulate.test.ts` proves the independence against a benchmark that
 trades on days the market did not.

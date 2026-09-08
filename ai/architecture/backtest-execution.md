@@ -84,12 +84,16 @@ point-in-time-correct value available.
 
 The benchmark is in the union because a portfolio exists from the first day of the requested period
 even while it holds nothing but cash. Without it, a run whose securities all list after its start
-would not exist until the first of them began trading, and its curve would appear to start at the
-first BUY rather than flat at 0% from the beginning. The benchmark is the market's own calendar for
-exactly this period and is loaded anyway, so it costs nothing and invents nothing: on a
-benchmark-only date no security has a row, so every predicate is `NOT_EVALUABLE`, valuation carries
-forward, and the portfolio still has a real value because cash is real. A run whose benchmark has no
-data of its own falls back to the securities' union unchanged.
+would not exist until the first of them began trading, its curve would appear to start at the first
+BUY rather than flat at 0% from the beginning, and every contribution before that date would be
+skipped. On an execution-calendar-only date no security has a row, so every predicate is
+`NOT_EVALUABLE`, valuation carries forward, and the portfolio still has a real value because cash is
+real.
+
+**The engine rejects an empty execution calendar.** `simulateBacktest` throws rather than quietly
+simulating the securities' union, because that is a different methodology, and the worker fails the
+attempt before it hydrates a single security. There is no path that silently substitutes one axis
+for another.
 
 This is versioned methodology rather than an implementation detail because it decides which date is
 "the first simulated date of a month" — and therefore when a contribution lands — and which date the

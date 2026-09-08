@@ -73,6 +73,20 @@ export class BacktestConfigurationError extends Error {
   }
 }
 
+/**
+ * The system cannot accept backtests right now, and the submission is not why.
+ *
+ * Separate from `BacktestConfigurationError` because a 400 would tell the user to fix something
+ * they did not do wrong: a missing engine-designated execution-calendar series is a deployment
+ * state, and the honest answer is that the service is unavailable, not that the request is invalid.
+ */
+export class BacktestUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BacktestUnavailableError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Row shapes
 // ---------------------------------------------------------------------------
@@ -691,12 +705,21 @@ export class BacktestsService {
 
     // The execution calendar's source is the engine's, not the user's. Resolved once here and
     // pinned, so the run keeps simulating the same dates however the catalog moves afterwards.
+    //
+    // Required, and therefore a refusal rather than a degradation: the calendar is part of the
+    // methodology the snapshot records, so a run that cannot pin it would have to be executed under
+    // a methodology it never recorded. Better to not create it.
     const executionCalendarSeries = (
       await this.prisma.benchmark.findFirst({
         where: { code: EXECUTION_CALENDAR_REFERENCE_CODE },
         include: { series: { orderBy: { version: "desc" }, take: 1 } },
       })
     )?.series[0];
+    if (!executionCalendarSeries) {
+      throw new BacktestUnavailableError(
+        "Backtests are temporarily unavailable: the market calendar they run on is not registered.",
+      );
+    }
 
     // Sorted by symbol so two submissions of the same list produce byte-identical documents, which
     // is what makes `snapshotHash` a usable identity for "these are the same inputs".
@@ -767,11 +790,10 @@ export class BacktestsService {
       executionCalendar: {
         // The dates this run simulates come from a series the *engine* names, never from the
         // comparison above: two runs differing only in what they are compared against must
-        // execute identically. Null when the reference has not been reconciled, in which case the
-        // engine falls back to the securities' own union.
+        // execute identically.
         referenceCode: EXECUTION_CALENDAR_REFERENCE_CODE,
-        seriesId: executionCalendarSeries?.id ?? null,
-        seriesVersion: executionCalendarSeries?.version ?? null,
+        seriesId: executionCalendarSeries.id,
+        seriesVersion: executionCalendarSeries.version,
       },
       methodology: { ...BACKTEST_METHODOLOGY },
       dataRevisions: {
@@ -797,9 +819,7 @@ export class BacktestsService {
         stockListId: stockList.id,
         benchmarkId: benchmark.id,
         benchmarkSeriesId: benchmarkSeries.id,
-        ...(executionCalendarSeries
-          ? { executionCalendarSeriesId: executionCalendarSeries.id }
-          : {}),
+        executionCalendarSeriesId: executionCalendarSeries.id,
         status: "QUEUED",
         startDate: toDatabaseDate(input.startDate),
         endDate: toDatabaseDate(input.endDate),

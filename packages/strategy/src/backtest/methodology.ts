@@ -92,8 +92,10 @@ export const CALENDAR_METHODOLOGY_VERSION =
  * in other words — not a table of holiday rules, which would have to invent the days it could not
  * derive, and not the user's comparison benchmark, which must never influence execution.
  *
- * When the reference series has no data over the period the calendar falls back to the securities'
- * own union: a smaller axis, never a fabricated one.
+ * Required, and pinned per run. A submission that cannot resolve the reference is refused, and an
+ * attempt that cannot read the pinned series fails: simulating the securities' own union instead
+ * would execute a different methodology than the one the run recorded, chosen by whether an
+ * auxiliary series happened to load.
  */
 export const EXECUTION_CALENDAR_METHODOLOGY_VERSION =
   "us-equities/reference-series@1" as const;

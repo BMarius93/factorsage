@@ -13,6 +13,7 @@ import {
   HttpStatus,
   Inject,
   NotFoundException,
+  ServiceUnavailableException,
   Param,
   Post,
   UseGuards,
@@ -27,6 +28,7 @@ import {
   BacktestConfigurationError,
   BacktestRunNotFoundError,
   BacktestsService,
+  BacktestUnavailableError,
 } from "./backtests.service";
 
 /**
@@ -101,6 +103,11 @@ export class BacktestsController {
       }
       if (error instanceof BacktestConfigurationError) {
         throw backtestInvalid(error.message);
+      }
+      if (error instanceof BacktestUnavailableError) {
+        // Not the caller's fault, so not a 400: the run cannot be created under the methodology it
+        // would have to record, and retrying the same request later is the right response.
+        throw new ServiceUnavailableException(error.message);
       }
       throw error;
     }

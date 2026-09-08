@@ -97,6 +97,7 @@ describe("backtest job claiming", () => {
         userId,
         benchmarkId,
         benchmarkSeriesId,
+        executionCalendarSeriesId: benchmarkSeriesId,
         status: options.runStatus ?? BacktestRunStatus.QUEUED,
         startDate: new Date("2015-01-01T00:00:00.000Z"),
         endDate: new Date("2016-01-01T00:00:00.000Z"),

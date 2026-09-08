@@ -176,21 +176,24 @@ export async function seedQaStockData(
   }
 
   const syncedAt = new Date().toISOString();
-  // The horizon the loader would clamp a read to. It bounds the derived-series warm-up below; it is
-  // deliberately **not** what this seed claims to have covered.
-  //
-  // The same year arithmetic the loader and the Stock Details bound use (29 February clamps to
-  // 28 February).
+  // The horizon the loader clamps a read to, and what this fixture claims to have covered — see
+  // `saveDailyPriceSync` below. The same year arithmetic the loader and the Stock Details bound
+  // use, so 29 February clamps to 28 February.
   const horizonStart = subtractYears(today, historyYears);
 
   await store.saveDailyPriceSync({
     securityId,
     prices,
-    // Exactly the interval the fixture generated over. A coverage interval is the durable claim
-    // that asking again is pointless; claiming the whole horizon while writing three years of it
-    // would make every earlier date permanently unfetchable and would be the same untruth in the
-    // ledger whether the symbol is synthetic or real.
-    successfulCoverage: [{ from: first.date, to: today }],
+    // The whole horizon, and that claim is **true here**: `QATEST1` is a fictional security whose
+    // only provider is this fixture, so the fixture is the authority on what exists before its
+    // first row — nothing. Recording the horizon is what lets Stock Details report a `PROVIDER`
+    // boundary, which is the property its navigation suites assert.
+    //
+    // The benchmark seed deliberately does *not* do this. `SP500` is backed by a real symbol with
+    // real history further back, so claiming the horizon there would be a lie that permanently
+    // blocked fetching it. The difference is not "seed versus provider"; it is whether the claim
+    // happens to be true.
+    successfulCoverage: [{ from: horizonStart, to: today }],
     syncedAt,
     tailDate: today,
     freshThrough: today,
@@ -223,8 +226,9 @@ export async function seedQaStockData(
     securityId,
     rows,
     weeklyPrices: weeklyBars,
-    // Derived state exists exactly where prices do, so its coverage says the same thing.
-    successfulCoverage: { from: first.date, to: today },
+    // Derived state is computed from the prices above and over the same interval, so it makes the
+    // same claim for the same reason.
+    successfulCoverage: { from: horizonStart, to: today },
     syncedAt,
   });
 

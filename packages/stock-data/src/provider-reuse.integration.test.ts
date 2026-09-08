@@ -80,7 +80,7 @@ class CountingBenchmarkProvider implements FmpBenchmarkProviderPort {
 
   async getBenchmarkDailyPrices(
     providerSymbol: string,
-    benchmarkId: string,
+    seriesId: string,
     range: DateRange,
   ) {
     this.requests.push({
@@ -90,7 +90,7 @@ class CountingBenchmarkProvider implements FmpBenchmarkProviderPort {
     });
     return this.rows
       .filter((row) => row.date >= range.from! && row.date <= range.to!)
-      .map((row) => ({ ...row, benchmarkId }));
+      .map((row) => ({ ...row, seriesId }));
   }
 }
 
@@ -240,7 +240,9 @@ describeReuse("provider reuse across repeated reads", () => {
   afterAll(async () => {
     await clearRedis();
     redis.disconnect();
-    await prisma.benchmark.deleteMany({ where: { id: benchmark.series.id } });
+    // The product row, not its series: deleting by the series id matched nothing and left a
+    // fixture benchmark behind on every run.
+    await prisma.benchmark.deleteMany({ where: { id: benchmark.id } });
     await prisma.security.deleteMany({
       where: { id: { in: securities.map((security) => security.id) } },
     });

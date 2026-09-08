@@ -52,6 +52,20 @@ export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
 
   const benchmark = record(document.benchmark, "snapshot.benchmark");
   nonEmptyString(benchmark.code, "snapshot.benchmark.code");
+  nonEmptyString(benchmark.seriesId, "snapshot.benchmark.seriesId");
+
+  // Required, and checked here rather than discovered halfway through preparation: the calendar
+  // decides which dates are simulated, so a snapshot without it cannot be executed under the
+  // methodology it records. Failing at the parse is what makes that a deterministic refusal
+  // instead of a silently different run.
+  const executionCalendar = record(
+    document.executionCalendar,
+    "snapshot.executionCalendar",
+  );
+  nonEmptyString(
+    executionCalendar.seriesId,
+    "snapshot.executionCalendar.seriesId",
+  );
 
   if (!Array.isArray(document.securities) || document.securities.length === 0) {
     throw new BacktestSnapshotError("snapshot.securities is empty");

@@ -34,13 +34,17 @@ export type BacktestExecutionInput = {
   /**
    * The market's trading days over the run's period, from the engine's own reference series.
    *
-   * This is a **system input, never a user choice**. It is what makes a portfolio exist from the
-   * first day of its period while it still holds nothing but cash, and what keeps a monthly
+   * A **system input, never a user choice, and required**. It is what makes a portfolio exist from
+   * the first day of its period while it still holds nothing but cash, and what keeps a monthly
    * contribution landing in months when none of the run's securities has listed yet.
    *
    * It is deliberately not `benchmark.dates`: the comparison benchmark is passive, and two runs
-   * that differ only in what they are compared against must execute identically. Empty is
-   * allowed — the calendar then falls back to the securities' own union.
+   * that differ only in what they are compared against must execute identically.
+   *
+   * Empty is rejected rather than degraded. Silently simulating the securities' own union instead
+   * would change which dates are a month's first trading day, and through them the result — a
+   * different methodology than the run recorded, chosen by whether an auxiliary series happened to
+   * load.
    */
   executionCalendar: readonly LocalDate[];
   startDate: LocalDate;

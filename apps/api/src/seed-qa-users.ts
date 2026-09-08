@@ -6,12 +6,16 @@ import {
   seedQaUsers,
   type QaPersonaInput,
 } from "./auth/seed-qa-users";
+import { qaSeedDatabaseUrl } from "./stocks/seed-qa-securities";
 
 /**
  * Seeds the persistent QA personas used by Playwright and live API smoke testing.
  *
  * Credentials come only from the environment, so no password ever appears in source control.
  * Refuses to run when NODE_ENV is production.
+ *
+ * Targets **TEST_DATABASE_URL**, the same database the deterministic fixtures and the Playwright
+ * stack use, so the personas exist where the suites look for them.
  */
 async function seed(): Promise<void> {
   loadRootEnv();
@@ -22,7 +26,9 @@ async function seed(): Promise<void> {
     { name: "QA_USER", ...config.user, role: UserRole.USER },
     { name: "QA_ADMIN", ...config.admin, role: UserRole.ADMIN },
   ];
-  const prisma = new PrismaClient();
+  const prisma = new PrismaClient({
+    datasources: { db: { url: qaSeedDatabaseUrl() } },
+  });
 
   try {
     await prisma.$connect();

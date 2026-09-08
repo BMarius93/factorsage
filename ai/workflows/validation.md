@@ -182,28 +182,86 @@ now has its own suite, so `pnpm test` runs it:
 pnpm --filter @intrinsic/worker test
 ```
 
-The Playwright backtest suite drives a **running stack with a running worker**. Beyond the QA
-personas it needs `pnpm test:securities:seed`, which now also seeds the deterministic `SP500`
-benchmark history and its coverage/freshness watermarks. Both the QA security's and the benchmark's
-watermarks carry the seed's own timestamp, so run the seed shortly before the suite; otherwise the
-loader treats the tail as stale and reaches for the provider.
+The Playwright backtest suite drives a **running stack with a running worker**, and that stack must
+point at the **test database**, not at your development one.
 
-> **The benchmark seed writes into the real `SP500` row, and claims only what it wrote.** Unlike the
-> QA securities, which are synthetic symbols nobody trades, the benchmark seed writes about three
-> years of deterministic history into the one product benchmark. Its coverage interval now begins at
-> the first row it generated — never at the retention horizon — so a period reaching further back is
-> still genuinely uncovered and a real read will fetch it. Keep E2E periods inside the seeded window
-> if the suite must stay provider-free, and re-run the seed shortly before the suite so the tail
-> watermark is fresh.
+## Two databases, and which command targets which
+
+`DATABASE_URL` is where you do real work: real FMP history, real `SP500` bars sourced from `SPY`.
+`TEST_DATABASE_URL` is where deterministic fixtures live: fictional securities, and synthetic
+benchmark bars written into the real `SP500` series so an E2E run never reaches a provider.
+
+Those fixtures must never meet your development database. `seedQaBenchmarkData` writes invented
+S&P 500 history, and nothing on a results page distinguishes an invented bar from a real one — a
+manual thirty-year backtest would silently compare against part-real, part-fabricated history. The
+seeds therefore **connect to `TEST_DATABASE_URL` explicitly** and refuse to start when it is unset
+or equal to `DATABASE_URL` (except in CI, where one database is the whole environment).
+
+| Command                                             | Database                   |
+| --------------------------------------------------- | -------------------------- |
+| `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:web`   | `DATABASE_URL` — real data |
+| `pnpm db:migrate:deploy`, `pnpm db:seed`            | `DATABASE_URL`             |
+| `pnpm db:test:prepare`                              | `TEST_DATABASE_URL`        |
+| `pnpm test` (PostgreSQL-backed suites)              | `TEST_DATABASE_URL`        |
+| `pnpm test:users:seed`, `pnpm test:securities:seed` | `TEST_DATABASE_URL`        |
+| `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`           | `TEST_DATABASE_URL`        |
+
+### Normal development, against real market data
 
 ```bash
 pnpm infra:up
+pnpm db:migrate:deploy
+pnpm dev:api        # and, in other shells:
+pnpm dev:worker
+pnpm dev:web
+```
+
+### Deterministic Playwright
+
+The E2E stack replaces the development stack — both bind the same ports, so stop one before
+starting the other. `dev:api:e2e` and `dev:worker:e2e` need `TEST_DATABASE_URL` in the shell, the
+same way `db:test:prepare` does:
+
+```bash
+set -a && . ./.env && set +a      # export TEST_DATABASE_URL for the two e2e stack commands
+pnpm infra:up
+pnpm db:test:prepare
 pnpm test:users:seed && pnpm test:securities:seed
-pnpm dev:api        # and, in another shell:
-pnpm --filter @intrinsic/worker dev
-pnpm --filter @intrinsic/web dev
+pnpm dev:api:e2e    # and, in other shells:
+pnpm dev:worker:e2e
+pnpm dev:web
 pnpm test:e2e
 ```
+
+Both the QA security's and the benchmark's freshness watermarks carry the seed's own timestamp, so
+run the seed shortly before the suite; otherwise the loader treats the tail as stale and reaches for
+the provider.
+
+The two fixtures make deliberately different coverage claims, because only one of them is true in
+both cases:
+
+- **`QATEST1` claims the whole retention horizon.** It is a fictional security whose only provider
+  is the fixture, so the fixture genuinely is the authority on what exists before its first bar —
+  nothing. That is what lets Stock Details report a `PROVIDER` boundary.
+- **`SP500` claims only the interval it generated.** It is backed by a real symbol whose history
+  continues much further back, so a horizon claim would be a lie that permanently blocked fetching
+  it. Keep E2E backtest periods inside the seeded window: an earlier start is genuinely uncovered
+  and a real read would go to the provider.
+
+### Repairing a development database seeded before this split
+
+A database that was QA-seeded under the old behaviour still holds synthetic `SP500` bars, and they
+cannot be told apart from real ones by inspection. Discard the benchmark's stored market data and
+let the loader rebuild it from the provider:
+
+```bash
+pnpm db:benchmarks:reset SP500     # omit the code to reset every benchmark
+```
+
+It deletes bars, coverage intervals and watermarks — a durable projection of provider data, never
+user-owned state — and leaves the `BenchmarkSeries` rows themselves alone, because completed runs
+pin them. Completed runs keep their stored results either way. The next backtest re-hydrates the
+series from FMP.
 
 ## Authentication and Playwright
 

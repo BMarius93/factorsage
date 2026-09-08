@@ -121,6 +121,9 @@ function userFacingPhase(phase: ExecutionPhase): BacktestFailurePhase | null {
 const FAILURE_MESSAGES: Record<BacktestFailureCode, string> = {
   DATA_UNAVAILABLE:
     "Market data is not available for the stocks in this list over the requested period.",
+  EXECUTION_CALENDAR_UNAVAILABLE:
+    "The market calendar this backtest runs on could not be loaded, so it was stopped rather " +
+    "than run over a different set of trading days. Try again shortly.",
   NO_TRADING_DAYS:
     "The requested period contains no trading day for the stocks in this list.",
   EXECUTION_FAILED:
@@ -246,6 +249,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
       message: "Preparing market data",
     });
 
+    // Before anything expensive. The calendar is a precondition of the whole run, not one input
+    // among many: without it there is no methodology to execute, so discovering that after
+    // hydrating thirty securities would only waste minutes to reach the same refusal.
+    const executionCalendar = await this.loadExecutionCalendar(
+      snapshot,
+      period,
+    );
+
     const loaded: (BacktestSecurityInput | null)[] = snapshot.securities.map(
       () => null,
     );
@@ -342,7 +353,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return {
       securities,
       benchmark: await this.loadBenchmark(snapshot, period),
-      executionCalendar: await this.loadExecutionCalendar(snapshot, period),
+      executionCalendar,
     };
   }
 
@@ -440,34 +451,56 @@ export class BacktestProcessor implements BacktestJobProcessor {
    *
    * Read from the reference series the run pinned at submission, **never** from the comparison
    * benchmark above: the dates a run simulates decide when contributions land, so a user's choice
-   * of what to compare against must not reach them. An unavailable reference degrades to an empty
-   * calendar, and the engine then falls back to the securities' own union — a narrower axis, never
-   * a fabricated one.
+   * of what to compare against must not reach them.
+   *
+   * There is deliberately **no fallback**. The calendar is part of the snapshotted methodology, and
+   * quietly simulating the securities' own union instead would mean a run silently executed a
+   * different methodology than the one it recorded — a different set of contribution dates, a
+   * different return-index base, different numbers — because an auxiliary series happened to be
+   * unreadable during this attempt. A retry against the same pinned series is correct; a different
+   * answer is not. So this fails the attempt, and the next one executes the same calendar or fails
+   * the same way.
    */
   private async loadExecutionCalendar(
     snapshot: BacktestRunSnapshot,
     period: Required<DateRange>,
   ): Promise<LocalDate[]> {
     const startedAt = Date.now();
-    const seriesId = snapshot.executionCalendar?.seriesId ?? null;
+    const seriesId = snapshot.executionCalendar?.seriesId;
+    const referenceCode = snapshot.executionCalendar?.referenceCode ?? null;
     if (!seriesId) {
-      this.dependencies.logger.warn({
+      // A run submitted before the calendar became required. It cannot be executed under the
+      // methodology it recorded, so it is not executed at all.
+      this.dependencies.logger.error({
         event: "backtest.execution-calendar.unavailable",
         reason: "NOT_PINNED",
+        referenceCode,
       });
-      return [];
+      throw new BacktestRunFailure(
+        "EXECUTION_CALENDAR_UNAVAILABLE",
+        FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+      );
     }
     const prices = await this.loadSeriesPrices(seriesId, period, {
       role: "execution-calendar",
-      code: snapshot.executionCalendar?.referenceCode ?? seriesId,
+      code: referenceCode ?? seriesId,
     });
     if (!prices || prices.length === 0) {
-      return [];
+      this.dependencies.logger.error({
+        event: "backtest.execution-calendar.unavailable",
+        reason: prices === null ? "LOAD_FAILED" : "NO_TRADING_DAYS",
+        referenceCode,
+        seriesId,
+      });
+      throw new BacktestRunFailure(
+        "EXECUTION_CALENDAR_UNAVAILABLE",
+        FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+      );
     }
     this.dependencies.logger.info({
       event: "backtest.execution-calendar.loaded",
       durationMs: Date.now() - startedAt,
-      referenceCode: snapshot.executionCalendar?.referenceCode ?? null,
+      referenceCode,
       seriesId,
       tradingDays: prices.length,
     });

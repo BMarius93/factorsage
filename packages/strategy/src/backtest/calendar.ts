@@ -24,14 +24,14 @@ import type { EvaluationFrame } from "../frame.js";
  * **The run's comparison benchmark is not consulted here.** It is passive: two runs that differ
  * only in what they are compared against must produce the same trades and the same portfolio
  * return. The execution calendar comes from the engine's own reference series, which the user does
- * not choose. When it is empty the axis is exactly the securities' union. Nothing is fabricated in
- * either case.
+ * not choose, and it is required — `simulateBacktest` rejects an empty one rather than quietly
+ * falling back to the securities' union, which would be a different methodology.
  */
 export function buildExecutionCalendar(
   frames: readonly EvaluationFrame[],
   startDate: LocalDate,
   endDate: LocalDate,
-  executionCalendarDates: readonly LocalDate[] = [],
+  executionCalendarDates: readonly LocalDate[],
 ): LocalDate[] {
   const dates = new Set<LocalDate>();
   const add = (candidate: LocalDate): void => {

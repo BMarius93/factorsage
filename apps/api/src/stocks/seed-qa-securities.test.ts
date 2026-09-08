@@ -1,9 +1,12 @@
 import type { PrismaClient } from "@intrinsic/database";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  DEV_DATABASE_QA_SEED_MESSAGE,
+  MISSING_TEST_DATABASE_QA_SEED_MESSAGE,
   PRODUCTION_QA_SECURITIES_MESSAGE,
   QA_SECURITIES,
   assertQaSecuritySeedingAllowed,
+  qaSeedDatabaseUrl,
   seedQaSecurities,
 } from "./seed-qa-securities";
 
@@ -35,10 +38,58 @@ describe("QA security seeding safety", () => {
     ).toThrow(PRODUCTION_QA_SECURITIES_MESSAGE);
   });
 
+  const TEST_DB = "postgresql://u:p@localhost:5432/intrinsic_value_test";
+  const DEV_DB = "postgresql://u:p@localhost:5432/intrinsic_value";
+
   it("allows development, test, and an unset environment", () => {
     for (const NODE_ENV of ["development", "test", undefined]) {
-      expect(() => assertQaSecuritySeedingAllowed({ NODE_ENV })).not.toThrow();
+      expect(() =>
+        assertQaSecuritySeedingAllowed({
+          NODE_ENV,
+          DATABASE_URL: DEV_DB,
+          TEST_DATABASE_URL: TEST_DB,
+        }),
+      ).not.toThrow();
     }
+  });
+
+  it("refuses when there is no dedicated test database to seed into", () => {
+    expect(() =>
+      assertQaSecuritySeedingAllowed({ DATABASE_URL: DEV_DB }),
+    ).toThrow(MISSING_TEST_DATABASE_QA_SEED_MESSAGE);
+  });
+
+  it("refuses when the test database is the development database", () => {
+    // The seed writes synthetic S&P 500 bars into the real benchmark series. A `.env` pointing
+    // both variables at one database would put them in front of every manual backtest, which is
+    // exactly the contamination this guard exists to prevent.
+    expect(() =>
+      assertQaSecuritySeedingAllowed({
+        DATABASE_URL: DEV_DB,
+        TEST_DATABASE_URL: DEV_DB,
+      }),
+    ).toThrow(DEV_DATABASE_QA_SEED_MESSAGE);
+  });
+
+  it("allows one database in CI, where there is no second one to protect", () => {
+    expect(() =>
+      assertQaSecuritySeedingAllowed({
+        CI: "true",
+        DATABASE_URL: DEV_DB,
+        TEST_DATABASE_URL: DEV_DB,
+      }),
+    ).not.toThrow();
+  });
+
+  it("connects to the test database and never to whatever DATABASE_URL points at", () => {
+    // The seed chooses its target explicitly rather than inheriting it, so a shell aimed at the
+    // development database cannot redirect the writes.
+    expect(
+      qaSeedDatabaseUrl({ DATABASE_URL: DEV_DB, TEST_DATABASE_URL: TEST_DB }),
+    ).toBe(TEST_DB);
+    expect(() => qaSeedDatabaseUrl({ DATABASE_URL: DEV_DB })).toThrow(
+      MISSING_TEST_DATABASE_QA_SEED_MESSAGE,
+    );
   });
 
   it("refuses before writing anything when seeding in production", async () => {

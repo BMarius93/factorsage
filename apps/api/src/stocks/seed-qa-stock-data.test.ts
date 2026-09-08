@@ -48,16 +48,16 @@ describe("QA stock-data seed", () => {
     expect(prices[0]?.date).toBe(seedHistoryStart(TODAY));
   });
 
-  it("never claims price or derived coverage outside the seeded window", () => {
-    // Same invariant as the benchmark seed, asserted on the values the seed derives its claim from
-    // rather than on a database round trip: coverage begins at the first row the fixture generates,
-    // never at the retention horizon. Claiming the horizon would tell the loader that decades it
-    // never produced are already materialized.
+  it("seeds a fixture whose provider boundary is its own first row", () => {
+    // `QATEST1` exists only in this fixture, so the fixture is the authority on what came before
+    // its first bar: nothing. That is why its coverage may claim the whole horizon — the claim is
+    // true — and it is what lets Stock Details report a `PROVIDER` boundary rather than a
+    // `HORIZON` one it has not established.
+    //
+    // The benchmark seed is the opposite case and claims only what it generated: `SP500` is backed
+    // by a real symbol whose history genuinely continues further back.
     const first = prices[0]?.date as string;
-    expect(first > seedHistoryStart(TODAY)).toBe(false);
     expect(first).toBe(seedHistoryStart(TODAY));
-    // The horizon the loader would clamp to is far older than anything seeded, which is exactly
-    // why claiming it would be a lie rather than a rounding difference.
     expect(subtractYears(TODAY, 30) < first).toBe(true);
   });
 

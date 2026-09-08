@@ -1247,6 +1247,78 @@ describe("backtests", () => {
     ).toBe(3);
   });
 
+  it("pins the system execution calendar on every submitted run", async () => {
+    const run = await submit();
+    const stored = await prisma.backtestRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { executionCalendarSeriesId: true, benchmarkSeriesId: true },
+    });
+    const reference = await prisma.benchmarkSeries.findFirstOrThrow({
+      where: { benchmark: { code: "SP500" } },
+      orderBy: { version: "desc" },
+    });
+    expect(stored.executionCalendarSeriesId).toBe(reference.id);
+
+    // Restrict, not Cascade: the series a run's calendar points at cannot be deleted out from
+    // under it, so no catalog operation can leave a run unable to reproduce its own dates.
+    await expect(
+      prisma.benchmarkSeries.delete({ where: { id: reference.id } }),
+    ).rejects.toThrow();
+    expect(
+      await prisma.benchmarkSeries.count({ where: { id: reference.id } }),
+    ).toBe(1);
+  });
+
+  it("refuses to accept a run when the system execution calendar is not registered", async () => {
+    const store = new PrismaBenchmarkDataStore(prisma);
+    const code = `NOCAL_${suffix.slice(0, 8).toUpperCase()}`;
+    await store.reconcileBenchmarkCatalog([
+      {
+        code,
+        name: "Comparison Only",
+        sourceKind: "FMP_SYMBOL",
+        providerSymbol: "CMPONLY",
+        currency: "USD",
+        methodologyVersion: 1,
+        isActive: true,
+        displayOrder: 60,
+      },
+    ]);
+
+    // The reference is resolved by code, so renaming it makes it unresolvable without deleting
+    // anything — a stand-in for a deployment whose catalog has not been reconciled.
+    const reference = await prisma.benchmark.findUniqueOrThrow({
+      where: { code: "SP500" },
+    });
+    const parked = `PARKED_${suffix.slice(0, 8).toUpperCase()}`;
+    await prisma.benchmark.update({
+      where: { id: reference.id },
+      data: { code: parked },
+    });
+
+    try {
+      // 503, not 400: nothing about the submission is wrong, and retrying it later is right.
+      const response = await owner
+        .post("/backtests")
+        .send(submission({ benchmarkCode: code }))
+        .expect(503);
+      expect((response.body as { message: string }).message).toContain(
+        "market calendar",
+      );
+      // And no half-created run: the refusal happens before the row exists.
+      expect(
+        await prisma.backtestRun.count({
+          where: { benchmark: { code }, userId: { not: undefined } },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.benchmark.update({
+        where: { id: reference.id },
+        data: { code: "SP500" },
+      });
+    }
+  });
+
   it("reports no phase rather than one the browser cannot label", async () => {
     const run = await submit();
     await prisma.backtestRun.update({

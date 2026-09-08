@@ -102,6 +102,12 @@ export async function simulateBacktest(
     runtimes.map((runtime) => [runtime.frame.securityId, runtime]),
   );
 
+  if (input.executionCalendar.length === 0) {
+    throw new BacktestExecutionError(
+      "A backtest needs its execution calendar: the dates it simulates are methodology, not a " +
+        "consequence of which securities happened to load",
+    );
+  }
   const calendar = buildExecutionCalendar(
     runtimes.map((runtime) => runtime.frame),
     input.startDate,

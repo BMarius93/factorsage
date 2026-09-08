@@ -457,7 +457,8 @@ model BenchmarkSeries {
   dailyPrices        BenchmarkDailyPrice[]
   datasetStates      BenchmarkDatasetState[]
   datasetCoverage    BenchmarkDatasetCoverage[]
-  backtestRuns       BacktestRun[]
+  comparisonRuns        BacktestRun[]             @relation("BacktestRunComparisonSeries")
+  executionCalendarRuns BacktestRun[]             @relation("BacktestRunExecutionCalendarSeries")
 
   @@unique([benchmarkId, version])
 }
@@ -552,9 +553,11 @@ model BacktestRun {
   /// The exact immutable series this run compares against. Pinned at submission so a later catalog
   /// change can never reinterpret a queued or completed run.
   benchmarkSeriesId   String
-  /// The immutable series whose trading days were this run's execution calendar. A system input,
-  /// never the user's comparison choice — see `EXECUTION_CALENDAR_REFERENCE_CODE`.
-  executionCalendarSeriesId String?
+  /// The immutable series whose trading days are this run's execution calendar. A system input,
+  /// never the user's comparison choice — see `EXECUTION_CALENDAR_REFERENCE_CODE`. Required: it
+  /// decides which dates are simulated and when contributions land, so a run that could not pin it
+  /// is never created and a run that cannot read it fails rather than simulating other dates.
+  executionCalendarSeriesId String
   status              BacktestRunStatus     @default(QUEUED)
   /// Denormalized configuration. The snapshot remains authoritative; these columns exist so the
   /// collection page can sort and filter without opening a JSON document.
@@ -592,7 +595,8 @@ model BacktestRun {
   strategyVersion     StrategyVersion?      @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
   stockList           StockList?            @relation(fields: [stockListId], references: [id], onDelete: SetNull)
   benchmark           Benchmark             @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
-  benchmarkSeries     BenchmarkSeries       @relation(fields: [benchmarkSeriesId], references: [id], onDelete: Restrict)
+  benchmarkSeries         BenchmarkSeries   @relation("BacktestRunComparisonSeries", fields: [benchmarkSeriesId], references: [id], onDelete: Restrict)
+  executionCalendarSeries BenchmarkSeries   @relation("BacktestRunExecutionCalendarSeries", fields: [executionCalendarSeriesId], references: [id], onDelete: Restrict)
   job                 BacktestJob?
   progress            BacktestRunProgress?
   milestones          BacktestRunMilestone[]
@@ -603,6 +607,8 @@ model BacktestRun {
 
   @@index([userId, queuedAt])
   @@index([userId, status])
+  /// Restrict-on-delete has to check this column before any benchmark series can be removed.
+  @@index([executionCalendarSeriesId])
 }
 
 /// The durable queue. One row per run, created in the same transaction as the run, so the queue

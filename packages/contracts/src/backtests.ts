@@ -332,6 +332,14 @@ export const BACKTEST_FAILURE_PHASE_LABELS = {
 /** Stable failure codes. Anything unexpected is reported as `EXECUTION_FAILED`. */
 export const BACKTEST_FAILURE_CODES = [
   "DATA_UNAVAILABLE",
+  /**
+   * The run's pinned execution calendar could not be read.
+   *
+   * Distinct from `DATA_UNAVAILABLE` because it is not about the user's stocks: the calendar is a
+   * system input that decides which dates are simulated, so a run that cannot read it must stop
+   * rather than quietly simulate a different set of dates.
+   */
+  "EXECUTION_CALENDAR_UNAVAILABLE",
   "NO_TRADING_DAYS",
   "EXECUTION_FAILED",
   "ABANDONED",
@@ -538,13 +546,16 @@ export type BacktestRunSnapshot = {
   };
   /**
    * Where the run's simulated dates come from — a system input, never the user's comparison
-   * choice. `seriesId` is null when the reference had no reconciled definition at submission, in
-   * which case the engine falls back to the securities' own union.
+   * choice, and **required**.
+   *
+   * It decides which dates are simulated, when a contribution lands and what the return index is
+   * based at, so it is part of the snapshotted methodology. A run that could not pin it is not
+   * submitted, and a run that cannot read it fails rather than executing a different methodology.
    */
   executionCalendar: {
     referenceCode: string;
-    seriesId: string | null;
-    seriesVersion: number | null;
+    seriesId: string;
+    seriesVersion: number;
   };
   methodology: BacktestMethodologyResponse;
   /**

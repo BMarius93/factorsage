@@ -66,7 +66,13 @@ export function qaBenchmarkTradingDays(
 export async function seedQaBenchmarkData(
   prisma: PrismaClient,
   today = new Date().toISOString().slice(0, 10),
-): Promise<{ code: string; from: string; to: string; tradingDays: number }> {
+): Promise<{
+  code: string;
+  seriesId: string;
+  from: string;
+  to: string;
+  tradingDays: number;
+}> {
   assertQaSecuritySeedingAllowed();
   return seedQaBenchmarkDataWith(new PrismaBenchmarkDataStore(prisma), today);
 }
@@ -83,7 +89,13 @@ export async function seedQaBenchmarkDataWith(
     "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
   >,
   today = new Date().toISOString().slice(0, 10),
-): Promise<{ code: string; from: string; to: string; tradingDays: number }> {
+): Promise<{
+  code: string;
+  seriesId: string;
+  from: string;
+  to: string;
+  tradingDays: number;
+}> {
   // Registration goes through the same reconciliation the API runs at startup, so the fixture can
   // never introduce a second definition of what `SP500` is.
   const [benchmark] = await store.reconcileBenchmarkCatalog(
@@ -122,6 +134,7 @@ export async function seedQaBenchmarkDataWith(
 
   return {
     code: benchmark.code,
+    seriesId: benchmark.series.id,
     from: first.date,
     to: last.date,
     tradingDays: prices.length,
