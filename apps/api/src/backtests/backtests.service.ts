@@ -5,6 +5,7 @@ import {
   BACKTEST_RESULT_MAX_TRADES,
   BACKTEST_SNAPSHOT_VERSION,
   canonicalBacktestSnapshotDocument,
+  isTerminalBacktestStatus,
   normalizeStrategyDefinition,
   type BacktestCurvePointResponse,
   type BacktestFailureResponse,
@@ -305,14 +306,19 @@ function readLiveSnapshot(
 // ---------------------------------------------------------------------------
 
 /**
- * Live state belongs to a run that is still executing. A COMPLETED run reports its durable result
- * instead, so the bounded in-flight projection is dropped rather than shown beside it.
+ * Live state belongs to a run that is still executing.
+ *
+ * Both terminal statuses drop it. A COMPLETED run reports its durable result instead. A FAILED run
+ * reports its reason: the partial curve, metrics, holdings and trades the dead attempt happened to
+ * reach are not that run's outcome, and presenting them beside the failure would read as one.
  */
 function liveOf(
   status: BacktestRunStatus,
   progress: { snapshot: Prisma.JsonValue | null } | null,
 ): BacktestLiveSnapshotResponse | null {
-  return status === "COMPLETED" ? null : readLiveSnapshot(progress?.snapshot);
+  return isTerminalBacktestStatus(status)
+    ? null
+    : readLiveSnapshot(progress?.snapshot);
 }
 
 /**

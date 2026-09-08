@@ -1021,6 +1021,41 @@ describe("backtests", () => {
 
   it("exposes a failure's product code and message, never its developer detail", async () => {
     const run = await submit();
+    // The dead attempt left a live snapshot behind. A FAILED run must not present it: a partial
+    // curve, metrics and trade log beside a failure banner would read as that run's outcome.
+    await prisma.backtestRunProgress.update({
+      where: { runId: run.id },
+      data: {
+        percent: 62,
+        message: "Running backtest — simulated through 2019-06-14",
+        sequence: 41,
+        snapshot: {
+          simulatedThrough: "2019-06-14",
+          completedDays: 400,
+          totalDays: 640,
+          cash: 1,
+          positionsValue: 2,
+          totalValue: 3,
+          investedCapital: 4,
+          netProfit: 5,
+          portfolioReturnPercent: 6,
+          benchmarkReturnPercent: 7,
+          alphaPercent: 8,
+          maxDrawdownPercent: 9,
+          tradeCount: 3,
+          openPositions: 1,
+          curve: [
+            {
+              date: "2019-06-14",
+              portfolioReturnPercent: 6,
+              benchmarkReturnPercent: 7,
+            },
+          ],
+          holdings: [],
+          recentTrades: [],
+        },
+      },
+    });
     await prisma.backtestRun.update({
       where: { id: run.id },
       data: {
@@ -1045,14 +1080,19 @@ describe("backtests", () => {
       message: "Price history is not available for the requested period",
     });
     expect(detailBody.result).toBeNull();
+    // Terminal means terminal: the in-flight projection is dropped for FAILED as it is for
+    // COMPLETED, so nothing renders the dead attempt's partial numbers as a result.
+    expect(detailBody.live).toBeNull();
 
     const progress = await owner
       .get(`/backtests/${run.id}/progress`)
       .expect(200);
-    expect((progress.body as BacktestProgressResponse).failure).toEqual({
+    const progressBody = progress.body as BacktestProgressResponse;
+    expect(progressBody.failure).toEqual({
       code: "DATA_UNAVAILABLE",
       message: "Price history is not available for the requested period",
     });
+    expect(progressBody.live).toBeNull();
 
     for (const body of [detail.body, progress.body]) {
       const serialized = JSON.stringify(body);

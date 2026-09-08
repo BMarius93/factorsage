@@ -138,6 +138,35 @@ describe("useBacktestRun", () => {
     expect(fetchRunMock).toHaveBeenCalledTimes(2);
   });
 
+  it("drops the page-load snapshot the moment a terminal poll clears it", async () => {
+    // The detail fetched at page load carries a live snapshot. The terminal progress payload
+    // deliberately carries none, and that null must win: otherwise the load-time curve would be
+    // rendered as the finished run's result for the poll interval before the detail is refetched.
+    fetchRunMock
+      .mockResolvedValueOnce(
+        testDetail("RUNNING", {
+          live: testLive({ simulatedThrough: "2024-03-15" }),
+        }),
+      )
+      .mockResolvedValueOnce(
+        testDetail("COMPLETED", {
+          completedAt: "2026-09-01T10:20:00.000Z",
+          result: testResult(),
+        }),
+      );
+    fetchProgressMock.mockResolvedValueOnce(
+      testProgress("COMPLETED", 2, { percent: 100, live: null }),
+    );
+
+    const { result } = renderHook(() => useBacktestRun("run-1"));
+    await flush();
+    expect(result.current.live?.simulatedThrough).toBe("2024-03-15");
+
+    await nextPoll(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    expect(result.current.status).toBe("COMPLETED");
+    expect(result.current.live).toBeNull();
+  });
+
   it("keeps the rendered page through a transient failure and retries on the next tick", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("RUNNING", { live: testLive({ portfolioReturnPercent: 7 }) }),

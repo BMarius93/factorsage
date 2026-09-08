@@ -89,7 +89,13 @@ in-flight state; the durable result is written when execution completes.
   `apps/worker/src/backtest/job-repository.integration.test.ts` against real PostgreSQL.
 - Editing or deleting a Strategy, a StockList or a benchmark's source never changes a stored run.
 - A 30-year run stores roughly 7,500 equity rows and its trades. That is the price of rendering a
-  completed run without replaying it, and it is small next to the market data the run consumed.
+  completed run without replaying it, and it is small next to the market data the run consumed. It
+  is also why the result write carries an explicit transaction timeout: Prisma's five-second default
+  is exceeded once a long run's trade count reaches a few thousand, and the abort would roll back
+  the whole result, making the longest runs the only ones unable to finish.
+- A recovered or released job returns to the queue with its progress cleared, and both terminal
+  statuses drop the live snapshot. Neither a queued run nor a failed one should present the numbers
+  a dead attempt happened to reach.
 - Adding cancellation later is additive: a `cancelRequestedAt` column, a `CANCELLED` status member,
   and a check at the existing checkpoint. V1 ships without it deliberately
   (`ai/architecture/backtest-execution.md`).

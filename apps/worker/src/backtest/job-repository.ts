@@ -116,6 +116,21 @@ export const ABANDONED_FAILURE_MESSAGE =
 /** PostgreSQL rejects very large parameter counts, so bulk result rows go in chunks. */
 const INSERT_CHUNK_SIZE = 1_000;
 
+/**
+ * How long the result write may hold its transaction.
+ *
+ * Prisma's default interactive-transaction timeout is five seconds, which a long run exceeds: a
+ * thirty-year backtest writes roughly 7,500 equity rows plus its trades, and measured against this
+ * database that pair passes five seconds once the trade count reaches the low thousands. Exceeding
+ * it aborts with P2028, rolls the whole result back and leaves the run mid-flight until its lease
+ * expires — so the longest runs would be exactly the ones that could never finish. The budget is
+ * generous rather than tuned: this transaction runs once per run, and a slow disk must not decide
+ * whether a completed simulation is allowed to be recorded.
+ */
+const RESULT_TRANSACTION_TIMEOUT_MS = 120_000;
+/** How long to wait for a connection before starting it; a busy pool must not fail the write. */
+const RESULT_TRANSACTION_MAX_WAIT_MS = 30_000;
+
 export class PrismaBacktestJobRepository implements BacktestJobRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -249,6 +264,22 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         FROM stale
         WHERE j."id" = stale."id"
         RETURNING j."runId"
+      ),
+      cleared AS (
+        -- The dead attempt's progress must not survive it: a QUEUED run advertising 94% and a live
+        -- curve that no process is producing is worse than no progress at all. This is a sibling
+        -- CTE rather than the final statement so the recovery count still reports jobs requeued
+        -- even for a run whose progress row is somehow missing.
+        UPDATE "BacktestRunProgress" p
+        SET "percent" = 0,
+            "message" = 'Queued',
+            "simulatedThrough" = NULL,
+            "snapshot" = NULL,
+            "sequence" = p."sequence" + 1,
+            "updatedAt" = ${now}
+        FROM released
+        WHERE p."runId" = released."runId"
+        RETURNING p."runId"
       )
       UPDATE "BacktestRun" r
       SET "status" = 'QUEUED',
@@ -263,10 +294,16 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         SELECT j."id", j."runId"
         FROM "BacktestJob" j
         JOIN "BacktestRun" r ON r."id" = j."runId"
-        WHERE j."status" = 'CLAIMED'
-          AND j."leaseExpiresAt" < ${now}
-          AND j."attempts" >= j."maxAttempts"
+        WHERE j."attempts" >= j."maxAttempts"
           AND r."status" NOT IN ('COMPLETED', 'FAILED')
+          AND (
+            (j."status" = 'CLAIMED' AND j."leaseExpiresAt" < ${now})
+            -- A graceful shutdown releases the claim without refunding the attempt, which bounds a
+            -- restart loop. Without this arm a job released on its last attempt would match neither
+            -- the claim query (attempts < maxAttempts) nor lease recovery (status = CLAIMED), and
+            -- would sit QUEUED forever with nothing able to move it.
+            OR j."status" = 'QUEUED'
+          )
         FOR UPDATE OF j SKIP LOCKED
       ),
       closed AS (
@@ -356,148 +393,154 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
     const { runId, result } = write;
     const summary = result.summary;
 
-    return this.prisma.$transaction(async (tx) => {
-      const owned = await tx.backtestJob.updateMany({
-        where: {
-          id: write.jobId,
-          claimedBy: write.workerId,
-          status: BacktestJobStatus.CLAIMED,
-        },
-        data: {
-          status: BacktestJobStatus.COMPLETED,
-          heartbeatAt: write.now,
-          leaseExpiresAt: null,
-        },
-      });
-      if (owned.count !== 1) {
-        return false;
-      }
-
-      await tx.backtestTrade.deleteMany({ where: { runId } });
-      await tx.backtestDailyEquity.deleteMany({ where: { runId } });
-      await tx.backtestPosition.deleteMany({ where: { runId } });
-      await tx.backtestRunSummary.deleteMany({ where: { runId } });
-
-      await tx.backtestRunSummary.create({
-        data: {
-          runId,
-          firstSimulatedDate: toDate(summary.firstSimulatedDate),
-          lastSimulatedDate: toDate(summary.lastSimulatedDate),
-          tradingDays: summary.tradingDays,
-          investedCapital: summary.investedCapital,
-          finalCash: summary.finalCash,
-          finalPositionsValue: summary.finalPositionsValue,
-          finalValue: summary.finalValue,
-          netProfit: summary.netProfit,
-          portfolioReturnPercent: summary.portfolioReturnPercent,
-          benchmarkReturnPercent: summary.benchmarkReturnPercent,
-          alphaPercent: summary.alphaPercent,
-          portfolioCagrPercent: summary.portfolioCagrPercent,
-          maxDrawdownPercent: summary.maxDrawdownPercent,
-          benchmarkMaxDrawdownPercent: summary.benchmarkMaxDrawdownPercent,
-          realizedPnl: summary.realizedPnl,
-          unrealizedPnl: summary.unrealizedPnl,
-          totalTrades: summary.totalTrades,
-          buyTrades: summary.buyTrades,
-          sellTrades: summary.sellTrades,
-          finalExitTrades: summary.finalExitTrades,
-          winningTrades: summary.winningTrades,
-          losingTrades: summary.losingTrades,
-          openPositions: summary.openPositions,
-        },
-      });
-
-      for (const chunk of chunked(result.equity, INSERT_CHUNK_SIZE)) {
-        await tx.backtestDailyEquity.createMany({
-          data: chunk.map((point) => ({
-            runId,
-            date: toDate(point.date),
-            cash: point.cash,
-            positionsValue: point.positionsValue,
-            totalValue: point.totalValue,
-            investedCapital: point.investedCapital,
-            returnIndex: point.returnIndex,
-            benchmarkIndex: point.benchmarkIndex,
-            openPositions: point.openPositions,
-          })),
+    return this.prisma.$transaction(
+      async (tx) => {
+        const owned = await tx.backtestJob.updateMany({
+          where: {
+            id: write.jobId,
+            claimedBy: write.workerId,
+            status: BacktestJobStatus.CLAIMED,
+          },
+          data: {
+            status: BacktestJobStatus.COMPLETED,
+            heartbeatAt: write.now,
+            leaseExpiresAt: null,
+          },
         });
-      }
+        if (owned.count !== 1) {
+          return false;
+        }
 
-      for (const chunk of chunked(result.trades, INSERT_CHUNK_SIZE)) {
-        await tx.backtestTrade.createMany({
-          data: chunk.map((trade) => ({
+        await tx.backtestTrade.deleteMany({ where: { runId } });
+        await tx.backtestDailyEquity.deleteMany({ where: { runId } });
+        await tx.backtestPosition.deleteMany({ where: { runId } });
+        await tx.backtestRunSummary.deleteMany({ where: { runId } });
+
+        await tx.backtestRunSummary.create({
+          data: {
             runId,
-            sequence: trade.sequence,
-            date: toDate(trade.date),
-            securityId: trade.securityId,
-            symbol: trade.symbol,
-            name: trade.name,
-            action: trade.action,
-            levelId: trade.levelId,
-            levelPercentage: trade.levelPercentage,
-            shares: trade.shares,
-            price: trade.price,
-            amount: trade.amount,
-            fees: trade.fees,
-            realizedPnl: trade.realizedPnl,
-            realizedPnlPercent: trade.realizedPnlPercent,
-            cashAfter: trade.cashAfter,
-            sharesAfter: trade.sharesAfter,
-            averageCostAfter: trade.averageCostAfter,
-          })),
+            firstSimulatedDate: toDate(summary.firstSimulatedDate),
+            lastSimulatedDate: toDate(summary.lastSimulatedDate),
+            tradingDays: summary.tradingDays,
+            investedCapital: summary.investedCapital,
+            finalCash: summary.finalCash,
+            finalPositionsValue: summary.finalPositionsValue,
+            finalValue: summary.finalValue,
+            netProfit: summary.netProfit,
+            portfolioReturnPercent: summary.portfolioReturnPercent,
+            benchmarkReturnPercent: summary.benchmarkReturnPercent,
+            alphaPercent: summary.alphaPercent,
+            portfolioCagrPercent: summary.portfolioCagrPercent,
+            maxDrawdownPercent: summary.maxDrawdownPercent,
+            benchmarkMaxDrawdownPercent: summary.benchmarkMaxDrawdownPercent,
+            realizedPnl: summary.realizedPnl,
+            unrealizedPnl: summary.unrealizedPnl,
+            totalTrades: summary.totalTrades,
+            buyTrades: summary.buyTrades,
+            sellTrades: summary.sellTrades,
+            finalExitTrades: summary.finalExitTrades,
+            winningTrades: summary.winningTrades,
+            losingTrades: summary.losingTrades,
+            openPositions: summary.openPositions,
+          },
         });
-      }
 
-      if (result.positions.length > 0) {
-        await tx.backtestPosition.createMany({
-          data: result.positions.map((position) => ({
+        for (const chunk of chunked(result.equity, INSERT_CHUNK_SIZE)) {
+          await tx.backtestDailyEquity.createMany({
+            data: chunk.map((point) => ({
+              runId,
+              date: toDate(point.date),
+              cash: point.cash,
+              positionsValue: point.positionsValue,
+              totalValue: point.totalValue,
+              investedCapital: point.investedCapital,
+              returnIndex: point.returnIndex,
+              benchmarkIndex: point.benchmarkIndex,
+              openPositions: point.openPositions,
+            })),
+          });
+        }
+
+        for (const chunk of chunked(result.trades, INSERT_CHUNK_SIZE)) {
+          await tx.backtestTrade.createMany({
+            data: chunk.map((trade) => ({
+              runId,
+              sequence: trade.sequence,
+              date: toDate(trade.date),
+              securityId: trade.securityId,
+              symbol: trade.symbol,
+              name: trade.name,
+              action: trade.action,
+              levelId: trade.levelId,
+              levelPercentage: trade.levelPercentage,
+              shares: trade.shares,
+              price: trade.price,
+              amount: trade.amount,
+              fees: trade.fees,
+              realizedPnl: trade.realizedPnl,
+              realizedPnlPercent: trade.realizedPnlPercent,
+              cashAfter: trade.cashAfter,
+              sharesAfter: trade.sharesAfter,
+              averageCostAfter: trade.averageCostAfter,
+            })),
+          });
+        }
+
+        if (result.positions.length > 0) {
+          await tx.backtestPosition.createMany({
+            data: result.positions.map((position) => ({
+              runId,
+              securityId: position.securityId,
+              symbol: position.symbol,
+              name: position.name,
+              openedDate: toDate(position.openedDate),
+              shares: position.shares,
+              averageCost: position.averageCost,
+              lastPrice: position.lastPrice,
+              lastPriceDate: toDate(position.lastPriceDate),
+              marketValue: position.marketValue,
+              unrealizedPnl: position.unrealizedPnl,
+              unrealizedPnlPercent: position.unrealizedPnlPercent,
+              allocationPercent: position.allocationPercent,
+            })),
+          });
+        }
+
+        // 100% is reachable only here, so a client never sees a complete-looking run it cannot read.
+        await tx.backtestRunProgress.upsert({
+          where: { runId },
+          create: {
             runId,
-            securityId: position.securityId,
-            symbol: position.symbol,
-            name: position.name,
-            openedDate: toDate(position.openedDate),
-            shares: position.shares,
-            averageCost: position.averageCost,
-            lastPrice: position.lastPrice,
-            lastPriceDate: toDate(position.lastPriceDate),
-            marketValue: position.marketValue,
-            unrealizedPnl: position.unrealizedPnl,
-            unrealizedPnlPercent: position.unrealizedPnlPercent,
-            allocationPercent: position.allocationPercent,
-          })),
+            percent: 100,
+            message: "Backtest complete",
+            simulatedThrough: toDate(summary.lastSimulatedDate),
+            sequence: 1,
+          },
+          update: {
+            percent: 100,
+            message: "Backtest complete",
+            simulatedThrough: toDate(summary.lastSimulatedDate),
+            sequence: { increment: 1 },
+          },
         });
-      }
 
-      // 100% is reachable only here, so a client never sees a complete-looking run it cannot read.
-      await tx.backtestRunProgress.upsert({
-        where: { runId },
-        create: {
-          runId,
-          percent: 100,
-          message: "Backtest complete",
-          simulatedThrough: toDate(summary.lastSimulatedDate),
-          sequence: 1,
-        },
-        update: {
-          percent: 100,
-          message: "Backtest complete",
-          simulatedThrough: toDate(summary.lastSimulatedDate),
-          sequence: { increment: 1 },
-        },
-      });
+        await tx.backtestRun.updateMany({
+          where: { id: runId },
+          data: {
+            status: BacktestRunStatus.COMPLETED,
+            completedAt: write.now,
+            failureCode: null,
+            failureMessage: null,
+          },
+        });
 
-      await tx.backtestRun.updateMany({
-        where: { id: runId },
-        data: {
-          status: BacktestRunStatus.COMPLETED,
-          completedAt: write.now,
-          failureCode: null,
-          failureMessage: null,
-        },
-      });
-
-      return true;
-    });
+        return true;
+      },
+      {
+        timeout: RESULT_TRANSACTION_TIMEOUT_MS,
+        maxWait: RESULT_TRANSACTION_MAX_WAIT_MS,
+      },
+    );
   }
 
   /**
@@ -587,6 +630,22 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
         },
         data: { status: BacktestRunStatus.QUEUED },
       });
+
+      // The abandoned attempt's progress goes back with it, for the same reason lease recovery
+      // clears it: a queued run must not advertise a percentage and a live curve that nothing is
+      // producing, and the next attempt re-simulates from the first day anyway. Raw SQL because
+      // clearing a Json column through the query builder needs the Prisma namespace as a runtime
+      // value, and `@intrinsic/database` deliberately exports it as a type only.
+      await tx.$executeRaw`
+        UPDATE "BacktestRunProgress"
+        SET "percent" = 0,
+            "message" = 'Queued',
+            "simulatedThrough" = NULL,
+            "snapshot" = NULL,
+            "sequence" = "sequence" + 1,
+            "updatedAt" = ${now}
+        WHERE "runId" = ${runId}
+      `;
 
       return true;
     });

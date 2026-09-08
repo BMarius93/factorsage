@@ -25,20 +25,30 @@ export const CANDIDATE_ORDERING_METHODOLOGY_VERSION =
 /**
  * How one simulated day executes.
  *
- * `same-day-close/fractional-shares/exits-before-entries@1`:
+ * `same-day-close/fractional-shares/exits-before-entries/contribution-dca@2`:
  * - every order fills at the canonical end-of-day close of the signal date;
  * - share quantities are continuous, so a target allocation is met exactly and a small target in an
  *   expensive stock is not silently dropped to zero shares;
  * - exits run before entries, so a slot and the cash a sale frees are usable the same day;
- * - a BUY level percentage is a **target** fill of the full-position budget, and a level fires at
- *   most once per position lifecycle;
+ * - a BUY level percentage is a **target** fill of the full-position budget;
+ * - a BUY level fires at most once per position lifecycle, with one exception: on a date that
+ *   actually deposits a monthly contribution, an already-fired level is reconsidered against the
+ *   post-contribution portfolio and may buy the shortfall to its recalculated target. It is not a
+ *   rebalance — a position that merely drifted below target on an ordinary day is left alone, and
+ *   a level whose Signal (Trigger included) is not TRUE on the contribution date does not top up;
  * - a security whose position closes on a date cannot be re-entered on that same date;
  * - FINAL EXIT outranks a matching partial SELL on the same date;
  * - every matching SELL level executes once per position lifecycle, in definition order, each
  *   against the position remaining at that moment.
+ *
+ * Revision history:
+ * - v1: a BUY level fired exactly once per position lifecycle, so new capital from a monthly
+ *   contribution could never reach a position whose levels had all fired.
+ * - v2: the contribution-date top-up above. It changes numbers, so it is a version bump rather
+ *   than a silent correction; runs executed under v1 keep their recorded methodology.
  */
 export const EXECUTION_METHODOLOGY_VERSION =
-  "same-day-close/fractional-shares/exits-before-entries@1" as const;
+  "same-day-close/fractional-shares/exits-before-entries/contribution-dca@2" as const;
 
 /**
  * Fee and slippage assumptions. V1 executes at zero of both, deliberately and visibly, so a later
@@ -50,9 +60,13 @@ export const EXECUTION_COST_METHODOLOGY_VERSION =
 /**
  * When a monthly contribution lands.
  *
- * `first-eligible-trading-day-of-month@1`: on the first simulated trading date of each calendar
- * month, except the run's very first simulated date, on which the initial capital is deposited
- * instead. A month with no simulated trading date receives no contribution.
+ * `first-eligible-trading-day-of-month@1`: the run's first simulated date is funded by the initial
+ * capital and receives no contribution on top of it; from the following calendar month onwards, the
+ * contribution is deposited on that month's first simulated trading date. A calendar month with no
+ * simulated trading date receives no contribution, and no contribution is ever carried forward.
+ *
+ * The deposit lands before the day's trading, so it is spendable the same date — which is also what
+ * makes the `contribution-dca` rule in `EXECUTION_METHODOLOGY_VERSION` reachable.
  */
 export const CONTRIBUTION_METHODOLOGY_VERSION =
   "first-eligible-trading-day-of-month@1" as const;

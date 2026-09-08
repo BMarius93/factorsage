@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   benchmarkSeries,
   buyLevel,
+  priceCrossesAboveSignal,
   definitionOf,
   executionInput,
   finalExit,
@@ -444,6 +445,30 @@ describe("unavailable data", () => {
     expect(result.trades[0]?.date).toBe(dates[2]);
   });
 
+  it("carries a holding forward over a non-positive close instead of marking it to zero", async () => {
+    const dates = tradingDates("2020-01-06", 4);
+    // A zero close is not a price. Valuing the position at it would drive the portfolio to zero and
+    // absorb the growth index there permanently, while the final value never actually changed.
+    const frame = frameOf({ symbol: "AAA", dates, closes: [100, 100, 0, 100] });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(50))],
+        }),
+        securities: [securityInput(frame)],
+        initialCapital: 100_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    expect(result.equity.map((point) => point.totalValue)).toEqual([
+      100_000, 100_000, 100_000, 100_000,
+    ]);
+    expect(result.summary.portfolioReturnPercent).toBeCloseTo(0, 9);
+    expect(result.summary.maxDrawdownPercent).toBeCloseTo(0, 9);
+  });
+
   it("skips a security on a union date it did not trade", async () => {
     const dates = tradingDates("2020-01-06", 3);
     const traded = frameOf({ symbol: "AAA", dates, closes: [100, 100, 100] });
@@ -609,6 +634,324 @@ describe("determinism and point-in-time correctness", () => {
     for (const checkpoint of checkpoints) {
       expect(checkpoint.curve.at(-1)?.date).toBe(checkpoint.simulatedThrough);
     }
+  });
+});
+
+/**
+ * Monthly contributions add external capital, and a position whose BUY levels have all fired would
+ * otherwise be unable to receive any of it. The rule is deliberately narrow: a fired level wakes up
+ * **only** on a date that actually deposits a contribution, only while its own Signal is TRUE, and
+ * only to buy the shortfall to its recalculated target. It is not a daily rebalance.
+ */
+describe("contribution-date DCA top-ups", () => {
+  // Two calendar months of weekday dates: the second month's first date deposits.
+  const dates = [
+    ...tradingDates("2020-01-06", 5),
+    ...tradingDates("2020-02-03", 5),
+  ];
+  const contributionDate = dates[5] as string;
+
+  function runWith(input: {
+    closes: readonly (number | null)[];
+    buyLevels: ReturnType<typeof buyLevel>[];
+    monthlyContribution?: number;
+    buyWindows?: Parameters<typeof securityInput>[1];
+    maximumPositions?: number;
+  }) {
+    const frame = frameOf({ symbol: "AAA", dates, closes: input.closes });
+    return simulateBacktest(
+      executionInput({
+        definition: definitionOf({ buyLevels: input.buyLevels }),
+        securities: [securityInput(frame, input.buyWindows)],
+        initialCapital: 100_000,
+        monthlyContribution: input.monthlyContribution ?? 50_000,
+        maximumPositions: input.maximumPositions ?? 10,
+      }),
+    );
+  }
+
+  /** `Price is above 0` is true every day, so only the firing rule can stop a repeat buy. */
+  const alwaysTrue = () => priceAboveSignal(0);
+
+  it("does not repeat a fired BUY level on ordinary following days", async () => {
+    const result = await runWith({
+      closes: dates.map(() => 100),
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+      monthlyContribution: 0,
+    });
+
+    // The signal is true on all ten days; the level buys once.
+    expect(result.trades).toHaveLength(1);
+    expect(result.trades[0]?.date).toBe(dates[0]);
+  });
+
+  it("does not rebalance a position that merely drifted below target", async () => {
+    // The price halves after entry, so the position sits far below its 25% target every day — and
+    // with no contribution the engine must leave it alone.
+    const closes = dates.map((_, index) => (index === 0 ? 100 : 50));
+    const result = await runWith({
+      closes,
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+      monthlyContribution: 0,
+    });
+
+    expect(result.trades).toHaveLength(1);
+  });
+
+  it("tops a fired level up to its recalculated target on a contribution date", async () => {
+    const result = await runWith({
+      closes: dates.map(() => 100),
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+    });
+
+    expect(result.trades).toHaveLength(2);
+    const [entry, topUp] = result.trades;
+    // Day one: 25% of a 10% full position of 100,000.
+    expect(entry?.amount).toBeCloseTo(2_500, 6);
+    expect(topUp?.date).toBe(contributionDate);
+    // The contribution lands before trading, so the budget is measured on 150,000: the level's
+    // target becomes 3,750 and only the 1,250 shortfall is bought.
+    expect(topUp?.amount).toBeCloseTo(1_250, 6);
+    expect(topUp?.levelPercentage).toBe(25);
+    expect(topUp?.sharesAfter).toBeCloseTo(37.5, 6);
+  });
+
+  it("tops up only once, not on the days after the contribution", async () => {
+    const result = await runWith({
+      closes: dates.map(() => 100),
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+    });
+
+    const afterContribution = result.trades.filter(
+      (trade) => trade.date > contributionDate,
+    );
+    expect(afterContribution).toHaveLength(0);
+  });
+
+  it("does not top up when the level's Signal is FALSE on the contribution date", async () => {
+    // Price is above 95 only in the first month, so the level's Condition is FALSE when the
+    // contribution lands.
+    const closes = dates.map((_, index) => (index < 5 ? 100 : 90));
+    const result = await runWith({
+      closes,
+      buyLevels: [buyLevel("b25", 25, priceAboveSignal(95))],
+    });
+
+    expect(result.trades).toHaveLength(1);
+    expect(result.trades[0]?.date).toBe(dates[0]);
+  });
+
+  it("does not top up when the buy window closes before the contribution date", async () => {
+    const result = await runWith({
+      closes: dates.map(() => 100),
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+      buyWindows: {
+        mode: "CUSTOM",
+        ranges: [
+          { startDate: dates[0] as string, endDate: dates[4] as string },
+        ],
+      },
+    });
+
+    expect(result.trades).toHaveLength(1);
+  });
+
+  it("tops up a Trigger level only when the Trigger actually fires that date", async () => {
+    // The price crosses 100 on day two — the entry — and again on the contribution date itself.
+    // No third crossing happens, so no other day can top up.
+    const closes = [90, 110, 110, 110, 90, 130, 130, 130, 130, 130];
+    const result = await runWith({
+      closes,
+      buyLevels: [buyLevel("b25", 25, priceCrossesAboveSignal(100))],
+    });
+
+    expect(result.trades.map((trade) => trade.date)).toEqual([
+      dates[1],
+      contributionDate,
+    ]);
+  });
+
+  it("does not top up a Trigger level whose Trigger is silent on the contribution date", async () => {
+    // One crossing only, well before the deposit. The contribution must not revive the event.
+    const closes = [90, 110, 110, 110, 110, 110, 110, 110, 110, 110];
+    const result = await runWith({
+      closes,
+      buyLevels: [buyLevel("b25", 25, priceCrossesAboveSignal(100))],
+    });
+
+    expect(result.trades).toHaveLength(1);
+    expect(result.trades[0]?.date).toBe(dates[1]);
+  });
+
+  it("buys nothing when the position already covers its recalculated target", async () => {
+    // The price triples after entry, so 25% of the larger full position is still below what the
+    // position is already worth.
+    const closes = dates.map((_, index) => (index === 0 ? 100 : 300));
+    const result = await runWith({
+      closes,
+      buyLevels: [buyLevel("b25", 25, alwaysTrue())],
+      monthlyContribution: 1_000,
+    });
+
+    expect(result.trades).toHaveLength(1);
+  });
+
+  it("still lets a higher unused BUY level fire normally on an ordinary day", async () => {
+    // The 25% level enters on day one; the 100% level's Condition only becomes true on day three,
+    // which is not a contribution date.
+    const closes = [100, 100, 80, 80, 80, 80, 80, 80, 80, 80];
+    const result = await runWith({
+      closes,
+      buyLevels: [
+        buyLevel("b25", 25, priceAboveSignal(90)),
+        buyLevel("b100", 100, priceBelowSignal(90)),
+      ],
+      monthlyContribution: 0,
+    });
+
+    expect(result.trades).toHaveLength(2);
+    expect(result.trades[1]?.date).toBe(dates[2]);
+    expect(result.trades[1]?.levelPercentage).toBe(100);
+  });
+
+  it("caps a top-up at available cash", async () => {
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map(() => 100),
+    });
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b100", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        initialCapital: 10_000,
+        monthlyContribution: 100,
+        // One slot, so the whole portfolio is the position's target and cash is the only limit.
+        maximumPositions: 1,
+      }),
+    );
+
+    expect(result.equity.every((point) => point.cash >= -1e-9)).toBe(true);
+    const topUp = result.trades.find(
+      (trade) => trade.date === contributionDate,
+    );
+    expect(topUp?.amount).toBeCloseTo(100, 6);
+  });
+
+  it("replays a run containing top-ups identically", async () => {
+    const closes = dates.map((_, index) => 100 + Math.sin(index) * 8);
+    const build = () =>
+      runWith({
+        closes,
+        buyLevels: [
+          buyLevel("b25", 25, priceAboveSignal(95)),
+          buyLevel("b100", 100, priceBelowSignal(95)),
+        ],
+        monthlyContribution: 25_000,
+      });
+
+    const [first, second] = await Promise.all([build(), build()]);
+    expect(JSON.stringify(second)).toEqual(JSON.stringify(first));
+    expect(first.trades.length).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * One deterministic ledger that exercises the whole V1 methodology at once, with numbers a reader
+ * can verify by hand. It exists because the individual rules are easy to keep true in isolation and
+ * easy to break in combination — every amount below is the arithmetic the documented methodology
+ * requires, not a snapshot of whatever the engine happened to produce.
+ */
+describe("end-to-end methodology ledger", () => {
+  function weekdays(start: string, months: number): string[] {
+    const out: string[] = [];
+    const cursor = new Date(`${start}T00:00:00.000Z`);
+    const end = new Date(cursor);
+    end.setUTCMonth(end.getUTCMonth() + months);
+    while (cursor < end) {
+      const day = cursor.getUTCDay();
+      if (day !== 0 && day !== 6) {
+        out.push(cursor.toISOString().slice(0, 10));
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return out;
+  }
+
+  it("prices a full lifecycle: DCA top-ups, a second level, a partial sell, a final exit and re-entry", async () => {
+    const dates = weekdays("2021-01-04", 6);
+    // Flat, then a dip that arms the 100% level, then a rally that arms the SELL, then a collapse
+    // that arms the FINAL EXIT, then a deeper level for the re-entered position to top up into.
+    const closes = dates.map((_, index) => {
+      if (index < 40) return 100;
+      if (index < 60) return 80;
+      if (index < 90) return 150;
+      if (index < 100) return 55;
+      return 40;
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [
+            buyLevel("b25", 25, priceAboveSignal(90)),
+            buyLevel("b100", 100, priceBelowSignal(90)),
+          ],
+          sellLevels: [sellLevel("s50", 50, gainAboveSignal(40))],
+          finalExit: finalExit("fx", lossAboveSignal(30)),
+        }),
+        securities: [securityInput(frameOf({ symbol: "AAA", dates, closes }))],
+        initialCapital: 100_000,
+        monthlyContribution: 20_000,
+        maximumPositions: 10,
+      }),
+    );
+
+    const ledger = result.trades.map((trade) => [
+      trade.date,
+      trade.action,
+      trade.levelPercentage,
+      Number(trade.amount.toFixed(2)),
+      Number(trade.sharesAfter.toFixed(4)),
+    ]);
+
+    expect(ledger).toEqual([
+      // Day one is funded by the initial capital alone: 25% of a 10,000 full position.
+      ["2021-01-04", "BUY", 25, 2_500, 25],
+      // First contribution date. The level has fired, but 20,000 of new capital lifts the portfolio
+      // to 120,000, so its target becomes 3,000 and only the 500 shortfall is bought.
+      ["2021-02-01", "BUY", 25, 500, 30],
+      // The dip arms the 100% level for the first time: a normal firing, not a top-up.
+      ["2021-03-01", "BUY", 100, 11_540, 174.25],
+      // Gain over the 83.4433 average cost exceeds 40%: half the remaining position is sold.
+      ["2021-03-29", "SELL", 50, 13_068.75, 87.125],
+      // 1 April and 3 May are contribution dates on which the 25% level's Condition is true, but the
+      // position already exceeds its recalculated target, so nothing is bought.
+      // Loss against that same basis passes 30%: FINAL EXIT closes the whole remaining position.
+      ["2021-05-10", "FINAL_EXIT", null, 4_791.88, 0],
+      // The next eligible date, never the same one: a fresh position with fresh level state.
+      ["2021-05-11", "BUY", 100, 18_332.06, 333.3102],
+      // Two more contribution dates top the re-entered position up to its recalculated target.
+      ["2021-06-01", "BUY", 100, 6_499.69, 495.8024],
+      ["2021-07-01", "BUY", 100, 2_000, 545.8024],
+    ]);
+
+    // Seven calendar months are simulated and six contributions land: the opening month is funded
+    // by the initial capital instead.
+    expect(result.summary.investedCapital).toBe(100_000 + 6 * 20_000);
+    expect(result.summary.realizedPnl).toBeCloseTo(3_320.625, 3);
+    expect(result.summary.openPositions).toBe(1);
+
+    // A partial sell leaves the basis per share untouched; a top-up blends it.
+    const sell = result.trades.find((trade) => trade.action === "SELL");
+    const beforeSell = result.trades[2];
+    expect(sell?.averageCostAfter).toBeCloseTo(
+      beforeSell?.averageCostAfter as number,
+      6,
+    );
+    expect(result.positions[0]?.averageCost).toBeCloseTo(49.1602, 4);
   });
 });
 

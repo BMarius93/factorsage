@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   BacktestJobStatus,
   BacktestRunStatus,
+  type Prisma,
   BenchmarkSourceKind,
   PrismaClient,
 } from "@intrinsic/database";
@@ -78,6 +79,9 @@ describe("backtest job claiming", () => {
       maxAttempts?: number;
       claimedBy?: string;
       leaseExpiresAt?: Date;
+      progressPercent?: number;
+      progressMessage?: string;
+      progressSnapshot?: Prisma.InputJsonValue;
     } = {},
   ): Promise<{ runId: string; jobId: string }> {
     const run = await prisma.backtestRun.create({
@@ -95,6 +99,16 @@ describe("backtest job claiming", () => {
         securityCount: 1,
         snapshot: { snapshotVersion: 1, marker: suffix },
         snapshotHash: `hash-${randomUUID()}`,
+        progress: {
+          create: {
+            percent: options.progressPercent ?? 0,
+            message: options.progressMessage ?? "Queued",
+            sequence: 0,
+            ...(options.progressSnapshot
+              ? { snapshot: options.progressSnapshot }
+              : {}),
+          },
+        },
         job: {
           create: {
             status: options.jobStatus ?? BacktestJobStatus.QUEUED,
@@ -109,7 +123,7 @@ describe("backtest job claiming", () => {
           },
         },
       },
-      include: { job: true },
+      include: { job: true, progress: true },
     });
 
     runIds.push(run.id);
@@ -122,6 +136,10 @@ describe("backtest job claiming", () => {
 
   function run(runId: string) {
     return prisma.backtestRun.findUniqueOrThrow({ where: { id: runId } });
+  }
+
+  function progressOf(runId: string) {
+    return prisma.backtestRunProgress.findUniqueOrThrow({ where: { runId } });
   }
 
   it("gives one queued job to exactly one of two workers claiming at the same instant", async () => {
@@ -172,6 +190,48 @@ describe("backtest job claiming", () => {
       .map((claim) => claim.jobId)
       .sort();
     expect(claimedIds).toEqual([first.jobId, second.jobId].sort());
+  });
+
+  it("clears the dead attempt's progress when it requeues a run", async () => {
+    const seeded = await seedJob({
+      progressPercent: 94,
+      progressMessage: "Running backtest — simulated through 2019-06-14",
+      progressSnapshot: { simulatedThrough: "2019-06-14", curve: [] },
+    });
+    const staleClaimedAt = new Date(Date.now() - 120_000);
+    await repository.claimNextJob(workerA, staleClaimedAt, 1_000);
+
+    await repository.recoverStaleJobs(new Date(), 0);
+
+    // A queued run advertising 94% and a live curve nothing is producing would be worse than no
+    // progress at all, so recovery resets what the dead attempt left behind.
+    const reset = await progressOf(seeded.runId);
+    expect(reset.percent).toBe(0);
+    expect(reset.message).toBe("Queued");
+    expect(reset.simulatedThrough).toBeNull();
+    expect(reset.snapshot).toBeNull();
+    expect(reset.sequence).toBeGreaterThan(0);
+  });
+
+  it("fails a job that a graceful shutdown released on its last attempt", async () => {
+    // A graceful release deliberately does not refund the attempt, so this job matches neither the
+    // claim query nor lease recovery. Without the abandon sweep it would sit QUEUED forever.
+    const seeded = await seedJob({ attempts: 3, maxAttempts: 3 });
+
+    const recovery = await repository.recoverStaleJobs(new Date(), 0);
+    expect(recovery.abandoned).toBeGreaterThanOrEqual(1);
+
+    expect((await job(seeded.jobId)).status).toBe(BacktestJobStatus.FAILED);
+    const failed = await run(seeded.runId);
+    expect(failed.status).toBe(BacktestRunStatus.FAILED);
+    expect(failed.failureCode).toBe("ABANDONED");
+    // And it stays unclaimable: a terminal job is never handed to a worker again.
+    const claimed = await repository.claimNextJob(
+      workerA,
+      new Date(),
+      LEASE_MS,
+    );
+    expect(claimed?.jobId).not.toBe(seeded.jobId);
   });
 
   it("returns a job whose lease expired to the queue and reclaims it as a new attempt", async () => {
@@ -273,12 +333,12 @@ describe("backtest job claiming", () => {
       }),
     ).toBe(false);
 
-    // Nothing the losing worker attempted reached the run.
-    expect(
-      await prisma.backtestRunProgress.findUnique({
-        where: { runId: seeded.runId },
-      }),
-    ).toBeNull();
+    // Nothing the losing worker attempted reached the run. The progress row exists because
+    // submission creates it, so what matters is that it still holds its submitted state.
+    const untouchedProgress = await progressOf(seeded.runId);
+    expect(untouchedProgress.percent).toBe(0);
+    expect(untouchedProgress.message).toBe("Queued");
+    expect(untouchedProgress.sequence).toBe(0);
     const untouched = await run(seeded.runId);
     expect(untouched.status).toBe(BacktestRunStatus.PREPARING_DATA);
     expect(untouched.failureCode).toBeNull();

@@ -55,6 +55,11 @@ type BuyCandidate = {
   levelId: string;
   percentage: number;
   isTopUp: boolean;
+  /**
+   * True when this candidate exists only because new capital was deposited today: the level had
+   * already fired for this position and is being reconsidered against the larger portfolio.
+   */
+  isContributionTopUp: boolean;
 };
 
 export class BacktestExecutionError extends Error {
@@ -147,7 +152,8 @@ export async function simulateBacktest(
       input.monthlyContribution > 0 && contributionDates.has(date)
         ? input.monthlyContribution
         : 0;
-    if (contribution > 0) {
+    const depositedToday = contribution > 0;
+    if (depositedToday) {
       cash += contribution;
       investedCapital += contribution;
     }
@@ -293,18 +299,30 @@ export async function simulateBacktest(
         // Closed earlier today; a fresh position waits for the next eligible date.
         continue;
       }
-      let best: { levelId: string; percentage: number } | null = null;
+      let best: { levelId: string; percentage: number; fired: boolean } | null =
+        null;
       for (const level of definition.buyLevels) {
-        if (position?.buyLevelsFired.has(level.id)) {
+        const alreadyFired = position?.buyLevelsFired.has(level.id) ?? false;
+        // A level that has fired is dormant for the rest of the position's life — except on a date
+        // that actually deposited new capital. Then, and only then, it is reconsidered against the
+        // larger portfolio the contribution created. The engine never rebalances a position merely
+        // because its market value drifted below target on an ordinary day.
+        if (alreadyFired && !depositedToday) {
           continue;
         }
         if (
           readGate(runtime.gates.buy.get(level.id), index) !== Evaluability.TRUE
         ) {
+          // The gate is the level's whole Signal, Trigger included, so a level whose Trigger did
+          // not actually fire today cannot top up: a contribution never revives a past event.
           continue;
         }
         if (!best || level.percentage > best.percentage) {
-          best = { levelId: level.id, percentage: level.percentage };
+          best = {
+            levelId: level.id,
+            percentage: level.percentage,
+            fired: alreadyFired,
+          };
         }
       }
       if (best) {
@@ -314,6 +332,7 @@ export async function simulateBacktest(
           levelId: best.levelId,
           percentage: best.percentage,
           isTopUp: position !== undefined,
+          isContributionTopUp: best.fired,
         });
       }
     }
@@ -332,16 +351,24 @@ export async function simulateBacktest(
         }
         const frame = candidate.runtime.frame;
         let position = positions.get(frame.securityId);
+        if (candidate.isContributionTopUp && !position) {
+          // Unreachable: a fired level only exists on an open position. Guarded so a later change
+          // cannot turn a contribution top-up into a silent new entry.
+          continue;
+        }
         if (!position && positions.size >= input.maximumPositions) {
           // No free slot. The level is deliberately not marked as fired, so the strategy can still
           // enter this security on a later date when a slot frees up.
           continue;
         }
+        // The budget is measured against the portfolio value *after* today's contribution, which is
+        // what lets a deposit lift an already-filled level's target.
         const target = (fullPositionBudget * candidate.percentage) / 100;
         const currentValue = position ? position.shares * close : 0;
         const shortfall = target - currentValue;
         if (shortfall <= 0) {
-          // Already at or above the level's target fill: the level has nothing left to do.
+          // Already at or above the level's target fill — including a contribution date on which
+          // the position still covers its recalculated target. Nothing to buy.
           position?.buyLevelsFired.add(candidate.levelId);
           continue;
         }
@@ -403,7 +430,7 @@ export async function simulateBacktest(
         continue;
       }
       const close = runtime.frame.closes[index];
-      if (close === undefined || !Number.isFinite(close)) {
+      if (close === undefined || !Number.isFinite(close) || close <= 0) {
         continue;
       }
       position.previousSignedReturnPercent = gainPercent(
@@ -643,13 +670,23 @@ function frameIndexAt(runtime: SecurityRuntime, date: LocalDate): number {
   return runtime.frame.dates[runtime.cursor] === date ? runtime.cursor : -1;
 }
 
+/**
+ * The close a holding is valued at, or null to carry the previous one forward.
+ *
+ * A non-positive close is rejected here for the same reason execution and the benchmark cursor
+ * reject it: it is not a price. Accepting one would mark the whole position to zero, drive the
+ * portfolio value to zero, and absorb the time-weighted index at zero permanently — a total
+ * wipeout reported for one bad bar, next to a final value that never changed.
+ */
 function closeAt(runtime: SecurityRuntime, date: LocalDate): number | null {
   const index = frameIndexAt(runtime, date);
   if (index < 0) {
     return null;
   }
   const close = runtime.frame.closes[index];
-  return close !== undefined && Number.isFinite(close) ? close : null;
+  return close !== undefined && Number.isFinite(close) && close > 0
+    ? close
+    : null;
 }
 
 function finalPositions(

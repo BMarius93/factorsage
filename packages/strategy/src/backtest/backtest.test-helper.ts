@@ -110,6 +110,19 @@ export function priceBelowSignal(threshold: number): StrategySignal {
   };
 }
 
+/** `Price crosses above <threshold>` — an event, so it is TRUE only on the crossing date. */
+export function priceCrossesAboveSignal(threshold: number): StrategySignal {
+  return {
+    conditions: [],
+    trigger: {
+      id: `price-crosses-above-${threshold}`,
+      metric: { kind: "PRICE" },
+      operator: "CROSSES_ABOVE",
+      value: { kind: "NUMBER", value: threshold },
+    },
+  };
+}
+
 export function gainAboveSignal(percent: number): StrategySignal {
   return {
     conditions: [

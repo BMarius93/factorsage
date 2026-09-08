@@ -170,7 +170,10 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         successfulCoverage: [range],
         syncedAt,
         tailDate: target.to,
-        freshThrough: target.to,
+        // Only a read that actually reached the tail may say the tail is fresh. Backfilling an
+        // older gap tells us nothing about today's bar, and advancing the watermark for it would
+        // let a genuinely stale tail pass the freshness check on the next read.
+        ...(range.to >= target.to ? { freshThrough: target.to } : {}),
         assertOwned,
       });
     }

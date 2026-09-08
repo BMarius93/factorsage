@@ -40,12 +40,21 @@ the execution engine.
   to zero shares.
 - **The monthly contribution, when configured, is added on the first eligible trading day of each
   calendar month** — except the run's very first simulated day, which already receives the initial
-  capital. A calendar month with no simulated trading day receives no contribution.
+  capital. A calendar month with no simulated trading day receives no contribution, and nothing is
+  carried forward.
+- **New contributed capital can reach a position whose BUY levels have already fired.** On a date
+  that actually deposits a contribution, a fired BUY level is reconsidered against the larger
+  portfolio and buys only the shortfall to its recalculated target — while its Signal is still true,
+  the stock's buy window is open, and cash allows. This is dollar-cost averaging into a plan the
+  strategy already began, not a rebalance: a position that merely drifted below target on an
+  ordinary day is left alone, and a level whose Trigger did not fire on the contribution date does
+  not top up.
 
 The remaining execution rules — exits before entries, a BUY level as a target fill, one firing per
-level per position lifecycle, FINAL EXIT outranking a partial SELL, and the candidate ordering used
-when cash or slots cannot satisfy every match — are engine methodology, not Strategy semantics. They
-are decided and versioned in `../architecture/backtest-execution.md`.
+level per position lifecycle plus the contribution-date top-up above, FINAL EXIT outranking a
+partial SELL, no same-date re-entry, and the candidate ordering used when cash or slots cannot
+satisfy every match — are engine methodology, not Strategy semantics. They are decided and versioned
+in `../architecture/backtest-execution.md`, and every run records the versions it executed under.
 
 ## Benchmark
 

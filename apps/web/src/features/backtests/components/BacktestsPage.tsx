@@ -2,6 +2,7 @@
 
 import {
   BACKTEST_RUN_STATUS_LABELS,
+  isTerminalBacktestStatus,
   type BacktestRunStatus,
   type BacktestRunSummaryResponse,
 } from "@intrinsic/contracts";
@@ -32,7 +33,9 @@ function statusTone(status: BacktestRunStatus): string {
 }
 
 function RunCard({ run }: { readonly run: BacktestRunSummaryResponse }) {
-  const finished = run.status === "COMPLETED";
+  // Both terminal statuses are finished. A FAILED run rendered through the in-flight branch would
+  // show a filled progress bar and the last running message under a "Failed" pill.
+  const finished = isTerminalBacktestStatus(run.status);
   return (
     <li className={styles.card} data-testid="backtest-card">
       <Link className={styles.cardLink} href={`/backtests/${run.id}`}>

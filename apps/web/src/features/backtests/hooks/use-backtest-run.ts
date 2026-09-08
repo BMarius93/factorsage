@@ -195,7 +195,11 @@ export function useBacktestRun(runId: string): BacktestRunState {
     status,
     percent: checkpoint?.percent ?? 0,
     message: checkpoint?.message ?? null,
-    live: progress?.live ?? run?.live ?? null,
+    // Once a poll has answered, its live snapshot is the only one that counts — including when it
+    // is deliberately null, which is exactly what a terminal payload sends. Falling through to the
+    // detail's `live` would resurrect the snapshot the page happened to load with and render it as
+    // a finished run's result for one poll interval.
+    live: progress ? progress.live : (run?.live ?? null),
     failure: progress?.failure ?? run?.failure ?? null,
     polling,
     retry,

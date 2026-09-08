@@ -304,6 +304,40 @@ describeBenchmark("benchmark loading", () => {
     expect(reloaded.length).toBeGreaterThan(0);
   });
 
+  it("does not call a historical backfill fresh: only a read that reached the tail advances the watermark", async () => {
+    // Load a narrow window first, so a later wider request backfills an older gap that does not
+    // include today. That backfill must not mark the tail fresh.
+    await serviceWith(
+      new RecordingBenchmarkProvider(rows),
+    ).getBenchmarkDailyPrices(benchmark, { from: "2020-05-01", to: today });
+    await prisma.benchmarkDatasetState.updateMany({
+      where: {
+        benchmarkId: benchmark.id,
+        variant: "provider-eod-full:recent-tail",
+      },
+      data: { lastSuccessfulSyncAt: new Date("2020-06-20T00:00:00.000Z") },
+    });
+    await redis.del(`${namespace}:benchmark:${benchmark.id}:manifest`);
+
+    const provider = new RecordingBenchmarkProvider(rows);
+    await serviceWith(provider).getBenchmarkDailyPrices(benchmark, {
+      from: "2020-01-02",
+      to: today,
+    });
+
+    const state = await store.getDatasetState(
+      benchmark.id,
+      "DAILY_PRICE",
+      "provider-eod-full:recent-tail",
+    );
+    // The tail was genuinely re-read in this pass (the watermark was stale), so it is current.
+    expect(state?.lastSuccessfulSyncAt).toBeDefined();
+    // And the requests prove the tail was one of them rather than being assumed from a backfill.
+    expect(provider.requests.some((request) => request.to === today)).toBe(
+      true,
+    );
+  });
+
   it("ships the V1 SP500 catalog entry backed by an FMP symbol", () => {
     const sp500 = BENCHMARK_CATALOG.find((entry) => entry.code === "SP500");
     expect(sp500).toBeDefined();
