@@ -7,7 +7,7 @@ import type {
 } from "@intrinsic/contracts";
 import { BacktestRunStatus } from "@intrinsic/database";
 import type {
-  Benchmark,
+  BenchmarkSeries,
   BenchmarkDailyPrice,
   DateRange,
   LocalDate,
@@ -54,11 +54,17 @@ export interface BacktestFrameLoader {
   ): Promise<EvaluationFrame>;
 }
 
-/** The benchmark slice the worker needs; hydration happens inside the loader. */
+/**
+ * The benchmark slice the worker needs; hydration happens inside the loader.
+ *
+ * Deliberately **only** `getSeries` — resolution by code does not exist here. A run pins the exact
+ * immutable series at submission, and execution reads that id back, so a catalog change between
+ * queueing and running cannot change what the run compares against or which dates it simulates.
+ */
 export interface BacktestBenchmarkLoader {
-  getBenchmark(code: string): Promise<Benchmark>;
+  getSeries(seriesId: string): Promise<BenchmarkSeries>;
   getBenchmarkDailyPrices(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
 }
@@ -226,6 +232,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
   ): Promise<{
     securities: BacktestSecurityInput[];
     benchmark: BenchmarkSeriesInput | null;
+    executionCalendar: LocalDate[];
   }> {
     const startedAt = Date.now();
     const operands = collectOperands(snapshot.strategy.definition);
@@ -335,6 +342,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return {
       securities,
       benchmark: await this.loadBenchmark(snapshot, period),
+      executionCalendar: await this.loadExecutionCalendar(snapshot, period),
     };
   }
 
@@ -393,49 +401,107 @@ export class BacktestProcessor implements BacktestJobProcessor {
     period: Required<DateRange>,
   ): Promise<BenchmarkSeriesInput | null> {
     const startedAt = Date.now();
+    const prices = await this.loadSeriesPrices(
+      snapshot.benchmark.seriesId,
+      period,
+      { role: "comparison", code: snapshot.benchmark.code },
+    );
+    if (!prices || prices.length === 0) {
+      return null;
+    }
+
+    const closes = new Float64Array(prices.length);
+    const dates: LocalDate[] = [];
+    prices.forEach((price, index) => {
+      dates.push(price.date);
+      closes[index] = price.close;
+    });
+
+    this.dependencies.logger.info({
+      event: "backtest.benchmark.loaded",
+      durationMs: Date.now() - startedAt,
+      benchmarkCode: snapshot.benchmark.code,
+      benchmarkSeriesId: snapshot.benchmark.seriesId,
+      benchmarkSeriesVersion: snapshot.benchmark.seriesVersion,
+      pointCount: prices.length,
+    });
+
+    return {
+      benchmarkId: snapshot.benchmark.benchmarkId,
+      code: snapshot.benchmark.code,
+      name: snapshot.benchmark.name,
+      dates,
+      closes,
+    };
+  }
+
+  /**
+   * The market's trading days over the run's period.
+   *
+   * Read from the reference series the run pinned at submission, **never** from the comparison
+   * benchmark above: the dates a run simulates decide when contributions land, so a user's choice
+   * of what to compare against must not reach them. An unavailable reference degrades to an empty
+   * calendar, and the engine then falls back to the securities' own union — a narrower axis, never
+   * a fabricated one.
+   */
+  private async loadExecutionCalendar(
+    snapshot: BacktestRunSnapshot,
+    period: Required<DateRange>,
+  ): Promise<LocalDate[]> {
+    const startedAt = Date.now();
+    const seriesId = snapshot.executionCalendar?.seriesId ?? null;
+    if (!seriesId) {
+      this.dependencies.logger.warn({
+        event: "backtest.execution-calendar.unavailable",
+        reason: "NOT_PINNED",
+      });
+      return [];
+    }
+    const prices = await this.loadSeriesPrices(seriesId, period, {
+      role: "execution-calendar",
+      code: snapshot.executionCalendar?.referenceCode ?? seriesId,
+    });
+    if (!prices || prices.length === 0) {
+      return [];
+    }
+    this.dependencies.logger.info({
+      event: "backtest.execution-calendar.loaded",
+      durationMs: Date.now() - startedAt,
+      referenceCode: snapshot.executionCalendar?.referenceCode ?? null,
+      seriesId,
+      tradingDays: prices.length,
+    });
+    return prices.map((price) => price.date);
+  }
+
+  /** One pinned series' bars, or null when it cannot be loaded. Never fails the run. */
+  private async loadSeriesPrices(
+    seriesId: string,
+    period: Required<DateRange>,
+    context: { role: string; code: string },
+  ): Promise<BenchmarkDailyPrice[] | null> {
     try {
-      const benchmark = await this.dependencies.benchmarks.getBenchmark(
-        snapshot.benchmark.code,
-      );
+      const series = await this.dependencies.benchmarks.getSeries(seriesId);
       const prices = await this.dependencies.benchmarks.getBenchmarkDailyPrices(
-        benchmark,
+        series,
         period,
       );
       if (prices.length === 0) {
         this.dependencies.logger.warn({
           event: "backtest.benchmark.unavailable",
-          benchmarkCode: snapshot.benchmark.code,
+          role: context.role,
+          benchmarkCode: context.code,
+          seriesId,
           reason: "NO_DAILY_DATA",
         });
-        return null;
       }
-
-      const closes = new Float64Array(prices.length);
-      const dates: LocalDate[] = [];
-      prices.forEach((price, index) => {
-        dates.push(price.date);
-        closes[index] = price.close;
-      });
-
-      this.dependencies.logger.info({
-        event: "backtest.benchmark.loaded",
-        durationMs: Date.now() - startedAt,
-        benchmarkCode: benchmark.code,
-        pointCount: prices.length,
-      });
-
-      return {
-        benchmarkId: benchmark.id,
-        code: benchmark.code,
-        name: benchmark.name,
-        dates,
-        closes,
-      };
+      return prices;
     } catch (err) {
       this.dependencies.logger.warn({
         event: "backtest.benchmark.unavailable",
-        benchmarkCode: snapshot.benchmark.code,
-        durationMs: Date.now() - startedAt,
+        role: context.role,
+        benchmarkCode: context.code,
+        seriesId,
         err,
       });
       return null;
@@ -450,6 +516,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     prepared: {
       securities: BacktestSecurityInput[];
       benchmark: BenchmarkSeriesInput | null;
+      executionCalendar: LocalDate[];
     },
   ): Promise<BacktestResult> {
     await this.writeProgress(claim, lease, {
@@ -465,6 +532,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
         definition: snapshot.strategy.definition,
         securities: prepared.securities,
         benchmark: prepared.benchmark,
+        executionCalendar: prepared.executionCalendar,
         startDate: snapshot.period.startDate,
         endDate: snapshot.period.endDate,
         initialCapital: snapshot.capital.initialCapital,

@@ -13,11 +13,11 @@ exercise it.
 
 ## 1. Required infrastructure
 
-| Layer | Requirement |
-|---|---|
-| API integration tests | PostgreSQL and Redis reachable (`pnpm infra:up`), plus a migrated `TEST_DATABASE_URL` database |
-| Playwright | A fully running stack: PostgreSQL, Redis, the API on its port, and the web app on `E2E_BASE_URL` |
-| Live API smoke | The same running stack as Playwright |
+| Layer                 | Requirement                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| API integration tests | PostgreSQL and Redis reachable (`pnpm infra:up`), plus a migrated `TEST_DATABASE_URL` database   |
+| Playwright            | A fully running stack: PostgreSQL, Redis, the API on its port, and the web app on `E2E_BASE_URL` |
+| Live API smoke        | The same running stack as Playwright                                                             |
 
 Playwright deliberately defines no `webServer`: it never starts, rebuilds, or resets a stack, so a
 suite run cannot destroy a developer's database.
@@ -56,10 +56,10 @@ group.
 Two persistent accounts exist for browser and live-stack testing. They are referred to by logical
 name, never by address.
 
-| Persona | Role | Email variable | Password variable | Email state |
-|---|---|---|---|---|
-| `QA_USER` | `USER` | `QA_USER_EMAIL` | `QA_USER_PASSWORD` | verified |
-| `QA_ADMIN` | `ADMIN` | `QA_ADMIN_EMAIL` | `QA_ADMIN_PASSWORD` | verified |
+| Persona    | Role    | Email variable   | Password variable   | Email state |
+| ---------- | ------- | ---------------- | ------------------- | ----------- |
+| `QA_USER`  | `USER`  | `QA_USER_EMAIL`  | `QA_USER_PASSWORD`  | verified    |
+| `QA_ADMIN` | `ADMIN` | `QA_ADMIN_EMAIL` | `QA_ADMIN_PASSWORD` | verified    |
 
 Both passwords must be at least 12 characters, which is also the registration policy
 (`PASSWORD_MIN_LENGTH` in `@intrinsic/contracts`).
@@ -132,12 +132,12 @@ Everything lives in the web workspace: `apps/web/playwright.config.ts` and `apps
 
 Projects:
 
-| Project | Auth | Spec pattern |
-|---|---|---|
+| Project | Auth                                  | Spec pattern              |
+| ------- | ------------------------------------- | ------------------------- |
 | `setup` | signs both personas in through the UI | `e2e/setup/auth.setup.ts` |
-| `guest` | none | `*.guest.spec.ts` |
-| `user` | `QA_USER` storage state | `*.user.spec.ts` |
-| `admin` | `QA_ADMIN` storage state | `*.admin.spec.ts` |
+| `guest` | none                                  | `*.guest.spec.ts`         |
+| `user`  | `QA_USER` storage state               | `*.user.spec.ts`          |
+| `admin` | `QA_ADMIN` storage state              | `*.admin.spec.ts`         |
 
 Commands:
 

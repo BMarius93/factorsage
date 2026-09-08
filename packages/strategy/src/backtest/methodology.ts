@@ -60,15 +60,20 @@ export const EXECUTION_COST_METHODOLOGY_VERSION =
 /**
  * Which dates a run simulates.
  *
- * `securities-union-with-benchmark@1`: the ascending union of the eligible trading dates of every
- * security in the run **and of the benchmark**, restricted to the requested period. There is no
- * trading-calendar table, so a union is what makes a portfolio-level loop possible; the benchmark
- * contributes its dates because a portfolio exists from the first day of the period even while it
- * holds only cash, and the benchmark is the market's own calendar for exactly that period.
+ * `securities-union-with-execution-calendar@1`: the ascending union of the eligible trading dates of
+ * every security in the run **and of the engine's execution calendar**, restricted to the requested
+ * period. There is no trading-calendar table, so a union is what makes a portfolio-level loop
+ * possible; the execution calendar contributes the market's own trading days so a portfolio exists
+ * from the first day of the period even while it holds only cash.
  *
- * This is a versioned methodology and not an implementation detail because it decides which dates
- * are "the first simulated date of a month" and which date the return index is based at — so it
- * can move a contribution and, through it, a number.
+ * The execution calendar is a **system input**, taken from a reference series the engine designates
+ * — never from the run's comparison benchmark. Two runs that differ only in what they are compared
+ * against must produce identical trades and an identical portfolio return; a benchmark that decided
+ * which dates were simulated would decide when contributions landed, and through them the result.
+ *
+ * This is versioned methodology and not an implementation detail because it decides which dates are
+ * "the first simulated date of a month" and which date the return index is based at — so it can
+ * move a contribution and, through it, a number.
  *
  * Revision history:
  * - v1: introduced with Backtest V1. Runs snapshotted before this field existed simulated the
@@ -76,7 +81,22 @@ export const EXECUTION_COST_METHODOLOGY_VERSION =
  *   start of the requested period.
  */
 export const CALENDAR_METHODOLOGY_VERSION =
-  "securities-union-with-benchmark@1" as const;
+  "securities-union-with-execution-calendar@1" as const;
+
+/**
+ * Where the execution calendar's dates come from.
+ *
+ * `us-equities/reference-series@1`: the daily bars of one reference series that the engine
+ * designates, loaded through the canonical benchmark-data path and pinned at submission to the
+ * exact immutable series version the run executes against. The market's own observed trading days,
+ * in other words — not a table of holiday rules, which would have to invent the days it could not
+ * derive, and not the user's comparison benchmark, which must never influence execution.
+ *
+ * When the reference series has no data over the period the calendar falls back to the securities'
+ * own union: a smaller axis, never a fabricated one.
+ */
+export const EXECUTION_CALENDAR_METHODOLOGY_VERSION =
+  "us-equities/reference-series@1" as const;
 
 /**
  * When a monthly contribution lands.
@@ -106,6 +126,7 @@ export const RETURN_METHODOLOGY_VERSION = "time-weighted-index@1" as const;
 /** The complete set stamped into a run snapshot. */
 export const BACKTEST_METHODOLOGY = {
   calendar: CALENDAR_METHODOLOGY_VERSION,
+  executionCalendar: EXECUTION_CALENDAR_METHODOLOGY_VERSION,
   candidateOrdering: CANDIDATE_ORDERING_METHODOLOGY_VERSION,
   execution: EXECUTION_METHODOLOGY_VERSION,
   executionCosts: EXECUTION_COST_METHODOLOGY_VERSION,

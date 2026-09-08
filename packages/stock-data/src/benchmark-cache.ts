@@ -30,8 +30,8 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
     this.namespace = options.namespace ?? BENCHMARK_CACHE_NAMESPACE;
   }
 
-  async getManifest(benchmarkId: string): Promise<BenchmarkManifest | null> {
-    const raw = await this.redis.get(this.manifestKey(benchmarkId));
+  async getManifest(seriesId: string): Promise<BenchmarkManifest | null> {
+    const raw = await this.redis.get(this.manifestKey(seriesId));
     if (!raw) {
       return null;
     }
@@ -49,17 +49,17 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
 
   async setManifest(manifest: BenchmarkManifest): Promise<void> {
     await this.redis.set(
-      this.manifestKey(manifest.benchmarkId),
+      this.manifestKey(manifest.seriesId),
       JSON.stringify(manifest),
     );
   }
 
-  async invalidateManifest(benchmarkId: string): Promise<void> {
-    await this.redis.del(this.manifestKey(benchmarkId));
+  async invalidateManifest(seriesId: string): Promise<void> {
+    await this.redis.del(this.manifestKey(seriesId));
   }
 
   async readDailyPrices(
-    benchmarkId: string,
+    seriesId: string,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[] | null> {
     const years = yearsInRange(range);
@@ -67,7 +67,7 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
       return [];
     }
     const chunks = await this.redis.mget(
-      ...years.map((year) => this.yearKey(benchmarkId, year)),
+      ...years.map((year) => this.yearKey(seriesId, year)),
     );
     const rows: BenchmarkDailyPrice[] = [];
     for (const chunk of chunks) {
@@ -90,7 +90,7 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
   }
 
   async writeDailyPriceYears(
-    benchmarkId: string,
+    seriesId: string,
     prices: readonly BenchmarkDailyPrice[],
     years: readonly number[],
   ): Promise<void> {
@@ -103,19 +103,16 @@ export class RedisBenchmarkDataCache implements BenchmarkDataCache {
       byYear.get(year)?.push(price);
     }
     for (const [year, rows] of byYear) {
-      await this.redis.set(
-        this.yearKey(benchmarkId, year),
-        JSON.stringify(rows),
-      );
+      await this.redis.set(this.yearKey(seriesId, year), JSON.stringify(rows));
     }
   }
 
-  private manifestKey(benchmarkId: string): string {
-    return `${this.namespace}:benchmark:${benchmarkId}:manifest`;
+  private manifestKey(seriesId: string): string {
+    return `${this.namespace}:benchmark:${seriesId}:manifest`;
   }
 
-  private yearKey(benchmarkId: string, year: number): string {
-    return `${this.namespace}:benchmark:${benchmarkId}:daily-price:${year}`;
+  private yearKey(seriesId: string, year: number): string {
+    return `${this.namespace}:benchmark:${seriesId}:daily-price:${year}`;
   }
 }
 
@@ -125,7 +122,7 @@ function parseManifest(raw: string): BenchmarkManifest | null {
     if (
       typeof parsed === "object" &&
       parsed !== null &&
-      typeof (parsed as BenchmarkManifest).benchmarkId === "string" &&
+      typeof (parsed as BenchmarkManifest).seriesId === "string" &&
       typeof (parsed as BenchmarkManifest).coverageStart === "string" &&
       typeof (parsed as BenchmarkManifest).coverageEnd === "string"
     ) {

@@ -415,57 +415,80 @@ enum BenchmarkDataset {
 /// bought, never consumes cash or a position slot, and carries no derived series. Its identity is
 /// snapshotted into every `BacktestRun`, so replacing the data source behind a code (SPY today,
 /// a direct index tomorrow) can never reinterpret a completed run.
+/// Product identity a user selects. Deliberately carries nothing that decides what the numbers
+/// are: source, provider identifier, currency and methodology live on `BenchmarkSeries`, because
+/// changing any of them produces a different series rather than a corrected one.
 model Benchmark {
-  id                 String                     @id @default(uuid())
+  id           String            @id @default(uuid())
   /// Stable product code snapshotted by runs, e.g. `SP500`.
-  code               String                     @unique
-  name               String
-  description        String?
+  code         String            @unique
+  name         String
+  description  String?
+  isActive     Boolean           @default(true)
+  displayOrder Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  series       BenchmarkSeries[]
+  backtestRuns BacktestRun[]
+
+  @@index([isActive, displayOrder])
+}
+
+/// One immutable definition of a benchmark's series, and the identity its market data is stored
+/// under. Reconciliation never updates a row here: a changed definition appends a new version, so
+/// bars fetched for v1 can never be reinterpreted as v2 and a submitted run pins the exact version
+/// it executes against. Idempotence comes from comparing against the *current* version rather than
+/// from a unique key over the definition, which would make returning to a previous source
+/// impossible — a revert is a new version, and its data is fetched fresh under it.
+model BenchmarkSeries {
+  id                 String                     @id @default(uuid())
+  benchmarkId        String
+  /// 1-based, ascending. The highest version of a benchmark is its current definition.
+  version            Int
   sourceKind         BenchmarkSourceKind
   /// Provider identifier for `FMP_SYMBOL` benchmarks, e.g. `SPY`.
   providerSymbol     String
   currency           String
-  /// Revision of what this benchmark's series *means*. Bumping it makes a new run incomparable to
-  /// an older one on purpose; the run snapshot records the value it executed under.
+  /// Revision of what this series *means*. Bumping it makes a new run incomparable to an older one
+  /// on purpose; the run snapshot records the version it executed under.
   methodologyVersion Int                        @default(1)
-  isActive           Boolean                    @default(true)
-  displayOrder       Int                        @default(0)
   createdAt          DateTime                   @default(now())
-  updatedAt          DateTime                   @updatedAt
+  benchmark          Benchmark                  @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
   dailyPrices        BenchmarkDailyPrice[]
   datasetStates      BenchmarkDatasetState[]
   datasetCoverage    BenchmarkDatasetCoverage[]
   backtestRuns       BacktestRun[]
 
-  @@index([isActive, displayOrder])
+  @@unique([benchmarkId, version])
 }
 
 /// Canonical daily bar of a benchmark series, stored separately from `DailyPrice` so benchmark
-/// data can never be mistaken for a tradable security's price history.
+/// data can never be mistaken for a tradable security's price history. Keyed by the immutable
+/// series, never by the mutable product row.
 model BenchmarkDailyPrice {
-  benchmarkId String
-  date        DateTime  @db.Date
-  open        Decimal   @db.Decimal(20, 8)
-  high        Decimal   @db.Decimal(20, 8)
-  low         Decimal   @db.Decimal(20, 8)
-  close       Decimal   @db.Decimal(20, 8)
-  volume      BigInt
-  benchmark   Benchmark @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+  seriesId String
+  date     DateTime        @db.Date
+  open     Decimal         @db.Decimal(20, 8)
+  high     Decimal         @db.Decimal(20, 8)
+  low      Decimal         @db.Decimal(20, 8)
+  close    Decimal         @db.Decimal(20, 8)
+  volume   BigInt
+  series   BenchmarkSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
 
-  @@id([benchmarkId, date])
+  @@id([seriesId, date])
 }
 
-/// Watermark of the benchmark dataset. Same meaning as `StockDatasetState`, keyed by benchmark.
+/// Watermark of the benchmark dataset. Same meaning as `StockDatasetState`, keyed by series.
 model BenchmarkDatasetState {
-  benchmarkId          String
+  seriesId             String
   dataset              BenchmarkDataset
   variant              String           @default("")
   earliestDate         DateTime?        @db.Date
   latestDate           DateTime?        @db.Date
   lastSuccessfulSyncAt DateTime?
-  benchmark            Benchmark        @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+  series               BenchmarkSeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
 
-  @@id([benchmarkId, dataset, variant])
+  @@id([seriesId, dataset, variant])
 }
 
 /// Exact successful coverage interval. Same contract as `StockDatasetCoverage`: the provider was
@@ -473,16 +496,16 @@ model BenchmarkDatasetState {
 /// is persisted, under the recorded variant.
 model BenchmarkDatasetCoverage {
   id                   String           @id @default(uuid())
-  benchmarkId          String
+  seriesId             String
   dataset              BenchmarkDataset
   variant              String           @default("")
   fromDate             DateTime         @db.Date
   toDate               DateTime         @db.Date
   lastSuccessfulSyncAt DateTime
-  benchmark            Benchmark        @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+  series               BenchmarkSeries  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
 
-  @@unique([benchmarkId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_range_key")
-  @@index([benchmarkId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_lookup_idx")
+  @@unique([seriesId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_range_key")
+  @@index([seriesId, dataset, variant, fromDate, toDate], map: "BenchmarkDatasetCoverage_lookup_idx")
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +549,12 @@ model BacktestRun {
   strategyVersionId   String?
   stockListId         String?
   benchmarkId         String
+  /// The exact immutable series this run compares against. Pinned at submission so a later catalog
+  /// change can never reinterpret a queued or completed run.
+  benchmarkSeriesId   String
+  /// The immutable series whose trading days were this run's execution calendar. A system input,
+  /// never the user's comparison choice — see `EXECUTION_CALENDAR_REFERENCE_CODE`.
+  executionCalendarSeriesId String?
   status              BacktestRunStatus     @default(QUEUED)
   /// Denormalized configuration. The snapshot remains authoritative; these columns exist so the
   /// collection page can sort and filter without opening a JSON document.
@@ -563,6 +592,7 @@ model BacktestRun {
   strategyVersion     StrategyVersion?      @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
   stockList           StockList?            @relation(fields: [stockListId], references: [id], onDelete: SetNull)
   benchmark           Benchmark             @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
+  benchmarkSeries     BenchmarkSeries       @relation(fields: [benchmarkSeriesId], references: [id], onDelete: Restrict)
   job                 BacktestJob?
   progress            BacktestRunProgress?
   milestones          BacktestRunMilestone[]

@@ -40,6 +40,7 @@ describe("backtest job claiming", () => {
 
   let userId = "";
   let benchmarkId = "";
+  let benchmarkSeriesId = "";
 
   beforeAll(async () => {
     const user = await prisma.user.create({
@@ -51,12 +52,19 @@ describe("backtest job claiming", () => {
       data: {
         code: `TEST_${suffix.toUpperCase()}`,
         name: "Worker Suite Benchmark",
-        sourceKind: BenchmarkSourceKind.FMP_SYMBOL,
-        providerSymbol: "SPY",
-        currency: "USD",
+        series: {
+          create: {
+            version: 1,
+            sourceKind: BenchmarkSourceKind.FMP_SYMBOL,
+            providerSymbol: "SPY",
+            currency: "USD",
+          },
+        },
       },
+      include: { series: true },
     });
     benchmarkId = benchmark.id;
+    benchmarkSeriesId = benchmark.series[0]?.id ?? "";
   });
 
   afterAll(async () => {
@@ -88,6 +96,7 @@ describe("backtest job claiming", () => {
       data: {
         userId,
         benchmarkId,
+        benchmarkSeriesId,
         status: options.runStatus ?? BacktestRunStatus.QUEUED,
         startDate: new Date("2015-01-01T00:00:00.000Z"),
         endDate: new Date("2016-01-01T00:00:00.000Z"),

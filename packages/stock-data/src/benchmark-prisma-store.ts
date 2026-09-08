@@ -1,7 +1,10 @@
 import type {
-  Benchmark,
+  BenchmarkCatalogEntry,
   BenchmarkDailyPrice,
   BenchmarkDataset,
+  BenchmarkSeries,
+  BenchmarkSourceKind,
+  BenchmarkWithSeries,
   DateRange,
 } from "@intrinsic/domain";
 import type { PrismaClient } from "@intrinsic/database";
@@ -16,18 +19,35 @@ type PrismaTransaction = Parameters<
   Parameters<PrismaClient["$transaction"]>[0]
 >[0];
 
+type SeriesRow = {
+  id: string;
+  benchmarkId: string;
+  version: number;
+  sourceKind: BenchmarkSourceKind;
+  providerSymbol: string;
+  currency: string;
+  methodologyVersion: number;
+};
+
 type BenchmarkRow = {
   id: string;
   code: string;
   name: string;
   description: string | null;
-  sourceKind: Benchmark["sourceKind"];
-  providerSymbol: string;
-  currency: string;
-  methodologyVersion: number;
   isActive: boolean;
   displayOrder: number;
+  series: SeriesRow[];
 };
+
+/**
+ * The definition in force: the highest version.
+ *
+ * Reconciliation only ever appends, so "current" is always the last row rather than a pointer
+ * column that could disagree with the rows it points at.
+ */
+const CURRENT_SERIES = {
+  series: { orderBy: { version: "desc" as const }, take: 1 },
+} as const;
 
 type DecimalLike = { toNumber(): number };
 
@@ -56,59 +76,128 @@ const BULK_WRITE_TRANSACTION_OPTIONS = {
 export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   constructor(private readonly prisma: PrismaClient) {}
 
-  async listActiveBenchmarks(): Promise<Benchmark[]> {
+  async listActiveBenchmarks(): Promise<BenchmarkWithSeries[]> {
     const rows = await this.prisma.benchmark.findMany({
       where: { isActive: true },
       orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
+      include: CURRENT_SERIES,
     });
-    return rows.map(toBenchmark);
+    return rows.flatMap((row) => {
+      const withSeries = toBenchmarkWithSeries(row);
+      return withSeries ? [withSeries] : [];
+    });
   }
 
-  async findBenchmarkByCode(code: string): Promise<Benchmark | null> {
-    const row = await this.prisma.benchmark.findUnique({ where: { code } });
-    return row ? toBenchmark(row) : null;
+  async findBenchmarkByCode(code: string): Promise<BenchmarkWithSeries | null> {
+    const row = await this.prisma.benchmark.findUnique({
+      where: { code },
+      include: CURRENT_SERIES,
+    });
+    return row ? toBenchmarkWithSeries(row) : null;
   }
 
+  async findSeriesById(seriesId: string): Promise<BenchmarkSeries | null> {
+    const row = await this.prisma.benchmarkSeries.findUnique({
+      where: { id: seriesId },
+    });
+    return row ? toSeries(row) : null;
+  }
+
+  /**
+   * Registers the catalog, appending a version whenever a definition differs from the one in force.
+   *
+   * The product row's words may be edited freely — a renamed benchmark is still the same
+   * benchmark. Its *definition* may not: a different source, provider symbol, currency or
+   * methodology produces different numbers, so it becomes a new series and the previous one keeps
+   * every bar already fetched for it. A rerun of an unchanged catalog appends nothing, and the
+   * whole thing runs in one transaction so a concurrent reconciliation cannot interleave a
+   * half-written version.
+   */
   async reconcileBenchmarkCatalog(
-    entries: readonly Omit<Benchmark, "id">[],
-  ): Promise<Benchmark[]> {
-    const persisted: Benchmark[] = [];
+    entries: readonly BenchmarkCatalogEntry[],
+  ): Promise<BenchmarkWithSeries[]> {
+    const persisted: BenchmarkWithSeries[] = [];
     for (const entry of entries) {
-      const fields = {
-        name: entry.name,
-        description: entry.description ?? null,
-        sourceKind: entry.sourceKind,
-        providerSymbol: entry.providerSymbol,
-        currency: entry.currency,
-        methodologyVersion: entry.methodologyVersion,
-        isActive: entry.isActive,
-        displayOrder: entry.displayOrder,
-      };
-      const row = await this.prisma.benchmark.upsert({
-        where: { code: entry.code },
-        create: { code: entry.code, ...fields },
-        update: fields,
+      const row = await this.prisma.$transaction(async (transaction) => {
+        const benchmark = await transaction.benchmark.upsert({
+          where: { code: entry.code },
+          create: {
+            code: entry.code,
+            name: entry.name,
+            description: entry.description ?? null,
+            isActive: entry.isActive,
+            displayOrder: entry.displayOrder,
+          },
+          update: {
+            name: entry.name,
+            description: entry.description ?? null,
+            isActive: entry.isActive,
+            displayOrder: entry.displayOrder,
+          },
+        });
+
+        const definition = {
+          sourceKind: entry.sourceKind,
+          providerSymbol: entry.providerSymbol,
+          currency: entry.currency,
+          methodologyVersion: entry.methodologyVersion,
+        };
+        // Compared against the version currently in force, not against every version ever written.
+        // A rerun of an unchanged catalog appends nothing; returning a benchmark to a source it
+        // used before appends a new version rather than being silently rejected, and that version
+        // fetches its own data — which is right, because a restated history is not the old one.
+        const current = await transaction.benchmarkSeries.findFirst({
+          where: { benchmarkId: benchmark.id },
+          orderBy: { version: "desc" },
+        });
+        const unchanged =
+          current !== null &&
+          current.sourceKind === definition.sourceKind &&
+          current.providerSymbol === definition.providerSymbol &&
+          current.currency === definition.currency &&
+          current.methodologyVersion === definition.methodologyVersion;
+        if (!unchanged) {
+          await transaction.benchmarkSeries.create({
+            data: {
+              benchmarkId: benchmark.id,
+              version: (current?.version ?? 0) + 1,
+              ...definition,
+            },
+          });
+        }
+
+        return transaction.benchmark.findUniqueOrThrow({
+          where: { id: benchmark.id },
+          include: CURRENT_SERIES,
+        });
       });
-      persisted.push(toBenchmark(row));
+
+      const withSeries = toBenchmarkWithSeries(row);
+      if (!withSeries) {
+        throw new Error(
+          `Benchmark ${entry.code} was reconciled without a series definition`,
+        );
+      }
+      persisted.push(withSeries);
     }
     return persisted;
   }
 
   async getDatasetState(
-    benchmarkId: string,
+    seriesId: string,
     dataset: BenchmarkDataset,
     variant: string,
   ): Promise<BenchmarkDatasetStateRecord | null> {
     const row = await this.prisma.benchmarkDatasetState.findUnique({
       where: {
-        benchmarkId_dataset_variant: { benchmarkId, dataset, variant },
+        seriesId_dataset_variant: { seriesId, dataset, variant },
       },
     });
     if (!row) {
       return null;
     }
     return {
-      benchmarkId: row.benchmarkId,
+      seriesId: row.seriesId,
       dataset: row.dataset,
       variant: row.variant,
       ...(row.earliestDate
@@ -124,14 +213,14 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   }
 
   async getDatasetCoverage(
-    benchmarkId: string,
+    seriesId: string,
     dataset: BenchmarkDataset,
     variant: string,
     range: Required<DateRange>,
   ): Promise<Required<DateRange>[]> {
     const rows = await this.prisma.benchmarkDatasetCoverage.findMany({
       where: {
-        benchmarkId,
+        seriesId,
         dataset,
         variant,
         fromDate: { lte: toDatabaseDate(range.to) },
@@ -146,12 +235,12 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   }
 
   async getDailyPrices(
-    benchmarkId: string,
+    seriesId: string,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]> {
     const rows = await this.prisma.benchmarkDailyPrice.findMany({
       where: {
-        benchmarkId,
+        seriesId,
         date: {
           gte: toDatabaseDate(range.from),
           lte: toDatabaseDate(range.to),
@@ -160,7 +249,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
       orderBy: { date: "asc" },
     });
     return rows.map((row) => ({
-      benchmarkId: row.benchmarkId,
+      seriesId: row.seriesId,
       date: fromDatabaseDate(row.date),
       open: (row.open as DecimalLike).toNumber(),
       high: (row.high as DecimalLike).toNumber(),
@@ -171,7 +260,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   }
 
   async saveDailyPriceSync(input: {
-    benchmarkId: string;
+    seriesId: string;
     prices: readonly BenchmarkDailyPrice[];
     successfulCoverage: readonly Required<DateRange>[];
     syncedAt: string;
@@ -180,7 +269,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
     assertOwned?: () => void;
   }): Promise<void> {
     await this.prisma.$transaction(async (transaction) => {
-      await this.lockBenchmarkWrite(transaction, input.benchmarkId);
+      await this.lockBenchmarkWrite(transaction, input.seriesId);
 
       const affectedDates = [
         ...new Set(input.prices.map((price) => price.date)),
@@ -188,13 +277,13 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
       if (affectedDates.length > 0) {
         await transaction.benchmarkDailyPrice.deleteMany({
           where: {
-            benchmarkId: input.benchmarkId,
+            seriesId: input.seriesId,
             date: { in: affectedDates },
           },
         });
         await transaction.benchmarkDailyPrice.createMany({
           data: input.prices.map((price) => ({
-            benchmarkId: input.benchmarkId,
+            seriesId: input.seriesId,
             date: toDatabaseDate(price.date),
             open: price.open,
             high: price.high,
@@ -207,7 +296,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
       for (const interval of input.successfulCoverage) {
         await this.advanceState(transaction, {
-          benchmarkId: input.benchmarkId,
+          seriesId: input.seriesId,
           dataset: "DAILY_PRICE",
           variant: BENCHMARK_DAILY_PRICE_VARIANT,
           from: interval.from,
@@ -218,7 +307,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
       if (input.freshThrough) {
         await this.advanceState(transaction, {
-          benchmarkId: input.benchmarkId,
+          seriesId: input.seriesId,
           dataset: "DAILY_PRICE",
           variant: BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
           from: input.freshThrough,
@@ -236,7 +325,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
   private async advanceState(
     transaction: PrismaTransaction,
     input: {
-      benchmarkId: string;
+      seriesId: string;
       dataset: BenchmarkDataset;
       variant: string;
       from: string;
@@ -247,7 +336,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
     const existingCoverage =
       await transaction.benchmarkDatasetCoverage.findMany({
         where: {
-          benchmarkId: input.benchmarkId,
+          seriesId: input.seriesId,
           dataset: input.dataset,
           variant: input.variant,
         },
@@ -292,14 +381,14 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
     await transaction.benchmarkDatasetCoverage.deleteMany({
       where: {
-        benchmarkId: input.benchmarkId,
+        seriesId: input.seriesId,
         dataset: input.dataset,
         variant: input.variant,
       },
     });
     await transaction.benchmarkDatasetCoverage.createMany({
       data: compacted.map((coverage) => ({
-        benchmarkId: input.benchmarkId,
+        seriesId: input.seriesId,
         dataset: input.dataset,
         variant: input.variant,
         ...coverage,
@@ -308,8 +397,8 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
     const existing = await transaction.benchmarkDatasetState.findUnique({
       where: {
-        benchmarkId_dataset_variant: {
-          benchmarkId: input.benchmarkId,
+        seriesId_dataset_variant: {
+          seriesId: input.seriesId,
           dataset: input.dataset,
           variant: input.variant,
         },
@@ -335,14 +424,14 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
     await transaction.benchmarkDatasetState.upsert({
       where: {
-        benchmarkId_dataset_variant: {
-          benchmarkId: input.benchmarkId,
+        seriesId_dataset_variant: {
+          seriesId: input.seriesId,
           dataset: input.dataset,
           variant: input.variant,
         },
       },
       create: {
-        benchmarkId: input.benchmarkId,
+        seriesId: input.seriesId,
         dataset: input.dataset,
         variant: input.variant,
         earliestDate,
@@ -355,29 +444,46 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
 
   private async lockBenchmarkWrite(
     transaction: PrismaTransaction,
-    benchmarkId: string,
+    seriesId: string,
   ): Promise<void> {
     // Scoped to this transaction and taken once at the outer boundary, exactly as the stock writer
     // does: two processes hydrating the same benchmark serialize instead of interleaving deletes.
-    const lockKey = `benchmark-data-write:${benchmarkId}`;
+    const lockKey = `benchmark-data-write:${seriesId}`;
     await transaction.$executeRaw`
       SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
     `;
   }
 }
 
-function toBenchmark(row: BenchmarkRow): Benchmark {
+function toSeries(row: SeriesRow): BenchmarkSeries {
+  return {
+    id: row.id,
+    benchmarkId: row.benchmarkId,
+    version: row.version,
+    sourceKind: row.sourceKind,
+    providerSymbol: row.providerSymbol,
+    currency: row.currency,
+    methodologyVersion: row.methodologyVersion,
+  };
+}
+
+/**
+ * A benchmark whose definition has not been reconciled yet has no series and is not usable, so it
+ * is reported as absent rather than as a benchmark with nothing behind it.
+ */
+function toBenchmarkWithSeries(row: BenchmarkRow): BenchmarkWithSeries | null {
+  const series = row.series[0];
+  if (!series) {
+    return null;
+  }
   return {
     id: row.id,
     code: row.code,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
-    sourceKind: row.sourceKind,
-    providerSymbol: row.providerSymbol,
-    currency: row.currency,
-    methodologyVersion: row.methodologyVersion,
     isActive: row.isActive,
     displayOrder: row.displayOrder,
+    series: toSeries(series),
   };
 }
 

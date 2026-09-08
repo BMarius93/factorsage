@@ -33,6 +33,7 @@ import {
 } from "@intrinsic/database";
 import {
   DEFAULT_BENCHMARK_CODE,
+  EXECUTION_CALENDAR_REFERENCE_CODE,
   normalizeBuyWindowConfiguration,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -674,12 +675,28 @@ export class BacktestsService {
     const benchmarkCode = input.benchmarkCode ?? DEFAULT_BENCHMARK_CODE;
     const benchmark = await this.prisma.benchmark.findFirst({
       where: { code: benchmarkCode, isActive: true },
+      include: { series: { orderBy: { version: "desc" }, take: 1 } },
     });
     if (!benchmark) {
       throw new BacktestConfigurationError(
         `\`${benchmarkCode}\` is not a selectable benchmark`,
       );
     }
+    const benchmarkSeries = benchmark.series[0];
+    if (!benchmarkSeries) {
+      throw new BacktestConfigurationError(
+        `\`${benchmarkCode}\` has no reconciled series definition`,
+      );
+    }
+
+    // The execution calendar's source is the engine's, not the user's. Resolved once here and
+    // pinned, so the run keeps simulating the same dates however the catalog moves afterwards.
+    const executionCalendarSeries = (
+      await this.prisma.benchmark.findFirst({
+        where: { code: EXECUTION_CALENDAR_REFERENCE_CODE },
+        include: { series: { orderBy: { version: "desc" }, take: 1 } },
+      })
+    )?.series[0];
 
     // Sorted by symbol so two submissions of the same list produce byte-identical documents, which
     // is what makes `snapshotHash` a usable identity for "these are the same inputs".
@@ -736,12 +753,25 @@ export class BacktestsService {
       },
       benchmark: {
         benchmarkId: benchmark.id,
+        // The exact immutable series, pinned here and resolved by id at execution. A later catalog
+        // change appends a new version and leaves this one — and its bars — untouched.
+        seriesId: benchmarkSeries.id,
+        seriesVersion: benchmarkSeries.version,
         code: benchmark.code,
         name: benchmark.name,
-        sourceKind: benchmark.sourceKind,
-        providerSymbol: benchmark.providerSymbol,
-        methodologyVersion: benchmark.methodologyVersion,
-        currency: benchmark.currency,
+        sourceKind: benchmarkSeries.sourceKind,
+        providerSymbol: benchmarkSeries.providerSymbol,
+        methodologyVersion: benchmarkSeries.methodologyVersion,
+        currency: benchmarkSeries.currency,
+      },
+      executionCalendar: {
+        // The dates this run simulates come from a series the *engine* names, never from the
+        // comparison above: two runs differing only in what they are compared against must
+        // execute identically. Null when the reference has not been reconciled, in which case the
+        // engine falls back to the securities' own union.
+        referenceCode: EXECUTION_CALENDAR_REFERENCE_CODE,
+        seriesId: executionCalendarSeries?.id ?? null,
+        seriesVersion: executionCalendarSeries?.version ?? null,
       },
       methodology: { ...BACKTEST_METHODOLOGY },
       dataRevisions: {
@@ -766,6 +796,10 @@ export class BacktestsService {
         strategyVersionId: version.id,
         stockListId: stockList.id,
         benchmarkId: benchmark.id,
+        benchmarkSeriesId: benchmarkSeries.id,
+        ...(executionCalendarSeries
+          ? { executionCalendarSeriesId: executionCalendarSeries.id }
+          : {}),
         status: "QUEUED",
         startDate: toDatabaseDate(input.startDate),
         endDate: toDatabaseDate(input.endDate),

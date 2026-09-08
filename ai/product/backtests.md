@@ -78,10 +78,19 @@ Portfolio and benchmark are reported as percentage growth from the run's first s
 two curves are directly comparable, and `alpha` is their difference. A date on which the benchmark
 has no value at or before it reports no benchmark value; a gap is never fabricated.
 
-The benchmark also supplies the run's date axis. A portfolio exists from the first day of the
-requested period even while it holds nothing but cash, so a run whose securities all list later than
-its start still simulates from the start — flat at 0% until the first position is opened. See
-`../architecture/backtest-execution.md`.
+**Changing the benchmark cannot change the portfolio.** The same strategy, stock list, period,
+capital and allocation produce the same trades and the same portfolio return whichever benchmark is
+selected; only the benchmark return, alpha and the benchmark's own drawdown differ. The dates a run
+simulates come from an execution calendar the engine owns, not from the comparison — a passive
+benchmark that decided when contributions landed would decide the result.
+
+A portfolio exists from the first day of the requested period even while it holds nothing but cash,
+so a run whose securities all list later than its start still simulates from the start — flat at 0%
+until the first position is opened. See `../architecture/backtest-execution.md`.
+
+A run also pins the exact immutable **series version** of its benchmark at submission. Re-sourcing a
+benchmark later — a different provider, a different methodology — creates a new version and leaves
+every completed and queued run reading the one it was submitted against.
 
 ## Securities whose history does not span the run
 

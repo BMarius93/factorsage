@@ -31,6 +31,18 @@ export type BacktestExecutionInput = {
   securities: readonly BacktestSecurityInput[];
   /** Null when the run has no comparable benchmark data; the portfolio curve still renders. */
   benchmark: BenchmarkSeriesInput | null;
+  /**
+   * The market's trading days over the run's period, from the engine's own reference series.
+   *
+   * This is a **system input, never a user choice**. It is what makes a portfolio exist from the
+   * first day of its period while it still holds nothing but cash, and what keeps a monthly
+   * contribution landing in months when none of the run's securities has listed yet.
+   *
+   * It is deliberately not `benchmark.dates`: the comparison benchmark is passive, and two runs
+   * that differ only in what they are compared against must execute identically. Empty is
+   * allowed — the calendar then falls back to the securities' own union.
+   */
+  executionCalendar: readonly LocalDate[];
   startDate: LocalDate;
   endDate: LocalDate;
   initialCapital: number;

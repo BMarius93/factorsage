@@ -13,11 +13,55 @@ derived-state rebuild that calculates RSI and DCF for an index proxy for no reas
 identity and benchmark market data therefore stay explicit.
 
 ```text
-Benchmark                     product identity: code, name, source kind, provider symbol,
- ├─ BenchmarkDailyPrice        methodology version
- ├─ BenchmarkDatasetState      tail/coverage watermarks
- └─ BenchmarkDatasetCoverage   exact successful coverage intervals
+Benchmark                         product identity: code, name, description, selectability
+ └─ BenchmarkSeries               IMMUTABLE definition: source kind, provider symbol, currency,
+     ├─ BenchmarkDailyPrice       methodology version — appended, never edited
+     ├─ BenchmarkDatasetState     tail/coverage watermarks
+     └─ BenchmarkDatasetCoverage  exact successful coverage intervals
 ```
+
+## Identity is versioned, and data hangs off the version
+
+A benchmark's _meaning_ can change: `SP500` is sourced from the `SPY` ETF today and could be sourced
+from a direct index feed tomorrow, which would change every number it produces.
+
+That is not an edit, and it must not be stored as one. If the source, provider symbol, currency or
+methodology lived on the mutable product row, changing any of them would silently reinterpret every
+bar already stored under that benchmark id — and a run that had been queued but not yet started
+would execute against a definition it never chose.
+
+So reconciliation is **append-only** for the definition:
+
+- the product row's words (name, description, ordering, selectability) are corrected on every boot;
+- a definition that differs from the one in force creates `BenchmarkSeries` version _n+1_;
+- an identical definition matches the definition unique key and creates nothing, so reruns converge;
+- market data, coverage, watermarks and the Redis projection are all keyed by `seriesId`.
+
+A `BacktestRun` therefore pins `benchmarkSeriesId` at submission and the worker resolves **by id**.
+Resolution by code does not exist on the worker's port at all — `BacktestBenchmarkLoader` exposes
+`getSeries(seriesId)` and nothing else, so the mistake cannot be reintroduced by accident.
+
+`packages/stock-data/src/benchmark-series.integration.test.ts` pins the three consequences: a
+catalog change after submission cannot change what a pinned run reads; v1's bars cannot be
+overwritten or reinterpreted as v2; and a completed run's configuration stays interpretable —
+including the provider symbol it was sourced from — after the catalog advances.
+
+## The execution calendar is not the comparison benchmark
+
+The dates a run simulates decide when a monthly contribution lands and what the return index is
+based at. They therefore decide the portfolio's own numbers, and they must not depend on what the
+user chose to compare against: two runs identical but for their benchmark must produce identical
+trades and an identical portfolio return.
+
+The engine names its own reference series for this — `EXECUTION_CALENDAR_REFERENCE_CODE` — and a run
+pins that series version too, in `snapshot.executionCalendar`. It is the same code the product also
+offers as a comparison today, which costs nothing: one hydration serves both roles, and the
+separation lives in the code and the snapshot rather than in duplicated bytes. When the reference
+has no data over the period, the engine falls back to the securities' own union — a narrower axis,
+never a fabricated one.
+
+`packages/strategy/src/backtest/simulate.test.ts` proves the independence against a benchmark that
+trades on days the market did not.
 
 ## What is deliberately shared
 
@@ -42,9 +86,12 @@ The worker **never** calls FMP around this infrastructure.
 ## Redis namespace
 
 ```text
-benchmark:v1:benchmark:<benchmarkId>:daily-price:<year>
-benchmark:v1:benchmark:<benchmarkId>:manifest
+benchmark:v1:benchmark:<seriesId>:daily-price:<year>
+benchmark:v1:benchmark:<seriesId>:manifest
 ```
+
+Keyed by the immutable series, so a new version projects into its own keys and can never read a
+previous version's cached bars.
 
 Distinct from `stock-data:v2:security:<id>:…` on purpose: the stock LRU can never evict a benchmark,
 a benchmark can never occupy a stock residency slot, and a Redis flush costs one durable re-read.

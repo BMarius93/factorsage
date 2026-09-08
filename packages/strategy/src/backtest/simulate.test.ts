@@ -1053,6 +1053,153 @@ describe("annual milestone checkpoints", () => {
  * portfolio that holds nothing but cash has a real, knowable value and a return of exactly zero;
  * a curve that only began at the first BUY would hide years of the decision not to buy.
  */
+describe("the comparison benchmark is passive", () => {
+  const MARKET_DATES = tradingDates("2020-01-06", 200);
+
+  /**
+   * Dates the market never traded on: every market day shifted by one, so a Friday becomes a
+   * Saturday, plus a month that starts earlier than any market date.
+   *
+   * The point is that these dates are *not* a subset of the execution calendar. A benchmark whose
+   * days merely overlapped the market's could join the union unnoticed; one that trades on days the
+   * market did not would change the axis, the first simulated date and the first trading date of a
+   * month the moment it were allowed to.
+   */
+  const OFF_CALENDAR_DATES = [
+    "2020-01-01",
+    ...MARKET_DATES.map((date) => {
+      const shifted = new Date(`${date}T00:00:00.000Z`);
+      shifted.setUTCDate(shifted.getUTCDate() + 1);
+      return shifted.toISOString().slice(0, 10);
+    }),
+  ];
+
+  /**
+   * Two runs identical but for what they are compared against.
+   *
+   * The benchmarks deliberately trade on *different* calendars — one on the market's days, one on
+   * a sparse subset shifted off them — because the failure this guards against is not a wrong
+   * number, it is the benchmark quietly joining the execution calendar and moving the dates a
+   * contribution lands on.
+   */
+  async function comparedAgainst(
+    benchmarkDates: readonly string[],
+    closeStep = 3,
+  ) {
+    const marketDates = tradingDates("2020-01-06", 200);
+    const closes = marketDates.map((_, index) => (index < 60 ? 100 : 80));
+    const frame = frameOf({ symbol: "AAA", dates: marketDates, closes });
+
+    return simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 50, priceBelowSignal(90))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: marketDates[0] as string,
+        endDate: marketDates[marketDates.length - 1] as string,
+        initialCapital: 10_000,
+        monthlyContribution: 1_000,
+        maximumPositions: 2,
+        executionCalendar: marketDates,
+        benchmark: benchmarkSeries({
+          dates: [...benchmarkDates],
+          closes: benchmarkDates.map((_, index) => 400 + index * closeStep),
+        }),
+      }),
+    );
+  }
+
+  it("cannot change the portfolio's trades or its return", async () => {
+    const dense = await comparedAgainst(MARKET_DATES);
+    const offCalendar = await comparedAgainst(OFF_CALENDAR_DATES);
+    const sparse = offCalendar;
+
+    expect(
+      sparse.trades.map((trade) => [trade.date, trade.action, trade.shares]),
+    ).toEqual(
+      dense.trades.map((trade) => [trade.date, trade.action, trade.shares]),
+    );
+    expect(sparse.summary.portfolioReturnPercent).toBe(
+      dense.summary.portfolioReturnPercent,
+    );
+    expect(sparse.summary.finalValue).toBe(dense.summary.finalValue);
+    expect(sparse.summary.investedCapital).toBe(dense.summary.investedCapital);
+    expect(sparse.summary.maxDrawdownPercent).toBe(
+      dense.summary.maxDrawdownPercent,
+    );
+  });
+
+  it("cannot change which dates a monthly contribution lands on", async () => {
+    const dense = await comparedAgainst(MARKET_DATES);
+    const sparse = await comparedAgainst(OFF_CALENDAR_DATES);
+
+    // Invested capital rises only on a contribution date, so the dates it steps on are the
+    // contribution dates — read off the curve rather than asserted from the rule under test.
+    const contributionDates = (
+      result: Awaited<ReturnType<typeof comparedAgainst>>,
+    ) =>
+      result.equity
+        .filter(
+          (point, index) =>
+            index > 0 &&
+            point.investedCapital !==
+              (result.equity[index - 1]?.investedCapital ?? 0),
+        )
+        .map((point) => point.date);
+
+    expect(contributionDates(sparse)).toEqual(contributionDates(dense));
+    expect(contributionDates(dense).length).toBeGreaterThan(1);
+    expect(sparse.equity.map((point) => point.date)).toEqual(
+      dense.equity.map((point) => point.date),
+    );
+  });
+
+  it("does change the benchmark return and the alpha", async () => {
+    const dense = await comparedAgainst(MARKET_DATES);
+    const sparse = await comparedAgainst(OFF_CALENDAR_DATES, 7);
+
+    // The comparison is the one thing that may differ, and here it must: the two series have
+    // different closes on the run's last day.
+    expect(sparse.summary.benchmarkReturnPercent).not.toBe(
+      dense.summary.benchmarkReturnPercent,
+    );
+    expect(sparse.summary.alphaPercent).not.toBe(dense.summary.alphaPercent);
+  });
+
+  it("cannot extend a run past the days the market and its securities traded", async () => {
+    const marketDates = tradingDates("2020-01-06", 40);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates: marketDates,
+      closes: marketDates.map(() => 100),
+    });
+    // The benchmark keeps quoting long after the run's own calendar ends.
+    const benchmarkDates = tradingDates("2020-01-06", 400);
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: marketDates[0] as string,
+        endDate: benchmarkDates[benchmarkDates.length - 1] as string,
+        executionCalendar: marketDates,
+        benchmark: benchmarkSeries({
+          dates: benchmarkDates,
+          closes: benchmarkDates.map((_, index) => 400 + index),
+        }),
+      }),
+    );
+
+    expect(result.summary.lastSimulatedDate).toBe(
+      marketDates[marketDates.length - 1],
+    );
+    expect(result.equity).toHaveLength(marketDates.length);
+  });
+});
+
 describe("the period, not the data, defines the run", () => {
   it("reports a flat 0% for the months before the first trade", async () => {
     const dates = tradingDates("2020-01-06", 60);
@@ -1083,9 +1230,9 @@ describe("the period, not the data, defines the run", () => {
   });
 
   it("simulates from the period start even when every security lists years later", async () => {
-    // The securities begin trading in the third year; the benchmark covers the whole period.
-    const benchmarkDates = tradingDates("2020-01-06", 780);
-    const lateDates = benchmarkDates.slice(520);
+    // The securities begin trading in the third year; the market traded the whole period.
+    const marketDates = tradingDates("2020-01-06", 780);
+    const lateDates = marketDates.slice(520);
     const frame = frameOf({
       symbol: "IPO",
       dates: lateDates,
@@ -1098,20 +1245,17 @@ describe("the period, not the data, defines the run", () => {
           buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
         }),
         securities: [securityInput(frame)],
-        startDate: benchmarkDates[0] as string,
-        endDate: benchmarkDates[benchmarkDates.length - 1] as string,
+        startDate: marketDates[0] as string,
+        endDate: marketDates[marketDates.length - 1] as string,
         initialCapital: 100_000,
-        benchmark: benchmarkSeries({
-          dates: benchmarkDates,
-          closes: benchmarkDates.map((_, index) => 400 + index * 0.1),
-        }),
+        executionCalendar: marketDates,
       }),
     );
 
     // The run exists from its first day: cash only, 0%, no position, no fabricated price.
-    expect(result.equity[0]?.date).toBe(benchmarkDates[0]);
+    expect(result.equity[0]?.date).toBe(marketDates[0]);
     expect(result.equity[0]?.totalValue).toBe(100_000);
-    expect(result.summary.firstSimulatedDate).toBe(benchmarkDates[0]);
+    expect(result.summary.firstSimulatedDate).toBe(marketDates[0]);
     const beforeListing = result.equity.filter(
       (point) => point.date < (lateDates[0] as string),
     );
@@ -1120,13 +1264,11 @@ describe("the period, not the data, defines the run", () => {
       true,
     );
     expect(beforeListing.every((point) => point.returnIndex === 1)).toBe(true);
-    // The benchmark is normalized from the same first day, so the comparison starts together.
-    expect(result.equity[0]?.benchmarkIndex).toBeCloseTo(1, 9);
     // And the security participates from its first real price, never before it.
     expect(result.trades[0]?.date).toBe(lateDates[0]);
   });
 
-  it("keeps the securities' own axis when the run has no benchmark", async () => {
+  it("keeps the securities' own axis when the run has no execution calendar", async () => {
     const dates = tradingDates("2020-01-06", 10);
     const frame = frameOf({
       symbol: "AAA",
@@ -1287,7 +1429,7 @@ describe("securities whose history does not span the run", () => {
     ).toBe(true);
   });
 
-  it("keeps valuing a stale holding to the end of the period when the benchmark still trades", async () => {
+  it("keeps valuing a stale holding to the end of the period while the market still trades", async () => {
     const full = tradingDates("2020-01-06", 40);
     const truncated = full.slice(0, 20);
     const frame = frameOf({
@@ -1306,10 +1448,7 @@ describe("securities whose history does not span the run", () => {
         endDate: full[full.length - 1] as string,
         initialCapital: 100_000,
         maximumPositions: 1,
-        benchmark: benchmarkSeries({
-          dates: full,
-          closes: full.map((_, index) => 400 + index),
-        }),
+        executionCalendar: full,
       }),
     );
 

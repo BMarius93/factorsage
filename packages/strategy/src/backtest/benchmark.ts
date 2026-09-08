@@ -2,11 +2,16 @@ import type { LocalDate } from "@intrinsic/domain";
 import type { BenchmarkSeriesInput } from "./types.js";
 
 /**
- * Reads a benchmark series along the portfolio's ascending union calendar.
+ * Reads a benchmark series along the portfolio's ascending execution calendar.
  *
- * The benchmark is passive comparison data: it never consumes cash, never occupies a position slot
- * and never joins the union calendar. On a union date the benchmark did not trade, its most recent
- * close at or before that date is used — the same carry-forward rule a held position's valuation
+ * The benchmark is passive comparison data: it never consumes cash, never occupies a position slot,
+ * and **never contributes a date to the calendar** — the axis comes from the run's securities and
+ * the engine's own execution-calendar reference, so two runs differing only in what they are
+ * compared against execute identically. This class is the whole of the benchmark's influence on a
+ * result: a column of numbers beside the portfolio's.
+ *
+ * On a simulated date the benchmark did not trade, its most recent close at or before that date is
+ * used — the same carry-forward rule a held position's valuation
  * uses, and the only point-in-time-correct value available. A date before the benchmark's first
  * available close has no value at all; it is reported as absent rather than fabricated.
  */

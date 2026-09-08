@@ -110,10 +110,20 @@ Migration `20260907195815_add_backtests_and_benchmarks` adds the Backtest V1 sli
 `20260908080859_add_backtest_failure_phase` extend it with the annual milestone table and the user-facing failure
 phase column.
 
-**Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `sourceKind`,
-`providerSymbol`, `currency`, `methodologyVersion`, `isActive`, `displayOrder`) with
-`BenchmarkDailyPrice` keyed `@@id([benchmarkId, date])`, plus `BenchmarkDatasetState` and
-`BenchmarkDatasetCoverage` mirroring the stock dataset watermark/coverage contract exactly. They are
+**Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `description`,
+`isActive`, `displayOrder`). Everything that decides what its numbers _are_ lives on
+`BenchmarkSeries` — an **append-only** definition (`sourceKind`, `providerSymbol`, `currency`,
+`methodologyVersion`) with `@@unique([benchmarkId, version])` and a definition unique key that makes
+reconciliation idempotent. `BenchmarkDailyPrice` is keyed `@@id([seriesId, date])`, and
+`BenchmarkDatasetState`/`BenchmarkDatasetCoverage` are keyed by `seriesId` too, mirroring the stock
+dataset watermark/coverage contract exactly.
+
+Keying market data by the series and not the product row is what makes a run reproducible:
+re-sourcing `SP500` appends version 2 and leaves version 1's bars, coverage and watermarks exactly
+where they were. `BacktestRun.benchmarkSeriesId` (`onDelete: Restrict`) pins the version a run
+compares against and `executionCalendarSeriesId` pins the one that supplied its simulated dates;
+migration `20260908130000_immutable_benchmark_series` introduces both and backfills every existing
+benchmark's current definition as its version 1. They are
 deliberately **separate tables from `Security`/`DailyPrice`**: a benchmark is passive comparison
 data with no fundamentals, no derived state and no position, and folding it into the security
 catalog would drag all of that along with it. `BenchmarkSourceKind` ships one member, `FMP_SYMBOL`;

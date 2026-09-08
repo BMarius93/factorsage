@@ -125,6 +125,7 @@ export type BacktestBenchmarkSnapshotResponse = {
 /** The methodology versions a run executed under, straight from its snapshot. */
 export type BacktestMethodologyResponse = {
   calendar: string;
+  executionCalendar: string;
   candidateOrdering: string;
   execution: string;
   executionCosts: string;
@@ -519,12 +520,31 @@ export type BacktestRunSnapshot = {
   };
   benchmark: {
     benchmarkId: string;
+    /**
+     * The immutable series this run compares against, pinned at submission.
+     *
+     * Execution resolves the benchmark by this id and never by `code`: the catalog can append a
+     * new definition at any moment, and a queued run must keep reading exactly the series it was
+     * submitted against.
+     */
+    seriesId: string;
+    seriesVersion: number;
     code: string;
     name: string;
     sourceKind: BenchmarkSourceKind;
     providerSymbol: string;
     methodologyVersion: number;
     currency: string;
+  };
+  /**
+   * Where the run's simulated dates come from — a system input, never the user's comparison
+   * choice. `seriesId` is null when the reference had no reconciled definition at submission, in
+   * which case the engine falls back to the securities' own union.
+   */
+  executionCalendar: {
+    referenceCode: string;
+    seriesId: string | null;
+    seriesVersion: number | null;
   };
   methodology: BacktestMethodologyResponse;
   /**

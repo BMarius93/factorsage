@@ -18,6 +18,7 @@ import {
   type BenchmarkResponse,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
+import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -374,6 +375,12 @@ describe("backtests", () => {
     });
     expect(snapshot.benchmark).toEqual({
       benchmarkId: expect.any(String),
+      // The exact immutable series, not just the code: this is what execution resolves. The
+      // version *number* is not the contract — a database that has seen a re-sourcing is at a
+      // higher one — so what matters is that a concrete version is pinned, asserted against the
+      // catalog's current series below.
+      seriesId: expect.any(String),
+      seriesVersion: expect.any(Number),
       code: "SP500",
       name: "S&P 500",
       sourceKind: "FMP_SYMBOL",
@@ -381,6 +388,22 @@ describe("backtests", () => {
       methodologyVersion: 1,
       currency: "USD",
     });
+    // The dates the run simulates come from a series the engine names, pinned the same way and
+    // recorded separately from the comparison above.
+    expect(snapshot.executionCalendar).toEqual({
+      referenceCode: "SP500",
+      seriesId: expect.any(String),
+      seriesVersion: expect.any(Number),
+    });
+
+    // Pinned to the definition actually in force at submission — the highest version, by id.
+    const currentSeries = await prisma.benchmarkSeries.findFirstOrThrow({
+      where: { benchmark: { code: "SP500" } },
+      orderBy: { version: "desc" },
+    });
+    expect(snapshot.benchmark.seriesId).toBe(currentSeries.id);
+    expect(snapshot.benchmark.seriesVersion).toBe(currentSeries.version);
+    expect(snapshot.executionCalendar.seriesId).toBe(currentSeries.id);
     expect(snapshot.methodology).toEqual({ ...BACKTEST_METHODOLOGY });
     expect(snapshot.dataRevisions.priceDatasetVersion).toBeTypeOf("number");
     expect(snapshot.dataRevisions.derivedStateRevision).toBeTypeOf("number");
@@ -1149,6 +1172,79 @@ describe("backtests", () => {
       // Compact by design: a milestone is a scalar snapshot, never a copy of the curve.
       expect(Object.keys(body.milestones[0] ?? {})).not.toContain("curve");
     }
+  });
+
+  it("keeps a queued run bound to the benchmark series it was submitted against", async () => {
+    // A benchmark of this test's own, so advancing a definition cannot disturb `SP500` for the
+    // suites around it. The invariant is about versioning, not about which code carries it.
+    const store = new PrismaBenchmarkDataStore(prisma);
+    const code = `PINNED_${suffix.slice(0, 8).toUpperCase()}`;
+    const definition = {
+      code,
+      name: "Pinned Fixture",
+      sourceKind: "FMP_SYMBOL" as const,
+      providerSymbol: "OLDSYM",
+      currency: "USD",
+      methodologyVersion: 1,
+      isActive: true,
+      displayOrder: 50,
+    };
+    await store.reconcileBenchmarkCatalog([definition]);
+
+    const run = await submit({ benchmarkCode: code });
+    const before = await prisma.backtestRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { benchmarkSeriesId: true, snapshot: true },
+    });
+
+    // The catalog advances: re-sourced under a new methodology. This is the moment the old design
+    // lost reproducibility — the row every historical bar hung off was edited in place, and a run
+    // that had not started yet would have executed against a definition it never chose.
+    await store.reconcileBenchmarkCatalog([
+      { ...definition, providerSymbol: "NEWSYM", methodologyVersion: 2 },
+    ]);
+    const versions = await prisma.benchmarkSeries.findMany({
+      where: { benchmark: { code } },
+      orderBy: { version: "asc" },
+    });
+    expect(versions).toHaveLength(2);
+    expect(versions[1]?.providerSymbol).toBe("NEWSYM");
+
+    // The run still points at v1, and its snapshot still describes v1.
+    const after = await prisma.backtestRun.findUniqueOrThrow({
+      where: { id: run.id },
+      select: { benchmarkSeriesId: true, snapshot: true },
+    });
+    expect(after.benchmarkSeriesId).toBe(before.benchmarkSeriesId);
+    expect(after.benchmarkSeriesId).toBe(versions[0]?.id);
+    const snapshot = after.snapshot as unknown as BacktestRunSnapshot;
+    expect(snapshot.benchmark.seriesId).toBe(versions[0]?.id);
+    expect(snapshot.benchmark.seriesVersion).toBe(1);
+    expect(snapshot.benchmark.providerSymbol).toBe("OLDSYM");
+
+    const detail = await owner.get(`/backtests/${run.id}`).expect(200);
+    const body = detail.body as BacktestRunDetailResponse;
+    expect(body.configuration.benchmark.methodologyVersion).toBe(1);
+    // And the browser still never learns which ticker backs the code.
+    expect(JSON.stringify(body)).not.toContain("NEWSYM");
+    expect(JSON.stringify(body)).not.toContain("OLDSYM");
+
+    // Returning the catalog to its earlier definition is a *new* version, not a resurrection of
+    // the old one: its data would be fetched fresh, and v1 keeps everything already stored for it.
+    await store.reconcileBenchmarkCatalog([definition]);
+    const restored = await prisma.benchmarkSeries.findMany({
+      where: { benchmark: { code } },
+      orderBy: { version: "asc" },
+    });
+    expect(restored).toHaveLength(3);
+    expect(restored[2]?.providerSymbol).toBe("OLDSYM");
+    expect(restored[2]?.id).not.toBe(versions[0]?.id);
+
+    // Reconciling the same catalog twice appends nothing.
+    await store.reconcileBenchmarkCatalog([definition]);
+    expect(
+      await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
+    ).toBe(3);
   });
 
   it("reports no phase rather than one the browser cannot label", async () => {

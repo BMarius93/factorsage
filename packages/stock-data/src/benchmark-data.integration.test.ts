@@ -3,8 +3,8 @@ import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
 import {
   BENCHMARK_CATALOG,
-  type Benchmark,
   type BenchmarkDailyPrice,
+  type BenchmarkWithSeries,
   type DateRange,
 } from "@intrinsic/domain";
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
@@ -41,7 +41,7 @@ const describeBenchmark = redisUrl ? describe : describe.skip;
 
 /** Weekday bars, so a fixture looks like a real series without needing a trading calendar. */
 function series(
-  benchmarkId: string,
+  seriesId: string,
   from: string,
   count: number,
 ): BenchmarkDailyPrice[] {
@@ -53,7 +53,7 @@ function series(
     if (weekday !== 0 && weekday !== 6) {
       const date = cursor.toISOString().slice(0, 10);
       rows.push({
-        benchmarkId,
+        seriesId,
         date,
         open: close,
         high: close + 1,
@@ -102,7 +102,7 @@ describeBenchmark("benchmark loading", () => {
   const cache = new RedisBenchmarkDataCache(new IoredisCacheClient(redis), {
     namespace,
   });
-  let benchmark: Benchmark;
+  let benchmark: BenchmarkWithSeries;
   let rows: BenchmarkDailyPrice[];
 
   function serviceWith(provider: FmpBenchmarkProviderPort) {
@@ -130,24 +130,26 @@ describeBenchmark("benchmark loading", () => {
         displayOrder: 99,
       },
     ]);
-    benchmark = persisted as Benchmark;
-    rows = series(benchmark.id, "2020-01-01", 120);
+    benchmark = persisted as BenchmarkWithSeries;
+    rows = series(benchmark.series.id, "2020-01-01", 120);
   });
 
   beforeEach(async () => {
     await redis.del(
-      `${namespace}:benchmark:${benchmark.id}:manifest`,
+      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
       ...[2019, 2020].map(
-        (year) => `${namespace}:benchmark:${benchmark.id}:daily-price:${year}`,
+        (year) =>
+          `${namespace}:benchmark:${benchmark.series.id}:daily-price:${year}`,
       ),
     );
   });
 
   afterAll(async () => {
     await redis.del(
-      `${namespace}:benchmark:${benchmark.id}:manifest`,
+      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
       ...[2019, 2020].map(
-        (year) => `${namespace}:benchmark:${benchmark.id}:daily-price:${year}`,
+        (year) =>
+          `${namespace}:benchmark:${benchmark.series.id}:daily-price:${year}`,
       ),
     );
     redis.disconnect();
@@ -193,7 +195,10 @@ describeBenchmark("benchmark loading", () => {
     const service = serviceWith(provider);
     const range = { from: "2020-02-03", to: "2020-03-31" };
 
-    const loaded = await service.getBenchmarkDailyPrices(benchmark, range);
+    const loaded = await service.getBenchmarkDailyPrices(
+      benchmark.series,
+      range,
+    );
 
     expect(loaded.length).toBeGreaterThan(0);
     expect(loaded[0]?.date).toBe("2020-02-03");
@@ -208,37 +213,37 @@ describeBenchmark("benchmark loading", () => {
     ).toBe(true);
 
     const persisted = await prisma.benchmarkDailyPrice.count({
-      where: { benchmarkId: benchmark.id },
+      where: { seriesId: benchmark.series.id },
     });
     expect(persisted).toBeGreaterThan(0);
 
     const coverage = await store.getDatasetCoverage(
-      benchmark.id,
+      benchmark.series.id,
       "DAILY_PRICE",
       BENCHMARK_DAILY_PRICE_VARIANT,
       { from: "2019-01-01", to: today },
     );
     expect(coverage.length).toBeGreaterThan(0);
 
-    const manifest = await cache.getManifest(benchmark.id);
+    const manifest = await cache.getManifest(benchmark.series.id);
     expect(manifest?.priceDatasetVersion).toBe(BENCHMARK_PRICE_DATASET_VERSION);
     // The projection lives in its own namespace, not among the resident stocks.
     const chunk = await redis.get(
-      `${namespace}:benchmark:${benchmark.id}:daily-price:2020`,
+      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
     );
     expect(chunk).not.toBeNull();
   });
 
   it("reuses the Redis projection without touching the provider again", async () => {
     const first = new RecordingBenchmarkProvider(rows);
-    await serviceWith(first).getBenchmarkDailyPrices(benchmark, {
+    await serviceWith(first).getBenchmarkDailyPrices(benchmark.series, {
       from: "2020-02-03",
       to: "2020-03-31",
     });
 
     const second = new RecordingBenchmarkProvider(rows);
     const reread = await serviceWith(second).getBenchmarkDailyPrices(
-      benchmark,
+      benchmark.series,
       {
         from: "2020-02-03",
         to: "2020-03-31",
@@ -252,17 +257,20 @@ describeBenchmark("benchmark loading", () => {
   it("rebuilds from PostgreSQL coverage after a Redis flush without refetching the history", async () => {
     await serviceWith(
       new RecordingBenchmarkProvider(rows),
-    ).getBenchmarkDailyPrices(benchmark, { from: "2020-01-02", to: today });
+    ).getBenchmarkDailyPrices(benchmark.series, {
+      from: "2020-01-02",
+      to: today,
+    });
 
     // A Redis flush must cost one durable re-read, never a provider re-download of the history.
     await redis.del(
-      `${namespace}:benchmark:${benchmark.id}:manifest`,
-      `${namespace}:benchmark:${benchmark.id}:daily-price:2020`,
+      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
+      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
     );
 
     const provider = new RecordingBenchmarkProvider(rows);
     const reloaded = await serviceWith(provider).getBenchmarkDailyPrices(
-      benchmark,
+      benchmark.series,
       {
         from: "2020-01-02",
         to: today,
@@ -283,17 +291,20 @@ describeBenchmark("benchmark loading", () => {
   it("asks the provider for nothing while the durable freshness watermark is current", async () => {
     await serviceWith(
       new RecordingBenchmarkProvider(rows),
-    ).getBenchmarkDailyPrices(benchmark, { from: "2020-01-02", to: today });
+    ).getBenchmarkDailyPrices(benchmark.series, {
+      from: "2020-01-02",
+      to: today,
+    });
     // Everything Redis holds is gone, but PostgreSQL still records complete coverage and a current
     // tail watermark. That is what lets a seeded environment run a backtest with no provider at all.
     await redis.del(
-      `${namespace}:benchmark:${benchmark.id}:manifest`,
-      `${namespace}:benchmark:${benchmark.id}:daily-price:2020`,
+      `${namespace}:benchmark:${benchmark.series.id}:manifest`,
+      `${namespace}:benchmark:${benchmark.series.id}:daily-price:2020`,
     );
 
     const provider = new RecordingBenchmarkProvider(rows);
     const reloaded = await serviceWith(provider).getBenchmarkDailyPrices(
-      benchmark,
+      benchmark.series,
       {
         from: "2020-01-02",
         to: today,
@@ -309,24 +320,27 @@ describeBenchmark("benchmark loading", () => {
     // include today. That backfill must not mark the tail fresh.
     await serviceWith(
       new RecordingBenchmarkProvider(rows),
-    ).getBenchmarkDailyPrices(benchmark, { from: "2020-05-01", to: today });
+    ).getBenchmarkDailyPrices(benchmark.series, {
+      from: "2020-05-01",
+      to: today,
+    });
     await prisma.benchmarkDatasetState.updateMany({
       where: {
-        benchmarkId: benchmark.id,
+        seriesId: benchmark.series.id,
         variant: "provider-eod-full:recent-tail",
       },
       data: { lastSuccessfulSyncAt: new Date("2020-06-20T00:00:00.000Z") },
     });
-    await redis.del(`${namespace}:benchmark:${benchmark.id}:manifest`);
+    await redis.del(`${namespace}:benchmark:${benchmark.series.id}:manifest`);
 
     const provider = new RecordingBenchmarkProvider(rows);
-    await serviceWith(provider).getBenchmarkDailyPrices(benchmark, {
+    await serviceWith(provider).getBenchmarkDailyPrices(benchmark.series, {
       from: "2020-01-02",
       to: today,
     });
 
     const state = await store.getDatasetState(
-      benchmark.id,
+      benchmark.series.id,
       "DAILY_PRICE",
       "provider-eod-full:recent-tail",
     );

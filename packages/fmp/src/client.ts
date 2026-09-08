@@ -188,11 +188,11 @@ export class FmpClient
    */
   async getBenchmarkDailyPrices(
     providerSymbol: string,
-    benchmarkId: string,
+    seriesId: string,
     range: DateRange,
   ): Promise<BenchmarkDailyPrice[]> {
     return this.walkDailyPrices(providerSymbol, range, (page) =>
-      mapFmpBenchmarkDailyPrices(benchmarkId, page),
+      mapFmpBenchmarkDailyPrices(seriesId, page),
     );
   }
 

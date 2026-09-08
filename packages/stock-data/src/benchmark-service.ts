@@ -1,6 +1,7 @@
 import type {
-  Benchmark,
   BenchmarkDailyPrice,
+  BenchmarkSeries,
+  BenchmarkWithSeries,
   DateRange,
 } from "@intrinsic/domain";
 import type { FmpBenchmarkProviderPort } from "@intrinsic/fmp";
@@ -75,11 +76,18 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
   }
 
-  async listBenchmarks(): Promise<Benchmark[]> {
+  async listBenchmarks(): Promise<BenchmarkWithSeries[]> {
     return this.store.listActiveBenchmarks();
   }
 
-  async getBenchmark(code: string): Promise<Benchmark> {
+  /**
+   * The benchmark a user is choosing, with the definition currently in force.
+   *
+   * Selection resolves by code because a code is what a user picks. **Execution never does**: a run
+   * pins the series this returns and reads it back with `getSeries`, so a catalog change between
+   * submission and execution cannot change what it compares against.
+   */
+  async getBenchmark(code: string): Promise<BenchmarkWithSeries> {
     const benchmark = await this.store.findBenchmarkByCode(code);
     if (!benchmark || !benchmark.isActive) {
       throw new BenchmarkNotFoundError(code);
@@ -87,12 +95,20 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     return benchmark;
   }
 
+  async getSeries(seriesId: string): Promise<BenchmarkSeries> {
+    const series = await this.store.findSeriesById(seriesId);
+    if (!series) {
+      throw new BenchmarkNotFoundError(seriesId);
+    }
+    return series;
+  }
+
   async ensureBenchmarkHydrated(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     required: Required<DateRange>,
   ): Promise<void> {
     const target = this.loadTarget(required);
-    const manifest = await this.cache.getManifest(benchmark.id);
+    const manifest = await this.cache.getManifest(series.id);
     if (
       manifest &&
       manifest.coverageStart <= target.from &&
@@ -101,10 +117,10 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     ) {
       return;
     }
-    await this.coordinator.run(this.resource(benchmark), async (lease) => {
+    await this.coordinator.run(this.resource(series), async (lease) => {
       // Re-check under the lock: a concurrent process may have materialized this range while this
       // one waited, and paying for the same provider read twice is exactly what the lock prevents.
-      const locked = await this.cache.getManifest(benchmark.id);
+      const locked = await this.cache.getManifest(series.id);
       if (
         locked &&
         locked.coverageStart <= target.from &&
@@ -113,12 +129,12 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       ) {
         return;
       }
-      await this.hydrateWithinLease(benchmark, target, lease.assertOwned);
+      await this.hydrateWithinLease(series, target, lease.assertOwned);
     });
   }
 
   async getBenchmarkDailyPrices(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]> {
     assertDateRange(range);
@@ -126,25 +142,25 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     if (!bounded) {
       return [];
     }
-    await this.ensureBenchmarkHydrated(benchmark, bounded);
-    const cached = await this.cache.readDailyPrices(benchmark.id, bounded);
+    await this.ensureBenchmarkHydrated(series, bounded);
+    const cached = await this.cache.readDailyPrices(series.id, bounded);
     if (cached) {
       return cached;
     }
     // A cache miss is repaired from the durable store rather than from the provider: PostgreSQL is
     // the source of truth and Redis is a disposable projection of it.
-    const rows = await this.store.getDailyPrices(benchmark.id, bounded);
-    await this.publish(benchmark, bounded, rows);
+    const rows = await this.store.getDailyPrices(series.id, bounded);
+    await this.publish(series, bounded, rows);
     return rows;
   }
 
   private async hydrateWithinLease(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     target: Required<DateRange>,
     assertOwned: () => void,
   ): Promise<void> {
     const coverage = await this.store.getDatasetCoverage(
-      benchmark.id,
+      series.id,
       "DAILY_PRICE",
       BENCHMARK_DAILY_PRICE_VARIANT,
       target,
@@ -156,7 +172,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     // unconditionally would send a provider request on every cold cache even when PostgreSQL is
     // already current, which is exactly what a deterministic environment (and a seeded E2E stack)
     // must not do.
-    const tail = (await this.isTailStale(benchmark))
+    const tail = (await this.isTailStale(series))
       ? this.recentTailRange(target)
       : null;
     const ranges = tail ? [...missing, tail] : missing;
@@ -164,8 +180,8 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     const syncedAt = this.now().toISOString();
     for (const range of ranges) {
       this.onProviderRequest({
-        symbol: benchmark.providerSymbol,
-        securityId: benchmark.id,
+        symbol: series.providerSymbol,
+        securityId: series.id,
         dataset: "DAILY_PRICE",
         reason:
           tail !== null && range === tail
@@ -173,16 +189,16 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
             : "MISSING_COVERAGE",
         from: range.from,
         to: range.to,
-        detail: `benchmark:${benchmark.code}`,
+        detail: `benchmark:${series.id}`,
       });
       const prices = await this.provider.getBenchmarkDailyPrices(
-        benchmark.providerSymbol,
-        benchmark.id,
+        series.providerSymbol,
+        series.id,
         range,
       );
       assertOwned();
       await this.store.saveDailyPriceSync({
-        benchmarkId: benchmark.id,
+        seriesId: series.id,
         prices,
         successfulCoverage: [range],
         syncedAt,
@@ -195,9 +211,9 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       });
     }
 
-    const rows = await this.store.getDailyPrices(benchmark.id, target);
+    const rows = await this.store.getDailyPrices(series.id, target);
     assertOwned();
-    await this.publish(benchmark, target, rows);
+    await this.publish(series, target, rows);
   }
 
   /**
@@ -206,9 +222,9 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * The watermark is PostgreSQL state, not a cache entry, so a Redis flush cannot make the loader
    * think the series is stale and re-download it.
    */
-  private async isTailStale(benchmark: Benchmark): Promise<boolean> {
+  private async isTailStale(series: BenchmarkSeries): Promise<boolean> {
     const state = await this.store.getDatasetState(
-      benchmark.id,
+      series.id,
       "DAILY_PRICE",
       BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
     );
@@ -220,17 +236,17 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   }
 
   private async publish(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     target: Required<DateRange>,
     rows: readonly BenchmarkDailyPrice[],
   ): Promise<void> {
     await this.cache.writeDailyPriceYears(
-      benchmark.id,
+      series.id,
       rows,
       yearsInRange(target),
     );
     await this.cache.setManifest({
-      benchmarkId: benchmark.id,
+      seriesId: series.id,
       coverageStart: target.from,
       coverageEnd: target.to,
       materializedAt: this.now().toISOString(),
@@ -280,8 +296,8 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     return !Number.isFinite(age) || age > this.recentPriceFreshnessMs;
   }
 
-  private resource(benchmark: Benchmark): string {
-    return `benchmark:hydrate:${benchmark.id}`;
+  private resource(series: BenchmarkSeries): string {
+    return `benchmark:hydrate:${series.id}`;
   }
 
   private today(): string {

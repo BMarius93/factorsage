@@ -99,13 +99,20 @@ export function qaIntrinsicFixture(sourceDataAsOf: string): {
 
   const blends: Partial<Record<IntrinsicValueBlendId, number>> = {};
   for (const blendId of INTRINSIC_VALUE_BLEND_IDS) {
-    const blend = combineBlendComponents(INTRINSIC_VALUE_BLENDS[blendId], models);
+    const blend = combineBlendComponents(
+      INTRINSIC_VALUE_BLENDS[blendId],
+      models,
+    );
     if (blend.status === "CALCULATED") {
       blends[blendId] = blend.valuePerShare;
     }
   }
 
-  return { values: { ...QA_MODEL_VALUES }, blends, currency: INTRINSIC_CURRENCY };
+  return {
+    values: { ...QA_MODEL_VALUES },
+    blends,
+    currency: INTRINSIC_CURRENCY,
+  };
 }
 
 /** Closing price of the `index`-th trading day. Pure function of the index: reruns are identical. */
@@ -169,18 +176,21 @@ export async function seedQaStockData(
   }
 
   const syncedAt = new Date().toISOString();
-  // The canonical target the loader will ask for: the whole configured horizon up to today. The
-  // seeded rows only span the recent part of it, which is normal — coverage is a watermark, not a
-  // promise that every calendar day inside it has a market row.
+  // The horizon the loader would clamp a read to. It bounds the derived-series warm-up below; it is
+  // deliberately **not** what this seed claims to have covered.
+  //
   // The same year arithmetic the loader and the Stock Details bound use (29 February clamps to
-  // 28 February), so the seeded coverage starts exactly on the permitted start and the QA stock's
-  // boundary is provable as `PROVIDER` on every calendar day, leap days included.
+  // 28 February).
   const horizonStart = subtractYears(today, historyYears);
 
   await store.saveDailyPriceSync({
     securityId,
     prices,
-    successfulCoverage: [{ from: horizonStart, to: today }],
+    // Exactly the interval the fixture generated over. A coverage interval is the durable claim
+    // that asking again is pointless; claiming the whole horizon while writing three years of it
+    // would make every earlier date permanently unfetchable and would be the same untruth in the
+    // ledger whether the symbol is synthetic or real.
+    successfulCoverage: [{ from: first.date, to: today }],
     syncedAt,
     tailDate: today,
     freshThrough: today,
@@ -213,7 +223,8 @@ export async function seedQaStockData(
     securityId,
     rows,
     weeklyPrices: weeklyBars,
-    successfulCoverage: { from: horizonStart, to: today },
+    // Derived state exists exactly where prices do, so its coverage says the same thing.
+    successfulCoverage: { from: first.date, to: today },
     syncedAt,
   });
 

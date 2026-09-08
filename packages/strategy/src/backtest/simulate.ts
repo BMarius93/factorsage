@@ -12,7 +12,7 @@ import {
   type PositionState,
 } from "../position.js";
 import { BenchmarkCursor } from "./benchmark.js";
-import { buildContributionDates, buildUnionCalendar } from "./calendar.js";
+import { buildContributionDates, buildExecutionCalendar } from "./calendar.js";
 import {
   DrawdownTracker,
   alphaPercent,
@@ -102,11 +102,11 @@ export async function simulateBacktest(
     runtimes.map((runtime) => [runtime.frame.securityId, runtime]),
   );
 
-  const calendar = buildUnionCalendar(
+  const calendar = buildExecutionCalendar(
     runtimes.map((runtime) => runtime.frame),
     input.startDate,
     input.endDate,
-    input.benchmark?.dates ?? [],
+    input.executionCalendar,
   );
   if (calendar.length === 0) {
     throw new BacktestExecutionError(

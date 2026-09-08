@@ -3,30 +3,35 @@ import type { EvaluationFrame } from "../frame.js";
 
 /**
  * The portfolio's date axis: the ascending union of the eligible trading dates of every security in
- * the run **and of the benchmark**, restricted to the requested period.
+ * the run **and of the engine's execution calendar**, restricted to the requested period.
  *
  * There is no trading-calendar table and each security has its own eligible dates, so a union is
  * what makes a portfolio-level loop possible; an intersection would silently drop dates.
  *
- * The benchmark's dates are included because a portfolio exists from the moment the run starts,
- * even while it holds nothing but cash. A run whose securities all list years after its start
- * would otherwise simply not exist until the first of them began trading — its curve would appear
- * to start at the first BUY rather than at 0% from the beginning of the period. The benchmark is
- * the market's own calendar and is already loaded for exactly this period, so using it costs
- * nothing and invents nothing: on a benchmark-only date no security has a row, so
+ * The execution calendar is in the union because a portfolio exists from the first day of the
+ * requested period even while it holds nothing but cash. Without it, a run whose securities all
+ * list years after its start would not exist until the first of them began trading: its curve
+ * would appear to start at the first BUY rather than flat at 0% from the beginning, and every
+ * monthly contribution before that date would be silently skipped, because a month with no
+ * simulated trading date receives none.
+ *
+ * On an execution-calendar-only date no security has a row, so
  *
  * - every predicate is NOT_EVALUABLE and no action is taken — the existing rule, unchanged;
  * - a held position is valued at its most recent close at or before the date — also unchanged;
  * - the portfolio still has a real, knowable value, because cash is real.
  *
- * When the benchmark has no data of its own the axis is exactly what it was before: the securities'
- * union. Nothing is fabricated in either case.
+ * **The run's comparison benchmark is not consulted here.** It is passive: two runs that differ
+ * only in what they are compared against must produce the same trades and the same portfolio
+ * return. The execution calendar comes from the engine's own reference series, which the user does
+ * not choose. When it is empty the axis is exactly the securities' union. Nothing is fabricated in
+ * either case.
  */
-export function buildUnionCalendar(
+export function buildExecutionCalendar(
   frames: readonly EvaluationFrame[],
   startDate: LocalDate,
   endDate: LocalDate,
-  benchmarkDates: readonly LocalDate[] = [],
+  executionCalendarDates: readonly LocalDate[] = [],
 ): LocalDate[] {
   const dates = new Set<LocalDate>();
   const add = (candidate: LocalDate): void => {
@@ -47,7 +52,7 @@ export function buildUnionCalendar(
       add(date);
     }
   }
-  for (const date of benchmarkDates) {
+  for (const date of executionCalendarDates) {
     add(date);
   }
   return [...dates].sort();

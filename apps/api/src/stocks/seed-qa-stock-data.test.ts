@@ -9,6 +9,7 @@ import {
   buildDailyDerivedState,
   calculateWilderRsi,
 } from "@intrinsic/stock-data";
+import { subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
   qaIntrinsicFixture,
@@ -45,6 +46,19 @@ describe("QA stock-data seed", () => {
       expect(weekday).toBeLessThanOrEqual(5);
     }
     expect(prices[0]?.date).toBe(seedHistoryStart(TODAY));
+  });
+
+  it("never claims price or derived coverage outside the seeded window", () => {
+    // Same invariant as the benchmark seed, asserted on the values the seed derives its claim from
+    // rather than on a database round trip: coverage begins at the first row the fixture generates,
+    // never at the retention horizon. Claiming the horizon would tell the loader that decades it
+    // never produced are already materialized.
+    const first = prices[0]?.date as string;
+    expect(first > seedHistoryStart(TODAY)).toBe(false);
+    expect(first).toBe(seedHistoryStart(TODAY));
+    // The horizon the loader would clamp to is far older than anything seeded, which is exactly
+    // why claiming it would be a lie rather than a rounding difference.
+    expect(subtractYears(TODAY, 30) < first).toBe(true);
   });
 
   it("seeds enough history for the shorter weekly periods and not the longest", () => {
@@ -101,7 +115,8 @@ describe("QA stock-data seed", () => {
         INTRINSIC_VALUE_BLENDS[blendId as keyof typeof INTRINSIC_VALUE_BLENDS];
       const expected = definition.components.reduce(
         (sum, component) =>
-          sum + (fixture.values[component.model] ?? Number.NaN) * component.weight,
+          sum +
+          (fixture.values[component.model] ?? Number.NaN) * component.weight,
         0,
       );
       expect(value).toBeCloseTo(expected, 10);

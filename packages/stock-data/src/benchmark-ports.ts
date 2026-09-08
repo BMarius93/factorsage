@@ -1,7 +1,9 @@
 import type {
-  Benchmark,
+  BenchmarkCatalogEntry,
   BenchmarkDailyPrice,
   BenchmarkDataset,
+  BenchmarkSeries,
+  BenchmarkWithSeries,
   DateRange,
 } from "@intrinsic/domain";
 
@@ -20,7 +22,7 @@ export const BENCHMARK_DAILY_PRICE_VARIANT = `${BENCHMARK_DAILY_PRICE_VARIANT_FA
 export const BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT = `${BENCHMARK_DAILY_PRICE_VARIANT_FAMILY}:recent-tail`;
 
 export type BenchmarkDatasetStateRecord = {
-  benchmarkId: string;
+  seriesId: string;
   dataset: BenchmarkDataset;
   variant: string;
   earliestDate?: string;
@@ -37,32 +39,38 @@ export type BenchmarkDatasetStateRecord = {
  * the *shape* of the contract — coverage intervals mean the same thing here as they do there.
  */
 export interface BenchmarkDataStore {
-  listActiveBenchmarks(): Promise<Benchmark[]>;
-  findBenchmarkByCode(code: string): Promise<Benchmark | null>;
+  listActiveBenchmarks(): Promise<BenchmarkWithSeries[]>;
+  findBenchmarkByCode(code: string): Promise<BenchmarkWithSeries | null>;
+  /** The exact immutable series a run pinned, by id. Null when it no longer exists. */
+  findSeriesById(seriesId: string): Promise<BenchmarkSeries | null>;
   /**
-   * Registers the canonical catalog idempotently, keyed by `code`, and returns the persisted rows.
+   * Registers the canonical catalog idempotently, keyed by `code`, and returns the persisted rows
+   * with the series currently in force.
    *
    * This is what makes the V1 benchmark exist after `migrate` without manual SQL. The metadata it
    * writes comes from `BENCHMARK_CATALOG` in `@intrinsic/domain` — the one source — so no second
    * array anywhere repeats `SP500`/`SPY`.
+   *
+   * Identity fields are **never updated**: a definition that differs from the current series
+   * appends a new version instead, so bars already fetched under the old one keep their meaning.
    */
   reconcileBenchmarkCatalog(
-    entries: readonly Omit<Benchmark, "id">[],
-  ): Promise<Benchmark[]>;
+    entries: readonly BenchmarkCatalogEntry[],
+  ): Promise<BenchmarkWithSeries[]>;
   getDatasetState(
-    benchmarkId: string,
+    seriesId: string,
     dataset: BenchmarkDataset,
     variant: string,
   ): Promise<BenchmarkDatasetStateRecord | null>;
   /** Coverage intervals intersecting `range`, under the current variant, ascending. */
   getDatasetCoverage(
-    benchmarkId: string,
+    seriesId: string,
     dataset: BenchmarkDataset,
     variant: string,
     range: Required<DateRange>,
   ): Promise<Required<DateRange>[]>;
   getDailyPrices(
-    benchmarkId: string,
+    seriesId: string,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
   /**
@@ -72,7 +80,7 @@ export interface BenchmarkDataStore {
    * that true — because a coverage interval is the durable claim that asking again is pointless.
    */
   saveDailyPriceSync(input: {
-    benchmarkId: string;
+    seriesId: string;
     prices: readonly BenchmarkDailyPrice[];
     successfulCoverage: readonly Required<DateRange>[];
     syncedAt: string;
@@ -85,12 +93,12 @@ export interface BenchmarkDataStore {
 /**
  * What a benchmark's Redis projection holds.
  *
- * The namespace is deliberately distinct — `benchmark:<benchmarkId>:daily-price:<year>` — rather
+ * The namespace is deliberately distinct — `benchmark:<seriesId>:daily-price:<year>` — rather
  * than pretending benchmark bars are ordinary security data. A stock eviction must never take a
  * benchmark with it, and a benchmark must never appear in the resident-stock LRU.
  */
 export type BenchmarkManifest = {
-  benchmarkId: string;
+  seriesId: string;
   /** Range resident in Redis. Narrower than durable coverage after an eviction or a narrow read. */
   coverageStart: string;
   coverageEnd: string;
@@ -99,15 +107,15 @@ export type BenchmarkManifest = {
 };
 
 export interface BenchmarkDataCache {
-  getManifest(benchmarkId: string): Promise<BenchmarkManifest | null>;
+  getManifest(seriesId: string): Promise<BenchmarkManifest | null>;
   setManifest(manifest: BenchmarkManifest): Promise<void>;
-  invalidateManifest(benchmarkId: string): Promise<void>;
+  invalidateManifest(seriesId: string): Promise<void>;
   readDailyPrices(
-    benchmarkId: string,
+    seriesId: string,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[] | null>;
   writeDailyPriceYears(
-    benchmarkId: string,
+    seriesId: string,
     prices: readonly BenchmarkDailyPrice[],
     years: readonly number[],
   ): Promise<void>;
@@ -115,14 +123,21 @@ export interface BenchmarkDataCache {
 
 /** The read boundary a backtest consumes. It never learns which provider symbol backs a code. */
 export interface BenchmarkDataService {
-  listBenchmarks(): Promise<Benchmark[]>;
-  getBenchmark(code: string): Promise<Benchmark>;
+  listBenchmarks(): Promise<BenchmarkWithSeries[]>;
+  getBenchmark(code: string): Promise<BenchmarkWithSeries>;
+  /**
+   * The exact series a run pinned at submission.
+   *
+   * This — never `getBenchmark(code)` — is how execution resolves a benchmark, so a catalog change
+   * between submission and execution cannot change what the run reads.
+   */
+  getSeries(seriesId: string): Promise<BenchmarkSeries>;
   ensureBenchmarkHydrated(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     required: Required<DateRange>,
   ): Promise<void>;
   getBenchmarkDailyPrices(
-    benchmark: Benchmark,
+    series: BenchmarkSeries,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
 }

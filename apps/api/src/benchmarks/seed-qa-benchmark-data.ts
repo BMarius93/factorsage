@@ -1,4 +1,3 @@
-import { getStockDataConfig } from "@intrinsic/config";
 import type { PrismaClient } from "@intrinsic/database";
 import {
   BENCHMARK_CATALOG,
@@ -9,7 +8,7 @@ import {
   addDays,
   PrismaBenchmarkDataStore,
   startOfIsoWeek,
-  subtractYears,
+  type BenchmarkDataStore,
 } from "@intrinsic/stock-data";
 import { assertQaSecuritySeedingAllowed } from "../stocks/seed-qa-securities";
 
@@ -42,7 +41,7 @@ function closeAt(index: number): number {
 }
 
 export function qaBenchmarkTradingDays(
-  benchmarkId: string,
+  seriesId: string,
   today: string,
 ): BenchmarkDailyPrice[] {
   const start = addDays(startOfIsoWeek(today), -7 * HISTORY_WEEKS);
@@ -51,7 +50,7 @@ export function qaBenchmarkTradingDays(
     for (let day = 0; day < 5; day += 1) {
       const close = closeAt(rows.length);
       rows.push({
-        benchmarkId,
+        seriesId,
         date: addDays(start, week * 7 + day),
         open: close - 0.5,
         high: close + 1,
@@ -69,8 +68,22 @@ export async function seedQaBenchmarkData(
   today = new Date().toISOString().slice(0, 10),
 ): Promise<{ code: string; from: string; to: string; tradingDays: number }> {
   assertQaSecuritySeedingAllowed();
+  return seedQaBenchmarkDataWith(new PrismaBenchmarkDataStore(prisma), today);
+}
 
-  const store = new PrismaBenchmarkDataStore(prisma);
+/**
+ * The seed itself, against the store port.
+ *
+ * Split out so the coverage claim — the one thing here that can silently corrupt a real database —
+ * is provable without a PostgreSQL round trip. `seedQaBenchmarkData` keeps the production guard.
+ */
+export async function seedQaBenchmarkDataWith(
+  store: Pick<
+    BenchmarkDataStore,
+    "reconcileBenchmarkCatalog" | "saveDailyPriceSync"
+  >,
+  today = new Date().toISOString().slice(0, 10),
+): Promise<{ code: string; from: string; to: string; tradingDays: number }> {
   // Registration goes through the same reconciliation the API runs at startup, so the fixture can
   // never introduce a second definition of what `SP500` is.
   const [benchmark] = await store.reconcileBenchmarkCatalog(
@@ -82,19 +95,25 @@ export async function seedQaBenchmarkData(
     );
   }
 
-  const prices = qaBenchmarkTradingDays(benchmark.id, today);
+  const prices = qaBenchmarkTradingDays(benchmark.series.id, today);
   const first = prices[0];
   const last = prices.at(-1);
   if (!first || !last) {
     throw new Error("QA benchmark seed produced no trading days");
   }
 
-  const { historyYears } = getStockDataConfig();
-  const horizonStart = subtractYears(today, historyYears);
   await store.saveDailyPriceSync({
-    benchmarkId: benchmark.id,
+    seriesId: benchmark.series.id,
     prices,
-    successfulCoverage: [{ from: horizonStart, to: today }],
+    // Exactly the interval this seed generated over, and not one day more.
+    //
+    // Claiming the whole retention horizon would be a lie of precisely the kind coverage exists to
+    // prevent: the loader reads a coverage interval as "asking again is pointless", so a seed that
+    // claimed thirty years while writing three would make every earlier date permanently
+    // unfetchable — and a real thirty-year backtest would silently compare against synthetic data.
+    // The window ends at `today` because the seed did decide there are no rows after its last
+    // complete week, which is the same claim a real sync makes about a weekend.
+    successfulCoverage: [{ from: first.date, to: today }],
     syncedAt: new Date().toISOString(),
     tailDate: today,
     // The tail watermark is what stops the loader re-reading the recent window from the provider.

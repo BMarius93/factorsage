@@ -43,6 +43,7 @@ export function testConfiguration(
     },
     methodology: {
       calendar: "calendar@1",
+      executionCalendar: "execution-calendar@1",
       candidateOrdering: "candidate-ordering@1",
       execution: "execution@1",
       executionCosts: "execution-costs@1",

@@ -347,11 +347,11 @@ export function mapFmpDailyPrices(
  * provider response shape and the mapping rules — duplicating those would be the real mistake.
  */
 export function mapFmpBenchmarkDailyPrices(
-  benchmarkId: string,
+  seriesId: string,
   rows: readonly FmpDailyPriceDto[],
 ): BenchmarkDailyPrice[] {
-  return mapFmpDailyPrices(benchmarkId, rows).map((row) => ({
-    benchmarkId,
+  return mapFmpDailyPrices(seriesId, rows).map((row) => ({
+    seriesId,
     date: row.date,
     open: row.open,
     high: row.high,
@@ -423,7 +423,7 @@ export type FmpSecurityCatalogPort = {
 export type FmpBenchmarkProviderPort = {
   getBenchmarkDailyPrices(
     providerSymbol: string,
-    benchmarkId: string,
+    seriesId: string,
     range: DateRange,
   ): Promise<BenchmarkDailyPrice[]>;
 };

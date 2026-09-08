@@ -23,15 +23,30 @@ export class BenchmarksService {
         code: true,
         name: true,
         description: true,
-        currency: true,
+        // The currency belongs to the series, and the one in force is the highest version.
+        series: {
+          orderBy: { version: "desc" },
+          take: 1,
+          select: { currency: true },
+        },
       },
     });
-    return rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      name: row.name,
-      ...(row.description === null ? {} : { description: row.description }),
-      currency: row.currency,
-    }));
+    return rows.flatMap((row) => {
+      const series = row.series[0];
+      // A benchmark whose definition has not been reconciled yet is not selectable.
+      return series
+        ? [
+            {
+              id: row.id,
+              code: row.code,
+              name: row.name,
+              ...(row.description === null
+                ? {}
+                : { description: row.description }),
+              currency: series.currency,
+            },
+          ]
+        : [];
+    });
   }
 }

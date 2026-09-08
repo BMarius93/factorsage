@@ -195,6 +195,7 @@ export function executionInput(
   const sorted = [...new Set(dates)].sort();
   return {
     benchmark: null,
+    executionCalendar: [],
     startDate: input.startDate ?? (sorted[0] as LocalDate),
     endDate: input.endDate ?? (sorted[sorted.length - 1] as LocalDate),
     initialCapital: input.initialCapital ?? 100_000,
