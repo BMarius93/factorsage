@@ -37,10 +37,7 @@ import {
   normalizeBuyWindowConfiguration,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
-import {
-  DERIVED_STATE_REVISION,
-  PRICE_DATASET_VERSION,
-} from "@intrinsic/stock-data";
+import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { getBacktestWorkerConfig } from "@intrinsic/config";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
@@ -796,10 +793,7 @@ export class BacktestsService {
         seriesVersion: executionCalendarSeries.version,
       },
       methodology: { ...BACKTEST_METHODOLOGY },
-      dataRevisions: {
-        priceDatasetVersion: PRICE_DATASET_VERSION,
-        derivedStateRevision: DERIVED_STATE_REVISION,
-      },
+      dataRevisions: { ...BACKTEST_DATA_REVISIONS },
     };
     // Taken over the canonical serialization from `@intrinsic/contracts`: `submittedAt` excluded
     // so the digest identifies inputs rather than a moment, and keys sorted so it can still be

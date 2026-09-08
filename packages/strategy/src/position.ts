@@ -31,7 +31,17 @@ export type PositionState = {
   shares: number;
   /** Total cost of the shares currently held, under the AVERAGE_COST policy. */
   costTotal: number;
-  buyLevelsFired: Set<string>;
+  /**
+   * BUY levels whose allocation opportunity this position lifecycle has consumed.
+   *
+   * Settled, not "fired": a level lands here in three ways, and only the first is a trade. It
+   * filled (fully or as far as the cash went); it was already at or above its target so there was
+   * nothing to buy; or a *larger* target was reached in this lifecycle, which supersedes every
+   * smaller one. Calling that set "fired" would claim signals happened that did not.
+   *
+   * The trade log remains the record of what actually executed.
+   */
+  buyLevelsSettled: Set<string>;
   sellLevelsFired: Set<string>;
   previousSignedReturnPercent?: number;
   previousValueDate?: LocalDate;

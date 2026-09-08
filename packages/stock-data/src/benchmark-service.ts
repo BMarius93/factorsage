@@ -172,9 +172,14 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     // unconditionally would send a provider request on every cold cache even when PostgreSQL is
     // already current, which is exactly what a deterministic environment (and a seeded E2E stack)
     // must not do.
-    const tail = (await this.isTailStale(series))
-      ? this.recentTailRange(target)
-      : null;
+    // Only a read that actually reaches the present has a mutable tail to refresh. A historical
+    // window ends years ago: every bar in it closed long before, so re-reading its last ten days
+    // would be provider traffic for data that cannot have changed.
+    const reachesPresent = target.to >= this.today();
+    const tail =
+      reachesPresent && (await this.isTailStale(series))
+        ? this.recentTailRange(target)
+        : null;
     const ranges = tail ? [...missing, tail] : missing;
 
     const syncedAt = this.now().toISOString();
@@ -203,10 +208,13 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
         successfulCoverage: [range],
         syncedAt,
         tailDate: target.to,
-        // Only a read that actually reached the tail may say the tail is fresh. Backfilling an
-        // older gap tells us nothing about today's bar, and advancing the watermark for it would
-        // let a genuinely stale tail pass the freshness check on the next read.
-        ...(range.to >= target.to ? { freshThrough: target.to } : {}),
+        // Only a read that actually reached *today* may say the tail is fresh. Backfilling an
+        // older gap — or serving a historical window that ends in 2010 — tells us nothing about
+        // today's bar, and advancing the watermark for it would let a genuinely stale tail pass
+        // the freshness check on the next read.
+        ...(reachesPresent && range.to >= target.to
+          ? { freshThrough: target.to }
+          : {}),
         assertOwned,
       });
     }
@@ -260,12 +268,24 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * The upper bound is always today for the same reason the stock loader uses it: a resident series
    * is only usable while its tail is current, and freshness keys off it.
    */
+  /**
+   * The range one hydration must leave materialized: what the caller asked for, clamped to the
+   * retention horizon and to today.
+   *
+   * Deliberately **not** widened to today. A backtest of 2005–2010 has no use for 2011 onwards,
+   * and materializing it would fetch two decades it never asked for, write yearly Redis chunks
+   * through the present, and re-read a "recent tail" that is fifteen years old. The stock loader
+   * pays for its caller's range plus the warm-up its calculations need; this now matches it.
+   *
+   * Existing resident coverage is never narrowed by this — coverage is unioned, and a later read
+   * that does reach today materializes the suffix incrementally.
+   */
   private loadTarget(required: Required<DateRange>): Required<DateRange> {
     const today = this.today();
     const horizonStart = subtractYears(today, this.historyYears);
     return {
       from: maxDate(minDate(required.from, today), horizonStart),
-      to: today,
+      to: maxDate(minDate(required.to, today), horizonStart),
     };
   }
 

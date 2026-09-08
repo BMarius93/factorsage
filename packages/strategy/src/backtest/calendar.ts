@@ -1,61 +1,44 @@
 import type { LocalDate } from "@intrinsic/domain";
-import type { EvaluationFrame } from "../frame.js";
 
 /**
- * The portfolio's date axis: the ascending union of the eligible trading dates of every security in
- * the run **and of the engine's execution calendar**, restricted to the requested period.
+ * The portfolio's date axis: the pinned execution calendar, restricted to the requested period.
  *
- * There is no trading-calendar table and each security has its own eligible dates, so a union is
- * what makes a portfolio-level loop possible; an intersection would silently drop dates.
+ * The execution calendar is the market's own trading days, taken from the reference series the
+ * engine designates. It is **authoritative**, not one contributor to a union: a security's own
+ * dates decide what that security can do, never which days the portfolio has.
  *
- * The execution calendar is in the union because a portfolio exists from the first day of the
- * requested period even while it holds nothing but cash. Without it, a run whose securities all
- * list years after its start would not exist until the first of them began trading: its curve
- * would appear to start at the first BUY rather than flat at 0% from the beginning, and every
- * monthly contribution before that date would be silently skipped, because a month with no
- * simulated trading date receives none.
+ * The difference is not academic. A single anomalous provider row — a bar dated on a day the
+ * market was closed — used to become a portfolio trading day, and with it the run's first
+ * simulated date, the base of the return index, and a month's first eligible date for the monthly
+ * contribution. One malformed row in one security could move every number in the run. Intersecting
+ * instead means a date exists because the market traded, and for no other reason.
  *
- * On an execution-calendar-only date no security has a row, so
+ * A security simply acts on the subset of these dates for which its frame has an eligible row:
  *
- * - every predicate is NOT_EVALUABLE and no action is taken — the existing rule, unchanged;
- * - a held position is valued at its most recent close at or before the date — also unchanged;
- * - the portfolio still has a real, knowable value, because cash is real.
+ * - on a date it has no row, every predicate is NOT_EVALUABLE and it takes no action;
+ * - a held position is valued at its most recent close at or before the date;
+ * - the portfolio still has a real, knowable value there, because cash is real.
  *
- * **The run's comparison benchmark is not consulted here.** It is passive: two runs that differ
- * only in what they are compared against must produce the same trades and the same portfolio
- * return. The execution calendar comes from the engine's own reference series, which the user does
- * not choose, and it is required — `simulateBacktest` rejects an empty one rather than quietly
- * falling back to the securities' union, which would be a different methodology.
+ * **The run's comparison benchmark is not consulted.** It is passive: two runs that differ only in
+ * what they are compared against must produce the same trades and the same portfolio return. And
+ * the calendar is required — `simulateBacktest` rejects an empty one rather than falling back to
+ * the securities' dates, which would be a different methodology.
  */
 export function buildExecutionCalendar(
-  frames: readonly EvaluationFrame[],
   startDate: LocalDate,
   endDate: LocalDate,
   executionCalendarDates: readonly LocalDate[],
 ): LocalDate[] {
-  const dates = new Set<LocalDate>();
-  const add = (candidate: LocalDate): void => {
+  const dates: LocalDate[] = [];
+  for (const candidate of executionCalendarDates) {
     if (candidate >= startDate && candidate <= endDate) {
-      dates.add(candidate);
-    }
-  };
-  for (const frame of frames) {
-    for (
-      let index = frame.periodStartIndex;
-      index < frame.dates.length;
-      index += 1
-    ) {
-      const date = frame.dates[index] as LocalDate;
-      if (date > endDate) {
-        break;
-      }
-      add(date);
+      dates.push(candidate);
     }
   }
-  for (const date of executionCalendarDates) {
-    add(date);
-  }
-  return [...dates].sort();
+  // Sorted and deduplicated here rather than trusted: the reference series is read from a store
+  // that returns it ascending, but the axis every other rule is expressed against must be
+  // guaranteed monotonic, not merely expected to be.
+  return [...new Set(dates)].sort();
 }
 
 /**

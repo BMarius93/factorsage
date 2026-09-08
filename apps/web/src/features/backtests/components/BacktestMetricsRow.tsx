@@ -63,7 +63,11 @@ export function BacktestMetricsRow({
     },
     {
       key: "alpha",
-      label: "Alpha",
+      // Not "Alpha": this is `portfolio return - benchmark return`, which is excess return. Alpha
+      // in its usual sense is a regression intercept against a risk model, and calling a simple
+      // difference by that name would claim a measurement the product has not made. The persisted
+      // field keeps its name; only the word the user reads changes.
+      label: "Excess return",
       value: metrics.alphaPercent,
       render: formatSignedPercent,
       tone: "signed",

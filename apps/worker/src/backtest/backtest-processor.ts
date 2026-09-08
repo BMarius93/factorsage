@@ -1,9 +1,10 @@
-import type {
-  BacktestFailureCode,
-  BacktestFailurePhase,
-  BacktestLiveSnapshotResponse,
-  BacktestRunSnapshot,
-  BacktestSnapshotSecurity,
+import {
+  revisionMismatches,
+  type BacktestFailureCode,
+  type BacktestFailurePhase,
+  type BacktestLiveSnapshotResponse,
+  type BacktestRunSnapshot,
+  type BacktestSnapshotSecurity,
 } from "@intrinsic/contracts";
 import { BacktestRunStatus } from "@intrinsic/database";
 import type {
@@ -29,6 +30,7 @@ import {
   BacktestInterruptedError,
   type BacktestJobLease,
 } from "./job-lease.js";
+import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import {
   ABANDONED_FAILURE_MESSAGE,
   type BacktestJobRepository,
@@ -241,8 +243,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
   /**
    * Refuses a run this build cannot execute as recorded.
    *
-   * A queued run carries the methodology versions it was submitted under, and a deploy between
-   * queueing and claiming can leave the worker implementing different ones. Executing anyway would
+   * A queued run carries the execution methodology **and the data-interpretation revisions** it
+   * was submitted under, and a deploy between queueing and claiming can leave the worker
+   * implementing different ones. Executing anyway would
    * produce numbers under today's rules and store them beside yesterday's version stamps, which is
    * precisely the record that exists to make a run reproducible.
    *
@@ -256,7 +259,24 @@ export class BacktestProcessor implements BacktestJobProcessor {
     claim: ClaimedBacktestJob,
     snapshot: BacktestRunSnapshot,
   ): void {
-    const mismatches = methodologyMismatches(snapshot.methodology);
+    const mismatches = [
+      ...methodologyMismatches(snapshot.methodology).map((mismatch) => ({
+        ...mismatch,
+        field: `methodology.${mismatch.field}`,
+      })),
+      // The same class of problem, and the same answer: a build that interprets a price bar or a
+      // derived column differently produces different numbers from the same Strategy document,
+      // and would store them under the revisions the snapshot recorded. One failure code, because
+      // a user cannot act differently on the two — the field name in the developer detail is what
+      // distinguishes them for whoever has to explain it.
+      ...revisionMismatches(
+        snapshot.dataRevisions,
+        BACKTEST_DATA_REVISIONS,
+      ).map((mismatch) => ({
+        ...mismatch,
+        field: `dataRevisions.${mismatch.field}`,
+      })),
+    ];
     if (mismatches.length === 0) {
       return;
     }
@@ -269,7 +289,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
         `worker=${mismatch.expected}`,
     );
     this.dependencies.logger.error({
-      event: "backtest.methodology.unsupported",
+      event: "backtest.runtime.unsupported",
       runId: claim.runId,
       jobId: claim.jobId,
       attempt: claim.attempt,

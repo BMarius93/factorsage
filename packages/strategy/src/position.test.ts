@@ -21,7 +21,7 @@ function position(overrides: Partial<PositionState> = {}): PositionState {
     openedDate: "2020-01-02",
     shares: 100,
     costTotal: 10_000,
-    buyLevelsFired: new Set<string>(),
+    buyLevelsSettled: new Set<string>(),
     sellLevelsFired: new Set<string>(),
     lastPrice: 100,
     lastPriceDate: "2020-01-02",

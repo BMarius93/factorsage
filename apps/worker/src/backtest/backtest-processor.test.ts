@@ -1,4 +1,5 @@
 import { BACKTEST_SNAPSHOT_VERSION } from "@intrinsic/contracts";
+import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import type { BenchmarkSeries, Security } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
@@ -64,7 +65,7 @@ function snapshotDocument(overrides: Record<string, unknown> = {}) {
       seriesVersion: 1,
     },
     methodology: { ...BACKTEST_METHODOLOGY },
-    dataRevisions: { priceDatasetVersion: 1, derivedStateRevision: 1 },
+    dataRevisions: { ...BACKTEST_DATA_REVISIONS },
     ...overrides,
   };
 }
@@ -272,6 +273,67 @@ describe("engine methodology compatibility", () => {
       expect(benchmarks.requested).toEqual([]);
     },
   );
+
+  const DATA_FIELDS = Object.keys(
+    BACKTEST_DATA_REVISIONS,
+  ) as (keyof typeof BACKTEST_DATA_REVISIONS)[];
+
+  it.each(DATA_FIELDS)(
+    "refuses a run whose %s data revision this build does not implement",
+    async (field) => {
+      const benchmarks = new RecordingBenchmarks();
+      const { processor, repository } = processorWith(benchmarks);
+      const stale = snapshotDocument({
+        dataRevisions: { ...BACKTEST_DATA_REVISIONS, [field]: 999 },
+      });
+
+      await processor.process(claimOf(stale), lease);
+
+      expect(repository.failures).toHaveLength(1);
+      expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+      // Before the execution calendar, before any security, before any provider or cache read.
+      expect(benchmarks.requested).toEqual([]);
+    },
+  );
+
+  it("refuses a run that recorded no data revisions at all", async () => {
+    const benchmarks = new RecordingBenchmarks();
+    const { processor, repository } = processorWith(benchmarks);
+    const withoutRevisions = snapshotDocument();
+    delete (withoutRevisions as Record<string, unknown>).dataRevisions;
+
+    await processor.process(claimOf(withoutRevisions), lease);
+
+    expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+    expect(benchmarks.requested).toEqual([]);
+  });
+
+  it("keeps refusing a data-revision mismatch on every retry", async () => {
+    const stale = snapshotDocument({
+      dataRevisions: { ...BACKTEST_DATA_REVISIONS, derivedStateRevision: 99 },
+    });
+    for (const attempt of [1, 2, 3]) {
+      const benchmarks = new RecordingBenchmarks();
+      const { processor, repository } = processorWith(benchmarks);
+      await processor.process(claimOf(stale, attempt), lease);
+      expect(repository.failures[0]?.code).toBe("ENGINE_VERSION_MISMATCH");
+      expect(benchmarks.requested).toEqual([]);
+    }
+  });
+
+  it("names the field that disagreed, server-side only", async () => {
+    const { processor, repository } = processorWith(new RecordingBenchmarks());
+    const stale = snapshotDocument({
+      dataRevisions: { ...BACKTEST_DATA_REVISIONS, priceDatasetVersion: 42 },
+    });
+
+    await processor.process(claimOf(stale), lease);
+
+    const detail = JSON.stringify(repository.failures[0]?.detail);
+    expect(detail).toContain("dataRevisions.priceDatasetVersion");
+    expect(detail).toContain("42");
+    expect(repository.failures[0]?.message).not.toContain("priceDataset");
+  });
 
   it("refuses a run that recorded no methodology at all", async () => {
     const benchmarks = new RecordingBenchmarks();

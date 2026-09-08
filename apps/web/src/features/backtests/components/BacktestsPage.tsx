@@ -84,7 +84,9 @@ function RunCard({ run }: { readonly run: BacktestRunSummaryResponse }) {
               </span>
             </span>
             <span className={styles.figure}>
-              <span className={styles.figureLabel}>Alpha</span>
+              {/* Excess return over the benchmark, not a regression alpha — see
+                  `BacktestMetricsRow`. */}
+              <span className={styles.figureLabel}>Excess return</span>
               <span
                 className={styles.figureValue}
                 data-tone={

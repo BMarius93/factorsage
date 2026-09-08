@@ -109,7 +109,6 @@ export async function simulateBacktest(
     );
   }
   const calendar = buildExecutionCalendar(
-    runtimes.map((runtime) => runtime.frame),
     input.startDate,
     input.endDate,
     input.executionCalendar,
@@ -307,15 +306,19 @@ export async function simulateBacktest(
         // Closed earlier today; a fresh position waits for the next eligible date.
         continue;
       }
-      let best: { levelId: string; percentage: number; fired: boolean } | null =
-        null;
+      let best: {
+        levelId: string;
+        percentage: number;
+        settled: boolean;
+      } | null = null;
       for (const level of definition.buyLevels) {
-        const alreadyFired = position?.buyLevelsFired.has(level.id) ?? false;
-        // A level that has fired is dormant for the rest of the position's life — except on a date
-        // that actually deposited new capital. Then, and only then, it is reconsidered against the
+        const alreadySettled =
+          position?.buyLevelsSettled.has(level.id) ?? false;
+        // A settled level is dormant for the rest of the position's life — except on a date that
+        // actually deposited new capital. Then, and only then, it is reconsidered against the
         // larger portfolio the contribution created. The engine never rebalances a position merely
         // because its market value drifted below target on an ordinary day.
-        if (alreadyFired && !depositedToday) {
+        if (alreadySettled && !depositedToday) {
           continue;
         }
         if (
@@ -329,7 +332,7 @@ export async function simulateBacktest(
           best = {
             levelId: level.id,
             percentage: level.percentage,
-            fired: alreadyFired,
+            settled: alreadySettled,
           };
         }
       }
@@ -340,7 +343,7 @@ export async function simulateBacktest(
           levelId: best.levelId,
           percentage: best.percentage,
           isTopUp: position !== undefined,
-          isContributionTopUp: best.fired,
+          isContributionTopUp: best.settled,
         });
       }
     }
@@ -360,12 +363,12 @@ export async function simulateBacktest(
         const frame = candidate.runtime.frame;
         let position = positions.get(frame.securityId);
         if (candidate.isContributionTopUp && !position) {
-          // Unreachable: a fired level only exists on an open position. Guarded so a later change
-          // cannot turn a contribution top-up into a silent new entry.
+          // Unreachable: a settled level only exists on an open position. Guarded so a later
+          // change cannot turn a contribution top-up into a silent new entry.
           continue;
         }
         if (!position && positions.size >= input.maximumPositions) {
-          // No free slot. The level is deliberately not marked as fired, so the strategy can still
+          // No free slot, so no lifecycle begins and nothing is consumed: the strategy can still
           // enter this security on a later date when a slot frees up.
           continue;
         }
@@ -373,15 +376,12 @@ export async function simulateBacktest(
         // what lets a deposit lift an already-filled level's target.
         const target = (fullPositionBudget * candidate.percentage) / 100;
         const currentValue = position ? position.shares * close : 0;
-        const shortfall = target - currentValue;
-        if (shortfall <= 0) {
-          // Already at or above the level's target fill — including a contribution date on which
-          // the position still covers its recalculated target. Nothing to buy.
-          position?.buyLevelsFired.add(candidate.levelId);
-          continue;
-        }
-        const spend = Math.min(shortfall, cash);
-        if (!(spend > 0)) {
+        const shortfall = Math.max(target - currentValue, 0);
+        const spend = Math.min(shortfall, Math.max(cash, 0));
+        if (!position && !(spend > 0)) {
+          // Nothing can be bought and there is no position, so no lifecycle begins. Opening one
+          // would be a zero-share holding that consumed a slot and a signal for nothing; instead
+          // the security stays eligible for a later date on which its signal is TRUE again.
           continue;
         }
         const shares = spend / close;
@@ -396,7 +396,7 @@ export async function simulateBacktest(
             openedDate: date,
             shares: 0,
             costTotal: 0,
-            buyLevelsFired: new Set<string>(),
+            buyLevelsSettled: new Set<string>(),
             sellLevelsFired: new Set<string>(),
             lastPrice: close,
             lastPriceDate: date,
@@ -404,11 +404,29 @@ export async function simulateBacktest(
           };
           positions.set(frame.securityId, position);
         }
+        // Consumed for this lifecycle, together with every smaller target.
+        //
+        // A BUY percentage is an allocation *tier*, not an independent event: reaching the 100%
+        // target has satisfied the 25% and 50% ones by definition, so a later price decline must
+        // not resurrect the 25% level and buy again on an ordinary day. That was continuous
+        // rebalancing arriving through the back door of a multi-level strategy.
+        //
+        // It settles whether or not anything was bought, and whether the fill was full or as far
+        // as the cash went. The opportunity is the signal, not the money: a level that found one
+        // cent and a level that found nothing must mean the same thing, or the semantics would
+        // turn on the size of the cash balance.
+        for (const level of definition.buyLevels) {
+          if (level.percentage <= candidate.percentage) {
+            position.buyLevelsSettled.add(level.id);
+          }
+        }
+        if (!(spend > 0)) {
+          continue;
+        }
         applyBuy(position, shares, close, V1_FEE_PER_TRADE);
         cash -= spend + V1_FEE_PER_TRADE;
         position.lastPrice = close;
         position.lastPriceDate = date;
-        position.buyLevelsFired.add(candidate.levelId);
         recordTrade({
           date,
           securityId: position.securityId,

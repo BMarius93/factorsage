@@ -130,6 +130,7 @@ export type BacktestMethodologyResponse = {
   execution: string;
   executionCosts: string;
   cashYield: string;
+  strategyEvaluation: string;
   contribution: string;
   returns: string;
   costBasis: string;
@@ -505,6 +506,51 @@ export type BacktestSnapshotSecurity = {
  * `providerSymbol` is included for the benchmark so a completed run records which series actually
  * produced its comparison numbers; the browser-facing benchmark snapshot deliberately omits it.
  */
+/** One recorded revision a build cannot honour. */
+export type BacktestRevisionMismatch = {
+  field: string;
+  expected: string;
+  actual: string | null;
+};
+
+/**
+ * Every field of a recorded revision set that differs from what a build supports.
+ *
+ * The snapshot records what a run was submitted under; this is what a worker uses to decide it
+ * must not execute that run. A missing field counts as a mismatch — it means the queueing build
+ * did not record that decision at all, so nothing establishes it made the same one.
+ *
+ * Lives here rather than in the engine because it is about the shape of the snapshot, and because
+ * both the execution methodology (`@intrinsic/strategy`) and the data revisions
+ * (`@intrinsic/stock-data`) are compared the same way and must not grow two implementations.
+ */
+export function revisionMismatches(
+  recorded: unknown,
+  supported: Readonly<Record<string, string | number>>,
+): BacktestRevisionMismatch[] {
+  const document =
+    typeof recorded === "object" &&
+    recorded !== null &&
+    !Array.isArray(recorded)
+      ? (recorded as Record<string, unknown>)
+      : {};
+  const mismatches: BacktestRevisionMismatch[] = [];
+  for (const [field, expected] of Object.entries(supported)) {
+    const actual = document[field];
+    if (actual !== expected) {
+      mismatches.push({
+        field,
+        expected: String(expected),
+        actual:
+          typeof actual === "string" || typeof actual === "number"
+            ? String(actual)
+            : null,
+      });
+    }
+  }
+  return mismatches;
+}
+
 export type BacktestRunSnapshot = {
   snapshotVersion: typeof BACKTEST_SNAPSHOT_VERSION;
   submittedAt: string;
@@ -569,14 +615,17 @@ export type BacktestRunSnapshot = {
   /**
    * The data revisions in force at submission.
    *
-   * A completed run's stored results are immutable, but the derived state and price coverage it
-   * read are *replaced* rather than versioned on a methodology bump. Recording the revisions does
-   * not make a re-execution reproducible — it makes the difference explainable instead of
-   * mysterious.
+   * These are checked, not merely recorded: a worker refuses a run whose data interpretation it
+   * cannot honour, exactly as it refuses an incompatible execution methodology. What they do *not*
+   * promise is that re-fetching provider data years later returns the same historical rows — V1
+   * does not persist raw provider vintages, and a provider correcting a row can change a **new**
+   * backtest. A completed run's stored results are immutable either way.
    */
   dataRevisions: {
     priceDatasetVersion: number;
     derivedStateRevision: number;
+    fundamentalsVariantVersion: number;
+    benchmarkPriceDatasetVersion: number;
   };
 };
 

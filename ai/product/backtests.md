@@ -164,6 +164,16 @@ A submitted run must snapshot every input that can affect results, including at 
 Changing a Strategy, a StockList or the benchmark catalog after submission never changes a completed
 or running backtest. Deleting a Strategy or a StockList never deletes or reinterprets a run.
 
+A run also never _executes_ under rules it did not record. If the engine's execution methodology,
+its Strategy-evaluation semantics or the way canonical data is interpreted changes between a run
+being queued and a worker claiming it, the run is refused and the user is asked to run it again —
+rather than being handed numbers produced under one set of rules and stamped with another.
+
+**What reproducibility does not mean here.** V1 does not keep raw provider responses. If the data
+provider later corrects a historical price, a _new_ backtest of the same period can produce a
+different answer; the completed run's stored results never change. The product does not offer
+bit-for-bit replay of arbitrary future re-executions, and must not be described as if it did.
+
 ## Progress and live results
 
 A run is not a spinner. It reports an explicit phase — `QUEUED`, `PREPARING_DATA`, `RUNNING`,

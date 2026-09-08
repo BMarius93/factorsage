@@ -73,7 +73,15 @@ import { aggregateCompletedWeeks, startOfIsoWeek } from "./weekly.js";
 
 const QUARTERLY_CADENCE = "QUARTERLY" as const;
 const ANNUAL_CADENCE = "ANNUAL" as const;
-const FUNDAMENTALS_VARIANT_VERSION = 1;
+/**
+ * Revision of *which* fundamentals a security materializes and how they are keyed.
+ *
+ * Exported because it can move a number the backtest engine sees: intrinsic values and their
+ * blends are computed from these statements into `DailyDerivedState`, so a security hydrated after
+ * a change to this revision can produce different Margin of Safety readings for the same date than
+ * one hydrated before it.
+ */
+export const FUNDAMENTALS_VARIANT_VERSION = 1;
 
 const FUNDAMENTALS_CADENCES: readonly FinancialStatementCadence[] = [
   QUARTERLY_CADENCE,

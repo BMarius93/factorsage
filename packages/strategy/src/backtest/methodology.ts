@@ -1,3 +1,8 @@
+import {
+  revisionMismatches,
+  type BacktestRevisionMismatch,
+} from "@intrinsic/contracts";
+
 /**
  * Versioned execution methodology.
  *
@@ -37,11 +42,20 @@ export const CANDIDATE_ORDERING_METHODOLOGY_VERSION =
  *   expensive stock is not silently dropped to zero shares;
  * - exits run before entries, so a slot and the cash a sale frees are usable the same day;
  * - a BUY level percentage is a **target** fill of the full-position budget;
- * - a BUY level fires at most once per position lifecycle, with one exception: on a date that
- *   actually deposits a monthly contribution, an already-fired level is reconsidered against the
- *   post-contribution portfolio and may buy the shortfall to its recalculated target. It is not a
- *   rebalance — a position that merely drifted below target on an ordinary day is left alone, and
- *   a level whose Signal (Trigger included) is not TRUE on the contribution date does not top up;
+ * - a BUY percentage is an allocation **tier**, and reaching one settles every tier at or below it
+ *   for that position lifecycle. Buying to the 100% target satisfies the 25% and 50% levels by
+ *   definition, so a later price decline cannot resurrect a smaller one and buy again;
+ * - a settled level is reconsidered exactly once per exception: on a date that actually deposits a
+ *   monthly contribution it is measured against the post-contribution portfolio and may buy the
+ *   shortfall to its recalculated target. It is not a rebalance — a position that merely drifted
+ *   below target on an ordinary day is left alone, and a level whose Signal (Trigger included) is
+ *   not TRUE on the contribution date does not top up;
+ * - a selected tier is settled whether it filled fully, filled as far as the available cash went,
+ *   or found nothing to buy. The opportunity is the signal, not the money, so one cent of cash and
+ *   no cash at all mean the same thing;
+ * - **unless no position exists**. With no free slot, or with nothing spendable, no lifecycle
+ *   begins: no zero-share position is created, nothing is settled, and the security stays eligible
+ *   for a later date on which its Signal is TRUE again;
  * - a security whose position closes on a date cannot be re-entered on that same date;
  * - FINAL EXIT outranks a matching partial SELL on the same date;
  * - every matching SELL level executes once per position lifecycle, in definition order, each
@@ -52,9 +66,14 @@ export const CANDIDATE_ORDERING_METHODOLOGY_VERSION =
  *   contribution could never reach a position whose levels had all fired.
  * - v2: the contribution-date top-up above. It changes numbers, so it is a version bump rather
  *   than a silent correction; runs executed under v1 keep their recorded methodology.
+ * - v3: allocation tiers supersede smaller ones, and a selected tier is settled regardless of how
+ *   much cash was available — while a *new* position is never opened without spendable cash or a
+ *   free slot. v2 let an unfired lower level buy on an ordinary day once a position drifted below
+ *   its smaller target, which was continuous rebalancing reached through a multi-level strategy,
+ *   and it made a level's fate turn on whether the cash balance was zero or a cent.
  */
 export const EXECUTION_METHODOLOGY_VERSION =
-  "same-day-close/fractional-shares/exits-before-entries/contribution-dca@2" as const;
+  "same-day-close/fractional-shares/exits-before-entries/contribution-dca@3" as const;
 
 /**
  * Fee and slippage assumptions. V1 executes at zero of both, deliberately and visibly, so a later
@@ -77,30 +96,47 @@ export const EXECUTION_COST_METHODOLOGY_VERSION =
 export const CASH_YIELD_METHODOLOGY_VERSION = "zero-interest@1" as const;
 
 /**
+ * What a Strategy document *means* when it is evaluated.
+ *
+ * `signal-evaluation@1`: the tri-state Kleene semantics, `NOT_EVALUABLE` propagation, the
+ * crossing predicates' previous-value rule, proximity comparison, weekly carry-forward and the
+ * position Gain/Loss triggers — the whole evaluator, as one coarse revision.
+ *
+ * `STRATEGY_SCHEMA_VERSION` protects the document's *shape*; this protects its *interpretation*.
+ * Fixing what "crosses above" does to a series that was flat for a week changes the answer for an
+ * unchanged document, an unchanged schema version and an unchanged price dataset — so without a
+ * version of its own that change would be invisible to every reproducibility guard.
+ *
+ * Deliberately one version for the whole evaluator rather than one per predicate: the guard only
+ * ever asks "can this build honour what that run recorded", and a finer split would multiply
+ * bookkeeping without changing a single answer.
+ */
+export const STRATEGY_EVALUATION_METHODOLOGY_VERSION =
+  "signal-evaluation@1" as const;
+
+/**
  * Which dates a run simulates.
  *
- * `securities-union-with-execution-calendar@1`: the ascending union of the eligible trading dates of
- * every security in the run **and of the engine's execution calendar**, restricted to the requested
- * period. There is no trading-calendar table, so a union is what makes a portfolio-level loop
- * possible; the execution calendar contributes the market's own trading days so a portfolio exists
- * from the first day of the period even while it holds only cash.
+ * `execution-calendar-authoritative@2`: exactly the pinned execution calendar's trading days
+ * inside the requested period. The market's own days, and nothing else.
  *
- * The execution calendar is a **system input**, taken from a reference series the engine designates
- * — never from the run's comparison benchmark. Two runs that differ only in what they are compared
- * against must produce identical trades and an identical portfolio return; a benchmark that decided
- * which dates were simulated would decide when contributions landed, and through them the result.
+ * A security participates on the subset of those days its frame has a row for; on the rest its
+ * predicates are NOT_EVALUABLE and it does nothing, while its holdings stay valued at their most
+ * recent close. A security's dates therefore decide what *it* can do, never which days *exist*.
  *
- * This is versioned methodology and not an implementation detail because it decides which dates are
- * "the first simulated date of a month" and which date the return index is based at — so it can
- * move a contribution and, through it, a number.
+ * This is versioned methodology because it decides which date is "the first simulated date of a
+ * month" — and therefore when a contribution lands — and which date the return index is based at.
  *
  * Revision history:
- * - v1: introduced with Backtest V1. Runs snapshotted before this field existed simulated the
- *   securities-only union, which began at the first date any security traded rather than at the
- *   start of the requested period.
+ * - v1: the union of the securities' eligible dates and the execution calendar. A single
+ *   anomalous provider row dated on a market holiday could therefore become a portfolio trading
+ *   day, and with it the run's first simulated date, its return-index base and a contribution
+ *   date. One malformed row in one security could move every number in the run.
+ * - v2: the execution calendar alone. A date exists because the market traded, and for no other
+ *   reason.
  */
 export const CALENDAR_METHODOLOGY_VERSION =
-  "securities-union-with-execution-calendar@1" as const;
+  "execution-calendar-authoritative@2" as const;
 
 /**
  * Where the execution calendar's dates come from.
@@ -152,6 +188,7 @@ export const BACKTEST_METHODOLOGY = {
   execution: EXECUTION_METHODOLOGY_VERSION,
   executionCosts: EXECUTION_COST_METHODOLOGY_VERSION,
   cashYield: CASH_YIELD_METHODOLOGY_VERSION,
+  strategyEvaluation: STRATEGY_EVALUATION_METHODOLOGY_VERSION,
   contribution: CONTRIBUTION_METHODOLOGY_VERSION,
   returns: RETURN_METHODOLOGY_VERSION,
   costBasis: "AVERAGE_COST" as const,
@@ -159,47 +196,19 @@ export const BACKTEST_METHODOLOGY = {
 
 export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;
 
-/** One methodology field a queued run disagrees with this build about. */
-export type BacktestMethodologyMismatch = {
-  field: keyof BacktestMethodology;
-  expected: string;
-  actual: string | null;
-};
-
 /**
  * Every field of a recorded methodology that this build cannot honour.
  *
  * **All of them are execution-affecting**, which is why none is excluded: the calendar and its
  * source decide which dates are simulated, `contribution` when money lands, `candidateOrdering`
  * who is funded first, `execution` what a day does, `executionCosts` and `cashYield` what it costs
- * and earns, `costBasis` what a sale realizes, and `returns` how the curve reports all of it. A run
- * that disagreed about any one of them would produce different numbers than the ones its snapshot
- * claims it produced.
- *
- * A missing field counts as a mismatch: it means the run was queued by a build that did not record
- * that decision at all, so nothing establishes it made the same one.
+ * and earns, `strategyEvaluation` what a Strategy document *means*, `costBasis` what a sale
+ * realizes, and `returns` how the curve reports all of it.
  */
 export function methodologyMismatches(
   recorded: unknown,
-): BacktestMethodologyMismatch[] {
-  const document =
-    typeof recorded === "object" &&
-    recorded !== null &&
-    !Array.isArray(recorded)
-      ? (recorded as Record<string, unknown>)
-      : {};
-  const mismatches: BacktestMethodologyMismatch[] = [];
-  for (const [field, expected] of Object.entries(BACKTEST_METHODOLOGY)) {
-    const actual = document[field];
-    if (actual !== expected) {
-      mismatches.push({
-        field: field as keyof BacktestMethodology,
-        expected,
-        actual: typeof actual === "string" ? actual : null,
-      });
-    }
-  }
-  return mismatches;
+): BacktestRevisionMismatch[] {
+  return revisionMismatches(recorded, BACKTEST_METHODOLOGY);
 }
 
 /** V1 executes with no transaction costs. Kept as a named seam rather than a scattered `0`. */

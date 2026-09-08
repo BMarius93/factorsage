@@ -71,6 +71,18 @@ describeLive("live FMP verification", () => {
     expect(profile?.security.name).toContain("Apple");
   });
 
+  /**
+   * The one price-basis assumption the backtest engine depends on.
+   *
+   * `historical-price-eod/full` returns a **split-adjusted** series, which is why the canonical
+   * variant is named `split-adjusted-eod-full`. The engine models no corporate actions at all, so
+   * if the provider ever returned raw traded prices instead, Apple's four-for-one split would
+   * arrive as a 75% single-day collapse: every drawdown, every "price below" signal and every
+   * Gain/Loss trigger around it would fire on an event that never economically happened.
+   *
+   * Dividends are a different matter and are deliberately *not* adjusted for — see the price-return
+   * statement in `ai/product/backtests.md`. This asserts only that a split is invisible.
+   */
   it("loads ascending split-adjusted AAPL EOD data across the 2020 split", async () => {
     const prices = await client.getDailyPrices("AAPL", "live-aapl", {
       from: "2020-01-01",
@@ -81,6 +93,20 @@ describeLive("live FMP verification", () => {
     const preSplit = prices.find((price) => price.date === "2020-08-28");
     expect(preSplit?.close).toBeCloseTo(124.81, 0);
     expect(preSplit?.close).toBeLessThan(200);
+
+    // The four-for-one split took effect on 2020-08-31. On an unadjusted series the close would
+    // fall by roughly 75% overnight; on this one it rises.
+    const postSplit = prices.find((price) => price.date === "2020-08-31");
+    expect(postSplit?.close).toBeGreaterThan((preSplit?.close ?? 0) * 0.9);
+
+    // And nowhere in the window does a single session move by more than a third, which no split
+    // ratio the provider might leave unadjusted could satisfy.
+    for (let index = 1; index < prices.length; index += 1) {
+      const previous = prices[index - 1]?.close ?? 0;
+      const current = prices[index]?.close ?? 0;
+      expect(previous).toBeGreaterThan(0);
+      expect(Math.abs(current / previous - 1)).toBeLessThan(0.34);
+    }
   });
 
   it("paginates a thirty-year AAPL read past the provider's page cap", async () => {
@@ -91,7 +117,10 @@ describeLive("live FMP verification", () => {
     // makes the first assertion fail here instead of silently shortening every long history.
     const from = "1996-09-04";
     const to = new Date().toISOString().slice(0, 10);
-    const prices = await client.getDailyPrices("AAPL", "live-aapl", { from, to });
+    const prices = await client.getDailyPrices("AAPL", "live-aapl", {
+      from,
+      to,
+    });
 
     expect(prices.length).toBeGreaterThan(FMP_EOD_MAX_ROWS_PER_RESPONSE);
     // The first trading day at or after the requested start, within a week of it.

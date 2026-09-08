@@ -1,3 +1,4 @@
+export * from "./backtest-data-revisions.js";
 export const STOCK_DATA_PACKAGE_NAME = "@intrinsic/stock-data" as const;
 
 export * from "./cache.js";

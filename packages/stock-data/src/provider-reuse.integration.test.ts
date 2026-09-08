@@ -15,6 +15,7 @@ import type {
 import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { RedisBenchmarkDataCache } from "./benchmark-cache.js";
+import { BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT } from "./benchmark-ports.js";
 import { PrismaBenchmarkDataStore } from "./benchmark-prisma-store.js";
 import { CanonicalBenchmarkDataService } from "./benchmark-service.js";
 import { RedisStockDataCache } from "./cache.js";
@@ -144,6 +145,7 @@ describeReuse("provider reuse across repeated reads", () => {
   const symbols = [`RUSEA${stem}`, `RUSEB${stem}`, `RUSEG${stem}`];
   const securities: Security[] = [];
   let benchmark: BenchmarkWithSeries;
+  let boundedBenchmark: BenchmarkWithSeries;
   const priceRows = new Map<string, DailyPrice[]>();
   let benchmarkRows: BenchmarkDailyPrice[] = [];
 
@@ -226,6 +228,20 @@ describeReuse("provider reuse across repeated reads", () => {
       },
     ]);
     benchmark = persisted as BenchmarkWithSeries;
+    // The bounded-loading cases need a series nothing else has warmed, or "cold" would be a lie.
+    const [bounded] = await benchmarkStore.reconcileBenchmarkCatalog([
+      {
+        code: `BOUND${suffix.slice(0, 6).toUpperCase()}`,
+        name: "Bounded Benchmark",
+        sourceKind: "FMP_SYMBOL",
+        providerSymbol: "BOUND",
+        currency: "USD",
+        methodologyVersion: 1,
+        isActive: true,
+        displayOrder: 91,
+      },
+    ]);
+    boundedBenchmark = bounded as BenchmarkWithSeries;
     benchmarkRows = weekdays("2017-01-02", today).map((date, index) => ({
       seriesId: benchmark.series.id,
       date,
@@ -242,7 +258,9 @@ describeReuse("provider reuse across repeated reads", () => {
     redis.disconnect();
     // The product row, not its series: deleting by the series id matched nothing and left a
     // fixture benchmark behind on every run.
-    await prisma.benchmark.deleteMany({ where: { id: benchmark.id } });
+    await prisma.benchmark.deleteMany({
+      where: { id: { in: [benchmark.id, boundedBenchmark.id] } },
+    });
     await prisma.security.deleteMany({
       where: { id: { in: securities.map((security) => security.id) } },
     });
@@ -506,5 +524,106 @@ describeReuse("provider reuse across repeated reads", () => {
     );
     expect(rows.length).toBeGreaterThan(0);
     expect(afterFlush.requests).toEqual([]);
+  });
+
+  /**
+   * A historical run pays for its own window, not for everything since.
+   *
+   * The benchmark loader used to widen every request to today, so a 2005–2010 backtest fetched two
+   * decades it never asked for, wrote yearly Redis chunks through the present, and re-read a
+   * "recent tail" fifteen years stale. None of that is a correctness bug; all of it is work.
+   */
+  describe("a benchmark request is bounded by what it asked for", () => {
+    const HISTORICAL = { from: "2018-01-02", to: "2019-06-28" };
+    const rowsFor = () =>
+      benchmarkRows.map((row) => ({
+        ...row,
+        seriesId: boundedBenchmark.series.id,
+      }));
+
+    it("H: a cold historical request never asks the provider past its own end", async () => {
+      const provider = new CountingBenchmarkProvider(rowsFor());
+      const rows = await benchmarkService(provider).getBenchmarkDailyPrices(
+        boundedBenchmark.series,
+        HISTORICAL,
+      );
+
+      expect(rows.length).toBeGreaterThan(0);
+      expect(provider.requests.length).toBeGreaterThan(0);
+      for (const request of provider.requests) {
+        expect(request.to <= HISTORICAL.to).toBe(true);
+      }
+      // And nothing after the requested end was materialized.
+      const stored = await benchmarkStore.getDailyPrices(
+        boundedBenchmark.series.id,
+        {
+          from: "1990-01-01",
+          to: today,
+        },
+      );
+      expect(stored.every((row) => row.date <= HISTORICAL.to)).toBe(true);
+
+      // F: a historical read must not claim the *current* tail is fresh — it never looked at it.
+      const freshness = await benchmarkStore.getDatasetState(
+        boundedBenchmark.series.id,
+        "DAILY_PRICE",
+        BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+      );
+      expect(freshness?.lastSuccessfulSyncAt ?? null).toBeNull();
+    });
+
+    it("I: an immediate repeat, and a Redis flush, cost nothing", async () => {
+      const repeat = new CountingBenchmarkProvider(rowsFor());
+      await benchmarkService(repeat).getBenchmarkDailyPrices(
+        boundedBenchmark.series,
+        HISTORICAL,
+      );
+      expect(repeat.requests).toEqual([]);
+
+      await clearRedis();
+      const afterFlush = new CountingBenchmarkProvider(rowsFor());
+      const rows = await benchmarkService(afterFlush).getBenchmarkDailyPrices(
+        boundedBenchmark.series,
+        HISTORICAL,
+      );
+      expect(rows.length).toBeGreaterThan(0);
+      expect(afterFlush.requests).toEqual([]);
+    });
+
+    it("J: widening later fetches only the missing suffix", async () => {
+      const wider = { from: HISTORICAL.from, to: "2020-03-31" };
+      const provider = new CountingBenchmarkProvider(rowsFor());
+      await benchmarkService(provider).getBenchmarkDailyPrices(
+        boundedBenchmark.series,
+        wider,
+      );
+
+      expect(provider.requests.length).toBeGreaterThan(0);
+      // Nothing already covered is asked for again, and nothing past the new end either.
+      for (const request of provider.requests) {
+        expect(request.from > HISTORICAL.to).toBe(true);
+        expect(request.to <= wider.to).toBe(true);
+      }
+    });
+
+    it("K: a request reaching today does apply tail freshness", async () => {
+      const provider = new CountingBenchmarkProvider(rowsFor());
+      await benchmarkService(provider).getBenchmarkDailyPrices(
+        boundedBenchmark.series,
+        { from: HISTORICAL.from, to: today },
+      );
+
+      // Now — and only now — the current tail has been read, so the watermark exists.
+      const freshness = await benchmarkStore.getDatasetState(
+        boundedBenchmark.series.id,
+        "DAILY_PRICE",
+        BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+      );
+      expect(freshness?.lastSuccessfulSyncAt).toBeTruthy();
+      // And the tail it asked for is the recent one, not a fifteen-year-old window.
+      expect(provider.requests.some((request) => request.to === today)).toBe(
+        true,
+      );
+    });
   });
 });

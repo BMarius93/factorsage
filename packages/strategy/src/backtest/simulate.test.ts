@@ -1054,15 +1054,15 @@ describe("annual milestone checkpoints", () => {
  * a curve that only began at the first BUY would hide years of the decision not to buy.
  */
 /**
- * What the engine does today, recorded so the docs cannot drift from it.
+ * A BUY percentage is an allocation tier, not an independent event.
  *
- * These are not arguments that the behaviour is right — `ai/architecture/backtest-execution.md`
- * lists both as open questions for the next execution-methodology iteration. They are here so that
- * changing either is a deliberate act with a failing test attached, rather than a silent shift in
- * what a strategy means.
+ * Two behaviours used to fall out of treating levels as unrelated: a smaller tier could resurrect
+ * and buy on an ordinary day once a position drifted below it — continuous rebalancing arriving
+ * through a multi-level strategy — and whether a level was consumed turned on whether the cash
+ * balance happened to be zero or a cent.
  */
-describe("pinned execution choices, not yet argued", () => {
-  it("funds only the highest matching BUY level and leaves the lower ones unfired", async () => {
+describe("BUY allocation tiers", () => {
+  it("funds the highest matching tier and settles every smaller one with it", async () => {
     const dates = tradingDates("2020-01-06", 6);
     const frame = frameOf({
       symbol: "AAA",
@@ -1085,16 +1085,14 @@ describe("pinned execution choices, not yet argued", () => {
       }),
     );
 
-    // One trade, at the largest target. The 25 and 50 levels neither trade nor re-trade later:
-    // the position already exceeds their smaller targets, so they retire without buying.
     expect(result.trades.map((trade) => [trade.levelId, trade.amount])).toEqual(
       [["b100", 100_000]],
     );
   });
 
-  it("lets an unfired lower BUY level buy on an ordinary day once the position falls below it", async () => {
+  it("does not resurrect a smaller tier when the position falls below it", async () => {
     const dates = tradingDates("2020-01-06", 8);
-    // Filled at 100 on day 0, then the price collapses to a tenth.
+    // Filled at 100 on day 0, then the price collapses to a tenth — far below the 25% target.
     const closes = dates.map((_unused, index) => (index === 0 ? 100 : 10));
     const frame = frameOf({ symbol: "AAA", dates, closes });
 
@@ -1112,18 +1110,17 @@ describe("pinned execution choices, not yet argued", () => {
       }),
     );
 
-    // No contribution was made on that day, so this *is* a top-up on an ordinary day — reachable
-    // only because `b25` never fired. A single-level strategy cannot produce it.
+    // One trade, on the first day. No contribution was made, so nothing may buy again: reaching
+    // the 100% tier satisfied the 25% one by definition.
     expect(result.trades.map((trade) => [trade.date, trade.levelId])).toEqual([
       [dates[0], "b100"],
-      [dates[1], "b25"],
     ]);
   });
 
-  it("fills a BUY as far as the cash goes and marks the level done anyway", async () => {
+  it("settles a tier that could only be filled as far as the cash went", async () => {
     const dates = tradingDates("2020-01-06", 8);
-    // AAA fills first and then multiplies, which inflates every later target while the cash left
-    // behind stays where it was.
+    // AAA fills first and then multiplies, inflating every later target while the cash left behind
+    // stays where it was.
     const aaa = frameOf({
       symbol: "AAA",
       dates,
@@ -1149,12 +1146,219 @@ describe("pinned execution choices, not yet argued", () => {
       }),
     );
 
-    // CCC's target was several thousand and it bought 666.67 — every cent left — and never
-    // returned to the level on any later day.
     const cccTrades = result.trades.filter((trade) => trade.symbol === "CCC");
     expect(cccTrades).toHaveLength(1);
     expect(cccTrades[0]?.amount).toBeCloseTo(666.67, 2);
     expect(result.summary.finalCash).toBeCloseTo(0, 8);
+  });
+
+  it("settles an existing position's tier even with no cash at all", async () => {
+    const dates = tradingDates("2020-01-06", 10);
+    // AAA opens on day 0 and spends everything. On day 1 its 100% tier is reconsidered — it is not
+    // settled for CCC's sake — but there is nothing left to spend.
+    const aaa = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map((_unused, index) => (index === 0 ? 100 : 50)),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [
+            buyLevel("b50", 50, priceBelowSignal(1_000)),
+            buyLevel("b100", 100, priceBelowSignal(1_000)),
+          ],
+        }),
+        securities: [securityInput(aaa)],
+        initialCapital: 1_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    // Exactly one entry. Zero cash consumed the opportunity just as a cent would have.
+    expect(result.trades).toHaveLength(1);
+    expect(result.summary.finalCash).toBeCloseTo(0, 8);
+  });
+
+  it("opens no position, and consumes nothing, when there is no cash to open one with", async () => {
+    const dates = tradingDates("2020-01-06", 10);
+    const aaa = frameOf({
+      symbol: "AAA",
+      dates,
+      // Flat, then above the SELL threshold so the position closes and releases its cash.
+      closes: dates.map((_unused, index) => (index < 4 ? 100 : 200)),
+    });
+    // BBB becomes eligible on day 1, by which time AAA has spent the lot. Later, AAA's exit frees
+    // the cash and BBB must still be able to enter.
+    const bbb = frameOf({
+      symbol: "BBB",
+      dates: dates.slice(1),
+      closes: dates.slice(1).map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b100", 100, priceBelowSignal(1_000))],
+          // AAA exits completely once it has risen, freeing the cash BBB could not find earlier.
+          finalExit: finalExit("x1", priceAboveSignal(150)),
+        }),
+        securities: [securityInput(aaa), securityInput(bbb)],
+        startDate: dates[0] as string,
+        endDate: dates[dates.length - 1] as string,
+        executionCalendar: dates,
+        initialCapital: 1_000,
+        maximumPositions: 2,
+      }),
+    );
+
+    // No zero-share BBB position was ever created, and BBB's opportunity was not consumed by the
+    // day it could not afford: it enters once cash exists again.
+    const bbbTrades = result.trades.filter((trade) => trade.symbol === "BBB");
+    expect(bbbTrades.length).toBeGreaterThan(0);
+    expect(bbbTrades[0]?.shares).toBeGreaterThan(0);
+    expect(result.trades.every((trade) => trade.shares > 0)).toBe(true);
+  });
+});
+
+describe("the execution calendar is authoritative", () => {
+  const market = tradingDates("2020-01-02", 60);
+
+  it("A: a security's date that the market never traded cannot become a simulated date", async () => {
+    // A bar on New Year's Day, when the exchange was shut.
+    const rogue = ["2020-01-01", ...market];
+    const frame = frameOf({
+      symbol: "AAA",
+      dates: rogue,
+      closes: rogue.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceBelowSignal(1_000))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: "2020-01-01",
+        endDate: market[market.length - 1] as string,
+        executionCalendar: market,
+        initialCapital: 10_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    expect(result.summary.firstSimulatedDate).toBe(market[0]);
+    expect(result.summary.tradingDays).toBe(market.length);
+    expect(result.equity.some((point) => point.date === "2020-01-01")).toBe(
+      false,
+    );
+    expect(result.trades[0]?.date).toBe(market[0]);
+  });
+
+  it("B: a security missing a real trading day simply does nothing that day", async () => {
+    // AAA is absent for a stretch in the middle; the market kept trading.
+    const gapped = [...market.slice(0, 10), ...market.slice(20)];
+    const frame = frameOf({
+      symbol: "AAA",
+      dates: gapped,
+      closes: gapped.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceBelowSignal(1_000))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: market[0] as string,
+        endDate: market[market.length - 1] as string,
+        executionCalendar: market,
+        initialCapital: 10_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    // Every market day is simulated, and the holding is carried through the gap at its last close.
+    expect(result.summary.tradingDays).toBe(market.length);
+    const inGap = result.equity.filter(
+      (point) =>
+        point.date > (market[9] as string) &&
+        point.date < (market[20] as string),
+    );
+    expect(inGap.length).toBeGreaterThan(0);
+    expect(inGap.every((point) => point.openPositions === 1)).toBe(true);
+    expect(result.trades.every((trade) => market.includes(trade.date))).toBe(
+      true,
+    );
+  });
+
+  it("C: contribution dates come only from the authoritative calendar", async () => {
+    // The security carries an extra bar on a Saturday the market never opened. If it could reach
+    // the axis it would steal that month's first eligible date from the market's.
+    const rogue = [...market, "2020-03-28"].sort();
+    const frame = frameOf({
+      symbol: "AAA",
+      dates: rogue,
+      closes: rogue.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        // Nothing ever matches, so cash simply accumulates and every step in invested capital is
+        // a contribution rather than a trade.
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceBelowSignal(1))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: market[0] as string,
+        endDate: market[market.length - 1] as string,
+        executionCalendar: market,
+        initialCapital: 10_000,
+        monthlyContribution: 1_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    const contributions = result.equity
+      .filter(
+        (point, index) =>
+          index > 0 &&
+          point.investedCapital !==
+            (result.equity[index - 1]?.investedCapital ?? 0),
+      )
+      .map((point) => point.date);
+    expect(contributions.length).toBeGreaterThan(0);
+    expect(contributions.every((date) => market.includes(date))).toBe(true);
+    expect(contributions).not.toContain("2020-03-28");
+  });
+
+  it("E: a security listing mid-period still joins on its own first market day", async () => {
+    const late = market.slice(30);
+    const frame = frameOf({
+      symbol: "IPO",
+      dates: late,
+      closes: late.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(0))],
+        }),
+        securities: [securityInput(frame)],
+        startDate: market[0] as string,
+        endDate: market[market.length - 1] as string,
+        executionCalendar: market,
+        initialCapital: 10_000,
+        maximumPositions: 1,
+      }),
+    );
+
+    // The run exists from the market's first day; the security participates from its own.
+    expect(result.summary.firstSimulatedDate).toBe(market[0]);
+    expect(result.summary.tradingDays).toBe(market.length);
+    expect(result.trades[0]?.date).toBe(late[0]);
   });
 });
 

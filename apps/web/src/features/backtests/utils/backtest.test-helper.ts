@@ -48,6 +48,7 @@ export function testConfiguration(
       execution: "execution@1",
       executionCosts: "execution-costs@1",
       cashYield: "cash-yield@1",
+      strategyEvaluation: "signal-evaluation@1",
       contribution: "contribution@1",
       returns: "returns@1",
       costBasis: "cost-basis@1",

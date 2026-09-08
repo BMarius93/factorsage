@@ -145,27 +145,66 @@ into every run snapshot so a later change cannot reinterpret an old run.
 | Monthly contribution      | `first-eligible-trading-day-of-month@1`: the run's first simulated date is funded by the initial capital and receives no contribution on top of it; from the next calendar month onwards the contribution lands on that month's first simulated trading date, before the day's trading, so it is spendable that same date. A calendar month with no simulated trading date receives none, and nothing is carried forward                                                                                                               |
 | BUY windows               | a window gates every BUY in that stock, opening or topping up. Selling is never restricted                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
-## Open execution questions
+## Runtime compatibility
 
-Two behaviours below are what the engine does today. They are recorded here as _choices not yet
-argued_, so the next iteration of the execution methodology decides them deliberately rather than
-inheriting them by accident. Neither is changed in V1; both are pinned by tests.
+A queued run carries the exact revisions it was submitted under, and a worker **refuses** any run it
+cannot execute as recorded. Without that, a deploy between queueing and claiming would let today's
+code produce numbers and store them beside yesterday's version stamps — the one record that exists
+to make a run reproducible would be the thing that lied.
 
-**Several BUY levels true on the same date.** Per security per date the engine takes the single
-highest-percentage level whose gate is TRUE, funds it, and marks **only that level** fired. The
-lower levels stay unfired. The first time one of them is TRUE again it is compared against the
-position's current value: normally it is already above that smaller target, so it is retired with no
-trade — but if the position has since fallen below it, it fires and buys the shortfall **on an
-ordinary day**. The product rule "a position that merely drifted below target on an ordinary day is
-left alone" therefore holds for a single-level strategy and not for a multi-level one. Whether a
-lower level should be considered satisfied by a larger fill is the open question.
+Two sets are checked, before the execution calendar, before any security, before any provider or
+cache read, because the answer cannot change with effort spent:
 
-**A BUY target larger than the cash available.** The engine spends what it has —
-`spend = min(shortfall, cash)` — and marks the level fired, so a level that could only be filled to
-2% of its target is done for the rest of the position's lifecycle (barring a contribution date).
-There is one sharp edge: with _zero_ cash the write is skipped before the level is marked, so a
-level that finds nothing stays live while a level that finds a cent is retired. Whether a partial
-fill should satisfy a level at all is the open question.
+- `snapshot.methodology` against `BACKTEST_METHODOLOGY` (`@intrinsic/strategy`) — the calendar and
+  its source, candidate ordering, the day's execution rules, costs, cash yield, contributions,
+  return construction, cost basis, and `strategyEvaluation`.
+- `snapshot.dataRevisions` against `BACKTEST_DATA_REVISIONS` (`@intrinsic/stock-data`) — the price
+  dataset version, the derived-state revision, the fundamentals variant version and the benchmark
+  price dataset version. Between them they cover every value the engine can read: closes and fills,
+  every derived operand column including materialized intrinsic values, the statements those values
+  are computed from, and the benchmark bars that are both the comparison and the execution calendar.
+
+`strategyEvaluation` deserves its own note. `STRATEGY_SCHEMA_VERSION` protects a Strategy document's
+_shape_; it says nothing about what evaluating it means. Correcting what "crosses above" does to a
+series that was flat for a week changes the answer for an unchanged document, an unchanged schema
+version and an unchanged price dataset — invisible to every other guard. One coarse version covers
+the whole evaluator, because the guard only ever asks "can this build honour that run".
+
+A mismatch is terminal: `ENGINE_VERSION_MISMATCH`, "queued under an older execution methodology, run
+it again". One code for both sets, because a user cannot act differently on them; the developer
+detail names the exact field and both values, and stays in the log and `failureDetail`. Nothing is
+rewritten, nothing is re-submitted, and no registry of past engines exists — a run is data, and
+re-running it under a newer engine is a new run.
+
+Deliberately **not** covered: a provider later correcting a historical row. V1 does not persist raw
+provider vintages and does not claim to.
+
+## Allocation tiers, and what consumes one
+
+A BUY percentage is an allocation **tier**, not an independent event, and two rules follow from
+saying so plainly.
+
+**Reaching a tier settles every smaller one.** Buying to a 100% target has satisfied the 25% and 50%
+levels by definition, so a later price decline cannot resurrect the 25% level and buy again. Before
+this rule only the level that traded was marked, and a multi-level strategy could therefore top up
+on an ordinary day whenever a position drifted — continuous rebalancing arriving through the back
+door, in flat contradiction of the product rule that ordinary drift is left alone.
+
+**A selected tier is consumed whether or not the cash was there.** It settles if it filled, if it
+filled only as far as the available cash went, and if there was nothing to buy at all. The
+opportunity is the signal, not the money: a level that found one cent and a level that found none
+must mean the same thing, or the semantics would turn on the size of the cash balance.
+
+**Unless no position exists.** With no free position slot, or with nothing spendable, no lifecycle
+begins: no zero-share position is created, nothing is settled, and the security stays eligible for a
+later date on which its Signal is TRUE again. Consumption is a property of a position lifecycle, and
+without a position there is none.
+
+The state is called `buyLevelsSettled` rather than `buyLevelsFired`, because a level lands there in
+three ways and only one of them is a trade. The trade log remains the record of what executed.
+
+The contribution-date top-up is the single explicit exception, unchanged: on a date that actually
+deposits a monthly contribution a settled level is measured again against the larger portfolio.
 
 ## Returns, benchmark and alpha
 
@@ -298,17 +337,35 @@ reach are not that run's outcome, and presenting them beside a failure would rea
 
 `BacktestRun.snapshot` is written once and never updated. It carries the strategy identity, version
 and normalized definition; every resolved security with its normalized BUY windows; the period;
-capital and contribution; `maximumPositions` and the derived full-position fraction; the benchmark
-identity, source kind, provider symbol and methodology version; every engine methodology version;
-and the `PRICE_DATASET_VERSION` / `DERIVED_STATE_REVISION` in force at submission.
+capital and contribution; `maximumPositions` and the derived full-position fraction; the pinned
+comparison and execution-calendar `BenchmarkSeries` identities; every engine methodology version;
+and every data-interpretation revision in force at submission.
 
 The `strategyId`, `strategyVersionId` and `stockListId` foreign keys are nullable and
 `onDelete: SetNull` **on purpose**: deleting a strategy or a list must never delete or reinterpret a
 completed run, and no read path depends on those rows.
 
-Recording the data revisions does not make a re-execution reproducible — the derived state is
-replaced, not versioned, on a methodology bump. It makes the difference explainable instead of
-mysterious.
+### What is guaranteed
+
+- The submitted configuration is immutable, and editing a Strategy, a list or the benchmark catalog
+  afterwards changes nothing about it.
+- A completed run's stored results are immutable.
+- The exact comparison and execution-calendar series versions a run executed against, by id.
+- That a run only ever executes under the engine methodology, Strategy-evaluation revision and
+  data-interpretation revisions it recorded — enforced, not merely recorded. See
+  **Runtime compatibility** above.
+
+### What is not guaranteed
+
+Re-fetching provider data years later returning the exact historical rows previously observed. V1
+does not persist raw provider vintages, so a provider correcting a historical row changes what a
+**new** backtest of the same period would produce. The completed run's stored results are unaffected
+either way, and the recorded revisions explain a difference rather than prevent it.
+
+This is a deliberate V1 boundary, not an oversight: freezing every provider response for every
+security over thirty years is a storage and lifecycle problem of a different order, and it buys
+bit-for-bit replay of arbitrary future re-executions — which the product does not offer and must not
+imply.
 
 ## Failure
 
