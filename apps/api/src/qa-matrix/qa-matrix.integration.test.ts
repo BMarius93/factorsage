@@ -20,6 +20,10 @@ import {
   loadQaMatrixExecutionCalendar,
   seedQaMatrixFixtures,
 } from "./seed-qa-matrix";
+import {
+  ensureQaMatrixExecutionCalendar,
+  hasExecutionCalendarBars,
+} from "./qa-matrix.test-helper";
 
 // Before any Prisma client is constructed.
 useTestDatabase();
@@ -48,6 +52,7 @@ describe("QA-MATRIX fixture seeding", () => {
   // anything the matrix computed.
   const asOfDate = currentAsOfDate();
   let executionDates: readonly string[];
+  let calendarWasSeeded = false;
   let fixtures: ReturnType<typeof qaMatrixFixtures>;
   let QA_MATRIX_LISTS: ReturnType<typeof qaMatrixFixtures>["lists"];
 
@@ -58,6 +63,12 @@ describe("QA-MATRIX fixture seeding", () => {
   let prisma: PrismaClient;
   let ownerId: string;
   let intruderId: string;
+
+  // Teardown state, recorded the moment the thing it refers to actually exists. Kept separate from
+  // the variables the tests use so a half-finished setup has something accurate to clean up
+  // without making every assertion below negotiate with `undefined`.
+  let openedClient: PrismaClient | undefined;
+  const createdUserIds: string[] = [];
 
   const strategySelect = {
     name: true,
@@ -110,31 +121,57 @@ describe("QA-MATRIX fixture seeding", () => {
   }
 
   beforeAll(async () => {
-    prisma = new PrismaClient();
-    await prisma.$connect();
-    executionDates = await loadQaMatrixExecutionCalendar(prisma);
+    const client = new PrismaClient();
+    prisma = client;
+    openedClient = client;
+    await client.$connect();
+    // The suite provisions its own precondition. A freshly migrated database — which is exactly
+    // what CI gets — has no execution-calendar bars, and the strict loader below would refuse
+    // before a single assertion ran. Seeded through the canonical QA benchmark path, never
+    // invented here.
+    calendarWasSeeded = (await ensureQaMatrixExecutionCalendar(client)).seeded;
+    // Read back through the real, strict loader, so this suite still exercises it against actual
+    // `BenchmarkDailyPrice` rows in PostgreSQL rather than against whatever the seed returned.
+    executionDates = await loadQaMatrixExecutionCalendar(client);
     fixtures = qaMatrixFixtures(asOfDate, executionDates);
     QA_MATRIX_LISTS = fixtures.lists;
-    const owner = await prisma.user.create({
+    const owner = await client.user.create({
       data: { email: ownerEmail, emailVerifiedAt: new Date() },
       select: { id: true },
     });
     ownerId = owner.id;
-    const intruder = await prisma.user.create({
+    createdUserIds.push(ownerId);
+    const intruder = await client.user.create({
       data: { email: intruderEmail, emailVerifiedAt: new Date() },
       select: { id: true },
     });
     intruderId = intruder.id;
-    await seedQaMatrixFixtures(prisma, ownerId, fixtures);
+    createdUserIds.push(intruderId);
+    await seedQaMatrixFixtures(client, ownerId, fixtures);
   });
 
   afterAll(async () => {
-    // Only this suite's own users; the catalog rows the seed created are shared fixtures and are
-    // deliberately left in place, exactly like the ones `pnpm test:securities:seed` writes.
-    await prisma.user.deleteMany({
-      where: { id: { in: [ownerId, intruderId] } },
-    });
-    await prisma.$disconnect();
+    // Cleanup has to survive a setup that failed halfway. It used to pass `[undefined, undefined]`
+    // into `deleteMany` when setup threw before creating its users, and the second, unrelated
+    // Prisma error buried the real cause — which is how a plain "no execution-calendar bars"
+    // message reached CI as something far less obvious. Nothing here may replace the original
+    // error, so only ids that exist are deleted and the client is always disconnected.
+    if (!openedClient) {
+      // The client was never constructed, so there is nothing to disconnect and nothing was
+      // written. Returning quietly leaves the setup error as the only failure reported.
+      return;
+    }
+    try {
+      if (createdUserIds.length > 0) {
+        // Only this suite's own users; the catalog rows the seed created are shared fixtures and
+        // are deliberately left in place, exactly like the ones `pnpm test:securities:seed` writes.
+        await openedClient.user.deleteMany({
+          where: { id: { in: createdUserIds } },
+        });
+      }
+    } finally {
+      await openedClient.$disconnect();
+    }
   });
 
   it("seeds exactly ten matrix strategies and ten matrix lists", async () => {
@@ -275,6 +312,30 @@ describe("QA-MATRIX fixture seeding", () => {
         ).toBe(true);
       }
     }
+  });
+
+  it("provisions its own execution calendar, so a fresh database needs no manual seed", async () => {
+    // Whether this run seeded or found bars already present, the precondition is the suite's own
+    // responsibility and the result is the same. `calendarWasSeeded` records which happened, so a
+    // fresh-database run is visibly a fresh-database run rather than an indistinguishable pass.
+    expect(typeof calendarWasSeeded).toBe("boolean");
+    expect(executionDates.length).toBeGreaterThan(0);
+    expect(await hasExecutionCalendarBars(prisma)).toBe(true);
+  });
+
+  it("is idempotent about that precondition and never rewrites shared benchmark data", async () => {
+    // The `SP500` row is global state shared with every other suite in the run. Calling the helper
+    // again must read, not write: a second seed would move coverage and freshness watermarks under
+    // a concurrent suite.
+    const before = await prisma.benchmarkDailyPrice.count();
+    const again = await ensureQaMatrixExecutionCalendar(prisma, async () => {
+      throw new Error(
+        "the calendar was already present; it must not be seeded again",
+      );
+    });
+    expect(again.seeded).toBe(false);
+    expect(again.dates).toEqual(executionDates);
+    expect(await prisma.benchmarkDailyPrice.count()).toBe(before);
   });
 
   it("reads its calendar from the same series a submitted run pins", async () => {

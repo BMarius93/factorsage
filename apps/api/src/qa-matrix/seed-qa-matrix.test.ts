@@ -7,12 +7,15 @@ import {
   PRODUCTION_QA_SECURITIES_MESSAGE,
 } from "../stocks/seed-qa-securities";
 import {
+  MISSING_EXECUTION_CALENDAR_MESSAGE,
   MISSING_QA_MATRIX_OWNER_MESSAGE,
   assertQaMatrixSeedingAllowed,
+  loadQaMatrixExecutionCalendar,
   qaMatrixSeedDatabaseUrl,
   resolveQaMatrixOwner,
   seedQaMatrixFixtures,
 } from "./seed-qa-matrix";
+import { ensureQaMatrixExecutionCalendar } from "./qa-matrix.test-helper";
 
 /** Fails the test if the seeder reaches the database at all. */
 const forbiddenPrisma = new Proxy(
@@ -109,6 +112,97 @@ describe("QA matrix seeding safety", () => {
         qaMatrixFixtures(currentAsOfDate()),
       ),
     ).rejects.toThrow(PRODUCTION_QA_SECURITIES_MESSAGE);
+  });
+
+  describe("the authoritative execution calendar", () => {
+    /** A Prisma double exposing only what the calendar loader reads. */
+    function prismaWith(options: {
+      series?: { id: string } | null;
+      bars: { date: Date }[];
+    }): PrismaClient {
+      return {
+        benchmark: {
+          findFirst: async () =>
+            options.series === null
+              ? null
+              : { series: [options.series ?? { id: "series-1" }] },
+        },
+        benchmarkDailyPrice: {
+          findMany: async () => options.bars,
+          findFirst: async () => options.bars[0] ?? null,
+        },
+      } as unknown as PrismaClient;
+    }
+
+    it("refuses when the pinned series does not exist", async () => {
+      await expect(
+        loadQaMatrixExecutionCalendar(prismaWith({ series: null, bars: [] })),
+      ).rejects.toThrow(MISSING_EXECUTION_CALENDAR_MESSAGE);
+    });
+
+    it("refuses when the pinned series exists but has no bars", async () => {
+      // The rule the CI failure was the system correctly enforcing, and it stays enforced: the
+      // matrix's buy-window boundaries name real execution dates, so a calendar with nothing in it
+      // would produce fixtures cut against nothing at all. There is deliberately no fallback to the
+      // captured offline calendar here — that capture is for suites, never for a real seed.
+      await expect(
+        loadQaMatrixExecutionCalendar(prismaWith({ bars: [] })),
+      ).rejects.toThrow(MISSING_EXECUTION_CALENDAR_MESSAGE);
+    });
+
+    it("returns the series' own dates, ascending, when it has bars", async () => {
+      const dates = await loadQaMatrixExecutionCalendar(
+        prismaWith({
+          bars: [
+            { date: new Date("2024-01-02T00:00:00.000Z") },
+            { date: new Date("2024-01-03T00:00:00.000Z") },
+          ],
+        }),
+      );
+      expect(dates).toEqual(["2024-01-02", "2024-01-03"]);
+    });
+
+    it("lets a suite start from a database with zero benchmark bars", async () => {
+      // What CI actually has: migrations and nothing else. The setup helper must create the
+      // precondition itself rather than assume a developer seeded it weeks ago — the invisible
+      // leftover state that made this suite pass locally and fail on a fresh database.
+      let bars: { date: Date }[] = [];
+      const prisma = {
+        benchmark: {
+          findFirst: async () => ({ series: [{ id: "series-1" }] }),
+        },
+        benchmarkDailyPrice: {
+          findMany: async () => bars,
+          findFirst: async () => bars[0] ?? null,
+        },
+      } as unknown as PrismaClient;
+
+      // Before setup there is nothing to read, exactly as on a fresh database.
+      await expect(loadQaMatrixExecutionCalendar(prisma)).rejects.toThrow(
+        MISSING_EXECUTION_CALENDAR_MESSAGE,
+      );
+
+      let seedCalls = 0;
+      const result = await ensureQaMatrixExecutionCalendar(prisma, async () => {
+        seedCalls += 1;
+        bars = [
+          { date: new Date("2024-01-02T00:00:00.000Z") },
+          { date: new Date("2024-01-03T00:00:00.000Z") },
+        ];
+      });
+
+      expect(seedCalls).toBe(1);
+      expect(result.seeded).toBe(true);
+      expect(result.dates).toEqual(["2024-01-02", "2024-01-03"]);
+
+      // And on the next run, with bars present, it reads instead of seeding again.
+      const second = await ensureQaMatrixExecutionCalendar(prisma, async () => {
+        seedCalls += 1;
+      });
+      expect(seedCalls).toBe(1);
+      expect(second.seeded).toBe(false);
+      expect(second.dates).toEqual(result.dates);
+    });
   });
 
   it("resolves the QA owner and never creates one", async () => {
