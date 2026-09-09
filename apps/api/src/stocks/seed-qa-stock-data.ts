@@ -99,13 +99,20 @@ export function qaIntrinsicFixture(sourceDataAsOf: string): {
 
   const blends: Partial<Record<IntrinsicValueBlendId, number>> = {};
   for (const blendId of INTRINSIC_VALUE_BLEND_IDS) {
-    const blend = combineBlendComponents(INTRINSIC_VALUE_BLENDS[blendId], models);
+    const blend = combineBlendComponents(
+      INTRINSIC_VALUE_BLENDS[blendId],
+      models,
+    );
     if (blend.status === "CALCULATED") {
       blends[blendId] = blend.valuePerShare;
     }
   }
 
-  return { values: { ...QA_MODEL_VALUES }, blends, currency: INTRINSIC_CURRENCY };
+  return {
+    values: { ...QA_MODEL_VALUES },
+    blends,
+    currency: INTRINSIC_CURRENCY,
+  };
 }
 
 /** Closing price of the `index`-th trading day. Pure function of the index: reruns are identical. */
@@ -169,17 +176,23 @@ export async function seedQaStockData(
   }
 
   const syncedAt = new Date().toISOString();
-  // The canonical target the loader will ask for: the whole configured horizon up to today. The
-  // seeded rows only span the recent part of it, which is normal — coverage is a watermark, not a
-  // promise that every calendar day inside it has a market row.
-  // The same year arithmetic the loader and the Stock Details bound use (29 February clamps to
-  // 28 February), so the seeded coverage starts exactly on the permitted start and the QA stock's
-  // boundary is provable as `PROVIDER` on every calendar day, leap days included.
+  // The horizon the loader clamps a read to, and what this fixture claims to have covered — see
+  // `saveDailyPriceSync` below. The same year arithmetic the loader and the Stock Details bound
+  // use, so 29 February clamps to 28 February.
   const horizonStart = subtractYears(today, historyYears);
 
   await store.saveDailyPriceSync({
     securityId,
     prices,
+    // The whole horizon, and that claim is **true here**: `QATEST1` is a fictional security whose
+    // only provider is this fixture, so the fixture is the authority on what exists before its
+    // first row — nothing. Recording the horizon is what lets Stock Details report a `PROVIDER`
+    // boundary, which is the property its navigation suites assert.
+    //
+    // The benchmark seed deliberately does *not* do this. `SP500` is backed by a real symbol with
+    // real history further back, so claiming the horizon there would be a lie that permanently
+    // blocked fetching it. The difference is not "seed versus provider"; it is whether the claim
+    // happens to be true.
     successfulCoverage: [{ from: horizonStart, to: today }],
     syncedAt,
     tailDate: today,
@@ -213,6 +226,8 @@ export async function seedQaStockData(
     securityId,
     rows,
     weeklyPrices: weeklyBars,
+    // Derived state is computed from the prices above and over the same interval, so it makes the
+    // same claim for the same reason.
     successfulCoverage: { from: horizonStart, to: today },
     syncedAt,
   });

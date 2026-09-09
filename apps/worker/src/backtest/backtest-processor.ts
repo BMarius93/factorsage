@@ -1,0 +1,883 @@
+import {
+  revisionMismatches,
+  type BacktestFailureCode,
+  type BacktestFailurePhase,
+  type BacktestLiveSnapshotResponse,
+  type BacktestRunSnapshot,
+  type BacktestSnapshotSecurity,
+} from "@intrinsic/contracts";
+import { BacktestRunStatus } from "@intrinsic/database";
+import type {
+  BenchmarkSeries,
+  BenchmarkDailyPrice,
+  DateRange,
+  LocalDate,
+  Security,
+} from "@intrinsic/domain";
+import type { StructuredLogger } from "@intrinsic/observability";
+import {
+  collectOperands,
+  methodologyMismatches,
+  simulateBacktest,
+  type BacktestCheckpoint,
+  type BacktestResult,
+  type BacktestSecurityInput,
+  type BenchmarkSeriesInput,
+  type EvaluationFrame,
+  type OperandKey,
+} from "@intrinsic/strategy";
+import {
+  BacktestInterruptedError,
+  type BacktestJobLease,
+} from "./job-lease.js";
+import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
+import {
+  ABANDONED_FAILURE_MESSAGE,
+  type BacktestJobRepository,
+  type BacktestMilestoneWrite,
+  type ClaimedBacktestJob,
+} from "./job-repository.js";
+import { toLiveSnapshotResponse } from "./live-snapshot.js";
+import { parseRunSnapshot, snapshotBuyWindows } from "./run-snapshot.js";
+import type { BacktestSecurityCatalog } from "./securities.js";
+import type { BacktestJobProcessor } from "./worker-loop.js";
+
+/**
+ * The columnar projection the engine consumes.
+ *
+ * Declared as the narrow slice the worker needs rather than as the whole `StockDataService`: the
+ * worker loads nothing else, and it must never grow its own Redis lookup, coverage reconciliation
+ * or provider access — `@intrinsic/stock-data` owns all of that for both processes.
+ */
+export interface BacktestFrameLoader {
+  getDailyEvaluationFrame(
+    security: Security,
+    range: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame>;
+}
+
+/**
+ * The benchmark slice the worker needs; hydration happens inside the loader.
+ *
+ * Deliberately **only** `getSeries` — resolution by code does not exist here. A run pins the exact
+ * immutable series at submission, and execution reads that id back, so a catalog change between
+ * queueing and running cannot change what the run compares against or which dates it simulates.
+ */
+export interface BacktestBenchmarkLoader {
+  getSeries(seriesId: string): Promise<BenchmarkSeries>;
+  getBenchmarkDailyPrices(
+    series: BenchmarkSeries,
+    range: Required<DateRange>,
+  ): Promise<BenchmarkDailyPrice[]>;
+}
+
+export type BacktestProcessorOptions = {
+  frameConcurrency: number;
+  checkpointEveryDays: number;
+  checkpointMinIntervalMs: number;
+  leaseMs: number;
+  workerId: string;
+  now?: () => Date;
+};
+
+export type BacktestProcessorDependencies = {
+  repository: BacktestJobRepository;
+  securities: BacktestSecurityCatalog;
+  stockData: BacktestFrameLoader;
+  benchmarks: BacktestBenchmarkLoader;
+  logger: StructuredLogger;
+};
+
+/**
+ * The execution phase a failure happened in.
+ *
+ * `SNAPSHOT` covers everything before a phase is entered — reading and parsing the submission — and
+ * has no product label, because a user cannot act on it. The other three are shown.
+ */
+type ExecutionPhase = "SNAPSHOT" | BacktestFailurePhase;
+
+/**
+ * Names the stocks that produced no usable data, bounded so a 200-security list cannot turn a
+ * failure message into a wall of text.
+ */
+function skippedContext(symbols: readonly string[]): string | undefined {
+  if (symbols.length === 0) {
+    return undefined;
+  }
+  const sorted = [...symbols].sort();
+  const shown = sorted.slice(0, 5).join(", ");
+  return sorted.length > 5
+    ? `No market data was found for ${shown} and ${sorted.length - 5} more.`
+    : `No market data was found for ${shown}.`;
+}
+
+/** The phases a user is told about. `SNAPSHOT` is ours, not theirs. */
+function userFacingPhase(phase: ExecutionPhase): BacktestFailurePhase | null {
+  return phase === "SNAPSHOT" ? null : phase;
+}
+
+/**
+ * What a user is told, per failure code. Product prose only: provider names, URLs, credentials and
+ * stack traces stay in `failureDetail`, which no API contract exposes.
+ */
+const FAILURE_MESSAGES: Record<BacktestFailureCode, string> = {
+  DATA_UNAVAILABLE:
+    "Market data is not available for the stocks in this list over the requested period.",
+  EXECUTION_CALENDAR_UNAVAILABLE:
+    "The market calendar this backtest runs on could not be loaded, so it was stopped rather " +
+    "than run over a different set of trading days. Try again shortly.",
+  ENGINE_VERSION_MISMATCH:
+    "This backtest was queued under an older execution methodology. Run it again to use the " +
+    "current version.",
+  NO_TRADING_DAYS:
+    "The requested period contains no trading day for the stocks in this list.",
+  EXECUTION_FAILED:
+    "The backtest could not be completed. Please try running it again.",
+  ABANDONED: ABANDONED_FAILURE_MESSAGE,
+};
+
+/** A failure the processor can name. Anything else is reported as `EXECUTION_FAILED`. */
+class BacktestRunFailure extends Error {
+  constructor(
+    readonly code: BacktestFailureCode,
+    message: string,
+    /**
+     * Sanitized product context appended to the user-facing message, such as which stocks could
+     * not be prepared. Never a provider name, a URL, a credential or a stack.
+     */
+    readonly context?: string,
+    /**
+     * Diagnostics for whoever has to explain the failure later. Merged into `failureDetail`, which
+     * no API contract projects, and never into the message a user reads — internal engine revision
+     * strings would tell them nothing and are not theirs to see.
+     */
+    readonly developerDetail?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = "BacktestRunFailure";
+  }
+}
+
+/** Progress budget per phase. 100 belongs to a persisted result and to nothing else. */
+const PREPARING_START_PERCENT = 2;
+const RUNNING_START_PERCENT = 20;
+const RUNNING_MAX_PERCENT = 94;
+const FINALIZING_PERCENT = 95;
+
+/**
+ * Executes one claimed backtest.
+ *
+ * The order is deliberate and observable: hydrate and project every security into an evaluation
+ * frame, run the deterministic day loop while publishing bounded checkpoints, then write the
+ * durable result. Nothing here reimplements loading or evaluation — the frames come from
+ * `@intrinsic/stock-data` and the simulation from `@intrinsic/strategy`, exactly as the API would
+ * consume them.
+ */
+export class BacktestProcessor implements BacktestJobProcessor {
+  private readonly now: () => Date;
+
+  constructor(
+    private readonly dependencies: BacktestProcessorDependencies,
+    private readonly options: BacktestProcessorOptions,
+  ) {
+    this.now = options.now ?? (() => new Date());
+  }
+
+  async process(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+  ): Promise<void> {
+    const startedAt = Date.now();
+    let phase: ExecutionPhase = "SNAPSHOT";
+
+    try {
+      const snapshot = parseRunSnapshot(claim.snapshot);
+      const period = {
+        from: snapshot.period.startDate,
+        to: snapshot.period.endDate,
+      } as const;
+
+      this.dependencies.logger.info({
+        event: "backtest.started",
+        attempt: claim.attempt,
+        securityCount: snapshot.securities.length,
+        startDate: period.from,
+        endDate: period.to,
+        maximumPositions: snapshot.allocation.maximumPositions,
+      });
+
+      phase = "PREPARING_DATA";
+      this.assertMethodologySupported(claim, snapshot);
+      const prepared = await this.prepare(claim, lease, snapshot, period);
+
+      phase = "RUNNING";
+      const result = await this.simulate(claim, lease, snapshot, prepared);
+
+      phase = "FINALIZING";
+      await this.finalize(claim, lease, result);
+
+      this.dependencies.logger.info({
+        event: "backtest.completed",
+        durationMs: Date.now() - startedAt,
+        tradeCount: result.summary.totalTrades,
+        tradingDays: result.summary.tradingDays,
+        openPositions: result.summary.openPositions,
+      });
+    } catch (err) {
+      if (err instanceof BacktestInterruptedError) {
+        throw err;
+      }
+      await this.recordFailure(claim, lease, phase, err, startedAt);
+    }
+  }
+
+  /**
+   * PREPARING_DATA — project every list member into an evaluation frame.
+   *
+   * Frames are loaded with bounded concurrency because each one may hydrate from the provider, and
+   * the FMP budget is shared with the API. A security with no usable history is skipped rather
+   * than failing the run: a thirty-year period over a list containing a recent listing is a normal
+   * backtest, not an error. Losing *every* security is different — there is nothing to simulate.
+   */
+  /**
+   * Refuses a run this build cannot execute as recorded.
+   *
+   * A queued run carries the execution methodology **and the data-interpretation revisions** it
+   * was submitted under, and a deploy between queueing and claiming can leave the worker
+   * implementing different ones. Executing anyway would
+   * produce numbers under today's rules and store them beside yesterday's version stamps, which is
+   * precisely the record that exists to make a run reproducible.
+   *
+   * The refusal is deliberately dumb: no registry of past engines, no rewriting the snapshot to
+   * today's versions, no re-submitting on the user's behalf. The run is data, and re-running it
+   * under a newer engine is a *new* run — which is exactly what the message asks the user to do.
+   *
+   * Checked before anything is hydrated: the answer cannot change with effort spent.
+   */
+  private assertMethodologySupported(
+    claim: ClaimedBacktestJob,
+    snapshot: BacktestRunSnapshot,
+  ): void {
+    const mismatches = [
+      ...methodologyMismatches(snapshot.methodology).map((mismatch) => ({
+        ...mismatch,
+        field: `methodology.${mismatch.field}`,
+      })),
+      // The same class of problem, and the same answer: a build that interprets a price bar or a
+      // derived column differently produces different numbers from the same Strategy document,
+      // and would store them under the revisions the snapshot recorded. One failure code, because
+      // a user cannot act differently on the two — the field name in the developer detail is what
+      // distinguishes them for whoever has to explain it.
+      ...revisionMismatches(
+        snapshot.dataRevisions,
+        BACKTEST_DATA_REVISIONS,
+      ).map((mismatch) => ({
+        ...mismatch,
+        field: `dataRevisions.${mismatch.field}`,
+      })),
+    ];
+    if (mismatches.length === 0) {
+      return;
+    }
+    // Which versions disagree is developer detail: it names internal engine revisions and would
+    // mean nothing to a user, who only needs to know the run is stale. It reaches the logs and
+    // `failureDetail`, never the HTTP contract.
+    const described = mismatches.map(
+      (mismatch) =>
+        `${mismatch.field}: snapshot=${mismatch.actual ?? "<absent>"} ` +
+        `worker=${mismatch.expected ?? "<unsupported>"}`,
+    );
+    this.dependencies.logger.error({
+      event: "backtest.runtime.unsupported",
+      runId: claim.runId,
+      jobId: claim.jobId,
+      attempt: claim.attempt,
+      mismatches: described,
+    });
+    throw new BacktestRunFailure(
+      "ENGINE_VERSION_MISMATCH",
+      FAILURE_MESSAGES.ENGINE_VERSION_MISMATCH,
+      undefined,
+      {
+        failureCode: "ENGINE_VERSION_MISMATCH",
+        methodologyMismatches: described,
+      },
+    );
+  }
+
+  private async prepare(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    snapshot: BacktestRunSnapshot,
+    period: Required<DateRange>,
+  ): Promise<{
+    securities: BacktestSecurityInput[];
+    benchmark: BenchmarkSeriesInput | null;
+    executionCalendar: LocalDate[];
+  }> {
+    const startedAt = Date.now();
+    const operands = collectOperands(snapshot.strategy.definition);
+    const catalog = await this.dependencies.securities.findByIds(
+      snapshot.securities.map((security) => security.securityId),
+    );
+
+    await this.writeProgress(claim, lease, {
+      status: BacktestRunStatus.PREPARING_DATA,
+      percent: PREPARING_START_PERCENT,
+      message: "Preparing market data",
+    });
+
+    // Before anything expensive. The calendar is a precondition of the whole run, not one input
+    // among many: without it there is no methodology to execute, so discovering that after
+    // hydrating thirty securities would only waste minutes to reach the same refusal.
+    const executionCalendar = await this.loadExecutionCalendar(
+      snapshot,
+      period,
+    );
+
+    const loaded: (BacktestSecurityInput | null)[] = snapshot.securities.map(
+      () => null,
+    );
+    const total = snapshot.securities.length;
+    let completed = 0;
+    let skipped = 0;
+    const skippedSymbols: string[] = [];
+    let lastReportAt = 0;
+
+    // Resident frames complete in microseconds, so this is throttled exactly like a checkpoint;
+    // the last security always reports, so the phase never ends short of its budget.
+    const reportProgress = async (done: number): Promise<void> => {
+      const at = this.now().getTime();
+      if (
+        done < total &&
+        at - lastReportAt < this.options.checkpointMinIntervalMs
+      ) {
+        return;
+      }
+      lastReportAt = at;
+      await this.writeProgress(claim, lease, {
+        percent:
+          PREPARING_START_PERCENT +
+          Math.round(
+            (done / Math.max(total, 1)) *
+              (RUNNING_START_PERCENT - PREPARING_START_PERCENT),
+          ),
+        message: `Preparing market data — ${done} of ${total} stocks`,
+      });
+    };
+
+    await this.mapWithConcurrency(
+      snapshot.securities,
+      async (member, index) => {
+        const interruption = lease.interruption();
+        if (interruption) {
+          throw new BacktestInterruptedError(interruption);
+        }
+
+        const frame = await this.loadFrame(member, catalog, period, operands);
+        if (frame) {
+          loaded[index] = {
+            frame,
+            buyWindows: snapshotBuyWindows(member),
+          };
+        } else {
+          skipped += 1;
+          skippedSymbols.push(member.symbol);
+        }
+
+        completed += 1;
+        await reportProgress(completed);
+      },
+    );
+
+    const securities = loaded.filter(
+      (entry): entry is BacktestSecurityInput => entry !== null,
+    );
+
+    this.dependencies.logger.info({
+      event: "backtest.frames.loaded",
+      durationMs: Date.now() - startedAt,
+      securityCount: securities.length,
+      skippedCount: skipped,
+      ...(skippedSymbols.length > 0
+        ? { skippedSymbols: [...skippedSymbols].sort() }
+        : {}),
+      operandCount: operands.length,
+    });
+
+    if (securities.length === 0) {
+      throw new BacktestRunFailure(
+        "DATA_UNAVAILABLE",
+        `No security in the run produced usable daily data between ${period.from} and ${period.to}`,
+        // Symbols are the user's own list, so naming them is safe and is what makes the failure
+        // actionable: it points at which stocks to check rather than at "try again".
+        skippedContext(skippedSymbols),
+      );
+    }
+    // The engine simulates the union of the frames' own trading days inside the period. When no
+    // frame has a row in it there is no calendar to walk, which is a period problem rather than a
+    // data problem, and the user is told so.
+    if (
+      securities.every(
+        (entry) => entry.frame.periodStartIndex >= entry.frame.dates.length,
+      )
+    ) {
+      throw new BacktestRunFailure(
+        "NO_TRADING_DAYS",
+        `No security has a trading day between ${period.from} and ${period.to}`,
+      );
+    }
+
+    return {
+      securities,
+      benchmark: await this.loadBenchmark(snapshot, period),
+      executionCalendar,
+    };
+  }
+
+  private async loadFrame(
+    member: BacktestSnapshotSecurity,
+    catalog: Map<string, Security>,
+    period: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame | null> {
+    // Identity is the snapshot's, frozen at submission; classification comes from the catalog row
+    // it still references, which is what the loader needs to reach the right history.
+    const row = catalog.get(member.securityId);
+    if (!row) {
+      this.dependencies.logger.warn({
+        event: "backtest.security.skipped",
+        symbol: member.symbol,
+        reason: "CATALOG_ROW_MISSING",
+      });
+      return null;
+    }
+
+    const security: Security = {
+      ...row,
+      id: member.securityId,
+      symbol: member.symbol,
+      name: member.name,
+      exchangeCode: member.exchangeCode,
+      currency: member.currency,
+    };
+
+    const frame = await this.dependencies.stockData.getDailyEvaluationFrame(
+      security,
+      period,
+      operands,
+    );
+    if (frame.dates.length === 0) {
+      this.dependencies.logger.warn({
+        event: "backtest.security.skipped",
+        symbol: member.symbol,
+        reason: "NO_DAILY_DATA",
+      });
+      return null;
+    }
+    return frame;
+  }
+
+  /**
+   * Loads the comparison series the run snapshotted.
+   *
+   * A benchmark that cannot be loaded degrades the run instead of failing it: the contract already
+   * models a missing comparison as a null benchmark return, and a portfolio result the user waited
+   * minutes for should not be thrown away because one auxiliary series was unavailable.
+   */
+  private async loadBenchmark(
+    snapshot: BacktestRunSnapshot,
+    period: Required<DateRange>,
+  ): Promise<BenchmarkSeriesInput | null> {
+    const startedAt = Date.now();
+    const prices = await this.loadSeriesPrices(
+      snapshot.benchmark.seriesId,
+      period,
+      { role: "comparison", code: snapshot.benchmark.code },
+    );
+    if (!prices || prices.length === 0) {
+      return null;
+    }
+
+    const closes = new Float64Array(prices.length);
+    const dates: LocalDate[] = [];
+    prices.forEach((price, index) => {
+      dates.push(price.date);
+      closes[index] = price.close;
+    });
+
+    this.dependencies.logger.info({
+      event: "backtest.benchmark.loaded",
+      durationMs: Date.now() - startedAt,
+      benchmarkCode: snapshot.benchmark.code,
+      benchmarkSeriesId: snapshot.benchmark.seriesId,
+      benchmarkSeriesVersion: snapshot.benchmark.seriesVersion,
+      pointCount: prices.length,
+    });
+
+    return {
+      benchmarkId: snapshot.benchmark.benchmarkId,
+      code: snapshot.benchmark.code,
+      name: snapshot.benchmark.name,
+      dates,
+      closes,
+    };
+  }
+
+  /**
+   * The market's trading days over the run's period.
+   *
+   * Read from the reference series the run pinned at submission, **never** from the comparison
+   * benchmark above: the dates a run simulates decide when contributions land, so a user's choice
+   * of what to compare against must not reach them.
+   *
+   * There is deliberately **no fallback**. The calendar is part of the snapshotted methodology, and
+   * quietly simulating the securities' own union instead would mean a run silently executed a
+   * different methodology than the one it recorded — a different set of contribution dates, a
+   * different return-index base, different numbers — because an auxiliary series happened to be
+   * unreadable during this attempt. A retry against the same pinned series is correct; a different
+   * answer is not. So this fails the attempt, and the next one executes the same calendar or fails
+   * the same way.
+   */
+  private async loadExecutionCalendar(
+    snapshot: BacktestRunSnapshot,
+    period: Required<DateRange>,
+  ): Promise<LocalDate[]> {
+    const startedAt = Date.now();
+    const seriesId = snapshot.executionCalendar?.seriesId;
+    const referenceCode = snapshot.executionCalendar?.referenceCode ?? null;
+    if (!seriesId) {
+      // A run submitted before the calendar became required. It cannot be executed under the
+      // methodology it recorded, so it is not executed at all.
+      this.dependencies.logger.error({
+        event: "backtest.execution-calendar.unavailable",
+        reason: "NOT_PINNED",
+        referenceCode,
+      });
+      throw new BacktestRunFailure(
+        "EXECUTION_CALENDAR_UNAVAILABLE",
+        FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+      );
+    }
+    const prices = await this.loadSeriesPrices(seriesId, period, {
+      role: "execution-calendar",
+      code: referenceCode ?? seriesId,
+    });
+    if (!prices || prices.length === 0) {
+      this.dependencies.logger.error({
+        event: "backtest.execution-calendar.unavailable",
+        reason: prices === null ? "LOAD_FAILED" : "NO_TRADING_DAYS",
+        referenceCode,
+        seriesId,
+      });
+      throw new BacktestRunFailure(
+        "EXECUTION_CALENDAR_UNAVAILABLE",
+        FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+      );
+    }
+    this.dependencies.logger.info({
+      event: "backtest.execution-calendar.loaded",
+      durationMs: Date.now() - startedAt,
+      referenceCode,
+      seriesId,
+      tradingDays: prices.length,
+    });
+    return prices.map((price) => price.date);
+  }
+
+  /** One pinned series' bars, or null when it cannot be loaded. Never fails the run. */
+  private async loadSeriesPrices(
+    seriesId: string,
+    period: Required<DateRange>,
+    context: { role: string; code: string },
+  ): Promise<BenchmarkDailyPrice[] | null> {
+    try {
+      const series = await this.dependencies.benchmarks.getSeries(seriesId);
+      const prices = await this.dependencies.benchmarks.getBenchmarkDailyPrices(
+        series,
+        period,
+      );
+      if (prices.length === 0) {
+        this.dependencies.logger.warn({
+          event: "backtest.benchmark.unavailable",
+          role: context.role,
+          benchmarkCode: context.code,
+          seriesId,
+          reason: "NO_DAILY_DATA",
+        });
+      }
+      return prices;
+    } catch (err) {
+      this.dependencies.logger.warn({
+        event: "backtest.benchmark.unavailable",
+        role: context.role,
+        benchmarkCode: context.code,
+        seriesId,
+        err,
+      });
+      return null;
+    }
+  }
+
+  /** RUNNING — the deterministic day loop, publishing bounded checkpoints as it advances. */
+  private async simulate(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    snapshot: BacktestRunSnapshot,
+    prepared: {
+      securities: BacktestSecurityInput[];
+      benchmark: BenchmarkSeriesInput | null;
+      executionCalendar: LocalDate[];
+    },
+  ): Promise<BacktestResult> {
+    await this.writeProgress(claim, lease, {
+      status: BacktestRunStatus.RUNNING,
+      percent: RUNNING_START_PERCENT,
+      message: "Running backtest",
+    });
+
+    let lastCheckpointAt = 0;
+
+    return simulateBacktest(
+      {
+        definition: snapshot.strategy.definition,
+        securities: prepared.securities,
+        benchmark: prepared.benchmark,
+        executionCalendar: prepared.executionCalendar,
+        startDate: snapshot.period.startDate,
+        endDate: snapshot.period.endDate,
+        initialCapital: snapshot.capital.initialCapital,
+        monthlyContribution: snapshot.capital.monthlyContribution,
+        maximumPositions: snapshot.allocation.maximumPositions,
+      },
+      {
+        checkpointEveryDays: this.options.checkpointEveryDays,
+        onCheckpoint: async (checkpoint) => {
+          const interruption = lease.interruption();
+          if (interruption) {
+            throw new BacktestInterruptedError(interruption);
+          }
+
+          // A short run can checkpoint hundreds of times a second; the first one always lands, so
+          // the running page has something to show immediately, and the rest are throttled.
+          //
+          // A completed year is never throttled away. It is the progression a user follows on a
+          // decades-long run, and a V1 run has at most about thirty of them, so keeping every one
+          // costs a bounded number of small writes even when the simulation outruns the clock.
+          const at = this.now().getTime();
+          if (
+            checkpoint.milestone === null &&
+            lastCheckpointAt !== 0 &&
+            at - lastCheckpointAt < this.options.checkpointMinIntervalMs
+          ) {
+            return;
+          }
+          lastCheckpointAt = at;
+
+          await this.publishCheckpoint(claim, lease, checkpoint);
+        },
+      },
+    );
+  }
+
+  private async publishCheckpoint(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    checkpoint: BacktestCheckpoint,
+  ): Promise<void> {
+    const progressed =
+      checkpoint.totalDays > 0
+        ? checkpoint.completedDays / checkpoint.totalDays
+        : 0;
+    const percent = Math.min(
+      RUNNING_MAX_PERCENT,
+      Math.max(
+        RUNNING_START_PERCENT,
+        Math.round(
+          RUNNING_START_PERCENT +
+            progressed * (RUNNING_MAX_PERCENT - RUNNING_START_PERCENT),
+        ),
+      ),
+    );
+
+    this.dependencies.logger.debug({
+      event: "backtest.progress",
+      percent,
+      simulatedThrough: checkpoint.simulatedThrough,
+      completedDays: checkpoint.completedDays,
+      totalDays: checkpoint.totalDays,
+    });
+
+    await this.writeProgress(claim, lease, {
+      percent,
+      message: `Running backtest — simulated through ${checkpoint.simulatedThrough}`,
+      simulatedThrough: checkpoint.simulatedThrough,
+      snapshot: toLiveSnapshotResponse(checkpoint),
+      ...(checkpoint.milestone
+        ? {
+            milestone: {
+              year: checkpoint.milestone,
+              simulatedThrough: checkpoint.simulatedThrough,
+              percent,
+              completedDays: checkpoint.completedDays,
+              totalDays: checkpoint.totalDays,
+              cash: checkpoint.cash,
+              totalValue: checkpoint.totalValue,
+              investedCapital: checkpoint.investedCapital,
+              portfolioReturnPercent: checkpoint.portfolioReturnPercent,
+              benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
+              alphaPercent: checkpoint.alphaPercent,
+              maxDrawdownPercent: checkpoint.maxDrawdownPercent,
+              tradeCount: checkpoint.tradeCount,
+              openPositions: checkpoint.openPositions,
+            },
+          }
+        : {}),
+    });
+  }
+
+  /** FINALIZING — the durable result and the terminal transition, in one transaction. */
+  private async finalize(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    result: BacktestResult,
+  ): Promise<void> {
+    await this.writeProgress(claim, lease, {
+      status: BacktestRunStatus.FINALIZING,
+      percent: FINALIZING_PERCENT,
+      message: "Finalizing results",
+      simulatedThrough: result.summary.lastSimulatedDate,
+    });
+
+    const persisted = await this.dependencies.repository.persistResult({
+      jobId: claim.jobId,
+      runId: claim.runId,
+      workerId: this.options.workerId,
+      now: this.now(),
+      result,
+    });
+    if (!persisted) {
+      lease.markLost();
+      throw new BacktestInterruptedError("LEASE_LOST");
+    }
+  }
+
+  private async recordFailure(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    phase: ExecutionPhase,
+    err: unknown,
+    startedAt: number,
+  ): Promise<void> {
+    const code =
+      err instanceof BacktestRunFailure ? err.code : "EXECUTION_FAILED";
+    const error = err instanceof Error ? err : new Error(String(err));
+
+    // The original error is logged before it is translated, so its name, message and stack survive
+    // even though none of them may reach the user-facing failure message.
+    // Everything needed to find this run and this attempt, plus the original error object so its
+    // name, message and stack survive the translation into product prose.
+    this.dependencies.logger.error({
+      event: "backtest.failed",
+      durationMs: Date.now() - startedAt,
+      runId: claim.runId,
+      jobId: claim.jobId,
+      workerId: this.options.workerId,
+      attempt: claim.attempt,
+      failureCode: code,
+      phase,
+      ...(err instanceof BacktestRunFailure && err.context
+        ? { failureContext: err.context }
+        : {}),
+      err: error,
+    });
+
+    const recorded = await this.dependencies.repository.failJob({
+      jobId: claim.jobId,
+      runId: claim.runId,
+      workerId: this.options.workerId,
+      now: this.now(),
+      code,
+      message:
+        err instanceof BacktestRunFailure && err.context
+          ? `${FAILURE_MESSAGES[code]} ${err.context}`
+          : FAILURE_MESSAGES[code],
+      phase: userFacingPhase(phase),
+      detail: {
+        phase,
+        name: error.name,
+        message: error.message,
+        ...(err instanceof BacktestRunFailure && err.developerDetail
+          ? err.developerDetail
+          : {}),
+        ...(error.stack ? { stack: error.stack } : {}),
+      },
+    });
+    if (!recorded) {
+      lease.markLost();
+      throw new BacktestInterruptedError("LEASE_LOST");
+    }
+  }
+
+  /**
+   * Publishes progress and renews the lease in one guarded write.
+   *
+   * A write that matches no row means this worker no longer owns the run, so it stops immediately
+   * rather than continuing to compute a result it may not persist.
+   */
+  private async writeProgress(
+    claim: ClaimedBacktestJob,
+    lease: BacktestJobLease,
+    update: {
+      status?: BacktestRunStatus;
+      percent: number;
+      message: string;
+      simulatedThrough?: LocalDate;
+      snapshot?: BacktestLiveSnapshotResponse;
+      // Declared so the compiler checks it. A conditional spread at the call site is not subject
+      // to excess-property checking, so an undeclared field would be forwarded silently and a
+      // rename would go unnoticed here.
+      milestone?: BacktestMilestoneWrite;
+    },
+  ): Promise<void> {
+    const held = await this.dependencies.repository.updateProgress({
+      jobId: claim.jobId,
+      runId: claim.runId,
+      workerId: this.options.workerId,
+      now: this.now(),
+      leaseMs: this.options.leaseMs,
+      ...update,
+    });
+    if (!held) {
+      lease.markLost();
+      throw new BacktestInterruptedError("LEASE_LOST");
+    }
+  }
+
+  /** Runs `task` over `items` with at most `frameConcurrency` in flight, preserving order. */
+  private async mapWithConcurrency<T>(
+    items: readonly T[],
+    task: (item: T, index: number) => Promise<void>,
+  ): Promise<void> {
+    const limit = Math.max(
+      1,
+      Math.min(this.options.frameConcurrency, items.length),
+    );
+    let next = 0;
+
+    const workers = Array.from({ length: limit }, async () => {
+      while (true) {
+        const index = next;
+        next += 1;
+        const item = items[index];
+        if (item === undefined) {
+          return;
+        }
+        await task(item, index);
+      }
+    });
+
+    await Promise.all(workers);
+  }
+}

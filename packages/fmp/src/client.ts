@@ -1,5 +1,5 @@
 import type {
-  DailyPrice,
+  BenchmarkDailyPrice,
   DateRange,
   FinancialStatementCadence,
   FinancialStatementDraft,
@@ -7,12 +7,14 @@ import type {
 } from "@intrinsic/domain";
 import {
   mapFmpDailyPrices,
+  mapFmpBenchmarkDailyPrices,
   mapFmpFinancialStatements,
   financialStatementPath,
   mapFmpProfile,
   mapFmpStockUniverse,
   type FmpDailyPriceDto,
   type FmpProfileDto,
+  type FmpBenchmarkProviderPort,
   type FmpSecurityCatalogPort,
   type FmpStockProviderPort,
   type FmpStockUniverseDto,
@@ -111,7 +113,10 @@ const STOCK_UNIVERSE_REQUEST_LIMIT = 20_000;
 export const FMP_EOD_MAX_ROWS_PER_RESPONSE = 5000;
 
 export class FmpClient
-  implements FmpStockProviderPort, FmpSecurityCatalogPort
+  implements
+    FmpStockProviderPort,
+    FmpSecurityCatalogPort,
+    FmpBenchmarkProviderPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -169,11 +174,43 @@ export class FmpClient
    * completely, and that promise is kept here rather than by every caller knowing the cap.
    */
   async getDailyPrices(symbol: string, securityId: string, range: DateRange) {
-    const rows: DailyPrice[] = [];
+    return this.walkDailyPrices(symbol, range, (page) =>
+      mapFmpDailyPrices(securityId, page),
+    );
+  }
+
+  /**
+   * Benchmark bars from the same endpoint and the same complete walk.
+   *
+   * A benchmark is not a `Security`, so the rows carry a benchmark identity and land in their own
+   * table; the provider knowledge — endpoint, page cap, pagination — stays in one place here rather
+   * than being copied into a second loader.
+   */
+  async getBenchmarkDailyPrices(
+    providerSymbol: string,
+    seriesId: string,
+    range: DateRange,
+  ): Promise<BenchmarkDailyPrice[]> {
+    return this.walkDailyPrices(providerSymbol, range, (page) =>
+      mapFmpBenchmarkDailyPrices(seriesId, page),
+    );
+  }
+
+  /**
+   * Walks `historical-price-eod/full` to completeness for one symbol.
+   *
+   * The mapper is a parameter so the identity stamped on the rows — a security or a benchmark — is
+   * the caller's concern while the pagination contract stays single-sourced.
+   */
+  private async walkDailyPrices<T extends { date: string }>(
+    symbol: string,
+    range: DateRange,
+    map: (page: readonly FmpDailyPriceDto[]) => T[],
+  ): Promise<T[]> {
+    const rows: T[] = [];
     let to = range.to;
     for (;;) {
-      const page = mapFmpDailyPrices(
-        securityId,
+      const page = map(
         await this.request<FmpDailyPriceDto[]>("historical-price-eod/full", {
           symbol: symbol.toUpperCase(),
           ...(range.from ? { from: range.from } : {}),
@@ -208,11 +245,14 @@ export class FmpClient
     cadence: FinancialStatementCadence,
     limit: number,
   ): Promise<FinancialStatementDraft[]> {
-    const payload = await this.request<unknown[]>(financialStatementPath(statementType), {
-      symbol: symbol.toUpperCase(),
-      period: cadence === "QUARTERLY" ? "quarter" : "annual",
-      limit: String(limit),
-    });
+    const payload = await this.request<unknown[]>(
+      financialStatementPath(statementType),
+      {
+        symbol: symbol.toUpperCase(),
+        period: cadence === "QUARTERLY" ? "quarter" : "annual",
+        limit: String(limit),
+      },
+    );
     return mapFmpFinancialStatements({
       securityId,
       statementType,
@@ -340,8 +380,8 @@ function previousDay(date: string): string {
 }
 
 /** Ascending by date, one row per date; a later page never re-describes a day already received. */
-function dedupeByDate(rows: readonly DailyPrice[]): DailyPrice[] {
-  const byDate = new Map<string, DailyPrice>();
+function dedupeByDate<T extends { date: string }>(rows: readonly T[]): T[] {
+  const byDate = new Map<string, T>();
   for (const row of rows) {
     if (!byDate.has(row.date)) {
       byDate.set(row.date, row);

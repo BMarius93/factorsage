@@ -2,19 +2,31 @@
 
 ## Status
 
-Design only. **Nothing in this document is implemented**: there is no signal evaluation over
-historical data, no tri-state result representation, no position model, no backtest day loop, no
-worker processor and no portfolio simulation anywhere in the repository.
+**Built.** This design is implemented. `ai/architecture/backtest-execution.md` describes what was
+actually built and is the document to read for current behaviour; this one is retained as the
+reasoning behind it — the reusable-component map, the memory analysis, the tri-state algebra and
+the alternatives that were rejected.
 
-What *has* since been built is the Create/Edit Strategy slice designed in `strategy-builder.md`:
-the canonical Strategy model, compatibility registry and validator in `@intrinsic/contracts`, the
-`Strategy`/`StrategyVersion` tables and CRUD API, and the Strategy Builder UI. That slice defines
-and saves the semantics this document evaluates; it evaluates nothing. The Phase 1 inventory below
-was written before it existed and is preserved as the record of that starting point — see
-§ 1.1 for what has changed since.
+What landed, and where it differs:
 
-**Every open product question in this document remains open.** None of them was answered by
-building the Builder, because none of them changes what a user can define.
+- **Phases 2 and 3 as designed**, in the new pure `@intrinsic/strategy` package: the tri-state
+  algebra, operand resolution, the columnar `EvaluationFrame`, precomputed per-level market gates,
+  `PositionState` with the position epoch and the as-computed previous value, and `AVERAGE_COST`.
+- **`getDailyEvaluationFrame` in `@intrinsic/stock-data`** (§2.7), `Security`-keyed, applying the
+  intrinsic provenance gate during projection with `TRIGGER_CONTEXT_CALENDAR_DAYS = 10`.
+- **Phase 4's day loop, union calendar and residency model** as designed.
+- **Divergence — the durable-work substrate.** §4.2 recommended claiming the `BacktestRun` row
+  itself. A separate `BacktestJob` row is used instead, created in the same transaction as the run,
+  so queue mechanics stay off the user-facing execution record while remaining one transactional
+  truth. `docs/decisions/backtest-run-persistence.md` records the reasoning.
+- **Not built: the §2.9 per-predicate diagnostic counters.** They were a recommendation, not
+  product behaviour, and nothing consumes them yet.
+
+**The open product questions below are answered — as engine methodology, not as Strategy
+semantics.** `ai/architecture/backtest-execution.md` § "Execution methodology" is the canonical
+table; each rule carries a version recorded in every run snapshot, so changing one is a deliberate,
+traceable act rather than a silent reinterpretation. Questions 9 (currency) and the diagnostics
+representation remain genuinely open.
 
 This document is the technical design for evaluating `ai/product/strategies.md` semantics over
 historical data and for the backtest engine that consumes that evaluation. It does **not** define
@@ -24,12 +36,12 @@ and anything this document cannot answer from them is recorded under
 
 Written in bounded phases so the work survives context loss:
 
-| Phase | Scope | State |
-| --- | --- | --- |
-| 1 | Existing architecture and reusable components | Complete |
-| 2 | Historical market-derived signal evaluation | Complete |
-| 3 | Position-dependent Gain/Loss evaluation | Complete |
-| 4 | How the backtest engine combines them | Complete |
+| Phase | Scope                                         | State    |
+| ----- | --------------------------------------------- | -------- |
+| 1     | Existing architecture and reusable components | Complete |
+| 2     | Historical market-derived signal evaluation   | Complete |
+| 3     | Position-dependent Gain/Loss evaluation       | Complete |
+| 4     | How the backtest engine combines them         | Complete |
 
 ---
 
@@ -83,14 +95,14 @@ is the subject of the rest of this phase.
 `packages/contracts/src/selectable-series.ts` is the single canonical catalog and is the only
 legitimate source of Strategy operand identity (product invariant 9 in `AGENTS.md`).
 
-| Export | What a Strategy needs it for |
-| --- | --- |
-| `SELECTABLE_SERIES_CATALOG` / `SelectableSeriesId` | the 24 stable operand ids a persisted Condition/Trigger references |
-| `SelectableSeriesSource` (discriminated union) | structured identity — `kind`, `type`, `period`, `timeframe`, `field`, `blendId`, `model`. Never parse the id |
-| `findSelectableSeries(id)` | the one lookup/validation entry point, shared by API validation and the builder |
+| Export                                                                                     | What a Strategy needs it for                                                                                             |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `SELECTABLE_SERIES_CATALOG` / `SelectableSeriesId`                                         | the 24 stable operand ids a persisted Condition/Trigger references                                                       |
+| `SelectableSeriesSource` (discriminated union)                                             | structured identity — `kind`, `type`, `period`, `timeframe`, `field`, `blendId`, `model`. Never parse the id             |
+| `findSelectableSeries(id)`                                                                 | the one lookup/validation entry point, shared by API validation and the builder                                          |
 | `MOVING_AVERAGE_SERIES`, `OSCILLATOR_SERIES`, `INTRINSIC_VALUE_SERIES`, `TECHNICAL_SERIES` | consumer-filtered views; the price-valued operand set for `Price` is the 14 moving averages plus the 7 intrinsic entries |
-| `comparableMovingAverages(id)` | already encodes the same-timeframe / not-itself rule |
-| `label`, `SELECTABLE_SERIES_GROUPED`, `DEFAULT_SELECTED_SERIES_IDS` | the one product label and ordering; no second label map is permitted |
+| `comparableMovingAverages(id)`                                                             | already encodes the same-timeframe / not-itself rule                                                                     |
+| `label`, `SELECTABLE_SERIES_GROUPED`, `DEFAULT_SELECTED_SERIES_IDS`                        | the one product label and ordering; no second label map is permitted                                                     |
 
 `@intrinsic/contracts` is the only package `apps/web` may depend on and is equally available to API
 and worker, so a Strategy compatibility matrix placed here is automatically shared by Strategy
@@ -148,17 +160,17 @@ path.
 
 Supporting modules:
 
-| File | Reusable for the engine |
-| --- | --- |
-| `dates.ts` | `isLocalDate`, `addDays`, `subtractYears`, `compareDates`, `assertDateRange`, `missingCoverageRanges`, `endOfLocalDate` — the one date arithmetic; do not add a second |
-| `coordination.ts` | `LoadCoordinator`, `RedlockLoadCoordinator` (per-security Redis lock `stock-data:load:hydrate:<securityId>`), `InMemoryLoadCoordinator` for tests |
-| `cache.ts` | `StockDataCache`, `StockManifest`, yearly Redis chunk reads/writes, `NullStockDataCache` |
-| `ports.ts` | `StockDataStore`, `PRICE_DATASET_VERSION`, dataset variants |
-| `prisma-store.ts` | the Prisma `StockDataStore`; `getDailyDerivedState(securityId, range)` is **securityId-keyed** here, unlike the service |
-| `derived-state.ts` | `DERIVED_STATE_REVISION` (currently 4), `DAILY_DERIVED_STATE_VARIANT`, `buildDailyDerivedState`, `assertOneRowPerTradingDay` |
-| `intrinsic-values.ts` | `INTRINSIC_MODEL_SOURCE_FIELDS`, `intrinsicModelSourceAsOf(row, model)`, `blendComponentModels(blendId)`, `blendSourceDataAsOf(row, blendId)` — **the provenance gate Margin of Safety must reuse** |
-| `fmp-gate.ts` | provider-wide Redis concurrency/rate gate with shared 429 cooldown, already cross-process |
-| `technicals.ts`, `oscillators.ts`, `weekly.ts` | pure calculators; the model for how a pure, registry-driven calculator is written and oracle-tested |
+| File                                           | Reusable for the engine                                                                                                                                                                             |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dates.ts`                                     | `isLocalDate`, `addDays`, `subtractYears`, `compareDates`, `assertDateRange`, `missingCoverageRanges`, `endOfLocalDate` — the one date arithmetic; do not add a second                              |
+| `coordination.ts`                              | `LoadCoordinator`, `RedlockLoadCoordinator` (per-security Redis lock `stock-data:load:hydrate:<securityId>`), `InMemoryLoadCoordinator` for tests                                                   |
+| `cache.ts`                                     | `StockDataCache`, `StockManifest`, yearly Redis chunk reads/writes, `NullStockDataCache`                                                                                                            |
+| `ports.ts`                                     | `StockDataStore`, `PRICE_DATASET_VERSION`, dataset variants                                                                                                                                         |
+| `prisma-store.ts`                              | the Prisma `StockDataStore`; `getDailyDerivedState(securityId, range)` is **securityId-keyed** here, unlike the service                                                                             |
+| `derived-state.ts`                             | `DERIVED_STATE_REVISION` (currently 4), `DAILY_DERIVED_STATE_VARIANT`, `buildDailyDerivedState`, `assertOneRowPerTradingDay`                                                                        |
+| `intrinsic-values.ts`                          | `INTRINSIC_MODEL_SOURCE_FIELDS`, `intrinsicModelSourceAsOf(row, model)`, `blendComponentModels(blendId)`, `blendSourceDataAsOf(row, blendId)` — **the provenance gate Margin of Safety must reuse** |
+| `fmp-gate.ts`                                  | provider-wide Redis concurrency/rate gate with shared 429 cooldown, already cross-process                                                                                                           |
+| `technicals.ts`, `oscillators.ts`, `weekly.ts` | pure calculators; the model for how a pure, registry-driven calculator is written and oracle-tested                                                                                                 |
 
 `@intrinsic/valuation` is pure valuation mathematics and is consumed by the intrinsic-value
 materializer, not by Strategy evaluation: a Signal reads already-materialized model/blend values
@@ -202,8 +214,8 @@ Consequences that follow directly, and constrain Phases 2–4:
 Established by inspection; each is a constraint the design must answer, not a decision.
 
 1. **The eligible-date axis is per security, not global.** `buildDailyDerivedState` maps over the
-   security's `DailyPrice` rows, so exactly one derived row exists per trading day *that security
-   traded*. There is no trading-calendar table and no market-wide date axis anywhere in the
+   security's `DailyPrice` rows, so exactly one derived row exists per trading day _that security
+   traded_. There is no trading-calendar table and no market-wide date axis anywhere in the
    repository. A per-security predicate series is naturally aligned; a portfolio-level day loop over
    many securities is not, and Phase 4 must define how the union calendar is formed.
 2. **`Price` is not on `DailyDerivedState`.** Every predicate naming `Price` needs the aligned
@@ -216,8 +228,8 @@ Established by inspection; each is a constraint the design must answer, not a de
 4. **`NOT_EVALUABLE` has no persisted reason.** Absence is the single representation of "no value"
    at every layer, and `ai/architecture/calculated-series.md` records that the evaluator's rich
    reasons (`ASSEMBLY`/`VALUATION` phases, 17 codes) are collapsed to field absence before
-   persistence. A Strategy diagnostic can therefore say *that* a day was not evaluable and which
-   operand was missing, but not *why* the underlying series was missing.
+   persistence. A Strategy diagnostic can therefore say _that_ a day was not evaluable and which
+   operand was missing, but not _why_ the underlying series was missing.
 5. **The read boundary is symbol-keyed; the engine is security-keyed.** `StockDataService` takes
    `symbol` on every method and re-resolves it through cache/PostgreSQL per call, while
    `StockListItem`, `DailyDerivedState` and the store port are all `securityId`-keyed, and
@@ -251,11 +263,11 @@ averages and oscillators, the catalog intrinsic-value models and blends, and `Ma
 
 Three placements, following the `AGENTS.md` dependency rules:
 
-| Concern | Package | Why there |
-| --- | --- | --- |
-| Strategy DTOs + the canonical compatibility matrix | `@intrinsic/contracts` | `apps/web` may depend on nothing else, and Strategy Builder and API validation must read **one** matrix (invariant 11). The selectable-series catalog already lives here |
-| Pure evaluation: operand resolution, tri-state algebra, frame projection, predicate series | **new `@intrinsic/strategy`** | needs both the catalog (`contracts`) and the row shapes (`domain`); must stay free of DB, HTTP and `process.env` |
-| Frame loading (`securityId`-keyed, aligned prices + derived rows) | `@intrinsic/stock-data` | infrastructure-aware: Redis, coverage, hydration lock, FMP |
+| Concern                                                                                    | Package                       | Why there                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Strategy DTOs + the canonical compatibility matrix                                         | `@intrinsic/contracts`        | `apps/web` may depend on nothing else, and Strategy Builder and API validation must read **one** matrix (invariant 11). The selectable-series catalog already lives here |
+| Pure evaluation: operand resolution, tri-state algebra, frame projection, predicate series | **new `@intrinsic/strategy`** | needs both the catalog (`contracts`) and the row shapes (`domain`); must stay free of DB, HTTP and `process.env`                                                         |
+| Frame loading (`securityId`-keyed, aligned prices + derived rows)                          | `@intrinsic/stock-data`       | infrastructure-aware: Redis, coverage, hydration lock, FMP                                                                                                               |
 
 `packages/domain/package.json` and `packages/contracts/package.json` currently declare **no
 dependencies**; both are standalone. Putting the evaluator in `@intrinsic/domain` would force
@@ -274,26 +286,26 @@ structured; nothing is parsed out of an id or a label.
 ```ts
 type StrategyMetric =
   | { kind: "PRICE" }
-  | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId }    // any of the 14 catalog averages
-  | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }        // RSI_7D | RSI_14D | RSI_21D
-  | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }  // one of the 7 intrinsic entries
+  | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId } // any of the 14 catalog averages
+  | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId } // RSI_7D | RSI_14D | RSI_21D
+  | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId } // one of the 7 intrinsic entries
   | { kind: "GAIN" }
   | { kind: "LOSS" };
 
 type StrategyValue =
-  | { kind: "SERIES"; seriesId: SelectableSeriesId }  // price-scaled entries only
-  | { kind: "NUMBER"; value: number }                 // RSI threshold, 1..100
-  | { kind: "PERCENT"; value: number };               // MOS / Gain / Loss, in percent units
+  | { kind: "SERIES"; seriesId: SelectableSeriesId } // price-scaled entries only
+  | { kind: "NUMBER"; value: number } // RSI threshold, 1..100
+  | { kind: "PERCENT"; value: number }; // MOS / Gain / Loss, in percent units
 
 type ConditionOperator = "IS_ABOVE" | "IS_BELOW" | "IS_CLOSE_TO";
-type TriggerOperator   = "CROSSES_ABOVE" | "CROSSES_BELOW";
+type TriggerOperator = "CROSSES_ABOVE" | "CROSSES_BELOW";
 ```
 
 Moving averages and RSI are addressed through their **catalog ids**, not parallel enums, because
 `ai/product/strategies.md` makes both first-class Strategy metrics. A moving-average Metric's
 permitted Values resolve through `comparableMovingAverages(seriesId)` — same timeframe, never
 itself — which is the same helper the operand resolver already had available. `Price` is
-deliberately *not* a catalog entry, so it is its own metric kind. `Margin of Safety` is a derived
+deliberately _not_ a catalog entry, so it is its own metric kind. `Margin of Safety` is a derived
 metric parameterized by a catalog intrinsic source — never a comparison operator.
 
 The registry answers, for one metric: permitted condition operators, permitted trigger operators,
@@ -305,16 +317,16 @@ Strategy Builder both call it.
 
 ### 2.3 Operand resolution
 
-An *operand* is anything that resolves to `number | absent` on one eligible trading day. Five
+An _operand_ is anything that resolves to `number | absent` on one eligible trading day. Five
 resolvers cover the whole V1 vocabulary:
 
-| Operand | Source | Availability rule |
-| --- | --- | --- |
-| `Price` | `DailyPrice.close` on that date | absent if no price row |
-| Catalog moving average / oscillator | `DailyDerivedState[source.field]` | absent = warm-up not complete. Weekly fields are already carried forward under `WEEKLY_TECHNICAL_BACKTEST_POLICY` |
-| Catalog intrinsic **model** | `row.intrinsicValues[model]` | present **and** `intrinsicModelSourceAsOf(row, model) !== undefined` |
-| Catalog intrinsic **blend** | `row.intrinsicValueBlends[blendId]` | present **and** `blendSourceDataAsOf(row, blendId) !== undefined` |
-| `Margin of Safety (source)` | `(iv - close) / iv * 100` — denominator is intrinsic value, never price | requires the gated `iv` **and** `close`; `iv <= 0` is `NOT_EVALUABLE`, now stated canonically in `ai/product/strategies.md` |
+| Operand                             | Source                                                                  | Availability rule                                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Price`                             | `DailyPrice.close` on that date                                         | absent if no price row                                                                                                      |
+| Catalog moving average / oscillator | `DailyDerivedState[source.field]`                                       | absent = warm-up not complete. Weekly fields are already carried forward under `WEEKLY_TECHNICAL_BACKTEST_POLICY`           |
+| Catalog intrinsic **model**         | `row.intrinsicValues[model]`                                            | present **and** `intrinsicModelSourceAsOf(row, model) !== undefined`                                                        |
+| Catalog intrinsic **blend**         | `row.intrinsicValueBlends[blendId]`                                     | present **and** `blendSourceDataAsOf(row, blendId) !== undefined`                                                           |
+| `Margin of Safety (source)`         | `(iv - close) / iv * 100` — denominator is intrinsic value, never price | requires the gated `iv` **and** `close`; `iv <= 0` is `NOT_EVALUABLE`, now stated canonically in `ai/product/strategies.md` |
 
 The provenance gate is not optional. `getDailyDerivedState` returns the raw row without applying
 it (Phase 1, fact 3), so the evaluator must call `intrinsicModelSourceAsOf` /
@@ -328,7 +340,11 @@ Constants (`NUMBER`, `PERCENT`) resolve to themselves on every date and are alwa
 ### 2.4 Tri-state algebra
 
 ```ts
-const enum Evaluability { NOT_EVALUABLE = 0, FALSE = 1, TRUE = 2 }
+const enum Evaluability {
+  NOT_EVALUABLE = 0,
+  FALSE = 1,
+  TRUE = 2,
+}
 ```
 
 **Conditions** (both operands available, else `NOT_EVALUABLE`):
@@ -353,10 +369,10 @@ Trigger there is `NOT_EVALUABLE`.
 
 **Conjunction — Kleene strong AND, `FALSE` absorbing:**
 
-| | TRUE | FALSE | NOT_EVALUABLE |
-| --- | --- | --- | --- |
-| **TRUE** | TRUE | FALSE | NOT_EVALUABLE |
-| **FALSE** | FALSE | FALSE | **FALSE** |
+|                   | TRUE          | FALSE     | NOT_EVALUABLE |
+| ----------------- | ------------- | --------- | ------------- |
+| **TRUE**          | TRUE          | FALSE     | NOT_EVALUABLE |
+| **FALSE**         | FALSE         | FALSE     | **FALSE**     |
 | **NOT_EVALUABLE** | NOT_EVALUABLE | **FALSE** | NOT_EVALUABLE |
 
 This is a technical choice, not a change to product semantics: under either strong or strict AND a
@@ -466,8 +482,8 @@ costs nothing extra to materialize: `loadTarget` already widens the load by
 ```
 
 This is deterministic, fixed-size, and answers the question users actually ask ("why did this rule
-never fire?"). Its resolution is bounded by Phase 1 fact 4: the engine can report *which operand*
-was missing, but not *why* the underlying series was missing, because absence is the only persisted
+never fire?"). Its resolution is bounded by Phase 1 fact 4: the engine can report _which operand_
+was missing, but not _why_ the underlying series was missing, because absence is the only persisted
 representation. `ai/product/strategies.md` explicitly leaves the diagnostics representation
 undecided, so this is a recommendation, not product behaviour.
 
@@ -479,6 +495,7 @@ undecided, so this is a recommendation, not product behaviour.
 - Hydration is serialized per security by the Redis lock `stock-data:load:hydrate:<securityId>`, so
   frame loading across securities parallelizes, bounded by the FMP gate.
 - A `DERIVED_STATE_REVISION` bump makes the first run after it rebuild every security in the list.
+
 ---
 
 ## Phase 3 — Position-dependent Gain/Loss evaluation
@@ -490,7 +507,7 @@ rather than forcing Gain/Loss into a static historical array".
 ### 3.1 Why a static series is impossible
 
 `Gain[t]` needs a cost basis. The cost basis exists only if a BUY executed, which required the BUY
-signal *and* available cash *and* a free position slot — both portfolio-level facts that depend on
+signal _and_ available cash _and_ a free position slot — both portfolio-level facts that depend on
 every decision taken for every other security before `t`. The dependency runs
 `date -> portfolio state -> position -> Gain -> SELL signal -> portfolio state`, so the value at
 `t` is a function of the simulation, not of the market. Precomputing it would require already
@@ -498,10 +515,10 @@ knowing the answer.
 
 The consequence is structural, not merely an implementation detail:
 
-| Level family | Composition | When it can be computed |
-| --- | --- | --- |
-| **BUY** | market-derived predicates only (product forbids Gain/Loss in BUY rules) | **fully precomputable** as a Phase 2 market gate, before the simulation starts |
-| **SELL**, **FINAL EXIT** | market gate `AND` position-dependent predicates | market gate precomputed; the position part evaluated live, and only while a position is open |
+| Level family             | Composition                                                             | When it can be computed                                                                      |
+| ------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **BUY**                  | market-derived predicates only (product forbids Gain/Loss in BUY rules) | **fully precomputable** as a Phase 2 market gate, before the simulation starts               |
+| **SELL**, **FINAL EXIT** | market gate `AND` position-dependent predicates                         | market gate precomputed; the position part evaluated live, and only while a position is open |
 
 This asymmetry is what makes the engine cheap: scanning BUY candidates on a date is an indexed read
 of a `Uint8Array`, and the live work is bounded by the number of open positions, which
@@ -529,7 +546,7 @@ the side of zero the threshold does not reach. They diverge only at `v = 0`, whe
 earlier revision of this section argued the opposite from a `-4% -> -2%` example that in fact fires
 under neither form; the canonical definitions above supersede it.
 
-Execution assumptions (open question 7) determine the *entry* price and therefore the basis; they
+Execution assumptions (open question 7) determine the _entry_ price and therefore the basis; they
 do not change the evaluation price, which stays the close of `t`, consistent with the product rule
 that `Price` means canonical end-of-day close.
 
@@ -537,14 +554,24 @@ that `Price` means canonical end-of-day close.
 
 `ai/product/strategies.md` now fixes the Strategy-facing basis as **average cost**, so
 `AVERAGE_COST` is the implementation, not a preference. The policy interface is kept because how
-average cost *evolves* across repeated BUYs and partial SELLs is still execution behaviour (open
+average cost _evolves_ across repeated BUYs and partial SELLs is still execution behaviour (open
 question 5, now narrowed), and because fees would enter through it if they are ever added:
 
 ```ts
 interface CostBasisPolicy {
-  readonly id: string;        // recorded in the run snapshot as a methodology version
-  onBuy(state: PositionState, shares: number, price: number, fees: number): PositionState;
-  onSell(state: PositionState, shares: number, price: number, fees: number): PositionState;
+  readonly id: string; // recorded in the run snapshot as a methodology version
+  onBuy(
+    state: PositionState,
+    shares: number,
+    price: number,
+    fees: number,
+  ): PositionState;
+  onSell(
+    state: PositionState,
+    shares: number,
+    price: number,
+    fees: number,
+  ): PositionState;
   basisPerShare(state: PositionState): number;
 }
 ```
@@ -558,7 +585,7 @@ Two implementations cover the plausible answers:
   of the remainder moves. State is O(number of BUY levels fired), which the strategy bounds.
 
 `AVERAGE_COST` is recommended because a strategy's partial SELL percentage is expressed as a
-fraction of the *remaining position* (product), which is inherently proportional rather than
+fraction of the _remaining position_ (product), which is inherently proportional rather than
 lot-oriented, and because it makes `Gain` after a partial sell continue to describe the same
 position rather than jumping when a lot is consumed. `ai/product/backtests.md` already requires the
 snapshot to carry methodology versions, so `CostBasisPolicy.id` belongs there.
@@ -568,13 +595,13 @@ snapshot to carry methodology versions, so `CostBasisPolicy.id` belongs there.
 ```ts
 type PositionState = {
   securityId: SecurityId;
-  epoch: number;              // increments each time a new position is opened for this security
+  epoch: number; // increments each time a new position is opened for this security
   openedDate: LocalDate;
   shares: number;
-  costTotal: number;          // or lots, per policy
+  costTotal: number; // or lots, per policy
   buyLevelsFired: ReadonlySet<LevelId>;
   sellLevelsFired: ReadonlySet<LevelId>;
-  previousSignedReturnPercent?: number;   // the value as computed on the previous trading day
+  previousSignedReturnPercent?: number; // the value as computed on the previous trading day
   previousValueDate?: LocalDate;
 };
 ```
@@ -614,7 +641,7 @@ Three consequences, all deliberate:
    against a basis that did not exist.
 2. A position closed and reopened starts a fresh epoch, so no Trigger straddles the gap. Without the
    epoch check a `Loss crosses above 10%` could fire on the first day of a new position by comparing
-   against the *old* position's loss.
+   against the _old_ position's loss.
 3. The previous value is the one that **actually held** during the simulation — recorded when it was
    computed, not recomputed from the current basis. Under `FIFO_LOTS` a partial sell changes
    `basisPerShare`, and recomputing yesterday's value under today's basis would fabricate or erase
@@ -707,7 +734,7 @@ Why not the alternatives:
   migration history."
 - A new dependency also has to clear "Add dependencies only when there is a concrete use."
 
-With the claim on the run row, the durable record *is* the queue, so they cannot diverge; a Redis
+With the claim on the run row, the durable record _is_ the queue, so they cannot diverge; a Redis
 flush is harmless; and an expired lease is self-healing — another worker reclaims. Backtests run for
 minutes, so a 1–5s poll costs nothing; `LISTEN`/`NOTIFY` can remove submission latency later without
 changing the model.
@@ -717,14 +744,14 @@ changing the model.
 Requires an explicit migration and a migration note, and — because it is a storage-shape decision —
 an ADR under `docs/decisions/`.
 
-| Model | Shape | Note |
-| --- | --- | --- |
-| `Strategy` | user-owned identity, name, description | editing creates a new version, never mutates one |
-| `StrategyVersion` | `versionNumber`, `definition` JSONB, `definitionHash`, immutable | one column that is never updated is the cheapest way to make "immutable version" true; the shape is owned and validated by `@intrinsic/contracts`, and nothing needs to query *inside* a definition in SQL |
-| `BacktestRun` | ownership, `strategyVersionId`, `stockListId`, period, capital, contribution, `maximumPositions`, `snapshot` JSONB, claim/lease/progress columns, timestamps, error | the snapshot must be frozen, which is exactly what a normalized child table is bad at |
-| `BacktestTrade` | run, date, security, action (`BUY`/`SELL`/`FINAL_EXIT`), level id, shares, price, fees, cash after | the audit trail |
-| `BacktestDailyEquity` | run, date, cash, positionsValue, totalValue | ~7,560 rows for a 30-year run |
-| `BacktestRunSummary` | aggregate metrics | one row per run |
+| Model                 | Shape                                                                                                                                                               | Note                                                                                                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Strategy`            | user-owned identity, name, description                                                                                                                              | editing creates a new version, never mutates one                                                                                                                                                           |
+| `StrategyVersion`     | `versionNumber`, `definition` JSONB, `definitionHash`, immutable                                                                                                    | one column that is never updated is the cheapest way to make "immutable version" true; the shape is owned and validated by `@intrinsic/contracts`, and nothing needs to query _inside_ a definition in SQL |
+| `BacktestRun`         | ownership, `strategyVersionId`, `stockListId`, period, capital, contribution, `maximumPositions`, `snapshot` JSONB, claim/lease/progress columns, timestamps, error | the snapshot must be frozen, which is exactly what a normalized child table is bad at                                                                                                                      |
+| `BacktestTrade`       | run, date, security, action (`BUY`/`SELL`/`FINAL_EXIT`), level id, shares, price, fees, cash after                                                                  | the audit trail                                                                                                                                                                                            |
+| `BacktestDailyEquity` | run, date, cash, positionsValue, totalValue                                                                                                                         | ~7,560 rows for a 30-year run                                                                                                                                                                              |
+| `BacktestRunSummary`  | aggregate metrics                                                                                                                                                   | one row per run                                                                                                                                                                                            |
 
 `BacktestRun.snapshot` carries everything `ai/product/backtests.md` requires — strategy identity and
 normalized configuration, resolved securities with their per-symbol buy windows, requested period,
@@ -733,7 +760,7 @@ the candidate-ordering and execution-engine methodology versions — plus `CostB
 §3.3.
 
 **Record `DERIVED_STATE_REVISION` and `PRICE_DATASET_VERSION` in the snapshot too.** A completed
-run's stored results are immutable, but the derived state it read is *replaced*, not versioned, on a
+run's stored results are immutable, but the derived state it read is _replaced_, not versioned, on a
 methodology bump. Re-executing the same snapshot later can therefore produce different numbers.
 Recording the revisions does not make that reproducible — it makes the difference explainable
 instead of mysterious.
@@ -742,8 +769,14 @@ instead of mysterious.
 
 There is no trading-calendar table and each security has its own eligible dates (Phase 1, fact 1),
 so the portfolio needs one axis. **Use the ascending union of the eligible dates of every security
-in the run, derived from the loaded frames.** The intersection would silently drop dates, and
-adopting a benchmark's calendar would add a data dependency and a product decision.
+in the run and of the run's pinned execution calendar**, restricted to the period. The intersection
+would silently drop dates.
+
+The execution calendar is a required system input taken from a reference series the engine
+designates — never from the comparison benchmark the user selected, which contributes no dates at
+all. Without it a run whose securities all list after its start would not exist until the first of
+them began trading, and every monthly contribution before that date would be skipped. It is decided
+and versioned in `backtest-execution.md`; there is no securities-only fallback.
 
 Two rules keep the union honest:
 
@@ -782,9 +815,9 @@ The day loop is portfolio-wide, so every security's frame must be readable on ev
 §2.5 projection the cost is `securities × tradingDays × operands × 8 bytes` plus
 `securities × levels × tradingDays` bytes for the gates:
 
-| Run | Frames | Gates |
-| --- | --- | --- |
-| 100 symbols, 30y, 6 operands, 5 levels | ~36 MB | ~4 MB |
+| Run                                    | Frames  | Gates  |
+| -------------------------------------- | ------- | ------ |
+| 100 symbols, 30y, 6 operands, 5 levels | ~36 MB  | ~4 MB  |
 | 500 symbols, 30y, 6 operands, 5 levels | ~181 MB | ~19 MB |
 
 Loading raw `DailyDerivedState` objects instead would be 2.5–4 GB for the same 500-symbol run, which
@@ -862,7 +895,7 @@ deleted, so the reasoning that produced them stays legible. Everything else rema
 untouched, and is not to be resolved as part of Strategy Builder work.
 
 1. **Repeated BUY levels against an already-open position.** May a BUY level fire again while a
-   position is open? May a *different* BUY level add to it? (`strategies.md` § BUY levels.)
+   position is open? May a _different_ BUY level add to it? (`strategies.md` § BUY levels.)
 2. **SELL level repetition.** May one SELL level fire more than once per position lifecycle?
    (`strategies.md` § SELL levels.)
 3. **SELL vs FINAL EXIT precedence on the same date.** (`strategies.md` § FINAL EXIT.)
@@ -921,15 +954,15 @@ Five decisions carry the design; everything else follows from them.
 2. **Project, do not carry rows.** Reduce each security to a columnar frame of only the operands the
    strategy version references (`Float64Array`, `NaN` = absent). It is the difference between ~36 MB
    and ~3 GB for a large run, and it costs nothing in precision because `prisma-store.ts` already
-   hands out doubles. Apply the intrinsic per-model and per-blend provenance gate *during
-   projection*, inside `@intrinsic/stock-data`, so the pure evaluator physically cannot read an
+   hands out doubles. Apply the intrinsic per-model and per-blend provenance gate _during
+   projection_, inside `@intrinsic/stock-data`, so the pure evaluator physically cannot read an
    ungated value.
 
 3. **Exploit the BUY/SELL asymmetry.** The product forbids Gain/Loss in BUY rules, so every BUY
    signal is fully precomputable into a `Uint8Array` gate before the simulation starts, and the live
    per-date work is bounded by `maximumPositions` rather than by the size of the stock list. Model
    position-dependent metrics with an explicit `PositionState` carrying a **position epoch** and the
-   *as-computed* previous value, so a Trigger can never straddle a closed-and-reopened position or
+   _as-computed_ previous value, so a Trigger can never straddle a closed-and-reopened position or
    compare against a basis that has since changed.
 
 4. **Claim the `BacktestRun` row in PostgreSQL; add no queue library.** The durable record and the
@@ -946,18 +979,18 @@ Five decisions carry the design; everything else follows from them.
 
 Each step is independently reviewable and leaves the repository working.
 
-| # | Step | Blocked by |
-| --- | --- | --- |
-| 1 | Strategy DTOs + compatibility registry + `CLOSE_TO_TOLERANCE` in `@intrinsic/contracts` | question 11 (may a moving average be a Metric) |
-| 2 | `@intrinsic/strategy`: tri-state algebra, operand resolution, condition/trigger evaluation, unit-tested against tables | — |
-| 3 | `Strategy` / `StrategyVersion` schema + migration + ADR; API CRUD and validation reusing step 1 | — |
-| 4 | Strategy Builder UI against the same registry (`ai/product/strategies.md` § Builder UX) | step 1 |
-| 5 | `getDailyEvaluationFrame` in `@intrinsic/stock-data` (`Security`-keyed, gated, joined) | — |
-| 6 | Per-level market gates + diagnostics counters | steps 2, 5 |
-| 7 | `PositionState`, `CostBasisPolicy`, position-metric evaluation | question 5, question 12 |
-| 8 | `BacktestRun` schema, claim/lease, worker process wiring | — |
-| 9 | The day loop, allocation and execution | questions 1, 2, 3, 4, 6, 7, 8, 13 |
-| 10 | Results persistence, API read surface, Backtests UI | step 9 |
+| #   | Step                                                                                                                   | Blocked by                                     |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| 1   | Strategy DTOs + compatibility registry + `CLOSE_TO_TOLERANCE` in `@intrinsic/contracts`                                | question 11 (may a moving average be a Metric) |
+| 2   | `@intrinsic/strategy`: tri-state algebra, operand resolution, condition/trigger evaluation, unit-tested against tables | —                                              |
+| 3   | `Strategy` / `StrategyVersion` schema + migration + ADR; API CRUD and validation reusing step 1                        | —                                              |
+| 4   | Strategy Builder UI against the same registry (`ai/product/strategies.md` § Builder UX)                                | step 1                                         |
+| 5   | `getDailyEvaluationFrame` in `@intrinsic/stock-data` (`Security`-keyed, gated, joined)                                 | —                                              |
+| 6   | Per-level market gates + diagnostics counters                                                                          | steps 2, 5                                     |
+| 7   | `PositionState`, `CostBasisPolicy`, position-metric evaluation                                                         | question 5, question 12                        |
+| 8   | `BacktestRun` schema, claim/lease, worker process wiring                                                               | —                                              |
+| 9   | The day loop, allocation and execution                                                                                 | questions 1, 2, 3, 4, 6, 7, 8, 13              |
+| 10  | Results persistence, API read surface, Backtests UI                                                                    | step 9                                         |
 
 Steps 1–8 can proceed now. **Step 9 is the one that genuinely blocks**: it needs eight of the
 thirteen open questions answered, because each is a rule the day loop must apply and none can be

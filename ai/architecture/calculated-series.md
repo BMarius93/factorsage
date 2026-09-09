@@ -175,7 +175,7 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 - **Load boundary vs listing.** A first week truncated only by where the load target starts is
   dropped; a genuine mid-week IPO week is kept (`WeeklyHistoryContext`).
 - **Warm-up.** Two hundred completed weeks is the longest lookback in the catalog, so it is what
-  sets `DERIVED_SERIES_WARMUP_DAYS` — the history the loader materializes *before* a requested
+  sets `DERIVED_SERIES_WARMUP_DAYS` — the history the loader materializes _before_ a requested
   window so every series is already warmed up on its first visible day. It is derived from the
   registries, so adding a longer period widens it automatically.
 - `WeeklyPrice` is persisted as completed-week OHLCV **source data**, not a derived-series value.
@@ -260,13 +260,13 @@ deferred.
 
 `apps/api/src/stocks/stocks.controller.ts`:
 
-| Route | Projection |
-| --- | --- |
-| `GET /stocks/:symbol` | composite Stock Details for a bounded window |
-| `GET /stocks/:symbol/prices` | `DailyPriceResponse[]` |
-| `GET /stocks/:symbol/technicals/daily` | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows |
-| `GET /stocks/:symbol/intrinsic-values` | long-form points; `models=`, `asOf=` |
-| `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=` |
+| Route                                        | Projection                                                        |
+| -------------------------------------------- | ----------------------------------------------------------------- |
+| `GET /stocks/:symbol`                        | composite Stock Details for a bounded window                      |
+| `GET /stocks/:symbol/prices`                 | `DailyPriceResponse[]`                                            |
+| `GET /stocks/:symbol/technicals/daily`       | `DailyTechnicalResponse[]`, all 14 MAs + 3 RSI; `series=` narrows |
+| `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                              |
+| `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                            |
 
 - `technicalResponse` projects `TECHNICAL_SERIES_FIELDS` — every moving average and every daily
   oscillator — so a registered series cannot go missing from the API.
@@ -343,7 +343,7 @@ Not implemented; noted so the boundary is not accidentally crossed:
 ## Extension points for a new series family
 
 The exact checklist is `../../docs/development/adding-a-calculated-series.md`. The structural
-points a *new family* touches, beyond a new period in an existing one:
+points a _new family_ touches, beyond a new period in an existing one:
 
 1. A new `SelectableSeriesSource` kind in the catalog — parameters belong in the structured source,
    never parsed from the id.

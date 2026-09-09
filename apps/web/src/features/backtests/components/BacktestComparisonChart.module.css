@@ -1,0 +1,84 @@
+/* The frame keeps one height whether it holds the placeholder or the live chart, so the moment a
+   curve arrives replaces content without moving anything below it. */
+.frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: var(--backtest-chart-height, 260px);
+}
+
+.wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+}
+
+/* Series names: which line is the portfolio and which is the benchmark, always visible rather
+   than only on hover, because a comparison chart is unreadable without it on a touch screen. It
+   sits below the plot in normal flow: overlaid on the canvas it covered the time axis. */
+.series {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  padding-top: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.seriesItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* Hover readout: updated imperatively from the crosshair subscription, never via React state. */
+.legend {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: calc(100% - 72px);
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-background-translucent);
+  pointer-events: none;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.legend[hidden] {
+  display: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.legendItem strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.legendDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}

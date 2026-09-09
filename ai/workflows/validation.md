@@ -29,12 +29,15 @@ Current callers:
 - `apps/api/src/auth/auth.integration.test.ts`
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
+- `apps/api/src/backtests/backtests.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
+- `apps/worker/src/backtest/job-repository.integration.test.ts`
+- `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`
 - `packages/stock-data/src/financial-statements.test.ts`
 - `packages/stock-data/src/redis.integration.test.ts`
@@ -157,6 +160,113 @@ rows; its `StockDatasetCoverage` and `StockDatasetState` rows for
 `stock-data:v2:symbol:<symbol>:security` mapping and its entry in
 `stock-data:v2:resident-stocks`. Never touch users, authentication, lists or
 the `Security` row, and never flush Redis or drop tables to get there.
+
+## Backtests
+
+`packages/strategy` is pure and needs no infrastructure: the engine suites — allocation math, level
+firing, average cost, contributions, buy windows, candidate ordering, benchmark normalization,
+alpha, the no-lookahead prefix test and deterministic replay — run offline in
+`pnpm --filter @intrinsic/strategy test`.
+
+`packages/stock-data/src/benchmark-data.integration.test.ts` needs PostgreSQL and Redis. It is what
+proves benchmark loading reuses coverage and the Redis projection rather than re-reading the
+provider, and that a current durable freshness watermark means **no provider call at all** — the
+property the deterministic E2E path depends on.
+
+`apps/worker/src/backtest/job-repository.integration.test.ts` needs PostgreSQL. It proves the claim
+protocol: two workers never take one job, two jobs are claimed independently, an expired lease is
+recovered, an exhausted job fails terminally, and a terminal job is never reclaimed. `apps/worker`
+now has its own suite, so `pnpm test` runs it:
+
+```bash
+pnpm --filter @intrinsic/worker test
+```
+
+The Playwright backtest suite drives a **running stack with a running worker**, and that stack must
+point at the **test database**, not at your development one.
+
+## Two databases, and which command targets which
+
+`DATABASE_URL` is where you do real work: real FMP history, real `SP500` bars sourced from `SPY`.
+`TEST_DATABASE_URL` is where deterministic fixtures live: fictional securities, and synthetic
+benchmark bars written into the real `SP500` series so an E2E run never reaches a provider.
+
+Those fixtures must never meet your development database. `seedQaBenchmarkData` writes invented
+S&P 500 history, and nothing on a results page distinguishes an invented bar from a real one — a
+manual thirty-year backtest would silently compare against part-real, part-fabricated history. The
+seeds therefore **connect to `TEST_DATABASE_URL` explicitly** and refuse to start when it is unset
+or equal to `DATABASE_URL` (except in CI, where one database is the whole environment).
+
+| Command                                             | Database                   |
+| --------------------------------------------------- | -------------------------- |
+| `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:web`   | `DATABASE_URL` — real data |
+| `pnpm db:migrate:deploy`, `pnpm db:seed`            | `DATABASE_URL`             |
+| `pnpm db:test:prepare`                              | `TEST_DATABASE_URL`        |
+| `pnpm test` (PostgreSQL-backed suites)              | `TEST_DATABASE_URL`        |
+| `pnpm test:users:seed`, `pnpm test:securities:seed` | `TEST_DATABASE_URL`        |
+| `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`           | `TEST_DATABASE_URL`        |
+
+### Normal development, against real market data
+
+```bash
+pnpm infra:up
+pnpm db:migrate:deploy
+pnpm dev:api        # and, in other shells:
+pnpm dev:worker
+pnpm dev:web
+```
+
+> **Do not run `pnpm test` while the deterministic E2E stack is up.** They share
+> `TEST_DATABASE_URL`, and a running `dev:worker:e2e` will claim the queued backtest jobs the API
+> integration suite creates — the suite then sees them mid-execution instead of `QUEUED`. Stop the
+> E2E stack first; the two are alternatives, not companions.
+
+### Deterministic Playwright
+
+The E2E stack replaces the development stack — both bind the same ports, so stop one before
+starting the other. `dev:api:e2e` and `dev:worker:e2e` need `TEST_DATABASE_URL` in the shell, the
+same way `db:test:prepare` does:
+
+```bash
+set -a && . ./.env && set +a      # export TEST_DATABASE_URL for the two e2e stack commands
+pnpm infra:up
+pnpm db:test:prepare
+pnpm test:users:seed && pnpm test:securities:seed
+pnpm dev:api:e2e    # and, in other shells:
+pnpm dev:worker:e2e
+pnpm dev:web
+pnpm test:e2e
+```
+
+Both the QA security's and the benchmark's freshness watermarks carry the seed's own timestamp, so
+run the seed shortly before the suite; otherwise the loader treats the tail as stale and reaches for
+the provider.
+
+The two fixtures make deliberately different coverage claims, because only one of them is true in
+both cases:
+
+- **`QATEST1` claims the whole retention horizon.** It is a fictional security whose only provider
+  is the fixture, so the fixture genuinely is the authority on what exists before its first bar —
+  nothing. That is what lets Stock Details report a `PROVIDER` boundary.
+- **`SP500` claims only the interval it generated.** It is backed by a real symbol whose history
+  continues much further back, so a horizon claim would be a lie that permanently blocked fetching
+  it. Keep E2E backtest periods inside the seeded window: an earlier start is genuinely uncovered
+  and a real read would go to the provider.
+
+### Repairing a development database seeded before this split
+
+A database that was QA-seeded under the old behaviour still holds synthetic `SP500` bars, and they
+cannot be told apart from real ones by inspection. Discard the benchmark's stored market data and
+let the loader rebuild it from the provider:
+
+```bash
+pnpm db:benchmarks:reset SP500     # omit the code to reset every benchmark
+```
+
+It deletes bars, coverage intervals and watermarks — a durable projection of provider data, never
+user-owned state — and leaves the `BenchmarkSeries` rows themselves alone, because completed runs
+pin them. Completed runs keep their stored results either way. The next backtest re-hydrates the
+series from FMP.
 
 ## Authentication and Playwright
 

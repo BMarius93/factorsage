@@ -1,3 +1,4 @@
+export * from "./backtest-data-revisions.js";
 export const STOCK_DATA_PACKAGE_NAME = "@intrinsic/stock-data" as const;
 
 export * from "./cache.js";
@@ -18,3 +19,8 @@ export * from "./security-search.js";
 export * from "./service.js";
 export * from "./technicals.js";
 export * from "./weekly.js";
+export * from "./benchmark-ports.js";
+export * from "./benchmark-prisma-store.js";
+export * from "./benchmark-cache.js";
+export * from "./benchmark-service.js";
+export * from "./evaluation-frame.js";

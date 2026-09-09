@@ -47,6 +47,9 @@ importers:
       '@intrinsic/stock-data':
         specifier: workspace:*
         version: link:../../packages/stock-data
+      '@intrinsic/strategy':
+        specifier: workspace:*
+        version: link:../../packages/strategy
       '@nestjs/common':
         specifier: ^11.0.0
         version: 11.2.1(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1)
@@ -166,10 +169,34 @@ importers:
       '@intrinsic/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@intrinsic/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@intrinsic/database':
+        specifier: workspace:*
+        version: link:../../packages/database
+      '@intrinsic/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@intrinsic/fmp':
+        specifier: workspace:*
+        version: link:../../packages/fmp
       '@intrinsic/observability':
         specifier: workspace:*
         version: link:../../packages/observability
+      '@intrinsic/stock-data':
+        specifier: workspace:*
+        version: link:../../packages/stock-data
+      '@intrinsic/strategy':
+        specifier: workspace:*
+        version: link:../../packages/strategy
+      ioredis:
+        specifier: ^6.0.0
+        version: 6.0.0(supports-color@8.1.1)
     devDependencies:
+      '@intrinsic/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.43
@@ -179,6 +206,9 @@ importers:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@1.8.0))(lightningcss@1.33.0)(supports-color@8.1.1)(terser@5.50.0)
 
   packages/config:
     devDependencies:
@@ -247,6 +277,9 @@ importers:
 
   packages/stock-data:
     dependencies:
+      '@intrinsic/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@intrinsic/database':
         specifier: workspace:*
         version: link:../database
@@ -256,6 +289,9 @@ importers:
       '@intrinsic/fmp':
         specifier: workspace:*
         version: link:../fmp
+      '@intrinsic/strategy':
+        specifier: workspace:*
+        version: link:../strategy
       '@intrinsic/valuation':
         specifier: workspace:*
         version: link:../valuation
@@ -272,6 +308,22 @@ importers:
       '@intrinsic/testing':
         specifier: workspace:*
         version: link:../testing
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@1.8.0))(lightningcss@1.33.0)(supports-color@8.1.1)(terser@5.50.0)
+
+  packages/strategy:
+    dependencies:
+      '@intrinsic/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@intrinsic/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

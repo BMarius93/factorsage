@@ -32,6 +32,24 @@ Read `ai/README.md` before substantial work.
     multiple triggers, or backtest execution parameters to the Strategy model. Strategy Builder and
     backend validation must share canonical compatibility definitions rather than maintaining
     separate matrices.
+12. A submitted `BacktestRun` snapshot is immutable and is the reproducibility authority. Nothing in
+    a completed or running run may be re-derived from the current `Strategy`, `StrategyVersion`,
+    `StockList` or `Benchmark` rows, and deleting any of them must never delete or reinterpret a
+    run. Execution behaviour the product leaves open — candidate ordering, level firing, exits
+    before entries, contribution timing, fees — is engine methodology with a version recorded in
+    that snapshot; see `ai/architecture/backtest-execution.md`. Do not change one of those rules
+    without bumping its version.
+13. A Benchmark is a first-class concept, never a `Security` and never `Security.isBenchmark`. It is
+    passive comparison data: never bought, never consuming cash or a position slot, and carrying no
+    derived series. `BENCHMARK_CATALOG` in `@intrinsic/domain` is the one source of benchmark
+    metadata, and a provider symbol never crosses an API contract. Benchmark loading reuses the
+    canonical provider adapter, coverage reconciliation, hydration lock, provider gate and Redis
+    projection principles under its own namespace; see `ai/architecture/benchmark-data.md`.
+14. Backtest work is claimed from PostgreSQL (`BacktestJob`, `FOR UPDATE SKIP LOCKED`, renewable
+    lease, ownership-guarded writes). Do not add a queue library, and do not make Redis the queue.
+    One backtest is never internally parallelized: its simulation stays sequential and
+    single-process so it is deterministic. Concurrency comes from independent worker OS processes,
+    configured by `BACKTEST_WORKER_PROCESSES`.
 
 ## Dependency rules
 
@@ -40,12 +58,13 @@ Allowed direction:
 ```text
 web -> contracts
 
-api -> contracts/domain/stock-data/database/fmp/observability
-worker -> contracts/domain/stock-data/database/fmp/observability
+api -> contracts/domain/strategy/stock-data/database/fmp/observability
+worker -> contracts/domain/strategy/stock-data/database/fmp/observability
 
 database -> Prisma
 fmp -> domain/external FMP API
-stock-data -> domain/database/fmp/observability/Redis
+strategy -> contracts/domain
+stock-data -> contracts/domain/strategy/database/fmp/observability/Redis
 ```
 
 Forbidden:
@@ -54,12 +73,22 @@ Forbidden:
 - `web -> Prisma`
 - `web -> fmp`
 - `web -> worker`
+- `web -> strategy`
 - `domain -> database`
 - `domain -> HTTP`
 - `domain -> process.env`
 - `valuation -> database`
 - `valuation -> process.env`
 - `stock-data -> process.env`
+- `strategy -> database`
+- `strategy -> HTTP`
+- `strategy -> process.env`
+
+`@intrinsic/strategy` is pure: Strategy evaluation, position state and the backtest day loop, with
+no I/O and no clock. It is what keeps API, worker and a future monitor on one implementation of what
+a Strategy means. `stock-data` depends on it only to project the columnar evaluation frame the
+engine consumes — which is also where the intrinsic-value provenance gate is applied, so a pure
+evaluator physically cannot read an ungated value.
 
 ## Database rules
 

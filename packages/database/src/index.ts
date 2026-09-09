@@ -1,4 +1,9 @@
 export {
+  BacktestJobStatus,
+  BacktestRunStatus,
+  BacktestTradeAction,
+  BenchmarkDataset,
+  BenchmarkSourceKind,
   BuyWindowMode,
   FinancialPeriod,
   FinancialStatementType,
@@ -9,6 +14,11 @@ export {
   UserRole,
 } from "@prisma/client";
 export type {
+  Benchmark,
+  BenchmarkDailyPrice,
+  BacktestJob,
+  BacktestRun,
+  BacktestRunProgress,
   EmailVerificationToken,
   OAuthAccount,
   Prisma,

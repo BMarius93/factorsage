@@ -1,16 +1,8 @@
+import { isLocalDate, subtractYears } from "@intrinsic/contracts";
 import type { DateRange, StockDatasetState } from "@intrinsic/domain";
 
-const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-export function isLocalDate(value: string): boolean {
-  if (!LOCAL_DATE_PATTERN.test(value)) {
-    return false;
-  }
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return (
-    !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
-  );
-}
+// One implementation of calendar-date arithmetic, in the one package the web app may also import.
+export { isLocalDate, subtractYears };
 
 export function addDays(value: string, days: number): string {
   if (!isLocalDate(value)) {
@@ -21,27 +13,14 @@ export function addDays(value: string, days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/**
- * Subtracts whole years from a `YYYY-MM-DD` date, clamping 29 February to 28 February.
- *
- * The one year arithmetic behind every historical bound — the retention horizon, the Stock
- * Details limit and the QA seed's coverage start — so they agree on every calendar day. Rolling a
- * leap day forward to 1 March instead would put a bound one day later than a clamp computed
- * elsewhere, and a coverage interval starting on the clamped day would then read as incomplete.
- */
-export function subtractYears(value: string, years: number): string {
-  if (!isLocalDate(value)) {
-    throw new Error(`Invalid local date '${value}'`);
-  }
-  const date = new Date(`${value}T00:00:00.000Z`);
-  const day = date.getUTCDate();
-  date.setUTCDate(1);
-  date.setUTCFullYear(date.getUTCFullYear() - years);
-  const lastDayOfMonth = new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  date.setUTCDate(Math.min(day, lastDayOfMonth));
-  return date.toISOString().slice(0, 10);
+/** Later of two canonical `YYYY-MM-DD` dates. Lexical order is chronological order in this form. */
+export function maxDate(left: string, right: string): string {
+  return left > right ? left : right;
+}
+
+/** Earlier of two canonical `YYYY-MM-DD` dates. */
+export function minDate(left: string, right: string): string {
+  return left < right ? left : right;
 }
 
 export function compareDates(left: string, right: string): number {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   getApiConfig,
   getAuthConfig,
+  getBacktestWorkerConfig,
   getGoogleOAuthConfig,
   getQaPersonaConfig,
   getSmtpConfig,
@@ -151,9 +152,7 @@ describe("SMTP configuration", () => {
   });
 
   it("defaults implicit TLS from the port and allows an explicit override", () => {
-    expect(
-      getSmtpConfig({ ...SMTP_ENV, SMTP_PORT: "465" })?.secure,
-    ).toBe(true);
+    expect(getSmtpConfig({ ...SMTP_ENV, SMTP_PORT: "465" })?.secure).toBe(true);
     expect(
       getSmtpConfig({ ...SMTP_ENV, SMTP_PORT: "465", SMTP_SECURE: "false" })
         ?.secure,
@@ -258,7 +257,9 @@ describe("QA persona configuration", () => {
     expect(() => getQaPersonaConfig(withoutAdminEmail)).toThrow(
       "QA_ADMIN_EMAIL is required",
     );
-    expect(() => getQaPersonaConfig({})).toThrow("QA_USER_PASSWORD is required");
+    expect(() => getQaPersonaConfig({})).toThrow(
+      "QA_USER_PASSWORD is required",
+    );
   });
 
   it("rejects a persona password that is too short", () => {
@@ -302,6 +303,68 @@ describe("browser-exposed configuration", () => {
       "apiBaseUrl",
       "stripePublishableKey",
     ]);
+  });
+});
+
+describe("backtest worker configuration", () => {
+  it("defaults to a conservative local execution profile", () => {
+    const config = getBacktestWorkerConfig({});
+
+    expect(config).toEqual({
+      processes: 2,
+      pollIntervalMs: 1_000,
+      leaseMs: 60_000,
+      heartbeatIntervalMs: 15_000,
+      maxAttempts: 3,
+      retryBackoffMs: 15_000,
+      checkpointEveryDays: 5,
+      checkpointMinIntervalMs: 1_000,
+      frameConcurrency: 4,
+    });
+  });
+
+  it("reads a configured execution profile", () => {
+    const config = getBacktestWorkerConfig({
+      BACKTEST_WORKER_PROCESSES: "8",
+      BACKTEST_JOB_POLL_INTERVAL_MS: "250",
+      BACKTEST_JOB_LEASE_MS: "120000",
+      BACKTEST_JOB_HEARTBEAT_INTERVAL_MS: "20000",
+      BACKTEST_JOB_MAX_ATTEMPTS: "5",
+      BACKTEST_JOB_RETRY_BACKOFF_MS: "30000",
+      BACKTEST_CHECKPOINT_EVERY_DAYS: "10",
+      BACKTEST_CHECKPOINT_MIN_INTERVAL_MS: "500",
+      BACKTEST_FRAME_LOAD_CONCURRENCY: "12",
+    });
+
+    expect(config.processes).toBe(8);
+    expect(config.pollIntervalMs).toBe(250);
+    expect(config.leaseMs).toBe(120_000);
+    expect(config.heartbeatIntervalMs).toBe(20_000);
+    expect(config.maxAttempts).toBe(5);
+    expect(config.retryBackoffMs).toBe(30_000);
+    expect(config.checkpointEveryDays).toBe(10);
+    expect(config.checkpointMinIntervalMs).toBe(500);
+    expect(config.frameConcurrency).toBe(12);
+  });
+
+  it("rejects a worker count that cannot run", () => {
+    expect(() =>
+      getBacktestWorkerConfig({ BACKTEST_WORKER_PROCESSES: "0" }),
+    ).toThrow("BACKTEST_WORKER_PROCESSES must be a positive integer");
+  });
+
+  // A typo here would fork a process per unit rather than per worker, so it fails at startup
+  // instead of exhausting the database connection budget under load.
+  it("rejects more workers than the supported maximum", () => {
+    expect(() =>
+      getBacktestWorkerConfig({ BACKTEST_WORKER_PROCESSES: "200" }),
+    ).toThrow("BACKTEST_WORKER_PROCESSES must be between 1 and 32");
+  });
+
+  it("rejects a non-positive lease", () => {
+    expect(() =>
+      getBacktestWorkerConfig({ BACKTEST_JOB_LEASE_MS: "-1" }),
+    ).toThrow("BACKTEST_JOB_LEASE_MS must be a positive integer");
   });
 });
 
@@ -368,5 +431,6 @@ describe(".env.example template", () => {
     expect(getSmtpConfig(template)).toBeNull();
     expect(() => getAuthConfig(template)).not.toThrow();
     expect(() => getApiConfig(template)).not.toThrow();
+    expect(() => getBacktestWorkerConfig(template)).not.toThrow();
   });
 });

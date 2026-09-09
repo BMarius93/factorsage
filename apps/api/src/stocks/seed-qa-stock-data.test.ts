@@ -9,6 +9,7 @@ import {
   buildDailyDerivedState,
   calculateWilderRsi,
 } from "@intrinsic/stock-data";
+import { subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
   qaIntrinsicFixture,
@@ -45,6 +46,19 @@ describe("QA stock-data seed", () => {
       expect(weekday).toBeLessThanOrEqual(5);
     }
     expect(prices[0]?.date).toBe(seedHistoryStart(TODAY));
+  });
+
+  it("seeds a fixture whose provider boundary is its own first row", () => {
+    // `QATEST1` exists only in this fixture, so the fixture is the authority on what came before
+    // its first bar: nothing. That is why its coverage may claim the whole horizon — the claim is
+    // true — and it is what lets Stock Details report a `PROVIDER` boundary rather than a
+    // `HORIZON` one it has not established.
+    //
+    // The benchmark seed is the opposite case and claims only what it generated: `SP500` is backed
+    // by a real symbol whose history genuinely continues further back.
+    const first = prices[0]?.date as string;
+    expect(first).toBe(seedHistoryStart(TODAY));
+    expect(subtractYears(TODAY, 30) < first).toBe(true);
   });
 
   it("seeds enough history for the shorter weekly periods and not the longest", () => {
@@ -101,7 +115,8 @@ describe("QA stock-data seed", () => {
         INTRINSIC_VALUE_BLENDS[blendId as keyof typeof INTRINSIC_VALUE_BLENDS];
       const expected = definition.components.reduce(
         (sum, component) =>
-          sum + (fixture.values[component.model] ?? Number.NaN) * component.weight,
+          sum +
+          (fixture.values[component.model] ?? Number.NaN) * component.weight,
         0,
       );
       expect(value).toBeCloseTo(expected, 10);

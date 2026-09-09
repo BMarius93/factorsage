@@ -1,4 +1,5 @@
 import type {
+  BenchmarkDailyPrice,
   DailyPrice,
   DateRange,
   SecurityListingCandidate,
@@ -165,7 +166,13 @@ function fiscalYear(value: unknown): number {
 
 function financialPeriod(value: unknown): FinancialStatementDraft["period"] {
   const parsed = requiredString(value, "period").toUpperCase();
-  if (parsed !== "FY" && parsed !== "Q1" && parsed !== "Q2" && parsed !== "Q3" && parsed !== "Q4") {
+  if (
+    parsed !== "FY" &&
+    parsed !== "Q1" &&
+    parsed !== "Q2" &&
+    parsed !== "Q3" &&
+    parsed !== "Q4"
+  ) {
     throw new Error("Invalid FMP period");
   }
   return parsed;
@@ -200,12 +207,18 @@ function mapFmpFinancialStatementRows<T extends FinancialStatementType>(input: {
       fiscalDate: localDate(row.date, "financial statement date"),
       fiscalYear: fiscalYear(row.fiscalYear),
       period,
-      reportedCurrency: requiredString(row.reportedCurrency, "reportedCurrency"),
+      reportedCurrency: requiredString(
+        row.reportedCurrency,
+        "reportedCurrency",
+      ),
       filingDate: localDate(row.filingDate, "filingDate"),
       ...(typeof row.acceptedDate === "string" && row.acceptedDate.trim()
         ? { providerAcceptedDate: row.acceptedDate.trim() }
         : {}),
-      values: mapFinancialValues(row, input.fields) as FinancialStatementDraft<T>["values"],
+      values: mapFinancialValues(
+        row,
+        input.fields,
+      ) as FinancialStatementDraft<T>["values"],
     };
   });
 }
@@ -327,7 +340,30 @@ export function mapFmpDailyPrices(
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-export function financialStatementPath(statementType: FinancialStatementType): string {
+/**
+ * The same provider bars, stamped with a benchmark identity instead of a security identity.
+ *
+ * A benchmark is not a `Security`, so its rows never enter `DailyPrice`. What is shared is the
+ * provider response shape and the mapping rules — duplicating those would be the real mistake.
+ */
+export function mapFmpBenchmarkDailyPrices(
+  seriesId: string,
+  rows: readonly FmpDailyPriceDto[],
+): BenchmarkDailyPrice[] {
+  return mapFmpDailyPrices(seriesId, rows).map((row) => ({
+    seriesId,
+    date: row.date,
+    open: row.open,
+    high: row.high,
+    low: row.low,
+    close: row.close,
+    volume: row.volume,
+  }));
+}
+
+export function financialStatementPath(
+  statementType: FinancialStatementType,
+): string {
   switch (statementType) {
     case "INCOME":
       return "income-statement";
@@ -338,7 +374,9 @@ export function financialStatementPath(statementType: FinancialStatementType): s
   }
 }
 
-function statementFields(statementType: FinancialStatementType): readonly string[] {
+function statementFields(
+  statementType: FinancialStatementType,
+): readonly string[] {
   switch (statementType) {
     case "INCOME":
       return INCOME_STATEMENT_FIELDS;
@@ -349,7 +387,9 @@ function statementFields(statementType: FinancialStatementType): readonly string
   }
 }
 
-export function mapFmpFinancialStatements<T extends FinancialStatementType>(input: {
+export function mapFmpFinancialStatements<
+  T extends FinancialStatementType,
+>(input: {
   securityId: string;
   statementType: T;
   rows: readonly FmpFinancialStatementDto[];
@@ -372,6 +412,20 @@ export function mapFmpFinancialStatements<T extends FinancialStatementType>(inpu
 export type FmpSecurityCatalogPort = {
   /** Every listing on one exchange. Never one request per symbol. */
   getStockUniverse(exchangeCode: string): Promise<MappedFmpSecurityListing[]>;
+};
+
+/**
+ * Benchmark market data, kept as its own port.
+ *
+ * A benchmark has no profile and no fundamentals; splitting the port keeps a benchmark loader
+ * depending only on the one call it makes, exactly as `FmpSecurityCatalogPort` is split out.
+ */
+export type FmpBenchmarkProviderPort = {
+  getBenchmarkDailyPrices(
+    providerSymbol: string,
+    seriesId: string,
+    range: DateRange,
+  ): Promise<BenchmarkDailyPrice[]>;
 };
 
 export type FmpStockProviderPort = {

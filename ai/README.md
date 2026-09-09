@@ -51,6 +51,16 @@ the first document records why they are deferred or rejected.
 revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;
 bumping one does not invalidate the other.
 
+For backtest work — the engine, the worker, benchmark data or the run surfaces — read
+`product/backtests.md` first, then `architecture/backtest-execution.md` (the built lifecycle,
+progress model, durable job protocol, worker process model and the versioned execution
+methodology), `architecture/benchmark-data.md` (why a Benchmark is not a `Security`, and what its
+loading shares with stock loading), and `architecture/strategy-evaluation.md` for the design the
+engine was built from. `../docs/decisions/backtest-run-persistence.md` records the storage
+decision. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
+open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
+feature code.
+
 For frontend/UI work, also read
 `architecture/frontend.md`.
 
@@ -99,12 +109,17 @@ Strategy
 
 Backtest configuration
   |
-  +-- Strategy + StockList
+  +-- Strategy + StockList + Benchmark
   +-- date range / capital / contributions / maximumPositions / execution assumptions
+
+Benchmark (system-owned, never a Security)
+  |
+  +-- BenchmarkDailyPrice + its own coverage/state and Redis namespace
 
 Backtest run
   |
   +-- immutable execution snapshot + asynchronous worker execution
+  +-- durable PostgreSQL job claim, live progress checkpoints
   +-- deterministic results / diagnostics
 
 Monitor = current-data evaluation using the same canonical Strategy logic

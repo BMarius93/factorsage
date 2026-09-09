@@ -7,15 +7,25 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
-    "@intrinsic/observability": "workspace:*"
+    "@intrinsic/contracts": "workspace:*",
+    "@intrinsic/database": "workspace:*",
+    "@intrinsic/domain": "workspace:*",
+    "@intrinsic/fmp": "workspace:*",
+    "@intrinsic/observability": "workspace:*",
+    "@intrinsic/stock-data": "workspace:*",
+    "@intrinsic/strategy": "workspace:*",
+    "ioredis": "^6.0.0"
   },
   "devDependencies": {
+    "@intrinsic/testing": "workspace:*",
     "@types/node": "^20.0.0",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "vitest": "^2.1.9"
   }
 }

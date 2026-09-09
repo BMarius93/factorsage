@@ -5,14 +5,14 @@
 **Implemented.** Phases A–F of § 13 are in the repository; this document is now the record of what
 was built rather than a plan for it.
 
-| Phase | Content | State |
-| --- | --- | --- |
-| A | Strategy types, compatibility registry, validator, normalizer, `describeStrategy`, help metadata, limits | Implemented in `packages/contracts/src/strategies.ts` |
-| B | `Strategy` + `StrategyVersion`, migration `20260907072239_add_strategies`, `docs/decisions/strategy-definition-storage.md`, `apps/api/src/strategies/` | Implemented |
-| C | `/strategies` collection page | Implemented in `apps/web/src/features/strategies/` |
-| D | Builder core, `/strategies/new` and `/strategies/[id]` | Implemented |
-| E | Explanation panel and logic preview | Implemented |
-| F | Mobile composition and the Playwright journeys | Implemented |
+| Phase | Content                                                                                                                                                | State                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| A     | Strategy types, compatibility registry, validator, normalizer, `describeStrategy`, help metadata, limits                                               | Implemented in `packages/contracts/src/strategies.ts` |
+| B     | `Strategy` + `StrategyVersion`, migration `20260907072239_add_strategies`, `docs/decisions/strategy-definition-storage.md`, `apps/api/src/strategies/` | Implemented                                           |
+| C     | `/strategies` collection page                                                                                                                          | Implemented in `apps/web/src/features/strategies/`    |
+| D     | Builder core, `/strategies/new` and `/strategies/[id]`                                                                                                 | Implemented                                           |
+| E     | Explanation panel and logic preview                                                                                                                    | Implemented                                           |
+| F     | Mobile composition and the Playwright journeys                                                                                                         | Implemented                                           |
 
 All Builder product questions were closed (§ 15) before Phase A froze the registry.
 
@@ -36,7 +36,7 @@ authoritative product definition; this document does not restate or alter it.
 execution-price model, contribution processing, candidate ordering and the portfolio simulator.
 Those are designed in `strategy-evaluation.md`, which stays as written — its Phase 1–4 findings and
 its thirteen open questions remain the record for that work. Only the small number of those questions that change
-*what a user can define* are pulled forward here; § 12 lists which, and why the rest stay deferred.
+_what a user can define_ are pulled forward here; § 12 lists which, and why the rest stay deferred.
 
 A useful property of this slice: **it needs no market data**. The operand catalog is static in
 `@intrinsic/contracts`, so nothing in the Builder touches FMP, Redis, the stock loader or the
@@ -46,14 +46,14 @@ derived state. Its tests are fast and deterministic, and no QA stock seeding is 
 
 ## 1. Package placement
 
-| Concern | Package | Why |
-| --- | --- | --- |
-| Strategy types, compatibility registry, validation, normalization, human-readable rendering, help text | `@intrinsic/contracts` | `apps/web` may depend on nothing else, and `AGENTS.md` invariant 11 requires Strategy Builder and backend validation to share **one** compatibility definition |
-| Persistence, ownership, versioning, HTTP | `apps/api` (`src/strategies/`) | mirrors the `lists` slice exactly |
-| Builder UI | `apps/web` (`src/features/strategies/`) | the established feature layout |
+| Concern                                                                                                | Package                                 | Why                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Strategy types, compatibility registry, validation, normalization, human-readable rendering, help text | `@intrinsic/contracts`                  | `apps/web` may depend on nothing else, and `AGENTS.md` invariant 11 requires Strategy Builder and backend validation to share **one** compatibility definition |
+| Persistence, ownership, versioning, HTTP                                                               | `apps/api` (`src/strategies/`)          | mirrors the `lists` slice exactly                                                                                                                              |
+| Builder UI                                                                                             | `apps/web` (`src/features/strategies/`) | the established feature layout                                                                                                                                 |
 
 **The Builder slice introduces no new package.** `strategy-evaluation.md` § 2.1 proposes a pure
-`@intrinsic/strategy` for the *evaluator*; nothing in Create/Edit needs it, so it is deferred to
+`@intrinsic/strategy` for the _evaluator_; nothing in Create/Edit needs it, so it is deferred to
 the backtest slice and no `AGENTS.md` dependency-rule change is required now.
 
 Putting validation in `@intrinsic/contracts` follows existing practice rather than stretching it:
@@ -70,14 +70,14 @@ New file `packages/contracts/src/strategies.ts`, re-exported from `src/index.ts`
 export const STRATEGY_LEVEL_KINDS = ["BUY", "SELL", "FINAL_EXIT"] as const;
 export type StrategyLevelKind = (typeof STRATEGY_LEVEL_KINDS)[number];
 
-export const BUY_LEVEL_PERCENTAGES  = [25, 50, 75, 100] as const;
+export const BUY_LEVEL_PERCENTAGES = [25, 50, 75, 100] as const;
 export const SELL_LEVEL_PERCENTAGES = [25, 50, 75] as const;
 
 export type StrategyMetric =
   | { kind: "PRICE" }
-  | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId }    // any of the 14 catalog averages
-  | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }        // RSI_7D | RSI_14D | RSI_21D
-  | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }  // one of the 7 intrinsic entries
+  | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId } // any of the 14 catalog averages
+  | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId } // RSI_7D | RSI_14D | RSI_21D
+  | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId } // one of the 7 intrinsic entries
   | { kind: "GAIN" }
   | { kind: "LOSS" };
 
@@ -87,7 +87,7 @@ export type StrategyValue =
   | { kind: "PERCENT"; value: number };
 
 export type ConditionOperator = "IS_ABOVE" | "IS_BELOW" | "IS_CLOSE_TO";
-export type TriggerOperator   = "CROSSES_ABOVE" | "CROSSES_BELOW";
+export type TriggerOperator = "CROSSES_ABOVE" | "CROSSES_BELOW";
 
 export type StrategyCondition = {
   id: string;
@@ -109,8 +109,16 @@ export type StrategySignal = {
   trigger?: StrategyTrigger;
 };
 
-export type StrategyBuyLevel  = { id: string; signal: StrategySignal; percentage: 25|50|75|100 };
-export type StrategySellLevel = { id: string; signal: StrategySignal; percentage: 25|50|75 };
+export type StrategyBuyLevel = {
+  id: string;
+  signal: StrategySignal;
+  percentage: 25 | 50 | 75 | 100;
+};
+export type StrategySellLevel = {
+  id: string;
+  signal: StrategySignal;
+  percentage: 25 | 50 | 75;
+};
 /** FINAL EXIT has no percentage field at all — the type makes the rule unrepresentable. */
 export type StrategyFinalExit = { id: string; signal: StrategySignal };
 
@@ -175,14 +183,14 @@ export type StrategyMetricDefinition = {
 V1 registry content, transcribed from `ai/product/strategies.md`'s compatibility table — no
 inference, no additions:
 
-| Metric | Conditions | Triggers | Value | Allowed in |
-| --- | --- | --- | --- | --- |
-| `PRICE` | `IS_ABOVE`, `IS_BELOW`, `IS_CLOSE_TO` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `SERIES`, the 21 price-scaled catalog entries (14 moving averages + 7 intrinsic) | BUY, SELL, FINAL_EXIT |
-| `MOVING_AVERAGE` (14 catalog averages) | `IS_ABOVE`, `IS_BELOW`, `IS_CLOSE_TO` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `SERIES` resolved per instance through `comparableMovingAverages(seriesId)` | BUY, SELL, FINAL_EXIT |
-| `OSCILLATOR` (RSI 7D/14D/21D) | `IS_ABOVE`, `IS_BELOW` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `NUMBER` 1…100 step 1 | BUY, SELL, FINAL_EXIT |
-| `MARGIN_OF_SAFETY` (7 intrinsic sources) | `IS_ABOVE`, `IS_BELOW` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `<= 100` | BUY, SELL, FINAL_EXIT |
-| `GAIN` | `IS_ABOVE`, `IS_BELOW` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `>= -100` | SELL, FINAL_EXIT |
-| `LOSS` | `IS_ABOVE`, `IS_BELOW` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `0 … 100` | SELL, FINAL_EXIT |
+| Metric                                   | Conditions                            | Triggers                         | Value                                                                            | Allowed in            |
+| ---------------------------------------- | ------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------- | --------------------- |
+| `PRICE`                                  | `IS_ABOVE`, `IS_BELOW`, `IS_CLOSE_TO` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `SERIES`, the 21 price-scaled catalog entries (14 moving averages + 7 intrinsic) | BUY, SELL, FINAL_EXIT |
+| `MOVING_AVERAGE` (14 catalog averages)   | `IS_ABOVE`, `IS_BELOW`, `IS_CLOSE_TO` | `CROSSES_ABOVE`, `CROSSES_BELOW` | `SERIES` resolved per instance through `comparableMovingAverages(seriesId)`      | BUY, SELL, FINAL_EXIT |
+| `OSCILLATOR` (RSI 7D/14D/21D)            | `IS_ABOVE`, `IS_BELOW`                | `CROSSES_ABOVE`, `CROSSES_BELOW` | `NUMBER` 1…100 step 1                                                            | BUY, SELL, FINAL_EXIT |
+| `MARGIN_OF_SAFETY` (7 intrinsic sources) | `IS_ABOVE`, `IS_BELOW`                | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `<= 100`                                                               | BUY, SELL, FINAL_EXIT |
+| `GAIN`                                   | `IS_ABOVE`, `IS_BELOW`                | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `>= -100`                                                              | SELL, FINAL_EXIT      |
+| `LOSS`                                   | `IS_ABOVE`, `IS_BELOW`                | `CROSSES_ABOVE`, `CROSSES_BELOW` | `PERCENT` `0 … 100`                                                              | SELL, FINAL_EXIT      |
 
 The price-scaled Value set is **derived**, not listed:
 `SELECTABLE_SERIES_CATALOG.filter(e => e.source.kind !== "OSCILLATOR")` — an oscillator is unitless
@@ -199,11 +207,11 @@ Builder restates it.
 **Percentage domains are metric-specific, not one shared range.** Each is the metric's own
 semantics, which is why a single arbitrary range would be wrong:
 
-| Metric | Domain | Why that bound |
-| --- | --- | --- |
-| `MARGIN_OF_SAFETY` | any finite percentage `<= 100`, no lower bound | with a positive price and a positive intrinsic value, MOS is always below 100; below zero it just means price exceeds intrinsic value, which is a legitimate rule |
-| `GAIN` | any finite percentage `>= -100`, no upper bound | signed; a long position cannot lose more than its whole cost, and upside is unbounded |
-| `LOSS` | `0 … 100` | non-negative and clamped at zero by definition, and a long position cannot lose more than 100% |
+| Metric             | Domain                                          | Why that bound                                                                                                                                                    |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MARGIN_OF_SAFETY` | any finite percentage `<= 100`, no lower bound  | with a positive price and a positive intrinsic value, MOS is always below 100; below zero it just means price exceeds intrinsic value, which is a legitimate rule |
+| `GAIN`             | any finite percentage `>= -100`, no upper bound | signed; a long position cannot lose more than its whole cost, and upside is unbounded                                                                             |
+| `LOSS`             | `0 … 100`                                       | non-negative and clamped at zero by definition, and a long position cannot lose more than 100%                                                                    |
 
 Decimal thresholds are allowed on all three (`22.5`, `-10`, `7.25`); there is no step constraint.
 Normalization only requires a finite number, so `22.50` and `22.5` are the same value and the
@@ -281,7 +289,7 @@ enforced in one path and not the other.
 ```ts
 export type StrategyIssuePath = {
   levelKind: StrategyLevelKind;
-  levelIndex?: number;      // absent for FINAL_EXIT and strategy-level issues
+  levelIndex?: number; // absent for FINAL_EXIT and strategy-level issues
   part: "STRATEGY" | "NAME" | "LEVEL" | "PERCENTAGE" | "CONDITION" | "TRIGGER";
   conditionIndex?: number;
   field?: "METRIC" | "OPERATOR" | "VALUE";
@@ -290,7 +298,7 @@ export type StrategyIssuePath = {
 export type StrategyValidationIssue = {
   code: StrategyValidationCode;
   path: StrategyIssuePath;
-  message: string;   // user-facing, product vocabulary only
+  message: string; // user-facing, product vocabulary only
 };
 ```
 
@@ -299,20 +307,20 @@ errors in the Builder and the API's 400 body, with no second mapping.
 
 Rules, each with its own `StrategyValidationCode`:
 
-| Code | Rule | Source |
-| --- | --- | --- |
-| `SIGNAL_EMPTY` | every Signal has at least one Condition or a Trigger | `strategies.md` § Validation |
-| `OPERATOR_NOT_SUPPORTED` | operator is in the metric's registry entry | § Validation |
-| `VALUE_KIND_MISMATCH` | Value kind matches the metric's `StrategyValueSpec` | § Validation |
-| `VALUE_OUT_OF_DOMAIN` | percentage/numeric Value inside its **metric's own** domain, and finite: MOS `<= 100`, `Gain` `>= -100`, `Loss` `0…100`, RSI `1…100` | § Validation |
-| `SERIES_UNKNOWN` | every `SelectableSeriesId` resolves via `findSelectableSeries` | § Validation |
-| `SERIES_NOT_COMPARABLE` | a `SERIES` Value is in the metric's permitted subset — for a moving-average Metric, exactly `comparableMovingAverages(seriesId)`, so a self-comparison or a daily/weekly pair is rejected | § Validation |
-| `METRIC_NOT_ALLOWED_IN_LEVEL` | no `GAIN`/`LOSS` in a BUY level | § Validation |
-| `PERCENTAGE_INVALID` | BUY ∈ {25,50,75,100}, SELL ∈ {25,50,75} | § Validation |
-| `NAME_REQUIRED` / `NAME_TOO_LONG` | 1…`STRATEGY_NAME_MAX_LENGTH` after trim | Builder |
-| `DUPLICATE_CONDITION` | two **semantically** identical Conditions in one Signal — same Metric, same operator, same Value; never object or row identity, and never silently deduped | `strategies.md` § Validation |
-| `BUY_LEVEL_REQUIRED` | at least one BUY level | `strategies.md` § Strategy shape |
-| `TOO_MANY_LEVELS` / `TOO_MANY_CONDITIONS` | within the exported limits | Builder |
+| Code                                      | Rule                                                                                                                                                                                      | Source                           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `SIGNAL_EMPTY`                            | every Signal has at least one Condition or a Trigger                                                                                                                                      | `strategies.md` § Validation     |
+| `OPERATOR_NOT_SUPPORTED`                  | operator is in the metric's registry entry                                                                                                                                                | § Validation                     |
+| `VALUE_KIND_MISMATCH`                     | Value kind matches the metric's `StrategyValueSpec`                                                                                                                                       | § Validation                     |
+| `VALUE_OUT_OF_DOMAIN`                     | percentage/numeric Value inside its **metric's own** domain, and finite: MOS `<= 100`, `Gain` `>= -100`, `Loss` `0…100`, RSI `1…100`                                                      | § Validation                     |
+| `SERIES_UNKNOWN`                          | every `SelectableSeriesId` resolves via `findSelectableSeries`                                                                                                                            | § Validation                     |
+| `SERIES_NOT_COMPARABLE`                   | a `SERIES` Value is in the metric's permitted subset — for a moving-average Metric, exactly `comparableMovingAverages(seriesId)`, so a self-comparison or a daily/weekly pair is rejected | § Validation                     |
+| `METRIC_NOT_ALLOWED_IN_LEVEL`             | no `GAIN`/`LOSS` in a BUY level                                                                                                                                                           | § Validation                     |
+| `PERCENTAGE_INVALID`                      | BUY ∈ {25,50,75,100}, SELL ∈ {25,50,75}                                                                                                                                                   | § Validation                     |
+| `NAME_REQUIRED` / `NAME_TOO_LONG`         | 1…`STRATEGY_NAME_MAX_LENGTH` after trim                                                                                                                                                   | Builder                          |
+| `DUPLICATE_CONDITION`                     | two **semantically** identical Conditions in one Signal — same Metric, same operator, same Value; never object or row identity, and never silently deduped                                | `strategies.md` § Validation     |
+| `BUY_LEVEL_REQUIRED`                      | at least one BUY level                                                                                                                                                                    | `strategies.md` § Strategy shape |
+| `TOO_MANY_LEVELS` / `TOO_MANY_CONDITIONS` | within the exported limits                                                                                                                                                                | Builder                          |
 
 Shared limits exported beside the types, matching the lists slice's precedent:
 
@@ -370,7 +378,7 @@ model StrategyVersion {
 not a deferred backtest question — it is a persistence-shape decision, which this slice owns.
 `ai/product/backtests.md` states that changing a Strategy after submission never changes a
 completed or running backtest. Building Create/Edit against a single mutable row would make that
-invariant impossible to honour without later rewriting the save path *and* migrating existing user
+invariant impossible to honour without later rewriting the save path _and_ migrating existing user
 data. One extra table now costs a `@@unique` and an insert; retrofitting later costs a migration
 plus a change to every read path. The Builder itself only ever reads the highest version.
 
@@ -382,7 +390,7 @@ migration handle, and the API parses every definition through `normalizeStrategy
 read, so a drifted document fails loudly instead of reaching the UI.
 
 This does **not** reopen `docs/decisions/retain-wide-column-calculated-series-storage.md`. That
-decision is about *calculated series*, which are queried by date range, are numeric columns and are
+decision is about _calculated series_, which are queried by date range, are numeric columns and are
 rebuilt by revision. A strategy definition is a small user-authored document read whole by primary
 key. Record the difference explicitly in a short ADR, `docs/decisions/strategy-definition-storage.md`,
 alongside the migration note `AGENTS.md` requires.
@@ -399,14 +407,14 @@ New slice `apps/api/src/strategies/`, mirroring `apps/api/src/lists/` file for f
 `strategies.controller.ts`, `strategies.service.ts`, `strategy-requests.ts`, `strategies.module.ts`,
 `strategies.tokens.ts`, `strategies.integration.test.ts`.
 
-| Method | Route | Body | Response |
-| --- | --- | --- | --- |
-| `GET` | `/strategies` | — | `StrategySummaryResponse[]` |
-| `POST` | `/strategies` | `CreateStrategyRequest` | `StrategyDetailResponse` |
-| `GET` | `/strategies/:id` | — | `StrategyDetailResponse` |
-| `PATCH` | `/strategies/:id` | `UpdateStrategyRequest` (name/description) | `StrategySummaryResponse` |
-| `PUT` | `/strategies/:id/definition` | `ReplaceStrategyDefinitionRequest` | `StrategyDetailResponse` |
-| `DELETE` | `/strategies/:id` | — | `204` |
+| Method   | Route                        | Body                                       | Response                    |
+| -------- | ---------------------------- | ------------------------------------------ | --------------------------- |
+| `GET`    | `/strategies`                | —                                          | `StrategySummaryResponse[]` |
+| `POST`   | `/strategies`                | `CreateStrategyRequest`                    | `StrategyDetailResponse`    |
+| `GET`    | `/strategies/:id`            | —                                          | `StrategyDetailResponse`    |
+| `PATCH`  | `/strategies/:id`            | `UpdateStrategyRequest` (name/description) | `StrategySummaryResponse`   |
+| `PUT`    | `/strategies/:id/definition` | `ReplaceStrategyDefinitionRequest`         | `StrategyDetailResponse`    |
+| `DELETE` | `/strategies/:id`            | —                                          | `204`                       |
 
 The shape is deliberately the lists slice's: `POST` create, `GET` detail, `PATCH` metadata,
 `PUT` whole-configuration replace, `DELETE`. `PUT /definition` is the direct analogue of
@@ -415,9 +423,15 @@ atomically and returns the canonical normalized result, which is exactly what wa
 
 ```ts
 export type StrategySummaryResponse = {
-  id: string; name: string; description?: string;
-  buyLevelCount: number; sellLevelCount: number; hasFinalExit: boolean;
-  versionNumber: number; createdAt: string; updatedAt: string;
+  id: string;
+  name: string;
+  description?: string;
+  buyLevelCount: number;
+  sellLevelCount: number;
+  hasFinalExit: boolean;
+  versionNumber: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type StrategyDetailResponse = StrategySummaryResponse & {
@@ -426,18 +440,25 @@ export type StrategyDetailResponse = StrategySummaryResponse & {
 
 /** `definition` lets the create flow save a name plus the rules in one atomic request. */
 export type CreateStrategyRequest = {
-  name: string; description?: string; definition?: StrategyDefinition;
+  name: string;
+  description?: string;
+  definition?: StrategyDefinition;
 };
 /** At least one field. `description: null` clears it. */
-export type UpdateStrategyRequest = { name?: string; description?: string | null };
-export type ReplaceStrategyDefinitionRequest = { definition: StrategyDefinition };
+export type UpdateStrategyRequest = {
+  name?: string;
+  description?: string | null;
+};
+export type ReplaceStrategyDefinitionRequest = {
+  definition: StrategyDefinition;
+};
 ```
 
 The summary carries counts rather than the definition so the collection page renders without
 loading every document — the same reasoning as `StockListSummaryResponse.itemCount`.
 
 **Service.** `StrategiesService` scopes every query by the authenticated user id and raises
-`StrategyNotFoundError` for a strategy that does not exist *or* belongs to someone else, so knowing
+`StrategyNotFoundError` for a strategy that does not exist _or_ belongs to someone else, so knowing
 another user's id reveals nothing. No ADMIN bypass. Structured logging through a
 `STRATEGIES_LOGGER` provider with `component: "strategies"`, `actorUserId` and the strategy id.
 
@@ -532,7 +553,9 @@ three-select row plus a useful panel does not fit below 1280px without compressi
   grid-template-columns: minmax(0, 1fr);
 }
 @media (min-width: 1280px) {
-  .builder { grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); }  /* 67% / 33% */
+  .builder {
+    grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  } /* 67% / 33% */
   .panel {
     position: sticky;
     top: calc(var(--topbar-height-wide) + 16px);
@@ -627,9 +650,17 @@ reads"** section at the end of the flow, so they cost no vertical noise until op
 **Save bar.** Fixed above the bottom navigation, respecting the safe area:
 
 ```css
-.saveBar { position: fixed; left: 0; right: 0;
-  bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom)); }
-.builder { padding-bottom: calc(var(--bottom-nav-height) + 56px + var(--safe-area-bottom)); }
+.saveBar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+}
+.builder {
+  padding-bottom: calc(
+    var(--bottom-nav-height) + 56px + var(--safe-area-bottom)
+  );
+}
 ```
 
 Losing unsaved rule edits is worse than 56px of chrome. Above 880px the bottom navigation is gone
@@ -645,8 +676,14 @@ and the save action moves into the sticky page header.
 **Content lives in contracts**, beside the registry, keyed by the same identities:
 
 ```ts
-STRATEGY_METRIC_HELP: Record<StrategyMetricKind, { summary: string; detail: string }>
-STRATEGY_OPERATOR_HELP: Record<ConditionOperator | TriggerOperator, { summary: string; detail: string }>
+STRATEGY_METRIC_HELP: Record<
+  StrategyMetricKind,
+  { summary: string; detail: string }
+>;
+STRATEGY_OPERATOR_HELP: Record<
+  ConditionOperator | TriggerOperator,
+  { summary: string; detail: string }
+>;
 ```
 
 Feature code must not hold help strings, for the same reason it must not hold labels: two surfaces
@@ -812,15 +849,15 @@ never reach FMP, Redis or the loader.
 
 Each phase is one reviewable PR that leaves the repository working.
 
-| Phase | Content | Depends on |
-| --- | --- | --- |
-| **A** | `packages/contracts/src/strategies.ts`: types, registry, validator, normalizer, `describeStrategy`, help content, limits + full unit suite | — |
-| **B** | Prisma models + migration + migration note + `docs/decisions/strategy-definition-storage.md`; `apps/api/src/strategies/` slice + integration suite | A |
-| **C** | Web data layer: `strategies-api.ts`, `use-strategies`, `use-strategy`; `/strategies` collection page with create, rename, delete | B |
-| **D** | Builder core: draft reducer, level/signal/predicate components, desktop composition, validation UX; `/strategies/new` and `/strategies/[id]` | A, C |
-| **E** | Explanation panel and logic preview | A, D |
-| **F** | Mobile composition and responsive verification | D, E |
-| **G** | Playwright desktop + mobile journeys; full validation gate | C–F |
+| Phase | Content                                                                                                                                            | Depends on |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **A** | `packages/contracts/src/strategies.ts`: types, registry, validator, normalizer, `describeStrategy`, help content, limits + full unit suite         | —          |
+| **B** | Prisma models + migration + migration note + `docs/decisions/strategy-definition-storage.md`; `apps/api/src/strategies/` slice + integration suite | A          |
+| **C** | Web data layer: `strategies-api.ts`, `use-strategies`, `use-strategy`; `/strategies` collection page with create, rename, delete                   | B          |
+| **D** | Builder core: draft reducer, level/signal/predicate components, desktop composition, validation UX; `/strategies/new` and `/strategies/[id]`       | A, C       |
+| **E** | Explanation panel and logic preview                                                                                                                | A, D       |
+| **F** | Mobile composition and responsive verification                                                                                                     | D, E       |
+| **G** | Playwright desktop + mobile journeys; full validation gate                                                                                         | C–F        |
 
 Phases A and B are backend-only and unblock everything else. The slice becomes usable at D; E and F
 complete the product document's Builder UX requirements. Routes are `/strategies` (collection),
@@ -833,17 +870,17 @@ logic preview serving as its read surface, so no separate read-only page is need
 
 ### Required for the Builder — recommended answers
 
-| # | Decision | Recommendation |
-| --- | --- | --- |
-| N1 | May a moving average be a **Metric**? | **Yes.** MA-vs-MA Conditions and Triggers are supported in V1; the permitted Values come from `comparableMovingAverages(seriesId)` — same timeframe, never itself, never inferred from numeric similarity. All five operators apply, and `is close to` uses the fixed 2% rule. |
-| N2 | Percentage Value domains | **Metric-specific, not one shared range:** MOS `<= 100`, `Gain` `>= -100`, `Loss` `0…100`, decimals allowed on all three. |
-| N3 | Versioning now or later? | **Now.** `Strategy` + `StrategyVersion`; a definition change appends a version, name/description changes do not. |
-| N4 | Definition storage shape | **JSON document with `schemaVersion`**, parsed through the normalizer on read. Short ADR recording why this does not reopen the calculated-series decision. |
-| N5 | Save semantics | **Explicit save**, no autosave; a new version only when the id-stripped hash changes. |
-| N6 | BUY / SELL / FINAL EXIT color mapping | **`--color-positive` / `--color-negative` / `--color-warning`.** Resolves the legacy conflict (amber SELL, red EXIT) in favour of the V2 tokens. |
-| N7 | Legacy "Most used" metric prioritization | **Do not port.** A per-tone reordering array in feature code violates invariant 9. |
-| N8 | Level reordering in the UI | **Yes, via up/down buttons** — accessible, and simpler than drag-and-drop. Order is persisted because the engine will use it. |
-| N9 | Shared limits | Name 120, description 500, 10 BUY levels, 10 SELL levels, 10 conditions per signal. |
+| #   | Decision                                 | Recommendation                                                                                                                                                                                                                                                                 |
+| --- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| N1  | May a moving average be a **Metric**?    | **Yes.** MA-vs-MA Conditions and Triggers are supported in V1; the permitted Values come from `comparableMovingAverages(seriesId)` — same timeframe, never itself, never inferred from numeric similarity. All five operators apply, and `is close to` uses the fixed 2% rule. |
+| N2  | Percentage Value domains                 | **Metric-specific, not one shared range:** MOS `<= 100`, `Gain` `>= -100`, `Loss` `0…100`, decimals allowed on all three.                                                                                                                                                      |
+| N3  | Versioning now or later?                 | **Now.** `Strategy` + `StrategyVersion`; a definition change appends a version, name/description changes do not.                                                                                                                                                               |
+| N4  | Definition storage shape                 | **JSON document with `schemaVersion`**, parsed through the normalizer on read. Short ADR recording why this does not reopen the calculated-series decision.                                                                                                                    |
+| N5  | Save semantics                           | **Explicit save**, no autosave; a new version only when the id-stripped hash changes.                                                                                                                                                                                          |
+| N6  | BUY / SELL / FINAL EXIT color mapping    | **`--color-positive` / `--color-negative` / `--color-warning`.** Resolves the legacy conflict (amber SELL, red EXIT) in favour of the V2 tokens.                                                                                                                               |
+| N7  | Legacy "Most used" metric prioritization | **Do not port.** A per-tone reordering array in feature code violates invariant 9.                                                                                                                                                                                             |
+| N8  | Level reordering in the UI               | **Yes, via up/down buttons** — accessible, and simpler than drag-and-drop. Order is persisted because the engine will use it.                                                                                                                                                  |
+| N9  | Shared limits                            | Name 120, description 500, 10 BUY levels, 10 SELL levels, 10 conditions per signal.                                                                                                                                                                                            |
 
 ### Deferred — backtest-only, unchanged in `strategy-evaluation.md`
 
@@ -871,13 +908,13 @@ lifecycle**, so no deferred answer is implied to users before it is decided.
 Every Builder-blocking product question is now answered and canonical in
 `ai/product/strategies.md`. **There are no unresolved Strategy Builder product questions.**
 
-| Was | Decision | Canonical in |
-| --- | --- | --- |
-| B1 — May a moving average be a Metric? | **Yes.** MA-vs-MA Conditions and Triggers are supported. Permitted Values come from `comparableMovingAverages(seriesId)`: same timeframe, never itself, never inferred from numeric similarity. Operators: `is above`, `is below`, `is close to`, `crosses above`, `crosses below`, with the fixed 2% rule for `is close to`. | `strategies.md` § Moving averages, § Metric compatibility table |
-| B2 — Minimum saveable Strategy | **At least one BUY level.** SELL levels and FINAL EXIT stay optional; Signal rules are unchanged. No backtest configuration enters Strategy. | `strategies.md` § Strategy shape, § BUY levels, § Validation rules |
-| B3 — Percentage Value domains | **Metric-specific semantic domains, never one shared range.** MOS: finite `<= 100`, no lower bound. `Gain`: finite `>= -100`, no upper bound, signed. `Loss`: `0…100`, clamped at zero. Decimals allowed throughout. | `strategies.md` § Margin of Safety, § Gain and Loss |
-| B4 — Duplicate Conditions | **Rejected**, with a path-addressed issue pointing at the duplicated row. Never silently deduped. Identity is semantic, not object or row identity. | `strategies.md` § Validation rules |
-| B5 — Strategy name uniqueness | **Not unique per user.** Identity is the Strategy id; no `(userId, name)` constraint. | `strategies.md` § Strategy shape |
+| Was                                    | Decision                                                                                                                                                                                                                                                                                                                      | Canonical in                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| B1 — May a moving average be a Metric? | **Yes.** MA-vs-MA Conditions and Triggers are supported. Permitted Values come from `comparableMovingAverages(seriesId)`: same timeframe, never itself, never inferred from numeric similarity. Operators: `is above`, `is below`, `is close to`, `crosses above`, `crosses below`, with the fixed 2% rule for `is close to`. | `strategies.md` § Moving averages, § Metric compatibility table    |
+| B2 — Minimum saveable Strategy         | **At least one BUY level.** SELL levels and FINAL EXIT stay optional; Signal rules are unchanged. No backtest configuration enters Strategy.                                                                                                                                                                                  | `strategies.md` § Strategy shape, § BUY levels, § Validation rules |
+| B3 — Percentage Value domains          | **Metric-specific semantic domains, never one shared range.** MOS: finite `<= 100`, no lower bound. `Gain`: finite `>= -100`, no upper bound, signed. `Loss`: `0…100`, clamped at zero. Decimals allowed throughout.                                                                                                          | `strategies.md` § Margin of Safety, § Gain and Loss                |
+| B4 — Duplicate Conditions              | **Rejected**, with a path-addressed issue pointing at the duplicated row. Never silently deduped. Identity is semantic, not object or row identity.                                                                                                                                                                           | `strategies.md` § Validation rules                                 |
+| B5 — Strategy name uniqueness          | **Not unique per user.** Identity is the Strategy id; no `(userId, name)` constraint.                                                                                                                                                                                                                                         | `strategies.md` § Strategy shape                                   |
 
 Two canonical definitions were made explicit at the same time and are now product, not inference:
 

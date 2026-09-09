@@ -104,3 +104,63 @@ requests, and deletes the superseded `DAILY_PRICE` variants in the transaction t
 current one. The freshness watermark `split-adjusted-eod-full:recent-tail` is unchanged. This is
 the `DERIVED_STATE_REVISION` mechanism applied to prices: global, lazy, no schema change and no
 data migration.
+
+Migration `20260907195815_add_backtests_and_benchmarks` adds the Backtest V1 slice in two parts.
+`20260908075035_add_backtest_run_milestones`, `20260908090000_unique_backtest_milestone_year` and
+`20260908080859_add_backtest_failure_phase` extend it with the annual milestone table and the user-facing failure
+phase column.
+
+**Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `description`,
+`isActive`, `displayOrder`). Everything that decides what its numbers _are_ lives on
+`BenchmarkSeries` — an **append-only** definition (`sourceKind`, `providerSymbol`, `currency`,
+`methodologyVersion`) with `@@unique([benchmarkId, version])`. Reconciliation compares against the
+version currently in force and appends when it differs, which is what makes it idempotent — there is
+deliberately no unique constraint over the definition itself, because that would make returning a
+benchmark to a source it used before impossible. `BenchmarkDailyPrice` is keyed `@@id([seriesId, date])`, and
+`BenchmarkDatasetState`/`BenchmarkDatasetCoverage` are keyed by `seriesId` too, mirroring the stock
+dataset watermark/coverage contract exactly.
+
+Keying market data by the series and not the product row is what makes a run reproducible:
+re-sourcing `SP500` appends version 2 and leaves version 1's bars, coverage and watermarks exactly
+where they were. `BacktestRun.benchmarkSeriesId` (`onDelete: Restrict`) pins the version a run
+compares against and `executionCalendarSeriesId` pins the one that supplied its simulated dates;
+migration `20260908130000_immutable_benchmark_series` introduces both and backfills every existing
+benchmark's current definition as its version 1. They are
+deliberately **separate tables from `Security`/`DailyPrice`**: a benchmark is passive comparison
+data with no fundamentals, no derived state and no position, and folding it into the security
+catalog would drag all of that along with it. `BenchmarkSourceKind` ships one member, `FMP_SYMBOL`;
+`BenchmarkDataset` ships one member, `DAILY_PRICE`. See `benchmark-data.md`.
+
+**Backtests.** `BacktestRun` carries ownership, denormalized configuration columns for the
+collection page, and the immutable `snapshot` JSON plus its `snapshotHash`. Its
+`strategyId`/`strategyVersionId`/`stockListId` foreign keys are **nullable and `onDelete: SetNull`
+on purpose**: deleting a strategy or a list must never delete or reinterpret a completed run, and
+no read path depends on those rows — the snapshot is the authority. `benchmarkId` is
+`onDelete: Restrict` because a benchmark is system-owned and never product-deleted.
+
+`BacktestJob` is the durable queue: one row per run (`runId @unique`), created in the same
+transaction as the run so queue and execution record cannot diverge, with `availableAt`, `attempts`,
+`maxAttempts`, `claimedBy`, `claimedAt`, `leaseExpiresAt` and `heartbeatAt`. It is indexed by
+`(status, availableAt)` for claiming and `(status, leaseExpiresAt)` for stale recovery. No queue
+library and no second migration history.
+
+`BacktestRunProgress` (1:1, `runId @id`) holds the hot-path progress columns and the latest live
+checkpoint `snapshot`. It is a separate table because those columns are rewritten every few
+simulated trading days while the run row — including its large immutable submission snapshot — is
+not. `sequence` is a monotonic counter so a poller can discard an out-of-order response without
+comparing clocks across processes.
+
+`BacktestRunMilestone` (`@@id([runId, sequence])`, `@@unique([runId, year])`) is the durable
+counterpart: one append-only row per calendar year a run finishes, holding only that year's scalars
+and **never a curve**, so a thirty-year run adds thirty small rows rather than thirty copies of a
+daily series. The year is unique per run so a re-delivered checkpoint is skipped rather than
+appended under a fresh sequence. Rows are deleted with the attempt that wrote them when a run is
+requeued or released, because a retry re-simulates from the first day.
+
+Results are normalized: `BacktestDailyEquity` (`@@id([runId, date])`, carrying the time-weighted
+`returnIndex` and the nullable `benchmarkIndex` — null means the benchmark had no value at or before
+that date, never zero), `BacktestTrade` (`@@unique([runId, sequence])`, the deterministic execution
+order), `BacktestPosition` (final open positions) and `BacktestRunSummary` (one row of aggregates).
+`BacktestTrade.securityId` and `BacktestPosition.securityId` are `onDelete: Restrict` for the same
+reason `StockListItem.securityId` is, and both denormalize `symbol`/`name` so a completed result
+renders without joining the mutable catalog.

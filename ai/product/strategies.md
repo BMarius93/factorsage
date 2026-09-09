@@ -481,7 +481,7 @@ Price = 125, AverageCost = 100  -> Gain =  25%
 Price =  85, AverageCost = 100  -> Gain = -15%
 ```
 
-**Loss is a non-negative loss-from-average-cost metric**, clamped at zero. It is deliberately *not*
+**Loss is a non-negative loss-from-average-cost metric**, clamped at zero. It is deliberately _not_
 an unclamped negative mirror of Gain:
 
 ```text
@@ -521,14 +521,14 @@ above is what the metric means and does not depend on that answer.
 
 ## Metric compatibility table — current V1 baseline
 
-| Metric | Condition operators | Trigger operators | Value type | Allowed in |
-| --- | --- | --- | --- | --- |
-| Price | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series | BUY, SELL, FINAL EXIT |
+| Metric                                          | Condition operators                   | Trigger operators                | Value type                                                                              | Allowed in            |
+| ----------------------------------------------- | ------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------- | --------------------- |
+| Price                                           | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series                                                | BUY, SELL, FINAL EXIT |
 | Moving average (any of the 14 canonical series) | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
-| RSI 7D / 14D / 21D | `is above`, `is below` | `crosses above`, `crosses below` | user-entered numeric threshold `1..100` | BUY, SELL, FINAL EXIT |
-| Margin of Safety (selected IV source) | `is above`, `is below` | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed | BUY, SELL, FINAL EXIT |
-| Gain | `is above`, `is below` | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed | SELL, FINAL EXIT |
-| Loss | `is above`, `is below` | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed | SELL, FINAL EXIT |
+| RSI 7D / 14D / 21D                              | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
+| Margin of Safety (selected IV source)           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
+| Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
+| Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
 
 This is the current baseline, not a declaration that these are the only eventual metrics.
 Additional technical metrics, fundamentals and other derived metrics must be added deliberately with
