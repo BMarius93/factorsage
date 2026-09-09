@@ -5,6 +5,7 @@ import type {
   SecurityId,
 } from "@intrinsic/domain";
 import type { EvaluationFrame } from "../frame.js";
+import type { BacktestDiagnosticsObserver } from "./diagnostics.js";
 
 /** One list member as the engine sees it: its projected frame plus its BUY eligibility. */
 export type BacktestSecurityInput = {
@@ -280,4 +281,12 @@ export type BacktestSimulationOptions = {
   /** How many of the most recent trades a checkpoint carries. */
   recentTradeCount?: number;
   onCheckpoint?: (checkpoint: BacktestCheckpoint) => void | Promise<void>;
+  /**
+   * An optional read-only observer of the frames a window consumed and the state it carried.
+   *
+   * Developer diagnostics — a forensic capture an independent reviewer replays the run from — and
+   * observation only: nothing it produces is read back, and none of its callbacks fires inside the
+   * day's decisions. See `./diagnostics.js`.
+   */
+  diagnostics?: BacktestDiagnosticsObserver;
 };

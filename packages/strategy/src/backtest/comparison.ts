@@ -84,4 +84,14 @@ export class ComparisonScenarios {
   get benchmarkShares(): number {
     return this.shares;
   }
+
+  /**
+   * External capital held but not yet invested, for the same read-only purposes.
+   *
+   * Non-zero only for a benchmark whose history starts after the run's first simulated date, which
+   * V1 never reaches; a diagnostic capture reports it so that stays visible rather than assumed.
+   */
+  get pendingCapital(): number {
+    return this.pending;
+  }
 }

@@ -26,6 +26,11 @@ import {
   downsample,
   indexToPercent,
 } from "./metrics.js";
+import type {
+  BacktestContextRowDiagnostics,
+  BacktestPositionDiagnostics,
+  BacktestStateDiagnostics,
+} from "./diagnostics.js";
 import { V1_FEE_PER_TRADE } from "./methodology.js";
 import type {
   BacktestCheckpoint,
@@ -232,10 +237,13 @@ export class BacktestSimulation {
     }
     this.nextWindowIndex += 1;
     this.openWindow(input.frames);
+    await this.observeWindowOpened(window);
+    const from = { trades: this.trades.length, equity: this.equity.length };
     for (const date of window.dates) {
       await this.simulateDate(date);
     }
     this.closeWindow();
+    await this.observeWindowClosed(window, from);
   }
 
   /**
@@ -253,11 +261,22 @@ export class BacktestSimulation {
       );
     }
     this.nextWindowIndex = this.windows.length;
+    // One synthetic window spanning the run, so an observer sees the same shape either way.
+    const window: BacktestExecutionWindow = {
+      year: (this.calendar[0] as LocalDate).slice(0, 4),
+      index: 0,
+      from: this.input.startDate,
+      to: this.input.endDate,
+      dates: this.calendar,
+    };
     this.openWindow(frames);
+    await this.observeWindowOpened(window);
+    const from = { trades: this.trades.length, equity: this.equity.length };
     for (const date of this.calendar) {
       await this.simulateDate(date);
     }
     this.closeWindow();
+    await this.observeWindowClosed(window, from);
   }
 
   /**
@@ -406,6 +425,19 @@ export class BacktestSimulation {
       );
     }
 
+    // The initial capital is the run's first external cash flow, applied in the constructor and
+    // spendable on this date. Reporting it here is what gives a diagnostic observer one funding
+    // series it can compare against the snapshot, rather than one deposit type it has to infer.
+    if (this.completedDays === 0) {
+      this.options.diagnostics?.onFunding?.({
+        date,
+        type: "INITIAL_CAPITAL",
+        amount: this.input.initialCapital,
+        cashAfter: this.cash,
+        investedCapitalAfter: this.investedCapital,
+      });
+    }
+
     // 1. Cash in.
     const contribution =
       this.input.monthlyContribution > 0 && this.contributionDates.has(date)
@@ -418,6 +450,13 @@ export class BacktestSimulation {
       // The same deposit, on the same date, reaches the two comparison scenarios: the S&P 500
       // portfolio buys more shares with it and the Cash baseline simply holds it.
       this.scenarios.fund(contribution);
+      this.options.diagnostics?.onFunding?.({
+        date,
+        type: "MONTHLY_CONTRIBUTION",
+        amount: contribution,
+        cashAfter: this.cash,
+        investedCapitalAfter: this.investedCapital,
+      });
     }
 
     // 2. Advance every frame cursor to this date and mark holdings.
@@ -810,6 +849,128 @@ export class BacktestSimulation {
         }),
       );
     }
+  }
+
+  /**
+   * Hands an observer the frames this window is actually simulated from.
+   *
+   * After {@link openWindow}, so what it sees is the **bound** frame with the retained context row
+   * spliced in — the rows a Trigger reads at `index - 1`, which the loader's own output does not
+   * contain.
+   */
+  private async observeWindowOpened(
+    window: BacktestExecutionWindow,
+  ): Promise<void> {
+    const observer = this.options.diagnostics;
+    if (!observer?.onWindowOpened) {
+      return;
+    }
+    await observer.onWindowOpened({
+      window,
+      frames: this.runtimes.map((runtime) => runtime.frame),
+    });
+  }
+
+  /**
+   * Hands an observer what this window produced and the state the next one continues from.
+   *
+   * Called after {@link closeWindow}, so the retained context rows it reports are the ones the next
+   * window will splice in. The rows are sliced from the run's own arrays rather than copied out of
+   * a parallel record, so a capture cannot drift from what the result will contain.
+   */
+  private async observeWindowClosed(
+    window: BacktestExecutionWindow,
+    from: { trades: number; equity: number },
+  ): Promise<void> {
+    const observer = this.options.diagnostics;
+    if (!observer?.onWindowClosed) {
+      return;
+    }
+    await observer.onWindowClosed({
+      window,
+      trades: this.trades.slice(from.trades),
+      equity: this.equity.slice(from.equity),
+      state: this.describeState(),
+    });
+  }
+
+  /**
+   * An allowlisted, plain-data view of the state a window boundary carries.
+   *
+   * Explicitly enumerated rather than serialized, so a private field added later cannot silently
+   * start leaving the process, and so nothing about a `Map`, a `Set` or a class identity has to be
+   * understood by whatever writes it out. Purely a read: the next window continues from the live
+   * state, never from this.
+   */
+  describeState(): BacktestStateDiagnostics {
+    const lastEquity = this.equity[this.equity.length - 1] ?? null;
+    const positions: BacktestPositionDiagnostics[] = sortedPositions(
+      this.positions,
+    ).map((position) => ({
+      securityId: position.securityId,
+      symbol: position.symbol,
+      epoch: position.epoch,
+      openedDate: position.openedDate,
+      shares: position.shares,
+      costTotal: position.costTotal,
+      averageCost: averageCost(position),
+      lastPrice: position.lastPrice,
+      lastPriceDate: position.lastPriceDate,
+      realizedPnl: position.realizedPnl,
+      buyLevelsSettled: [...position.buyLevelsSettled].sort(),
+      sellLevelsFired: [...position.sellLevelsFired].sort(),
+      previousSignedReturnPercent:
+        position.previousSignedReturnPercent ?? null,
+      previousValueDate: position.previousValueDate ?? null,
+    }));
+
+    const contextRows: BacktestContextRowDiagnostics[] = this.input.securities
+      .map((setup) => {
+        const row = this.contextRows.get(setup.securityId);
+        return row
+          ? {
+              securityId: setup.securityId,
+              symbol: setup.symbol,
+              date: row.date,
+              close: row.close,
+              values: row.values,
+            }
+          : null;
+      })
+      .filter((row): row is BacktestContextRowDiagnostics => row !== null);
+
+    return {
+      simulatedThrough: lastEquity?.date ?? null,
+      completedDays: this.completedDays,
+      totalDays: this.calendar.length,
+      cash: this.cash,
+      positionsValue: lastEquity?.positionsValue ?? 0,
+      totalValue: lastEquity?.totalValue ?? this.cash,
+      investedCapital: this.investedCapital,
+      realizedPnl: this.realizedPnl,
+      returnIndex: this.returnIndex,
+      previousTotalValue: this.previousTotalValue,
+      maxDrawdownPercent: this.drawdown.maxDrawdownPercent,
+      benchmarkMaxDrawdownPercent:
+        this.input.benchmark === null
+          ? null
+          : this.benchmarkDrawdown.maxDrawdownPercent,
+      tradeSequence: this.sequence,
+      tradeCount: this.trades.length,
+      equityPointCount: this.equity.length,
+      positions,
+      positionEpochs: [...this.epochs.entries()]
+        .map(([securityId, epoch]) => ({ securityId, epoch }))
+        .sort((left, right) =>
+          left.securityId < right.securityId ? -1 : 1,
+        ),
+      comparison: {
+        benchmarkShares: this.scenarios.benchmarkShares,
+        benchmarkPendingCapital: this.scenarios.pendingCapital,
+        cashBaselineValue: this.scenarios.cashBaselineValue,
+      },
+      contextRows,
+    };
   }
 
   private recordTrade(trade: Omit<BacktestTradeRecord, "sequence">): void {
