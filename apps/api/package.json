@@ -14,7 +14,10 @@
     "seed:qa-users": "tsx src/seed-qa-users.ts",
     "reset:benchmark-data": "tsx src/reset-benchmark-data.ts",
     "seed:qa-securities": "tsx src/seed-qa-securities.ts",
-    "seed:qa-matrix": "tsx src/seed-qa-matrix.ts"
+    "seed:qa-matrix": "tsx src/seed-qa-matrix.ts",
+    "qa:matrix:provision": "tsx src/qa-matrix-provision.ts",
+    "qa:matrix:preflight": "tsx src/qa-matrix-preflight.ts",
+    "qa:matrix:run": "tsx src/qa-matrix-run.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
@@ -44,9 +47,11 @@
     "@types/node": "^20.0.0",
     "@types/nodemailer": "^7.0.4",
     "@types/supertest": "^7.2.1",
+    "@types/yauzl": "^3.4.0",
     "supertest": "^7.2.2",
     "tsx": "^4.23.12",
     "typescript": "^5.9.0",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "yauzl": "^3.4.0"
   }
 }

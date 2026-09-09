@@ -32,6 +32,7 @@ Current callers:
 - `apps/api/src/backtests/backtests.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
+- `apps/api/src/qa-matrix/matrix-cleanup.integration.test.ts`
 - `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
@@ -75,6 +76,26 @@ runs inside normal `pnpm test` and requires reachable PostgreSQL and Redis
 ```bash
 pnpm --filter @intrinsic/api test:infrastructure
 ```
+
+## The QA validation matrix is a developer command
+
+`pnpm qa:matrix:run` executes 1,000 real backtests and is **never part of `pnpm test`**. It targets
+its own database — `QA_MATRIX_DATABASE_URL`, whose name must contain `matrix` — and refuses
+production, the development database, the test database and a shared Redis logical database before
+any client exists.
+
+```bash
+pnpm qa:matrix:provision     # once: create, migrate, copy canonical data from the dev database
+pnpm qa:matrix:preflight     # seventeen checks; nothing runs if any fails
+pnpm qa:matrix:run           # the sweep, or --case Sxx-Lxx-Cxx to reproduce one
+```
+
+The suites that cover the runner itself (`apps/api/src/qa-matrix/matrix-*.test.ts`) execute no
+backtests and run in milliseconds inside the normal gate.
+`matrix-cleanup.integration.test.ts` is PostgreSQL-backed and calls `useTestDatabase()` like every
+other DB-backed suite.
+
+See `../../docs/development/qa-matrix-runner.md`.
 
 ## Live FMP suites are opt-in at the suite level
 

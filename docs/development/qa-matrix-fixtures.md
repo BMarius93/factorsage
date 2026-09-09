@@ -6,8 +6,9 @@ Deterministic, reusable inputs for a validation sweep of Backtest V1:
 10 Strategies  ×  10 Stock Lists  ×  10 Backtest configurations  =  1,000 runs
 ```
 
-This document describes the **inputs**. The runner that executes the thousand combinations does not
-exist yet and is deliberately separate work; see [Why the matrix is backend-level](#why-the-matrix-is-backend-level).
+This document describes the **inputs**. The runner that executes the thousand combinations is
+`docs/development/qa-matrix-runner.md` — deliberately separate work, for the reason in
+[Why the matrix is backend-level](#why-the-matrix-is-backend-level).
 
 | Where                             | What                                                         |
 | --------------------------------- | ------------------------------------------------------------ |
@@ -128,7 +129,9 @@ dates no run simulates.
 ## What is persistent, and what is a repository fixture
 
 - **Strategies and Stock Lists are persistent database entities**, owned by the existing `QA_USER`
-  persona in the **test** database. They are first-class product records, so a fixture that was only
+  persona. `pnpm test:matrix:seed` writes them to the **test** database; `pnpm qa:matrix:provision`
+  writes the same fixtures, from the same definitions, to the dedicated **matrix** database the
+  thousand-run sweep executes in (see `qa-matrix-runner.md`). They are first-class product records, so a fixture that was only
   a literal in a file could not be selected in a browser, submitted through the API, or snapshotted
   by a run.
 - **Backtest configurations are versioned repository fixtures**, because the domain has no
@@ -294,7 +297,7 @@ API.
 The intended architecture is therefore three separate pieces:
 
 1. **Persistent QA Strategy/List fixtures** — this document.
-2. **A backend/API matrix runner** for all 1,000 combinations — later work.
+2. **A backend/API matrix runner** for all 1,000 combinations — `qa-matrix-runner.md`.
 3. **A small representative Playwright suite** for the browser flows a human actually performs.
 
 `QA_MATRIX_PLAYWRIGHT_SAMPLE` names what step 3 should drive: `S01×L01×C04` (the fastest complete
