@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR,
   getApiConfig,
   getAuthConfig,
+  getBacktestDebugArchiveConfig,
   getBacktestWorkerConfig,
   getGoogleOAuthConfig,
   getQaPersonaConfig,
@@ -368,6 +370,80 @@ describe("backtest worker configuration", () => {
   });
 });
 
+/**
+ * The forensic archive is developer tooling that writes a user's whole run to a local disk, so
+ * "off unless asked for" and "never in production" are configuration guarantees rather than
+ * conventions someone has to remember.
+ */
+describe("backtest debug archive configuration", () => {
+  it("is off by default", () => {
+    const config = getBacktestDebugArchiveConfig({});
+
+    expect(config.mode).toBe("off");
+    expect(config.enabled).toBe(false);
+  });
+
+  it("enables the full capture and defaults its directory", () => {
+    const config = getBacktestDebugArchiveConfig(
+      { BACKTEST_DEBUG_ARCHIVE: "full" },
+      repositoryRoot(),
+    );
+
+    expect(config.mode).toBe("full");
+    expect(config.enabled).toBe(true);
+    expect(config.directory).toBe(
+      join(repositoryRoot(), DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR),
+    );
+  });
+
+  // `pnpm dev:worker` runs with the cwd inside apps/worker, so a relative directory has to mean
+  // the same place whichever package started the process.
+  it("resolves a relative directory against the repository root", () => {
+    const config = getBacktestDebugArchiveConfig(
+      {
+        BACKTEST_DEBUG_ARCHIVE: "full",
+        BACKTEST_DEBUG_ARCHIVE_DIR: "tmp/archives",
+      },
+      join(repositoryRoot(), "apps", "worker"),
+    );
+
+    expect(config.directory).toBe(join(repositoryRoot(), "tmp/archives"));
+  });
+
+  it("keeps an absolute directory as given", () => {
+    const config = getBacktestDebugArchiveConfig({
+      BACKTEST_DEBUG_ARCHIVE: "full",
+      BACKTEST_DEBUG_ARCHIVE_DIR: "/var/tmp/backtest-archives",
+    });
+
+    expect(config.directory).toBe("/var/tmp/backtest-archives");
+  });
+
+  it("rejects a mode it does not implement", () => {
+    expect(() =>
+      getBacktestDebugArchiveConfig({ BACKTEST_DEBUG_ARCHIVE: "summary" }),
+    ).toThrow("BACKTEST_DEBUG_ARCHIVE must be off or full");
+  });
+
+  it("refuses to capture in production", () => {
+    expect(() =>
+      getBacktestDebugArchiveConfig({
+        NODE_ENV: "production",
+        BACKTEST_DEBUG_ARCHIVE: "full",
+      }),
+    ).toThrow("BACKTEST_DEBUG_ARCHIVE must be off in production");
+  });
+
+  it("stays startable in production while it is off", () => {
+    expect(() =>
+      getBacktestDebugArchiveConfig({
+        NODE_ENV: "production",
+        BACKTEST_DEBUG_ARCHIVE: "off",
+      }),
+    ).not.toThrow();
+  });
+});
+
 /** Mirrors how `loadRootEnv` locates the workspace, so this works from any cwd. */
 function repositoryRoot(): string {
   let directory = resolve(process.cwd());
@@ -432,5 +508,6 @@ describe(".env.example template", () => {
     expect(() => getAuthConfig(template)).not.toThrow();
     expect(() => getApiConfig(template)).not.toThrow();
     expect(() => getBacktestWorkerConfig(template)).not.toThrow();
+    expect(getBacktestDebugArchiveConfig(template).enabled).toBe(false);
   });
 });
