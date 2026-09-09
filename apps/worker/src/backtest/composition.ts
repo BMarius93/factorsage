@@ -1,4 +1,5 @@
 import {
+  getBacktestDebugArchiveConfig,
   getFmpConfig,
   getFmpTrafficConfig,
   getRedisConfig,
@@ -18,7 +19,14 @@ import {
   RedisStockDataCache,
   RedlockLoadCoordinator,
   createStockDataRedisClient,
+  type ProviderRequestEvent,
 } from "@intrinsic/stock-data";
+import type { ProviderRequestCounts } from "./debug/backtest-debug-archive.js";
+import {
+  FilesystemBacktestDebugArchives,
+  ProviderRequestMeter,
+  type BacktestDebugArchives,
+} from "./debug/debug-archives.js";
 import type {
   BacktestBenchmarkLoader,
   BacktestFrameLoader,
@@ -37,6 +45,12 @@ export type BacktestRuntime = {
   securities: BacktestSecurityCatalog;
   stockData: BacktestFrameLoader;
   benchmarks: BacktestBenchmarkLoader;
+  /**
+   * Present only when `BACKTEST_DEBUG_ARCHIVE` asked for it, so an unconfigured worker has no
+   * archive object at all rather than a disabled one.
+   */
+  debugArchives?: BacktestDebugArchives;
+  providerRequests?: () => ProviderRequestCounts;
   close(): Promise<void>;
 };
 
@@ -60,6 +74,22 @@ export function createBacktestRuntime(
 ): BacktestRuntime {
   const stockDataConfig = getStockDataConfig();
   const fmpTraffic = getFmpTrafficConfig();
+  const debugArchiveConfig = getBacktestDebugArchiveConfig();
+
+  // Counting provider requests is only meaningful while something reads the count, and a worker
+  // child executes at most one backtest at a time — which is what makes a phase's delta that run's
+  // traffic rather than a guess. It observes the callback `@intrinsic/stock-data` already exposes;
+  // it is not a second gate and never bypasses the shared FMP budget.
+  const providerMeter = debugArchiveConfig.enabled
+    ? new ProviderRequestMeter()
+    : null;
+  // Every historical provider request explains itself, so "why did an identical second run still
+  // call FMP?" is answerable from the worker's own log rather than from a packet trace. The meter
+  // is a second, silent reader of the same events.
+  const onProviderRequest = (request: ProviderRequestEvent): void => {
+    logger.debug({ event: "stock-data.provider.request", ...request });
+    providerMeter?.observe(request);
+  };
 
   const prisma = new PrismaClient();
   const redis = createStockDataRedisClient(getRedisConfig().url);
@@ -96,11 +126,7 @@ export function createBacktestRuntime(
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
-      // Every historical provider request explains itself, so "why did an identical second run
-      // still call FMP?" is answerable from the worker's own log rather than from a packet trace.
-      onProviderRequest: (request) => {
-        logger.debug({ event: "stock-data.provider.request", ...request });
-      },
+      onProviderRequest,
     },
   );
 
@@ -113,11 +139,7 @@ export function createBacktestRuntime(
       historyYears: stockDataConfig.historyYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
-      // Every historical provider request explains itself, so "why did an identical second run
-      // still call FMP?" is answerable from the worker's own log rather than from a packet trace.
-      onProviderRequest: (request) => {
-        logger.debug({ event: "stock-data.provider.request", ...request });
-      },
+      onProviderRequest,
     },
   );
 
@@ -126,6 +148,16 @@ export function createBacktestRuntime(
     securities: new PrismaBacktestSecurityCatalog(prisma),
     stockData,
     benchmarks,
+    ...(debugArchiveConfig.enabled
+      ? {
+          debugArchives: new FilesystemBacktestDebugArchives({
+            directory: debugArchiveConfig.directory,
+            mode: debugArchiveConfig.mode,
+            logger,
+          }),
+        }
+      : {}),
+    ...(providerMeter ? { providerRequests: () => providerMeter.counts() } : {}),
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();

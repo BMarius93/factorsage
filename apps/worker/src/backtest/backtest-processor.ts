@@ -27,6 +27,16 @@ import {
   type EvaluationFrame,
   type OperandKey,
 } from "@intrinsic/strategy";
+import type {
+  ArchivePreparedSecurity,
+  BacktestArchiveStatus,
+  BacktestDebugArchive,
+  ProviderRequestCounts,
+} from "./debug/backtest-debug-archive.js";
+import {
+  providerRequestsSince,
+  type BacktestDebugArchives,
+} from "./debug/debug-archives.js";
 import {
   BacktestInterruptedError,
   type BacktestJobLease,
@@ -99,6 +109,12 @@ type PreparedSecurity = {
   setup: BacktestSecuritySetup;
 };
 
+/** One security's preparation, plus the forensic record of it. */
+type PreparedSecurityOutcome = {
+  prepared: PreparedSecurity | null;
+  record: ArchivePreparedSecurity;
+};
+
 /** Everything `RUNNING` needs, with not one security frame resident yet. */
 type PreparedRun = {
   securities: PreparedSecurity[];
@@ -122,6 +138,17 @@ export type BacktestProcessorDependencies = {
   stockData: BacktestFrameLoader;
   benchmarks: BacktestBenchmarkLoader;
   logger: StructuredLogger;
+  /**
+   * Opt-in forensic capture, absent unless `BACKTEST_DEBUG_ARCHIVE` asked for it.
+   *
+   * Deliberately an absent dependency rather than a disabled implementation: with the feature off
+   * there is no object to call and therefore no filesystem work to accidentally perform. It is
+   * observational in every direction — nothing it records is read back, and a failure inside it
+   * cannot change this run's outcome.
+   */
+  debugArchives?: BacktestDebugArchives;
+  /** Provider requests this process has made, when the capture is on. See `ProviderRequestMeter`. */
+  providerRequests?: () => ProviderRequestCounts;
 };
 
 /**
@@ -225,9 +252,20 @@ export class BacktestProcessor implements BacktestJobProcessor {
   ): Promise<void> {
     const startedAt = Date.now();
     let phase: ExecutionPhase = "SNAPSHOT";
+    // Opened before anything else so a run that fails while parsing its own snapshot still leaves
+    // an archive saying so, and closed in `finally` so no exit path — including an interruption —
+    // leaves staging behind. It is null unless the capture is configured on.
+    const archive = (await this.dependencies.debugArchives?.open({
+      runId: claim.runId,
+      jobId: claim.jobId,
+      attempt: claim.attempt,
+      workerId: this.options.workerId,
+    })) ?? null;
+    let archiveStatus: BacktestArchiveStatus = "INTERRUPTED";
 
     try {
       const snapshot = parseRunSnapshot(claim.snapshot);
+      await archive?.recordSnapshot(snapshot);
       const period = {
         from: snapshot.period.startDate,
         to: snapshot.period.endDate,
@@ -244,13 +282,25 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
       phase = "PREPARING_DATA";
       this.assertMethodologySupported(claim, snapshot);
-      const prepared = await this.prepare(claim, lease, snapshot, period);
+      const prepared = await this.prepare(claim, lease, snapshot, period, archive);
 
       phase = "RUNNING";
-      const result = await this.simulate(claim, lease, snapshot, prepared);
+      const runningStartedAt = Date.now();
+      const result = await this.simulate(
+        claim,
+        lease,
+        snapshot,
+        prepared,
+        archive,
+      );
+      archive?.recordTiming("runningMs", Date.now() - runningStartedAt);
 
       phase = "FINALIZING";
+      const finalizingStartedAt = Date.now();
+      await archive?.recordResult(result);
       await this.finalize(claim, lease, result);
+      archive?.recordTiming("finalizingMs", Date.now() - finalizingStartedAt);
+      archiveStatus = "COMPLETED";
 
       this.dependencies.logger.info({
         event: "backtest.completed",
@@ -263,7 +313,12 @@ export class BacktestProcessor implements BacktestJobProcessor {
       if (err instanceof BacktestInterruptedError) {
         throw err;
       }
-      await this.recordFailure(claim, lease, phase, err, startedAt);
+      archiveStatus = "FAILED";
+      await this.recordFailure(claim, lease, phase, err, startedAt, archive);
+    } finally {
+      // The archive's own outcome never reaches the run's: `finalize` reports its failures through
+      // the logger and returns null rather than throwing.
+      await archive?.finalize(archiveStatus);
     }
   }
 
@@ -346,8 +401,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
     lease: BacktestJobLease,
     snapshot: BacktestRunSnapshot,
     period: Required<DateRange>,
+    archive: BacktestDebugArchive | null,
   ): Promise<PreparedRun> {
     const startedAt = Date.now();
+    const providerRequestsBefore = this.dependencies.providerRequests?.() ?? null;
     const operands = collectOperands(snapshot.strategy.definition);
     const catalog = await this.dependencies.securities.findByIds(
       snapshot.securities.map((security) => security.securityId),
@@ -365,11 +422,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const executionCalendar = await this.loadExecutionCalendar(
       snapshot,
       period,
+      archive,
     );
 
     const loaded: (PreparedSecurity | null)[] = snapshot.securities.map(
       () => null,
     );
+    const preparationRecords: (ArchivePreparedSecurity | null)[] =
+      snapshot.securities.map(() => null);
     const total = snapshot.securities.length;
     let completed = 0;
     let skipped = 0;
@@ -406,9 +466,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
           throw new BacktestInterruptedError(interruption);
         }
 
-        const prepared = await this.prepareSecurity(member, catalog, period);
-        if (prepared) {
-          loaded[index] = prepared;
+        const outcome = await this.prepareSecurity(member, catalog, period);
+        preparationRecords[index] = outcome.record;
+        if (outcome.prepared) {
+          loaded[index] = outcome.prepared;
         } else {
           skipped += 1;
           skippedSymbols.push(member.symbol);
@@ -422,6 +483,19 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const securities = loaded.filter(
       (entry): entry is PreparedSecurity => entry !== null,
     );
+
+    const preparationMs = Date.now() - startedAt;
+    await archive?.recordPreparation({
+      securities: preparationRecords.filter(
+        (entry): entry is ArchivePreparedSecurity => entry !== null,
+      ),
+      operands,
+      durationMs: preparationMs,
+      providerRequests: providerRequestsSince(
+        providerRequestsBefore,
+        this.dependencies.providerRequests?.() ?? null,
+      ),
+    });
 
     this.dependencies.logger.info({
       event: "backtest.frames.loaded",
@@ -455,7 +529,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     return {
       securities,
       operands,
-      benchmark: await this.loadBenchmark(snapshot, period),
+      benchmark: await this.loadBenchmark(snapshot, period, archive),
       executionCalendar,
     };
   }
@@ -473,7 +547,25 @@ export class BacktestProcessor implements BacktestJobProcessor {
     member: BacktestSnapshotSecurity,
     catalog: Map<string, Security>,
     period: Required<DateRange>,
-  ): Promise<PreparedSecurity | null> {
+  ): Promise<PreparedSecurityOutcome> {
+    const startedAt = Date.now();
+    // The forensic record of this one hydration, built whether it succeeded or not: "this security
+    // was skipped, for this reason, after this long" is exactly what a loading investigation needs
+    // and is the part a result can never show.
+    const record = (
+      extra: Partial<ArchivePreparedSecurity> = {},
+    ): ArchivePreparedSecurity => ({
+      securityId: member.securityId,
+      symbol: member.symbol,
+      requestedFrom: period.from,
+      requestedTo: period.to,
+      durationMs: Date.now() - startedAt,
+      coverage: null,
+      skipped: true,
+      skipReason: null,
+      ...extra,
+    });
+
     // Identity is the snapshot's, frozen at submission; classification comes from the catalog row
     // it still references, which is what the loader needs to reach the right history.
     const row = catalog.get(member.securityId);
@@ -483,7 +575,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
         symbol: member.symbol,
         reason: "CATALOG_ROW_MISSING",
       });
-      return null;
+      return {
+        prepared: null,
+        record: record({ skipReason: "CATALOG_ROW_MISSING" }),
+      };
     }
 
     const security: Security = {
@@ -508,18 +603,24 @@ export class BacktestProcessor implements BacktestJobProcessor {
         symbol: member.symbol,
         reason: "NO_DAILY_DATA",
       });
-      return null;
+      return {
+        prepared: null,
+        record: record({ skipReason: "NO_DAILY_DATA" }),
+      };
     }
 
     return {
-      security,
-      coverage,
-      setup: {
-        securityId: member.securityId,
-        symbol: member.symbol,
-        name: member.name,
-        buyWindows: snapshotBuyWindows(member),
+      prepared: {
+        security,
+        coverage,
+        setup: {
+          securityId: member.securityId,
+          symbol: member.symbol,
+          name: member.name,
+          buyWindows: snapshotBuyWindows(member),
+        },
       },
+      record: record({ coverage, skipped: false }),
     };
   }
 
@@ -533,6 +634,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
   private async loadBenchmark(
     snapshot: BacktestRunSnapshot,
     period: Required<DateRange>,
+    archive: BacktestDebugArchive | null,
   ): Promise<BenchmarkSeriesInput | null> {
     const startedAt = Date.now();
     const prices = await this.loadSeriesPrices(
@@ -541,6 +643,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
       { role: "comparison", code: snapshot.benchmark.code },
     );
     if (!prices || prices.length === 0) {
+      // Recorded even when it is missing: "this run had no comparison series" and "the archive
+      // dropped the comparison series" must not look the same to a reviewer.
+      await archive?.recordBenchmark({
+        benchmark: snapshot.benchmark,
+        prices: null,
+        durationMs: Date.now() - startedAt,
+        unavailableReason: prices === null ? "LOAD_FAILED" : "NO_DAILY_DATA",
+      });
       return null;
     }
 
@@ -549,6 +659,15 @@ export class BacktestProcessor implements BacktestJobProcessor {
     prices.forEach((price, index) => {
       dates.push(price.date);
       closes[index] = price.close;
+    });
+
+    // The raw closes, before anything is derived from them: the funded comparison scenario is what
+    // a reviewer is checking, so the archive has to carry its input rather than its output.
+    await archive?.recordBenchmark({
+      benchmark: snapshot.benchmark,
+      prices,
+      durationMs: Date.now() - startedAt,
+      unavailableReason: null,
     });
 
     this.dependencies.logger.info({
@@ -587,6 +706,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
   private async loadExecutionCalendar(
     snapshot: BacktestRunSnapshot,
     period: Required<DateRange>,
+    archive: BacktestDebugArchive | null,
   ): Promise<LocalDate[]> {
     const startedAt = Date.now();
     const seriesId = snapshot.executionCalendar?.seriesId;
@@ -627,7 +747,19 @@ export class BacktestProcessor implements BacktestJobProcessor {
       seriesId,
       tradingDays: prices.length,
     });
-    return prices.map((price) => price.date);
+    const dates = prices.map((price) => price.date);
+    // Captured from the authoritative series, never re-derived from the security frames: which
+    // dates the portfolio has is methodology, and a reviewer checking that a stray security row was
+    // correctly ignored needs the two axes side by side.
+    await archive?.recordExecutionCalendar({
+      referenceCode,
+      seriesId,
+      seriesVersion: snapshot.executionCalendar?.seriesVersion ?? null,
+      methodologyVersion: snapshot.methodology.executionCalendar,
+      dates,
+      durationMs: Date.now() - startedAt,
+    });
+    return dates;
   }
 
   /** One pinned series' bars, or null when it cannot be loaded. Never fails the run. */
@@ -689,6 +821,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     lease: BacktestJobLease,
     snapshot: BacktestRunSnapshot,
     prepared: PreparedRun,
+    archive: BacktestDebugArchive | null,
   ): Promise<BacktestResult> {
     await this.writeProgress(claim, lease, {
       status: BacktestRunStatus.RUNNING,
@@ -712,6 +845,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
       },
       {
         checkpointEveryDays: this.options.checkpointEveryDays,
+        // The frames the day loop is actually bound to — the retained year-boundary context row
+        // included — reach the archive only from inside the engine. The observer is read-only and
+        // swallows its own failures, so attaching it cannot change or fail this run.
+        ...(archive ? { diagnostics: archive.observer() } : {}),
         onCheckpoint: async (checkpoint) => {
           const interruption = lease.interruption();
           if (interruption) {
@@ -748,15 +885,17 @@ export class BacktestProcessor implements BacktestJobProcessor {
       }
       const startedAt = Date.now();
       const frames = await this.loadWindowFrames(prepared, window);
+      const durationMs = Date.now() - startedAt;
       this.dependencies.logger.debug({
         event: "backtest.window.loaded",
         year: window.year,
         from: window.from,
         to: window.to,
-        durationMs: Date.now() - startedAt,
+        durationMs,
         securityCount: frames.length,
         tradingDays: window.dates.length,
       });
+      archive?.recordWindowLoad({ window, durationMs, frames });
       await simulation.consumeWindow(window, { frames });
     }
 
@@ -877,10 +1016,26 @@ export class BacktestProcessor implements BacktestJobProcessor {
     phase: ExecutionPhase,
     err: unknown,
     startedAt: number,
+    archive: BacktestDebugArchive | null,
   ): Promise<void> {
     const code =
       err instanceof BacktestRunFailure ? err.code : "EXECUTION_FAILED";
     const error = err instanceof Error ? err : new Error(String(err));
+
+    // A failed attempt is the most useful archive there is, so it keeps everything captured before
+    // the failure plus why it stopped. Recorded before the durable write, so a lost lease cannot
+    // also cost the diagnosis.
+    await archive?.recordFailure({
+      code,
+      phase,
+      userFacingPhase: userFacingPhase(phase),
+      name: error.name,
+      message: error.message,
+      stack: error.stack ?? null,
+      context:
+        err instanceof BacktestRunFailure && err.context ? err.context : null,
+      window: null,
+    });
 
     // The original error is logged before it is translated, so its name, message and stack survive
     // even though none of them may reach the user-facing failure message.

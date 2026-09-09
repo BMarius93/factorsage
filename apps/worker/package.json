@@ -19,13 +19,17 @@
     "@intrinsic/observability": "workspace:*",
     "@intrinsic/stock-data": "workspace:*",
     "@intrinsic/strategy": "workspace:*",
-    "ioredis": "^6.0.0"
+    "ioredis": "^6.0.0",
+    "yazl": "^3.3.1"
   },
   "devDependencies": {
     "@intrinsic/testing": "workspace:*",
     "@types/node": "^20.0.0",
+    "@types/yauzl": "^3.4.0",
+    "@types/yazl": "^3.3.1",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "yauzl": "^3.4.0"
   }
 }
