@@ -172,6 +172,31 @@ function corsOrigins(env: Environment): string[] {
 }
 
 /**
+ * The repository root — the directory holding `pnpm-workspace.yaml` — or null outside a checkout.
+ *
+ * Package scripts run with the cwd set to the package, so anything that must land in one shared
+ * place per checkout (the root `.env`, a developer artifact directory) resolves against this rather
+ * than against `process.cwd()`.
+ */
+export function findWorkspaceRoot(
+  startDirectory = process.cwd(),
+): string | null {
+  let directory = resolve(startDirectory);
+
+  while (true) {
+    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
+      return directory;
+    }
+
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return null;
+    }
+    directory = parent;
+  }
+}
+
+/**
  * Loads the single repository-root .env file when it exists.
  *
  * Local development uses this file. Deployed environments normally do not
@@ -180,24 +205,16 @@ function corsOrigins(env: Environment): string[] {
 export function loadRootEnv(
   startDirectory = process.cwd(),
 ): string | undefined {
-  let directory = resolve(startDirectory);
-
-  while (true) {
-    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
-      const envFile = join(directory, ".env");
-      if (existsSync(envFile)) {
-        loadEnvFile(envFile);
-        return envFile;
-      }
-      return undefined;
-    }
-
-    const parent = dirname(directory);
-    if (parent === directory) {
-      return undefined;
-    }
-    directory = parent;
+  const root = findWorkspaceRoot(startDirectory);
+  if (root === null) {
+    return undefined;
   }
+  const envFile = join(root, ".env");
+  if (!existsSync(envFile)) {
+    return undefined;
+  }
+  loadEnvFile(envFile);
+  return envFile;
 }
 
 export function getAppConfig(env: Environment = process.env) {
@@ -435,6 +452,61 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
       1_000,
     ),
     frameConcurrency: integer(env, ["BACKTEST_FRAME_LOAD_CONCURRENCY"], 4),
+  } as const;
+}
+
+/**
+ * Forensic debug archives — a **developer** capture, off unless explicitly asked for.
+ *
+ * `full` makes a worker write one self-contained archive per backtest attempt: the immutable
+ * snapshot, the execution calendar, the benchmark input, the evaluation frames the simulation
+ * actually consumed and the result it produced. It is raw replay evidence for an independent
+ * reviewer, never a product feature, and it never changes what a run computes.
+ *
+ * Two things keep it out of a deployment. It is off by default, so an unconfigured process writes
+ * nothing; and asking for it under `NODE_ENV=production` is a **startup error** rather than a
+ * silently honoured request, because these archives contain a user's whole run and are written to
+ * a local disk nothing rotates.
+ */
+export type BacktestDebugArchiveMode = "off" | "full";
+
+const BACKTEST_DEBUG_ARCHIVE_MODES: BacktestDebugArchiveMode[] = ["off", "full"];
+
+export const DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR = ".debug/backtests";
+
+export function getBacktestDebugArchiveConfig(
+  env: Environment = process.env,
+  startDirectory = process.cwd(),
+) {
+  const environment = runtimeEnvironment(env);
+  const raw = optional(env, "BACKTEST_DEBUG_ARCHIVE") ?? "off";
+  if (!BACKTEST_DEBUG_ARCHIVE_MODES.includes(raw as BacktestDebugArchiveMode)) {
+    throw new Error(
+      `Invalid application configuration: BACKTEST_DEBUG_ARCHIVE must be ${BACKTEST_DEBUG_ARCHIVE_MODES.join(
+        " or ",
+      )}`,
+    );
+  }
+  const mode = raw as BacktestDebugArchiveMode;
+
+  if (mode !== "off" && environment === "production") {
+    throw new Error(
+      "Invalid application configuration: BACKTEST_DEBUG_ARCHIVE must be off in production",
+    );
+  }
+
+  // Resolved against the repository root, not the cwd: `pnpm dev:worker` runs inside
+  // `apps/worker`, and a relative default would otherwise scatter one archive directory per
+  // package instead of filling the single ignored one at the root.
+  const configured =
+    optional(env, "BACKTEST_DEBUG_ARCHIVE_DIR") ??
+    DEFAULT_BACKTEST_DEBUG_ARCHIVE_DIR;
+  const base = findWorkspaceRoot(startDirectory) ?? resolve(startDirectory);
+
+  return {
+    mode,
+    enabled: mode !== "off",
+    directory: resolve(base, configured),
   } as const;
 }
 

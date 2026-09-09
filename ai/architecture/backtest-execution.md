@@ -505,6 +505,30 @@ There is deliberately no per-day logging.
 serialized by `@intrinsic/observability` with its name, message and stack. The translation into
 product prose happens after that log, so nothing about the real cause is lost.
 
+## Forensic debug archives — developer only
+
+A result cannot answer "did the engine decide correctly given what it actually saw?", because the
+inputs it decided from are transient: a year's evaluation frames are released when the window ends,
+and the row retained for Trigger semantics across a boundary is never persisted at all.
+
+`BACKTEST_DEBUG_ARCHIVE=full` makes each worker child write one self-contained `.zip` per attempt
+holding those inputs — the immutable snapshot, the pinned execution calendar, the raw benchmark
+closes, the funding events, the frames the day loop was bound to and the state carried across each
+year boundary — plus the trades, equity, positions and summary it produced.
+
+It holds **evidence, never engine-generated reasoning**. A "bought because price crossed the EMA"
+string would come from the same code as the decision, so a wrong trade would arrive with a matching
+wrong justification and the archive would confirm every bug it exists to find.
+
+It is off by default, refuses to start under `NODE_ENV=production`, writes only to a local
+git-ignored directory, adds no table, no migration and no API field, and is observational in both
+directions: capture on and capture off produce identical results, an archive failure never fails a
+backtest, and a successful archive never rescues one. `@intrinsic/strategy` exposes it through an
+optional read-only diagnostics observer (`backtest/diagnostics.ts`) whose payloads are explicit
+allowlists.
+
+See `../../docs/development/backtest-debug-archive.md`.
+
 ## Cancellation — deferred
 
 V1 has no cancel. The claim/lease machinery would support it cheaply — the worker already re-reads

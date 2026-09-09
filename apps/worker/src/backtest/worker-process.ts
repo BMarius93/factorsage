@@ -47,6 +47,12 @@ const loop = new BacktestWorkerLoop(
       stockData: runtime.stockData,
       benchmarks: runtime.benchmarks,
       logger,
+      ...(runtime.debugArchives
+        ? { debugArchives: runtime.debugArchives }
+        : {}),
+      ...(runtime.providerRequests
+        ? { providerRequests: runtime.providerRequests }
+        : {}),
     },
     {
       workerId,

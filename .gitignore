@@ -19,3 +19,6 @@ apps/web/playwright/.auth/
 !.vscode/settings.json
 
 docker-data/
+
+# Local forensic backtest debug archives (docs/development/backtest-debug-archive.md).
+.debug/

@@ -57,7 +57,9 @@ progress model, durable job protocol, worker process model and the versioned exe
 methodology), `architecture/benchmark-data.md` (why a Benchmark is not a `Security`, and what its
 loading shares with stock loading), and `architecture/strategy-evaluation.md` for the design the
 engine was built from. `../docs/decisions/backtest-run-persistence.md` records the storage
-decision. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
+decision, and `../docs/development/backtest-debug-archive.md` documents the opt-in developer-only
+forensic archive a worker can write for one attempt when a run's numbers have to be verified
+independently. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
