@@ -103,8 +103,8 @@ source, not a product identity: the browser selects `SP500`, and the provider sy
 an API contract. The catalog is built to grow — broad-market, sector, industry and global-equity
 benchmarks, and eventually direct index or composite sources.
 
-Portfolio and benchmark are reported as percentage growth from the run's first simulated date, so the
-two curves are directly comparable, and `alpha` is their difference. A date on which the benchmark
+Portfolio and benchmark percentage growth are reported from the run's first simulated date, so the
+two figures are directly comparable, and `alpha` is their difference. A date on which the benchmark
 has no value at or before it reports no benchmark value; a gap is never fabricated.
 
 **Changing the benchmark cannot change the portfolio.** The same strategy, stock list, period,
@@ -120,6 +120,38 @@ until the first position is opened. See `../architecture/backtest-execution.md`.
 A run also pins the exact immutable **series version** of its benchmark at submission. Re-sourcing a
 benchmark later — a different provider, a different methodology — creates a new version and leaves
 every completed and queued run reading the one it was submitted against.
+
+## The comparison chart: three scenarios, one axis
+
+The chart compares three scenarios in **absolute money**, on one currency axis:
+
+```text
+Strategy · S&P 500 · Cash
+```
+
+All three receive **the same external cash flows on the same dates** — the same initial capital and
+the same monthly contributions — and differ only in what happens to the money. That is the whole
+point: the vertical distance between two lines is a difference in what the money *did*, never in how
+much of it there was.
+
+- **Strategy** is the total portfolio value: uninvested Strategy cash plus the market value of open
+  positions. Not positions only.
+- **S&P 500** is the same money invested passively in the benchmark. Every contribution buys more
+  benchmark shares at that date's price, and the line is what those shares are worth. It is **not**
+  the contributed capital scaled by one growth index — that would ignore the price each contribution
+  actually bought at, and the two only agree for a run with no contributions.
+- **Cash** is the money never invested: initial capital plus contributions to date. Under the
+  zero-interest assumption it earns nothing, so it rises only when the user adds capital. **It is not
+  the Strategy's own uninvested cash balance**, which is a different number reported beside the
+  holdings; the two diverge the moment the Strategy buys anything.
+
+The percentage figures — portfolio return, benchmark return, alpha, CAGR and drawdown — are
+unchanged and are reported as their own tiles. The absolute chart is a second reading of the same
+simulated days, not a new methodology for them.
+
+A run completed before the funded S&P 500 scenario existed keeps its Strategy and Cash lines and
+simply has no benchmark line: that value cannot be reconstructed from what such a run stored, and a
+plausible-looking guess on a completed run's chart would be worse than an honest gap.
 
 ## Securities whose history does not span the run
 
@@ -192,6 +224,16 @@ The running page shows the curve as it grows and transitions to the completed vi
 horizontal axis is the **requested period**, fixed from the first render: the not-yet-simulated part
 of a run is empty rather than the chart reframing itself around whatever has been computed. 100%
 means successfully completed and nothing else.
+
+**A long run fills the chart in year by year.** Execution consumes one calendar year at a time, and
+finishing a year publishes that year's computed curve, so a thirty-year run extends the chart
+roughly thirty times rather than showing nothing until the end. The simulation itself is still
+daily — the year is a loading and progress boundary, never a coarser calculation — and the curve may
+be thinned for transport without changing a single number behind it.
+
+**A partially simulated run is never a completed one.** If a run finishes 2000 through 2007 and
+fails in 2008, it is `FAILED`. The years it got through stay visible as progress, but only a run
+that completed every year it was asked for produces a result.
 
 A failed run is terminal and never leaks provider or internal detail. It keeps a reason a user can
 act on, and shows the phase it failed in, a stable failure code and its own run id, so a user can

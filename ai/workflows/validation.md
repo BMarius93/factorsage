@@ -168,10 +168,29 @@ firing, average cost, contributions, buy windows, candidate ordering, benchmark 
 alpha, the no-lookahead prefix test and deterministic replay — run offline in
 `pnpm --filter @intrinsic/strategy test`.
 
+`packages/strategy/src/backtest/simulation.window.test.ts` is the annual-execution regression suite:
+it runs the same input through the continuous reference path and through calendar-year windows and
+requires them to agree on every trade, fill, contribution date, position, cash balance, curve point
+and summary metric. It also pins the year-boundary Trigger context, contribution continuity, the
+three funded comparison scenarios, and that a run which did not consume every window has no result.
+If a windowing change breaks equivalence, that is a methodology change and must be treated as one
+rather than re-baselined.
+
+`packages/stock-data/src/provider-reuse.integration.test.ts` needs PostgreSQL and Redis. Case L is
+the one that proves annual execution does not cost one provider cycle per year: it prepares a cold
+security once, steps through three calendar-year windows counting provider requests, checks the
+yearly Redis chunks exist, then flushes Redis and shows the same windows rebuild from PostgreSQL
+without touching the provider.
+
 `packages/stock-data/src/benchmark-data.integration.test.ts` needs PostgreSQL and Redis. It is what
 proves benchmark loading reuses coverage and the Redis projection rather than re-reading the
 provider, and that a current durable freshness watermark means **no provider call at all** — the
 property the deterministic E2E path depends on.
+
+`apps/worker/src/backtest/backtest-annual-execution.test.ts` needs nothing: it drives the processor
+against a recording loader and pins the seam — one whole-period prepare, one read per calendar year,
+a milestone per completed year carrying the computed prefix, and a later window's failure leaving
+the run terminally `FAILED` rather than partially completed.
 
 `apps/worker/src/backtest/job-repository.integration.test.ts` needs PostgreSQL. It proves the claim
 protocol: two workers never take one job, two jobs are claimed independently, an expired lease is
