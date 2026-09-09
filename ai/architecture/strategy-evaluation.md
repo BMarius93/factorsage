@@ -14,7 +14,10 @@ What landed, and where it differs:
   `PositionState` with the position epoch and the as-computed previous value, and `AVERAGE_COST`.
 - **`getDailyEvaluationFrame` in `@intrinsic/stock-data`** (§2.7), `Security`-keyed, applying the
   intrinsic provenance gate during projection with `TRIGGER_CONTEXT_CALENDAR_DAYS = 10`.
-- **Phase 4's day loop, union calendar and residency model** as designed.
+- **Phase 4's day loop and residency model** as designed. Its *union calendar* was not built: the
+  pinned execution calendar is authoritative
+  (`CALENDAR_METHODOLOGY_VERSION = execution-calendar-authoritative@2`), and execution consumes it
+  one calendar year at a time. See `backtest-execution.md`, which describes what exists.
 - **Divergence — the durable-work substrate.** §4.2 recommended claiming the `BacktestRun` row
   itself. A separate `BacktestJob` row is used instead, created in the same transaction as the run,
   so queue mechanics stay off the user-facing execution record while remaining one transactional
@@ -765,7 +768,14 @@ methodology bump. Re-executing the same snapshot later can therefore produce dif
 Recording the revisions does not make that reproducible — it makes the difference explainable
 instead of mysterious.
 
-### 4.4 The union calendar
+### 4.4 The union calendar — superseded
+
+> **Not what was built.** This section is kept as design history. The portfolio's axis is the pinned
+> execution calendar alone, and security dates never add to it; a single anomalous provider bar
+> would otherwise have decided the run's first simulated date, its return-index base and a month's
+> contribution date. See `backtest-execution.md` and
+> `docs/decisions/backtest-year-window-execution-and-absolute-comparison.md`.
+
 
 There is no trading-calendar table and each security has its own eligible dates (Phase 1, fact 1),
 so the portfolio needs one axis. **Use the ascending union of the eligible dates of every security

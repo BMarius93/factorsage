@@ -221,6 +221,7 @@ const LIVE_NUMBER_FIELDS = [
   "netProfit",
   "portfolioReturnPercent",
   "maxDrawdownPercent",
+  "cashBaselineValue",
   "tradeCount",
   "openPositions",
 ] as const;
@@ -228,6 +229,7 @@ const LIVE_NUMBER_FIELDS = [
 const LIVE_NULLABLE_NUMBER_FIELDS = [
   "benchmarkReturnPercent",
   "alphaPercent",
+  "benchmarkValue",
 ] as const;
 
 const HOLDING_NUMBER_FIELDS = [
@@ -270,7 +272,10 @@ function isCurvePoint(value: unknown): value is BacktestCurvePointResponse {
     typeof point.date === "string" &&
     isFiniteNumber(point.portfolioReturnPercent) &&
     (point.benchmarkReturnPercent === null ||
-      isFiniteNumber(point.benchmarkReturnPercent))
+      isFiniteNumber(point.benchmarkReturnPercent)) &&
+    isFiniteNumber(point.strategyValue) &&
+    isFiniteNumber(point.cashBaselineValue) &&
+    (point.benchmarkValue === null || isFiniteNumber(point.benchmarkValue))
   );
 }
 
@@ -472,7 +477,15 @@ function resultSummaryOf(row: SummaryRow): BacktestResultSummaryResponse {
   };
 }
 
-/** Growth indices are based at 1.0 on the first simulated date; the wire carries percentages. */
+/**
+ * One persisted day as the chart consumes it.
+ *
+ * Growth indices are based at 1.0 on the first simulated date and are carried as percentages; the
+ * three absolute scenarios are carried as currency. `strategyValue` is `totalValue`, which every
+ * run has always stored. `benchmarkValue` is null for a run completed before the funded scenario
+ * existed — the column was never backfilled, because a funded portfolio is not derivable from a
+ * growth index once a run has contributions.
+ */
 function curvePointOf(row: EquityRow): BacktestCurvePointResponse {
   return {
     date: fromDatabaseDate(row.date),
@@ -481,6 +494,9 @@ function curvePointOf(row: EquityRow): BacktestCurvePointResponse {
       row.benchmarkIndex === null
         ? null
         : (toNumber(row.benchmarkIndex) - 1) * 100,
+    strategyValue: toNumber(row.totalValue),
+    benchmarkValue: toNullableNumber(row.benchmarkValue),
+    cashBaselineValue: toNumber(row.cashBaselineValue),
   };
 }
 

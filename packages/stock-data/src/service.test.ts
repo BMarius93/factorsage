@@ -449,6 +449,18 @@ class FakeStore implements StockDataStore {
     this.noteBoundaryRead();
     return this.prices.map((row) => row.date).sort()[0] ?? null;
   }
+  async getDailyPriceBounds(_securityId: string, range: Required<DateRange>) {
+    const dates = this.prices
+      .map((row) => row.date)
+      .filter((date) => date >= range.from && date <= range.to)
+      .sort();
+    const firstDate = dates[0];
+    const lastDate = dates[dates.length - 1];
+    if (firstDate === undefined || lastDate === undefined) {
+      return null;
+    }
+    return { firstDate, lastDate, tradingDays: dates.length };
+  }
   async getFinancialStatements(
     _securityId: string,
     query: FinancialStatementQuery,

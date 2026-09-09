@@ -153,7 +153,10 @@ function processorWith(benchmarks: BacktestBenchmarkLoader) {
         findByIds: async () => new Map<string, Security>(),
       },
       stockData: {
-        getDailyEvaluationFrame: async () => {
+        prepareDailyEvaluationData: async () => {
+          throw new Error("no security should be prepared in these cases");
+        },
+        readDailyEvaluationFrame: async () => {
           throw new Error("no frame should be needed in these cases");
         },
       },

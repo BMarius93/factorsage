@@ -85,6 +85,13 @@ export function isSupersededDailyPriceVariant(variant: string): boolean {
   );
 }
 
+/** Coverage of a security's persisted price history inside a requested range. */
+export type DailyPriceBounds = {
+  firstDate: string;
+  lastDate: string;
+  tradingDays: number;
+};
+
 export interface StockDataStore {
   findSecurityByProviderSymbol(symbol: string): Promise<Security | null>;
   /**
@@ -147,6 +154,19 @@ export interface StockDataStore {
    * provider has nothing older — the one durable basis for reporting a `PROVIDER` history start.
    */
   getEarliestDailyPriceDate(securityId: string): Promise<string | null>;
+  /**
+   * First date, last date and row count of the persisted price history inside a range, or `null`
+   * when it holds none.
+   *
+   * One aggregate rather than the rows themselves. A backtest asks this once per security while
+   * preparing data, to decide whether the security has any usable history in the requested period
+   * at all — a question it used to answer by projecting the whole period into memory, which is the
+   * cost the calendar-year execution windows exist to avoid.
+   */
+  getDailyPriceBounds(
+    securityId: string,
+    range: Required<DateRange>,
+  ): Promise<DailyPriceBounds | null>;
   /**
    * Persists provider rows and records `successfulCoverage` under the current
    * `DAILY_PRICE_VARIANT`. Each interval must have been asked for completely: the adapter's

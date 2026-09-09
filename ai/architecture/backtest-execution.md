@@ -18,8 +18,8 @@ resolve StockList -> securities + BUY windows
 freeze BacktestRunSnapshot
 INSERT BacktestRun (QUEUED)
 INSERT BacktestJob  (QUEUED)   ─── one transaction ───►  claim (FOR UPDATE SKIP LOCKED)
-INSERT BacktestRunProgress                               PREPARING_DATA: frames + benchmark
-                                                         RUNNING:        day loop + checkpoints
+INSERT BacktestRunProgress                               PREPARING_DATA: hydrate + benchmark
+                                                         RUNNING:        year windows + day loop
                                                          FINALIZING:     persist results
 expose run / progress / result  ◄────────────────────────  COMPLETED | FAILED
 ```
@@ -43,8 +43,7 @@ against current data without a second language.
 
 ## Evaluation frames
 
-`CanonicalStockDataService.getDailyEvaluationFrame(security, period, operands)` projects one
-security into columns:
+`CanonicalStockDataService` projects one security into columns:
 
 ```text
 EvaluationFrame {
@@ -64,10 +63,66 @@ EvaluationFrame {
   therefore cannot read an ungated value even by mistake.
 - **Margin of Safety is materialized as its own column**, so `(iv - close) / iv * 100`, the
   `iv > 0` rule and the provenance gate are applied exactly once.
-- The frame starts `TRIGGER_CONTEXT_CALENDAR_DAYS` (10) before the period so a Trigger has its
+- The frame starts `TRIGGER_CONTEXT_CALENDAR_DAYS` (10) before the window so a Trigger has its
   `t - 1` value on the first simulated day. Those rows are already resident: the load target is
   widened by the derived-series warm-up regardless.
 - `NaN` is the only representation of an absent value. `RSI = 0` and `MOS = 0` are real readings.
+
+Three methods, and the difference between them is the annual-window design:
+
+| Method                                                   | Phase              | May hydrate |
+| -------------------------------------------------------- | ------------------ | ----------- |
+| `prepareDailyEvaluationData(security, period)`           | `PREPARING_DATA`   | **yes**     |
+| `readDailyEvaluationFrame(security, window, operands)`   | `RUNNING`          | no          |
+| `getDailyEvaluationFrame(security, period, operands)`    | both, in one call  | yes         |
+
+`prepare` makes the canonical data for the **whole** period resident and returns the persisted price
+coverage inside it — one aggregate, not the rows — which is how the worker tells a security with no
+usable history from one that has simply not listed yet without holding the period it is trying not
+to hold. `read` then projects one calendar-year window at a time and deliberately does not call
+`ensureStockHydrated`/`ensureStockFresh`: those ran once, and asking the same freshness question
+thirty times is exactly the cost the windows exist to avoid.
+
+## Calendar-year execution windows
+
+A run's simulation consumes consecutive calendar-year windows:
+
+```text
+requested: 2000-05-10 -> 2010-08-15
+
+window 1: 2000-05-10 -> 2000-12-31
+window 2: 2001-01-01 -> 2001-12-31
+...
+window N: 2010-01-01 -> 2010-08-15
+```
+
+Calendar years rather than rolling chunks, because the canonical projections are already stored and
+cached per calendar year (`prices:1D:<year>`, `daily-state:<year>`), so a year-aligned window reads
+whole chunks instead of straddling two. `planExecutionWindows` derives them from the pinned
+execution calendar; a year the calendar has no trading day in produces no window.
+
+**It is one continuous simulation, never one backtest per year.** `BacktestSimulation` holds the
+whole of the run's financial state — cash, open positions, shares, cost basis, position epochs,
+settled BUY levels, fired SELL levels, the position-dependent value a Trigger compares against,
+realized P&L, the trade sequence, the contribution progression, the return and drawdown accumulators
+and both comparison scenarios — and a window replaces only which rows are resident. It rejects a
+window consumed out of order, a window whose dates do not continue the run's own calendar, and a
+window missing a security, because none of those is visible afterwards in the numbers. `finish()`
+refuses a run that has not consumed every window: a partially simulated run has no result.
+
+**Year-boundary Trigger context is carried, not re-read.** `evaluateMarketTrigger` reads exactly
+`index - 1` of the security's own frame, and no fixed calendar-day lookback can guarantee that row
+exists — a security whose last 2000 session is 2000-12-15 and whose next is 2001-01-20 has no row
+inside any small window before January. So the engine retains **one row per security** (its date,
+close and operand readings) at the end of each window and splices it in front of the next one. It is
+read-only context: the window's execution-calendar dates all lie after it, so it is never simulated
+again, never funded again and never emits an equity point. `packages/strategy/src/backtest/simulation.window.test.ts`
+proves the whole windowed execution equals a continuous one — trades, ordering, fills, contribution
+dates, cash, positions, average costs, settled levels, the daily curve and every summary metric.
+
+The reference path is the same object: `simulateBacktest` calls `consumeWholePeriod`, so there is
+one day loop rather than two that could drift apart, and what the equivalence suite actually tests
+is the thing that differs — per-year projections plus the retained context row.
 
 ## Gates and the day loop
 
@@ -76,25 +131,27 @@ every BUY level is precomputed into a `Uint8Array` gate before the simulation st
 loop reads an indexed byte. SELL and FINAL EXIT gates carry only their market-derived half and are
 ANDed with live position predicates while a position is open.
 
-The portfolio's date axis is the **union** of the eligible trading dates of the securities in the
-run **and of the pinned execution calendar**, restricted to the period
-(`CALENDAR_METHODOLOGY_VERSION`). Predicates
-are never carried forward — a security with no row that day simply takes no action — while
-_valuation_ is carried forward at the position's most recent close, which is the only
-point-in-time-correct value available.
+The portfolio's date axis is the **pinned execution calendar**, restricted to the period
+(`CALENDAR_METHODOLOGY_VERSION` = `execution-calendar-authoritative@2`). It is authoritative, not
+one contributor to a union: a security's own dates decide what that security can do, never which
+days the portfolio has. A security acts only on the calendar dates its own frame has an eligible row
+for; on the rest every predicate is `NOT_EVALUABLE` and it takes no action, while _valuation_ is
+carried forward at the position's most recent close, which is the only point-in-time-correct value
+available.
 
-The execution calendar is in the union because a portfolio exists from the first day of the
-requested period even while it holds nothing but cash. Without it, a run whose securities all list after its start
-would not exist until the first of them began trading, its curve would appear to start at the first
-BUY rather than flat at 0% from the beginning, and every contribution before that date would be
-skipped. On an execution-calendar-only date no security has a row, so every predicate is
-`NOT_EVALUABLE`, valuation carries forward, and the portfolio still has a real value because cash is
-real.
+The difference is not academic. Under the superseded v1 union, a single anomalous provider row — a
+bar dated on a day the market was closed — became a portfolio trading day, and with it the run's
+first simulated date, the base of the return index, and a month's first eligible date for the
+monthly contribution. One malformed row in one security could move every number in the run.
 
-**The engine rejects an empty execution calendar.** `simulateBacktest` throws rather than quietly
-simulating the securities' union, because that is a different methodology, and the worker fails the
-attempt before it hydrates a single security. There is no path that silently substitutes one axis
-for another.
+The calendar is also what makes a portfolio exist from the first day of the requested period while
+it holds nothing but cash: a run whose securities all list after its start still simulates from the
+start, flat at 0%, and its contributions still land. On a date no security has a row, valuation
+carries forward and the portfolio still has a real value, because cash is real.
+
+**The engine rejects an empty execution calendar.** It throws rather than quietly simulating the
+securities' union, because that is a different methodology, and the worker fails the attempt before
+it hydrates a single security. There is no path that silently substitutes one axis for another.
 
 This is versioned methodology rather than an implementation detail because it decides which date is
 "the first simulated date of a month" — and therefore when a contribution lands — and which date the
@@ -115,8 +172,8 @@ For each date, in this fixed order:
    A level that has already fired is skipped unless today deposited a contribution.
 5. **Allocate** — order the candidates, then size them against a portfolio value fixed once for the
    whole date, enforcing cash and the position-slot cap.
-6. **Record** — the position metric that actually held today (for tomorrow's Trigger) and the day's
-   equity point.
+6. **Record** — the position metric that actually held today (for tomorrow's Trigger), the day's
+   equity point, and the three absolute comparison values.
 
 ## Execution methodology — the V1 rules
 
@@ -206,10 +263,52 @@ three ways and only one of them is a trade. The trade log remains the record of 
 The contribution-date top-up is the single explicit exception, unchanged: on a date that actually
 deposits a monthly contribution a settled level is measured again against the larger portfolio.
 
+## The three comparison scenarios
+
+`comparisonScenarios: funded-scenarios/strategy-benchmark-cash@1`. The chart's primary presentation
+is three currency-valued lines on one axis, and its whole point is that **all three receive the same
+external cash flows on the same dates** — the same initial capital and the same monthly
+contributions. A gap between them is therefore a difference in what the money did, never in how much
+of it there was.
+
+| Line       | Meaning                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------- |
+| `Strategy` | `strategyUninvestedCash(d) + marketValueOfOpenPositions(d)` — the total portfolio value   |
+| `S&P 500`  | accumulated fractional benchmark shares, marked at the close in effect on `d`             |
+| `Cash`     | `initialCapital + cumulativeExternalContributionsThrough(d)`, never invested              |
+
+The benchmark scenario is a **funded portfolio**, not a scaled index:
+
+```text
+benchmarkShares += contribution / benchmarkCloseOnThatDate
+benchmarkValue   = benchmarkShares × benchmarkCloseAtOrBefore(d)
+```
+
+`contributedCapital × (close / openingClose)` is the implementation this replaces for the chart, and
+it is not equivalent: a growth index knows nothing about the price each contribution actually bought
+at, so the two agree only for a run with no contributions. Fractional shares, no benchmark fees or
+slippage, the same carry-forward rule for a date the benchmark did not trade, and the run's own
+pinned immutable series — never re-resolved by code during execution.
+
+`Cash` is **not** the Strategy's uninvested cash balance. Under `zero-interest@1` it earns nothing
+and rises only when external capital is added, and the two diverge the moment the Strategy buys
+anything. The contract name is `cashBaselineValue` precisely so the two can never be confused; the
+Strategy's own balance stays `cash`.
+
+Out of scope, and undecided: a comparison benchmark whose history starts **after** the run's first
+simulated date. V1's `SPY`-backed `SP500` predates the thirty-year maximum period, so it is
+unreachable. The engine holds such capital and invests it at the benchmark's first available close
+rather than discarding it — which keeps the three scenarios funded identically — but that must be
+decided as product methodology before any later-inception benchmark is offered.
+
 ## Returns, benchmark and alpha
 
-`time-weighted-index@1`. Both curves are growth indices based at 1.0 on the first simulated date, so
-the UI compares percentage growth from the same starting point.
+`time-weighted-index@1`, and **unchanged by the absolute scenarios above**. Both curves are growth
+indices based at 1.0 on the first simulated date, so the UI compares percentage growth from the same
+starting point. `portfolioReturnPercent`, `benchmarkReturnPercent`, `alpha`, CAGR and both drawdowns
+are all built on these and keep the meaning they were written under; the day loop reads the
+benchmark's close once and derives the index and the funded scenario from it, so the two readings
+cannot disagree about which bar applied.
 
 - Portfolio: `index(d) = index(d-1) × value(d) / (value(d-1) + contribution(d))`. Contributions
   arrive before the day's trading, so a deposit raises portfolio value without inventing return.
@@ -291,8 +390,8 @@ single-process environment; scale it with cores where several users run backtest
 | Phase            | Percent | Meaning                                                |
 | ---------------- | ------- | ------------------------------------------------------ |
 | `QUEUED`         | 0       | durable work waiting for a worker                      |
-| `PREPARING_DATA` | 2 → 20  | hydration and frame projection, advancing per security |
-| `RUNNING`        | 20 → 95 | the day loop, advancing with simulated trading days    |
+| `PREPARING_DATA` | 2 → 20  | hydration, advancing per security                      |
+| `RUNNING`        | 20 → 95 | year windows and the day loop, advancing with days     |
 | `FINALIZING`     | 95 → 99 | persisting results                                     |
 | `COMPLETED`      | 100     | **only** a successful completion reaches 100           |
 | `FAILED`         | —       | terminal, with a sanitized reason                      |
@@ -313,6 +412,12 @@ several years inside one throttle window would silently lose years from the run'
 progression. So the engine marks that checkpoint with the year it completes and the worker lets it
 through, while every unmarked checkpoint stays throttled. Nothing sleeps and nothing is slowed to
 make progress observable; the run simply reports every year it actually finished.
+
+A year boundary is also where a completed prefix becomes visible. The checkpoint's curve carries
+every simulated day so far — downsampled for transport, in absolute currency — so a page polling a
+thirty-year run extends its chart as each year lands instead of waiting for the whole run. The
+downsampling is presentation only: the daily simulation remains the financial truth, and every point
+is persisted in `BacktestDailyEquity`.
 
 `BacktestRunMilestone` is that durable record: `(runId, sequence)` with `(runId, year)` unique,
 carrying only scalars — the year, its simulated-through date, percent, value, cash, returns, alpha,
@@ -369,6 +474,12 @@ imply.
 
 ## Failure
 
+**A multi-year run is one atomic run.** Years 2000-2007 completing and 2008 failing makes the run
+`FAILED`, never a shorter `COMPLETED` one: the window loop propagates, `finish()` is never reached,
+and `finish()` would refuse anyway. The milestones and the last live snapshot those earlier years
+wrote may remain according to the existing progress model, but both terminal statuses drop the live
+snapshot from the read surface, so a computed prefix can never be mistaken for a result.
+
 A failed run is terminal, keeps a stable `failureCode` and a sanitized `failureMessage`, and keeps
 developer diagnostics in `failureDetail`, which **no API contract exposes**. Provider names, URLs,
 credentials and stack traces never cross the HTTP boundary.
@@ -385,7 +496,8 @@ them leaks nothing and is the difference between "try again" and "check these tw
 
 Structured events, all carrying `runId` and `component: backtest`:
 `backtest.queued`, `backtest.claimed`, `backtest.started`, `backtest.frames.loaded`,
-`backtest.progress` (debug), `backtest.completed`, `backtest.failed`, `backtest.job.recovered`.
+`backtest.window.loaded` (debug, one per calendar year), `backtest.progress` (debug),
+`backtest.completed`, `backtest.failed`, `backtest.job.recovered`.
 There is deliberately no per-day logging.
 
 `backtest.failed` carries `runId`, `jobId`, `workerId`, `attempt`, `failureCode`, `phase`,
@@ -404,10 +516,22 @@ additive: a `cancelRequestedAt` column, a status member, and a check at the exis
 
 ## Performance
 
-- One hydration per security per run, then all reads come from the projection.
-- Frames are loaded with bounded concurrency; hydration is serialized per security by the existing
-  Redis lock and throttled across processes by the shared FMP gate.
-- The day loop holds resident frames and gates; nothing re-queries the database per date.
+- One hydration per security per run, in `PREPARING_DATA`. Every window read afterwards comes from
+  the projection: `backtest.window.loaded` reports each year's load, and
+  `packages/stock-data/src/provider-reuse.integration.test.ts` case L counts provider requests
+  directly, so a window read that re-entered hydration shows up as a number rather than as a slow
+  run someone happens to notice.
+- **A year's frames and gates are released when the window ends.** Only one calendar year of
+  projection is resident at a time, plus one retained context row per security, so a thirty-year run
+  costs roughly one year of memory instead of thirty.
+- Redis stays disposable underneath: a missing year chunk is repaired from PostgreSQL's durable
+  coverage by the projection read itself, and reaches the provider only where PostgreSQL genuinely
+  has no coverage.
+- Window frames are loaded with bounded concurrency; hydration is serialized per security by the
+  existing Redis lock and throttled across processes by the shared FMP gate. The simulation itself
+  stays strictly sequential in time.
+- The day loop holds the resident window's frames and gates; nothing re-queries the database per
+  date.
 - The first run after a `DERIVED_STATE_REVISION` bump rebuilds every security in its list and is
   visibly slower. `backtest.frames.loaded` carries `durationMs` and the security count.
 - Submission rejects a universe larger than `BACKTEST_MAX_SECURITIES`: failing fast at submission

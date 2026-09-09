@@ -108,7 +108,7 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-trades").textContent).toContain("—");
   });
 
-  it("replaces the placeholder with a growing two-series chart as checkpoints arrive", async () => {
+  it("replaces the placeholder with a growing three-scenario chart as years complete", async () => {
     fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
     fetchProgressMock
       .mockResolvedValueOnce(
@@ -132,14 +132,17 @@ describe("BacktestRunView", () => {
 
     const chart = screen.getByTestId("backtest-chart");
     expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
-    expect(chart.dataset.portfolioPoints).toBe("4");
-    // Both series are present, and the null benchmark points are gaps rather than zeros.
-    expect(chart.dataset.seriesCount).toBe("2");
+    expect(chart.dataset.strategyPoints).toBe("4");
+    expect(chart.dataset.cashPoints).toBe("4");
+    // All three scenarios are present, and the null benchmark points are gaps rather than zeros.
+    expect(chart.dataset.seriesCount).toBe("3");
     expect(chart.dataset.benchmarkPoints).toBe("2");
-    // The series is named from the run's own snapshot, never from a hard-coded default.
-    expect(screen.getByTestId("backtest-chart-series").textContent).toContain(
-      TEST_BENCHMARK_NAME,
-    );
+    // The benchmark series is named from the run's own snapshot, never from a hard-coded default,
+    // and the other two carry their product labels.
+    const legend = screen.getByTestId("backtest-chart-series").textContent;
+    expect(legend).toContain(TEST_BENCHMARK_NAME);
+    expect(legend).toContain("Strategy");
+    expect(legend).toContain("Cash");
     expect(screen.getByTestId("metric-benchmark-return").textContent).toContain(
       `${TEST_BENCHMARK_NAME} return`,
     );
@@ -148,7 +151,7 @@ describe("BacktestRunView", () => {
 
     // The same chart element grew; it was not remounted.
     expect(screen.getByTestId("backtest-chart")).toBe(chart);
-    expect(chart.dataset.portfolioPoints).toBe("9");
+    expect(chart.dataset.strategyPoints).toBe("9");
   });
 
   it("transitions to the completed view in place, without a reload", async () => {
@@ -185,7 +188,7 @@ describe("BacktestRunView", () => {
     expect(screen.queryByTestId("backtest-progress")).toBeNull();
     expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
     expect(screen.getByTestId("backtest-chart")).toBe(chart);
-    expect(chart.dataset.portfolioPoints).toBe("8");
+    expect(chart.dataset.strategyPoints).toBe("8");
     expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
       "+36.00%",
     );

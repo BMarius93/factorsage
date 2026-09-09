@@ -4,7 +4,6 @@ import type { BacktestCurvePointResponse } from "@intrinsic/contracts";
 import {
   createChart,
   LineSeries,
-  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type MouseEventParams,
@@ -12,8 +11,12 @@ import {
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import { BACKTEST_CHART_COLORS } from "../utils/chart-theme";
-import { formatDay, formatSignedPercent } from "../utils/format";
+import { formatCompactMoney, formatDay, formatMoney } from "../utils/format";
 import styles from "./BacktestComparisonChart.module.css";
+
+/** The `Cash` scenario's product label. It is never the Strategy's uninvested cash balance. */
+export const CASH_SCENARIO_LABEL = "Cash";
+export const STRATEGY_SCENARIO_LABEL = "Strategy";
 
 export type BacktestComparisonChartProps = {
   /** Ascending curve points. Grows with every checkpoint while the run executes. */
@@ -47,22 +50,32 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
 }
 
 /**
- * Portfolio against benchmark, both as percentage growth from the run's first simulated date.
+ * Three funded scenarios on one absolute currency axis: Strategy, the benchmark, and Cash.
  *
- * One shared scale is the whole point: normalizing both series to the same starting point is what
- * makes "did this strategy beat the benchmark?" a question the eye can answer. A null benchmark
- * value is a genuine gap — a date the benchmark has no value at or before — and is drawn as a
- * break in the line rather than as zero, which would read as a flat benchmark that never moved.
+ * All three receive **the same external cash flows on the same dates** — the same initial capital
+ * and the same monthly contributions — so the vertical distance between them is a difference in
+ * what the money did, never in how much of it there was. That is what makes "was this strategy
+ * worth it?" a question the eye can answer: the Cash line is the money doing nothing, the benchmark
+ * line is the money bought passively, and the Strategy line is the money traded by the rules.
  *
- * The chart instance is created once and mutated through `setData`, so a checkpoint extends the
- * curve without remounting anything and without a layout jump.
+ * It is deliberately not normalized to percentage growth. A return index answers "how fast did each
+ * grow", which the KPI tiles below already report; this chart answers "what would I actually have",
+ * which is the comparison the product is about.
+ *
+ * A null value is a genuine gap and is drawn as a break rather than as zero. Two things produce
+ * one: a date the benchmark has no close at or before, and a run completed before the funded
+ * benchmark scenario existed — such a run keeps its Strategy and Cash lines and simply has no
+ * benchmark line, because that value is not derivable from what it stored.
+ *
+ * The chart instance is created once and mutated through `setData`, so a completed calendar year
+ * extends the curve without remounting anything and without a layout jump.
  *
  * The horizontal axis is the **configured period**, fixed for the whole run. A running backtest
- * that reframed itself to whatever it had computed so far would rescale on every checkpoint, and
- * the curve would appear to stand still while the axis raced ahead of it. Anchoring the scale to
- * `periodStart`..`periodEnd` instead means the not-yet-simulated part of the run is simply empty
- * and the line fills in from the left. The anchors are whitespace points — a time with no value —
- * so nothing is added to either return series.
+ * that reframed itself to whatever it had computed so far would rescale every time a year landed,
+ * and the curve would appear to stand still while the axis raced ahead of it. Anchoring the scale
+ * to `periodStart`..`periodEnd` instead means the not-yet-simulated part of the run is simply empty
+ * and the lines fill in from the left. The anchors are whitespace points — a time with no value —
+ * so nothing is added to any scenario.
  */
 export function BacktestComparisonChart({
   points,
@@ -74,13 +87,11 @@ export function BacktestComparisonChart({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const portfolioRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const strategyRef = useRef<ISeriesApi<"Line"> | null>(null);
   const benchmarkRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const cashRef = useRef<ISeriesApi<"Line"> | null>(null);
   // Whitespace-only series whose two points pin the time scale to the configured period.
   const anchorRef = useRef<ISeriesApi<"Line"> | null>(null);
-  // How many points are currently drawn, so a checkpoint that extends the curve can be told from
-  // a rerender that changed nothing.
-  const drawnCountRef = useRef(0);
   // The crosshair handler is subscribed once; a ref keeps it reading the current benchmark name.
   const benchmarkNameRef = useRef(benchmarkName);
   benchmarkNameRef.current = benchmarkName;
@@ -120,7 +131,9 @@ export function BacktestComparisonChart({
           labelBackgroundColor: BACKTEST_CHART_COLORS.text,
         },
       },
-      localization: { priceFormatter: formatSignedPercent },
+      // The axis is currency, and a thirty-year run's axis has to fit six-figure values without
+      // wrapping, so the axis is compact while the hover readout carries the exact amount.
+      localization: { priceFormatter: formatCompactMoney },
       // A vertical swipe on a phone keeps scrolling the page instead of being captured here.
       handleScroll: {
         mouseWheel: true,
@@ -136,14 +149,20 @@ export function BacktestComparisonChart({
       },
     });
 
-    const portfolio = chart.addSeries(LineSeries, {
-      color: BACKTEST_CHART_COLORS.portfolio,
+    const strategy = chart.addSeries(LineSeries, {
+      color: BACKTEST_CHART_COLORS.strategy,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
     });
     const benchmark = chart.addSeries(LineSeries, {
       color: BACKTEST_CHART_COLORS.benchmark,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    const cash = chart.addSeries(LineSeries, {
+      color: BACKTEST_CHART_COLORS.cash,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -155,46 +174,42 @@ export function BacktestComparisonChart({
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
-    // Break-even. Both series start at zero by construction, so this is the line that says whether
-    // either of them is up or down on the run.
-    portfolio.createPriceLine({
-      price: 0,
-      color: BACKTEST_CHART_COLORS.baseline,
-      lineWidth: 1,
-      lineStyle: LineStyle.Dashed,
-      axisLabelVisible: false,
-      title: "",
-    });
 
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
       const legend = legendRef.current;
       if (!legend) {
         return;
       }
-      const portfolioPoint = param.seriesData.get(portfolio) as
-        { value?: number } | undefined;
-      if (param.time === undefined || portfolioPoint?.value === undefined) {
+      const valueOn = (series: ISeriesApi<"Line">): number | undefined =>
+        (param.seriesData.get(series) as { value?: number } | undefined)?.value;
+      const strategyValue = valueOn(strategy);
+      if (param.time === undefined || strategyValue === undefined) {
         legend.hidden = true;
         return;
       }
-      const benchmarkPoint = param.seriesData.get(benchmark) as
-        { value?: number } | undefined;
+      const benchmarkValue = valueOn(benchmark);
+      const cashValue = valueOn(cash);
       legend.replaceChildren(legendRow(formatDay(String(param.time)), ""));
       legend.append(
         legendRow(
-          "Portfolio",
-          formatSignedPercent(portfolioPoint.value),
-          BACKTEST_CHART_COLORS.portfolio,
+          STRATEGY_SCENARIO_LABEL,
+          formatMoney(strategyValue),
+          BACKTEST_CHART_COLORS.strategy,
         ),
       );
       legend.append(
         legendRow(
           benchmarkNameRef.current,
-          // A gap is reported as a gap: the benchmark simply has no value on this date.
-          benchmarkPoint?.value === undefined
-            ? "—"
-            : formatSignedPercent(benchmarkPoint.value),
+          // A gap is reported as a gap: the scenario simply has no value on this date.
+          benchmarkValue === undefined ? "—" : formatMoney(benchmarkValue),
           BACKTEST_CHART_COLORS.benchmark,
+        ),
+      );
+      legend.append(
+        legendRow(
+          CASH_SCENARIO_LABEL,
+          cashValue === undefined ? "—" : formatMoney(cashValue),
+          BACKTEST_CHART_COLORS.cash,
         ),
       );
       legend.hidden = false;
@@ -202,8 +217,9 @@ export function BacktestComparisonChart({
     chart.subscribeCrosshairMove(onCrosshairMove);
 
     chartRef.current = chart;
-    portfolioRef.current = portfolio;
+    strategyRef.current = strategy;
     benchmarkRef.current = benchmark;
+    cashRef.current = cash;
     anchorRef.current = anchor;
 
     return () => {
@@ -212,43 +228,48 @@ export function BacktestComparisonChart({
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
       chartRef.current = null;
-      portfolioRef.current = null;
+      strategyRef.current = null;
       benchmarkRef.current = null;
+      cashRef.current = null;
       anchorRef.current = null;
-      drawnCountRef.current = 0;
     };
   }, []);
 
   useEffect(() => {
     const chart = chartRef.current;
-    const portfolio = portfolioRef.current;
+    const strategy = strategyRef.current;
     const benchmark = benchmarkRef.current;
-    if (!chart || !portfolio || !benchmark) {
+    const cash = cashRef.current;
+    if (!chart || !strategy || !benchmark || !cash) {
       return;
     }
 
-    portfolio.setData(
+    strategy.setData(
       points.map((point) => ({
         time: point.date as Time,
-        value: point.portfolioReturnPercent,
+        value: point.strategyValue,
       })),
     );
     // Whitespace, not zero: a missing benchmark value breaks the line and leaves the time scale
-    // aligned with the portfolio series it is being compared against.
+    // aligned with the scenarios it is being compared against.
     benchmark.setData(
       points.map((point) =>
-        point.benchmarkReturnPercent === null
+        point.benchmarkValue === null
           ? { time: point.date as Time }
-          : { time: point.date as Time, value: point.benchmarkReturnPercent },
+          : { time: point.date as Time, value: point.benchmarkValue },
       ),
     );
-
-    drawnCountRef.current = points.length;
+    cash.setData(
+      points.map((point) => ({
+        time: point.date as Time,
+        value: point.cashBaselineValue,
+      })),
+    );
   }, [points]);
 
   // The configured period owns the axis. The anchor series carries only whitespace — the two
   // endpoints of the run, and nothing else — so the time scale spans the whole period from the
-  // first render, before a single day has been simulated, and stops moving as checkpoints arrive.
+  // first render, before a single day has been simulated, and stops moving as years complete.
   useEffect(() => {
     const chart = chartRef.current;
     const anchor = anchorRef.current;
@@ -265,8 +286,7 @@ export function BacktestComparisonChart({
   }, [periodStart, periodEnd]);
 
   const benchmarkPoints = points.reduce(
-    (total, point) =>
-      point.benchmarkReturnPercent === null ? total : total + 1,
+    (total, point) => (point.benchmarkValue === null ? total : total + 1),
     0,
   );
 
@@ -274,11 +294,12 @@ export function BacktestComparisonChart({
     <div
       className={styles.frame}
       data-testid="backtest-chart"
-      // The curve lives on a canvas, so the wrapper carries it as the DOM-visible contract browser
-      // tests assert growth and series presence through.
-      data-series-count={benchmarkPoints > 0 ? 2 : 1}
-      data-portfolio-points={points.length}
+      // The curves live on a canvas, so the wrapper carries them as the DOM-visible contract
+      // browser tests assert growth and series presence through.
+      data-series-count={benchmarkPoints > 0 ? 3 : 2}
+      data-strategy-points={points.length}
       data-benchmark-points={benchmarkPoints}
+      data-cash-points={points.length}
       data-curve-from={points[0]?.date}
       data-curve-through={points.at(-1)?.date}
       data-period-start={periodStart}
@@ -303,10 +324,10 @@ export function BacktestComparisonChart({
         <span className={styles.seriesItem}>
           <span
             className={styles.legendDot}
-            style={{ backgroundColor: BACKTEST_CHART_COLORS.portfolio }}
+            style={{ backgroundColor: BACKTEST_CHART_COLORS.strategy }}
             aria-hidden="true"
           />
-          Portfolio
+          {STRATEGY_SCENARIO_LABEL}
         </span>
         <span className={styles.seriesItem}>
           <span
@@ -315,6 +336,14 @@ export function BacktestComparisonChart({
             aria-hidden="true"
           />
           {benchmarkName}
+        </span>
+        <span className={styles.seriesItem}>
+          <span
+            className={styles.legendDot}
+            style={{ backgroundColor: BACKTEST_CHART_COLORS.cash }}
+            aria-hidden="true"
+          />
+          {CASH_SCENARIO_LABEL}
         </span>
       </div>
     </div>

@@ -258,7 +258,7 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
       return {
         status: run?.getAttribute("data-status") ?? "",
         hasChart: chart !== null,
-        points: Number(chart?.getAttribute("data-portfolio-points") ?? "0"),
+        points: Number(chart?.getAttribute("data-strategy-points") ?? "0"),
         series: Number(chart?.getAttribute("data-series-count") ?? "0"),
         failure: failure?.textContent ?? null,
       };
@@ -372,10 +372,26 @@ test.describe("QA_USER backtests", () => {
 
     const chart = page.getByTestId("backtest-chart");
     await expect(chart).toBeVisible();
-    await expect(chart).toHaveAttribute("data-series-count", "2");
+    // Three funded scenarios on one absolute axis: Strategy, the benchmark, and Cash.
+    await expect(chart).toHaveAttribute("data-series-count", "3");
+    const strategyPoints = Number(
+      await chart.getAttribute("data-strategy-points"),
+    );
+    expect(strategyPoints).toBeGreaterThanOrEqual(
+      observation.maxPointsWhileRunning,
+    );
+    // Cash is drawn on every simulated day; the benchmark only where it has a value.
+    expect(Number(await chart.getAttribute("data-cash-points"))).toBe(
+      strategyPoints,
+    );
     expect(
-      Number(await chart.getAttribute("data-portfolio-points")),
-    ).toBeGreaterThanOrEqual(observation.maxPointsWhileRunning);
+      Number(await chart.getAttribute("data-benchmark-points")),
+    ).toBeGreaterThan(0);
+    const legend = await page
+      .getByTestId("backtest-chart-series")
+      .textContent();
+    expect(legend).toContain("Strategy");
+    expect(legend).toContain("Cash");
 
     // Final metrics, in the same tiles that carried the live ones.
     for (const metric of [
@@ -508,7 +524,7 @@ test.describe("QA_USER backtests", () => {
     // A reload after completion still exercises the same path — the page rebuilds entirely from
     // persisted state — so it is asserted rather than skipped.
     const pointsBeforeReload = Number(
-      await chart.getAttribute("data-portfolio-points"),
+      await chart.getAttribute("data-strategy-points"),
     );
     expect(pointsBeforeReload).toBeGreaterThan(0);
 
@@ -522,7 +538,7 @@ test.describe("QA_USER backtests", () => {
         async () =>
           (await chart.count()) === 0
             ? 0
-            : Number(await chart.getAttribute("data-portfolio-points")),
+            : Number(await chart.getAttribute("data-strategy-points")),
         { timeout: 30_000, intervals: [200] },
       )
       .toBeGreaterThanOrEqual(pointsBeforeReload);

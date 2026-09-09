@@ -67,7 +67,27 @@ The pin is **required**: `BacktestRun.executionCalendarSeriesId` is `NOT NULL` b
 because it changes nothing about the portfolio; the calendar may not.
 
 `packages/strategy/src/backtest/simulate.test.ts` proves the independence against a benchmark that
-trades on days the market did not.
+trades on days the market did not, and
+`packages/strategy/src/backtest/simulation.window.test.ts` proves an anomalous security bar outside
+the calendar — a Saturday, a market holiday — still cannot become a portfolio day once execution is
+split into calendar-year windows.
+
+## Two readings of one series
+
+A run's pinned comparison series is read twice per simulated date, and the two readings answer
+different questions:
+
+- the **growth index** (`close / closeOnFirstSimulatedDate`) is `time-weighted-index@1`, and is what
+  `benchmarkReturnPercent`, `alpha` and the benchmark's own drawdown are built on;
+- the **funded comparison portfolio** buys fractional shares with the run's own external cash flows
+  and marks them at the close in effect on the date, which is the absolute `S&P 500` line on the
+  chart (`comparisonScenarios: funded-scenarios/strategy-benchmark-cash@1`).
+
+The second is not derivable from the first once a run has monthly contributions: a growth index
+knows nothing about the price each contribution actually bought at. Both readings come from one
+monotonic cursor over one series, so they can never disagree about which bar was in effect on a
+date, and neither is allowed to redefine the other. `ai/architecture/backtest-execution.md` holds
+the formulas.
 
 ## What is deliberately shared
 

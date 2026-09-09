@@ -8,10 +8,11 @@ import { PRICE_OPERAND, type OperandKey } from "./operands.js";
  * the repository rejects non-finite inputs and the Prisma store already hands out JS doubles, so a
  * `Float64Array` introduces no precision the system does not already have.
  *
- * `dates` is ascending and holds exactly the eligible trading days of **this** security. There is
- * no market-wide calendar in the repository, so a portfolio loop forms the union of these axes.
- * `periodStartIndex` is the first index inside the requested backtest period: earlier rows exist
- * only to give a Trigger its `t - 1` value and must never produce an action.
+ * `dates` is ascending and holds exactly the eligible trading days of **this** security. It is not
+ * the portfolio's axis: the pinned execution calendar is authoritative, and a security acts only on
+ * the calendar dates its own frame has a row for. `periodStartIndex` is the first index inside the
+ * requested window: earlier rows exist only to give a Trigger its `t - 1` value and must never
+ * produce an action.
  */
 export type EvaluationFrame = {
   securityId: SecurityId;
@@ -47,9 +48,9 @@ export function readOperand(
 /**
  * Index of `date` in the frame, or -1 when this security did not trade that day.
  *
- * A portfolio loop walks the union calendar and asks each frame for its own index, so a missing
- * date is an ordinary answer, not an error: the security's predicates are simply NOT_EVALUABLE and
- * it takes no action.
+ * A portfolio loop walks the pinned execution calendar and asks each frame for its own index, so a
+ * missing date is an ordinary answer, not an error: the security's predicates are simply
+ * NOT_EVALUABLE and it takes no action.
  */
 export function frameIndexOf(frame: EvaluationFrame, date: LocalDate): number {
   let low = 0;

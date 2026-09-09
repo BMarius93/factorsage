@@ -1,3 +1,4 @@
+import type { BacktestCurvePointResponse } from "@intrinsic/contracts";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BacktestComparisonChart } from "./BacktestComparisonChart";
@@ -40,17 +41,33 @@ afterEach(() => {
   setVisibleRange.mockClear();
 });
 
-function renderChart(
-  points: { date: string; portfolioReturnPercent: number }[],
-) {
+/** The order the chart adds them in: Strategy, benchmark, Cash, then the whitespace anchor. */
+const STRATEGY = 0;
+const BENCHMARK = 1;
+const CASH = 2;
+const ANCHOR = 3;
+
+function pointOf(
+  date: string,
+  values: Partial<BacktestCurvePointResponse> = {},
+): BacktestCurvePointResponse {
+  return {
+    date,
+    portfolioReturnPercent: 0,
+    benchmarkReturnPercent: null,
+    strategyValue: 100_000,
+    benchmarkValue: 100_000,
+    cashBaselineValue: 100_000,
+    ...values,
+  };
+}
+
+function renderChart(points: BacktestCurvePointResponse[]) {
   return render(
     <BacktestComparisonChart
-      points={points.map((point) => ({
-        ...point,
-        benchmarkReturnPercent: null,
-      }))}
+      points={points}
       benchmarkName="Total Market Index"
-      ariaLabel="Portfolio against Total Market Index"
+      ariaLabel="Strategy against Total Market Index and cash"
       periodStart="1996-01-01"
       periodEnd="2026-01-01"
     />,
@@ -58,15 +75,82 @@ function renderChart(
 }
 
 describe("BacktestComparisonChart", () => {
-  it("locks the horizontal axis to the configured period, not to what has been simulated", () => {
-    renderChart([
-      { date: "1996-01-02", portfolioReturnPercent: 0 },
-      { date: "1997-01-02", portfolioReturnPercent: 4 },
+  it("draws three absolute scenarios funded by the same cash flows", () => {
+    const { container } = renderChart([
+      pointOf("1996-01-02", {
+        strategyValue: 100_000,
+        benchmarkValue: 100_000,
+        cashBaselineValue: 100_000,
+      }),
+      pointOf("1997-01-02", {
+        strategyValue: 118_400,
+        benchmarkValue: 112_000,
+        cashBaselineValue: 112_000,
+      }),
     ]);
 
-    // The anchor is the third series and carries only the two period bounds, as whitespace.
-    expect(series).toHaveLength(3);
-    expect(series[2]?.setData).toHaveBeenCalledWith([
+    // Currency values, not percentage growth: the axis is what the money is worth.
+    expect(series[STRATEGY]?.setData).toHaveBeenLastCalledWith([
+      { time: "1996-01-02", value: 100_000 },
+      { time: "1997-01-02", value: 118_400 },
+    ]);
+    expect(series[BENCHMARK]?.setData).toHaveBeenLastCalledWith([
+      { time: "1996-01-02", value: 100_000 },
+      { time: "1997-01-02", value: 112_000 },
+    ]);
+    expect(series[CASH]?.setData).toHaveBeenLastCalledWith([
+      { time: "1996-01-02", value: 100_000 },
+      { time: "1997-01-02", value: 112_000 },
+    ]);
+
+    const frame = container.querySelector("[data-testid='backtest-chart']");
+    expect(frame?.getAttribute("data-series-count")).toBe("3");
+    expect(frame?.getAttribute("data-strategy-points")).toBe("2");
+    expect(frame?.getAttribute("data-benchmark-points")).toBe("2");
+    expect(frame?.getAttribute("data-cash-points")).toBe("2");
+    const legend = container.querySelector(
+      "[data-testid='backtest-chart-series']",
+    );
+    expect(legend?.textContent).toContain("Strategy");
+    expect(legend?.textContent).toContain("Total Market Index");
+    expect(legend?.textContent).toContain("Cash");
+  });
+
+  it("breaks the benchmark line where it has no value rather than drawing a zero", () => {
+    const { container } = renderChart([
+      pointOf("1996-01-02", { benchmarkValue: null }),
+      pointOf("1997-01-02", { benchmarkValue: 112_000 }),
+    ]);
+
+    // Whitespace, so the time scale stays aligned with the scenarios beside it.
+    expect(series[BENCHMARK]?.setData).toHaveBeenLastCalledWith([
+      { time: "1996-01-02" },
+      { time: "1997-01-02", value: 112_000 },
+    ]);
+    const frame = container.querySelector("[data-testid='backtest-chart']");
+    expect(frame?.getAttribute("data-benchmark-points")).toBe("1");
+  });
+
+  it("keeps Strategy and Cash when a run predates the funded benchmark scenario", () => {
+    const { container } = renderChart([
+      pointOf("1996-01-02", { benchmarkValue: null }),
+      pointOf("1997-01-02", { benchmarkValue: null, strategyValue: 118_400 }),
+    ]);
+
+    const frame = container.querySelector("[data-testid='backtest-chart']");
+    // Two scenarios, honestly reported, instead of a fabricated benchmark portfolio.
+    expect(frame?.getAttribute("data-series-count")).toBe("2");
+    expect(frame?.getAttribute("data-benchmark-points")).toBe("0");
+    expect(frame?.getAttribute("data-strategy-points")).toBe("2");
+    expect(frame?.getAttribute("data-cash-points")).toBe("2");
+  });
+
+  it("locks the horizontal axis to the configured period, not to what has been simulated", () => {
+    renderChart([pointOf("1996-01-02"), pointOf("1997-01-02")]);
+
+    // The anchor is the fourth series and carries only the two period bounds, as whitespace.
+    expect(series).toHaveLength(4);
+    expect(series[ANCHOR]?.setData).toHaveBeenCalledWith([
       { time: "1996-01-01" },
       { time: "2026-01-01" },
     ]);
@@ -79,51 +163,39 @@ describe("BacktestComparisonChart", () => {
     expect(fitContent).not.toHaveBeenCalled();
   });
 
-  it("leaves the axis alone as the curve grows", () => {
-    const { rerender } = renderChart([
-      { date: "1996-01-02", portfolioReturnPercent: 0 },
-    ]);
-    const anchor = series[2];
+  it("leaves the axis alone as a completed year extends the curve", () => {
+    const { rerender } = renderChart([pointOf("1996-01-02")]);
+    const anchor = series[ANCHOR];
     setVisibleRange.mockClear();
     anchor?.setData.mockClear();
 
     rerender(
       <BacktestComparisonChart
         points={[
-          {
-            date: "1996-01-02",
-            portfolioReturnPercent: 0,
-            benchmarkReturnPercent: null,
-          },
-          {
-            date: "2001-01-02",
-            portfolioReturnPercent: 22,
-            benchmarkReturnPercent: null,
-          },
+          pointOf("1996-01-02"),
+          pointOf("2001-01-02", { strategyValue: 222_000 }),
         ]}
         benchmarkName="Total Market Index"
-        ariaLabel="Portfolio against Total Market Index"
+        ariaLabel="Strategy against Total Market Index and cash"
         periodStart="1996-01-01"
         periodEnd="2026-01-01"
       />,
     );
 
     // The period did not change, so neither does the frame: the curve fills in under a still axis
-    // instead of the axis being recomputed on every checkpoint.
+    // instead of the axis being recomputed every time a year lands.
     expect(setVisibleRange).not.toHaveBeenCalled();
     expect(anchor?.setData).not.toHaveBeenCalled();
     expect(fitContent).not.toHaveBeenCalled();
-    // The new point did reach the portfolio series, so the curve itself grew.
-    expect(series[0]?.setData).toHaveBeenLastCalledWith([
-      { time: "1996-01-02", value: 0 },
-      { time: "2001-01-02", value: 22 },
+    // The new point did reach the Strategy series, so the curve itself grew.
+    expect(series[STRATEGY]?.setData).toHaveBeenLastCalledWith([
+      { time: "1996-01-02", value: 100_000 },
+      { time: "2001-01-02", value: 222_000 },
     ]);
   });
 
   it("publishes the period it is framed by", () => {
-    const { container } = renderChart([
-      { date: "1996-01-02", portfolioReturnPercent: 0 },
-    ]);
+    const { container } = renderChart([pointOf("1996-01-02")]);
     const frame = container.querySelector("[data-period-start]");
     expect(frame?.getAttribute("data-period-start")).toBe("1996-01-01");
     expect(frame?.getAttribute("data-period-end")).toBe("2026-01-01");

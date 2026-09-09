@@ -180,6 +180,39 @@ export const CONTRIBUTION_METHODOLOGY_VERSION =
  */
 export const RETURN_METHODOLOGY_VERSION = "time-weighted-index@1" as const;
 
+/**
+ * What the three absolute comparison curves mean.
+ *
+ * `funded-scenarios/strategy-benchmark-cash@1`: three scenarios receiving **the same external cash
+ * flows on the same dates** — the same initial capital and the same monthly contributions — and
+ * differing only in what happens to the money.
+ *
+ * - `Strategy` = `strategyUninvestedCash(d) + marketValueOfOpenPositions(d)`. The total portfolio
+ *   value, not positions only.
+ * - `S&P 500` = a passive portfolio of the run's pinned comparison series. Each external cash flow
+ *   buys `amount / benchmarkCloseOnThatDate` fractional shares, and the line is those shares marked
+ *   at the close in effect on the date, under the same carry-forward rule a held position uses. It
+ *   is deliberately **not** `contributedCapital × (close / openingClose)`: that growth index knows
+ *   nothing about the price each contribution actually bought at, and the two agree only when there
+ *   are no contributions.
+ * - `Cash` = `initialCapital + cumulativeExternalContributionsThrough(d)`. Never invested, and
+ *   earning nothing under `zero-interest@1`. It is **not** the Strategy's uninvested cash balance.
+ *
+ * A separate version from `returns` on purpose. `time-weighted-index@1` still governs
+ * `portfolioReturnPercent`, `benchmarkReturnPercent`, `alpha`, CAGR and both drawdowns, and this
+ * decision does not redefine any of them; the absolute scenarios are an added reading of the same
+ * simulated days. Stated as its own version so introducing a cash yield, benchmark costs, or a rule
+ * for a benchmark whose history starts mid-run is a visible bump rather than a silent restatement.
+ *
+ * Out of scope, and undecided: a comparison benchmark whose history starts after the run's first
+ * simulated date. V1's `SPY`-backed `SP500` predates the thirty-year maximum period, so the case is
+ * unreachable; the engine holds such capital and invests it at the benchmark's first close rather
+ * than discarding it, which keeps the scenarios funded identically, but that behaviour must be
+ * decided as product methodology before any later-inception benchmark is offered.
+ */
+export const COMPARISON_SCENARIO_METHODOLOGY_VERSION =
+  "funded-scenarios/strategy-benchmark-cash@1" as const;
+
 /** The complete set stamped into a run snapshot. */
 export const BACKTEST_METHODOLOGY = {
   calendar: CALENDAR_METHODOLOGY_VERSION,
@@ -191,6 +224,7 @@ export const BACKTEST_METHODOLOGY = {
   strategyEvaluation: STRATEGY_EVALUATION_METHODOLOGY_VERSION,
   contribution: CONTRIBUTION_METHODOLOGY_VERSION,
   returns: RETURN_METHODOLOGY_VERSION,
+  comparisonScenarios: COMPARISON_SCENARIO_METHODOLOGY_VERSION,
   costBasis: "AVERAGE_COST" as const,
 } as const;
 
@@ -203,7 +237,8 @@ export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;
  * source decide which dates are simulated, `contribution` when money lands, `candidateOrdering`
  * who is funded first, `execution` what a day does, `executionCosts` and `cashYield` what it costs
  * and earns, `strategyEvaluation` what a Strategy document *means*, `costBasis` what a sale
- * realizes, and `returns` how the curve reports all of it.
+ * realizes, `returns` how the percentage curves report all of it, and `comparisonScenarios` what
+ * the absolute Strategy / benchmark / Cash values mean.
  */
 export function methodologyMismatches(
   recorded: unknown,

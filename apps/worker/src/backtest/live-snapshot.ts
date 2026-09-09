@@ -34,6 +34,8 @@ export function toLiveSnapshotResponse(
     benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
     alphaPercent: checkpoint.alphaPercent,
     maxDrawdownPercent: checkpoint.maxDrawdownPercent,
+    benchmarkValue: checkpoint.benchmarkValue,
+    cashBaselineValue: checkpoint.cashBaselineValue,
     tradeCount: checkpoint.tradeCount,
     openPositions: checkpoint.openPositions,
     curve: checkpoint.curve.map(toCurvePoint),
@@ -47,6 +49,9 @@ function toCurvePoint(point: BacktestCurvePoint): BacktestCurvePointResponse {
     date: point.date,
     portfolioReturnPercent: point.portfolioReturnPercent,
     benchmarkReturnPercent: point.benchmarkReturnPercent,
+    strategyValue: point.strategyValue,
+    benchmarkValue: point.benchmarkValue,
+    cashBaselineValue: point.cashBaselineValue,
   };
 }
 
