@@ -396,23 +396,30 @@ Fundamentals are retained for `VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7` fiscal y
 visible history:
 
 ```text
-price / derived / API / backtest target = [today - historyYears, today]
-fundamentals retention target           = [today - historyYears - 7, today]
+API / backtest / projection target = [today - productHistoryYears, today]
+raw DailyPrice retention target    = [today - productHistoryYears - 4, today]
+fundamentals retention target      = [today - productHistoryYears - 7, today]
 ```
 
-Both are clamped to a known IPO/listing date. The warm-up exists only so that a valuation on the
+All three are clamped to a known IPO/listing date. The two warm-ups are independent and must never
+compound: the four price years exist so a recursive or 200-week series is valid on the first
+visible day (`price-retention-warmup-horizon.md`), the seven fiscal years so a valuation on that
+day has an eligible TTM window. Fundamentals retention is anchored to the **product** horizon, so
+it stays 30 + 7 and the variant stays `h30:w7`; anchoring it to price retention would make it
+41 years and re-download every filing. The warm-up exists only so that a valuation on the
 **first visible trading day** already has a point-in-time eligible four-quarter TTM window and the
 exact `N` / `N - 5` annual growth endpoints; without it the earliest ~1.5 years would carry no
 intrinsic values and the first ~6 years would fall back to `DEFAULT_GROWTH`.
 
 Rules:
 
-- visible stock, derived-state, API projection and backtest history remain exactly `historyYears`;
-  no `DailyDerivedState` row is ever produced for a warm-up year, because daily materialization
-  uses only the visible price trading dates;
-- `canonicalTarget` stays the user-visible price/derived target. A separate internal
-  `fundamentalsTarget` is used only for statement backfill, statement publication and the derived
-  rebuild's revision read;
+- API projection and backtest history remain exactly `productHistoryYears`; no `DailyDerivedState`
+  row is ever produced for a *fundamentals* warm-up year, because daily materialization uses only
+  the price trading dates the loader retains;
+- `productTarget` stays the user-visible target. Two separate internal ranges sit behind it:
+  `priceRetentionTarget` for raw prices and the derived state built from them, and
+  `fundamentalsTarget` for statement backfill, statement publication and the derived rebuild's
+  revision read;
 - public `getFinancialStatements` stays bounded to the visible range: the extra years are internal
   valuation context, not newly exposed product history;
 - retention is a loader guarantee, not a data guarantee. The provider may still not have those
@@ -426,12 +433,12 @@ record counts. Capacity covers the visible years plus the warm-up years, keeping
 safety tails:
 
 ```text
-quarter limit = (historyYears + warmupYears) * 4 + 8
-annual limit  = (historyYears + warmupYears) + 2
+quarter limit = (productHistoryYears + warmupYears) * 4 + 8
+annual limit  = (productHistoryYears + warmupYears) + 2
 ```
 
 Apply the fundamentals retention horizon after mapping: discard fiscal rows older than
-`today - historyYears - warmupYears` / the known listing boundary when appropriate.
+`today - productHistoryYears - warmupYears` / the known listing boundary when appropriate.
 
 There are six source requests for a complete initial fundamentals backfill:
 

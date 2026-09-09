@@ -9,7 +9,7 @@ import {
   buildDailyDerivedState,
   calculateWilderRsi,
 } from "@intrinsic/stock-data";
-import { subtractYears } from "@intrinsic/stock-data";
+import { priceRetentionYears, subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
   qaIntrinsicFixture,
@@ -59,6 +59,13 @@ describe("QA stock-data seed", () => {
     const first = prices[0]?.date as string;
     expect(first).toBe(seedHistoryStart(TODAY));
     expect(subtractYears(TODAY, 30) < first).toBe(true);
+    // The claim the seed actually records reaches the **price-retention** horizon, not the
+    // product one. A Stock Details window opened at the 30-year bound makes the loader widen its
+    // load target to the retention boundary behind it; a fixture that only covered the product
+    // horizon would leave that prefix permanently uncovered and send the loader to a provider
+    // that has never heard of `QATEST1`, which is a browser-suite failure with no product cause.
+    expect(subtractYears(TODAY, priceRetentionYears(30)) < first).toBe(true);
+    expect(priceRetentionYears(30)).toBeGreaterThan(30);
   });
 
   it("seeds enough history for the shorter weekly periods and not the longest", () => {

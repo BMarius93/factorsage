@@ -552,7 +552,14 @@ export function getStockDataConfig(env: Environment = process.env) {
       100,
     ),
     defaultHistoryDays: integer(env, ["STOCK_DETAILS_HISTORY_DAYS"], 365),
-    historyYears: integer(env, ["STOCK_HISTORY_YEARS"], 30),
+    /**
+     * The product horizon: the oldest day a user may select, chart, query or backtest.
+     *
+     * Not the retention horizon. `@intrinsic/stock-data` derives how many years of raw prices to
+     * retain from this value plus the derived-series warm-up, so the extra internal years follow
+     * the product horizon automatically and are never configured — or exposed — separately.
+     */
+    productHistoryYears: integer(env, ["STOCK_HISTORY_YEARS"], 30),
     recentPriceFreshnessMs: integer(
       env,
       ["STOCK_RECENT_PRICE_FRESHNESS_MS"],

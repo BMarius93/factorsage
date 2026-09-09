@@ -4,7 +4,10 @@ import {
   SecurityType,
   StockDataset,
 } from "@intrinsic/database";
-import { TECHNICAL_SERIES } from "@intrinsic/contracts";
+import {
+  STOCK_DETAILS_MAX_HISTORY_YEARS,
+  TECHNICAL_SERIES,
+} from "@intrinsic/contracts";
 import {
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
@@ -18,6 +21,8 @@ import {
   DERIVED_SERIES_WARMUP_DAYS,
   InMemoryLoadCoordinator,
   NullStockDataCache,
+  priceRetentionYears,
+  subtractYears,
 } from "@intrinsic/stock-data";
 import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -43,11 +48,23 @@ function daysBeforeToday(days: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-const runtimeHistoryStart = (() => {
-  const date = new Date(`${runtimeToday}T00:00:00.000Z`);
-  date.setUTCFullYear(date.getUTCFullYear() - 30);
-  return date.toISOString().slice(0, 10);
-})();
+/** The product horizon: the oldest day any surface may expose. */
+const runtimeHistoryStart = subtractYears(
+  runtimeToday,
+  STOCK_DETAILS_MAX_HISTORY_YEARS,
+);
+/**
+ * The raw-price retention horizon this deployment materializes to.
+ *
+ * The fixture claims coverage from here, not from the product horizon, because that is what "this
+ * stock is fully loaded" means under the current policy: a caller that reaches the product
+ * boundary makes the loader widen to the retention boundary behind it, and a fixture that stopped
+ * at the product horizon would leave a permanent four-year gap for it to keep re-requesting.
+ */
+const runtimeRetentionStart = subtractYears(
+  runtimeToday,
+  priceRetentionYears(STOCK_DETAILS_MAX_HISTORY_YEARS),
+);
 
 /**
  * Price fixture dates, anchored to the day the suite runs.
@@ -299,7 +316,7 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: DAILY_PRICE_VARIANT,
-          earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          earliestDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
           latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
         },
@@ -307,7 +324,7 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_DERIVED_STATE,
           variant: DAILY_DERIVED_STATE_VARIANT,
-          earliestDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          earliestDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
           latestDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
         },
@@ -319,7 +336,7 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_PRICE,
           variant: DAILY_PRICE_VARIANT,
-          fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          fromDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
           toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
         },
@@ -327,7 +344,7 @@ describe("Stock Details API", () => {
           securityId: security.id,
           dataset: StockDataset.DAILY_DERIVED_STATE,
           variant: DAILY_DERIVED_STATE_VARIANT,
-          fromDate: new Date(`${runtimeHistoryStart}T00:00:00.000Z`),
+          fromDate: new Date(`${runtimeRetentionStart}T00:00:00.000Z`),
           toDate: new Date(`${runtimeToday}T00:00:00.000Z`),
           lastSuccessfulSyncAt: new Date(),
         },
@@ -717,6 +734,8 @@ describe("Stock Details API", () => {
       to: runtimeToday,
     };
     expect(provider.dailyCalls).toEqual([firstLoad]);
+    // Still caller-scoped: a short window does not reach the product horizon, let alone the
+    // retention horizon four years behind it.
     expect(firstLoad.from > runtimeHistoryStart).toBe(true);
 
     // Reaching further back loads only the prefix that is still missing, never the whole window

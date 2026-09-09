@@ -44,6 +44,11 @@ horizon: it bounds requests, it does not answer where history begins. The web ap
 the reported bound and never recomputes it. A backtest names its own period through the loader and
 is unaffected by this limit.
 
+The loader retains raw daily prices four years behind that 30-year limit as internal calculation
+warm-up. Those rows are never charted, never returned and never reported in `history`; they exist
+so a long series is already valid on the oldest day the chart can reach. See
+`../../docs/decisions/price-retention-warmup-horizon.md`.
+
 - The page opens on approximately one year and asks the API for exactly that window. It never
   leaves the range open for the shared loader to fill in, and it never loads long history it does
   not display. `../architecture/system-overview.md` and

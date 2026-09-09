@@ -23,8 +23,11 @@ Exactly four models. No additional model may be introduced under this decision.
 
 ## History horizons
 
-The visible stock/derived/backtest history is the configured `historyYears`. Financial statements
-are retained for seven additional fiscal years as valuation warm-up
+The visible stock/backtest history is the configured product horizon (`productHistoryYears`). Raw
+prices and the derived state are retained four years further back as calculation warm-up
+(`price-retention-warmup-horizon.md`), which changes nothing here. Financial statements are
+retained for seven additional fiscal years, measured from the **product** horizon, as valuation
+warm-up
 (`VALUATION_FUNDAMENTALS_WARMUP_YEARS`), so the first visible trading day can already have an
 eligible four-quarter TTM window and real `N` / `N - 5` growth endpoints instead of the default
 rate. The warm-up guarantees loader retention only; if the provider has no such statements, the

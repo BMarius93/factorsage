@@ -118,8 +118,8 @@ const DERIVED_SERIES_WARMUP_MARGIN_WEEKS = 8;
  * `SMA(200, 1W)` / `EMA(200, 1W)` at two hundred completed weeks.
  *
  * This is the only history Stock Details pulls in beyond what the caller asked for. It exists for
- * calculation correctness, not as a retention policy: the configured `historyYears` horizon stays
- * the outer bound a backtest can explicitly reach for, never an implicit floor for a page view.
+ * calculation correctness, not as a retention policy: the configured product horizon stays the
+ * outer bound a backtest can explicitly reach for, never an implicit floor for a page view.
  */
 export const DERIVED_SERIES_WARMUP_DAYS =
   (Math.max(
@@ -133,6 +133,41 @@ export const DERIVED_SERIES_WARMUP_DAYS =
   ) +
     DERIVED_SERIES_WARMUP_MARGIN_WEEKS) *
   CALENDAR_DAYS_PER_WEEK;
+
+const CALENDAR_DAYS_PER_YEAR = 365.25;
+
+/**
+ * Extra whole years of raw `DailyPrice` history retained *before* the product horizon.
+ *
+ * The product horizon is the oldest day a user may select, chart or backtest. It is not the oldest
+ * day the loader may hold, because every recursive or long-window series needs closes from before
+ * the first visible day to be valid on it: at a two-hundred completed-week lookback, a backtest
+ * that starts exactly on the product boundary would otherwise spend its first four years with no
+ * `sma200w`/`ema200w` at all.
+ *
+ * Derived from `DERIVED_SERIES_WARMUP_DAYS` rather than typed as a literal, so registering a
+ * longer series widens retention with it instead of silently reintroducing the null warm-up. Today
+ * that is four years, on a thirty-year product horizon: thirty-four years of retained prices.
+ *
+ * It is internal data. Nothing about the product surface widens with it — see
+ * {@link CanonicalStockDataService.projectionRange} for the visible bound and
+ * {@link VALUATION_FUNDAMENTALS_WARMUP_YEARS} for the separate fundamentals policy, which stays
+ * anchored to the product horizon and must never compound with this one.
+ */
+export const PRICE_RETENTION_WARMUP_YEARS = Math.ceil(
+  DERIVED_SERIES_WARMUP_DAYS / CALENDAR_DAYS_PER_YEAR,
+);
+
+/**
+ * Years of raw price history retained for a given product horizon.
+ *
+ * One function so the loader, the QA seed and the tests cannot disagree about what "retention"
+ * means. Callers that need a *date* must go through `subtractYears`, never their own arithmetic:
+ * the 29 February clamp is what keeps the product and retention boundaries on one calendar rule.
+ */
+export function priceRetentionYears(productHistoryYears: number): number {
+  return productHistoryYears + PRICE_RETENTION_WARMUP_YEARS;
+}
 
 /**
  * Calendar days the earliest persisted row must lie beyond the permitted Stock Details start
@@ -238,11 +273,18 @@ export type ProviderRequestEvent = {
 
 export type CanonicalStockDataServiceOptions = {
   defaultHistoryDays?: number;
-  historyYears?: number;
+  /**
+   * The product horizon: the oldest day any surface may select, chart, query or backtest.
+   *
+   * It is deliberately **not** the retention horizon. Raw prices are retained for
+   * `priceRetentionYears(productHistoryYears)` so long series are already valid on the first
+   * visible day; those extra years never reach a projection, a bound or an API contract.
+   */
+  productHistoryYears?: number;
   /**
    * Retained years the Stock Details surface may explore, when that is narrower than the
-   * loader's own retention horizon. Defaults to the horizon, so an unconfigured service
-   * reports exactly what it retains. A backtest names its own period and is unaffected.
+   * product horizon. Defaults to the product horizon, so an unconfigured service reports
+   * exactly what it exposes. A backtest names its own period and is unaffected.
    */
   stockDetailsHistoryYears?: number;
   recentPriceFreshnessMs?: number;
@@ -260,7 +302,8 @@ export type CanonicalStockDataServiceOptions = {
 
 export class CanonicalStockDataService implements StockDataService {
   private readonly defaultHistoryDays: number;
-  private readonly historyYears: number;
+  private readonly productHistoryYears: number;
+  private readonly priceRetentionYears: number;
   private readonly stockDetailsHistoryYears: number;
   private readonly recentPriceFreshnessMs: number;
   private readonly fundamentalsFreshnessMs: number;
@@ -276,10 +319,11 @@ export class CanonicalStockDataService implements StockDataService {
     options: CanonicalStockDataServiceOptions = {},
   ) {
     this.defaultHistoryDays = options.defaultHistoryDays ?? 365;
-    this.historyYears = options.historyYears ?? 30;
+    this.productHistoryYears = options.productHistoryYears ?? 30;
+    this.priceRetentionYears = priceRetentionYears(this.productHistoryYears);
     this.stockDetailsHistoryYears = Math.min(
-      this.historyYears,
-      options.stockDetailsHistoryYears ?? this.historyYears,
+      this.productHistoryYears,
+      options.stockDetailsHistoryYears ?? this.productHistoryYears,
     );
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
@@ -290,7 +334,7 @@ export class CanonicalStockDataService implements StockDataService {
     this.onProviderRequest = options.onProviderRequest ?? (() => {});
     for (const [name, value] of Object.entries({
       defaultHistoryDays: this.defaultHistoryDays,
-      historyYears: this.historyYears,
+      productHistoryYears: this.productHistoryYears,
       recentPriceFreshnessMs: this.recentPriceFreshnessMs,
       fundamentalsFreshnessMs: this.fundamentalsFreshnessMs,
       recentTailCalendarDays: this.recentTailCalendarDays,
@@ -1019,7 +1063,7 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     query: DateRange & { asOf?: string },
   ): Required<DateRange> | null {
-    const target = this.canonicalTarget(security);
+    const target = this.productTarget(security);
     const to = minOptionalDate(
       minOptionalDate(query.to, query.asOf) ?? target.to,
       target.to,
@@ -1465,8 +1509,16 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  /**
+   * The fundamentals datasets this deployment expects, keyed by the **product** horizon.
+   *
+   * The variant string carries that horizon (`h30:w7`). Passing the price-retention horizon here
+   * would rename every variant to `h34:w7`, make every already-backfilled dataset look missing and
+   * re-download the whole statement history from the provider — for a policy change that never
+   * touched a filing.
+   */
   private fundamentalsOperationsForHistory() {
-    return fundamentalsDatasetOperations(this.historyYears);
+    return fundamentalsDatasetOperations(this.productHistoryYears);
   }
 
   private async runFundamentalsOperationsToSettlement<T>(
@@ -1486,7 +1538,7 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   private fundamentalsVariant(cadence: FinancialStatementCadence): string {
-    return fundamentalsDatasetVariant(cadence, this.historyYears);
+    return fundamentalsDatasetVariant(cadence, this.productHistoryYears);
   }
 
   /** Request capacity must cover the retained years plus the existing safety tails. */
@@ -1494,7 +1546,7 @@ export class CanonicalStockDataService implements StockDataService {
     cadence: FinancialStatementCadence,
   ): number {
     const retainedYears =
-      this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
+      this.productHistoryYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS;
     return cadence === QUARTERLY_CADENCE
       ? retainedYears * 4 + FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL
       : retainedYears + FUNDAMENTALS_BACKFILL_ANNUAL_TAIL;
@@ -1522,7 +1574,7 @@ export class CanonicalStockDataService implements StockDataService {
     security: Security,
     query: FinancialStatementQuery,
   ): FinancialStatementQuery {
-    const target = this.canonicalTarget(security);
+    const target = this.productTarget(security);
     const from = query.from ? maxDate(query.from, target.from) : target.from;
     const to = query.to ? minDate(query.to, target.to) : target.to;
     return {
@@ -1546,7 +1598,8 @@ export class CanonicalStockDataService implements StockDataService {
     return {
       securityId: security.id,
       status: "READY",
-      historyYears: this.historyYears,
+      productHistoryYears: this.productHistoryYears,
+      priceRetentionYears: this.priceRetentionYears,
       coverageStart: target.from,
       coverageEnd: target.to,
       ...(first ? { canonicalHistoryStart: first } : {}),
@@ -1569,7 +1622,8 @@ export class CanonicalStockDataService implements StockDataService {
       ...(previous ?? {}),
       securityId: security.id,
       status: "HYDRATING",
-      historyYears: this.historyYears,
+      productHistoryYears: this.productHistoryYears,
+      priceRetentionYears: this.priceRetentionYears,
       coverageStart: target.from,
       coverageEnd: target.to,
       hydrationId: randomUUID(),
@@ -1589,7 +1643,12 @@ export class CanonicalStockDataService implements StockDataService {
   private isCurrent(manifest: StockManifest | null): manifest is StockManifest {
     return (
       manifest?.status === "READY" &&
-      manifest.historyYears === this.historyYears &&
+      manifest.productHistoryYears === this.productHistoryYears &&
+      // Retention is pinned as well as the product horizon, so a READY manifest written under the
+      // narrower policy cannot answer for the wider one. Widening retention costs a Redis rebuild
+      // and nothing more: the durable coverage under `DAILY_PRICE_VARIANT` is untouched, so the
+      // rebuild replays PostgreSQL and reaches the provider only for dates genuinely missing.
+      manifest.priceRetentionYears === this.priceRetentionYears &&
       manifest.priceDatasetVersion === PRICE_DATASET_VERSION &&
       manifest.financialStatementVersion === FINANCIAL_STATEMENT_VERSION &&
       manifest.derivedStateRevision === DERIVED_STATE_REVISION
@@ -1665,25 +1724,34 @@ export class CanonicalStockDataService implements StockDataService {
    * The range the loader materializes to answer a requested read.
    *
    * The caller's window decides the load. Only the derived warm-up is added to it, and the
-   * configured retention horizon clamps it — the horizon is a ceiling, never the floor a page
-   * view silently falls back to. The upper bound stays today because a resident stock is only
-   * usable while its tail is current: freshness, the recent-tail refresh and the manifest all
-   * key off it, and nothing is saved by holding a stale tail.
+   * **price retention** horizon clamps it — never the product horizon, which is a bound on what
+   * may be *shown*, not on what may be *held*. Clamping the load to the product horizon is what
+   * used to leave a maximum-length backtest with no two-hundred-week average on its first years:
+   * the warm-up was subtracted and then immediately clamped back onto the boundary it was meant
+   * to reach behind.
+   *
+   * Below the product horizon the boundary stops being caller-scoped and snaps to the retention
+   * start. There is no surface down there to scope it to, and one canonical prefix is what makes
+   * the second deep caller free: every request that reaches past the product boundary converges on
+   * the same range, so it is fetched once, covered once, and never re-requested in ragged slices.
+   *
+   * The upper bound stays today because a resident stock is only usable while its tail is current:
+   * freshness, the recent-tail refresh and the manifest all key off it, and nothing is saved by
+   * holding a stale tail.
    */
   private loadTarget(
     security: Security,
     requested: Required<DateRange>,
   ): Required<DateRange> {
-    const horizon = this.canonicalTarget(security);
+    const product = this.productTarget(security);
+    const retention = this.priceRetentionTarget(security);
+    const warmed = minDate(
+      addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS),
+      product.to,
+    );
     return {
-      from: maxDate(
-        horizon.from,
-        minDate(
-          addDays(requested.from, -DERIVED_SERIES_WARMUP_DAYS),
-          horizon.to,
-        ),
-      ),
-      to: horizon.to,
+      from: warmed <= product.from ? retention.from : warmed,
+      to: retention.to,
     };
   }
 
@@ -1760,9 +1828,41 @@ export class CanonicalStockDataService implements StockDataService {
     return { start: earliestRow, end: today, startOrigin: "PROVIDER" };
   }
 
-  private canonicalTarget(security: Security): Required<DateRange> {
+  /**
+   * The product horizon for one security: the outer bound of everything a user may see.
+   *
+   * Every projection, every intrinsic read, every financial-statement query and the Stock Details
+   * bound resolve against this range and nothing wider. Raw prices reach further back — see
+   * {@link priceRetentionTarget} — but those rows exist to make a calculation valid on the first
+   * visible day, and no product surface may return one.
+   */
+  private productTarget(security: Security): Required<DateRange> {
+    return this.horizonTarget(security, this.productHistoryYears);
+  }
+
+  /**
+   * Internal retention range for raw daily prices: the product horizon plus the derived-series
+   * warm-up, clamped to a known listing date.
+   *
+   * Deliberately separate from {@link productTarget}, exactly as `fundamentalsTarget` is. Only the
+   * load target, the durable price coverage it records and the derived state calculated from it
+   * use this wider range; widening the product target instead would expose the warm-up years
+   * through Stock Details, the price and technical APIs and the backtestable period.
+   *
+   * The listing clamp is what keeps a recent IPO honest: a security listed inside the retention
+   * window retains from its listing date, and no warm-up row is invented before it.
+   */
+  private priceRetentionTarget(security: Security): Required<DateRange> {
+    return this.horizonTarget(security, this.priceRetentionYears);
+  }
+
+  /** `[max(today - years, ipoDate), today]` — the one horizon shape, one year-arithmetic rule. */
+  private horizonTarget(
+    security: Security,
+    years: number,
+  ): Required<DateRange> {
     const today = this.today();
-    const horizonStart = subtractYears(today, this.historyYears);
+    const horizonStart = subtractYears(today, years);
     return {
       from: security.ipoDate
         ? maxDate(horizonStart, security.ipoDate)
@@ -1772,25 +1872,23 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /**
-   * Internal retention range for financial statements: the canonical history plus valuation
+   * Internal retention range for financial statements: the **product** horizon plus the valuation
    * warm-up, clamped to a known listing date.
    *
-   * This is deliberately separate from `canonicalTarget`: widening that would change price, cache
-   * and API semantics. Only statement backfill, publication and the rebuild's revision read use
-   * this wider range, and no derived row is ever produced for a warm-up year.
+   * Anchored to the product horizon, never to {@link priceRetentionTarget}. The two warm-ups
+   * answer different questions — one makes a recursive price series valid on the first visible
+   * day, the other makes a TTM window and its growth endpoints point-in-time eligible on it — and
+   * compounding them would quietly turn a thirty-seven-year statement retention into forty-one,
+   * costing provider quota and storage for filings no valuation can ever read.
+   *
+   * Only statement backfill, publication and the rebuild's revision read use this range, and no
+   * derived row is ever produced for a warm-up year.
    */
   private fundamentalsTarget(security: Security): Required<DateRange> {
-    const today = this.today();
-    const retentionStart = subtractYears(
-      today,
-      this.historyYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
+    return this.horizonTarget(
+      security,
+      this.productHistoryYears + VALUATION_FUNDAMENTALS_WARMUP_YEARS,
     );
-    return {
-      from: security.ipoDate
-        ? maxDate(retentionStart, security.ipoDate)
-        : retentionStart,
-      to: today,
-    };
   }
 
   private weeklyHistoryContext(
@@ -1806,11 +1904,18 @@ export class CanonicalStockDataService implements StockDataService {
     };
   }
 
+  /**
+   * The product-visible slice of a requested range.
+   *
+   * The one place the retained warm-up years are cut off. Prices, derived state, technicals,
+   * intrinsic values and every backtest frame are read through it, so a row older than the product
+   * horizon physically cannot reach a caller however wide the load target was.
+   */
   private projectionRange(
     security: Security,
     requested: Required<DateRange>,
   ): Required<DateRange> | null {
-    const target = this.canonicalTarget(security);
+    const target = this.productTarget(security);
     const from = maxDate(requested.from, target.from);
     const to = minDate(requested.to, target.to);
     return from <= to ? { from, to } : null;

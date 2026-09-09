@@ -177,7 +177,10 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 - **Warm-up.** Two hundred completed weeks is the longest lookback in the catalog, so it is what
   sets `DERIVED_SERIES_WARMUP_DAYS` — the history the loader materializes _before_ a requested
   window so every series is already warmed up on its first visible day. It is derived from the
-  registries, so adding a longer period widens it automatically.
+  registries, so adding a longer period widens it automatically. It also sets
+  `PRICE_RETENTION_WARMUP_YEARS`, the four internal years of raw price history retained _behind_
+  the 30-year product horizon so the same guarantee holds at the boundary itself — where the
+  clamp used to cancel the warm-up out (`../../docs/decisions/price-retention-warmup-horizon.md`).
 - `WeeklyPrice` is persisted as completed-week OHLCV **source data**, not a derived-series value.
   It has no read port: every rebuild re-aggregates from canonical `DailyPrice`.
 

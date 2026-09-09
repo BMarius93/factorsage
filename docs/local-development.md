@@ -36,8 +36,13 @@ pnpm dev:api
 pnpm dev:worker
 ```
 
-Stock-data misses use `FMP_API_KEY` from the same root `.env`. Canonical hydration defaults to 30
-years through `STOCK_HISTORY_YEARS`. Cache residency defaults to 100 complete stocks and can be
+Stock-data misses use `FMP_API_KEY` from the same root `.env`. `STOCK_HISTORY_YEARS` defaults to
+30 and is the **product** horizon: the oldest day Stock Details, the APIs and a backtest may reach.
+Raw daily prices are retained four years further back (34 in total) so long series such as
+SMA/EMA 200W are already valid on the first visible day of a maximum-length backtest; that warm-up
+is derived from the catalog registries, is not separately configurable, and is never exposed —
+see `decisions/price-retention-warmup-horizon.md`. Widening an installation that already holds 30
+years fetches only the missing prefix. Cache residency defaults to 100 complete stocks and can be
 changed with `STOCK_CACHE_MAX_RESIDENT_STOCKS`; eviction removes all registered yearly chunks for
 the selected security. FMP retries, provider-wide limiting, and recent-tail freshness settings are
 listed in `.env.example`. Deterministic and real-Redis tests do not require FMP. Run Redis coverage

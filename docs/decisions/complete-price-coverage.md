@@ -174,7 +174,10 @@ a boundary is reported by the API — never inferred by a client from an empty w
 6. **The Stock Details limit and backtest ranges stay separate.** `STOCK_DETAILS_MAX_HISTORY_YEARS`
    bounds the Stock Details surface at the controller. A backtest names its own range through
    `StockDataService` and is unaffected by the viewport, the clamp and `history.start`; nothing
-   couples them. The fix benefits it all the same: a 30-year ask is now complete, where before it
+   couples them. Both are product limits; the loader's own raw-price retention reaches four years
+   behind them and is reported by neither (`price-retention-warmup-horizon.md`). A coverage
+   interval inside those warm-up years means exactly what it means anywhere else, which is why
+   widening retention did not need a `PRICE_DATASET_VERSION` bump. The fix benefits it all the same: a 30-year ask is now complete, where before it
    was silently the newest 5000 trading days.
 
 ## Consequences

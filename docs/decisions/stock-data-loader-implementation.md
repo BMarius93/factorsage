@@ -27,8 +27,9 @@ paths. PostgreSQL remains authoritative; Redis is disposable and reconstructible
 
 ## Canonical hydration
 
-`ensureStockHydrated` establishes the canonical daily history a caller needs, clipped by
-`STOCK_HISTORY_YEARS` (30 by default), known IPO date, provider availability, and the current
+`ensureStockHydrated` establishes the canonical daily history a caller needs, clipped by the
+raw-price retention horizon (`STOCK_HISTORY_YEARS` + the derived-series warm-up, 34 by default —
+see `price-retention-warmup-horizon.md`), known IPO date, provider availability, and the current
 canonical date. It performs these steps under one stock hydration lock:
 
 1. Recheck the v2 manifest after lock acquisition, against the range this call requires.

@@ -35,8 +35,10 @@ Two further problems compounded it:
 
 - **Nothing bounded the exploration.** With no notion of a boundary, a drag could continue into
   blank space forever. The one hard limit that existed was the loader's own `STOCK_HISTORY_YEARS`
-  retention horizon, which the web app could not see and which is not the same question as "how
-  far may this product surface explore".
+  horizon, which the web app could not see and which is not the same question as "how far may this
+  product surface explore". (That number is now explicitly the *product* horizon; the loader's raw
+  price retention reaches four years further back and is never reported —
+  `price-retention-warmup-horizon.md`.)
 - **Arriving data moved the user.** Lightweight Charts anchors the visible logical range to bar
   indices, so prepending a year of history silently walks the window a year backwards. On top of
   that the framing effect re-fit the chart on every data update while a load was outstanding.
