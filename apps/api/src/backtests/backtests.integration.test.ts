@@ -704,6 +704,8 @@ describe("backtests", () => {
       benchmarkReturnPercent: 2.25,
       alphaPercent: 1.25,
       maxDrawdownPercent: 4.75,
+      benchmarkValue: 105_100.5,
+      cashBaselineValue: 103_000,
       tradeCount: 7,
       openPositions: 2,
       curve: [
@@ -711,11 +713,17 @@ describe("backtests", () => {
           date: "2020-01-02",
           portfolioReturnPercent: 0,
           benchmarkReturnPercent: 0,
+          strategyValue: 100_000,
+          benchmarkValue: 100_000,
+          cashBaselineValue: 100_000,
         },
         {
           date: "2020-06-30",
           portfolioReturnPercent: 3.5,
           benchmarkReturnPercent: null,
+          strategyValue: 103_500.75,
+          benchmarkValue: null,
+          cashBaselineValue: 103_000,
         },
       ],
       holdings: [
@@ -816,6 +824,9 @@ describe("backtests", () => {
         investedCapital: 100_000,
         returnIndex: 1 + index / 10_000,
         benchmarkIndex: index === 0 ? null : 1 + index / 20_000,
+        // A funded benchmark scenario the worker wrote, absent on the day it could not be priced.
+        benchmarkValue: index === 0 ? null : 100_000 + index / 2,
+        cashBaselineValue: 100_000,
         openPositions: 2,
       })),
     });
@@ -993,6 +1004,12 @@ describe("backtests", () => {
       date: isoDate(0),
       portfolioReturnPercent: 0,
       benchmarkReturnPercent: null,
+      // The absolute scenarios ride the same points: the Strategy line is the run's own total
+      // value, and the benchmark is absent on a date it had no close, exactly as its percentage
+      // reading is.
+      strategyValue: 100_000,
+      benchmarkValue: null,
+      cashBaselineValue: 100_000,
     });
     const last = curve[curve.length - 1];
     expect(last?.date).toBe(isoDate(lastIndex));
@@ -1004,6 +1021,9 @@ describe("backtests", () => {
       (lastIndex / 20_000) * 100,
       8,
     );
+    expect(last?.strategyValue).toBe(100_000 + lastIndex);
+    expect(last?.benchmarkValue).toBe(100_000 + lastIndex / 2);
+    expect(last?.cashBaselineValue).toBe(100_000);
     expect(curve.map((point) => point.date)).toEqual(
       [...curve.map((point) => point.date)].sort(),
     );
@@ -1043,6 +1063,75 @@ describe("backtests", () => {
 
     // The trade log is bounded, but the run's own count stays truthful.
     expect(result?.summary.totalTrades).toBe(3);
+  });
+
+  it("still renders a run completed before the funded benchmark scenario existed", async () => {
+    const run = await submit({ startDate: "2015-01-01", endDate: "2015-01-31" });
+    // Exactly the shape the migration leaves behind: `cashBaselineValue` projected from the
+    // `investedCapital` those rows already held, and `benchmarkValue` absent because a funded
+    // portfolio is not derivable from a growth index once a run has contributions.
+    await prisma.backtestDailyEquity.createMany({
+      data: [0, 1, 2].map((index) => ({
+        runId: run.id,
+        date: new Date(`${isoDate(index)}T00:00:00.000Z`),
+        cash: 500,
+        positionsValue: 99_500 + index,
+        totalValue: 100_000 + index,
+        investedCapital: 100_000 + index * 10,
+        returnIndex: 1 + index / 10_000,
+        benchmarkIndex: 1 + index / 20_000,
+        benchmarkValue: null,
+        cashBaselineValue: 100_000 + index * 10,
+        openPositions: 1,
+      })),
+    });
+    const completedAt = new Date();
+    await prisma.backtestRun.update({
+      where: { id: run.id },
+      data: { status: "COMPLETED", startedAt: completedAt, completedAt },
+    });
+    await prisma.backtestRunSummary.create({
+      data: {
+        runId: run.id,
+        firstSimulatedDate: new Date(`${isoDate(0)}T00:00:00.000Z`),
+        lastSimulatedDate: new Date(`${isoDate(2)}T00:00:00.000Z`),
+        tradingDays: 3,
+        investedCapital: 100_020,
+        finalCash: 500,
+        finalPositionsValue: 99_502,
+        finalValue: 100_002,
+        netProfit: -18,
+        portfolioReturnPercent: 0.02,
+        benchmarkReturnPercent: 0.01,
+        alphaPercent: 0.01,
+        portfolioCagrPercent: null,
+        maxDrawdownPercent: 0,
+        benchmarkMaxDrawdownPercent: 0,
+        realizedPnl: 0,
+        unrealizedPnl: -18,
+        totalTrades: 0,
+        buyTrades: 0,
+        sellTrades: 0,
+        finalExitTrades: 0,
+        winningTrades: 0,
+        losingTrades: 0,
+        openPositions: 1,
+      },
+    });
+
+    const response = await owner.get(`/backtests/${run.id}`).expect(200);
+    const curve = (response.body as BacktestRunDetailResponse).result?.curve;
+
+    expect(curve).toHaveLength(3);
+    // Strategy and Cash are real for such a run; the benchmark scenario is reported as absent
+    // rather than reconstructed from a number that cannot produce it.
+    const point = curve?.[2];
+    expect(point?.date).toBe(isoDate(2));
+    expect(point?.portfolioReturnPercent).toBeCloseTo((2 / 10_000) * 100, 8);
+    expect(point?.benchmarkReturnPercent).toBeCloseTo((2 / 20_000) * 100, 8);
+    expect(point?.strategyValue).toBe(100_002);
+    expect(point?.benchmarkValue).toBeNull();
+    expect(point?.cashBaselineValue).toBe(100_020);
   });
 
   it("exposes a failure's product code and message, never its developer detail", async () => {

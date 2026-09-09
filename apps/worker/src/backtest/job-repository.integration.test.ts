@@ -578,6 +578,8 @@ function emptyResult(): BacktestResult {
         investedCapital: 10_000,
         returnIndex: 1,
         benchmarkIndex: 1,
+        benchmarkValue: 10_000,
+        cashBaselineValue: 10_000,
         openPositions: 0,
       },
       {
@@ -588,6 +590,8 @@ function emptyResult(): BacktestResult {
         investedCapital: 10_000,
         returnIndex: 1.05,
         benchmarkIndex: 1.01,
+        benchmarkValue: 10_100,
+        cashBaselineValue: 10_000,
         openPositions: 0,
       },
     ],

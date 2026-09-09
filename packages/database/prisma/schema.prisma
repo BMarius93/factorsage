@@ -727,11 +727,20 @@ model BacktestTrade {
 
 /// One portfolio valuation per simulated trading date.
 ///
+/// It carries two readings of the same day, and they answer different questions.
+///
 /// `returnIndex` and `benchmarkIndex` are growth indices based at 1.0 on the first simulated date,
 /// which is what makes portfolio and benchmark percentage growth directly comparable. The
 /// portfolio index is time-weighted, so a monthly contribution raises value without inventing
 /// return. `benchmarkIndex` is null on a date the benchmark has no value at or before — never
-/// fabricated.
+/// fabricated. Every existing summary metric — return, alpha, CAGR, both drawdowns — is built on
+/// these and is unchanged.
+///
+/// `totalValue`, `benchmarkValue` and `cashBaselineValue` are the three absolute comparison
+/// scenarios the chart shows, all funded by the same external cash flows on the same dates:
+/// the Strategy portfolio, a passive benchmark portfolio that buys fractional shares with each
+/// contribution, and capital that was never invested. See `comparisonScenarios` in the run's
+/// snapshotted methodology.
 model BacktestDailyEquity {
   runId           String
   date            DateTime    @db.Date
@@ -741,6 +750,14 @@ model BacktestDailyEquity {
   investedCapital Decimal     @db.Decimal(20, 2)
   returnIndex     Decimal     @db.Decimal(20, 10)
   benchmarkIndex  Decimal?    @db.Decimal(20, 10)
+  /// Absolute value of the funded benchmark scenario. Null on a date the benchmark cannot be
+  /// priced, and null for every run completed before the scenario existed — it is not derivable
+  /// from `benchmarkIndex` once the run has contributions, so it is never backfilled.
+  benchmarkValue  Decimal?    @db.Decimal(20, 2)
+  /// Absolute value of the `Cash` scenario: initial capital plus contributions to date, earning
+  /// nothing under `zero-interest@1`. Deliberately not `cash`, which is the Strategy's own
+  /// uninvested balance.
+  cashBaselineValue Decimal   @db.Decimal(20, 2)
   openPositions   Int
   run             BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 

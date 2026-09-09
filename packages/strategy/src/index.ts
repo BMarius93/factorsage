@@ -22,4 +22,7 @@ export * from "./backtest/types.js";
 export * from "./backtest/calendar.js";
 export * from "./backtest/metrics.js";
 export * from "./backtest/benchmark.js";
+export * from "./backtest/window.js";
+export * from "./backtest/comparison.js";
+export * from "./backtest/simulation.js";
 export * from "./backtest/simulate.js";

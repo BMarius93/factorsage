@@ -133,6 +133,14 @@ export type BacktestMethodologyResponse = {
   strategyEvaluation: string;
   contribution: string;
   returns: string;
+  /**
+   * What the absolute Strategy / benchmark / Cash comparison values mean.
+   *
+   * Separate from `returns`, which still governs the percentage-growth curves and every metric
+   * derived from them. A run completed before this version recorded none, and its result carries no
+   * funded benchmark value.
+   */
+  comparisonScenarios: string;
   costBasis: string;
 };
 
@@ -186,16 +194,44 @@ export type BacktestRunSummaryResponse = {
 // ---------------------------------------------------------------------------
 
 /**
- * One point of the comparison curve, in percentage growth from the run's first simulated date.
+ * One point of the comparison curve: the same simulated day, read two ways.
  *
- * Both series are normalized to the same starting point, which is what makes them directly
- * comparable. `benchmarkReturnPercent` is null on a date the benchmark has no value at or before —
- * a gap is reported, never fabricated.
+ * **The absolute scenarios are the primary presentation.** `strategyValue`, `benchmarkValue` and
+ * `cashBaselineValue` are three currency-valued lines on one axis, all funded by the *same*
+ * external cash flows on the *same* dates — the same initial capital and the same monthly
+ * contributions — so a difference between them is a difference in what the money did rather than in
+ * how much of it there was:
+ *
+ * ```text
+ * Strategy   strategyUninvestedCash(d) + marketValueOfOpenPositions(d)
+ * S&P 500    accumulated fractional benchmark shares, marked at the close in effect on d
+ * Cash       initialCapital + cumulativeContributionsThrough(d), never invested
+ * ```
+ *
+ * `portfolioReturnPercent` and `benchmarkReturnPercent` remain the percentage-growth reading the
+ * summary metrics and alpha are built on, unchanged and still normalized to the run's first
+ * simulated date.
+ *
+ * Two things can legitimately be null, and neither is ever fabricated:
+ * `benchmarkReturnPercent`/`benchmarkValue` on a date the benchmark has no close at or before it,
+ * and `benchmarkValue` on a run completed before the funded scenario existed — its value is not
+ * derivable from a growth index once the run has contributions, so it is reported as absent.
  */
 export type BacktestCurvePointResponse = {
   date: string;
   portfolioReturnPercent: number;
   benchmarkReturnPercent: number | null;
+  /** Total Strategy portfolio value: uninvested Strategy cash plus open positions at market. */
+  strategyValue: number;
+  /** The funded benchmark scenario's absolute value, or null when it has none. */
+  benchmarkValue: number | null;
+  /**
+   * The `Cash` scenario's absolute value.
+   *
+   * Deliberately its own name: it is **not** the Strategy's uninvested cash, which is reported as
+   * `cash` on the live snapshot and `finalCash` on the result summary.
+   */
+  cashBaselineValue: number;
 };
 
 export type BacktestTradeAction = "BUY" | "SELL" | "FINAL_EXIT";
@@ -258,6 +294,10 @@ export type BacktestLiveSnapshotResponse = {
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
   maxDrawdownPercent: number;
+  /** The funded benchmark scenario on `simulatedThrough`, or null while it cannot be priced. */
+  benchmarkValue: number | null;
+  /** The `Cash` scenario on `simulatedThrough`. Never the Strategy's uninvested `cash` above. */
+  cashBaselineValue: number;
   tradeCount: number;
   openPositions: number;
   curve: BacktestCurvePointResponse[];

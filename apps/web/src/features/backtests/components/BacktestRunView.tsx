@@ -457,11 +457,12 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         <section className={styles.card} aria-labelledby="backtest-chart-title">
           <div className={styles.cardHead}>
             <h2 className={styles.cardTitle} id="backtest-chart-title">
-              Growth
+              Portfolio value
             </h2>
             <p className={styles.cardCaption}>
-              Portfolio and {configuration.benchmark.name}, as percentage growth
-              from the run&apos;s first simulated date.
+              Strategy, {configuration.benchmark.name} and cash — the same
+              money, invested three ways. Each scenario receives the same
+              initial capital and the same monthly contributions.
             </p>
           </div>
           {/* One frame, one height: the placeholder and the chart occupy exactly the same box, so
@@ -471,7 +472,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               <BacktestComparisonChart
                 points={curve}
                 benchmarkName={configuration.benchmark.name}
-                ariaLabel={`Portfolio growth against ${configuration.benchmark.name}`}
+                ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
                 periodStart={configuration.startDate}
                 periodEnd={configuration.endDate}
               />

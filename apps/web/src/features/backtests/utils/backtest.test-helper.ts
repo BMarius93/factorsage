@@ -48,6 +48,7 @@ export function testConfiguration(
       execution: "execution@1",
       executionCosts: "execution-costs@1",
       cashYield: "cash-yield@1",
+      comparisonScenarios: "comparison-scenarios@1",
       strategyEvaluation: "signal-evaluation@1",
       contribution: "contribution@1",
       returns: "returns@1",
@@ -63,6 +64,19 @@ export function testCurve(length: number): BacktestCurvePointResponse[] {
     portfolioReturnPercent: index * 0.5,
     // Every other point is a genuine gap, so a fabricated zero would be visible in the counts.
     benchmarkReturnPercent: index % 2 === 0 ? index * 0.4 : null,
+    strategyValue: 100_000 + index * 500,
+    benchmarkValue: index % 2 === 0 ? 100_000 + index * 400 : null,
+    cashBaselineValue: 100_000,
+  }));
+}
+
+/** A curve as a run completed before the funded benchmark scenario existed would report it. */
+export function testCurveWithoutBenchmarkValues(
+  length: number,
+): BacktestCurvePointResponse[] {
+  return testCurve(length).map((point) => ({
+    ...point,
+    benchmarkValue: null,
   }));
 }
 
@@ -82,6 +96,8 @@ export function testLive(
     benchmarkReturnPercent: 8,
     alphaPercent: 4,
     maxDrawdownPercent: 9.5,
+    benchmarkValue: 13_400,
+    cashBaselineValue: 12_500,
     tradeCount: 18,
     openPositions: 4,
     curve: testCurve(4),

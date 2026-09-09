@@ -8,10 +8,13 @@ import {
 } from "@intrinsic/contracts";
 import type { BuyWindowConfiguration, LocalDate } from "@intrinsic/domain";
 import { createEvaluationFrame, type EvaluationFrame } from "../frame.js";
-import type { OperandKey } from "../operands.js";
+import { seriesOperand, type OperandKey } from "../operands.js";
+import { createBacktestSimulation } from "./simulation.js";
 import type {
   BacktestExecutionInput,
+  BacktestResult,
   BacktestSecurityInput,
+  BacktestSimulationOptions,
   BenchmarkSeriesInput,
 } from "./types.js";
 
@@ -207,3 +210,113 @@ export function executionInput(
     ...input,
   };
 }
+
+/**
+ * How many calendar days of leading context a projected window carries.
+ *
+ * Mirrors `TRIGGER_CONTEXT_CALENDAR_DAYS` in `@intrinsic/stock-data`, which is where the real
+ * loader applies it. It is restated rather than imported because `@intrinsic/strategy` is pure and
+ * must not depend on the loader — and because the point of the windowed tests is that correctness
+ * does **not** rest on this number: the engine carries the preceding eligible row itself.
+ */
+export const WINDOW_CONTEXT_CALENDAR_DAYS = 10;
+
+function shiftDate(date: LocalDate, days: number): LocalDate {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * The rows of `frame` inside `[from, to]`, as the loader would project them for one window.
+ *
+ * Column values are copied, never recomputed: a derived series is canonically materialized with its
+ * own warm-up, and a window read is a read of those persisted values, not a fresh calculation over
+ * a year of isolated data.
+ */
+export function sliceFrame(
+  frame: EvaluationFrame,
+  from: LocalDate,
+  to: LocalDate,
+): EvaluationFrame {
+  const indices: number[] = [];
+  for (let index = 0; index < frame.dates.length; index += 1) {
+    const date = frame.dates[index] as LocalDate;
+    if (date >= from && date <= to) {
+      indices.push(index);
+    }
+  }
+  const closes = new Float64Array(indices.length);
+  const columns = new Map<OperandKey, Float64Array>();
+  for (const key of frame.columns.keys()) {
+    columns.set(key, new Float64Array(indices.length));
+  }
+  indices.forEach((source, target) => {
+    closes[target] = frame.closes[source] ?? Number.NaN;
+    for (const [key, column] of columns) {
+      column[target] = frame.columns.get(key)?.[source] ?? Number.NaN;
+    }
+  });
+  return createEvaluationFrame({
+    securityId: frame.securityId,
+    symbol: frame.symbol,
+    name: frame.name,
+    dates: indices.map((index) => frame.dates[index] as LocalDate),
+    closes,
+    columns,
+    periodStartIndex: 0,
+  });
+}
+
+/**
+ * Executes the same run through consecutive calendar-year windows.
+ *
+ * Each window receives only its own year's rows plus the loader's small leading context, which is
+ * exactly what the worker does — so a difference between this and `simulateBacktest` is a real
+ * difference between annual and continuous execution, not a difference between two engines.
+ */
+export async function simulateBacktestByYear(
+  input: BacktestExecutionInput,
+  options: BacktestSimulationOptions = {},
+): Promise<BacktestResult> {
+  const simulation = createBacktestSimulation(
+    {
+      ...input,
+      securities: input.securities.map((security) => ({
+        securityId: security.frame.securityId,
+        symbol: security.frame.symbol,
+        name: security.frame.name,
+        buyWindows: security.buyWindows,
+      })),
+    },
+    options,
+  );
+  for (const window of simulation.windows) {
+    await simulation.consumeWindow(window, {
+      frames: input.securities.map((security) =>
+        sliceFrame(
+          security.frame,
+          shiftDate(window.from, -WINDOW_CONTEXT_CALENDAR_DAYS),
+          window.to,
+        ),
+      ),
+    });
+  }
+  return simulation.finish();
+}
+
+/** `Price crosses above SMA 50D` — the year-boundary Trigger case, series against series. */
+export function priceCrossesAboveMovingAverageSignal(): StrategySignal {
+  return {
+    conditions: [],
+    trigger: {
+      id: "price-crosses-above-sma50d",
+      metric: { kind: "PRICE" },
+      operator: "CROSSES_ABOVE",
+      value: { kind: "SERIES", seriesId: "SMA_50D" },
+    },
+  };
+}
+
+/** The frame column `priceCrossesAboveMovingAverageSignal` reads. */
+export const MOVING_AVERAGE_COLUMN = seriesOperand("SMA_50D");

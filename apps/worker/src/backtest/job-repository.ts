@@ -525,6 +525,8 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
               investedCapital: point.investedCapital,
               returnIndex: point.returnIndex,
               benchmarkIndex: point.benchmarkIndex,
+              benchmarkValue: point.benchmarkValue,
+              cashBaselineValue: point.cashBaselineValue,
               openPositions: point.openPositions,
             })),
           });

@@ -5,10 +5,12 @@ import type { BenchmarkSeriesInput } from "./types.js";
  * Reads a benchmark series along the portfolio's ascending execution calendar.
  *
  * The benchmark is passive comparison data: it never consumes cash, never occupies a position slot,
- * and **never contributes a date to the calendar** — the axis comes from the run's securities and
- * the engine's own execution-calendar reference, so two runs differing only in what they are
- * compared against execute identically. This class is the whole of the benchmark's influence on a
- * result: a column of numbers beside the portfolio's.
+ * and **never contributes a date to the calendar** — the axis is the engine's own pinned execution
+ * calendar, so two runs differing only in what they are compared against execute identically.
+ *
+ * This class is the whole of the benchmark's influence on the percentage-growth methodology every
+ * existing summary metric is built on. The absolute `S&P 500` comparison line is a second reading
+ * of the same closes, held by `ComparisonScenarios`, and neither changes the other.
  *
  * On a simulated date the benchmark did not trade, its most recent close at or before that date is
  * used — the same carry-forward rule a held position's valuation
@@ -50,7 +52,19 @@ export class BenchmarkCursor {
    * its first available close and earlier dates report `null`.
    */
   indexAt(date: LocalDate): number | null {
-    const close = this.closeAt(date);
+    return this.indexFor(this.closeAt(date));
+  }
+
+  /**
+   * The same growth index, from a close the caller already read.
+   *
+   * The day loop needs that close twice — once for this percentage-growth index, which is the
+   * methodology every existing summary metric is built on, and once to mark the funded absolute
+   * comparison portfolio. Reading it once and deriving both keeps a single monotonic cursor over
+   * the series and makes it impossible for the two readings to disagree about which bar was in
+   * effect on a date.
+   */
+  indexFor(close: number | null): number | null {
     if (close === null) {
       return null;
     }
