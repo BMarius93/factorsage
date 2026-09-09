@@ -348,10 +348,22 @@ importers:
       '@intrinsic/config':
         specifier: workspace:*
         version: link:../config
+      '@intrinsic/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@intrinsic/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@intrinsic/strategy':
+        specifier: workspace:*
+        version: link:../strategy
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.43
+      tsx:
+        specifier: ^4.23.12
+        version: 4.23.12
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

@@ -15,13 +15,18 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "capture:execution-calendar": "tsx scripts/capture-execution-calendar.ts"
   },
   "dependencies": {
-    "@intrinsic/config": "workspace:*"
+    "@intrinsic/config": "workspace:*",
+    "@intrinsic/contracts": "workspace:*",
+    "@intrinsic/domain": "workspace:*",
+    "@intrinsic/strategy": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.0"
   }
 }

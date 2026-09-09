@@ -13,7 +13,8 @@
     "seed:admin": "tsx src/seed.ts",
     "seed:qa-users": "tsx src/seed-qa-users.ts",
     "reset:benchmark-data": "tsx src/reset-benchmark-data.ts",
-    "seed:qa-securities": "tsx src/seed-qa-securities.ts"
+    "seed:qa-securities": "tsx src/seed-qa-securities.ts",
+    "seed:qa-matrix": "tsx src/seed-qa-matrix.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",

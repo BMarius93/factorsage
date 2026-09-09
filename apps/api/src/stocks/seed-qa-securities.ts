@@ -65,6 +65,11 @@ export const QA_SECURITIES = [
  *
  * CI may legitimately run with both variables at the same URL — there is no second database to
  * protect there — which is exactly the carve-out `useTestDatabase` makes for the same reason.
+ *
+ * A DB-backed suite is the other legitimate equality: `useTestDatabase` points the process at the
+ * test database by overwriting `DATABASE_URL`, having already made this exact check against the
+ * real one first. It records that with `INTRINSIC_TEST_DATABASE_ACTIVE`, named literally here so
+ * this guard keeps no runtime dependency on a test-only package.
  */
 export function assertQaSecuritySeedingAllowed(
   env: NodeJS.ProcessEnv = process.env,
@@ -77,7 +82,7 @@ export function assertQaSecuritySeedingAllowed(
   if (!testDatabaseUrl) {
     throw new Error(MISSING_TEST_DATABASE_QA_SEED_MESSAGE);
   }
-  if (env.CI === "true") {
+  if (env.CI === "true" || env.INTRINSIC_TEST_DATABASE_ACTIVE === "true") {
     return;
   }
   // A `.env` whose test URL is the development database would defeat the explicit connection

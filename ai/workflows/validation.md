@@ -31,6 +31,7 @@ Current callers:
 - `apps/api/src/auth/google-auth.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
+- `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
 - `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
@@ -201,6 +202,14 @@ now has its own suite, so `pnpm test` runs it:
 pnpm --filter @intrinsic/worker test
 ```
 
+`apps/api/src/qa-matrix/` holds the deterministic QA-MATRIX fixtures for the Backtest V1 validation
+matrix — ten persistent Strategies, ten persistent Stock Lists and ten repository configuration
+fixtures, seeded with `pnpm test:matrix:seed`. Its suites need no market data: the definitions are
+checked against the real `validateStrategy` and `parseCreateBacktestRunRequest` contracts, and the
+integration suite exercises the seeder against PostgreSQL with an isolated randomized owner. See
+`../../docs/development/qa-matrix-fixtures.md`; the runner that executes the 1,000 combinations does
+not exist yet.
+
 The Playwright backtest suite drives a **running stack with a running worker**, and that stack must
 point at the **test database**, not at your development one.
 
@@ -223,6 +232,7 @@ or equal to `DATABASE_URL` (except in CI, where one database is the whole enviro
 | `pnpm db:test:prepare`                              | `TEST_DATABASE_URL`        |
 | `pnpm test` (PostgreSQL-backed suites)              | `TEST_DATABASE_URL`        |
 | `pnpm test:users:seed`, `pnpm test:securities:seed` | `TEST_DATABASE_URL`        |
+| `pnpm test:matrix:seed`                             | `TEST_DATABASE_URL`        |
 | `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`           | `TEST_DATABASE_URL`        |
 
 ### Normal development, against real market data

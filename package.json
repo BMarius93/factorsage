@@ -34,6 +34,7 @@
     "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin",
     "test:users:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:qa-users",
     "test:securities:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-securities",
+    "test:matrix:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-matrix",
     "dev:api:e2e": "DATABASE_URL=\"${TEST_DATABASE_URL:?Set TEST_DATABASE_URL to the dedicated test database URL}\" pnpm dev:api",
     "dev:worker:e2e": "DATABASE_URL=\"${TEST_DATABASE_URL:?Set TEST_DATABASE_URL to the dedicated test database URL}\" pnpm dev:worker",
     "test:e2e": "pnpm --filter @intrinsic/web e2e",
