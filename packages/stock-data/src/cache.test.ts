@@ -2,6 +2,7 @@ import type { DailyPrice, Security } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { DERIVED_STATE_REVISION } from "./derived-state.js";
 import { PRICE_DATASET_VERSION } from "./ports.js";
+import { priceRetentionYears } from "./service.js";
 import {
   RedisStockDataCache,
   type RedisCacheClient,
@@ -177,7 +178,8 @@ function readyManifest(securityId: string): StockManifest {
   return {
     securityId,
     status: "READY",
-    historyYears: 30,
+    productHistoryYears: 30,
+    priceRetentionYears: priceRetentionYears(30),
     coverageStart: "1996-08-24",
     coverageEnd: "2026-08-24",
     canonicalHistoryStart: "2019-01-02",

@@ -15,6 +15,7 @@ import {
   combineBlendComponents,
   fundamentalsDatasetOperations,
   PrismaStockDataStore,
+  priceRetentionYears,
   startOfIsoWeek,
   subtractYears,
   type EvaluatedIntrinsicModel,
@@ -166,7 +167,7 @@ export async function seedQaStockData(
 ): Promise<{ from: string; to: string; tradingDays: number }> {
   assertQaSecuritySeedingAllowed();
 
-  const { historyYears } = getStockDataConfig();
+  const { productHistoryYears } = getStockDataConfig();
   const store = new PrismaStockDataStore(prisma);
   const prices = qaTradingDays(securityId, today);
   const first = prices[0];
@@ -176,10 +177,17 @@ export async function seedQaStockData(
   }
 
   const syncedAt = new Date().toISOString();
-  // The horizon the loader clamps a read to, and what this fixture claims to have covered — see
-  // `saveDailyPriceSync` below. The same year arithmetic the loader and the Stock Details bound
-  // use, so 29 February clamps to 28 February.
-  const horizonStart = subtractYears(today, historyYears);
+  // What this fixture claims to have covered — see `saveDailyPriceSync` below.
+  //
+  // The **retention** horizon, not the product horizon: a Stock Details window opened at the
+  // thirty-year bound makes the loader widen its load target to the raw-price retention start, and
+  // a fixture that only claimed the product horizon would leave that prefix uncovered and send the
+  // loader to a provider that has never heard of `QATEST1`. The same year arithmetic the loader
+  // and the Stock Details bound use, so 29 February clamps to 28 February.
+  const retentionStart = subtractYears(
+    today,
+    priceRetentionYears(productHistoryYears),
+  );
 
   await store.saveDailyPriceSync({
     securityId,
@@ -193,14 +201,14 @@ export async function seedQaStockData(
     // real history further back, so claiming the horizon there would be a lie that permanently
     // blocked fetching it. The difference is not "seed versus provider"; it is whether the claim
     // happens to be true.
-    successfulCoverage: [{ from: horizonStart, to: today }],
+    successfulCoverage: [{ from: retentionStart, to: today }],
     syncedAt,
     tailDate: today,
     freshThrough: today,
   });
 
   const weeklyBars = aggregateCompletedWeeks(prices, today, {
-    historyStart: horizonStart,
+    historyStart: retentionStart,
     historyStartOrigin: "HORIZON",
   });
   const valuationStart = prices[VALUATION_START_WEEK * 5]?.date ?? last.date;
@@ -228,19 +236,21 @@ export async function seedQaStockData(
     weeklyPrices: weeklyBars,
     // Derived state is computed from the prices above and over the same interval, so it makes the
     // same claim for the same reason.
-    successfulCoverage: { from: horizonStart, to: today },
+    successfulCoverage: { from: retentionStart, to: today },
     syncedAt,
   });
 
   // Fundamentals are not seeded, but their dataset state is: without it the loader would try to
   // backfill statements for a symbol no provider knows.
-  for (const operation of fundamentalsDatasetOperations(historyYears)) {
+  // Fundamentals stay on the product horizon: their variant encodes it, and their own warm-up is
+  // a separate policy that must not compound with the price-retention warm-up above.
+  for (const operation of fundamentalsDatasetOperations(productHistoryYears)) {
     await store.upsertDatasetState({
       securityId,
       dataset: operation.dataset,
       variant: operation.variant,
       syncedAt,
-      earliestDate: horizonStart,
+      earliestDate: retentionStart,
       latestDate: today,
     });
   }

@@ -147,10 +147,11 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
           coordinator,
           {
             defaultHistoryDays: getStockDataConfig().defaultHistoryDays,
-            historyYears: getStockDataConfig().historyYears,
+            productHistoryYears: getStockDataConfig().productHistoryYears,
             // The Stock Details product limit, from the one place it is defined. It only ever
-            // narrows what that surface reports and reads; the retained horizon above is what a
-            // backtest still reaches for.
+            // narrows what that surface reports and reads; the product horizon above is what a
+            // backtest still reaches for, and the loader's own raw-price retention reaches
+            // further back again without any surface seeing it.
             stockDetailsHistoryYears: STOCK_DETAILS_MAX_HISTORY_YEARS,
             recentPriceFreshnessMs: getStockDataConfig().recentPriceFreshnessMs,
             fundamentalsFreshnessMs:
@@ -172,7 +173,9 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     {
       provide: STOCK_DETAILS_RETENTION_YEARS,
-      useFactory: (): number => getStockDataConfig().historyYears,
+      // The product horizon, deliberately: this token bounds what Stock Details may expose, and
+      // the loader's wider raw-price retention is internal warm-up that no surface reports.
+      useFactory: (): number => getStockDataConfig().productHistoryYears,
     },
     {
       provide: SECURITY_CATALOG_SERVICE,

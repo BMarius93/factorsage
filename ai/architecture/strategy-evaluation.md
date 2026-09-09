@@ -155,11 +155,19 @@ path.
   directly must apply provenance gating itself**.
 - `DERIVED_SERIES_WARMUP_DAYS` — 1456 calendar days (208 weeks: the 200-week weekly MA plus an
   8-week margin), derived from the registries. `loadTarget` widens every requested `from` by this
-  amount, clamped to `canonicalTarget`.
+  amount, clamped to `priceRetentionTarget`.
+- `PRICE_RETENTION_WARMUP_YEARS = 4` — `ceil(DERIVED_SERIES_WARMUP_DAYS / 365.25)`. Extra years of
+  raw `DailyPrice` retained *behind* the product horizon so the same warm-up guarantee holds at the
+  boundary itself, where the clamp used to cancel it out.
 - `VALUATION_FUNDAMENTALS_WARMUP_YEARS = 7` — extra fiscal years of statements retained before the
   visible price history so the earliest visible day already has PIT-eligible intrinsic values.
-- `canonicalTarget(security)` = `[max(today - historyYears, ipoDate), today]`, `historyYears`
-  default **30**. This is the outer bound of everything readable.
+  Independent of the price warm-up; the two never compound.
+- `productTarget(security)` = `[max(today - productHistoryYears, ipoDate), today]`,
+  `productHistoryYears` default **30**. This is the outer bound of everything readable.
+- `priceRetentionTarget(security)` = the same shape at `productHistoryYears + 4` = **34**. This is
+  the outer bound of everything *held*. `projectionRange` cuts every read back to `productTarget`,
+  so no retained warm-up row can reach a caller or a backtest frame. See
+  `../../docs/decisions/price-retention-warmup-horizon.md`.
 
 Supporting modules:
 
@@ -242,13 +250,18 @@ Established by inspection; each is a constraint the design must answer, not a de
    through the present day for every security. Hydration is also per security behind its own Redis
    lock, and rebuild after a `DERIVED_STATE_REVISION` bump is lazy and global — so the first
    backtest after a bump pays a full rebuild for every security in its list.
-7. **30 years is the outer bound.** `canonicalTarget` clamps to `today - historyYears` (default 30)
-   and to `ipoDate`; a requested period older than that yields no rows, and the `projectionRange`
-   returns `null` rather than erroring.
-8. **Warm-up is already paid for.** `DERIVED_SERIES_WARMUP_DAYS` guarantees every catalog series is
-   warmed up on the first requested trading day. What it does **not** cover is the Trigger's `t-1`
-   requirement at the very start of a backtest period, or Gain/Loss, which has no market warm-up at
-   all.
+7. **30 years is the outer bound of what is readable.** `productTarget` clamps to
+   `today - productHistoryYears` (default 30) and to `ipoDate`; a requested period older than that
+   yields no rows, and `projectionRange` returns `null` rather than erroring. Raw prices are
+   retained to 34 years, but that is what the loader holds, not what any caller can read.
+8. **Warm-up is already paid for, including at the boundary.** `DERIVED_SERIES_WARMUP_DAYS`
+   guarantees every catalog series is warmed up on the first requested trading day, and the
+   four-year price-retention horizon is what makes that true even when the request starts exactly
+   on the 30-year boundary — where the clamp previously cancelled the widening out and left
+   `SMA/EMA 200W` absent for the first four years of a maximum-length run. What it does **not**
+   cover is the Trigger's `t-1` requirement at the very start of a backtest period (a period
+   starting on the product boundary has no earlier readable row, by design), or Gain/Loss, which
+   has no market warm-up at all.
 9. **There is no durable-work substrate.** Neither a queue library nor a job table exists, so
    "backtests are asynchronous long-running work" (`AGENTS.md` invariant 5) is entirely
    unimplemented. Phase 4 must design it, and `AGENTS.md` invariant 8 forbids Redis being the only
@@ -459,7 +472,9 @@ and set `periodStartIndex` to the first index at or after `periodStart`. Ten cal
 any weekend-plus-holiday closure in the covered history. When no earlier row exists the security's
 own history simply begins there, and `NOT_EVALUABLE` on the first day is the correct answer. This
 costs nothing extra to materialize: `loadTarget` already widens the load by
-`DERIVED_SERIES_WARMUP_DAYS` (1,456 days), so the context days are always already resident.
+`DERIVED_SERIES_WARMUP_DAYS` (1,456 days) and the load is clamped to the 34-year price-retention
+horizon, so the context days are always already resident — except at the product boundary itself,
+where `projectionRange` legitimately cuts them off.
 
 ### 2.8 Determinism and point-in-time correctness
 

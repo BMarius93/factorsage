@@ -161,7 +161,7 @@ describeReuse("provider reuse across repeated reads", () => {
       provider,
       cache,
       new InMemoryLoadCoordinator(),
-      { historyYears: 30, now: () => new Date(`${today}T12:00:00.000Z`) },
+      { productHistoryYears: 30, now: () => new Date(`${today}T12:00:00.000Z`) },
     );
   }
 
@@ -352,7 +352,7 @@ describeReuse("provider reuse across repeated reads", () => {
       cache,
       new InMemoryLoadCoordinator(),
       {
-        historyYears: 30,
+        productHistoryYears: 30,
         recentTailCalendarDays: 10,
         now: () => new Date("2020-07-01T12:00:00.000Z"),
       },

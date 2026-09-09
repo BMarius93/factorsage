@@ -111,7 +111,7 @@ export function createBacktestRuntime(
   });
 
   // `stockDetailsHistoryYears` is deliberately not set here: it narrows what the Stock Details
-  // surface may explore, and a backtest names its own period inside the retained horizon.
+  // surface may explore, and a backtest names its own period inside the product horizon.
   const stockData = new CanonicalStockDataService(
     new PrismaStockDataStore(prisma),
     provider,
@@ -122,7 +122,7 @@ export function createBacktestRuntime(
     coordinator,
     {
       defaultHistoryDays: stockDataConfig.defaultHistoryDays,
-      historyYears: stockDataConfig.historyYears,
+      productHistoryYears: stockDataConfig.productHistoryYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       fundamentalsFreshnessMs: stockDataConfig.fundamentalsFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
@@ -136,7 +136,11 @@ export function createBacktestRuntime(
     new RedisBenchmarkDataCache(new IoredisCacheClient(redis)),
     coordinator,
     {
-      historyYears: stockDataConfig.historyYears,
+      // The product horizon, not the stock loader's raw-price retention. A benchmark carries no
+      // derived series (`AGENTS.md` invariant 13), so it has nothing to warm up: its history is
+      // the run's execution calendar and the comparison line, both of which live entirely inside
+      // the backtestable period.
+      historyYears: stockDataConfig.productHistoryYears,
       recentPriceFreshnessMs: stockDataConfig.recentPriceFreshnessMs,
       recentTailCalendarDays: stockDataConfig.recentTailCalendarDays,
       onProviderRequest,

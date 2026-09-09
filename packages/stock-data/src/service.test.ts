@@ -41,25 +41,40 @@ import { addDays } from "./dates.js";
 import {
   CanonicalStockDataService,
   DERIVED_SERIES_WARMUP_DAYS,
+  priceRetentionYears,
   StockDataNotFoundError,
   VALUATION_FUNDAMENTALS_WARMUP_YEARS,
 } from "./service.js";
 import type { WeeklyPrice } from "./weekly.js";
 
 const NOW = "2026-08-24T12:00:00.000Z";
+/** The product horizon: the oldest day any surface may select, chart, query or backtest. */
 const CANONICAL_RANGE = { from: "1996-08-24", to: "2026-08-24" };
+/**
+ * The raw-price retention horizon: `PRICE_RETENTION_WARMUP_YEARS` behind the product horizon.
+ *
+ * Nothing here is user-visible. It is the range the loader may *hold* so a two-hundred-week
+ * average is already valid on the first day the product will *show*.
+ */
+const RETENTION_RANGE = { from: "1992-08-24", to: "2026-08-24" };
 
 /**
  * The range the loader materializes to answer a requested window: the window plus the derived
- * warm-up, clamped to the retention horizon.
+ * warm-up, clamped to the raw-price retention horizon.
  *
  * Tests state the expectation this way rather than as literal dates so they assert the rule —
  * "what the caller asked for, plus what the calculators need" — instead of accidentally locking
  * in the old behaviour of always reaching for the whole horizon.
+ *
+ * Below the product horizon the boundary snaps to the retention start: there is no surface down
+ * there to scope it to, and one canonical prefix is what makes the second deep caller free.
  */
-function loadRange(from: string, to = CANONICAL_RANGE.to) {
+function loadRange(from: string, to = RETENTION_RANGE.to) {
   const warmedUp = addDays(from, -DERIVED_SERIES_WARMUP_DAYS);
-  return { from: warmedUp < CANONICAL_RANGE.from ? CANONICAL_RANGE.from : warmedUp, to };
+  return {
+    from: warmedUp <= CANONICAL_RANGE.from ? RETENTION_RANGE.from : warmedUp,
+    to,
+  };
 }
 
 const security: Security = {
@@ -696,7 +711,7 @@ function createService(
   now: () => Date = () => new Date(NOW),
 ) {
   return new CanonicalStockDataService(store, provider, cache, coordinator, {
-    historyYears: 30,
+    productHistoryYears: 30,
     recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
     fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
     recentTailCalendarDays: 10,
@@ -728,14 +743,14 @@ function setTailFreshness(
 function setFundamentalsStates(
   store: FakeStore,
   syncedAt = NOW,
-  historyYears = 30,
+  productHistoryYears = 30,
 ) {
   // The variant encodes the retention policy, so a state row only counts as complete when it also
   // covers the valuation warm-up years.
   const warmup = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
   const variants = {
-    quarterly: `standard:quarter:v1:h${historyYears}:w${warmup}`,
-    annual: `standard:annual:v1:h${historyYears}:w${warmup}`,
+    quarterly: `standard:quarter:v1:h${productHistoryYears}:w${warmup}`,
+    annual: `standard:annual:v1:h${productHistoryYears}:w${warmup}`,
   };
   const datasets: Array<
     "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"
@@ -919,7 +934,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -1209,7 +1225,7 @@ describe("canonical full-stock hydration", () => {
       new MemoryCache(),
       new InMemoryLoadCoordinator(),
       {
-        historyYears: 30,
+        productHistoryYears: 30,
         stockDetailsHistoryYears: 10,
         recentPriceFreshnessMs: 6 * 60 * 60 * 1000,
         fundamentalsFreshnessMs: 6 * 60 * 60 * 1000,
@@ -1286,7 +1302,8 @@ describe("canonical full-stock hydration", () => {
     cache.manifests.set(security.id, {
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       hydratedAt: NOW,
       priceDatasetVersion: PRICE_DATASET_VERSION,
       financialStatementVersion: 1,
@@ -1321,7 +1338,7 @@ describe("canonical full-stock hydration", () => {
       },
     ]);
     setTailFreshness(store);
-    provider.rowsByRange.set("1996-08-24:2014-12-31", [
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:2014-12-31`, [
       price("2010-01-04", 30),
     ]);
     const api = createService(store, provider, cache, coordinator);
@@ -1337,15 +1354,17 @@ describe("canonical full-stock hydration", () => {
       }),
     ]);
 
-    expect(provider.ranges).toEqual([{ from: "1996-08-24", to: "2014-12-31" }]);
+    expect(provider.ranges).toEqual([
+      { from: RETENTION_RANGE.from, to: "2014-12-31" },
+    ]);
     expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
     expect(newer.map((row) => row.date)).toEqual(["2010-01-04", "2022-01-03"]);
     expect(cache.manifests.get(security.id)).toMatchObject({
       status: "READY",
-      coverageStart: CANONICAL_RANGE.from,
+      coverageStart: RETENTION_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
     });
-    expect(cache.priceYearWrites[0]).toHaveLength(31);
+    expect(cache.priceYearWrites[0]).toHaveLength(35);
 
     await api.getDailyPrices("AAPL", {
       from: "2024-01-01",
@@ -1590,7 +1609,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       canonicalHistoryStart: "2026-08-20",
@@ -1671,7 +1691,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       canonicalHistoryStart: "2026-01-05",
@@ -1725,7 +1746,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: "2026-08-23T01:00:00.000Z",
@@ -1778,7 +1800,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       canonicalHistoryStart: "2026-08-20",
@@ -1830,7 +1853,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -1877,7 +1901,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -1933,7 +1958,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: staleFundamentalsAt,
@@ -2006,7 +2032,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: staleFundamentalsAt,
@@ -2075,7 +2102,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -2196,7 +2224,8 @@ describe("canonical full-stock hydration", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: "2026-08-23T01:00:00.000Z",
@@ -2265,7 +2294,8 @@ describe("canonical full-stock hydration", () => {
     const successor = {
       securityId: security.id,
       status: "READY" as const,
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -3052,7 +3082,8 @@ describe("derived-state revision and valuation warm-up retention", () => {
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       hydratedAt: NOW,
@@ -3510,11 +3541,16 @@ describe("range-scoped materialization", () => {
     ]);
   });
 
-  it("still lets a caller ask for the whole retention horizon explicitly", async () => {
+  it("still lets a caller ask for the whole product horizon explicitly", async () => {
     // A backtest is not a page view: when the caller names decades, it gets decades. What changed
     // is that this is now something a caller asks for, never something the loader assumes.
+    //
+    // Asking for the product horizon reaches the *retention* horizon, because the warm-up the
+    // calculators need lies behind it. Those warm-up rows are loaded, persisted and used — and
+    // never returned.
     const provider = new FakeProvider();
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, [
+      price("1993-02-01"),
       price("2010-01-04"),
       price("2026-08-20"),
     ]);
@@ -3522,19 +3558,19 @@ describe("range-scoped materialization", () => {
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
     expect(prices.map((row) => row.date)).toEqual([
       "2010-01-04",
       "2026-08-20",
     ]);
     expect(cache.manifests.get(security.id)).toMatchObject({
-      coverageStart: CANONICAL_RANGE.from,
+      coverageStart: RETENTION_RANGE.from,
     });
   });
 
   it("never narrows what is already resident when a shorter window is read next", async () => {
     const provider = new FakeProvider();
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, [
       price("2010-01-04"),
     ]);
     const { cache, loader } = coldService(provider);
@@ -3542,9 +3578,9 @@ describe("range-scoped materialization", () => {
 
     await loader.getStockDetails("AAPL");
 
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
     expect(cache.manifests.get(security.id)).toMatchObject({
-      coverageStart: CANONICAL_RANGE.from,
+      coverageStart: RETENTION_RANGE.from,
     });
   });
 });
@@ -3587,7 +3623,8 @@ describe("complete price coverage", () => {
     cache.manifests.set(security.id, {
       securityId: security.id,
       status: "READY",
-      historyYears: 30,
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
       coverageStart: CANONICAL_RANGE.from,
       coverageEnd: CANONICAL_RANGE.to,
       canonicalHistoryStart: rows[0]!.date,
@@ -3614,24 +3651,25 @@ describe("complete price coverage", () => {
     const { store, cache } = legacyState(persisted);
     const provider = new FakeProvider();
     const complete = [price("1996-09-03"), price("2001-01-02"), ...persisted];
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, complete);
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, complete);
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
     // One complete provider ask for the caller's target: v1 coverage is not evidence.
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
     expect(prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
     expect(store.prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
     expect(new Set(store.prices.map((row) => row.date)).size).toBe(store.prices.length);
-    // The dataset now extends to 1996 under the current revision, and the v1 generation is gone.
-    expect(store.coverage.get(CURRENT_KEY)).toEqual([CANONICAL_RANGE]);
+    // The dataset now extends to the retention boundary under the current revision, and the v1
+    // generation is gone.
+    expect(store.coverage.get(CURRENT_KEY)).toEqual([RETENTION_RANGE]);
     expect(store.coverage.has(LEGACY_KEY)).toBe(false);
     expect(store.states.has(LEGACY_KEY)).toBe(false);
     expect(cache.manifests.get(security.id)).toMatchObject({
       status: "READY",
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      coverageStart: CANONICAL_RANGE.from,
+      coverageStart: RETENTION_RANGE.from,
       canonicalHistoryStart: "1996-09-03",
     });
     // An older prefix changes every recurrence after it: the derived state is rebuilt from the
@@ -3643,22 +3681,22 @@ describe("complete price coverage", () => {
   it("materializes a cold stock from the provider's complete history with no prior state", async () => {
     const provider = new FakeProvider();
     const complete = [price("1996-09-03"), price("2006-10-12"), price("2026-08-20")];
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, complete);
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, complete);
     const store = new FakeStore();
     const cache = new MemoryCache();
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
     expect(prices[0]?.date).toBe("1996-09-03");
-    expect(store.coverage.get(CURRENT_KEY)).toEqual([CANONICAL_RANGE]);
+    expect(store.coverage.get(CURRENT_KEY)).toEqual([RETENTION_RANGE]);
     expect([...store.coverage.keys()].filter((key) => key.startsWith("DAILY_PRICE:"))).toEqual([
       CURRENT_KEY,
     ]);
     expect(cache.manifests.get(security.id)).toMatchObject({
       priceDatasetVersion: PRICE_DATASET_VERSION,
-      coverageStart: CANONICAL_RANGE.from,
+      coverageStart: RETENTION_RANGE.from,
       canonicalHistoryStart: "1996-09-03",
     });
   });
@@ -3726,7 +3764,9 @@ describe("complete price coverage", () => {
     setTailFreshness(store);
     setFundamentalsStates(store);
     const provider = new FakeProvider();
-    const prefix = { from: CANONICAL_RANGE.from, to: "1999-12-31" };
+    // The 30 -> 34 upgrade in miniature: coverage already reaches 2000, so only the interval
+    // between the retention boundary and it is asked for.
+    const prefix = { from: RETENTION_RANGE.from, to: "1999-12-31" };
     provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [price("1996-09-03")]);
     const loader = currentService(store, provider, cache);
 
@@ -3774,8 +3814,8 @@ describe("complete price coverage", () => {
       startOrigin: "HORIZON",
     });
 
-    // The provider has nothing between the horizon and the first row.
-    const empty = { from: CANONICAL_RANGE.from, to: "2006-01-01" };
+    // The provider has nothing between the retention boundary and the first row.
+    const empty = { from: RETENTION_RANGE.from, to: "2006-01-01" };
     const older = await loader.getDailyPrices("AAPL", {
       from: CANONICAL_RANGE.from,
       to: "2006-01-01",
@@ -3869,10 +3909,11 @@ describe("complete price coverage", () => {
     });
   });
 
-  it("never asks the provider for anything before the Stock Details horizon", async () => {
+  it("never asks the provider for anything before the price-retention horizon", async () => {
     const provider = new FakeProvider();
-    // The horizon start is a Saturday; the first trading day after it is the following Monday.
-    provider.rowsByRange.set(`${CANONICAL_RANGE.from}:${CANONICAL_RANGE.to}`, [
+    // The product horizon start is a Saturday; the first trading day after it is the Monday.
+    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, [
+      price("1993-01-04"),
       price("1996-08-26"),
       price("2026-08-20"),
     ]);
@@ -3884,13 +3925,16 @@ describe("complete price coverage", () => {
       to: CANONICAL_RANGE.to,
     });
 
-    expect(provider.ranges).toEqual([CANONICAL_RANGE]);
+    // An unbounded ask is answered from the retention horizon and no further: the warm-up years
+    // are the floor, not an open-ended licence to walk back through the provider's whole archive.
+    expect(provider.ranges).toEqual([RETENTION_RANGE]);
     // A weekend between the horizon and the first row is not a provider boundary.
     expect(details.history).toEqual({
       start: CANONICAL_RANGE.from,
       end: CANONICAL_RANGE.to,
       startOrigin: "HORIZON",
     });
+    // The 1993 warm-up row was loaded and persisted, and is not in the product projection.
     expect(details.prices[0]?.date).toBe("1996-08-26");
   });
 

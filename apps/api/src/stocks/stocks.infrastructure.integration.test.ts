@@ -48,6 +48,8 @@ import {
   addDays,
   createStockDataRedisClient,
   fundamentalsDatasetVariant,
+  priceRetentionYears,
+  subtractYears,
   type StockManifest,
 } from "@intrinsic/stock-data";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -73,7 +75,18 @@ const SLOW = 120_000;
 const T0 = "2026-08-24T12:00:00.000Z";
 const TODAY = "2026-08-24";
 const HISTORY_YEARS = 4;
+/** The product horizon at `HISTORY_YEARS`: the oldest day any surface may expose. */
 const CANONICAL_START = "2022-08-24";
+/**
+ * The raw-price retention horizon at `HISTORY_YEARS`: four warm-up years further back.
+ *
+ * Derived from the loader's own rule rather than typed as a second literal, so a change to
+ * `PRICE_RETENTION_WARMUP_YEARS` moves this suite's expectations with it.
+ */
+const RETENTION_START = subtractYears(
+  TODAY,
+  priceRetentionYears(HISTORY_YEARS),
+);
 // Fundamentals retention reaches back historyYears + 7 warm-up years, i.e. to 2015-08-24.
 const PRICE_FRESHNESS_MS = 60 * 60 * 1000;
 const FUNDAMENTALS_FRESHNESS_MS = 120 * 60 * 1000;
@@ -86,6 +99,10 @@ const FUNDAMENTALS_FRESHNESS_MS = 120 * 60 * 1000;
  */
 const WIDENING_HISTORY_YEARS = 12;
 const WIDENING_START = "2014-08-24";
+const WIDENING_RETENTION_START = subtractYears(
+  TODAY,
+  priceRetentionYears(WIDENING_HISTORY_YEARS),
+);
 /**
  * The state the v1 price loader left behind, reproduced for one stock at the widening horizon:
  * the provider's history begins years after that horizon, and only its last two years were ever
@@ -404,7 +421,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           new LoggedStockDataService(
             new CanonicalStockDataService(store, stockProvider, cache, coordinator, {
               defaultHistoryDays: 365,
-              historyYears: input.historyYears ?? HISTORY_YEARS,
+              productHistoryYears:
+                input.historyYears ?? HISTORY_YEARS,
               recentPriceFreshnessMs: PRICE_FRESHNESS_MS,
               fundamentalsFreshnessMs: FUNDAMENTALS_FRESHNESS_MS,
               recentTailCalendarDays: 10,
@@ -930,12 +948,12 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           );
         }
 
-        // Provider boundary: exactly one profile, one full-horizon price delta,
-        // and the six-source fundamentals backfill with retention-aware limits.
+        // Provider boundary: exactly one profile, one price delta spanning the whole raw-price
+        // retention horizon, and the six-source fundamentals backfill with retention-aware limits.
         const after = provider.callCounts();
         expect(after.profiles - before.profiles).toBe(1);
         expect(provider.dailyPriceCalls.filter((call) => call.symbol === symbol)).toEqual([
-          { symbol, from: CANONICAL_START, to: TODAY },
+          { symbol, from: RETENTION_START, to: TODAY },
         ]);
         const statementCalls = provider.statementCalls.filter(
           (call) => call.symbol === symbol,
@@ -989,7 +1007,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
           snapshot.coverage.some(
             (row) =>
               row.dataset === StockDataset.DAILY_PRICE &&
-              row.fromDate.toISOString().slice(0, 10) === CANONICAL_START &&
+              row.fromDate.toISOString().slice(0, 10) === RETENTION_START &&
               row.toDate.toISOString().slice(0, 10) === TODAY,
           ),
         ).toBe(true);
@@ -1013,7 +1031,10 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         const manifest = await readRedisManifest(securityId);
         expect(manifest).toMatchObject({
           status: "READY",
-          historyYears: HISTORY_YEARS,
+          // Both horizons are pinned: the product horizon this stock is exposed under, and the
+          // raw-price retention horizon it was materialized under.
+          productHistoryYears: HISTORY_YEARS,
+          priceRetentionYears: priceRetentionYears(HISTORY_YEARS),
           derivedStateRevision: DERIVED_STATE_REVISION,
           canonicalHistoryStart: "2025-01-02",
           canonicalHistoryEnd: TODAY,
@@ -1232,8 +1253,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         });
         // ...and an out-of-bound `from` is clamped at the edge rather than reaching further back.
         expect(details.body.prices[0].date >= WIDENING_START).toBe(true);
+        // The loader may reach behind the reported bound for warm-up, and never behind the
+        // raw-price retention boundary: an unbounded `from` is not a licence to walk the
+        // provider's whole archive.
         const outOfBound = provider.dailyPriceCalls.filter(
-          (call) => call.symbol === symbol && call.from! < WIDENING_START,
+          (call) => call.symbol === symbol && call.from! < WIDENING_RETENTION_START,
         );
         expect(outOfBound).toEqual([]);
       },
@@ -1377,7 +1401,8 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
       const legacyManifest: StockManifest = {
         securityId,
         status: "READY",
-        historyYears: WIDENING_HISTORY_YEARS,
+        productHistoryYears: WIDENING_HISTORY_YEARS,
+        priceRetentionYears: priceRetentionYears(WIDENING_HISTORY_YEARS),
         coverageStart: WIDENING_START,
         coverageEnd: TODAY,
         canonicalHistoryStart: persisted[0]!.date,
@@ -1422,7 +1447,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         // Provider boundary: the v1 claim was not evidence. The caller's whole target was asked
         // for again, exactly once, and the resident fundamentals were left alone.
         expect(priceCallsFor()).toEqual([
-          { symbol: symbols.legacy, from: WIDENING_START, to: TODAY },
+          { symbol: symbols.legacy, from: WIDENING_RETENTION_START, to: TODAY },
         ]);
         expect(statementCallsFor()).toEqual([]);
 
@@ -1440,7 +1465,11 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
             to: isoDate(row.toDate),
           })),
         ).toEqual([
-          { variant: DAILY_PRICE_VARIANT, from: WIDENING_START, to: TODAY },
+          {
+            variant: DAILY_PRICE_VARIANT,
+            from: WIDENING_RETENTION_START,
+            to: TODAY,
+          },
         ]);
         const priceStates = await prisma.stockDatasetState.findMany({
           where: { securityId, dataset: StockDataset.DAILY_PRICE },
@@ -1471,9 +1500,10 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         // Redis: a READY manifest on the current revision, describing the recovered history.
         expect(await readRedisManifest(securityId)).toMatchObject({
           status: "READY",
-          historyYears: WIDENING_HISTORY_YEARS,
+          productHistoryYears: WIDENING_HISTORY_YEARS,
+          priceRetentionYears: priceRetentionYears(WIDENING_HISTORY_YEARS),
           priceDatasetVersion: PRICE_DATASET_VERSION,
-          coverageStart: WIDENING_START,
+          coverageStart: WIDENING_RETENTION_START,
           coverageEnd: TODAY,
           canonicalHistoryStart: LEGACY_PROVIDER_START,
           canonicalHistoryEnd: TODAY,
@@ -1548,7 +1578,7 @@ describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () =>
         expect(await readRedisManifest(securityId)).toMatchObject({
           status: "READY",
           priceDatasetVersion: PRICE_DATASET_VERSION,
-          coverageStart: WIDENING_START,
+          coverageStart: WIDENING_RETENTION_START,
           canonicalHistoryStart: LEGACY_PROVIDER_START,
         });
       },

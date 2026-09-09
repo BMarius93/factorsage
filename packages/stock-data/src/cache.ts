@@ -18,7 +18,23 @@ export const FINANCIAL_STATEMENT_VERSION = 1;
 export type StockManifest = {
   securityId: string;
   status: "HYDRATING" | "READY";
-  historyYears: number;
+  /**
+   * The product horizon this manifest was produced under: the oldest day its surfaces may expose.
+   * A manifest written under a different one is stale, because every projection it was published
+   * for was cut at a boundary the loader no longer uses.
+   */
+  productHistoryYears: number;
+  /**
+   * The raw-price retention horizon this manifest was produced under.
+   *
+   * Recorded beside the product horizon rather than folded into it, because the two answer
+   * different questions and can move independently. It is what stops a READY manifest from an
+   * older, narrower retention policy from reporting that the wider policy is already satisfied:
+   * `coverageStart` alone cannot say so, since a caller-scoped load legitimately leaves it above
+   * the retention boundary. Redis is disposable, so a mismatch costs a rebuild from PostgreSQL,
+   * never provider traffic for dates already covered.
+   */
+  priceRetentionYears: number;
   coverageStart?: string;
   coverageEnd?: string;
   canonicalHistoryStart?: string;

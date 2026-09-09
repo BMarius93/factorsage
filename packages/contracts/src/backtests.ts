@@ -53,7 +53,14 @@ export const BACKTEST_MAX_INITIAL_CAPITAL = 1_000_000_000;
 export const BACKTEST_MAX_MONTHLY_CONTRIBUTION = 10_000_000;
 export const BACKTEST_MIN_MAXIMUM_POSITIONS = 1;
 export const BACKTEST_MAX_MAXIMUM_POSITIONS = 100;
-/** Matches the loader's retention horizon: nothing older than this is materializable. */
+/**
+ * The product horizon: nothing older than this is selectable, projectable or backtestable.
+ *
+ * Matches `STOCK_HISTORY_YEARS` and `STOCK_DETAILS_MAX_HISTORY_YEARS`, and deliberately **not** the
+ * loader's raw-price retention horizon, which reaches four years further back as internal
+ * calculation warm-up and is exposed by nothing
+ * (`docs/decisions/price-retention-warmup-horizon.md`).
+ */
 export const BACKTEST_MAX_PERIOD_YEARS = 30;
 /** Guards the run before it starts rather than letting a worker exhaust memory mid-execution. */
 export const BACKTEST_MAX_SECURITIES = 200;

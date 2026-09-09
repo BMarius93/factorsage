@@ -232,7 +232,7 @@ describeLive("live FMP stock API smoke", () => {
         factory: (store, provider, cache, coordinator) =>
           new LoggedStockDataService(
             new CanonicalStockDataService(store, provider, cache, coordinator, {
-              historyYears: HISTORY_YEARS,
+              productHistoryYears: HISTORY_YEARS,
             }),
             createLogger({
               service: "api",

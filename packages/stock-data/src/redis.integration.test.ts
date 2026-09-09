@@ -43,7 +43,10 @@ import {
   IoredisCacheClient,
 } from "./redis-client.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
-import { CanonicalStockDataService } from "./service.js";
+import {
+  CanonicalStockDataService,
+  priceRetentionYears,
+} from "./service.js";
 
 loadRootEnv();
 // PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
@@ -1252,7 +1255,9 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lastSuccessfulSyncAt: new Date("2026-08-24T12:00:00.000Z"),
         },
       });
-      provider.rows.set("1996-08-24:2014-12-31", [
+      // Both callers reach past the product horizon, so both load targets snap to the shared
+      // raw-price retention boundary — thirty-four years back, four behind what they may show.
+      provider.rows.set("1992-08-24:2014-12-31", [
         integrationPrice(security.id, "2010-01-04", 30),
       ]);
       const storeA = new PrismaStockDataStore(prismaA);
@@ -1272,7 +1277,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 2_000,
           lockWaitMs: 6_000,
         }),
-        { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
       const serviceB = new CanonicalStockDataService(
         storeB,
@@ -1282,7 +1287,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 2_000,
           lockWaitMs: 6_000,
         }),
-        { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
 
       provider.delayMs = 3_500;
@@ -1301,7 +1306,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
       ]);
 
       expect(provider.ranges).toEqual([
-        { from: "1996-08-24", to: "2014-12-31" },
+        { from: "1992-08-24", to: "2014-12-31" },
       ]);
       expect(Date.now() - startedAt).toBeGreaterThanOrEqual(3_000);
       expect(older.map((row) => row.date)).toEqual(["2010-01-04"]);
@@ -1425,7 +1430,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 5_000,
           lockWaitMs: 5_000,
         }),
-        { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
 
       // Historical derived reads are keyed on securityId + date range and come back ascending.
@@ -1546,7 +1551,7 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 5_000,
           lockWaitMs: 5_000,
         }),
-        { historyYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
       );
       await expect(
         service.getDailyPrices(symbol, {
@@ -2046,7 +2051,8 @@ function readyManifest(securityId: string): StockManifest {
   return {
     securityId,
     status: "READY",
-    historyYears: 30,
+    productHistoryYears: 30,
+    priceRetentionYears: priceRetentionYears(30),
     coverageStart: "1996-08-24",
     coverageEnd: "2026-08-24",
     canonicalHistoryStart: "2019-12-31",
