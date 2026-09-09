@@ -104,6 +104,8 @@ export class BacktestDebugArchive {
   private windowCount = 0;
   private tradeCount = 0;
   private equityPointCount = 0;
+  /** Counted separately: `fundingEvents` is drained on every flush, so its length is not a total. */
+  private fundingEventCount = 0;
   private currentWindow: BacktestExecutionWindow | null = null;
   private snapshotDocument: BacktestRunSnapshot | null = null;
   private timings: Record<string, number> = {};
@@ -395,6 +397,7 @@ export class BacktestDebugArchive {
 
     const finalizedAt = this.now();
     try {
+      this.fundingEventCount += this.fundingEvents.length;
       await this.staging.appendNdjson(
         "inputs/contributions.ndjson",
         this.fundingEvents.map((event) => ({
@@ -483,7 +486,7 @@ export class BacktestDebugArchive {
         frameFiles: this.frameFileCount,
         trades: this.tradeCount,
         equityPoints: this.equityPointCount,
-        fundingEvents: this.fundingEvents.length,
+        fundingEvents: this.fundingEventCount,
         warnings: this.warnings,
       },
       encoding: {
@@ -622,6 +625,7 @@ export class BacktestDebugArchive {
 
     // Flushed per window so a run killed in year 20 still has 19 years of funding on disk.
     const pending = this.fundingEvents.splice(0, this.fundingEvents.length);
+    this.fundingEventCount += pending.length;
     await this.staging.appendNdjson(
       "inputs/contributions.ndjson",
       pending.map((event) => ({

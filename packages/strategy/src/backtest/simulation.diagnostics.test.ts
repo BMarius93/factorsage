@@ -144,9 +144,9 @@ describe("backtest diagnostics observer", () => {
     // Exactly one row precedes the window: the row the engine retained from 2019, which is what a
     // Trigger reads at `index - 1` on the first eligible date of 2020. The count is read off the
     // dates rather than off `periodStartIndex`, which is whatever the loader reported.
-    expect(
-      frame.dates.filter((date) => date < second.window.from),
-    ).toEqual(["2019-12-31"]);
+    expect(frame.dates.filter((date) => date < second.window.from)).toEqual([
+      "2019-12-31",
+    ]);
     expect(frame.dates[1]).toBe("2020-01-01");
     expect(frame.dates[1]).toBe(second.window.dates[0]);
 
@@ -186,7 +186,8 @@ describe("backtest diagnostics observer", () => {
       .filter(
         (point, index) =>
           index > 0 &&
-          point.investedCapital > (result.equity[index - 1]?.investedCapital ?? 0),
+          point.investedCapital >
+            (result.equity[index - 1]?.investedCapital ?? 0),
       )
       .map((point) => point.date);
     expect(contributions.map((event) => event.date)).toEqual(deposits);
@@ -226,9 +227,9 @@ describe("backtest diagnostics observer", () => {
     // The retained Trigger context row is named, so a reviewer can check the next year's crossing.
     expect(first.state.contextRows).toHaveLength(1);
     expect(first.state.contextRows[0]?.date).toBe("2019-12-31");
-    expect(
-      first.state.contextRows[0]?.values.has(MOVING_AVERAGE_COLUMN),
-    ).toBe(true);
+    expect(first.state.contextRows[0]?.values.has(MOVING_AVERAGE_COLUMN)).toBe(
+      true,
+    );
   });
 
   it("slices each window's own trades and equity, covering the run exactly once", async () => {

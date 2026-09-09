@@ -489,6 +489,13 @@ describe("backtest debug archive — a completed attempt", () => {
       status: "COMPLETED",
     });
     expect(manifest.build).toMatchObject({ nodeVersion: process.version });
+    // Counted cumulatively, not from a buffer the per-window flush drains.
+    expect(manifest.capture).toMatchObject({
+      windows: 3,
+      frameFiles: 6,
+      fundingEvents: archiveNdjsonEntry(entries, "inputs/contributions.ndjson")
+        .length,
+    });
     // Local git metadata is best-effort and null is a legitimate answer, but it must be *present*.
     expect(manifest.build).toHaveProperty("gitCommit");
     expect(manifest.build).toHaveProperty("gitBranch");

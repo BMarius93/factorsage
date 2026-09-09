@@ -59,3 +59,10 @@ Stop infrastructure:
 ```bash
 pnpm infra:down
 ```
+
+## Backtest debug archives
+
+`BACKTEST_DEBUG_ARCHIVE=full pnpm dev:worker` makes each worker child write one self-contained `.zip`
+per backtest attempt under `.debug/backtests` (git-ignored), holding the raw inputs and outputs a run
+can be independently verified from. It is off by default, refuses to start in production, and cannot
+change what a backtest computes. See `development/backtest-debug-archive.md`.

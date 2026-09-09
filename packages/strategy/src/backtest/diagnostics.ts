@@ -1,10 +1,7 @@
 import type { LocalDate, SecurityId } from "@intrinsic/domain";
 import type { EvaluationFrame } from "../frame.js";
 import type { OperandKey } from "../operands.js";
-import type {
-  BacktestEquityPoint,
-  BacktestTradeRecord,
-} from "./types.js";
+import type { BacktestEquityPoint, BacktestTradeRecord } from "./types.js";
 import type { BacktestExecutionWindow } from "./window.js";
 
 /**
@@ -31,8 +28,7 @@ import type { BacktestExecutionWindow } from "./window.js";
 
 /** How external capital entered the run. Both scenarios and the Strategy receive it identically. */
 export type BacktestFundingEventType =
-  | "INITIAL_CAPITAL"
-  | "MONTHLY_CONTRIBUTION";
+  "INITIAL_CAPITAL" | "MONTHLY_CONTRIBUTION";
 
 /**
  * One external cash flow, as the simulation actually applied it.
