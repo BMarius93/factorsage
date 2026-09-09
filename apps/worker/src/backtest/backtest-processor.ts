@@ -17,11 +17,12 @@ import type {
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
   collectOperands,
+  createBacktestSimulation,
   methodologyMismatches,
-  simulateBacktest,
   type BacktestCheckpoint,
+  type BacktestExecutionWindow,
   type BacktestResult,
-  type BacktestSecurityInput,
+  type BacktestSecuritySetup,
   type BenchmarkSeriesInput,
   type EvaluationFrame,
   type OperandKey,
@@ -30,7 +31,10 @@ import {
   BacktestInterruptedError,
   type BacktestJobLease,
 } from "./job-lease.js";
-import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
+import {
+  BACKTEST_DATA_REVISIONS,
+  type DailyPriceBounds,
+} from "@intrinsic/stock-data";
 import {
   ABANDONED_FAILURE_MESSAGE,
   type BacktestJobRepository,
@@ -43,14 +47,29 @@ import type { BacktestSecurityCatalog } from "./securities.js";
 import type { BacktestJobProcessor } from "./worker-loop.js";
 
 /**
- * The columnar projection the engine consumes.
+ * The two-step projection the engine consumes.
  *
  * Declared as the narrow slice the worker needs rather than as the whole `StockDataService`: the
  * worker loads nothing else, and it must never grow its own Redis lookup, coverage reconciliation
  * or provider access — `@intrinsic/stock-data` owns all of that for both processes.
+ *
+ * The split is the whole point of annual execution. `prepare` runs once per security in
+ * `PREPARING_DATA` and is the only step allowed to hydrate: it makes the canonical data for the
+ * **whole** period resident under the existing warm-up, freshness, coverage and revision rules.
+ * `read` then projects one calendar-year window at a time during `RUNNING`, without re-entering
+ * hydration — so a thirty-year run reads thirty windows and still hydrates once.
  */
 export interface BacktestFrameLoader {
-  getDailyEvaluationFrame(
+  /**
+   * Makes the whole period's canonical data ready and reports the persisted price coverage inside
+   * it, or null when the security has none.
+   */
+  prepareDailyEvaluationData(
+    security: Security,
+    range: Required<DateRange>,
+  ): Promise<DailyPriceBounds | null>;
+  /** Projects one already-prepared window. Must not hydrate. */
+  readDailyEvaluationFrame(
     security: Security,
     range: Required<DateRange>,
     operands: readonly OperandKey[],
@@ -71,6 +90,22 @@ export interface BacktestBenchmarkLoader {
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
 }
+
+/** One run security after `PREPARING_DATA`: its resolved identity and what its history covers. */
+type PreparedSecurity = {
+  security: Security;
+  /** Persisted price coverage inside the requested period. Never null for a kept security. */
+  coverage: DailyPriceBounds;
+  setup: BacktestSecuritySetup;
+};
+
+/** Everything `RUNNING` needs, with not one security frame resident yet. */
+type PreparedRun = {
+  securities: PreparedSecurity[];
+  operands: readonly OperandKey[];
+  benchmark: BenchmarkSeriesInput | null;
+  executionCalendar: LocalDate[];
+};
 
 export type BacktestProcessorOptions = {
   frameConcurrency: number;
@@ -311,11 +346,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     lease: BacktestJobLease,
     snapshot: BacktestRunSnapshot,
     period: Required<DateRange>,
-  ): Promise<{
-    securities: BacktestSecurityInput[];
-    benchmark: BenchmarkSeriesInput | null;
-    executionCalendar: LocalDate[];
-  }> {
+  ): Promise<PreparedRun> {
     const startedAt = Date.now();
     const operands = collectOperands(snapshot.strategy.definition);
     const catalog = await this.dependencies.securities.findByIds(
@@ -336,7 +367,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       period,
     );
 
-    const loaded: (BacktestSecurityInput | null)[] = snapshot.securities.map(
+    const loaded: (PreparedSecurity | null)[] = snapshot.securities.map(
       () => null,
     );
     const total = snapshot.securities.length;
@@ -375,12 +406,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
           throw new BacktestInterruptedError(interruption);
         }
 
-        const frame = await this.loadFrame(member, catalog, period, operands);
-        if (frame) {
-          loaded[index] = {
-            frame,
-            buyWindows: snapshotBuyWindows(member),
-          };
+        const prepared = await this.prepareSecurity(member, catalog, period);
+        if (prepared) {
+          loaded[index] = prepared;
         } else {
           skipped += 1;
           skippedSymbols.push(member.symbol);
@@ -392,7 +420,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     );
 
     const securities = loaded.filter(
-      (entry): entry is BacktestSecurityInput => entry !== null,
+      (entry): entry is PreparedSecurity => entry !== null,
     );
 
     this.dependencies.logger.info({
@@ -415,14 +443,9 @@ export class BacktestProcessor implements BacktestJobProcessor {
         skippedContext(skippedSymbols),
       );
     }
-    // The engine simulates the union of the frames' own trading days inside the period. When no
-    // frame has a row in it there is no calendar to walk, which is a period problem rather than a
-    // data problem, and the user is told so.
-    if (
-      securities.every(
-        (entry) => entry.frame.periodStartIndex >= entry.frame.dates.length,
-      )
-    ) {
+    // The engine walks the pinned execution calendar, but a period in which not one security ever
+    // traded is a period problem rather than a data problem, and the user is told so.
+    if (securities.every((entry) => entry.coverage === null)) {
       throw new BacktestRunFailure(
         "NO_TRADING_DAYS",
         `No security has a trading day between ${period.from} and ${period.to}`,
@@ -431,17 +454,26 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
     return {
       securities,
+      operands,
       benchmark: await this.loadBenchmark(snapshot, period),
       executionCalendar,
     };
   }
 
-  private async loadFrame(
+  /**
+   * Hydrates one security for the whole period and records what it actually covers.
+   *
+   * This is the run's only hydration of this security: every calendar-year window afterwards reads
+   * the projection it left resident. A security with no usable history is skipped rather than
+   * failing the run — a thirty-year period over a list containing a recent listing is a normal
+   * backtest, not an error — while losing *every* security is different, and is caught by the
+   * caller.
+   */
+  private async prepareSecurity(
     member: BacktestSnapshotSecurity,
     catalog: Map<string, Security>,
     period: Required<DateRange>,
-    operands: readonly OperandKey[],
-  ): Promise<EvaluationFrame | null> {
+  ): Promise<PreparedSecurity | null> {
     // Identity is the snapshot's, frozen at submission; classification comes from the catalog row
     // it still references, which is what the loader needs to reach the right history.
     const row = catalog.get(member.securityId);
@@ -463,12 +495,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
       currency: member.currency,
     };
 
-    const frame = await this.dependencies.stockData.getDailyEvaluationFrame(
-      security,
-      period,
-      operands,
-    );
-    if (frame.dates.length === 0) {
+    const coverage =
+      await this.dependencies.stockData.prepareDailyEvaluationData(
+        security,
+        period,
+      );
+    if (coverage === null) {
+      // No persisted price row anywhere in the period. The security stays in the run only if it
+      // could still act, and it cannot, so it is skipped exactly as before.
       this.dependencies.logger.warn({
         event: "backtest.security.skipped",
         symbol: member.symbol,
@@ -476,7 +510,17 @@ export class BacktestProcessor implements BacktestJobProcessor {
       });
       return null;
     }
-    return frame;
+
+    return {
+      security,
+      coverage,
+      setup: {
+        securityId: member.securityId,
+        symbol: member.symbol,
+        name: member.name,
+        buyWindows: snapshotBuyWindows(member),
+      },
+    };
   }
 
   /**
@@ -620,16 +664,31 @@ export class BacktestProcessor implements BacktestJobProcessor {
     }
   }
 
-  /** RUNNING — the deterministic day loop, publishing bounded checkpoints as it advances. */
+  /**
+   * RUNNING — one continuous deterministic simulation, fed one calendar-year window at a time.
+   *
+   * ```text
+   * 2000-05-10 → 2000-12-31   load, simulate, expose the completed prefix, release
+   * 2001-01-01 → 2001-12-31   …
+   * 2010-01-01 → 2010-08-15
+   * ```
+   *
+   * The loop is a **data-loading and progress** loop, never a sequence of independent backtests:
+   * `BacktestSimulation` carries cash, positions, level state, contribution progression, the
+   * accumulators and the comparison scenarios straight across each boundary, and rejects a window
+   * that does not continue the run's own calendar. Only the projections are replaced.
+   *
+   * Nothing here hydrates. `PREPARING_DATA` already made the whole period resident, so each window
+   * is a projection read — repaired from PostgreSQL when a Redis year chunk is missing, and
+   * reaching the provider only where PostgreSQL genuinely has no coverage.
+   *
+   * A failure in any window propagates: the run is `FAILED`, never partially `COMPLETED`.
+   */
   private async simulate(
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
     snapshot: BacktestRunSnapshot,
-    prepared: {
-      securities: BacktestSecurityInput[];
-      benchmark: BenchmarkSeriesInput | null;
-      executionCalendar: LocalDate[];
-    },
+    prepared: PreparedRun,
   ): Promise<BacktestResult> {
     await this.writeProgress(claim, lease, {
       status: BacktestRunStatus.RUNNING,
@@ -639,10 +698,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
     let lastCheckpointAt = 0;
 
-    return simulateBacktest(
+    const simulation = createBacktestSimulation(
       {
         definition: snapshot.strategy.definition,
-        securities: prepared.securities,
+        securities: prepared.securities.map((entry) => entry.setup),
         benchmark: prepared.benchmark,
         executionCalendar: prepared.executionCalendar,
         startDate: snapshot.period.startDate,
@@ -663,8 +722,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
           // the running page has something to show immediately, and the rest are throttled.
           //
           // A completed year is never throttled away. It is the progression a user follows on a
-          // decades-long run, and a V1 run has at most about thirty of them, so keeping every one
-          // costs a bounded number of small writes even when the simulation outruns the clock.
+          // decades-long run, and it is the boundary at which that year's computed curve becomes
+          // visible to the running page. A V1 run has at most about thirty of them, so keeping
+          // every one costs a bounded number of small writes even when the simulation outruns the
+          // clock.
           const at = this.now().getTime();
           if (
             checkpoint.milestone === null &&
@@ -679,6 +740,53 @@ export class BacktestProcessor implements BacktestJobProcessor {
         },
       },
     );
+
+    for (const window of simulation.windows) {
+      const interruption = lease.interruption();
+      if (interruption) {
+        throw new BacktestInterruptedError(interruption);
+      }
+      const startedAt = Date.now();
+      const frames = await this.loadWindowFrames(prepared, window);
+      this.dependencies.logger.debug({
+        event: "backtest.window.loaded",
+        year: window.year,
+        from: window.from,
+        to: window.to,
+        durationMs: Date.now() - startedAt,
+        securityCount: frames.length,
+        tradingDays: window.dates.length,
+      });
+      await simulation.consumeWindow(window, { frames });
+    }
+
+    return simulation.finish();
+  }
+
+  /**
+   * Projects every run security for one window, in the run's own order.
+   *
+   * Every security is projected, including one with no rows that year: the engine needs the full
+   * set to tell "this security did not trade in 2003" from "the loader lost a security", and an
+   * empty frame is the honest answer to the first.
+   *
+   * Bounded concurrency for the same reason frame loading always had it — these are I/O reads
+   * sharing a connection pool — while the simulation itself stays strictly sequential in time.
+   */
+  private async loadWindowFrames(
+    prepared: PreparedRun,
+    window: BacktestExecutionWindow,
+  ): Promise<EvaluationFrame[]> {
+    const range = { from: window.from, to: window.to } as const;
+    const frames: EvaluationFrame[] = new Array(prepared.securities.length);
+    await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
+      frames[index] = await this.dependencies.stockData.readDailyEvaluationFrame(
+        entry.security,
+        range,
+        prepared.operands,
+      );
+    });
+    return frames;
   }
 
   private async publishCheckpoint(

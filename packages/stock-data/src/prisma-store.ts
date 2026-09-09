@@ -33,6 +33,7 @@ import {
   DAILY_PRICE_VARIANT,
   DAILY_PRICE_VARIANT_FAMILY,
   WEEKLY_PRICE_VARIANT,
+  type DailyPriceBounds,
   type PersistedDatasetState,
   type PersistedStockDataset,
   type PersistedSecurityCatalogEntry,
@@ -754,6 +755,35 @@ export class PrismaStockDataStore implements StockDataStore {
       volume: Number(row.volume),
       ...(row.vwap === null ? {} : { vwap: row.vwap.toNumber() }),
     }));
+  }
+
+  /**
+   * One aggregate over the persisted price rows in a range, so a caller can tell whether a security
+   * has usable history there without reading the history.
+   *
+   * PostgreSQL, not the Redis projection, deliberately: this answers a question about durable
+   * coverage, and the answer must not depend on what a disposable cache currently holds.
+   */
+  async getDailyPriceBounds(
+    securityId: string,
+    range: Required<DateRange>,
+  ): Promise<DailyPriceBounds | null> {
+    const aggregate = await this.prisma.dailyPrice.aggregate({
+      where: { securityId, date: rangeWhere(range) },
+      _min: { date: true },
+      _max: { date: true },
+      _count: { date: true },
+    });
+    const firstDate = aggregate._min.date;
+    const lastDate = aggregate._max.date;
+    if (firstDate === null || lastDate === null) {
+      return null;
+    }
+    return {
+      firstDate: fromDatabaseDate(firstDate),
+      lastDate: fromDatabaseDate(lastDate),
+      tradingDays: aggregate._count.date,
+    };
   }
 
   async getEarliestDailyPriceDate(securityId: string): Promise<string | null> {

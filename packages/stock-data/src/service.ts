@@ -60,6 +60,7 @@ import {
 import {
   DAILY_PRICE_VARIANT,
   PRICE_DATASET_VERSION,
+  type DailyPriceBounds,
   type PersistedDatasetState,
   type StockDataStore,
 } from "./ports.js";
@@ -566,6 +567,84 @@ export class CanonicalStockDataService implements StockDataService {
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
+    const [prices, derived] = await Promise.all([
+      this.readDailyPriceProjection(security, context),
+      this.readDailyDerivedStateProjection(security, context),
+    ]);
+    return projectEvaluationFrame({
+      security,
+      prices,
+      derived,
+      operands,
+      periodStart: period.from,
+    }).frame;
+  }
+
+  /**
+   * PREPARING_DATA — makes everything a backtest reads over its **whole** period resident, once.
+   *
+   * Canonical hydration stays deliberately broad here: full price history, fundamentals, intrinsic
+   * values, blends and every materialized derived series, under the existing warm-up, PIT,
+   * revision, freshness and coverage rules. It is **not** narrowed to one year and **not** narrowed
+   * to the operands one Strategy happens to name, because that is durable canonical state shared
+   * with Stock Details and with every other run — see
+   * `docs/decisions/backtest-year-window-execution-and-absolute-comparison.md`.
+   *
+   * What the calendar-year windows change is the *read* that follows, not this load. Doing the
+   * whole run's hydration and freshness check once is exactly what lets
+   * {@link readDailyEvaluationFrame} stay off the provider for every subsequent year: the manifest
+   * then already covers each window, so `ensureStockHydrated` short-circuits and the freshness
+   * watermark is current.
+   *
+   * Returns the persisted coverage inside the requested period so a caller can tell a security with
+   * no usable history from one that simply has not listed yet — without projecting the period it is
+   * trying not to hold in memory.
+   */
+  async prepareDailyEvaluationData(
+    security: Security,
+    range: Required<DateRange>,
+  ): Promise<DailyPriceBounds | null> {
+    const period = this.requireBoundedRange(range);
+    const context = {
+      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
+      to: period.to,
+    };
+    const load = this.loadTarget(security, context);
+    await this.ensureStockHydrated(security, load);
+    await this.ensureStockFresh(security, load);
+    const projection = this.projectionRange(security, period);
+    return projection
+      ? this.store.getDailyPriceBounds(security.id, projection)
+      : null;
+  }
+
+  /**
+   * RUNNING — projects one already-prepared window without re-entering hydration.
+   *
+   * The counterpart of {@link prepareDailyEvaluationData}, and the read a calendar-year execution
+   * window makes. It deliberately does **not** call `ensureStockHydrated` or `ensureStockFresh`:
+   * those were done once for the whole period before the first year was simulated, and calling them
+   * per year would make a thirty-year run ask the same freshness question thirty times.
+   *
+   * Redis is still disposable underneath. A missing year chunk is repaired by the projection reads
+   * themselves, which rebuild it from PostgreSQL's durable coverage — and reach the provider only
+   * where PostgreSQL genuinely has no coverage, which is the same rule every other read follows.
+   *
+   * The window is widened by the same leading context every frame gets, so the first date of a
+   * window has a `t - 1` value where the security traded recently. Correctness across a year
+   * boundary does not depend on it: `@intrinsic/strategy` carries the preceding eligible row itself,
+   * which is what makes a Trigger right even when the previous session was months earlier.
+   */
+  async readDailyEvaluationFrame(
+    security: Security,
+    range: Required<DateRange>,
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame> {
+    const period = this.requireBoundedRange(range);
+    const context = {
+      from: addDays(period.from, -TRIGGER_CONTEXT_CALENDAR_DAYS),
+      to: period.to,
+    };
     const [prices, derived] = await Promise.all([
       this.readDailyPriceProjection(security, context),
       this.readDailyDerivedStateProjection(security, context),

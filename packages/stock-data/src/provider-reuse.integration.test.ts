@@ -140,9 +140,15 @@ describeReuse("provider reuse across repeated reads", () => {
   // The loader normalizes a symbol to upper case before resolving it, so the catalog row must be
   // stored in exactly that form.
   const stem = suffix.slice(0, 4).toUpperCase();
-  // The third symbol belongs to case G alone: PostgreSQL coverage survives between cases here (only
-  // Redis is cleared), so a security another case has already warmed could never show a cold read.
-  const symbols = [`RUSEA${stem}`, `RUSEB${stem}`, `RUSEG${stem}`];
+  // The third and fourth symbols belong to one case each: PostgreSQL coverage survives between
+  // cases here (only Redis is cleared), so a security another case has already warmed could never
+  // show a cold read.
+  const symbols = [
+    `RUSEA${stem}`,
+    `RUSEB${stem}`,
+    `RUSEG${stem}`,
+    `RUSEL${stem}`,
+  ];
   const securities: Security[] = [];
   let benchmark: BenchmarkWithSeries;
   let boundedBenchmark: BenchmarkWithSeries;
@@ -498,6 +504,99 @@ describeReuse("provider reuse across repeated reads", () => {
       );
       expect(backRows.length).toBeGreaterThan(detailRows.length);
       expect(backProvider.priceRequests).toEqual([]);
+    });
+  });
+
+  /**
+   * A thirty-year backtest reads thirty calendar-year windows and hydrates **once**.
+   *
+   * This is the property the annual execution refactor exists to hold. If a window read re-entered
+   * hydration, a long run would spend one provider cycle per year — the failure mode is not a wrong
+   * number but a run that quietly takes thirty times as long and burns the shared FMP budget, which
+   * nobody notices from a results page. Counting requests is what makes it visible.
+   */
+  describe("annual execution windows read what PREPARING_DATA made resident", () => {
+    const OPERANDS = [PRICE_OPERAND, seriesOperand("SMA_50D")];
+    const period = { from: "2018-01-02", to: today };
+    const years = [2018, 2019, 2020];
+
+    /** The windows the engine plans, as ranges a loader is asked for. */
+    const windows = years.map((year) => ({
+      from: year === 2018 ? period.from : `${year}-01-01`,
+      to: year === 2020 ? period.to : `${year}-12-31`,
+    }));
+
+    async function readWindows(provider: CountingStockProvider, security: Security) {
+      const service = stockService(provider);
+      const dates: string[] = [];
+      for (const window of windows) {
+        const frame = await service.readDailyEvaluationFrame(
+          security,
+          window,
+          [...OPERANDS],
+        );
+        for (const date of frame.dates) {
+          // The loader widens each window by its own leading context, so the December rows of the
+          // previous year arrive twice. The window's *own* dates are what tile the period.
+          if (date >= window.from && date <= window.to) {
+            dates.push(date);
+          }
+        }
+      }
+      return dates;
+    }
+
+    it("L: prepares once, then steps through every year without one provider cycle per year", async () => {
+      const security = securities[3] as Security;
+
+      // A. PREPARING_DATA: the only step allowed to hydrate, and on a cold security it does.
+      const prepareProvider = new CountingStockProvider(priceRows);
+      const coverage = await stockService(
+        prepareProvider,
+      ).prepareDailyEvaluationData(security, period);
+      expect(prepareProvider.priceRequests.length).toBeGreaterThan(0);
+      expect(coverage).not.toBeNull();
+      expect(coverage?.tradingDays).toBeGreaterThan(0);
+
+      // B. RUNNING: three calendar-year windows, and not one provider request between them.
+      const windowProvider = new CountingStockProvider(priceRows);
+      const windowed = await readWindows(windowProvider, security);
+      expect(windowed.length).toBeGreaterThan(0);
+      expect(windowProvider.priceRequests).toEqual([]);
+      expect(windowProvider.statementRequests).toEqual([]);
+      expect(windowProvider.profileRequests).toEqual([]);
+
+      // C. The windows tile the period exactly: the same dates a whole-period projection holds,
+      // in the same order, with nothing duplicated and nothing dropped at a boundary.
+      const whole = await stockService(
+        new CountingStockProvider(priceRows),
+      ).readDailyEvaluationFrame(security, period, [...OPERANDS]);
+      expect(windowed).toEqual(
+        whole.dates.filter((date) => date >= period.from && date <= period.to),
+      );
+
+      // D. Annual reads land on the yearly Redis chunks the layout already stores.
+      for (const year of years) {
+        expect(
+          await redis.exists(
+            `${namespace}:security:${security.id}:prices:1D:${year}`,
+          ),
+        ).toBe(1);
+        expect(
+          await redis.exists(
+            `${namespace}:security:${security.id}:daily-state:${year}`,
+          ),
+        ).toBe(1);
+      }
+
+      // E. Redis is disposable. With every chunk gone, the same yearly reads rebuild from
+      // PostgreSQL's durable coverage and still ask the provider for nothing.
+      await clearRedis();
+      const rebuiltProvider = new CountingStockProvider(priceRows);
+      const rebuilt = await readWindows(rebuiltProvider, security);
+      expect(rebuilt).toEqual(windowed);
+      expect(rebuiltProvider.priceRequests).toEqual([]);
+      expect(rebuiltProvider.statementRequests).toEqual([]);
     });
   });
 
