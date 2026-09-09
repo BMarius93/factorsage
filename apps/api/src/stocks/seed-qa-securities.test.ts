@@ -71,6 +71,32 @@ describe("QA security seeding safety", () => {
     ).toThrow(DEV_DATABASE_QA_SEED_MESSAGE);
   });
 
+  it("allows the equality `useTestDatabase` itself creates in a DB-backed suite", () => {
+    // The helper overwrites DATABASE_URL with the test database *after* making this same check
+    // against the real one, and records that it did. Without the carve-out no deterministic-fixture
+    // seeder could be exercised from an integration suite at all.
+    expect(() =>
+      assertQaSecuritySeedingAllowed({
+        INTRINSIC_TEST_DATABASE_ACTIVE: "true",
+        DATABASE_URL: TEST_DB,
+        TEST_DATABASE_URL: TEST_DB,
+      }),
+    ).not.toThrow();
+    // It is not a way past the other rules.
+    expect(() =>
+      assertQaSecuritySeedingAllowed({
+        INTRINSIC_TEST_DATABASE_ACTIVE: "true",
+        NODE_ENV: "production",
+        TEST_DATABASE_URL: TEST_DB,
+      }),
+    ).toThrow(PRODUCTION_QA_SECURITIES_MESSAGE);
+    expect(() =>
+      assertQaSecuritySeedingAllowed({
+        INTRINSIC_TEST_DATABASE_ACTIVE: "true",
+      }),
+    ).toThrow(MISSING_TEST_DATABASE_QA_SEED_MESSAGE);
+  });
+
   it("allows one database in CI, where there is no second one to protect", () => {
     expect(() =>
       assertQaSecuritySeedingAllowed({

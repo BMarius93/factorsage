@@ -66,3 +66,126 @@ export function buildContributionDates(
   }
   return dates;
 }
+
+/**
+ * A navigable view over one authoritative execution-date set.
+ *
+ * The dates are the **only** input: this type holds no notion of weekends, holidays or market
+ * closures, and cannot decide whether a date is a trading session — it can only report whether that
+ * date is in the set it was given. That is deliberate and it is the whole point. The market's
+ * sessions are established by the pinned execution-calendar series' own bars
+ * (`BacktestRunSnapshot.executionCalendar`), evidenced by real data, and a second implementation
+ * that computed them from published rules would be a second answer to a question that already has
+ * one — right up until the day the two disagreed.
+ *
+ * {@link buildExecutionCalendar} remains what the simulation calls; this is the same date axis with
+ * the positional queries a caller outside the day loop needs — most immediately the QA validation
+ * matrix, whose buy-window boundaries have to name real execution dates rather than guess at them.
+ *
+ * Construction sorts and deduplicates for the same reason `buildExecutionCalendar` does: the axis
+ * every query below is expressed against must be guaranteed monotonic, not merely expected to be.
+ */
+export class ExecutionCalendar {
+  /** Ascending, deduplicated execution dates. */
+  readonly dates: readonly LocalDate[];
+
+  private readonly index: ReadonlyMap<LocalDate, number>;
+
+  constructor(dates: readonly LocalDate[]) {
+    this.dates = [...new Set(dates)].sort();
+    this.index = new Map(this.dates.map((date, position) => [date, position]));
+  }
+
+  /** The date set restricted to an inclusive period, exactly as the simulation restricts it. */
+  static restricted(
+    startDate: LocalDate,
+    endDate: LocalDate,
+    dates: readonly LocalDate[],
+  ): ExecutionCalendar {
+    return new ExecutionCalendar(
+      buildExecutionCalendar(startDate, endDate, dates),
+    );
+  }
+
+  get length(): number {
+    return this.dates.length;
+  }
+
+  get first(): LocalDate | undefined {
+    return this.dates[0];
+  }
+
+  get last(): LocalDate | undefined {
+    return this.dates[this.dates.length - 1];
+  }
+
+  /** Whether the market traded on `date`, according to the authoritative set. */
+  has(date: LocalDate): boolean {
+    return this.index.has(date);
+  }
+
+  /** The position of `date` in the set, or `-1`. */
+  positionOf(date: LocalDate): number {
+    return this.index.get(date) ?? -1;
+  }
+
+  at(position: number): LocalDate | undefined {
+    return this.dates[position];
+  }
+
+  /** The first execution date at or after `date`, or `undefined` past the end of the set. */
+  onOrAfter(date: LocalDate): LocalDate | undefined {
+    // Linear-free: the set is sorted, so a binary search answers in log n even for a thirty-year
+    // calendar queried once per fixture.
+    let low = 0;
+    let high = this.dates.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((this.dates[middle] as LocalDate) < date) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return this.dates[low];
+  }
+
+  /** The last execution date at or before `date`, or `undefined` before the start of the set. */
+  onOrBefore(date: LocalDate): LocalDate | undefined {
+    const next = this.onOrAfter(date);
+    if (next === date) {
+      return date;
+    }
+    const position =
+      next === undefined ? this.dates.length : this.positionOf(next);
+    return this.dates[position - 1];
+  }
+
+  /**
+   * The execution date `offset` sessions from `date`, forward or backward.
+   *
+   * `date` must itself be an execution date: "one session after a day the market was closed" has no
+   * single meaning, and a caller asking for it has not decided what it wants.
+   */
+  advance(date: LocalDate, offset: number): LocalDate | undefined {
+    const position = this.positionOf(date);
+    if (position < 0) {
+      throw new Error(
+        `${date} is not an execution date in this calendar; it cannot be stepped from`,
+      );
+    }
+    return this.dates[position + offset];
+  }
+
+  /** The first execution date of a calendar year, or `undefined` if the set covers none. */
+  firstOfYear(year: number): LocalDate | undefined {
+    const candidate = this.onOrAfter(`${year}-01-01`);
+    return candidate?.startsWith(`${year}-`) ? candidate : undefined;
+  }
+
+  /** The last execution date of a calendar year, or `undefined` if the set covers none. */
+  lastOfYear(year: number): LocalDate | undefined {
+    const candidate = this.onOrBefore(`${year}-12-31`);
+    return candidate?.startsWith(`${year}-`) ? candidate : undefined;
+  }
+}

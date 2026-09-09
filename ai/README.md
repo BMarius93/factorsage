@@ -59,7 +59,8 @@ loading shares with stock loading), and `architecture/strategy-evaluation.md` fo
 engine was built from. `../docs/decisions/backtest-run-persistence.md` records the storage
 decision, and `../docs/development/backtest-debug-archive.md` documents the opt-in developer-only
 forensic archive a worker can write for one attempt when a run's numbers have to be verified
-independently. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
+independently. `../docs/development/qa-matrix-fixtures.md` documents the deterministic QA-MATRIX
+Strategy/List/configuration fixtures the future 1,000-run validation matrix is built from. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 

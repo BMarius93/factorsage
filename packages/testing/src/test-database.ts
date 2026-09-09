@@ -1,6 +1,17 @@
 import { loadRootEnv } from "@intrinsic/config";
 
 /**
+ * Marks this process as already pointed at the dedicated test database.
+ *
+ * A guard that normally refuses `DATABASE_URL === TEST_DATABASE_URL` — because a `.env` naming the
+ * development database as the test one would defeat an explicit connection — must still accept the
+ * equality *this function itself creates*. The check that rule exists for was already made below,
+ * against the real `DATABASE_URL`, before the swap; the marker says so rather than leaving a
+ * deterministic-fixture seeder unusable from any DB-backed suite.
+ */
+export const TEST_DATABASE_ACTIVE_ENV = "INTRINSIC_TEST_DATABASE_ACTIVE";
+
+/**
  * Points this process at the dedicated PostgreSQL test database.
  *
  * `DATABASE_URL` is the development database and must never be written to by tests, so
@@ -48,5 +59,6 @@ export function useTestDatabase(): string {
   }
 
   process.env.DATABASE_URL = testDatabaseUrl;
+  process.env[TEST_DATABASE_ACTIVE_ENV] = "true";
   return testDatabaseUrl;
 }
