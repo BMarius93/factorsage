@@ -881,81 +881,93 @@ describeRetention(
         ];
       }
 
-      it("reproduces the daily moving averages and RSI from raw closes", () => {
-        const oracles = {
-          sma20d: referenceMovingAverage(closes, "SMA", 20),
-          ema50d: referenceMovingAverage(closes, "EMA", 50),
-          ema200d: referenceMovingAverage(closes, "EMA", 200),
-          rsi14d: referenceWilderRsi(closes, 14),
-        } as const;
+      it(
+        "reproduces the daily moving averages and RSI from raw closes",
+        () => {
+          const oracles = {
+            sma20d: referenceMovingAverage(closes, "SMA", 20),
+            ema50d: referenceMovingAverage(closes, "EMA", 50),
+            ema200d: referenceMovingAverage(closes, "EMA", 200),
+            rsi14d: referenceWilderRsi(closes, 14),
+          } as const;
 
-        for (const date of probeDates()) {
-          const index = dates.indexOf(date);
-          const row = derivedByDate.get(date)!;
-          for (const [field, values] of Object.entries(oracles)) {
-            const expected = values[index];
-            expect(expected).toBeTypeOf("number");
-            expect(row[field]).toBeCloseTo(expected!, 6);
+          for (const date of probeDates()) {
+            const index = dates.indexOf(date);
+            const row = derivedByDate.get(date)!;
+            for (const [field, values] of Object.entries(oracles)) {
+              const expected = values[index];
+              expect(expected).toBeTypeOf("number");
+              expect(row[field]).toBeCloseTo(expected!, 6);
+            }
           }
-        }
-      });
+        },
+        SLOW,
+      );
 
-      it("reproduces the 200-week averages from completed weekly closes only", async () => {
-        const rows = await persistedPrices(security.id);
-        const prices: DailyPrice[] = rows.map((row) => ({
-          securityId: security.id,
-          date: isoDate(row.date),
-          open: row.open.toNumber(),
-          high: row.high.toNumber(),
-          low: row.low.toNumber(),
-          close: row.close.toNumber(),
-          volume: Number(row.volume),
-        }));
-        const weeks = aggregateCompletedWeeks(prices, TODAY, {
-          historyStart: dates[0]!,
-          historyStartOrigin: "HORIZON",
-        }).sort((left, right) =>
-          left.weekStartDate.localeCompare(right.weekStartDate),
-        );
-        const weeklyCloses = weeks.map((week) => week.close);
-        const sma200w = referenceMovingAverage(weeklyCloses, "SMA", 200);
-        const ema200w = referenceMovingAverage(weeklyCloses, "EMA", 200);
+      it(
+        "reproduces the 200-week averages from completed weekly closes only",
+        async () => {
+          const rows = await persistedPrices(security.id);
+          const prices: DailyPrice[] = rows.map((row) => ({
+            securityId: security.id,
+            date: isoDate(row.date),
+            open: row.open.toNumber(),
+            high: row.high.toNumber(),
+            low: row.low.toNumber(),
+            close: row.close.toNumber(),
+            volume: Number(row.volume),
+          }));
+          const weeks = aggregateCompletedWeeks(prices, TODAY, {
+            historyStart: dates[0]!,
+            historyStartOrigin: "HORIZON",
+          }).sort((left, right) =>
+            left.weekStartDate.localeCompare(right.weekStartDate),
+          );
+          const weeklyCloses = weeks.map((week) => week.close);
+          const sma200w = referenceMovingAverage(weeklyCloses, "SMA", 200);
+          const ema200w = referenceMovingAverage(weeklyCloses, "EMA", 200);
 
-        for (const date of probeDates()) {
-          const row = derivedByDate.get(date)!;
-          // The effective week is the last one whose own final trading day has already closed —
-          // never the week the date sits inside while it is still running.
-          const effective = weeks
-            .filter((week) => week.eligibleDate <= date)
-            .at(-1)!;
-          const index = weeks.indexOf(effective);
-          expect(effective.eligibleDate <= date).toBe(true);
-          expect(row.sma200w).toBeCloseTo(sma200w[index]!, 6);
-          expect(row.ema200w).toBeCloseTo(ema200w[index]!, 6);
-        }
-      });
-
-      it("never lets a weekly value appear before its own week has closed", () => {
-        // Walk one full week: the Monday-to-Thursday rows must all carry the same weekly value,
-        // and it must change only on the day a new week actually completes.
-        const start = dates.findIndex((date) => date >= "2015-01-05");
-        const window = dates.slice(start, start + 10);
-        let previous: number | undefined;
-        let changes = 0;
-        for (const date of window) {
-          const value = derivedByDate.get(date)!.sma200w;
-          if (previous !== undefined && value !== previous) {
-            changes += 1;
-            // A change may only land on the trading day that closed a week: a Friday here, or the
-            // last observed bar of a shortened week.
-            const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-            expect(weekday).toBeGreaterThanOrEqual(4);
+          for (const date of probeDates()) {
+            const row = derivedByDate.get(date)!;
+            // The effective week is the last one whose own final trading day has already closed —
+            // never the week the date sits inside while it is still running.
+            const effective = weeks
+              .filter((week) => week.eligibleDate <= date)
+              .at(-1)!;
+            const index = weeks.indexOf(effective);
+            expect(effective.eligibleDate <= date).toBe(true);
+            expect(row.sma200w).toBeCloseTo(sma200w[index]!, 6);
+            expect(row.ema200w).toBeCloseTo(ema200w[index]!, 6);
           }
-          previous = value;
-        }
-        expect(changes).toBeGreaterThan(0);
-        expect(changes).toBeLessThanOrEqual(2);
-      });
+        },
+        SLOW,
+      );
+
+      it(
+        "never lets a weekly value appear before its own week has closed",
+        () => {
+          // Walk one full week: the Monday-to-Thursday rows must all carry the same weekly value,
+          // and it must change only on the day a new week actually completes.
+          const start = dates.findIndex((date) => date >= "2015-01-05");
+          const window = dates.slice(start, start + 10);
+          let previous: number | undefined;
+          let changes = 0;
+          for (const date of window) {
+            const value = derivedByDate.get(date)!.sma200w;
+            if (previous !== undefined && value !== previous) {
+              changes += 1;
+              // A change may only land on the trading day that closed a week: a Friday here, or the
+              // last observed bar of a shortened week.
+              const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+              expect(weekday).toBeGreaterThanOrEqual(4);
+            }
+            previous = value;
+          }
+          expect(changes).toBeGreaterThan(0);
+          expect(changes).toBeLessThanOrEqual(2);
+        },
+        SLOW,
+      );
     });
 
     describe("a maximum-length backtest at the product boundary", () => {
@@ -1005,60 +1017,71 @@ describeRetention(
       );
     });
 
-    it("never widens the fundamentals variant with the price-retention horizon", async () => {
-      const security = await createSecurity("FUND");
-      await seedFundamentalsStates(security.id);
-      const provider = new RecordingProvider();
-      const loader = createService({ provider });
+    it(
+      "never widens the fundamentals variant with the price-retention horizon",
+      async () => {
+        const security = await createSecurity("FUND");
+        await seedFundamentalsStates(security.id);
+        const provider = new RecordingProvider();
+        const loader = createService({ provider });
 
-      await loader.getDailyPrices(security.symbol, {
-        from: PRODUCT_START,
-        to: TODAY,
-      });
+        await loader.getDailyPrices(security.symbol, {
+          from: PRODUCT_START,
+          to: TODAY,
+        });
 
-      const variants = (
-        await prisma.stockDatasetState.findMany({
-          where: {
-            securityId: security.id,
-            dataset: {
-              in: [
-                StockDataset.INCOME_STATEMENT,
-                StockDataset.BALANCE_SHEET,
-                StockDataset.CASH_FLOW,
-              ],
+        const variants = (
+          await prisma.stockDatasetState.findMany({
+            where: {
+              securityId: security.id,
+              dataset: {
+                in: [
+                  StockDataset.INCOME_STATEMENT,
+                  StockDataset.BALANCE_SHEET,
+                  StockDataset.CASH_FLOW,
+                ],
+              },
             },
-          },
-        })
-      ).map((row) => row.variant);
-      expect(variants).toHaveLength(6);
-      for (const variant of variants) {
-        expect(variant).toContain(`:v${FUNDAMENTALS_VARIANT_VERSION}:h30:w7`);
-        expect(variant).not.toContain(":h34:");
-        expect(variant).not.toContain(":h37:");
-      }
-      // Already-satisfied datasets are recognised, so no statement is refetched.
-      expect(provider.statementCalls).toEqual([]);
-    });
+          })
+        ).map((row) => row.variant);
+        expect(variants).toHaveLength(6);
+        for (const variant of variants) {
+          expect(variant).toContain(`:v${FUNDAMENTALS_VARIANT_VERSION}:h30:w7`);
+          expect(variant).not.toContain(":h34:");
+          expect(variant).not.toContain(":h37:");
+        }
+        // Already-satisfied datasets are recognised, so no statement is refetched.
+        expect(provider.statementCalls).toEqual([]);
+      },
+      SLOW,
+    );
 
-    it("keeps the recent-tail freshness watermark on its own unrevisioned variant", async () => {
-      const security = await createSecurity("TAIL");
-      await seedFundamentalsStates(security.id);
-      const loader = createService({ provider: new RecordingProvider() });
-      await loader.getDailyPrices(security.symbol, {
-        from: PRODUCT_START,
-        to: TODAY,
-      });
+    it(
+      "keeps the recent-tail freshness watermark on its own unrevisioned variant",
+      async () => {
+        const security = await createSecurity("TAIL");
+        await seedFundamentalsStates(security.id);
+        const loader = createService({ provider: new RecordingProvider() });
+        await loader.getDailyPrices(security.symbol, {
+          from: PRODUCT_START,
+          to: TODAY,
+        });
 
-      const variants = (
-        await prisma.stockDatasetState.findMany({
-          where: { securityId: security.id, dataset: StockDataset.DAILY_PRICE },
-        })
-      )
-        .map((row) => row.variant)
-        .sort();
-      expect(variants).toEqual(
-        [DAILY_PRICE_VARIANT, DAILY_PRICE_FRESHNESS_VARIANT].sort(),
-      );
-    });
+        const variants = (
+          await prisma.stockDatasetState.findMany({
+            where: {
+              securityId: security.id,
+              dataset: StockDataset.DAILY_PRICE,
+            },
+          })
+        )
+          .map((row) => row.variant)
+          .sort();
+        expect(variants).toEqual(
+          [DAILY_PRICE_VARIANT, DAILY_PRICE_FRESHNESS_VARIANT].sort(),
+        );
+      },
+      SLOW,
+    );
   },
 );
