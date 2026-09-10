@@ -480,7 +480,9 @@ describe("backtest debug archive — a completed attempt", () => {
     const { entries } = await captureRun();
     const manifest = archiveJsonEntry(entries, "manifest.json");
 
-    expect(manifest.archiveSchemaVersion).toBe(1);
+    // Version 2: money and share quantities are canonical decimal strings. A reader written
+    // against version 1 would misread them, which is exactly what the version is for.
+    expect(manifest.archiveSchemaVersion).toBe(2);
     expect(manifest.archiveMode).toBe("full");
     expect(manifest.run).toMatchObject({
       runId: "run-1",
@@ -767,10 +769,12 @@ describe("backtest debug archive — inputs a reviewer replays from", () => {
       shares += (event.amount as number) / (close as number);
     }
     const equity = archiveNdjsonEntry(entries, "result/equity.ndjson");
-    const last = equity.at(-1) as { date: string; benchmarkValue: number };
+    const last = equity.at(-1) as { date: string; benchmarkValue: string };
+    // The archive stores the quantized six-decimal value, so the reconstruction is compared at
+    // that scale rather than against an unrounded float.
     expect(shares * (closeAt(last.date) as number)).toBeCloseTo(
-      last.benchmarkValue,
-      6,
+      Number(last.benchmarkValue),
+      5,
     );
   });
 
@@ -805,8 +809,11 @@ describe("backtest debug archive — inputs a reviewer replays from", () => {
       (total, event) => total + (event.amount as number),
       0,
     );
-    expect(funded).toBeCloseTo(result.summary.investedCapital, 6);
-    expect(funded).toBeCloseTo(result.equity.at(-1)?.cashBaselineValue ?? 0, 6);
+    expect(funded).toBeCloseTo(Number(result.summary.investedCapital), 6);
+    expect(funded).toBeCloseTo(
+      Number(result.equity.at(-1)?.cashBaselineValue ?? 0),
+      6,
+    );
   });
 
   it("captures per-security preparation evidence and marks what it cannot attribute", async () => {
@@ -875,16 +882,20 @@ describe("backtest debug archive — outputs", () => {
 
     // The two identities the curve has to satisfy, checkable from the archive alone.
     for (const point of equity) {
+      // Canonical strings: parsed before arithmetic, never concatenated.
       expect(
-        (point.cash as number) + (point.positionsValue as number),
-      ).toBeCloseTo(point.totalValue as number, 6);
+        Number(point.cash) + Number(point.positionsValue),
+      ).toBeCloseTo(Number(point.totalValue), 6);
     }
 
     const positions = archiveJsonEntry(entries, "result/positions.json");
     expect(positions.count).toBe(result.positions.length);
 
     const summary = archiveJsonEntry(entries, "result/summary.json");
-    expect(summary.finalValue).toBeCloseTo(result.summary.finalValue, 6);
+    expect(Number(summary.finalValue)).toBeCloseTo(
+      Number(result.summary.finalValue),
+      6,
+    );
     expect(summary.totalTrades).toBe(result.summary.totalTrades);
     expect(summary.maxDrawdownPercent).toBeCloseTo(
       result.summary.maxDrawdownPercent,

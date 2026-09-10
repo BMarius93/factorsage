@@ -179,7 +179,7 @@ describe("backtest diagnostics observer", () => {
       (total, event) => total + event.amount,
       0,
     );
-    expect(funded).toBeCloseTo(result.summary.investedCapital, 6);
+    expect(funded).toBeCloseTo(Number(result.summary.investedCapital), 6);
 
     // And they land on the dates the equity curve shows capital arriving on.
     const deposits = result.equity
@@ -210,10 +210,13 @@ describe("backtest diagnostics observer", () => {
     expect(last.state.completedDays).toBe(result.summary.tradingDays);
 
     // The final boundary reconciles with the run's own result.
-    expect(last.state.cash).toBeCloseTo(result.summary.finalCash, 6);
-    expect(last.state.totalValue).toBeCloseTo(result.summary.finalValue, 6);
+    expect(last.state.cash).toBeCloseTo(Number(result.summary.finalCash), 6);
+    expect(last.state.totalValue).toBeCloseTo(
+      Number(result.summary.finalValue),
+      6,
+    );
     expect(last.state.comparison.cashBaselineValue).toBeCloseTo(
-      result.summary.investedCapital,
+      Number(result.summary.investedCapital),
       6,
     );
     expect(last.state.comparison.benchmarkShares).toBeGreaterThan(0);

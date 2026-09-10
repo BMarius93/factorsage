@@ -1,3 +1,11 @@
+import {
+  MONEY_ZERO,
+  quantizeMoney,
+  quantizePrice,
+  quantizeSharesDown,
+  toNumber,
+  type MoneyValue,
+} from "./money.js";
 /**
  * The two funded comparison scenarios the backtest chart shows beside the Strategy.
  *
@@ -23,7 +31,7 @@
  * carried, exactly like the Strategy's own position state.
  */
 export class ComparisonScenarios {
-  private shares = 0;
+  private shares: MoneyValue = MONEY_ZERO;
   /**
    * External capital that has arrived but could not yet buy benchmark shares.
    *
@@ -32,8 +40,8 @@ export class ComparisonScenarios {
    * than discarding it keeps the scenario funded with the same capital as the others; it is
    * invested in full at the first close the benchmark actually has.
    */
-  private pending = 0;
-  private baseline = 0;
+  private pending: MoneyValue = MONEY_ZERO;
+  private baseline: MoneyValue = MONEY_ZERO;
 
   /**
    * Records an external cash flow — the initial capital, or one monthly contribution.
@@ -44,8 +52,9 @@ export class ComparisonScenarios {
     if (!Number.isFinite(amount) || amount <= 0) {
       return;
     }
-    this.baseline += amount;
-    this.pending += amount;
+    const deposit = quantizeMoney(amount);
+    this.baseline = quantizeMoney(this.baseline.plus(deposit));
+    this.pending = quantizeMoney(this.pending.plus(deposit));
   }
 
   /**
@@ -55,7 +64,7 @@ export class ComparisonScenarios {
    * is deliberately **not** the Strategy's uninvested cash balance — that is a different number
    * about a different thing, and the two diverge the moment the Strategy buys anything.
    */
-  get cashBaselineValue(): number {
+  get cashBaselineValue(): MoneyValue {
     return this.baseline;
   }
 
@@ -69,20 +78,21 @@ export class ComparisonScenarios {
    * Shares are fractional, consistent with the Strategy's own continuous-share V1 assumption, and
    * no fees or slippage are applied.
    */
-  markBenchmark(close: number | null): number | null {
+  markBenchmark(close: number | null): MoneyValue | null {
     if (close === null) {
       return null;
     }
-    if (this.pending > 0) {
-      this.shares += this.pending / close;
-      this.pending = 0;
+    const price = quantizePrice(close);
+    if (this.pending.gt(MONEY_ZERO) && price.gt(MONEY_ZERO)) {
+      this.shares = this.shares.plus(quantizeSharesDown(this.pending.div(price)));
+      this.pending = MONEY_ZERO;
     }
-    return this.shares * close;
+    return quantizeMoney(this.shares.times(price));
   }
 
   /** Benchmark shares accumulated so far. Exposed for assertions, never for execution. */
   get benchmarkShares(): number {
-    return this.shares;
+    return toNumber(this.shares);
   }
 
   /**
@@ -92,6 +102,6 @@ export class ComparisonScenarios {
    * V1 never reaches; a diagnostic capture reports it so that stays visible rather than assumed.
    */
   get pendingCapital(): number {
-    return this.pending;
+    return toNumber(this.pending);
   }
 }

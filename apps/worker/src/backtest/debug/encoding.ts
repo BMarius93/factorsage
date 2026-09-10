@@ -69,3 +69,17 @@ export function archiveJson(value: unknown): string {
 export function archiveNdjsonLine(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
 }
+
+/**
+ * A canonical decimal value, written to the archive **verbatim**.
+ *
+ * The engine emits money and share quantities as canonical decimal strings precisely because
+ * float64 cannot hold them at the magnitudes this product reaches. Passing one through
+ * {@link archiveNumber} on the way into the forensic record would discard exactly the digits the
+ * archive exists to preserve, so it is copied as it is.
+ *
+ * `null` still means absent, with the same meaning it has everywhere else.
+ */
+export function archiveDecimal(value: string | null | undefined): string | null {
+  return value === null || value === undefined ? null : value;
+}

@@ -1,3 +1,4 @@
+import type { MoneyString, SharesString } from "./money.js";
 import type { StrategyDefinition } from "@intrinsic/contracts";
 import type {
   BuyWindowConfiguration,
@@ -109,24 +110,40 @@ export type BacktestTradeRecord = {
   action: BacktestTradeAction;
   levelId: string | null;
   levelPercentage: number | null;
-  shares: number;
-  price: number;
-  amount: number;
-  fees: number;
-  realizedPnl: number | null;
+  /**
+   * Every monetary and share quantity on a trade is a **canonical decimal string**, at the scale
+   * its column stores.
+   *
+   * Not a number, and the reason is measurable rather than stylistic. A `Decimal` ledger that
+   * emitted `number` was found to break the identities it exists to guarantee at the magnitudes
+   * this product actually reaches: the validation matrix observed a $334,310,721,745.96 portfolio
+   * and a 2,415,434,113.5728870 share count, which are 18 and 17 significant digits against
+   * float64's ~15.95. Passing the value through a number on its way to PostgreSQL discards exactly
+   * the digits the reconciliation depends on.
+   *
+   * A string is also the only representation that needs no decimal library at the far end — the
+   * worker hands it straight to Prisma, the forensic archive writes it verbatim, and a consumer
+   * that only displays it parses nothing.
+   */
+  shares: SharesString;
+  price: MoneyString;
+  amount: MoneyString;
+  fees: MoneyString;
+  realizedPnl: MoneyString | null;
+  /** A ratio, not a ledger value. */
   realizedPnlPercent: number | null;
-  cashAfter: number;
-  sharesAfter: number;
-  averageCostAfter: number | null;
+  cashAfter: MoneyString;
+  sharesAfter: SharesString;
+  averageCostAfter: MoneyString | null;
 };
 
 export type BacktestEquityPoint = {
   date: LocalDate;
-  cash: number;
-  positionsValue: number;
-  totalValue: number;
-  investedCapital: number;
-  /** Time-weighted growth index, 1.0 on the first simulated date. */
+  cash: MoneyString;
+  positionsValue: MoneyString;
+  totalValue: MoneyString;
+  investedCapital: MoneyString;
+  /** Time-weighted growth index, 1.0 on the first simulated date. A ratio, so a number. */
   returnIndex: number;
   /** Benchmark growth index on the same base, or null on a date it has no value at or before. */
   benchmarkIndex: number | null;
@@ -139,14 +156,14 @@ export type BacktestEquityPoint = {
    * depends on the price each contribution actually bought at. Scaling one growth index by the
    * contributed capital would only agree with it when there are no contributions at all.
    */
-  benchmarkValue: number | null;
+  benchmarkValue: MoneyString | null;
   /**
    * Absolute value of the `Cash` scenario: `initialCapital + cumulativeContributionsThrough(date)`.
    *
    * Deliberately **not** `cash` above, which is the Strategy's own uninvested balance. This is the
    * money the user put in and never invested, which under `zero-interest@1` earns nothing.
    */
-  cashBaselineValue: number;
+  cashBaselineValue: MoneyString;
   openPositions: number;
 };
 
@@ -155,12 +172,13 @@ export type BacktestOpenPosition = {
   symbol: string;
   name: string;
   openedDate: LocalDate;
-  shares: number;
-  averageCost: number;
-  lastPrice: number;
+  shares: SharesString;
+  averageCost: MoneyString;
+  lastPrice: MoneyString;
   lastPriceDate: LocalDate;
-  marketValue: number;
-  unrealizedPnl: number;
+  marketValue: MoneyString;
+  unrealizedPnl: MoneyString;
+  /** Ratios, not ledger values. */
   unrealizedPnlPercent: number;
   allocationPercent: number;
 };
@@ -169,19 +187,19 @@ export type BacktestSummary = {
   firstSimulatedDate: LocalDate;
   lastSimulatedDate: LocalDate;
   tradingDays: number;
-  investedCapital: number;
-  finalCash: number;
-  finalPositionsValue: number;
-  finalValue: number;
-  netProfit: number;
+  investedCapital: MoneyString;
+  finalCash: MoneyString;
+  finalPositionsValue: MoneyString;
+  finalValue: MoneyString;
+  netProfit: MoneyString;
   portfolioReturnPercent: number;
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
   portfolioCagrPercent: number | null;
   maxDrawdownPercent: number;
   benchmarkMaxDrawdownPercent: number | null;
-  realizedPnl: number;
-  unrealizedPnl: number;
+  realizedPnl: MoneyString;
+  unrealizedPnl: MoneyString;
   totalTrades: number;
   buyTrades: number;
   sellTrades: number;
