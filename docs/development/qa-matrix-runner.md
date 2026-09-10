@@ -330,6 +330,27 @@ the two an attribution rather than a guess.
 The expectation is **zero**. Any request means a coverage gap the preflight did not see, and it
 makes the affected runs dependent on live data.
 
+## The matrix clock is a parameter, and it ages
+
+`QA_MATRIX_AS_OF_DATE` pins the clock so a sweep is reproducible from one value. It does **not**
+pin the product horizon: `CanonicalStockDataService.projectionRange` clips every projection to
+`[today - STOCK_HISTORY_YEARS, today]` from the real clock, silently.
+
+So a pin that has aged is not merely stale, it is wrong in a way nothing announces. A sweep pinned
+to `2026-09-09` and executed on `2026-09-10` loaded 7,546 execution dates instead of 7,547, and the
+date it lost was the first simulated date of the run — the boundary the three thirty-year
+configurations exist to exercise. Every thirty-year run in that sweep was a session short.
+
+The preflight now refuses it, names the configurations, and says which clock to use. **Re-seed and
+run with the same clock**, and prefer today's date unless you are deliberately reproducing an
+earlier sweep:
+
+```bash
+QA_MATRIX_AS_OF_DATE=$(date +%F) pnpm qa:matrix:provision
+QA_MATRIX_AS_OF_DATE=$(date +%F) pnpm qa:matrix:preflight
+QA_MATRIX_AS_OF_DATE=$(date +%F) pnpm qa:matrix:run --concurrency 3 --archive
+```
+
 ## Running it
 
 ```bash
