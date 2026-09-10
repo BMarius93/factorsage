@@ -141,6 +141,16 @@ export function evaluateMatrixGate(input: MatrixGateInput): MatrixGateVerdict {
   };
 
   // ---- Submission and counts ---------------------------------------------------------------
+  if (input.selectedCaseIds.length === 0) {
+    // A sweep that validated nothing is not a sweep that passed. Every condition below is
+    // satisfied by an empty run — no case failed, no invariant failed, no archive is missing — so
+    // without this, "green" could mean "nothing happened".
+    fail(
+      "NO_CASES_SELECTED",
+      "No cases were selected, so nothing was validated. A green verdict must mean a sweep " +
+        "happened, not that an empty one had nothing to fail.",
+    );
+  }
   const byCaseId = new Map(
     input.results.map((result) => [result.caseId, result]),
   );

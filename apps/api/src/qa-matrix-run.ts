@@ -275,13 +275,13 @@ async function main(): Promise<void> {
   process.on("SIGINT", (signal) => void onInterrupt(signal));
   process.on("SIGTERM", (signal) => void onInterrupt(signal));
   try {
-    const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
-      () => [] as string[],
-    );
-    const fixtures = qaMatrixFixtures(
-      asOfDate,
-      calendarDates.length > 0 ? calendarDates : undefined,
-    );
+    // Deliberately not caught. A missing pinned calendar used to fall back to the fixtures'
+    // synthetic one, which silently redefines every configuration's period — while the preflight
+    // went on checking the *real* series and could still pass. The whole sweep would then execute
+    // boundary dates nobody chose. The top-level handler reports the loader's own message and
+    // exits non-zero.
+    const calendarDates = await loadQaMatrixExecutionCalendar(prisma);
+    const fixtures = qaMatrixFixtures(asOfDate, calendarDates);
 
     // ---- Preflight. Nothing is submitted if it is not green. -------------------------------
     const preflight = await runQaMatrixPreflight({

@@ -131,6 +131,24 @@ describe("a sweep that met every condition", () => {
   });
 });
 
+describe("a sweep that validated nothing", () => {
+  it("is not green", () => {
+    // Every other condition is vacuously satisfied by an empty run: no case failed, no invariant
+    // failed, no archive is missing. Without this, "green" could mean "nothing happened".
+    const verdict = evaluateMatrixGate(
+      green({
+        selectedCaseIds: [],
+        results: [],
+        aggregate: aggregateMatrixResults([], 0, 0),
+      }),
+    );
+    expect(verdict.green).toBe(false);
+    expect(verdict.failures.map((entry) => entry.code)).toContain(
+      "NO_CASES_SELECTED",
+    );
+  });
+});
+
 describe("each mandatory condition turns the verdict red on its own", () => {
   it("a selected case that was never submitted", () => {
     const results = [...RESULTS];
