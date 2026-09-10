@@ -133,6 +133,12 @@ export async function runMatrixSweep(input: {
   readonly ports: MatrixSweepPorts;
 }): Promise<MatrixSweepOutcome> {
   const { plan, ports } = input;
+  if (plan.refusal) {
+    // Before any pool starts and before a single case is submitted. The command refuses this
+    // earlier still — before cleanup — but a guard that lives only in the caller lasts exactly
+    // until there is a second caller.
+    throw new Error(plan.refusal);
+  }
   const announce = ports.onPhase ?? (() => {});
   const archivedRuns = new Map<string, string>();
 

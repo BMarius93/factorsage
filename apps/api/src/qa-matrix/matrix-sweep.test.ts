@@ -1,6 +1,10 @@
 import { qaMatrixFixtures } from "@intrinsic/testing";
 import { describe, expect, it } from "vitest";
-import { qaMatrixCases, qaMatrixGoldenCases } from "./matrix-case";
+import {
+  qaMatrixCases,
+  qaMatrixGoldenCases,
+  QA_MATRIX_TOTAL_CASES,
+} from "./matrix-case";
 import { planMatrixArchives } from "./matrix-archive-plan";
 import {
   evaluateMatrixGate,
@@ -273,5 +277,83 @@ describe("attribution is rebuilt from the drained ledger", () => {
     expect(verdict.failures.map((f) => f.code)).toContain(
       "PROVIDER_ACCOUNTING",
     );
+  });
+});
+
+/**
+ * A refused plan never reaches a pool.
+ *
+ * The CLI refuses the combination before cleanup, before any pool starts and before a single case
+ * is submitted — but the sweep refuses it again here, because "the caller checked" is the kind of
+ * guarantee that survives exactly until someone adds a second caller. A plan that cannot produce
+ * the archives the user asked for must not quietly execute a thousand backtests and then report a
+ * green sweep with none.
+ */
+describe("a plan that cannot honour --archive", () => {
+  const refused = planMatrixArchives({
+    archiveRequested: true,
+    selectedCases: QA_MATRIX_TOTAL_CASES,
+    goldenCases: GOLDEN.length,
+    determinismEnabled: false,
+  });
+
+  it("is refused by the planner", () => {
+    expect(refused.refusal).toBeTruthy();
+  });
+
+  it("starts no pool and submits no case", async () => {
+    const events: string[] = [];
+    const ports: MatrixSweepPorts = {
+      startPool: () => {
+        events.push("startPool");
+        throw new Error("no pool may be started for a refused plan");
+      },
+      runMain: async () => {
+        events.push("runMain");
+        return [];
+      },
+      rerunnable: () => [],
+      runRerun: async () => [],
+    };
+
+    await expect(
+      runMatrixSweep({
+        selected: CASES,
+        plan: refused,
+        determinismEnabled: false,
+        now: () => 0,
+        ports,
+      }),
+    ).rejects.toThrow(/--golden --archive/);
+    expect(events).toEqual([]);
+  });
+
+  it("lets an acceptable plan through", async () => {
+    const events: string[] = [];
+    const pool = latePool(null);
+    await runMatrixSweep({
+      selected: SELECTED,
+      plan: planMatrixArchives({
+        archiveRequested: true,
+        selectedCases: SELECTED.length,
+        goldenCases: GOLDEN.length,
+        determinismEnabled: false,
+      }),
+      determinismEnabled: false,
+      now: () => 0,
+      ports: {
+        startPool: () => {
+          events.push("startPool");
+          return pool;
+        },
+        runMain: async () => {
+          events.push("runMain");
+          return SELECTED.map((entry) => completed(entry));
+        },
+        rerunnable: () => [],
+        runRerun: async () => [],
+      },
+    });
+    expect(events).toEqual(["startPool", "runMain"]);
   });
 });

@@ -25,6 +25,15 @@ export type MatrixArchiveAuditPorts = {
 export type MatrixArchiveAuditInput = {
   readonly directory: string;
   readonly plan: MatrixArchivePlan;
+  /**
+   * Whether the user asked for archives — not whether the plan happened to switch a pool on.
+   *
+   * The two came apart exactly where it mattered: `--archive --no-determinism` on a full sweep
+   * left both pools off, so deriving `requested` from the plan reported `false`, and every archive
+   * condition in the gate became vacuous for a user who had explicitly asked for archives. The
+   * combination is refused now, but the field says what it means either way.
+   */
+  readonly requested: boolean;
   /** The cases that should each hold exactly one archive, and the run that produced each. */
   readonly archivedRuns: ReadonlyMap<string, string>;
   /**
@@ -100,7 +109,7 @@ export async function auditMatrixArchives(
   }
 
   return {
-    requested: plan.mainPool === "full" || plan.rerunPool === "full",
+    requested: input.requested,
     expected: plan.expectedArchives,
     actual: await ports.countArchives(directory),
     expectedCaseIds: input.expectedCaseIds,

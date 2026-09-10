@@ -236,6 +236,7 @@ describe("a full sweep captures nothing, and its golden reruns capture everythin
     const archives = await auditMatrixArchives({
       directory,
       plan,
+      requested: true,
       archivedRuns: sweep.archivedRuns,
       expectedCaseIds: sweep.expectedArchiveCaseIds,
       ports: {
@@ -298,6 +299,7 @@ describe("a single reproduction captures exactly one", () => {
     const archives = await auditMatrixArchives({
       directory,
       plan,
+      requested: true,
       archivedRuns: sweep.archivedRuns,
       expectedCaseIds: sweep.expectedArchiveCaseIds,
       ports: { countArchives, findArchive, verifyArchive: async () => PROVEN },
@@ -333,6 +335,7 @@ describe("a directory that does not match the plan fails the gate", () => {
     const archives = await auditMatrixArchives({
       directory,
       plan,
+      requested: true,
       archivedRuns: sweep.archivedRuns,
       expectedCaseIds: sweep.expectedArchiveCaseIds,
       ports: { countArchives, findArchive, verifyArchive: async () => PROVEN },
@@ -413,6 +416,7 @@ describe("a directory that does not match the plan fails the gate", () => {
     const archives = await auditMatrixArchives({
       directory,
       plan,
+      requested: true,
       archivedRuns: sweep.archivedRuns,
       expectedCaseIds: sweep.expectedArchiveCaseIds,
       ports: {

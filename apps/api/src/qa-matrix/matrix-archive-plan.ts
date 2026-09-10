@@ -24,6 +24,19 @@ export type MatrixArchivePlan = {
   /** How many archives the whole run should leave behind. */
   readonly expectedArchives: number;
   readonly reason: string;
+  /**
+   * Why this combination of flags cannot be honoured, or `null` when it can.
+   *
+   * A plan that produces no archives for a user who explicitly asked for them is not a plan; it is
+   * a request that was ignored. `--archive --no-determinism` on a full sweep planned exactly that:
+   * the main pool never captures on a full sweep, the rerun pool is the one that does, and turning
+   * the rerun off leaves nowhere for the capture to happen. The sweep then ran to completion,
+   * wrote no archives, and the gate skipped every archive condition because no pool had been
+   * switched on — so an explicit `--archive` produced a green sweep with nothing to inspect.
+   *
+   * Refusing is the honest answer, and refusing *before* anything runs is the useful one.
+   */
+  readonly refusal: string | null;
 };
 
 export function planMatrixArchives(input: {
@@ -40,6 +53,7 @@ export function planMatrixArchives(input: {
       rerunPool: "off",
       expectedArchives: 0,
       reason: "no archives were requested",
+      refusal: null,
     };
   }
   const isFullSweep = input.selectedCases >= total;
@@ -51,6 +65,7 @@ export function planMatrixArchives(input: {
       reason:
         "an explicit selection is already small, so it is captured directly and the determinism " +
         "rerun does not capture it a second time",
+      refusal: null,
     };
   }
   if (!input.determinismEnabled) {
@@ -60,7 +75,14 @@ export function planMatrixArchives(input: {
       expectedArchives: 0,
       reason:
         "a full sweep never captures in the main pool, and with the determinism rerun disabled " +
-        "there is no second pool to capture in; rerun the golden set with --golden --archive",
+        "there is no second pool to capture in",
+      refusal:
+        "`--archive` cannot be honoured together with `--no-determinism` on the full matrix. A " +
+        "full sweep never captures in its own pool — a thousand archives is a disk-space incident " +
+        "rather than a validation strategy — so the six golden combinations are captured by the " +
+        "second pool that re-executes them for the determinism check, and `--no-determinism` " +
+        "removes that pool. Run the full sweep with determinism enabled, which produces the six " +
+        "archives, or capture the golden set on its own with `--golden --archive`.",
     };
   }
   return {
@@ -70,5 +92,6 @@ export function planMatrixArchives(input: {
     reason:
       "the full sweep runs with capture off and the golden combinations are captured when the " +
       "determinism check re-executes them",
+    refusal: null,
   };
 }

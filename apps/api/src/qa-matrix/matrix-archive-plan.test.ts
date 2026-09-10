@@ -80,8 +80,9 @@ describe("no archives requested", () => {
 });
 
 describe("a full sweep with determinism disabled", () => {
-  it("captures nothing and says how to get the golden archives instead", () => {
-    // Refusing to capture 1,000 is the point; silently capturing them would be the defect.
+  it("refuses the combination and says how to get the golden archives instead", () => {
+    // Refusing to capture 1,000 is the point; silently capturing them would be one defect, and
+    // silently capturing *none* while the user asked for archives was the other.
     const plan = planMatrixArchives({
       archiveRequested: true,
       selectedCases: QA_MATRIX_TOTAL_CASES,
@@ -90,7 +91,7 @@ describe("a full sweep with determinism disabled", () => {
     });
     expect(plan.expectedArchives).toBe(0);
     expect(plan.mainPool).toBe("off");
-    expect(plan.reason).toContain("--golden --archive");
+    expect(plan.refusal).toContain("--golden --archive");
   });
 });
 
@@ -107,5 +108,76 @@ describe("the property that actually failed", () => {
       expect(plan.expectedArchives).not.toBe(QA_MATRIX_TOTAL_CASES);
       expect(plan.expectedArchives).not.toBe(QA_MATRIX_TOTAL_CASES + GOLDEN);
     }
+  });
+});
+
+/**
+ * An explicit `--archive` is never silently ignored.
+ *
+ * For a full sweep the archives come from the second pool — the one that re-executes the golden
+ * combinations for determinism. Turn that rerun off and there is no pool left to capture in, so
+ * `--archive --no-determinism` planned zero archives, wrote none, and the gate then skipped every
+ * archive condition because the plan had not switched a pool on. The user asked for forensic
+ * archives and got a green sweep with none, and nothing said so.
+ */
+describe("--archive with the determinism rerun disabled", () => {
+  it("refuses a full sweep rather than planning zero archives", () => {
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: QA_MATRIX_TOTAL_CASES,
+      goldenCases: 6,
+      determinismEnabled: false,
+    });
+    expect(plan.refusal).toBeTruthy();
+    expect(plan.refusal).toContain("--golden --archive");
+    expect(plan.expectedArchives).toBe(0);
+  });
+
+  it("still accepts an explicit selection, which captures in the main pool", () => {
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: 1,
+      goldenCases: 6,
+      determinismEnabled: false,
+    });
+    expect(plan.refusal).toBeNull();
+    expect(plan.mainPool).toBe("full");
+    expect(plan.rerunPool).toBe("off");
+    expect(plan.expectedArchives).toBe(1);
+  });
+
+  it("accepts the golden set on its own", () => {
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: 6,
+      goldenCases: 6,
+      determinismEnabled: false,
+    });
+    expect(plan.refusal).toBeNull();
+    expect(plan.mainPool).toBe("full");
+    expect(plan.expectedArchives).toBe(6);
+  });
+
+  it("has nothing to refuse when archives were not requested at all", () => {
+    const plan = planMatrixArchives({
+      archiveRequested: false,
+      selectedCases: QA_MATRIX_TOTAL_CASES,
+      goldenCases: 6,
+      determinismEnabled: false,
+    });
+    expect(plan.refusal).toBeNull();
+    expect(plan.expectedArchives).toBe(0);
+  });
+
+  it("accepts the ordinary full sweep, where the rerun captures", () => {
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: QA_MATRIX_TOTAL_CASES,
+      goldenCases: 6,
+      determinismEnabled: true,
+    });
+    expect(plan.refusal).toBeNull();
+    expect(plan.rerunPool).toBe("full");
+    expect(plan.expectedArchives).toBe(6);
   });
 });

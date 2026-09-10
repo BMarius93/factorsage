@@ -311,6 +311,34 @@ async function main(): Promise<void> {
       ? golden
       : selectQaMatrixCases(allCases, flags.cases);
 
+    // ---- Archive scope, decided before anything runs -----------------------------------------
+    // Archives are a worker-process setting, so a pool either captures every attempt it executes
+    // or none. A thousand full archives is a disk-space incident rather than a validation
+    // strategy, so the full sweep runs with capture off and the golden set is captured by the
+    // second, short-lived pool that re-executes it for determinism. An explicit selection —
+    // `--case` or `--golden` — is already small, so that pool captures directly.
+    //
+    // Decided here, before the warm-up, before retention cleanup, before any pool starts and
+    // before a single case is submitted: a combination of flags that cannot produce the archives
+    // the user asked for is a request to refuse, not a sweep to run and then explain.
+    const archivePlan = planMatrixArchives({
+      archiveRequested: flags.archive,
+      selectedCases: selected.length,
+      goldenCases: golden.length,
+      determinismEnabled: flags.determinism,
+    });
+    if (archivePlan.refusal) {
+      console.error(`\nRefusing to start the matrix: ${archivePlan.refusal}`);
+      console.error("Nothing was cleaned, started or submitted.");
+      process.exitCode = 1;
+      return;
+    }
+    if (flags.archive) {
+      console.log(
+        `Archives: expecting ${archivePlan.expectedArchives} — ${archivePlan.reason}.\n`,
+      );
+    }
+
     const ids = await resolveMatrixFixtureIds(prisma, ownerEmail, fixtures);
     const series = new MatrixSeriesCache(prisma);
 
@@ -416,22 +444,6 @@ async function main(): Promise<void> {
     writer.writeManifest(manifest);
 
     // ---- Execution -----------------------------------------------------------------------------
-    // Archives are a worker-process setting, so a pool either captures every attempt it executes
-    // or none. A thousand full archives is a disk-space incident rather than a validation
-    // strategy, so the full sweep runs with capture off and the golden set is captured by a
-    // second, short-lived pool below. An explicit selection — `--case` or `--golden` — is already
-    // small, so that pool captures directly and a single case yields exactly one archive.
-    const archivePlan = planMatrixArchives({
-      archiveRequested: flags.archive,
-      selectedCases: selected.length,
-      goldenCases: golden.length,
-      determinismEnabled: flags.determinism,
-    });
-    if (flags.archive) {
-      console.log(
-        `Archives: expecting ${archivePlan.expectedArchives} — ${archivePlan.reason}.\n`,
-      );
-    }
 
     const goldenIds = new Set(golden.map((entry) => entry.caseId));
     const goldenEvidence = new Map<string, RunEvidence>();
@@ -578,6 +590,7 @@ async function main(): Promise<void> {
       ? await auditMatrixArchives({
           directory: `${writer.directory}/archives`,
           plan: archivePlan,
+          requested: flags.archive,
           archivedRuns: sweep.archivedRuns,
           expectedCaseIds: sweep.expectedArchiveCaseIds,
           ports: {
