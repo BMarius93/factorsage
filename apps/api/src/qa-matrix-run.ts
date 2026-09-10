@@ -273,7 +273,9 @@ async function main(): Promise<void> {
   const executionId = matrixExecutionId(asOfDate);
   const writer = new MatrixReportWriter(matrixReportRoot(root), executionId);
 
-  let pool: MatrixWorkerPool | null = null;
+  // A holder rather than a bare `let`: the only writer is the pool factory below, inside a
+  // closure, and the interrupt handler and the `finally` both have to see what it wrote.
+  const live: { pool: MatrixWorkerPool | null } = { pool: null };
   let warmupTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("warmup");
 
   // The pools run in their own process groups so that stopping one is guaranteed to reach every
@@ -287,7 +289,7 @@ async function main(): Promise<void> {
     interrupted = true;
     console.error(`\nReceived ${signal}; stopping the matrix worker pool…`);
     void (async () => {
-      await pool?.stop().catch(() => {});
+      await live.pool?.stop().catch(() => {});
       await context.close().catch(() => {});
       process.exit(130);
     })();
@@ -435,22 +437,11 @@ async function main(): Promise<void> {
       goldenCases: golden.length,
       determinismEnabled: flags.determinism,
     });
-    const mainPoolArchives = archivePlan.mainPool === "full";
     if (flags.archive) {
       console.log(
         `Archives: expecting ${archivePlan.expectedArchives} — ${archivePlan.reason}.\n`,
       );
     }
-    pool = new MatrixWorkerPool({
-      environment,
-      repositoryRoot: root,
-      processes: concurrency,
-      debugArchive: mainPoolArchives ? "full" : "off",
-      debugArchiveDir: `${writer.directory}/archives`,
-      onLogRecord: (record) =>
-        writer.writeWorkerLogLine(JSON.stringify(record)),
-    });
-    pool.start();
 
     const goldenIds = new Set(golden.map((entry) => entry.caseId));
     const goldenEvidence = new Map<string, RunEvidence>();
@@ -511,15 +502,15 @@ async function main(): Promise<void> {
               writer.writeWorkerLogLine(JSON.stringify(record)),
           });
           created.start();
-          pool = created;
+          live.pool = created;
           activePool = created;
           return {
             providerRequests: () => created.providerRequests(),
             providerRequestsFor: (runId) => created.providerRequestsFor(runId),
             stop: async () => {
               await created.stop();
-              if (pool === created) {
-                pool = null;
+              if (live.pool === created) {
+                live.pool = null;
               }
               if (activePool === created) {
                 activePool = null;
@@ -709,7 +700,7 @@ async function main(): Promise<void> {
     console.log(`\nReport: ${writer.directory}/report.md`);
     process.exitCode = gate.exitCode;
   } finally {
-    await pool?.stop();
+    await live.pool?.stop();
     await context.close();
   }
 }

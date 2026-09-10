@@ -129,3 +129,33 @@ describe("stopping a matrix worker pool", () => {
     await expect(pool.stop(500)).resolves.toBeUndefined();
   });
 });
+
+describe("two pools may never claim from the same queue at once", () => {
+  it("refuses to start a second pool while one is running", async () => {
+    const first = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "off",
+      entryPointOverride: orphaningSupervisor(),
+    });
+    pools.push(first);
+    first.start();
+
+    const second = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "full",
+      entryPointOverride: orphaningSupervisor(),
+    });
+    expect(() => second.start()).toThrow(
+      /Another matrix worker pool is already running/,
+    );
+
+    // And the seat is released once the first one is genuinely stopped.
+    await first.stop(1_000);
+    expect(() => second.start()).not.toThrow();
+    pools.push(second);
+  }, 30_000);
+});

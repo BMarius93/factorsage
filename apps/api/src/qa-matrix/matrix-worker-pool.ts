@@ -69,7 +69,21 @@ export type ProviderRequestLedger = {
   readonly total: number;
 };
 
+/**
+ * The pool that is currently running, if any.
+ *
+ * Two pools drawing from the same PostgreSQL queue is never correct, and it is not a theoretical
+ * concern: a refactor left a second main-phase pool running with capture off, and it quietly took
+ * four of the six golden reruns — producing two archives where six were planned, twice, with
+ * every case otherwise green. Nothing detected it except counting the files afterwards.
+ *
+ * So starting a second pool while one is live now throws where the mistake is, rather than
+ * changing which runs get archived and saying nothing.
+ */
+let runningPoolId: symbol | null = null;
+
 export class MatrixWorkerPool {
+  private readonly id = Symbol("matrix-worker-pool");
   private child: ChildProcess | null = null;
   private readonly runByWorker = new Map<string, string>();
   private readonly requestsByRun = new Map<string, number>();
@@ -101,6 +115,15 @@ export class MatrixWorkerPool {
     if (this.child) {
       throw new Error("The matrix worker pool is already running.");
     }
+    if (runningPoolId !== null && runningPoolId !== this.id) {
+      throw new Error(
+        "Another matrix worker pool is already running. Two pools claim from the same job queue, " +
+          "so whichever one happens to win decides which runs are executed with forensic capture " +
+          "on — which is how a sweep produced two archives where six were planned. Stop the first " +
+          "pool before starting the second.",
+      );
+    }
+    runningPoolId = this.id;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       DATABASE_URL: this.options.environment.databaseUrl,
@@ -272,5 +295,8 @@ export class MatrixWorkerPool {
       );
     }
     this.child = null;
+    if (runningPoolId === this.id) {
+      runningPoolId = null;
+    }
   }
 }
