@@ -199,9 +199,17 @@ export async function awaitTerminalRun(
   }
 }
 
-const num = (value: Prisma.Decimal | null): number | null =>
-  value === null ? null : value.toNumber();
-const required = (value: Prisma.Decimal): number => value.toNumber();
+/**
+ * Persisted decimals cross into the validator as **canonical strings**, never as numbers.
+ *
+ * The whole point of the validator is to check identities the database holds exactly. Converting a
+ * `numeric(24,6)` to float64 on the way in would discard the digits at C08 magnitudes — a
+ * $334bn portfolio needs 18 significant digits against float64's ~15.95 — and the validator would
+ * then be measuring its own conversion rather than the run.
+ */
+const num = (value: Prisma.Decimal | null): string | null =>
+  value === null ? null : value.toFixed();
+const required = (value: Prisma.Decimal): string => value.toFixed();
 const day = (value: Date): string => value.toISOString().slice(0, 10);
 
 /** Series data is identical for every run in a sweep, so it is read once and reused. */
@@ -209,7 +217,7 @@ export class MatrixSeriesCache {
   private readonly calendars = new Map<string, readonly string[]>();
   private readonly closes = new Map<
     string,
-    readonly { date: string; close: number }[]
+    readonly { date: string; close: string }[]
   >();
   private readonly firstPrices = new Map<string, string>();
 
@@ -232,7 +240,7 @@ export class MatrixSeriesCache {
 
   async benchmarkCloses(
     seriesId: string,
-  ): Promise<readonly { date: string; close: number }[]> {
+  ): Promise<readonly { date: string; close: string }[]> {
     const cached = this.closes.get(seriesId);
     if (cached) {
       return cached;

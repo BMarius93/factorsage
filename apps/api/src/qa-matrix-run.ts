@@ -14,6 +14,7 @@ import {
   type QaMatrixCase,
 } from "./qa-matrix/matrix-case";
 import { findArchive, readArchive, verifyArchiveInvariants } from "./qa-matrix/matrix-archive";
+import { planMatrixArchives } from "./qa-matrix/matrix-archive-plan";
 import { cleanupMatrixRuns } from "./qa-matrix/matrix-cleanup";
 import { resolveMatrixConcurrency } from "./qa-matrix/matrix-concurrency";
 import { useMatrixDatabase } from "./qa-matrix/matrix-environment";
@@ -325,11 +326,28 @@ async function main(): Promise<void> {
     writer.writeManifest(manifest);
 
     // ---- Execution -----------------------------------------------------------------------------
+    // Archives are a worker-process setting, so a pool either captures every attempt it executes
+    // or none. A thousand full archives is a disk-space incident rather than a validation
+    // strategy, so the full sweep runs with capture off and the golden set is captured by a
+    // second, short-lived pool below. An explicit selection — `--case` or `--golden` — is already
+    // small, so that pool captures directly and a single case yields exactly one archive.
+    const archivePlan = planMatrixArchives({
+      archiveRequested: flags.archive,
+      selectedCases: selected.length,
+      goldenCases: golden.length,
+      determinismEnabled: flags.determinism,
+    });
+    const mainPoolArchives = archivePlan.mainPool === "full";
+    if (flags.archive) {
+      console.log(
+        `Archives: expecting ${archivePlan.expectedArchives} — ${archivePlan.reason}.\n`,
+      );
+    }
     pool = new MatrixWorkerPool({
       environment,
       repositoryRoot: root,
       processes: concurrency,
-      debugArchive: flags.archive ? "full" : "off",
+      debugArchive: mainPoolArchives ? "full" : "off",
       debugArchiveDir: `${writer.directory}/archives`,
       onLogRecord: (record) => writer.writeWorkerLogLine(JSON.stringify(record)),
     });
@@ -378,54 +396,41 @@ async function main(): Promise<void> {
     const results = await runMatrixCases(selected, ports, { concurrency });
     const durationMs = Date.now() - startedAt;
 
-    // ---- Forensic verification of the golden set ---------------------------------------------
-    // The three invariants persisted results cannot settle — whether each BUY's Signal was actually
-    // TRUE in the frame the day loop consumed, whether the row retained across a year boundary is
-    // the one a Trigger read as `t - 1`, and whether every BUY fell inside a persisted window — are
-    // decided here, from the frames, for the combinations that were archived.
-    const archiveResults = new Map<string, readonly InvariantResult[]>();
-    if (flags.archive) {
-      for (const result of results) {
-        if (!result.runId || !goldenIds.has(result.caseId)) {
-          continue;
-        }
-        const path = await findArchive(`${writer.directory}/archives`, result.runId);
-        if (!path) {
-          console.log(`  no archive found for ${result.caseId}`);
-          continue;
-        }
-        const verified = verifyArchiveInvariants(await readArchive(path));
-        archiveResults.set(result.caseId, verified);
-        const failedHere = verified.filter((entry) => entry.status === "FAIL");
-        console.log(
-          `  archive ${result.caseId}: ${verified.length - failedHere.length}/${verified.length} ` +
-            `frame-level invariants proven` +
-            (failedHere.length > 0
-              ? ` — ${failedHere.map((entry) => `#${entry.id} ${entry.key}`).join(", ")}`
-              : ""),
-        );
-        for (const entry of failedHere) {
-          for (const violation of entry.violations ?? []) {
-            console.log(`      ${violation}`);
-          }
-        }
-      }
-    }
-
     // ---- Determinism: re-execute the golden subset from the same canonical data --------------
+    // This is also where forensic capture happens for a full sweep: the same six combinations are
+    // re-executed anyway, so archiving them here costs one extra pool rather than 994 extra zips.
     let determinism: {
       cases: string[];
       differences: { caseId: string; differences: readonly string[] }[];
     } | null = null;
+    const archivedRuns = new Map<string, string>();
+    if (mainPoolArchives) {
+      for (const result of results) {
+        if (result.runId && goldenIds.has(result.caseId)) {
+          archivedRuns.set(result.caseId, result.runId);
+        }
+      }
+    }
 
     const rerunnable = golden.filter((entry) => goldenEvidence.has(entry.caseId));
     if (flags.determinism && rerunnable.length > 0) {
       console.log(
         `\nRe-executing ${rerunnable.length} golden combination(s) to verify determinism…`,
       );
+      const rerunArchives = archivePlan.rerunPool === "full";
+      const rerunPool = new MatrixWorkerPool({
+        environment,
+        repositoryRoot: root,
+        processes: concurrency,
+        debugArchive: rerunArchives ? "full" : "off",
+        debugArchiveDir: `${writer.directory}/archives`,
+        onLogRecord: (record) => writer.writeWorkerLogLine(JSON.stringify(record)),
+      });
+      rerunPool.start();
       const second = new Map<string, RunEvidence>();
       const rerunPorts: MatrixRunnerPorts = {
         ...ports,
+        providerRequestsFor: (runId) => rerunPool.providerRequestsFor(runId),
         collectEvidence: async (runId, matrixCase) => {
           const evidence = await collectRunEvidence(
             prisma,
@@ -437,10 +442,17 @@ async function main(): Promise<void> {
           return evidence;
         },
         onCaseSettled: (result) => {
+          if (rerunArchives && result.runId) {
+            archivedRuns.set(result.caseId, result.runId);
+          }
           console.log(`  rerun ${result.caseId} ${result.outcome}`);
         },
       };
-      await runMatrixCases(rerunnable, rerunPorts, { concurrency });
+      try {
+        await runMatrixCases(rerunnable, rerunPorts, { concurrency });
+      } finally {
+        await rerunPool.stop();
+      }
       determinism = {
         cases: rerunnable.map((entry) => entry.caseId),
         differences: rerunnable
@@ -453,6 +465,34 @@ async function main(): Promise<void> {
           }))
           .filter((entry) => entry.differences.length > 0),
       };
+    }
+
+    // ---- Forensic verification of the archived combinations ----------------------------------
+    // The three invariants persisted results cannot settle — whether each BUY's Signal was actually
+    // TRUE in the frame the day loop consumed, whether the row retained across a year boundary is
+    // the one a Trigger read as `t - 1`, and whether every BUY fell inside a persisted window.
+    const archiveResults = new Map<string, readonly InvariantResult[]>();
+    for (const [caseId, runId] of archivedRuns) {
+      const path = await findArchive(`${writer.directory}/archives`, runId);
+      if (!path) {
+        console.log(`  no archive found for ${caseId}`);
+        continue;
+      }
+      const verified = verifyArchiveInvariants(await readArchive(path));
+      archiveResults.set(caseId, verified);
+      const failedHere = verified.filter((entry) => entry.status === "FAIL");
+      console.log(
+        `  archive ${caseId}: ${verified.length - failedHere.length}/${verified.length} ` +
+          `frame-level invariants proven` +
+          (failedHere.length > 0
+            ? ` — ${failedHere.map((entry) => `#${entry.id} ${entry.key}`).join(", ")}`
+            : ""),
+      );
+      for (const entry of failedHere) {
+        for (const violation of entry.violations ?? []) {
+          console.log(`      ${violation}`);
+        }
+      }
     }
 
     // ---- Reporting ------------------------------------------------------------------------------

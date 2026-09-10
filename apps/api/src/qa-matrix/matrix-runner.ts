@@ -180,7 +180,10 @@ export async function executeMatrixCase(
       durationMs: ports.now() - startedAt,
       tradeCount: evidence.trades.length,
       equityRowCount: evidence.equity.length,
-      finalValue: evidence.summary?.finalValue ?? null,
+      finalValue:
+        evidence.summary === null
+          ? null
+          : Number(evidence.summary.finalValue),
       invariantsPassed: counts.passed,
       invariantsFailed: counts.failed,
       invariantsNeedingArchive: counts.needsArchive,

@@ -68,6 +68,9 @@ importers:
       cookie:
         specifier: ^1.1.1
         version: 1.1.1
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
       google-auth-library:
         specifier: ^10.9.1
         version: 10.9.1(supports-color@8.1.1)

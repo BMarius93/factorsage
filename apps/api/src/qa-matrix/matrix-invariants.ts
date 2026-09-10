@@ -1,5 +1,22 @@
 import type { BacktestRunSnapshot } from "@intrinsic/contracts";
+import Decimal from "decimal.js";
 import { ExecutionCalendar } from "@intrinsic/strategy";
+
+/**
+ * The validator's own decimal constructor, pinned like the engine's.
+ *
+ * Identities the ledger computes exactly are asserted here as exact equalities — `.eq()`, not
+ * "within a budget". A budget is only used where a value is *reconstructed* from operands at
+ * different declared scales, and then it is derived from those scales rather than chosen.
+ */
+const MONEY_SCALE = 6;
+const V = Decimal.clone({ precision: 50, rounding: 4, toExpNeg: -30, toExpPos: 40 });
+/** A persisted canonical value as an exact decimal. */
+const d = (value: string | number | null | undefined): Decimal =>
+  new V(value ?? 0);
+/** A persisted canonical value as a number, for ratios, ordering and display only. */
+const n = (value: string | number | null | undefined): number =>
+  value === null || value === undefined ? 0 : Number(value);
 
 /**
  * Independent validation of one completed matrix run.
@@ -19,7 +36,20 @@ import { ExecutionCalendar } from "@intrinsic/strategy";
  * them for the golden combinations from the forensic archive instead.
  */
 
-export type InvariantStatus = "PASS" | "FAIL" | "NEEDS_ARCHIVE" | "NOT_APPLICABLE";
+/**
+ * `INDETERMINATE` is not a soft FAIL and not a quiet PASS.
+ *
+ * It means the persisted evidence genuinely cannot decide the question — not that the answer was
+ * inconvenient. Turning a contradiction into a PASS through a wide tolerance is the failure this
+ * status exists to make impossible: if the numbers disagree, that is a FAIL, and if the
+ * representation cannot answer, that is INDETERMINATE and it is reported as such.
+ */
+export type InvariantStatus =
+  | "PASS"
+  | "FAIL"
+  | "INDETERMINATE"
+  | "NEEDS_ARCHIVE"
+  | "NOT_APPLICABLE";
 
 export type InvariantResult = {
   /** 1..40, matching the matrix specification, so a report is comparable across sweeps. */
@@ -104,6 +134,13 @@ function archive(
   return { id, key, title, status: "NEEDS_ARCHIVE", detail };
 }
 
+/**
+ * Persisted values, as canonical decimal strings.
+ *
+ * The validator's job is to check equalities the database holds exactly, so it reads the stored
+ * digits rather than a float64 rendering of them. At C08 magnitudes the difference is the whole
+ * question: a $334bn portfolio is 18 significant digits and float64 carries about 15.95.
+ */
 export type EvidenceTrade = {
   readonly sequence: number;
   readonly date: string;
@@ -112,24 +149,24 @@ export type EvidenceTrade = {
   readonly action: "BUY" | "SELL" | "FINAL_EXIT";
   readonly levelId: string | null;
   readonly levelPercentage: number | null;
-  readonly shares: number;
-  readonly price: number;
-  readonly amount: number;
-  readonly fees: number;
-  readonly realizedPnl: number | null;
-  readonly cashAfter: number;
-  readonly sharesAfter: number;
-  readonly averageCostAfter: number | null;
+  readonly shares: string;
+  readonly price: string;
+  readonly amount: string;
+  readonly fees: string;
+  readonly realizedPnl: string | null;
+  readonly cashAfter: string;
+  readonly sharesAfter: string;
+  readonly averageCostAfter: string | null;
 };
 
 export type EvidenceEquity = {
   readonly date: string;
-  readonly cash: number;
-  readonly positionsValue: number;
-  readonly totalValue: number;
-  readonly investedCapital: number;
-  readonly benchmarkValue: number | null;
-  readonly cashBaselineValue: number;
+  readonly cash: string;
+  readonly positionsValue: string;
+  readonly totalValue: string;
+  readonly investedCapital: string;
+  readonly benchmarkValue: string | null;
+  readonly cashBaselineValue: string;
   readonly openPositions: number;
 };
 
@@ -137,24 +174,24 @@ export type EvidencePosition = {
   readonly securityId: string;
   readonly symbol: string;
   readonly openedDate: string;
-  readonly shares: number;
-  readonly averageCost: number;
-  readonly lastPrice: number;
-  readonly marketValue: number;
-  readonly unrealizedPnl: number;
+  readonly shares: string;
+  readonly averageCost: string;
+  readonly lastPrice: string;
+  readonly marketValue: string;
+  readonly unrealizedPnl: string;
 };
 
 export type EvidenceSummary = {
   readonly firstSimulatedDate: string;
   readonly lastSimulatedDate: string;
   readonly tradingDays: number;
-  readonly investedCapital: number;
-  readonly finalCash: number;
-  readonly finalPositionsValue: number;
-  readonly finalValue: number;
-  readonly netProfit: number;
-  readonly realizedPnl: number;
-  readonly unrealizedPnl: number;
+  readonly investedCapital: string;
+  readonly finalCash: string;
+  readonly finalPositionsValue: string;
+  readonly finalValue: string;
+  readonly netProfit: string;
+  readonly realizedPnl: string;
+  readonly unrealizedPnl: string;
   readonly totalTrades: number;
   readonly buyTrades: number;
   readonly sellTrades: number;
@@ -174,8 +211,8 @@ export type RunEvidence = {
   readonly snapshot: BacktestRunSnapshot;
   readonly startDate: string;
   readonly endDate: string;
-  readonly initialCapital: number;
-  readonly monthlyContribution: number;
+  readonly initialCapital: string;
+  readonly monthlyContribution: string;
   readonly maximumPositions: number;
   readonly summary: EvidenceSummary | null;
   readonly equity: readonly EvidenceEquity[];
@@ -184,7 +221,10 @@ export type RunEvidence = {
   /** Every date of the pinned execution-calendar series, ascending. */
   readonly executionCalendarDates: readonly string[];
   /** The pinned comparison series' closes, ascending. */
-  readonly benchmarkCloses: readonly { readonly date: string; readonly close: number }[];
+  readonly benchmarkCloses: readonly {
+    readonly date: string;
+    readonly close: string;
+  }[];
   /** First canonical price date per security, for the pre-listing check. */
   readonly firstPriceDateBySecurityId: ReadonlyMap<string, string>;
 };
@@ -470,8 +510,8 @@ function checkCashNonNegative(
   equity: readonly EvidenceEquity[],
 ): InvariantResult {
   const violations = equity
-    .filter((point) => point.cash < -MONEY_EPSILON)
-    .map((point) => `${point.date}: cash ${point.cash.toFixed(2)}`);
+    .filter((point) => n(point.cash) < -MONEY_EPSILON)
+    .map((point) => `${point.date}: cash ${n(point.cash).toFixed(2)}`);
   return report(
     6,
     "cash-non-negative",
@@ -520,7 +560,7 @@ function checkOneSlotPerSymbol(evidence: RunEvidence): InvariantResult {
       (evidence.trades[tradeIndex] as EvidenceTrade).date === date
     ) {
       const trade = evidence.trades[tradeIndex] as EvidenceTrade;
-      shares.set(trade.securityId, trade.sharesAfter);
+      shares.set(trade.securityId, n(trade.sharesAfter));
       tradeIndex += 1;
     }
     const held = [...shares.entries()].filter(([, value]) => value > 1e-12);
@@ -548,12 +588,13 @@ function checkEquityIdentity(
 ): InvariantResult {
   const violations: string[] = [];
   for (const point of equity) {
-    const expected = point.cash + point.positionsValue;
-    if (!near(point.totalValue, expected, scaled(expected))) {
+    // Exact, not "within a budget": all three are stored at the same scale and the engine wrote
+    // them from one quantized sum. A tolerance here would be a loophole, not a budget.
+    const expected = d(point.cash).plus(d(point.positionsValue));
+    if (!d(point.totalValue).eq(expected)) {
       violations.push(
-        `${point.date}: cash ${point.cash.toFixed(2)} + positions ${point.positionsValue.toFixed(
-          2,
-        )} = ${expected.toFixed(2)} but totalValue is ${point.totalValue.toFixed(2)}.`,
+        `${point.date}: cash ${point.cash} + positions ${point.positionsValue} = ` +
+          `${expected.toFixed(6)} but totalValue is ${point.totalValue}.`,
       );
       if (violations.length > 10) {
         break;
@@ -574,25 +615,23 @@ function checkTradeAmount(
 ): InvariantResult {
   const violations: string[] = [];
   for (const trade of trades) {
-    const expected = trade.shares * trade.price;
-    if (
-      !near(
-        trade.amount,
-        expected,
-        productEpsilon(trade.shares, trade.price),
-      )
-    ) {
+    // The persisted amount must equal the quantized product of the persisted shares and price —
+    // exactly. The engine derives it that way, so anything else is a real disagreement.
+    const expected = d(trade.shares)
+      .times(d(trade.price))
+      .toDecimalPlaces(MONEY_SCALE, Decimal.ROUND_HALF_UP);
+    if (!d(trade.amount).eq(expected)) {
       violations.push(
         `#${trade.sequence} ${trade.symbol} ${trade.action} ${trade.date}: ${trade.shares} x ` +
-          `${trade.price} = ${expected.toFixed(2)} but amount is ${trade.amount.toFixed(2)}.`,
+          `${trade.price} = ${expected.toFixed(6)} but amount is ${trade.amount}.`,
       );
       if (violations.length > 10) {
         break;
       }
     }
-    if (trade.fees !== 0) {
+    if (!d(trade.fees).isZero()) {
       violations.push(
-        `#${trade.sequence} carries fees ${trade.fees}; V1 methodology is zero fees and zero slippage.`,
+        `#${trade.sequence} carries fees ${n(trade.fees)}; V1 methodology is zero fees and zero slippage.`,
       );
     }
   }
@@ -700,13 +739,13 @@ function checkContributionDates(
   evidence: RunEvidence,
   contributionDates: readonly string[],
 ): InvariantResult {
-  if (evidence.monthlyContribution === 0) {
+  if (n(evidence.monthlyContribution) === 0) {
     const moved = evidence.equity.filter(
       (point, index) =>
         index > 0 &&
         !near(
-          point.cashBaselineValue,
-          (evidence.equity[index - 1] as EvidenceEquity).cashBaselineValue,
+          n(point.cashBaselineValue),
+          n((evidence.equity[index - 1] as EvidenceEquity).cashBaselineValue),
           MONEY_EPSILON,
         ),
     );
@@ -727,7 +766,7 @@ function checkContributionDates(
   for (let index = 1; index < evidence.equity.length; index += 1) {
     const previous = evidence.equity[index - 1] as EvidenceEquity;
     const current = evidence.equity[index] as EvidenceEquity;
-    const delta = current.cashBaselineValue - previous.cashBaselineValue;
+    const delta = n(current.cashBaselineValue) - n(previous.cashBaselineValue);
     const deposited = delta > MONEY_EPSILON;
     if (deposited && !expected.has(current.date)) {
       violations.push(
@@ -741,10 +780,10 @@ function checkContributionDates(
     }
     if (
       deposited &&
-      !near(delta, evidence.monthlyContribution, MONEY_EPSILON)
+      !near(delta, n(evidence.monthlyContribution), MONEY_EPSILON)
     ) {
       violations.push(
-        `${current.date} deposited ${delta.toFixed(2)} instead of ${evidence.monthlyContribution.toFixed(2)}.`,
+        `${current.date} deposited ${delta.toFixed(2)} instead of ${n(evidence.monthlyContribution).toFixed(2)}.`,
       );
     }
     if (violations.length > 10) {
@@ -771,12 +810,13 @@ function checkCashBaseline(
     if (contributionSet.has(point.date)) {
       deposits += 1;
     }
-    const expected =
-      evidence.initialCapital + deposits * evidence.monthlyContribution;
-    if (!near(point.cashBaselineValue, expected, scaled(expected))) {
+    const expected = d(evidence.initialCapital)
+      .plus(d(evidence.monthlyContribution).times(deposits))
+      .toDecimalPlaces(MONEY_SCALE, Decimal.ROUND_HALF_UP);
+    if (!d(point.cashBaselineValue).eq(expected)) {
       violations.push(
-        `${point.date}: cashBaselineValue ${point.cashBaselineValue.toFixed(2)} but ` +
-          `${evidence.initialCapital} + ${deposits} x ${evidence.monthlyContribution} = ${expected.toFixed(2)}.`,
+        `${point.date}: cashBaselineValue ${point.cashBaselineValue} but ` +
+          `${evidence.initialCapital} + ${deposits} x ${evidence.monthlyContribution} = ${expected.toFixed(6)}.`,
       );
       if (violations.length > 10) {
         break;
@@ -789,8 +829,8 @@ function checkCashBaseline(
     "cashBaselineValue equals cumulative external contributions",
     violations,
     `baseline reaches ${(
-      evidence.initialCapital +
-      contributionDates.length * evidence.monthlyContribution
+      n(evidence.initialCapital) +
+      contributionDates.length * n(evidence.monthlyContribution)
     ).toFixed(2)} from ${contributionDates.length} deposits`,
   );
 }
@@ -843,7 +883,7 @@ function reconstructBenchmarkScenario(
   readonly fundingMismatch: readonly string[];
 } {
   const closes = new Map(
-    evidence.benchmarkCloses.map((bar) => [bar.date, bar.close]),
+    evidence.benchmarkCloses.map((bar) => [bar.date, n(bar.close)]),
   );
   const barDates = evidence.benchmarkCloses.map((bar) => bar.date);
   const contributionSet = new Set(contributionDates);
@@ -860,13 +900,13 @@ function reconstructBenchmarkScenario(
       barIndex < barDates.length &&
       (barDates[barIndex] as string) <= point.date
     ) {
-      lastClose = closes.get(barDates[barIndex] as string) as number;
+      lastClose = n(closes.get(barDates[barIndex] as string));
       barIndex += 1;
     }
     const cashIn = !funded
-      ? evidence.initialCapital
+      ? n(evidence.initialCapital)
       : contributionSet.has(point.date)
-        ? evidence.monthlyContribution
+        ? n(evidence.monthlyContribution)
         : 0;
     funded = true;
     if (cashIn > 0) {
@@ -911,9 +951,9 @@ function checkBenchmarkScenario(
       violations.push(
         `${point.date}: the run recorded a benchmark value but the pinned series has no close in effect.`,
       );
-    } else if (!near(point.benchmarkValue, expected, scaled(expected, 0.05))) {
+    } else if (!near(n(point.benchmarkValue), expected, scaled(expected, 0.05))) {
       violations.push(
-        `${point.date}: benchmarkValue ${point.benchmarkValue.toFixed(2)} but an independent ` +
+        `${point.date}: benchmarkValue ${n(point.benchmarkValue).toFixed(2)} but an independent ` +
           `funded reconstruction gives ${expected.toFixed(2)}.`,
       );
     }
@@ -961,7 +1001,7 @@ function buildLifecycles(
       all.push(lifecycle);
     }
     lifecycle.trades.push(trade);
-    if (trade.sharesAfter <= 1e-12) {
+    if (n(trade.sharesAfter) <= 1e-12) {
       open.delete(trade.securityId);
     }
   }
@@ -986,7 +1026,7 @@ function checkBuySizing(
 ): InvariantResult {
   const violations: string[] = [];
   const totalByDate = new Map(
-    evidence.equity.map((point) => [point.date, point.totalValue]),
+    evidence.equity.map((point) => [point.date, n(point.totalValue)]),
   );
   const fraction = 1 / evidence.maximumPositions;
   void lifecycles;
@@ -1001,15 +1041,15 @@ function checkBuySizing(
       continue;
     }
     const target = portfolioValue * fraction * (trade.levelPercentage / 100);
-    const sharesBefore = trade.sharesAfter - trade.shares;
-    const currentValue = sharesBefore * trade.price;
-    const cashBefore = trade.cashAfter + trade.amount;
+    const sharesBefore = n(trade.sharesAfter) - n(trade.shares);
+    const currentValue = sharesBefore * n(trade.price);
+    const cashBefore = n(trade.cashAfter) + n(trade.amount);
     const shortfall = Math.max(target - currentValue, 0);
     const expected = Math.min(shortfall, Math.max(cashBefore, 0));
-    if (!near(trade.amount, expected, scaled(expected, 0.05))) {
+    if (!near(n(trade.amount), expected, scaled(expected, 0.05))) {
       violations.push(
         `#${trade.sequence} ${trade.symbol} ${trade.date} level ${trade.levelPercentage}%: spent ` +
-          `${trade.amount.toFixed(2)} but target ${target.toFixed(2)} - held ${currentValue.toFixed(
+          `${n(trade.amount).toFixed(2)} but target ${target.toFixed(2)} - held ${currentValue.toFixed(
             2,
           )} capped at cash ${cashBefore.toFixed(2)} gives ${expected.toFixed(2)}.`,
       );
@@ -1144,7 +1184,7 @@ function checkContributionTopUps(
             `${lifecycle.symbol}: level \`${trade.levelId}\` topped up on ${trade.date}, which is not a contribution date.`,
           );
         }
-        if (evidence.monthlyContribution <= 0) {
+        if (n(evidence.monthlyContribution) <= 0) {
           violations.push(
             `${lifecycle.symbol}: a top-up occurred although this configuration contributes nothing.`,
           );
@@ -1155,7 +1195,7 @@ function checkContributionTopUps(
             `${lifecycle.symbol}: top-up on ${trade.date} is outside the buy window.`,
           );
         }
-        if (trade.sharesAfter - trade.shares <= 1e-12) {
+        if (n(trade.sharesAfter) - n(trade.shares) <= 1e-12) {
           violations.push(
             `${lifecycle.symbol}: a top-up on ${trade.date} opened a position rather than adding to one.`,
           );
@@ -1216,11 +1256,11 @@ function checkSellFraction(
     if (trade.action !== "SELL" || trade.levelPercentage === null) {
       continue;
     }
-    const sharesBefore = trade.sharesAfter + trade.shares;
+    const sharesBefore = n(trade.sharesAfter) + n(trade.shares);
     const expected = (sharesBefore * trade.levelPercentage) / 100;
-    if (!near(trade.shares, expected, Math.max(1e-8, expected * 1e-8))) {
+    if (!near(n(trade.shares), expected, Math.max(1e-8, expected * 1e-8))) {
       violations.push(
-        `#${trade.sequence} ${trade.symbol} ${trade.date}: sold ${trade.shares} of ${sharesBefore} ` +
+        `#${trade.sequence} ${trade.symbol} ${trade.date}: sold ${n(trade.shares)} of ${sharesBefore} ` +
           `shares at ${trade.levelPercentage}%, expected ${expected}.`,
       );
       if (violations.length > 10) {
@@ -1274,9 +1314,9 @@ function checkFinalExitCloses(
     if (trade.action !== "FINAL_EXIT") {
       continue;
     }
-    if (trade.sharesAfter > 1e-12) {
+    if (n(trade.sharesAfter) > 1e-12) {
       violations.push(
-        `#${trade.sequence} ${trade.symbol} ${trade.date}: FINAL EXIT left ${trade.sharesAfter} shares open.`,
+        `#${trade.sequence} ${trade.symbol} ${trade.date}: FINAL EXIT left ${n(trade.sharesAfter)} shares open.`,
       );
     }
     if (trade.averageCostAfter !== null) {
@@ -1316,7 +1356,7 @@ function checkNoSameDateReentry(
         `${trade.symbol} closed and re-opened on ${trade.date}; same-date re-entry is forbidden.`,
       );
     }
-    if (trade.sharesAfter <= 1e-12) {
+    if (n(trade.sharesAfter) <= 1e-12) {
       closedToday.add(trade.securityId);
     }
   }
@@ -1349,11 +1389,11 @@ function checkPartialSellThenBuy(
     if (
       trade.action === "BUY" &&
       (soldToday.get(trade.securityId) ?? 0) > 0 &&
-      trade.sharesAfter - trade.shares > 1e-12
+      n(trade.sharesAfter) - n(trade.shares) > 1e-12
     ) {
       observed += 1;
     }
-    if (trade.action === "SELL" && trade.sharesAfter > 1e-12) {
+    if (trade.action === "SELL" && n(trade.sharesAfter) > 1e-12) {
       soldToday.set(trade.securityId, (soldToday.get(trade.securityId) ?? 0) + 1);
     }
   }
@@ -1402,45 +1442,45 @@ function checkAverageCost(
     if (trade.action === "BUY") {
       const costBefore = before.shares * before.averageCost;
       const expected =
-        trade.sharesAfter > 0
-          ? (costBefore + trade.amount) / trade.sharesAfter
+        n(trade.sharesAfter) > 0
+          ? (costBefore + n(trade.amount)) / n(trade.sharesAfter)
           : 0;
       if (
         trade.averageCostAfter === null ||
         !near(
-          trade.averageCostAfter,
+          n(trade.averageCostAfter),
           expected,
-          averageCostEpsilon(before.shares, trade.sharesAfter),
+          averageCostEpsilon(before.shares, n(trade.sharesAfter)),
         )
       ) {
         violations.push(
           `#${trade.sequence} ${trade.symbol} ${trade.date}: averageCostAfter ` +
-            `${trade.averageCostAfter ?? "null"} but (${costBefore.toFixed(2)} + ${trade.amount.toFixed(
+            `${(trade.averageCostAfter ?? "null")} but (${costBefore.toFixed(2)} + ${n(trade.amount).toFixed(
               2,
-            )}) / ${trade.sharesAfter} = ${expected}.`,
+            )}) / ${n(trade.sharesAfter)} = ${expected}.`,
         );
       }
-    } else if (trade.sharesAfter > 1e-12) {
+    } else if (n(trade.sharesAfter) > 1e-12) {
       // A proportional reduction leaves the basis per share arithmetically unchanged, so this is
       // exact up to the last stored digit and the float division that produced it.
       if (
         trade.averageCostAfter === null ||
         !near(
-          trade.averageCostAfter,
+          n(trade.averageCostAfter),
           before.averageCost,
           1e-7 + Math.abs(before.averageCost) * 1e-9,
         )
       ) {
         violations.push(
           `#${trade.sequence} ${trade.symbol} ${trade.date}: a partial SELL moved the basis per ` +
-            `share from ${before.averageCost} to ${trade.averageCostAfter ?? "null"}; AVERAGE_COST ` +
+            `share from ${before.averageCost} to ${(trade.averageCostAfter ?? "null")}; AVERAGE_COST ` +
             "reduces shares and cost proportionally.",
         );
       }
     }
     basis.set(trade.securityId, {
-      shares: trade.sharesAfter,
-      averageCost: trade.averageCostAfter ?? before.averageCost,
+      shares: n(trade.sharesAfter),
+      averageCost: n(trade.averageCostAfter) ?? before.averageCost,
     });
     if (violations.length > 10) {
       break;
@@ -1462,24 +1502,24 @@ function checkRealizedPnl(evidence: RunEvidence): InvariantResult {
   for (const trade of evidence.trades) {
     const averageCostBefore = basis.get(trade.securityId) ?? 0;
     if (trade.action !== "BUY") {
-      const expected = trade.shares * (trade.price - averageCostBefore);
+      const expected = n(trade.shares) * (n(trade.price) - averageCostBefore);
       if (
         trade.realizedPnl === null ||
-        !near(trade.realizedPnl, expected, pnlEpsilon(trade.shares))
+        !near(n(trade.realizedPnl), expected, pnlEpsilon(n(trade.shares)))
       ) {
         violations.push(
           `#${trade.sequence} ${trade.symbol} ${trade.date}: realizedPnl ` +
-            `${trade.realizedPnl ?? "null"} but ${trade.shares} x (${trade.price} - ` +
+            `${(trade.realizedPnl ?? "null")} but ${n(trade.shares)} x (${n(trade.price)} - ` +
             `${averageCostBefore}) = ${expected.toFixed(2)}.`,
         );
       }
-      total += trade.realizedPnl ?? 0;
+      total += n(trade.realizedPnl);
     } else if (trade.realizedPnl !== null) {
       violations.push(
         `#${trade.sequence} ${trade.symbol}: a BUY carries realized P&L.`,
       );
     }
-    basis.set(trade.securityId, trade.averageCostAfter ?? averageCostBefore);
+    basis.set(trade.securityId, n(trade.averageCostAfter) ?? averageCostBefore);
     if (violations.length > 10) {
       break;
     }
@@ -1488,13 +1528,13 @@ function checkRealizedPnl(evidence: RunEvidence): InvariantResult {
   if (
     summary &&
     !near(
-      summary.realizedPnl,
+      n(summary.realizedPnl),
       total,
       sumEpsilon(evidence.trades.length) + Math.abs(total) * 1e-9,
     )
   ) {
     violations.push(
-      `Summary realizedPnl ${summary.realizedPnl.toFixed(2)} but the trades sum to ${total.toFixed(2)}.`,
+      `Summary realizedPnl ${n(summary.realizedPnl).toFixed(2)} but the trades sum to ${total.toFixed(2)}.`,
     );
   }
   return report(
@@ -1510,39 +1550,39 @@ function checkUnrealizedPnl(evidence: RunEvidence): InvariantResult {
   const violations: string[] = [];
   let total = 0;
   for (const position of evidence.positions) {
-    const expectedValue = position.shares * position.lastPrice;
+    const expectedValue = n(position.shares) * n(position.lastPrice);
     if (
       !near(
-        position.marketValue,
+        n(position.marketValue),
         expectedValue,
-        productEpsilon(position.shares, position.lastPrice),
+        productEpsilon(n(position.shares), n(position.lastPrice)),
       )
     ) {
       violations.push(
-        `${position.symbol}: marketValue ${position.marketValue.toFixed(2)} but ${position.shares} x ` +
-          `${position.lastPrice} = ${expectedValue.toFixed(2)}.`,
+        `${position.symbol}: marketValue ${n(position.marketValue).toFixed(2)} but ${n(position.shares)} x ` +
+          `${n(position.lastPrice)} = ${expectedValue.toFixed(2)}.`,
       );
     }
     const expectedPnl =
-      position.shares * (position.lastPrice - position.averageCost);
+      n(position.shares) * (n(position.lastPrice) - n(position.averageCost));
     if (
-      !near(position.unrealizedPnl, expectedPnl, pnlEpsilon(position.shares))
+      !near(n(position.unrealizedPnl), expectedPnl, pnlEpsilon(n(position.shares)))
     ) {
       violations.push(
-        `${position.symbol}: unrealizedPnl ${position.unrealizedPnl.toFixed(2)} but ${
-          position.shares
-        } x (${position.lastPrice} - ${position.averageCost}) = ${expectedPnl.toFixed(2)}.`,
+        `${position.symbol}: unrealizedPnl ${n(position.unrealizedPnl).toFixed(2)} but ${
+          n(position.shares)
+        } x (${n(position.lastPrice)} - ${n(position.averageCost)}) = ${expectedPnl.toFixed(2)}.`,
       );
     }
-    total += position.unrealizedPnl;
+    total += n(position.unrealizedPnl);
   }
   const summary = evidence.summary;
   if (
     summary &&
-    !near(summary.unrealizedPnl, total, sumEpsilon(evidence.positions.length))
+    !near(n(summary.unrealizedPnl), total, sumEpsilon(evidence.positions.length))
   ) {
     violations.push(
-      `Summary unrealizedPnl ${summary.unrealizedPnl.toFixed(2)} but the positions sum to ${total.toFixed(2)}.`,
+      `Summary unrealizedPnl ${n(summary.unrealizedPnl).toFixed(2)} but the positions sum to ${total.toFixed(2)}.`,
     );
   }
   return report(
@@ -1563,18 +1603,18 @@ function checkFinalPositions(evidence: RunEvidence): InvariantResult {
     ], "");
   }
   const marketValue = evidence.positions.reduce(
-    (sum, position) => sum + position.marketValue,
+    (sum, position) => sum + n(position.marketValue),
     0,
   );
   if (
     !near(
-      last.positionsValue,
+      n(last.positionsValue),
       marketValue,
       sumEpsilon(evidence.positions.length),
     )
   ) {
     violations.push(
-      `Final equity positionsValue ${last.positionsValue.toFixed(2)} but the persisted positions ` +
+      `Final equity positionsValue ${n(last.positionsValue).toFixed(2)} but the persisted positions ` +
         `sum to ${marketValue.toFixed(2)}.`,
     );
   }
@@ -1601,21 +1641,21 @@ function checkSummaryFinalValue(evidence: RunEvidence): InvariantResult {
       "The run has no summary or no equity rows.",
     ], "");
   }
-  if (!near(summary.finalValue, last.totalValue, MONEY_EPSILON)) {
+  if (!near(n(summary.finalValue), n(last.totalValue), MONEY_EPSILON)) {
     violations.push(
-      `Summary finalValue ${summary.finalValue.toFixed(2)} but the last equity row is ${last.totalValue.toFixed(2)}.`,
+      `Summary finalValue ${n(summary.finalValue).toFixed(2)} but the last equity row is ${n(last.totalValue).toFixed(2)}.`,
     );
   }
-  if (!near(summary.finalCash, last.cash, MONEY_EPSILON)) {
+  if (!near(n(summary.finalCash), n(last.cash), MONEY_EPSILON)) {
     violations.push(
-      `Summary finalCash ${summary.finalCash.toFixed(2)} but the last equity row is ${last.cash.toFixed(2)}.`,
+      `Summary finalCash ${n(summary.finalCash).toFixed(2)} but the last equity row is ${n(last.cash).toFixed(2)}.`,
     );
   }
   if (
-    !near(summary.finalPositionsValue, last.positionsValue, MONEY_EPSILON)
+    !near(n(summary.finalPositionsValue), n(last.positionsValue), MONEY_EPSILON)
   ) {
     violations.push(
-      `Summary finalPositionsValue ${summary.finalPositionsValue.toFixed(2)} but the last equity row is ${last.positionsValue.toFixed(2)}.`,
+      `Summary finalPositionsValue ${n(summary.finalPositionsValue).toFixed(2)} but the last equity row is ${n(last.positionsValue).toFixed(2)}.`,
     );
   }
   if (summary.lastSimulatedDate !== last.date) {
@@ -1634,10 +1674,10 @@ function checkSummaryFinalValue(evidence: RunEvidence): InvariantResult {
       `Summary tradingDays ${summary.tradingDays} but ${evidence.equity.length} equity rows exist.`,
     );
   }
-  const netProfit = summary.finalValue - summary.investedCapital;
-  if (!near(summary.netProfit, netProfit, MONEY_EPSILON)) {
+  const netProfit = n(summary.finalValue) - n(summary.investedCapital);
+  if (!near(n(summary.netProfit), netProfit, MONEY_EPSILON)) {
     violations.push(
-      `Summary netProfit ${summary.netProfit.toFixed(2)} but finalValue - investedCapital = ${netProfit.toFixed(2)}.`,
+      `Summary netProfit ${n(summary.netProfit).toFixed(2)} but finalValue - investedCapital = ${netProfit.toFixed(2)}.`,
     );
   }
   return report(
@@ -1645,7 +1685,7 @@ function checkSummaryFinalValue(evidence: RunEvidence): InvariantResult {
     "summary-final-value",
     "Summary final value reconciles",
     violations,
-    `final value ${summary.finalValue.toFixed(2)} on ${summary.lastSimulatedDate}`,
+    `final value ${n(summary.finalValue).toFixed(2)} on ${summary.lastSimulatedDate}`,
   );
 }
 
@@ -1655,24 +1695,24 @@ function checkInvestedCapital(
 ): InvariantResult {
   const violations: string[] = [];
   const expected =
-    evidence.initialCapital +
-    contributionDates.length * evidence.monthlyContribution;
+    n(evidence.initialCapital) +
+    contributionDates.length * n(evidence.monthlyContribution);
   const summary = evidence.summary;
-  if (summary && !near(summary.investedCapital, expected, scaled(expected))) {
+  if (summary && !near(n(summary.investedCapital), expected, scaled(expected))) {
     violations.push(
-      `Summary investedCapital ${summary.investedCapital.toFixed(2)} but ${evidence.initialCapital} + ` +
-        `${contributionDates.length} x ${evidence.monthlyContribution} = ${expected.toFixed(2)}.`,
+      `Summary investedCapital ${n(summary.investedCapital).toFixed(2)} but ${n(evidence.initialCapital)} + ` +
+        `${contributionDates.length} x ${n(evidence.monthlyContribution)} = ${expected.toFixed(2)}.`,
     );
   }
   const last = evidence.equity[evidence.equity.length - 1];
-  if (last && !near(last.investedCapital, expected, scaled(expected))) {
+  if (last && !near(n(last.investedCapital), expected, scaled(expected))) {
     violations.push(
-      `Final equity investedCapital ${last.investedCapital.toFixed(2)} but the schedule gives ${expected.toFixed(2)}.`,
+      `Final equity investedCapital ${n(last.investedCapital).toFixed(2)} but the schedule gives ${expected.toFixed(2)}.`,
     );
   }
-  if (last && !near(last.cashBaselineValue, expected, scaled(expected))) {
+  if (last && !near(n(last.cashBaselineValue), expected, scaled(expected))) {
     violations.push(
-      `Final cashBaselineValue ${last.cashBaselineValue.toFixed(2)} but the schedule gives ${expected.toFixed(2)}.`,
+      `Final cashBaselineValue ${n(last.cashBaselineValue).toFixed(2)} but the schedule gives ${expected.toFixed(2)}.`,
     );
   }
   return report(
@@ -1694,10 +1734,10 @@ function checkTradeCounts(evidence: RunEvidence): InvariantResult {
   const sells = evidence.trades.filter((t) => t.action === "SELL").length;
   const exits = evidence.trades.filter((t) => t.action === "FINAL_EXIT").length;
   const winning = evidence.trades.filter(
-    (t) => t.realizedPnl !== null && t.realizedPnl > 0,
+    (t) => t.realizedPnl !== null && n(t.realizedPnl) > 0,
   ).length;
   const losing = evidence.trades.filter(
-    (t) => t.realizedPnl !== null && t.realizedPnl < 0,
+    (t) => t.realizedPnl !== null && n(t.realizedPnl) < 0,
   ).length;
 
   const compare = (label: string, actual: number, expected: number): void => {
@@ -1745,8 +1785,8 @@ function checkPositionCount(evidence: RunEvidence): InvariantResult {
     violations.push("A security has more than one final position row.");
   }
   for (const position of evidence.positions) {
-    if (position.shares <= 0) {
-      violations.push(`${position.symbol} was persisted with ${position.shares} shares.`);
+    if (n(position.shares) <= 0) {
+      violations.push(`${position.symbol} was persisted with ${n(position.shares)} shares.`);
     }
   }
   return report(

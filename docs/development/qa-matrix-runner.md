@@ -243,11 +243,30 @@ A result says *what* the engine did. Whether it was entitled to depends on what 
 evaluation frames the day loop consumed are released at the end of each calendar-year window; the
 row retained across a boundary for `t − 1` is persisted nowhere at all.
 
-`BACKTEST_DEBUG_ARCHIVE=full` writes exactly those frames. The runner enables it for the **golden
-combinations only** — a full archive for a thirty-year, thirty-security run is hundreds of megabytes,
-and a thousand of them is a disk-space incident rather than a validation strategy — and re-derives
-each BUY Signal from the frame columns using the product grammar in `ai/product/strategies.md`.
-It does not import the evaluator.
+`BACKTEST_DEBUG_ARCHIVE=full` writes exactly those frames — and it is a **worker-process** setting,
+so a pool either archives every attempt it executes or none. There is deliberately no per-run
+switch: the archive has no API field and no snapshot flag, and adding one would make it a product
+feature by accident.
+
+That constraint decides the design, and the first implementation got it wrong: `--archive` on the
+full matrix set the flag on the only pool there was, and the sweep wrote **1,006 archives, 567 MB**,
+where six were intended. The fix is a second pool rather than a filter:
+
+| Invocation | Sweep pool | Determinism-rerun pool | Archives |
+| --- | --- | --- | --- |
+| `pnpm qa:matrix:run --archive` | off | **full** | **6** |
+| `--golden --archive` | **full** | off | 6 |
+| `--case S03-L07-C04 --archive` | **full** | off | 1 |
+| `--archive --no-determinism` | off | off | 0 — rerun with `--golden --archive` |
+| no `--archive` | off | off | 0 |
+
+The golden combinations are re-executed for the determinism check anyway, so capturing them there
+costs one extra short-lived pool instead of 994 extra zips. `planMatrixArchives` is a pure function
+and `matrix-archive-plan.test.ts` holds the property directly — 1,000 + 6 executions produce six
+archives — without running a backtest.
+
+Verification re-derives each BUY Signal from the frame columns using the product grammar in
+`ai/product/strategies.md`. It does not import the evaluator.
 
 The scope is BUY levels, and that boundary is the product's own: a BUY Signal may not contain a
 position-dependent metric, so a BUY is decidable from market data alone. SELL and FINAL EXIT signals

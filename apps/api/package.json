@@ -34,6 +34,7 @@
     "@nestjs/platform-express": "^11.0.0",
     "argon2": "^0.45.1",
     "cookie": "^1.1.1",
+    "decimal.js": "10.6.0",
     "google-auth-library": "^10.9.1",
     "nodemailer": "^7.0.9",
     "reflect-metadata": "^0.2.0",
