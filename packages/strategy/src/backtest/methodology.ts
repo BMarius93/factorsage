@@ -226,6 +226,23 @@ export const BACKTEST_METHODOLOGY = {
   returns: RETURN_METHODOLOGY_VERSION,
   comparisonScenarios: COMPARISON_SCENARIO_METHODOLOGY_VERSION,
   costBasis: "AVERAGE_COST" as const,
+
+  /**
+   * How a completed run's monetary results are represented.
+   *
+   * `decimal-ledger-24-6@1`: the financial ledger is exact decimal, every monetary mutation is
+   * quantized to six decimal places with half-away-from-zero rounding matching PostgreSQL, and the
+   * values persisted are the same canonical values the ledger mutated and the summary counted.
+   *
+   * It is versioned because it can change a reported number for an unchanged Strategy against
+   * unchanged data: under the previous representation a real profit of 0.004 was stored as 0.00 and
+   * still counted as a winning trade. That is a different answer, so it is a different methodology,
+   * and a run recorded under the old one stays identifiable as such.
+   *
+   * Deliberately **not** a data revision. `BACKTEST_DATA_REVISIONS` covers how *input* data is
+   * interpreted — prices, derived series, fundamentals, benchmark bars — and none of that changes.
+   */
+  resultPrecision: "decimal-ledger-24-6@1" as const,
 } as const;
 
 export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;
