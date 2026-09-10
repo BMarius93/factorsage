@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   MONEY_SCALE,
   MONEY_ZERO,
-  Money,
   PRICE_SCALE,
   SHARES_SCALE,
   SHARES_ULP,
