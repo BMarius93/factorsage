@@ -159,3 +159,182 @@ describe("two pools may never claim from the same queue at once", () => {
     pools.push(second);
   }, 30_000);
 });
+
+/**
+ * A supervisor whose forked child keeps writing after the supervisor itself has exited.
+ *
+ * This is the real topology, not a contrivance. The supervisor forks children that inherit its
+ * stdout, so the pipe the pool reads has more than one writer; on shutdown the supervisor can be
+ * gone while a child is still emitting its last structured lines. A pool that treats the
+ * supervisor's `exit` as the end of the stream stops reading at exactly that moment.
+ *
+ * Both processes ignore SIGTERM and end on their own timers, so the sequence is fixed rather than
+ * raced: the supervisor exits well before the child writes, and the child writes well before the
+ * pipe closes.
+ */
+function lateWritingSupervisor(options: {
+  supervisorExitsAfterMs: number;
+  childWritesAfterMs: number;
+}): string {
+  const directory = mkdtempSync(join(tmpdir(), "qa-matrix-late-"));
+  const child = join(directory, "child.mjs");
+  const claimed = JSON.stringify({
+    event: "backtest.claimed",
+    workerId: "w-1",
+    runId: "run-late",
+  });
+  const provider = JSON.stringify({
+    event: "stock-data.provider.request",
+    workerId: "w-1",
+  });
+  writeFileSync(
+    child,
+    [
+      `process.on("SIGTERM", () => {});`,
+      // The child announces itself too: signalling the group before *it* has installed a handler
+      // kills it by default action, and then there is no late writer to prove anything about.
+      `process.stdout.write(${JSON.stringify(
+        JSON.stringify({ event: "fake.child.ready", workerId: "w-1" }),
+      )} + ${JSON.stringify("\n")});`,
+      `setTimeout(() => {`,
+      `  process.stdout.write(${JSON.stringify(claimed)} + ${JSON.stringify("\n")});`,
+      `  process.stdout.write(${JSON.stringify(provider)} + ${JSON.stringify("\n")});`,
+      `}, ${options.childWritesAfterMs});`,
+    ].join("\n"),
+    "utf8",
+  );
+  const supervisor = join(directory, "supervisor.mjs");
+  writeFileSync(
+    supervisor,
+    [
+      `import { spawn } from "node:child_process";`,
+      `process.on("SIGTERM", () => {});`,
+      // `inherit`: the child writes into the very pipe the pool is reading.
+      `spawn(process.execPath, [${JSON.stringify(child)}], {`,
+      `  stdio: ["ignore", "inherit", "inherit"],`,
+      `});`,
+      // Announced, so a test can wait until the SIGTERM handler is installed and the child is
+      // spawned. Signalling before that point kills the supervisor by default action and proves
+      // nothing about draining.
+      `process.stdout.write(${JSON.stringify(
+        JSON.stringify({ event: "fake.supervisor.ready", workerId: "w-1" }),
+      )} + ${JSON.stringify("\n")});`,
+      `setTimeout(() => process.exit(0), ${options.supervisorExitsAfterMs});`,
+    ].join("\n"),
+    "utf8",
+  );
+  return supervisor;
+}
+
+describe("a pool is not stopped until its log stream is drained", () => {
+  it("has observed the lines a child wrote after its supervisor exited", async () => {
+    const observed: Record<string, unknown>[] = [];
+    const pool = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "off",
+      entryPointOverride: lateWritingSupervisor({
+        supervisorExitsAfterMs: 300,
+        childWritesAfterMs: 700,
+      }),
+      onLogRecord: (record) => observed.push(record),
+    });
+    pools.push(pool);
+    pool.start();
+    await waitFor(() => observed.some((r) => r.event === "fake.child.ready"));
+
+    await pool.stop(10_000);
+
+    expect(observed.map((r) => r.event).sort()).toEqual([
+      "backtest.claimed",
+      "fake.child.ready",
+      "fake.supervisor.ready",
+      "stock-data.provider.request",
+    ]);
+  }, 30_000);
+
+  it("counts a provider request that only arrived as the pipe drained", async () => {
+    const ready: Record<string, unknown>[] = [];
+    const pool = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "off",
+      entryPointOverride: lateWritingSupervisor({
+        supervisorExitsAfterMs: 300,
+        childWritesAfterMs: 700,
+      }),
+      onLogRecord: (record) => ready.push(record),
+    });
+    pools.push(pool);
+    pool.start();
+    await waitFor(() => ready.some((r) => r.event === "fake.child.ready"));
+
+    await pool.stop(10_000);
+
+    const ledger = pool.providerRequests();
+    expect(ledger.total).toBe(1);
+    // Attributed to the run the worker had claimed, so a phase can account for it.
+    expect(ledger.byRunId.get("run-late")).toBe(1);
+    expect(ledger.unattributed).toBe(0);
+    expect(pool.providerRequestsFor("run-late")).toBe(1);
+  }, 30_000);
+});
+
+describe("concurrent shutdown", () => {
+  it("makes every caller await the same shutdown rather than returning early", async () => {
+    const ready: Record<string, unknown>[] = [];
+    const pool = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "off",
+      entryPointOverride: lateWritingSupervisor({
+        supervisorExitsAfterMs: 300,
+        childWritesAfterMs: 700,
+      }),
+      onLogRecord: (record) => ready.push(record),
+    });
+    pools.push(pool);
+    pool.start();
+    await waitFor(() => ready.some((r) => r.event === "fake.child.ready"));
+
+    // The interrupt handler and the `finally` can both reach `stop()`. A second caller that
+    // returned immediately — because a boolean had already been set — would let the runner exit
+    // while the first shutdown was still killing the process group and draining the pipe.
+    const observedAt: number[] = [];
+    await Promise.all([
+      pool
+        .stop(10_000)
+        .then(() => observedAt.push(pool.providerRequests().total)),
+      pool
+        .stop(10_000)
+        .then(() => observedAt.push(pool.providerRequests().total)),
+    ]);
+
+    // Neither caller returned before the pool had genuinely drained.
+    expect(observedAt).toEqual([1, 1]);
+  }, 30_000);
+
+  it("still resolves for a caller that arrives after the shutdown finished", async () => {
+    const ready: Record<string, unknown>[] = [];
+    const pool = new MatrixWorkerPool({
+      environment: ENVIRONMENT,
+      repositoryRoot: process.cwd(),
+      processes: 1,
+      debugArchive: "off",
+      entryPointOverride: lateWritingSupervisor({
+        supervisorExitsAfterMs: 300,
+        childWritesAfterMs: 600,
+      }),
+      onLogRecord: (record) => ready.push(record),
+    });
+    pools.push(pool);
+    pool.start();
+    await waitFor(() => ready.some((r) => r.event === "fake.child.ready"));
+    await pool.stop(10_000);
+    await expect(pool.stop(10_000)).resolves.toBeUndefined();
+    expect(pool.providerRequests().total).toBe(1);
+  }, 30_000);
+});

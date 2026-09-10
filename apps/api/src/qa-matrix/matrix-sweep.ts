@@ -23,7 +23,17 @@ import type { MatrixCaseResult } from "./matrix-runner";
  */
 
 export type MatrixSweepPool = {
-  providerRequests(): { readonly total: number; readonly unattributed: number };
+  /**
+   * The pool's provider ledger.
+   *
+   * `byRunId` is what makes attribution rebuildable: a phase can ask which of *its own* runs the
+   * requests belong to, rather than trusting counters each case sampled when it settled.
+   */
+  providerRequests(): {
+    readonly byRunId: ReadonlyMap<string, number>;
+    readonly total: number;
+    readonly unattributed: number;
+  };
   providerRequestsFor(runId: string): number;
   stop(): Promise<void>;
 };
@@ -66,20 +76,45 @@ export type MatrixSweepOutcome = {
   readonly durationMs: number;
 };
 
-function traffic(
+/**
+ * One phase's provider traffic, read from the ledger **after** the pool has been stopped and its
+ * log stream drained.
+ *
+ * Both halves of that sentence were wrong before. The sample was taken before `stop()`, so a
+ * request still travelling up the worker's stdout pipe was counted a moment too late to matter —
+ * a controlled pool reproduced it as `{"observedAfterStop":1,"recordedBySweep":0}`. And
+ * `attributedToCases` was summed from `result.providerRequests`, which each case captured when it
+ * settled, earlier still. A phase that reports a zero it sampled before the evidence arrived is
+ * not measuring the sweep; it is measuring its own timing.
+ *
+ * So attribution is rebuilt here from the drained ledger, restricted to the runs this phase
+ * actually executed. A request the ledger attributes to some other run is deliberately *not*
+ * counted, which leaves `total - unattributed - attributedToCases` non-zero — and the gate refuses
+ * that as `PROVIDER_ACCOUNTING`, because a ledger that does not add up cannot support a claim of
+ * zero.
+ */
+export function drainedTraffic(
   phase: MatrixPhaseProviderTraffic["phase"],
   pool: MatrixSweepPool | null,
   results: readonly MatrixCaseResult[],
 ): MatrixPhaseProviderTraffic {
   const ledger = pool?.providerRequests();
+  const ownRunIds = new Set(
+    results
+      .map((result) => result.runId)
+      .filter((runId): runId is string => runId !== null),
+  );
+  let attributedToCases = 0;
+  for (const [runId, count] of ledger?.byRunId ?? []) {
+    if (ownRunIds.has(runId)) {
+      attributedToCases += count;
+    }
+  }
   return {
     phase,
     total: ledger?.total ?? 0,
     unattributed: ledger?.unattributed ?? 0,
-    attributedToCases: results.reduce(
-      (sum, result) => sum + (result.providerRequests ?? 0),
-      0,
-    ),
+    attributedToCases,
   };
 }
 
@@ -113,10 +148,12 @@ export async function runMatrixSweep(input: {
   try {
     results = await ports.runMain(mainPool);
   } finally {
-    mainTraffic = traffic("main", mainPool, results);
     // The sweep pool is stopped before any rerun pool starts, always — including on the failure
-    // path, where a pool left claiming jobs is exactly the race that produced ten archives.
+    // path, where a pool left claiming jobs is exactly the race that produced ten archives. And
+    // the ledger is read only **after** that, because `stop()` is also what proves the worker's
+    // log stream was drained; sampling first records a zero that a late line then contradicts.
     await mainPool.stop();
+    mainTraffic = drainedTraffic("main", mainPool, results);
   }
   const durationMs = input.now() - startedAt;
 
@@ -135,7 +172,7 @@ export async function runMatrixSweep(input: {
   const rerunCaptures = plan.rerunPool === "full";
   const rerunnable = ports.rerunnable(results);
   let rerunResults: readonly MatrixCaseResult[] = [];
-  let rerunTraffic = traffic("rerun", null, []);
+  let rerunTraffic = drainedTraffic("rerun", null, []);
   if (input.determinismEnabled && rerunnable.length > 0) {
     announce(
       `Re-executing ${rerunnable.length} golden combination(s) to verify determinism…`,
@@ -147,8 +184,8 @@ export async function runMatrixSweep(input: {
     try {
       rerunResults = await ports.runRerun(rerunPool, rerunnable);
     } finally {
-      rerunTraffic = traffic("rerun", rerunPool, rerunResults);
       await rerunPool.stop();
+      rerunTraffic = drainedTraffic("rerun", rerunPool, rerunResults);
     }
     if (rerunCaptures) {
       for (const result of rerunResults) {

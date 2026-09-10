@@ -21,7 +21,12 @@ import {
 } from "./qa-matrix/matrix-archive";
 import { auditMatrixArchives } from "./qa-matrix/matrix-archive-audit";
 import { planMatrixArchives } from "./qa-matrix/matrix-archive-plan";
-import { runMatrixSweep, type MatrixSweepPool } from "./qa-matrix/matrix-sweep";
+import { createInterruptHandler } from "./qa-matrix/matrix-shutdown";
+import {
+  drainedTraffic,
+  runMatrixSweep,
+  type MatrixSweepPool,
+} from "./qa-matrix/matrix-sweep";
 import {
   evaluateMatrixGate,
   type MatrixGateVerdict,
@@ -218,30 +223,6 @@ function warmupPorts(
   };
 }
 
-/**
- * One phase's provider traffic, as the gate needs to see it.
- *
- * `attributedToCases` comes from the phase's own results rather than from the pool, so the two can
- * disagree — and when they do, that disagreement is itself a gate failure. A request the pool saw
- * but the phase's cases cannot account for belongs to some other run, and "zero provider requests"
- * stops being something the ledger can honestly claim.
- */
-function phaseTraffic(
-  phase: MatrixPhaseProviderTraffic["phase"],
-  ledger: { total: number; unattributed: number } | null,
-  results: readonly MatrixCaseResult[],
-): MatrixPhaseProviderTraffic {
-  return {
-    phase,
-    total: ledger?.total ?? 0,
-    unattributed: ledger?.unattributed ?? 0,
-    attributedToCases: results.reduce(
-      (sum, result) => sum + (result.providerRequests ?? 0),
-      0,
-    ),
-  };
-}
-
 const NO_TRAFFIC = (
   phase: MatrixPhaseProviderTraffic["phase"],
 ): MatrixPhaseProviderTraffic => ({
@@ -281,21 +262,18 @@ async function main(): Promise<void> {
   // The pools run in their own process groups so that stopping one is guaranteed to reach every
   // worker child — which also means a terminal interrupt no longer does. So Ctrl-C is handled
   // here: an interrupted sweep must not leave workers claiming from the matrix queue.
-  let interrupted = false;
-  const onInterrupt = (signal: NodeJS.Signals): void => {
-    if (interrupted) {
-      return;
-    }
-    interrupted = true;
-    console.error(`\nReceived ${signal}; stopping the matrix worker pool…`);
-    void (async () => {
-      await live.pool?.stop().catch(() => {});
-      await context.close().catch(() => {});
-      process.exit(130);
-    })();
-  };
-  process.once("SIGINT", onInterrupt);
-  process.once("SIGTERM", onInterrupt);
+  const onInterrupt = createInterruptHandler({
+    stopPool: async () => {
+      // The same promise the sweep's own `finally` awaits, so neither can exit while the other's
+      // shutdown is still killing the process group.
+      await live.pool?.stop();
+    },
+    closeResources: () => context.close(),
+    log: (message) => console.error(`\n${message}`),
+    exit: (code) => process.exit(code),
+  });
+  process.on("SIGINT", (signal) => void onInterrupt(signal));
+  process.on("SIGTERM", (signal) => void onInterrupt(signal));
   try {
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
       () => [] as string[],
@@ -351,8 +329,17 @@ async function main(): Promise<void> {
         repositoryRoot: root,
         processes: 1,
         debugArchive: "off",
+        // Teed like every other pool. Without this the warm-up's provider count was the only
+        // number in the report with no raw evidence behind it — an auditor reading `worker.log`
+        // could confirm the sweep and the reruns reached FMP zero times, and had to take the
+        // warm-up on faith.
+        onLogRecord: (record) =>
+          writer.writeWorkerLogLine(JSON.stringify(record)),
       });
       warmPool.start();
+      // Registered so an interrupt during the warm-up stops it too; it is a detached process
+      // group like any other.
+      live.pool = warmPool;
       let warmupResults: readonly MatrixCaseResult[] = [];
       try {
         warmupResults = await runMatrixCases(
@@ -370,8 +357,11 @@ async function main(): Promise<void> {
       } finally {
         await warmPool.stop();
       }
+      live.pool = null;
+      // Read after `stop()`, which is also what proves the warm-up's log stream was drained, and
+      // attributed from that ledger rather than from counters the cases sampled while running.
       const warmLedger = warmPool.providerRequests();
-      warmupTraffic = phaseTraffic("warmup", warmLedger, warmupResults);
+      warmupTraffic = drainedTraffic("warmup", warmPool, warmupResults);
       console.log(
         `Warm-up complete; ${warmLedger.total} provider request(s).\n`,
       );

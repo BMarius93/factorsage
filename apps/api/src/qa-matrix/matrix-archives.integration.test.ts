@@ -56,7 +56,11 @@ function fakePools(events: PoolEvent[]) {
       live += 1;
       maxLive = Math.max(maxLive, live);
       return {
-        providerRequests: () => ({ total: 0, unattributed: 0 }),
+        providerRequests: () => ({
+          byRunId: new Map<string, number>(),
+          total: 0,
+          unattributed: 0,
+        }),
         providerRequestsFor: () => 0,
         stop: async () => {
           events.push({ kind: "stop", phase });

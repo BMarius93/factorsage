@@ -61,6 +61,15 @@ export type WorkerPoolOptions = {
  */
 const PINNED_DATASET_FRESHNESS_MS = String(10 * 365 * 24 * 60 * 60 * 1000);
 
+/**
+ * How long the reader may take to finish once nothing can write any more.
+ *
+ * Generous, because it only bounds a pathology: by the time this is awaited the whole process
+ * group is gone, so the pipe has no writer left and the reader is draining what is already in the
+ * kernel buffer.
+ */
+const STREAM_DRAIN_TIMEOUT_MS = 30_000;
+
 export type ProviderRequestLedger = {
   /** Requests attributed to one run id. */
   readonly byRunId: ReadonlyMap<string, number>;
@@ -85,6 +94,22 @@ let runningPoolId: symbol | null = null;
 export class MatrixWorkerPool {
   private readonly id = Symbol("matrix-worker-pool");
   private child: ChildProcess | null = null;
+  /**
+   * One promise per piped stream, resolved when that stream has ended.
+   *
+   * Awaiting these is what turns "the process is gone" into "every line it wrote has been read".
+   * The two are not the same event and the gap between them is where a provider request hides.
+   */
+  private readonly streamsDrained: Promise<void>[] = [];
+  /**
+   * The shutdown in flight, if any.
+   *
+   * A promise rather than a boolean because more than one caller can reach `stop()` — the sweep's
+   * own `finally` and the interrupt handler, at least — and a second caller that returned
+   * immediately because a flag was already set would let the runner exit while the first shutdown
+   * was still killing the process group.
+   */
+  private shutdown: Promise<void> | null = null;
   private readonly runByWorker = new Map<string, string>();
   private readonly requestsByRun = new Map<string, number>();
   private unattributedRequests = 0;
@@ -150,12 +175,20 @@ export class MatrixWorkerPool {
       detached: true,
     });
 
+    this.streamsDrained.length = 0;
     for (const stream of [this.child.stdout, this.child.stderr]) {
       if (!stream) {
         continue;
       }
       const lines = createInterface({ input: stream });
       lines.on("line", (line) => this.observe(line));
+      // `readline` emits every buffered line before `close`, so this resolves only once the last
+      // complete line has been through `observe`.
+      this.streamsDrained.push(
+        new Promise<void>((resolve) => {
+          lines.once("close", resolve);
+        }),
+      );
     }
   }
 
@@ -250,31 +283,52 @@ export class MatrixWorkerPool {
   }
 
   /**
-   * Stops the pool, and does not return until nothing in it is running.
+   * Stops the pool, and does not return until nothing in it is running and nothing it wrote is
+   * still unread.
    *
-   * "Stopped" has to mean *nothing from this pool can claim another job*, because the archive
-   * choreography depends on it: the sweep pool and the golden-rerun pool draw from the same
-   * PostgreSQL queue with different capture settings, so a single surviving child of the wrong
-   * pool silently takes a rerun's job and produces no archive for it.
+   * "Stopped" has to mean both, because the pool exists to answer two questions and each depends
+   * on a different one. *Nothing can claim another job* depends on the processes being gone: the
+   * sweep pool and the golden-rerun pool draw from the same PostgreSQL queue with different
+   * capture settings, so a single surviving child of the wrong pool silently takes a rerun's job
+   * and produces no archive for it. *This sweep reached the provider n times* depends on the log
+   * stream being drained: provider requests are observed from the worker's stdout, which travels
+   * by a different route than the run's terminal status in PostgreSQL, so a run can be COMPLETED
+   * while the line that says it called FMP is still in a pipe.
    *
-   * That is not hypothetical. A sweep whose pool reported itself stopped left three children alive
-   * and claiming; they took four of the six golden reruns, and the run ended with two archives
-   * where six were planned. The supervisor had logged `worker.stopped` and then kept running.
+   * Both were observed. A sweep whose pool reported itself stopped left three children alive and
+   * claiming, and ended with two archives where six were planned. And a controlled pool showed
+   * `{"observedAfterStop":1,"recordedBySweep":0}` — a provider request counted a moment after the
+   * sweep had already recorded zero and handed that zero to the gate.
    *
-   * So this no longer trusts the supervisor's own shutdown to be complete. It asks the group to
-   * stop, waits for the supervisor to exit — with a grace window **longer** than the supervisor's
-   * own child-kill timer, so the ordinary path is still a clean shutdown — and then kills anything
-   * left in the group and confirms the group is gone before returning.
+   * So the order is: ask the group to stop; wait for **`close`** rather than `exit`, since `exit`
+   * fires when the process ends and `close` when its streams have ended too; kill whatever
+   * survived, which also removes every remaining writer on the pipe; and only then wait for the
+   * readers to finish, which is now guaranteed to happen because nothing is left to write.
+   *
+   * It throws rather than returning while anything survives or while a stream could not be proven
+   * drained. A pool that cannot say what it observed cannot support a claim of zero.
    */
   async stop(graceMs = 45_000): Promise<void> {
-    const child = this.child;
-    if (!child || this.stopped) {
+    if (this.shutdown) {
+      return this.shutdown;
+    }
+    if (!this.child) {
       return;
     }
-    this.stopped = true;
+    this.shutdown = this.performStop(graceMs);
+    return this.shutdown;
+  }
+
+  private async performStop(graceMs: number): Promise<void> {
+    const child = this.child;
+    if (!child) {
+      return;
+    }
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, graceMs);
-      child.once("exit", () => {
+      // `close` rather than `exit`: it fires once the process has ended *and* its stdio streams
+      // have closed, which is the earliest point at which a drain can complete.
+      child.once("close", () => {
         clearTimeout(timer);
         resolve();
       });
@@ -282,7 +336,8 @@ export class MatrixWorkerPool {
     });
 
     // Whatever survived the graceful path — an orphaned child, or a supervisor that reported
-    // itself stopped without reaping — goes now.
+    // itself stopped without reaping — goes now. This also closes the last write handles on the
+    // pipe, which is what lets the readers below finish.
     for (let attempt = 0; attempt < 50 && this.groupIsAlive(); attempt += 1) {
       this.signalGroup("SIGKILL");
       await new Promise<void>((resolve) => setTimeout(resolve, 100));
@@ -294,6 +349,21 @@ export class MatrixWorkerPool {
           "pool, which silently changes which runs are archived.",
       );
     }
+
+    const drained = await Promise.race([
+      Promise.all(this.streamsDrained).then(() => true),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), STREAM_DRAIN_TIMEOUT_MS),
+      ),
+    ]);
+    if (!drained) {
+      throw new Error(
+        `The matrix worker pool (process group ${child.pid}) exited but its log stream did not ` +
+          `finish within ${STREAM_DRAIN_TIMEOUT_MS}ms. Refusing to continue: provider requests are ` +
+          "counted from that stream, so an undrained pool cannot support a claim of zero traffic.",
+      );
+    }
+
     this.child = null;
     if (runningPoolId === this.id) {
       runningPoolId = null;
