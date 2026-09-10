@@ -341,6 +341,9 @@ importers:
       '@intrinsic/domain':
         specifier: workspace:*
         version: link:../domain
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
     devDependencies:
       typescript:
         specifier: ^5.9.0
