@@ -47,6 +47,7 @@ async function preflight(): Promise<void> {
       fixtures,
       asOfDate,
       ownerEmail: getQaPersonaConfig().user.email,
+      today: currentAsOfDate(),
       repositoryRoot: repositoryRoot(),
     });
     console.log(formatPreflightReport(report));

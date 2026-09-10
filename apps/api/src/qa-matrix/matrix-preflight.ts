@@ -1,4 +1,5 @@
 import { readdirSync } from "node:fs";
+import { getStockDataConfig } from "@intrinsic/config";
 import { join } from "node:path";
 import {
   BACKTEST_MAX_PERIOD_YEARS,
@@ -140,6 +141,8 @@ export type PreflightInput = {
   readonly fixtures: QaMatrixFixtures;
   readonly asOfDate: string;
   readonly ownerEmail: string;
+  /** The real current date, which is what the loader's horizon is measured from. */
+  readonly today: string;
   /** Repository root, for reading the migration directory. */
   readonly repositoryRoot: string;
 };
@@ -667,11 +670,37 @@ function checkProductHorizon(input: PreflightInput): PreflightCheck {
     input.asOfDate,
     BACKTEST_MAX_PERIOD_YEARS,
   );
+  /**
+   * The horizon the **loader** will actually enforce, from the real clock — not the pinned one.
+   *
+   * `CanonicalStockDataService.projectionRange` clips every projection to
+   * `[today - STOCK_HISTORY_YEARS, today]` using the current date, and it does so **silently**. A
+   * sweep pins its clock so the fixtures are reproducible, which is right, but a pin that is older
+   * than the loader's horizon quietly loses its oldest day: the three configurations that start
+   * exactly on the horizon then simulate one session fewer than they asked for, and every
+   * thirty-year run in the matrix is a day short with nothing on screen to say so.
+   *
+   * That is not hypothetical. A sweep pinned to 2026-09-09 and executed on 2026-09-10 loaded 7,546
+   * sessions instead of 7,547, and the first execution date of the run — the boundary the
+   * thirty-year configurations exist to exercise — was the one that vanished.
+   */
+  const loaderHorizonStart = subtractYears(
+    input.today,
+    getStockDataConfig().productHistoryYears,
+  );
   for (const config of input.fixtures.configs) {
     if (config.request.startDate < horizonStart) {
       problems.push(
         `\`${config.name}\` starts ${config.request.startDate}, before the product horizon ${horizonStart}. ` +
           "The loader would clip it without a word.",
+      );
+    }
+    if (config.request.startDate < loaderHorizonStart) {
+      problems.push(
+        `\`${config.name}\` starts ${config.request.startDate}, but the loader's horizon today ` +
+          `(${input.today}) begins ${loaderHorizonStart}. The matrix clock \`${input.asOfDate}\` has ` +
+          "drifted behind it, so the oldest sessions would be dropped silently. Re-seed and run " +
+          `with QA_MATRIX_AS_OF_DATE=${input.today}.`,
       );
     }
     if (config.request.endDate > input.asOfDate) {
@@ -684,8 +713,9 @@ function checkProductHorizon(input: PreflightInput): PreflightCheck {
     "product-horizon",
     "Requested periods inside the product horizon",
     problems,
-    `every period inside [${horizonStart}, ${input.asOfDate}]`,
-    { horizonStart, asOfDate: input.asOfDate },
+    `every period inside [${horizonStart}, ${input.asOfDate}], and inside the loader's own ` +
+      `horizon from ${loaderHorizonStart}`,
+    { horizonStart, loaderHorizonStart, asOfDate: input.asOfDate, today: input.today },
   );
 }
 

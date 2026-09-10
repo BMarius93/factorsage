@@ -35,6 +35,7 @@ async function preflight(
     fixtures: FIXTURES,
     asOfDate: AS_OF,
     ownerEmail: "qa-user@factorsage.test",
+    today: AS_OF,
     repositoryRoot: repositoryRoot(),
   });
 }
@@ -233,6 +234,7 @@ describe("environment safety, as a reported check", () => {
       fixtures: FIXTURES,
       asOfDate: AS_OF,
       ownerEmail: "qa-user@factorsage.test",
+    today: AS_OF,
       repositoryRoot: repositoryRoot(),
     });
 
@@ -268,5 +270,52 @@ describe("environment safety, as a reported check", () => {
     expect(check(asTest, "environment-safety")?.problems?.join(" ")).toContain(
       "equals TEST_DATABASE_URL",
     );
+  });
+});
+
+describe("a matrix clock that has drifted behind the loader's horizon", () => {
+  /**
+   * The failure this exists for was observed, not imagined.
+   *
+   * A sweep pinned to `2026-09-09` and executed on `2026-09-10` loaded 7,546 execution dates
+   * instead of 7,547. `CanonicalStockDataService.projectionRange` clips every projection to
+   * `[today - STOCK_HISTORY_YEARS, today]` from the **real** clock and does it silently, so the
+   * three configurations that start exactly on the product horizon lost their first session — the
+   * very boundary they exist to exercise — and every thirty-year run in the matrix was a day short
+   * with nothing on screen to say so.
+   *
+   * Pinning the clock is right; running a pin that has aged past the horizon is not.
+   */
+  it("refuses a pinned clock older than the loader's own horizon", async () => {
+    const report = await runQaMatrixPreflight({
+      prisma: stubPrisma(FIXTURES, { calendarDates: FULL_CALENDAR }),
+      environment: MATRIX_ENVIRONMENT,
+      fixtures: FIXTURES,
+      asOfDate: AS_OF,
+      ownerEmail: "qa-user@factorsage.test",
+      // One day later than the pin: the horizon has moved and the pin has not.
+      today: "2026-09-10",
+      repositoryRoot: repositoryRoot(),
+    });
+    const horizon = check(report, "product-horizon");
+    expect(horizon?.status).toBe("FAIL");
+    expect(horizon?.problems?.join(" ")).toContain("drifted behind it");
+    expect(horizon?.problems?.join(" ")).toContain(
+      "QA_MATRIX_AS_OF_DATE=2026-09-10",
+    );
+    expect(report.ok).toBe(false);
+  });
+
+  it("accepts a clock that is the current date", async () => {
+    const report = await runQaMatrixPreflight({
+      prisma: stubPrisma(FIXTURES, { calendarDates: FULL_CALENDAR }),
+      environment: MATRIX_ENVIRONMENT,
+      fixtures: FIXTURES,
+      asOfDate: AS_OF,
+      ownerEmail: "qa-user@factorsage.test",
+      today: AS_OF,
+      repositoryRoot: repositoryRoot(),
+    });
+    expect(check(report, "product-horizon")?.status).toBe("PASS");
   });
 });

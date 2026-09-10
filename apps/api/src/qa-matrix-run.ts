@@ -236,6 +236,7 @@ async function main(): Promise<void> {
       fixtures,
       asOfDate,
       ownerEmail,
+      today: currentAsOfDate(),
       repositoryRoot: root,
     });
     const preflightText = formatPreflightReport(preflight);
