@@ -2,7 +2,6 @@ import {
   MONEY_ZERO,
   quantizeMoney,
   quantizePrice,
-  quantizeSharesDown,
   toNumber,
   type MoneyValue,
 } from "./money.js";
@@ -31,6 +30,19 @@ import {
  * carried, exactly like the Strategy's own position state.
  */
 export class ComparisonScenarios {
+  /**
+   * Benchmark shares held, at full decimal precision.
+   *
+   * Deliberately **not** quantized to the ten-decimal scale a persisted position uses. These shares
+   * are internal — only the marked value reaches the database — so that scale protects nothing
+   * here, and applying it destroys the remainder between the capital that arrived and what a
+   * truncated share count could buy. Measured at up to `price x 1e-10` per funding: seven
+   * millionths of a dollar across three hundred and sixty one-dollar contributions at $412, and
+   * thirty-six millionths at the contract maximum.
+   *
+   * `funded-scenarios/strategy-benchmark-cash@1` says each external cash flow buys
+   * `amount / benchmarkCloseOnThatDate` fractional shares. This is that, exactly.
+   */
   private shares: MoneyValue = MONEY_ZERO;
   /**
    * External capital that has arrived but could not yet buy benchmark shares.
@@ -75,8 +87,10 @@ export class ComparisonScenarios {
    * before it under the existing carry-forward rule. `null` means the benchmark has no close at or
    * before this date, so the scenario has no value to report; nothing is fabricated.
    *
-   * Shares are fractional, consistent with the Strategy's own continuous-share V1 assumption, and
-   * no fees or slippage are applied.
+   * Shares are fractional and exact, consistent with the Strategy's own continuous-share V1
+   * assumption, and no fees or slippage are applied. A non-positive close is not a price: the
+   * capital stays pending rather than being spent at it, exactly as it does before the benchmark's
+   * first close.
    */
   markBenchmark(close: number | null): MoneyValue | null {
     if (close === null) {
@@ -84,7 +98,10 @@ export class ComparisonScenarios {
     }
     const price = quantizePrice(close);
     if (this.pending.gt(MONEY_ZERO) && price.gt(MONEY_ZERO)) {
-      this.shares = this.shares.plus(quantizeSharesDown(this.pending.div(price)));
+      // In full, and with no remainder left behind: the pending capital buys exactly
+      // `pending / price` shares. Quantization happens once, at the money boundary below, where
+      // the value is actually persisted.
+      this.shares = this.shares.plus(this.pending.div(price));
       this.pending = MONEY_ZERO;
     }
     return quantizeMoney(this.shares.times(price));

@@ -1086,9 +1086,10 @@ function checkBenchmarkContributions(
  * scaled index is invisible until a run has contributions, which is why this is reconciled rather
  * than assumed.
  *
- * Rebuilt in decimal at the engine's own declared scales, because the point of the check is to be
- * able to say that a difference of one millionth of a dollar is a difference. Two share quantities
- * that both round down to ten decimals agree exactly; two that do not, do not.
+ * Rebuilt in decimal, because the point of the check is to be able to say that a difference of one
+ * millionth of a dollar is a difference. Shares are exact — the scenario's own are internal and
+ * never persisted — and the single quantization is at the money boundary, so the reconstruction and
+ * the engine either agree to the last stored digit or they disagree.
  */
 function reconstructBenchmarkScenario(
   evidence: RunEvidence,
@@ -1134,8 +1135,10 @@ function reconstructBenchmarkScenario(
     }
     const mark = price(lastClose);
     if (pending.gt(0) && mark.gt(0)) {
-      // Truncated to the share scale, exactly as the engine quantizes every share quantity.
-      shares = shares.plus(sharesDown(pending.div(mark)));
+      // In full, with no remainder discarded. Benchmark shares are internal to the scenario and
+      // never persisted, so no share scale applies to them — the only quantization is the one at
+      // the money boundary below, where the value is actually stored.
+      shares = shares.plus(pending.div(mark));
       pending = new V(0);
     }
     values.set(point.date, money(shares.times(mark)));

@@ -195,6 +195,13 @@ export const RETURN_METHODOLOGY_VERSION = "time-weighted-index@1" as const;
  *   is deliberately **not** `contributedCapital × (close / openingClose)`: that growth index knows
  *   nothing about the price each contribution actually bought at, and the two agree only when there
  *   are no contributions.
+ *
+ *   `amount / close` is **exact**, and the benchmark share count is not subject to the ten-decimal
+ *   scale a persisted position uses. Those shares are internal to the scenario — only the marked
+ *   value is stored — so no share scale applies to them, and applying one would discard the
+ *   remainder between the capital that arrived and what a truncated share count could buy. That is
+ *   this scenario's whole reason for existing stated backwards: every dollar the Strategy receives
+ *   reaches the benchmark too, or the gap between the lines stops meaning what it claims.
  * - `Cash` = `initialCapital + cumulativeExternalContributionsThrough(d)`. Never invested, and
  *   earning nothing under `zero-interest@1`. It is **not** the Strategy's uninvested cash balance.
  *
