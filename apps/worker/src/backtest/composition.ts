@@ -161,7 +161,9 @@ export function createBacktestRuntime(
           }),
         }
       : {}),
-    ...(providerMeter ? { providerRequests: () => providerMeter.counts() } : {}),
+    ...(providerMeter
+      ? { providerRequests: () => providerMeter.counts() }
+      : {}),
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();

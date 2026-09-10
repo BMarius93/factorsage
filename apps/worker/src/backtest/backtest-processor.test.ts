@@ -1,7 +1,11 @@
 import { BACKTEST_SNAPSHOT_VERSION } from "@intrinsic/contracts";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
-import type { BenchmarkSeries, Security } from "@intrinsic/domain";
+import type {
+  BenchmarkDailyPrice,
+  BenchmarkSeries,
+  Security,
+} from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
 import {
@@ -121,7 +125,14 @@ const lease: BacktestJobLease = {
 class RecordingBenchmarks implements BacktestBenchmarkLoader {
   readonly requested: string[] = [];
 
-  constructor(private readonly unavailable: ReadonlySet<string> = new Set()) {}
+  constructor(
+    private readonly unavailable: ReadonlySet<string> = new Set(),
+    /** Bars the pinned series returns, and the coverage gaps it reports. */
+    private readonly options: {
+      readonly prices?: readonly { date: string; close: number }[];
+      readonly missingCoverage?: readonly { from: string; to: string }[];
+    } = {},
+  ) {}
 
   async getSeries(seriesId: string): Promise<BenchmarkSeries> {
     this.requested.push(seriesId);
@@ -139,8 +150,22 @@ class RecordingBenchmarks implements BacktestBenchmarkLoader {
     };
   }
 
-  async getBenchmarkDailyPrices() {
-    return [];
+  async getBenchmarkDailyPrices(
+    series: BenchmarkSeries,
+  ): Promise<BenchmarkDailyPrice[]> {
+    return (this.options.prices ?? []).map((bar) => ({
+      seriesId: series.id,
+      date: bar.date,
+      open: bar.close,
+      high: bar.close,
+      low: bar.close,
+      close: bar.close,
+      volume: 0,
+    }));
+  }
+
+  async missingBenchmarkCoverage() {
+    return [...(this.options.missingCoverage ?? [])];
   }
 }
 
@@ -194,6 +219,51 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
     // No securities-union fallback: it never reached the frame loader, which would have thrown.
     expect(benchmarks.requested).toContain(CALENDAR_SERIES);
+  });
+
+  /**
+   * The clipping defect, from the worker's side.
+   *
+   * A run's period is immutable, so the only two honest outcomes are "executed exactly that
+   * period" and "failed saying the data was not there". Returning a shorter calendar is the third
+   * one that used to happen silently: the loader cut every projection at `today - 30y`, so a run
+   * pinned to 1996-09-09 and executed on 2026-09-10 simulated 7,546 sessions instead of 7,547 —
+   * moving its first simulated date, its return-index base and its first contribution.
+   *
+   * The read path no longer clips. What remains is a genuine gap in the canonical data, and that
+   * has to fail the attempt rather than shorten it.
+   */
+  it("fails rather than simulating a shorter period when the series does not cover it", async () => {
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [
+        { date: "1996-09-10", close: 100 },
+        { date: "1996-09-11", close: 101 },
+      ],
+      missingCoverage: [{ from: "1996-09-09", to: "1996-09-09" }],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+  });
+
+  it("proceeds when the series covers the period, however few sessions it holds", async () => {
+    // An empty prefix under complete coverage is the series' own history, not a gap. It is
+    // ordinary, and it must not fail a run.
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [{ date: "1996-09-10", close: 100 }],
+      missingCoverage: [],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures.map((failure) => failure.code)).not.toContain(
+      "EXECUTION_CALENDAR_UNAVAILABLE",
+    );
   });
 
   it("refuses a snapshot that pins no calendar rather than choosing one", async () => {

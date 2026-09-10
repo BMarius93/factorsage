@@ -280,7 +280,7 @@ describe("environment safety, as a reported check", () => {
   });
 });
 
-describe("a matrix clock that has drifted behind the loader's horizon", () => {
+describe("a matrix clock that has drifted behind the selectable horizon", () => {
   /**
    * The failure this exists for was observed, not imagined.
    *

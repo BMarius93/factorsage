@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
-import {
-  PrismaClient,
-  SecurityType,
-  StockDataset,
-} from "@intrinsic/database";
+import { PrismaClient, SecurityType, StockDataset } from "@intrinsic/database";
 import {
   DAILY_OSCILLATORS,
   INTRINSIC_VALUE_BLEND_IDS,
@@ -43,10 +39,7 @@ import {
   IoredisCacheClient,
 } from "./redis-client.js";
 import { PrismaStockDataStore } from "./prisma-store.js";
-import {
-  CanonicalStockDataService,
-  priceRetentionYears,
-} from "./service.js";
+import { CanonicalStockDataService, priceRetentionYears } from "./service.js";
 
 loadRootEnv();
 // PostgreSQL-backed cases below write through Prisma, so they use the dedicated test
@@ -238,7 +231,9 @@ describeRedis("real Redis stock-data infrastructure", () => {
         to: "2021-12-31",
         asOf: "2021-05-01",
       }),
-    ).resolves.toMatchObject([{ contentHash: "rev-1", values: { revenue: 100 } }]);
+    ).resolves.toMatchObject([
+      { contentHash: "rev-1", values: { revenue: 100 } },
+    ]);
     await expect(
       cacheB.readFinancialStatements(financialSecurityId, {
         statementTypes: ["INCOME"],
@@ -246,7 +241,9 @@ describeRedis("real Redis stock-data infrastructure", () => {
         from: "2021-01-01",
         to: "2021-12-31",
       }),
-    ).resolves.toMatchObject([{ contentHash: "rev-2", values: { revenue: 200 } }]);
+    ).resolves.toMatchObject([
+      { contentHash: "rev-2", values: { revenue: 200 } },
+    ]);
     await cacheA.evict(financialSecurityId);
   });
 
@@ -1277,7 +1274,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 2_000,
           lockWaitMs: 6_000,
         }),
-        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        {
+          productHistoryYears: 30,
+          now: () => new Date("2026-08-24T12:00:00.000Z"),
+        },
       );
       const serviceB = new CanonicalStockDataService(
         storeB,
@@ -1287,7 +1287,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 2_000,
           lockWaitMs: 6_000,
         }),
-        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        {
+          productHistoryYears: 30,
+          now: () => new Date("2026-08-24T12:00:00.000Z"),
+        },
       );
 
       provider.delayMs = 3_500;
@@ -1430,7 +1433,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 5_000,
           lockWaitMs: 5_000,
         }),
-        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        {
+          productHistoryYears: 30,
+          now: () => new Date("2026-08-24T12:00:00.000Z"),
+        },
       );
 
       // Historical derived reads are keyed on securityId + date range and come back ascending.
@@ -1551,7 +1557,10 @@ describeInfrastructure("cross-process canonical hydration", () => {
           lockDurationMs: 5_000,
           lockWaitMs: 5_000,
         }),
-        { productHistoryYears: 30, now: () => new Date("2026-08-24T12:00:00.000Z") },
+        {
+          productHistoryYears: 30,
+          now: () => new Date("2026-08-24T12:00:00.000Z"),
+        },
       );
       await expect(
         service.getDailyPrices(symbol, {

@@ -6,6 +6,7 @@ import {
   DEFAULT_BENCHMARK_CODE,
   findSelectableSeries,
   normalizeStrategyDefinition,
+  subtractYears,
   type SelectableSeriesId,
 } from "@intrinsic/contracts";
 import type { PrismaClient } from "@intrinsic/database";
@@ -119,21 +120,6 @@ function check(
 }
 
 const toLocalDate = (value: Date): string => value.toISOString().slice(0, 10);
-
-/** `subtractYears` as the product horizon uses it, clamping 29 February to the 28th. */
-function subtractYears(date: string, years: number): string {
-  const [year, month, day] = date.split("-").map(Number) as [
-    number,
-    number,
-    number,
-  ];
-  const targetYear = year - years;
-  const lastDay = new Date(Date.UTC(targetYear, month, 0)).getUTCDate();
-  const clamped = Math.min(day, lastDay);
-  return `${String(targetYear).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(
-    clamped,
-  ).padStart(2, "0")}`;
-}
 
 export type PreflightInput = {
   readonly prisma: PrismaClient;
@@ -545,6 +531,11 @@ async function checkListFixtures(
  * Configurations are repository fixtures rather than rows, so "are they present" is not the
  * question — "would the API accept this body" is. Parsing them here means a period the validator
  * would reject is a preflight failure rather than a thousand rejected submissions.
+ *
+ * Parsed against `input.today` — the day the sweep will actually submit on — rather than against
+ * the parser's own real clock. The two are the same in production and deliberately different in a
+ * test, and the drift between the pinned matrix clock and today is reported by its own check
+ * (`product-horizon`) with the instruction to re-seed, not smuggled in here as ten rejections.
  */
 function checkConfigFixtures(input: PreflightInput): PreflightCheck {
   const problems: string[] = [];
@@ -561,11 +552,14 @@ function checkConfigFixtures(input: PreflightInput): PreflightCheck {
     }
     ids.add(config.id);
     try {
-      parseCreateBacktestRunRequest({
-        strategyId: "00000000-0000-4000-8000-000000000000",
-        stockListId: "00000000-0000-4000-8000-000000000001",
-        ...config.request,
-      });
+      parseCreateBacktestRunRequest(
+        {
+          strategyId: "00000000-0000-4000-8000-000000000000",
+          stockListId: "00000000-0000-4000-8000-000000000001",
+          ...config.request,
+        },
+        input.today,
+      );
     } catch (error) {
       problems.push(
         `\`${config.name}\` is rejected by the submission validator: ${
@@ -676,18 +670,20 @@ function checkProductHorizon(input: PreflightInput): PreflightCheck {
   const problems: string[] = [];
   const horizonStart = subtractYears(input.asOfDate, BACKTEST_MAX_PERIOD_YEARS);
   /**
-   * The horizon the **loader** will actually enforce, from the real clock — not the pinned one.
+   * The horizon the **API** will enforce at submission, from the real clock — not the pinned one.
    *
-   * `CanonicalStockDataService.projectionRange` clips every projection to
-   * `[today - STOCK_HISTORY_YEARS, today]` using the current date, and it does so **silently**. A
-   * sweep pins its clock so the fixtures are reproducible, which is right, but a pin that is older
-   * than the loader's horizon quietly loses its oldest day: the three configurations that start
-   * exactly on the horizon then simulate one session fewer than they asked for, and every
-   * thirty-year run in the matrix is a day short with nothing on screen to say so.
+   * A sweep pins its clock so the fixtures are reproducible, which is right, but a pin older than
+   * today puts the three configurations that start exactly on the horizon outside the period the
+   * product will accept. `parseCreateBacktestRunRequest` refuses them, and the sweep fails at
+   * submission rather than partway through.
    *
-   * That is not hypothetical. A sweep pinned to 2026-09-09 and executed on 2026-09-10 loaded 7,546
-   * sessions instead of 7,547, and the first execution date of the run — the boundary the
-   * thirty-year configurations exist to exercise — was the one that vanished.
+   * It used to be worse, which is why this check exists at all: the loader clipped every
+   * projection to `[today - productHistoryYears, today]` **silently**, so a drifted pin did not
+   * fail — it produced a shorter run than the report claimed. A sweep pinned to 2026-09-09 and
+   * executed on 2026-09-10 simulated 7,546 sessions instead of 7,547, losing exactly the first
+   * execution date the thirty-year configurations exist to exercise. The backtest read path is now
+   * bounded by what is retained rather than by the current clock, so the silent version is gone;
+   * this check is what turns the remaining loud failure into one a preflight reports first.
    */
   const loaderHorizonStart = subtractYears(
     input.today,
@@ -702,10 +698,10 @@ function checkProductHorizon(input: PreflightInput): PreflightCheck {
     }
     if (config.request.startDate < loaderHorizonStart) {
       problems.push(
-        `\`${config.name}\` starts ${config.request.startDate}, but the loader's horizon today ` +
+        `\`${config.name}\` starts ${config.request.startDate}, but the selectable horizon today ` +
           `(${input.today}) begins ${loaderHorizonStart}. The matrix clock \`${input.asOfDate}\` has ` +
-          "drifted behind it, so the oldest sessions would be dropped silently. Re-seed and run " +
-          `with QA_MATRIX_AS_OF_DATE=${input.today}.`,
+          "drifted behind it, so the submission would be refused. Re-seed and run with " +
+          `QA_MATRIX_AS_OF_DATE=${input.today}.`,
       );
     }
     if (config.request.endDate > input.asOfDate) {

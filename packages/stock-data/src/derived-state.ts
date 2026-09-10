@@ -1,4 +1,8 @@
-import type { DailyDerivedState, DailyPrice, LocalDate } from "@intrinsic/domain";
+import type {
+  DailyDerivedState,
+  DailyPrice,
+  LocalDate,
+} from "@intrinsic/domain";
 import type { DailyIntrinsicState } from "./intrinsic-value-materializer.js";
 import {
   calculateDailyOscillators,

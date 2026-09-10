@@ -7,7 +7,10 @@ import {
 } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 import { addDays } from "./dates.js";
-import { calculateDailyOscillators, calculateWilderRsi } from "./oscillators.js";
+import {
+  calculateDailyOscillators,
+  calculateWilderRsi,
+} from "./oscillators.js";
 import { referenceWilderRsi } from "./wilder-rsi-oracle.test-helper.js";
 
 const SECURITY_ID = "security-oscillators";
@@ -25,12 +28,12 @@ function bar(date: LocalDate, close: number): DailyPrice {
 }
 
 /** Monday-Friday trading days carrying the given closes, starting on `startMonday`. */
-function tradingDays(startMonday: LocalDate, closes: readonly number[]): DailyPrice[] {
+function tradingDays(
+  startMonday: LocalDate,
+  closes: readonly number[],
+): DailyPrice[] {
   return closes.map((close, index) =>
-    bar(
-      addDays(startMonday, Math.floor(index / 5) * 7 + (index % 5)),
-      close,
-    ),
+    bar(addDays(startMonday, Math.floor(index / 5) * 7 + (index % 5)), close),
   );
 }
 
@@ -40,14 +43,16 @@ function tradingDays(startMonday: LocalDate, closes: readonly number[]): DailyPr
  * expectations were calculated over the same closes with a separate scripted implementation.
  */
 const FIXED_CLOSES = [
-  44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.1, 45.42,
-  45.84, 46.08, 45.89, 46.03, 45.61, 46.28, 46.28, 46.0,
-  46.03, 46.41, 46.22, 45.64, 46.21, 46.25, 45.71, 46.45,
-  45.78, 45.35, 44.03, 44.18, 44.22, 44.57, 43.42, 42.66, 43.13,
+  44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.1, 45.42, 45.84, 46.08, 45.89,
+  46.03, 45.61, 46.28, 46.28, 46.0, 46.03, 46.41, 46.22, 45.64, 46.21, 46.25,
+  45.71, 46.45, 45.78, 45.35, 44.03, 44.18, 44.22, 44.57, 43.42, 42.66, 43.13,
 ] as const;
 
 /** Independently calculated Wilder RSI values for `FIXED_CLOSES`: [index, expected value]. */
-const FIXED_EXPECTATIONS: Record<number, readonly (readonly [number, number])[]> = {
+const FIXED_EXPECTATIONS: Record<
+  number,
+  readonly (readonly [number, number])[]
+> = {
   7: [
     [7, 70.30075187969923],
     [8, 74.92063492063494],
@@ -71,7 +76,9 @@ const START_MONDAY = "2020-01-06";
 function mixedCloseAt(index: number): number {
   return 100 + (index % 13) * 0.8 - (index % 5) * 1.1 + index * 0.03;
 }
-const MIXED_CLOSES = Array.from({ length: 180 }, (_, index) => mixedCloseAt(index));
+const MIXED_CLOSES = Array.from({ length: 180 }, (_, index) =>
+  mixedCloseAt(index),
+);
 const MIXED_PRICES = tradingDays(START_MONDAY, MIXED_CLOSES);
 const MIXED_ROWS = calculateDailyOscillators(MIXED_PRICES);
 
@@ -94,9 +101,14 @@ describe("calculateWilderRsi", () => {
       expect(short.every((value) => value === undefined)).toBe(true);
 
       // Exactly period + 1 closes: the seed value appears on the last index and nowhere earlier.
-      const seeded = calculateWilderRsi(MIXED_CLOSES.slice(0, period + 1), period);
+      const seeded = calculateWilderRsi(
+        MIXED_CLOSES.slice(0, period + 1),
+        period,
+      );
       expect(seeded).toHaveLength(period + 1);
-      expect(seeded.slice(0, period).every((value) => value === undefined)).toBe(true);
+      expect(
+        seeded.slice(0, period).every((value) => value === undefined),
+      ).toBe(true);
       expect(seeded[period]).toBeDefined();
     },
   );
@@ -131,7 +143,10 @@ describe("calculateWilderRsi", () => {
       }
       const expected = (100 * gainSum) / (gainSum + lossSum);
 
-      expect(calculateWilderRsi(MIXED_CLOSES, period)[period]).toBeCloseTo(expected, 9);
+      expect(calculateWilderRsi(MIXED_CLOSES, period)[period]).toBeCloseTo(
+        expected,
+        9,
+      );
     },
   );
 
@@ -152,7 +167,10 @@ describe("calculateWilderRsi", () => {
         ((lossSum / period) * (period - 1) + Math.max(-nextChange, 0)) / period;
       const expected = (100 * avgGain) / (avgGain + avgLoss);
 
-      expect(calculateWilderRsi(MIXED_CLOSES, period)[period + 1]).toBeCloseTo(expected, 9);
+      expect(calculateWilderRsi(MIXED_CLOSES, period)[period + 1]).toBeCloseTo(
+        expected,
+        9,
+      );
     },
   );
 
@@ -175,7 +193,10 @@ describe("calculateWilderRsi", () => {
   it.each(DAILY_OSCILLATORS)(
     "reads exactly 100 on an only-gains history for period $period",
     ({ period }) => {
-      const rising = Array.from({ length: period * 3 }, (_, index) => 50 + index * 0.5);
+      const rising = Array.from(
+        { length: period * 3 },
+        (_, index) => 50 + index * 0.5,
+      );
       const values = calculateWilderRsi(rising, period);
       for (let index = period; index < rising.length; index += 1) {
         expect(values[index]).toBe(100);
@@ -186,7 +207,10 @@ describe("calculateWilderRsi", () => {
   it.each(DAILY_OSCILLATORS)(
     "reads exactly 0 on an only-losses history for period $period",
     ({ period }) => {
-      const falling = Array.from({ length: period * 3 }, (_, index) => 500 - index * 0.5);
+      const falling = Array.from(
+        { length: period * 3 },
+        (_, index) => 500 - index * 0.5,
+      );
       const values = calculateWilderRsi(falling, period);
       for (let index = period; index < falling.length; index += 1) {
         expect(values[index]).toBe(0);
@@ -228,7 +252,10 @@ describe("calculateWilderRsi", () => {
     const cutoff = 100;
     for (const oscillator of DAILY_OSCILLATORS) {
       const full = calculateWilderRsi(MIXED_CLOSES, oscillator.period);
-      const prefix = calculateWilderRsi(MIXED_CLOSES.slice(0, cutoff), oscillator.period);
+      const prefix = calculateWilderRsi(
+        MIXED_CLOSES.slice(0, cutoff),
+        oscillator.period,
+      );
       expect(prefix).toHaveLength(cutoff);
       expect(prefix).toEqual(full.slice(0, cutoff));
     }
@@ -308,7 +335,11 @@ describe("calculateDailyOscillators", () => {
   it("produces every registered daily oscillator and nothing else", () => {
     const last = MIXED_ROWS.at(-1)!;
     expect(Object.keys(last).sort()).toEqual(
-      ["securityId", "date", ...DAILY_OSCILLATORS.map((oscillator) => oscillator.field)].sort(),
+      [
+        "securityId",
+        "date",
+        ...DAILY_OSCILLATORS.map((oscillator) => oscillator.field),
+      ].sort(),
     );
     // The oscillator calculator must not invent moving averages; those belong to
     // `calculateDailyTechnicals`.
@@ -323,7 +354,9 @@ describe("calculateDailyOscillators", () => {
     for (const oscillator of DAILY_OSCILLATORS) {
       // Trading observations are counted, not calendar days: the boundary is the (period + 1)-th
       // close even though the Monday-Friday fixture spans weekends.
-      expect(MIXED_ROWS[oscillator.period - 1]).not.toHaveProperty(oscillator.field);
+      expect(MIXED_ROWS[oscillator.period - 1]).not.toHaveProperty(
+        oscillator.field,
+      );
       expect(MIXED_ROWS[oscillator.period]?.[oscillator.field]).toBeCloseTo(
         referenceWilderRsi(MIXED_CLOSES, oscillator.period)[oscillator.period]!,
         7,
@@ -332,7 +365,10 @@ describe("calculateDailyOscillators", () => {
   });
 
   it("leaves a row with no warmed-up period carrying identity only", () => {
-    expect(MIXED_ROWS[0]).toEqual({ securityId: SECURITY_ID, date: START_MONDAY });
+    expect(MIXED_ROWS[0]).toEqual({
+      securityId: SECURITY_ID,
+      date: START_MONDAY,
+    });
     // Absent is absent: never zero, never null.
     expect(Object.values(MIXED_ROWS[0]!)).not.toContain(0);
     expect(JSON.stringify(MIXED_ROWS[0])).not.toContain("null");
@@ -345,12 +381,24 @@ describe("calculateDailyOscillators", () => {
     const closes = FIXED_CLOSES.slice(0, 14);
     const contiguous = tradingDays("2020-03-02", closes);
     const holidayDates = [
-      "2020-12-21", "2020-12-22", "2020-12-23", "2020-12-24",
-      "2020-12-28", "2020-12-29", "2020-12-30", "2020-12-31",
-      "2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07",
-      "2021-01-08", "2021-01-11",
+      "2020-12-21",
+      "2020-12-22",
+      "2020-12-23",
+      "2020-12-24",
+      "2020-12-28",
+      "2020-12-29",
+      "2020-12-30",
+      "2020-12-31",
+      "2021-01-04",
+      "2021-01-05",
+      "2021-01-06",
+      "2021-01-07",
+      "2021-01-08",
+      "2021-01-11",
     ];
-    const holidays = holidayDates.map((date, index) => bar(date, closes[index]!));
+    const holidays = holidayDates.map((date, index) =>
+      bar(date, closes[index]!),
+    );
 
     const fromContiguous = calculateDailyOscillators(contiguous);
     const fromHolidays = calculateDailyOscillators(holidays);

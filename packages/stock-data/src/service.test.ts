@@ -250,7 +250,9 @@ class MemoryCache implements StockDataCache {
         key,
         rows
           .filter((row) => Number(row.fiscalDate.slice(0, 4)) === year)
-          .sort((left, right) => left.fiscalDate.localeCompare(right.fiscalDate)),
+          .sort((left, right) =>
+            left.fiscalDate.localeCompare(right.fiscalDate),
+          ),
       );
     }
   }
@@ -335,8 +337,7 @@ class FakeStore implements StockDataStore {
     Array<{ range: Required<DateRange>; syncedAt: string }>
   >();
   priceSaves = 0;
-  derivedWrites: Array<{ derivedDates: string[]; weeklyDates: string[] }> =
-    [];
+  derivedWrites: Array<{ derivedDates: string[]; weeklyDates: string[] }> = [];
   fundamentalsStateUpserts: Array<{
     dataset: PersistedStockDataset;
     variant: string;
@@ -492,13 +493,16 @@ class FakeStore implements StockDataStore {
     return this.financialStatements
       .filter((row) => row.securityId === input.securityId)
       .filter(
-        (row) => !input.statementType || row.statementType === input.statementType,
+        (row) =>
+          !input.statementType || row.statementType === input.statementType,
       )
       .filter((row) => !input.from || row.fiscalDate >= input.from)
       .filter((row) => !input.to || row.fiscalDate <= input.to)
       .filter((row) => {
         if (!input.cadence) return true;
-        return input.cadence === "ANNUAL" ? row.period === "FY" : row.period !== "FY";
+        return input.cadence === "ANNUAL"
+          ? row.period === "FY"
+          : row.period !== "FY";
       })
       .sort(
         (left, right) =>
@@ -547,7 +551,10 @@ class FakeStore implements StockDataStore {
       existingKeys.add(key);
       return true;
     });
-    this.financialStatements = [...this.financialStatements, ...uniqueInsertions].sort(
+    this.financialStatements = [
+      ...this.financialStatements,
+      ...uniqueInsertions,
+    ].sort(
       (left, right) =>
         left.fiscalDate.localeCompare(right.fiscalDate) ||
         left.statementType.localeCompare(right.statementType) ||
@@ -679,11 +686,7 @@ class FakeStore implements StockDataStore {
       derivedDates: input.rows.map((row) => row.date),
       weeklyDates: input.weeklyPrices.map((row) => row.weekStartDate),
     });
-    this.dailyState = upsertBy(
-      this.dailyState,
-      input.rows,
-      (row) => row.date,
-    );
+    this.dailyState = upsertBy(this.dailyState, input.rows, (row) => row.date);
     const derivedKey = `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`;
     this.states.set(derivedKey, {
       securityId: security.id,
@@ -752,9 +755,11 @@ function setFundamentalsStates(
     quarterly: `standard:quarter:v1:h${productHistoryYears}:w${warmup}`,
     annual: `standard:annual:v1:h${productHistoryYears}:w${warmup}`,
   };
-  const datasets: Array<
-    "INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"
-  > = ["INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW"];
+  const datasets: Array<"INCOME_STATEMENT" | "BALANCE_SHEET" | "CASH_FLOW"> = [
+    "INCOME_STATEMENT",
+    "BALANCE_SHEET",
+    "CASH_FLOW",
+  ];
   for (const dataset of datasets) {
     for (const variant of [variants.quarterly, variants.annual]) {
       store.states.set(`${dataset}:${variant}`, {
@@ -767,7 +772,10 @@ function setFundamentalsStates(
   }
 }
 
-function annualDraft(fiscalDate: string, revenue: number): FinancialStatementDraft {
+function annualDraft(
+  fiscalDate: string,
+  revenue: number,
+): FinancialStatementDraft {
   return {
     securityId: security.id,
     statementType: "INCOME",
@@ -781,8 +789,16 @@ function annualDraft(fiscalDate: string, revenue: number): FinancialStatementDra
 }
 
 /** One complete, calculable fiscal year of quarterly statements retained before the visible range. */
-function warmupYear(fiscalYear: number, availableFromDate: string): FinancialStatement[] {
-  const quarterEnd = { Q1: "03-31", Q2: "06-30", Q3: "09-30", Q4: "12-31" } as const;
+function warmupYear(
+  fiscalYear: number,
+  availableFromDate: string,
+): FinancialStatement[] {
+  const quarterEnd = {
+    Q1: "03-31",
+    Q2: "06-30",
+    Q3: "09-30",
+    Q4: "12-31",
+  } as const;
   const values = {
     INCOME: {
       netIncome: 20,
@@ -802,19 +818,21 @@ function warmupYear(fiscalYear: number, availableFromDate: string): FinancialSta
     },
   } as const;
   return (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) =>
-    (["INCOME", "CASH_FLOW", "BALANCE_SHEET"] as const).map((statementType) => ({
-      securityId: security.id,
-      statementType,
-      fiscalDate: `${fiscalYear}-${quarterEnd[period]}`,
-      fiscalYear,
-      period,
-      reportedCurrency: "USD",
-      filingDate: availableFromDate,
-      availableFromDate,
-      observedAt: NOW,
-      contentHash: `${statementType}:${fiscalYear}:${period}`,
-      values: values[statementType],
-    })),
+    (["INCOME", "CASH_FLOW", "BALANCE_SHEET"] as const).map(
+      (statementType) => ({
+        securityId: security.id,
+        statementType,
+        fiscalDate: `${fiscalYear}-${quarterEnd[period]}`,
+        fiscalYear,
+        period,
+        reportedCurrency: "USD",
+        filingDate: availableFromDate,
+        availableFromDate,
+        observedAt: NOW,
+        contentHash: `${statementType}:${fiscalYear}:${period}`,
+        values: values[statementType],
+      }),
+    ),
   );
 }
 
@@ -870,19 +888,25 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toHaveLength(6);
     expect(
-      provider.financialRequests.filter((request) => request.cadence === "QUARTERLY"),
+      provider.financialRequests.filter(
+        (request) => request.cadence === "QUARTERLY",
+      ),
     ).toHaveLength(3);
     expect(
-      provider.financialRequests.filter((request) => request.cadence === "ANNUAL"),
+      provider.financialRequests.filter(
+        (request) => request.cadence === "ANNUAL",
+      ),
     ).toHaveLength(3);
-    expect(new Set(provider.financialRequests.map((request) => request.limit))).toEqual(
+    expect(
+      new Set(provider.financialRequests.map((request) => request.limit)),
+    ).toEqual(
       // (30 visible + 7 warm-up) years of capacity plus the existing safety tails.
       new Set([(30 + 7) * 4 + 8, 30 + 7 + 2]),
     );
+    expect(cache.manifests.get(security.id)?.financialStatementVersion).toBe(1);
     expect(
-      cache.manifests.get(security.id)?.financialStatementVersion,
-    ).toBe(1);
-    expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBeDefined();
+      cache.manifests.get(security.id)?.lastFundamentalsRefreshAt,
+    ).toBeDefined();
   });
 
   it("advances fundamentals cadence state on successful empty backfill responses", async () => {
@@ -901,7 +925,9 @@ describe("canonical full-stock hydration", () => {
       to: "2026-08-24",
     });
 
-    const variants = store.fundamentalsStateUpserts.map((entry) => entry.variant);
+    const variants = store.fundamentalsStateUpserts.map(
+      (entry) => entry.variant,
+    );
     expect(variants).toEqual(
       expect.arrayContaining([
         `standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
@@ -909,10 +935,18 @@ describe("canonical full-stock hydration", () => {
       ]),
     );
     await expect(
-      store.getDatasetState(security.id, "INCOME_STATEMENT", `standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`),
+      store.getDatasetState(
+        security.id,
+        "INCOME_STATEMENT",
+        `standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+      ),
     ).resolves.not.toBeNull();
     await expect(
-      store.getDatasetState(security.id, "INCOME_STATEMENT", `standard:annual:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`),
+      store.getDatasetState(
+        security.id,
+        "INCOME_STATEMENT",
+        `standard:annual:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+      ),
     ).resolves.not.toBeNull();
   });
 
@@ -965,7 +999,9 @@ describe("canonical full-stock hydration", () => {
     const coordinator = new InMemoryLoadCoordinator();
     const requested = { from: "2026-01-01", to: "2026-08-24" };
     const delta = loadRange(requested.from);
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = createService(store, provider, cache, coordinator);
 
     const [first, second] = await Promise.all([
@@ -1000,7 +1036,12 @@ describe("canonical full-stock hydration", () => {
     const cache = new MemoryCache();
     // Redis still maps the symbol to an identity whose durable row was deleted.
     await cache.setSecurity({ ...security, id: "deleted-security" });
-    const loader = createService(store, provider, cache, new InMemoryLoadCoordinator());
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
 
     // PostgreSQL stays authoritative: the stale identity is never served, and a symbol the
     // catalog no longer lists is unsupported rather than silently re-created from the provider.
@@ -1059,7 +1100,9 @@ describe("canonical full-stock hydration", () => {
       profile: { description: "Hydrated for an already-catalogued security" },
     };
     const delta = loadRange("2026-01-01");
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const cache = new MemoryCache();
     const loader = createService(
       store,
@@ -1075,7 +1118,10 @@ describe("canonical full-stock hydration", () => {
     expect(provider.ranges).toEqual([]);
 
     // Asking for data still hydrates prices and, once, the per-stock profile.
-    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
     expect(provider.ranges).toEqual([delta]);
     expect(provider.profileCalls).toEqual([security.symbol]);
     expect(store.profileSaves).toEqual([security.id]);
@@ -1108,10 +1154,16 @@ describe("canonical full-stock hydration", () => {
       new InMemoryLoadCoordinator(),
     );
 
-    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
     // Drop the cache so the next call hydrates again from durable state.
     cache.manifests.delete(security.id);
-    await loader.getDailyPrices("AAPL", { from: "2026-01-01", to: "2026-08-24" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-01-01",
+      to: "2026-08-24",
+    });
 
     expect(provider.profileCalls).toEqual([security.symbol]);
     expect(store.profileSaves).toEqual([security.id]);
@@ -1171,7 +1223,9 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = createService(
       store,
       provider,
@@ -1195,7 +1249,9 @@ describe("canonical full-stock hydration", () => {
     store.currentSecurity = { ...security, ipoDate: "2020-06-01" };
     const provider = new FakeProvider();
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = createService(
       store,
       provider,
@@ -1218,7 +1274,9 @@ describe("canonical full-stock hydration", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = new CanonicalStockDataService(
       store,
       provider,
@@ -1247,7 +1305,9 @@ describe("canonical full-stock hydration", () => {
     // No range at all: Stock Details falls back to its documented one-year window, so the load is
     // that year plus the derived warm-up.
     const delta = loadRange(addDays(CANONICAL_RANGE.to, -365));
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = createService(
       store,
       provider,
@@ -1271,7 +1331,9 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     provider.profile = null;
     const delta = loadRange("2026-01-01");
-    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [price("2026-08-20")]);
+    provider.rowsByRange.set(`${delta.from}:${delta.to}`, [
+      price("2026-08-20"),
+    ]);
     const loader = createService(
       store,
       provider,
@@ -1378,9 +1440,7 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -1460,9 +1520,7 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2025-12-31", 199), price("2026-08-20", 200)];
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -1588,9 +1646,7 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     store.prices = [price("2026-08-20", 200)];
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -1664,9 +1720,7 @@ describe("canonical full-stock hydration", () => {
       date: row.date,
       sma20d: row.close,
     }));
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -1675,10 +1729,9 @@ describe("canonical full-stock hydration", () => {
       latestDate: CANONICAL_RANGE.to,
       lastSyncedAt: "2026-08-23T01:00:00.000Z",
     });
-    store.coverage.set(
-      `DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`,
-      [CANONICAL_RANGE],
-    );
+    store.coverage.set(`DAILY_DERIVED_STATE:${DAILY_DERIVED_STATE_VARIANT}`, [
+      CANONICAL_RANGE,
+    ]);
     setTailFreshness(store, "2026-08-23T01:00:00.000Z");
     const allYears = Array.from({ length: 31 }, (_, index) => 1996 + index);
     await cache.setSecurity(security);
@@ -1731,18 +1784,18 @@ describe("canonical full-stock hydration", () => {
       "2026-08-20",
       "2026-08-21",
     ]);
-    expect(
-      cache.dailyState.get(security.id)?.map((row) => row.date),
-    ).toEqual([...januaryDates, "2026-08-20", "2026-08-21"]);
+    expect(cache.dailyState.get(security.id)?.map((row) => row.date)).toEqual([
+      ...januaryDates,
+      "2026-08-20",
+      "2026-08-21",
+    ]);
   });
 
   it("does not advance READY freshness when the provider refresh fails", async () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     await cache.setManifest({
       securityId: security.id,
       status: "READY",
@@ -1990,10 +2043,14 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toHaveLength(6);
     expect(
-      store.states.get(`INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
+      store.states.get(
+        `INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+      )?.lastSyncedAt,
     ).toBe(staleFundamentalsAt);
     expect(
-      store.states.get(`BALANCE_SHEET:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
+      store.states.get(
+        `BALANCE_SHEET:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+      )?.lastSyncedAt,
     ).toBe(firstAttemptAt);
 
     provider.financialFailures.delete("INCOME:QUARTERLY:12");
@@ -2006,7 +2063,9 @@ describe("canonical full-stock hydration", () => {
 
     expect(provider.financialRequests).toHaveLength(12);
     expect(
-      store.states.get(`INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`)?.lastSyncedAt,
+      store.states.get(
+        `INCOME_STATEMENT:standard:quarter:v1:h30:w${VALUATION_FUNDAMENTALS_WARMUP_YEARS}`,
+      )?.lastSyncedAt,
     ).toBe(secondAttemptAt);
     expect(cache.manifests.get(security.id)?.lastFundamentalsRefreshAt).toBe(
       secondAttemptAt,
@@ -2210,9 +2269,7 @@ describe("canonical full-stock hydration", () => {
     const provider = new FakeProvider();
     const cache = new MemoryCache();
     let now = new Date(NOW);
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -2333,9 +2390,7 @@ describe("daily materialized intrinsic projections", () => {
     const store = new FakeStore();
     const provider = new FakeProvider();
     const cache = new MemoryCache();
-    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [
-      CANONICAL_RANGE,
-    ]);
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [CANONICAL_RANGE]);
     store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -2377,7 +2432,12 @@ describe("daily materialized intrinsic projections", () => {
   const perModelSources: DailyDerivedState = {
     securityId: security.id,
     date: "2026-05-05",
-    intrinsicValues: { DCF_FCFF: 120, RESIDUAL_INCOME: 90, DDM: 70, GRAHAM: 60 },
+    intrinsicValues: {
+      DCF_FCFF: 120,
+      RESIDUAL_INCOME: 90,
+      DDM: 70,
+      GRAHAM: 60,
+    },
     intrinsicValueBlends: { BALANCED: 100, CONSERVATIVE: 95, DIVIDEND: 94 },
     dcfFcffSourceAsOf: "2026-05-02T20:00:00.000Z",
     residualIncomeSourceAsOf: "2026-04-28T20:00:00.000Z",
@@ -2471,9 +2531,7 @@ describe("daily materialized intrinsic projections", () => {
     });
 
     // Two models, one (securityId, date) row, two different provenance instants.
-    expect(
-      result.map((point) => [point.model, point.sourceDataAsOf]),
-    ).toEqual([
+    expect(result.map((point) => [point.model, point.sourceDataAsOf])).toEqual([
       ["DCF_FCFF", "2026-05-02T20:00:00.000Z"],
       ["GRAHAM", "2026-04-21T20:00:00.000Z"],
     ]);
@@ -2701,7 +2759,13 @@ describe("intrinsic values in the derived-state lifecycle", () => {
     income: Record<string, number> = INCOME_QUARTER,
   ): FinancialStatement[] {
     return (["Q1", "Q2", "Q3", "Q4"] as const).flatMap((period) => [
-      intrinsicStatement("INCOME", fiscalYear, period, income, availableFromDate),
+      intrinsicStatement(
+        "INCOME",
+        fiscalYear,
+        period,
+        income,
+        availableFromDate,
+      ),
       intrinsicStatement(
         "CASH_FLOW",
         fiscalYear,
@@ -2826,8 +2890,12 @@ describe("intrinsic values in the derived-state lifecycle", () => {
 
     expect(persistedRow(store, "2026-08-19").intrinsicValues).toBeUndefined();
     expect(persistedRow(store, "2026-08-19").grahamSourceAsOf).toBeUndefined();
-    expect(persistedRow(store, "2026-08-20").intrinsicValues?.GRAHAM).toBeDefined();
-    expect(persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM).toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-20").intrinsicValues?.GRAHAM,
+    ).toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM,
+    ).toBeDefined();
   });
 
   it("rebuilds intrinsic state from a fundamentals-only refresh with unchanged prices", async () => {
@@ -2879,14 +2947,12 @@ describe("intrinsic values in the derived-state lifecycle", () => {
     expect(after).not.toBeCloseTo(before ?? 0, 6);
     // The revision is filed on 2026-08-18 and becomes eligible the next day, so earlier trading
     // days keep the valuation that was correct for them.
-    expect(persistedRow(store, "2026-08-19").intrinsicValues?.GRAHAM).toBeCloseTo(
-      after ?? 0,
-      6,
-    );
-    expect(persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM).toBeCloseTo(
-      before ?? 0,
-      6,
-    );
+    expect(
+      persistedRow(store, "2026-08-19").intrinsicValues?.GRAHAM,
+    ).toBeCloseTo(after ?? 0, 6);
+    expect(
+      persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM,
+    ).toBeCloseTo(before ?? 0, 6);
   });
 
   it("clears an invalidated model from its event day and restores it from a later revision", async () => {
@@ -2917,7 +2983,9 @@ describe("intrinsic values in the derived-state lifecycle", () => {
       to: "2026-08-24",
     });
 
-    expect(persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM).toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-18").intrinsicValues?.GRAHAM,
+    ).toBeDefined();
     for (const date of ["2026-08-19", "2026-08-20"]) {
       // The stale value and its provenance are dropped, not carried through the invalidation.
       expect(persistedRow(store, date).intrinsicValues?.GRAHAM).toBeUndefined();
@@ -2925,14 +2993,19 @@ describe("intrinsic values in the derived-state lifecycle", () => {
       // Models that do not depend on diluted EPS stay available.
       expect(persistedRow(store, date).intrinsicValues?.DDM).toBeDefined();
       // Blends requiring Graham disappear with it.
-      expect(persistedRow(store, date).intrinsicValueBlends?.BALANCED)
-        .toBeUndefined();
-      expect(persistedRow(store, date).intrinsicValueBlends?.DIVIDEND)
-        .toBeDefined();
+      expect(
+        persistedRow(store, date).intrinsicValueBlends?.BALANCED,
+      ).toBeUndefined();
+      expect(
+        persistedRow(store, date).intrinsicValueBlends?.DIVIDEND,
+      ).toBeDefined();
     }
-    expect(persistedRow(store, "2026-08-21").intrinsicValues?.GRAHAM).toBeDefined();
-    expect(persistedRow(store, "2026-08-24").intrinsicValueBlends?.BALANCED)
-      .toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-21").intrinsicValues?.GRAHAM,
+    ).toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-24").intrinsicValueBlends?.BALANCED,
+    ).toBeDefined();
   });
 
   it("keeps historical rows stable when a restatement is observed later", async () => {
@@ -2974,7 +3047,9 @@ describe("intrinsic values in the derived-state lifecycle", () => {
     );
 
     // A changed close in the recent tail refresh window.
-    provider.rowsByRange.set("2026-08-14:2026-08-24", [price("2026-08-24", 250)]);
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [
+      price("2026-08-24", 250),
+    ]);
     await createService(
       store,
       provider,
@@ -3008,7 +3083,9 @@ describe("intrinsic values in the derived-state lifecycle", () => {
       to: "2026-08-24",
     });
 
-    provider.rowsByRange.set("2026-08-14:2026-08-24", [price("2026-08-24", 275)]);
+    provider.rowsByRange.set("2026-08-14:2026-08-24", [
+      price("2026-08-24", 275),
+    ]);
     provider.financialRows.set("INCOME:QUARTERLY:12", [
       {
         securityId: security.id,
@@ -3037,7 +3114,9 @@ describe("intrinsic values in the derived-state lifecycle", () => {
     expect(new Set(store.dailyState.map((row) => row.date)).size).toBe(
       TRADING_DATES.length,
     );
-    expect(persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM).toBeDefined();
+    expect(
+      persistedRow(store, "2026-08-24").intrinsicValues?.GRAHAM,
+    ).toBeDefined();
   });
 });
 
@@ -3250,9 +3329,7 @@ describe("derived-state revision and valuation warm-up retention", () => {
 
     expect(provider.financialRequests).toHaveLength(6);
     expect(
-      store.states.get(
-        `INCOME_STATEMENT:standard:quarter:v1:h30:w${WARMUP}`,
-      ),
+      store.states.get(`INCOME_STATEMENT:standard:quarter:v1:h30:w${WARMUP}`),
     ).toBeDefined();
   });
 
@@ -3559,10 +3636,7 @@ describe("range-scoped materialization", () => {
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
     expect(provider.ranges).toEqual([RETENTION_RANGE]);
-    expect(prices.map((row) => row.date)).toEqual([
-      "2010-01-04",
-      "2026-08-20",
-    ]);
+    expect(prices.map((row) => row.date)).toEqual(["2010-01-04", "2026-08-20"]);
     expect(cache.manifests.get(security.id)).toMatchObject({
       coverageStart: RETENTION_RANGE.from,
     });
@@ -3640,27 +3714,44 @@ describe("complete price coverage", () => {
     return { store, cache };
   }
 
-  function currentService(store: FakeStore, provider: FakeProvider, cache: MemoryCache) {
+  function currentService(
+    store: FakeStore,
+    provider: FakeProvider,
+    cache: MemoryCache,
+  ) {
     return createService(store, provider, cache, new InMemoryLoadCoordinator());
   }
 
   it("recovers the missing historical prefix behind a stale manifest that claims it", async () => {
     // AAPL as found: coverage and manifest from 1996, rows from 2006, and a provider that has
     // had 1996–2006 all along. Asking for 1996 must fetch what is missing and persist it.
-    const persisted = [price("2006-10-12"), price("2016-01-04"), price("2026-08-20")];
+    const persisted = [
+      price("2006-10-12"),
+      price("2016-01-04"),
+      price("2026-08-20"),
+    ];
     const { store, cache } = legacyState(persisted);
     const provider = new FakeProvider();
     const complete = [price("1996-09-03"), price("2001-01-02"), ...persisted];
-    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, complete);
+    provider.rowsByRange.set(
+      `${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`,
+      complete,
+    );
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
     // One complete provider ask for the caller's target: v1 coverage is not evidence.
     expect(provider.ranges).toEqual([RETENTION_RANGE]);
-    expect(prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
-    expect(store.prices.map((row) => row.date)).toEqual(complete.map((row) => row.date));
-    expect(new Set(store.prices.map((row) => row.date)).size).toBe(store.prices.length);
+    expect(prices.map((row) => row.date)).toEqual(
+      complete.map((row) => row.date),
+    );
+    expect(store.prices.map((row) => row.date)).toEqual(
+      complete.map((row) => row.date),
+    );
+    expect(new Set(store.prices.map((row) => row.date)).size).toBe(
+      store.prices.length,
+    );
     // The dataset now extends to the retention boundary under the current revision, and the v1
     // generation is gone.
     expect(store.coverage.get(CURRENT_KEY)).toEqual([RETENTION_RANGE]);
@@ -3680,8 +3771,15 @@ describe("complete price coverage", () => {
 
   it("materializes a cold stock from the provider's complete history with no prior state", async () => {
     const provider = new FakeProvider();
-    const complete = [price("1996-09-03"), price("2006-10-12"), price("2026-08-20")];
-    provider.rowsByRange.set(`${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`, complete);
+    const complete = [
+      price("1996-09-03"),
+      price("2006-10-12"),
+      price("2026-08-20"),
+    ];
+    provider.rowsByRange.set(
+      `${RETENTION_RANGE.from}:${RETENTION_RANGE.to}`,
+      complete,
+    );
     const store = new FakeStore();
     const cache = new MemoryCache();
     const loader = currentService(store, provider, cache);
@@ -3691,9 +3789,11 @@ describe("complete price coverage", () => {
     expect(provider.ranges).toEqual([RETENTION_RANGE]);
     expect(prices[0]?.date).toBe("1996-09-03");
     expect(store.coverage.get(CURRENT_KEY)).toEqual([RETENTION_RANGE]);
-    expect([...store.coverage.keys()].filter((key) => key.startsWith("DAILY_PRICE:"))).toEqual([
-      CURRENT_KEY,
-    ]);
+    expect(
+      [...store.coverage.keys()].filter((key) =>
+        key.startsWith("DAILY_PRICE:"),
+      ),
+    ).toEqual([CURRENT_KEY]);
     expect(cache.manifests.get(security.id)).toMatchObject({
       priceDatasetVersion: PRICE_DATASET_VERSION,
       coverageStart: RETENTION_RANGE.from,
@@ -3704,7 +3804,10 @@ describe("complete price coverage", () => {
   it("does not trust a previous price-dataset revision as coverage, even inside its claim", async () => {
     // A window the v1 state says is covered. The current loader must re-verify it with the
     // provider rather than serve the v1 claim, and leave the stock on the current revision.
-    const { store, cache } = legacyState([price("2006-10-12"), price("2026-08-20")]);
+    const { store, cache } = legacyState([
+      price("2006-10-12"),
+      price("2026-08-20"),
+    ]);
     const provider = new FakeProvider();
     const target = loadRange("2010-01-04");
     provider.rowsByRange.set(`${target.from}:${target.to}`, [
@@ -3714,7 +3817,10 @@ describe("complete price coverage", () => {
     ]);
     const loader = currentService(store, provider, cache);
 
-    await loader.getDailyPrices("AAPL", { from: "2010-01-04", to: "2010-12-31" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2010-01-04",
+      to: "2010-12-31",
+    });
 
     expect(provider.ranges).toEqual([target]);
     expect(store.coverage.get(CURRENT_KEY)).toEqual([target]);
@@ -3740,7 +3846,10 @@ describe("complete price coverage", () => {
 
     // The same range, a narrower one, and the same range again after Redis lost the stock.
     await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
-    await loader.getDailyPrices("AAPL", { from: "2000-01-03", to: "2010-12-31" });
+    await loader.getDailyPrices("AAPL", {
+      from: "2000-01-03",
+      to: "2010-12-31",
+    });
     await cache.evict(security.id);
     await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
 
@@ -3752,7 +3861,9 @@ describe("complete price coverage", () => {
     const store = new FakeStore();
     const cache = new MemoryCache();
     store.prices = [price("2000-01-03"), price("2026-08-20")];
-    store.coverage.set(CURRENT_KEY, [{ from: "2000-01-01", to: CANONICAL_RANGE.to }]);
+    store.coverage.set(CURRENT_KEY, [
+      { from: "2000-01-01", to: CANONICAL_RANGE.to },
+    ]);
     store.states.set(CURRENT_KEY, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -3767,7 +3878,9 @@ describe("complete price coverage", () => {
     // The 30 -> 34 upgrade in miniature: coverage already reaches 2000, so only the interval
     // between the retention boundary and it is asked for.
     const prefix = { from: RETENTION_RANGE.from, to: "1999-12-31" };
-    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [price("1996-09-03")]);
+    provider.rowsByRange.set(`${prefix.from}:${prefix.to}`, [
+      price("1996-09-03"),
+    ]);
     const loader = currentService(store, provider, cache);
 
     const prices = await loader.getDailyPrices("AAPL", CANONICAL_RANGE);
@@ -3779,7 +3892,10 @@ describe("complete price coverage", () => {
       "2026-08-20",
     ]);
     expect(store.coverage.get(CURRENT_KEY)).toEqual(
-      expect.arrayContaining([prefix, { from: "2000-01-01", to: CANONICAL_RANGE.to }]),
+      expect.arrayContaining([
+        prefix,
+        { from: "2000-01-01", to: CANONICAL_RANGE.to },
+      ]),
     );
   });
 
@@ -3789,7 +3905,9 @@ describe("complete price coverage", () => {
     const cache = new MemoryCache();
     store.currentSecurity = listed;
     store.prices = [price("2006-10-12"), price("2026-08-20")];
-    store.coverage.set(CURRENT_KEY, [{ from: "2006-01-02", to: CANONICAL_RANGE.to }]);
+    store.coverage.set(CURRENT_KEY, [
+      { from: "2006-01-02", to: CANONICAL_RANGE.to },
+    ]);
     store.states.set(CURRENT_KEY, {
       securityId: security.id,
       dataset: "DAILY_PRICE",
@@ -3849,7 +3967,9 @@ describe("complete price coverage", () => {
     const store = new FakeStore();
     const cache = new MemoryCache();
     store.prices = [price("2006-10-12"), price("2026-08-20")];
-    store.coverage.set(CURRENT_KEY, [{ from: "2006-01-02", to: CANONICAL_RANGE.to }]);
+    store.coverage.set(CURRENT_KEY, [
+      { from: "2006-01-02", to: CANONICAL_RANGE.to },
+    ]);
     setTailFreshness(store);
     setFundamentalsStates(store);
     // The prefix reaches to within a weekend of the horizon, so once both reads see it the
@@ -3892,7 +4012,9 @@ describe("complete price coverage", () => {
     const cache = new MemoryCache();
     store.currentSecurity = listed;
     store.prices = [price("2004-08-19"), price("2026-08-20")];
-    store.coverage.set(CURRENT_KEY, [{ from: "2004-08-19", to: CANONICAL_RANGE.to }]);
+    store.coverage.set(CURRENT_KEY, [
+      { from: "2004-08-19", to: CANONICAL_RANGE.to },
+    ]);
     setTailFreshness(store);
     setFundamentalsStates(store);
     const loader = currentService(store, new FakeProvider(), cache);
@@ -3985,11 +4107,142 @@ describe("complete price coverage", () => {
     // Recalculated from the recovered origin, and the days that already existed were replaced
     // rather than kept beside the new prefix: still exactly one row per trading day.
     const write = store.derivedWrites[0]!;
-    expect(write.derivedDates[0]).toBe(tradingDays(target.from, target.from)[0]?.date ?? target.from);
+    expect(write.derivedDates[0]).toBe(
+      tradingDays(target.from, target.from)[0]?.date ?? target.from,
+    );
     expect(write.derivedDates).toContain("2006-10-12");
-    expect(new Set(store.dailyState.map((row) => row.date)).size).toBe(store.dailyState.length);
+    expect(new Set(store.dailyState.map((row) => row.date)).size).toBe(
+      store.dailyState.length,
+    );
     expect(store.prices.map((row) => row.date)).toEqual(
       tradingDays(target.from, "2007-12-31").map((row) => row.date),
     );
+  });
+});
+
+/**
+ * The period a run recorded is the period it executes — whatever the clock says later.
+ *
+ * `projectionRange` cut every read at `today - productHistoryYears`, and a backtest read through
+ * it like everything else. So the bound a run executed against was recomputed from the **current**
+ * clock rather than taken from its own immutable snapshot, and a period that was valid at
+ * submission lost its first day the moment execution crossed UTC midnight.
+ *
+ * That is not a rounding difference. The validation matrix measured it: a run pinned to
+ * 1996-09-09 executed on 2026-09-10 simulated 7,546 sessions where its own calendar had 7,547, and
+ * the first simulated date — which decides the return-index base, the first contribution and every
+ * number chained off them — was a day later than the one recorded. A delayed retry of the same job
+ * would execute a third period.
+ *
+ * The horizon still exists, and Stock Details is still bounded by it. What changed is that the
+ * backtest read path no longer derives a bound from a clock the run never saw.
+ */
+describe("a backtest executes exactly the period it snapshotted", () => {
+  // NOW is 2026-08-24, so the earliest selectable start is 1996-08-24 and the retention floor —
+  // four warm-up years wider — is 1992-08-24.
+  const PERIOD = { from: "1996-08-24", to: "2026-08-24" };
+  const JUST_AFTER_MIDNIGHT = "2026-08-25T00:01:00.000Z";
+  const A_WEEK_LATER = "2026-08-31T09:00:00.000Z";
+
+  async function ready(): Promise<{
+    store: FakeStore;
+    provider: FakeProvider;
+    cache: MemoryCache;
+  }> {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    // One bar inside the retained warm-up years, one on the first simulated day, and a tail.
+    store.prices = [
+      price("1992-08-24", 10),
+      price("1996-08-24", 20),
+      price("1996-08-26", 21),
+      price("2026-08-24", 200),
+    ];
+    const retained = { from: "1992-08-24", to: "2026-08-31" };
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [retained]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: retained.from,
+      latestDate: retained.to,
+      lastSyncedAt: A_WEEK_LATER,
+    });
+    setTailFreshness(store, A_WEEK_LATER, "2026-08-24");
+    setFundamentalsStates(store, A_WEEK_LATER);
+    await cache.setSecurity(security);
+    await cache.writeDailyPriceYears(
+      security.id,
+      store.prices,
+      yearSpan(retained.from, retained.to),
+    );
+    await cache.setManifest({
+      securityId: security.id,
+      status: "READY",
+      productHistoryYears: 30,
+      priceRetentionYears: priceRetentionYears(30),
+      coverageStart: retained.from,
+      coverageEnd: retained.to,
+      hydratedAt: A_WEEK_LATER,
+      lastPriceRefreshAt: A_WEEK_LATER,
+      lastFundamentalsRefreshAt: A_WEEK_LATER,
+      priceDatasetVersion: PRICE_DATASET_VERSION,
+      financialStatementVersion: 1,
+      derivedStateRevision: DERIVED_STATE_REVISION,
+    });
+    return { store, provider, cache };
+  }
+
+  const at = async (clock: string) => {
+    const { store, provider, cache } = await ready();
+    return createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date(clock),
+    );
+  };
+
+  it("keeps the first simulated day when execution crosses UTC midnight", async () => {
+    const loader = await at(JUST_AFTER_MIDNIGHT);
+    const bounds = await loader.prepareDailyEvaluationData(security, PERIOD);
+    expect(bounds?.firstDate).toBe("1996-08-24");
+  });
+
+  it("keeps it in the frame the engine actually consumes", async () => {
+    const loader = await at(JUST_AFTER_MIDNIGHT);
+    const frame = await loader.readDailyEvaluationFrame(security, PERIOD, []);
+    expect(frame.dates).toContain("1996-08-24");
+    expect(frame.dates[frame.periodStartIndex]).toBe("1996-08-24");
+  });
+
+  it("executes the same period on a retry a week later", async () => {
+    // A durable job whose lease expired and was reclaimed must execute its own snapshot, not a
+    // period recomputed from the day the retry happened to run.
+    const loader = await at(A_WEEK_LATER);
+    const bounds = await loader.prepareDailyEvaluationData(security, PERIOD);
+    expect(bounds?.firstDate).toBe("1996-08-24");
+    const frame = await loader.readDailyEvaluationFrame(security, PERIOD, []);
+    expect(frame.dates[frame.periodStartIndex]).toBe("1996-08-24");
+  });
+
+  it("reads the last simulated day exactly, and nothing after it", async () => {
+    const loader = await at(A_WEEK_LATER);
+    const bounds = await loader.prepareDailyEvaluationData(security, PERIOD);
+    expect(bounds?.lastDate).toBe("2026-08-24");
+  });
+
+  it("still hides the retained warm-up years from Stock Details", async () => {
+    // The horizon is not gone: the 1992 bar exists to make a derived series valid on the first
+    // visible day, and no product surface may return it.
+    const loader = await at(JUST_AFTER_MIDNIGHT);
+    const prices = await loader.getDailyPrices("AAPL", {
+      from: "1990-01-01",
+      to: "2026-08-25",
+    });
+    expect(prices.map((row) => row.date)).not.toContain("1992-08-24");
+    expect(prices[0]?.date).toBe("1996-08-26");
   });
 });

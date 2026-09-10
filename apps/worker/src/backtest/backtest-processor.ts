@@ -99,6 +99,17 @@ export interface BacktestBenchmarkLoader {
     series: BenchmarkSeries,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
+  /**
+   * Ranges inside `period` the pinned series has no durable coverage for; empty means complete.
+   *
+   * The distinction execution needs is between "this series' own history starts later", which is
+   * ordinary, and "the canonical data this run recorded is missing", which must fail the run
+   * rather than shorten it.
+   */
+  missingBenchmarkCoverage(
+    series: BenchmarkSeries,
+    period: Required<DateRange>,
+  ): Promise<Required<DateRange>[]>;
 }
 
 /** One run security after `PREPARING_DATA`: its resolved identity and what its history covers. */
@@ -255,12 +266,13 @@ export class BacktestProcessor implements BacktestJobProcessor {
     // Opened before anything else so a run that fails while parsing its own snapshot still leaves
     // an archive saying so, and closed in `finally` so no exit path — including an interruption —
     // leaves staging behind. It is null unless the capture is configured on.
-    const archive = (await this.dependencies.debugArchives?.open({
-      runId: claim.runId,
-      jobId: claim.jobId,
-      attempt: claim.attempt,
-      workerId: this.options.workerId,
-    })) ?? null;
+    const archive =
+      (await this.dependencies.debugArchives?.open({
+        runId: claim.runId,
+        jobId: claim.jobId,
+        attempt: claim.attempt,
+        workerId: this.options.workerId,
+      })) ?? null;
     let archiveStatus: BacktestArchiveStatus = "INTERRUPTED";
 
     try {
@@ -282,7 +294,13 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
       phase = "PREPARING_DATA";
       this.assertMethodologySupported(claim, snapshot);
-      const prepared = await this.prepare(claim, lease, snapshot, period, archive);
+      const prepared = await this.prepare(
+        claim,
+        lease,
+        snapshot,
+        period,
+        archive,
+      );
 
       phase = "RUNNING";
       const runningStartedAt = Date.now();
@@ -404,7 +422,8 @@ export class BacktestProcessor implements BacktestJobProcessor {
     archive: BacktestDebugArchive | null,
   ): Promise<PreparedRun> {
     const startedAt = Date.now();
-    const providerRequestsBefore = this.dependencies.providerRequests?.() ?? null;
+    const providerRequestsBefore =
+      this.dependencies.providerRequests?.() ?? null;
     const operands = collectOperands(snapshot.strategy.definition);
     const catalog = await this.dependencies.securities.findByIds(
       snapshot.securities.map((security) => security.securityId),
@@ -740,6 +759,11 @@ export class BacktestProcessor implements BacktestJobProcessor {
         FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
       );
     }
+    // The calendar must span the period the run recorded, not merely return some dates inside it.
+    // A run executes exactly its immutable period or fails saying it could not: quietly simulating
+    // a shorter one moves the first simulated date, and with it the return-index base, the first
+    // contribution and every number chained off them.
+    await this.assertCalendarCoversPeriod(seriesId, referenceCode, period);
     this.dependencies.logger.info({
       event: "backtest.execution-calendar.loaded",
       durationMs: Date.now() - startedAt,
@@ -760,6 +784,62 @@ export class BacktestProcessor implements BacktestJobProcessor {
       durationMs: Date.now() - startedAt,
     });
     return dates;
+  }
+
+  /**
+   * Refuses the attempt when the pinned series has no durable coverage for part of the period.
+   *
+   * Complete coverage means the provider was asked for the whole period with complete requests, so
+   * whatever bars came back are all there are — an empty prefix is then the series' own history
+   * starting later, which is ordinary and not a failure. An actual coverage gap is the canonical
+   * data being unavailable, and the run says so instead of simulating a shorter period.
+   *
+   * The check is deliberately on coverage rather than on the first bar's distance from the period
+   * start: market closures are real and a threshold in days would be a guess, whereas coverage is
+   * the durable claim that asking again is pointless.
+   */
+  private async assertCalendarCoversPeriod(
+    seriesId: string,
+    referenceCode: string | null,
+    period: Required<DateRange>,
+  ): Promise<void> {
+    let missing: Required<DateRange>[];
+    try {
+      const series = await this.dependencies.benchmarks.getSeries(seriesId);
+      missing = [
+        ...(await this.dependencies.benchmarks.missingBenchmarkCoverage(
+          series,
+          period,
+        )),
+      ];
+    } catch (err) {
+      this.dependencies.logger.error({
+        event: "backtest.execution-calendar.unavailable",
+        reason: "COVERAGE_UNREADABLE",
+        referenceCode,
+        seriesId,
+        err,
+      });
+      throw new BacktestRunFailure(
+        "EXECUTION_CALENDAR_UNAVAILABLE",
+        FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+      );
+    }
+    if (missing.length === 0) {
+      return;
+    }
+    this.dependencies.logger.error({
+      event: "backtest.execution-calendar.unavailable",
+      reason: "PERIOD_NOT_COVERED",
+      referenceCode,
+      seriesId,
+      period,
+      missing,
+    });
+    throw new BacktestRunFailure(
+      "EXECUTION_CALENDAR_UNAVAILABLE",
+      FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
+    );
   }
 
   /** One pinned series' bars, or null when it cannot be loaded. Never fails the run. */
@@ -919,11 +999,12 @@ export class BacktestProcessor implements BacktestJobProcessor {
     const range = { from: window.from, to: window.to } as const;
     const frames: EvaluationFrame[] = new Array(prepared.securities.length);
     await this.mapWithConcurrency(prepared.securities, async (entry, index) => {
-      frames[index] = await this.dependencies.stockData.readDailyEvaluationFrame(
-        entry.security,
-        range,
-        prepared.operands,
-      );
+      frames[index] =
+        await this.dependencies.stockData.readDailyEvaluationFrame(
+          entry.security,
+          range,
+          prepared.operands,
+        );
     });
     return frames;
   }

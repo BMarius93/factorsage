@@ -161,7 +161,10 @@ describeReuse("provider reuse across repeated reads", () => {
       provider,
       cache,
       new InMemoryLoadCoordinator(),
-      { productHistoryYears: 30, now: () => new Date(`${today}T12:00:00.000Z`) },
+      {
+        productHistoryYears: 30,
+        now: () => new Date(`${today}T12:00:00.000Z`),
+      },
     );
   }
 
@@ -526,15 +529,16 @@ describeReuse("provider reuse across repeated reads", () => {
       to: year === 2020 ? period.to : `${year}-12-31`,
     }));
 
-    async function readWindows(provider: CountingStockProvider, security: Security) {
+    async function readWindows(
+      provider: CountingStockProvider,
+      security: Security,
+    ) {
       const service = stockService(provider);
       const dates: string[] = [];
       for (const window of windows) {
-        const frame = await service.readDailyEvaluationFrame(
-          security,
-          window,
-          [...OPERANDS],
-        );
+        const frame = await service.readDailyEvaluationFrame(security, window, [
+          ...OPERANDS,
+        ]);
         for (const date of frame.dates) {
           // The loader widens each window by its own leading context, so the December rows of the
           // previous year arrive twice. The window's *own* dates are what tile the period.

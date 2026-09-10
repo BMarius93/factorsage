@@ -323,6 +323,10 @@ class FixtureBenchmarks implements BacktestBenchmarkLoader {
       volume: 5_000,
     }));
   }
+
+  async missingBenchmarkCoverage(): Promise<Required<DateRange>[]> {
+    return [];
+  }
 }
 
 function processorWith(input: {
@@ -883,9 +887,10 @@ describe("backtest debug archive — outputs", () => {
     // The two identities the curve has to satisfy, checkable from the archive alone.
     for (const point of equity) {
       // Canonical strings: parsed before arithmetic, never concatenated.
-      expect(
-        Number(point.cash) + Number(point.positionsValue),
-      ).toBeCloseTo(Number(point.totalValue), 6);
+      expect(Number(point.cash) + Number(point.positionsValue)).toBeCloseTo(
+        Number(point.totalValue),
+        6,
+      );
     }
 
     const positions = archiveJsonEntry(entries, "result/positions.json");

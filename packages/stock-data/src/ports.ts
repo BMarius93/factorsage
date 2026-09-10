@@ -99,10 +99,7 @@ export interface StockDataStore {
    * name substring. Returns unranked candidates: relevance ordering is a domain concern applied by
    * the service, so the store stays a plain persistence read.
    */
-  searchSecurities(input: {
-    term: string;
-    limit: number;
-  }): Promise<Security[]>;
+  searchSecurities(input: { term: string; limit: number }): Promise<Security[]>;
   /** Reads existing catalog rows so a synchronization can tell created from updated. */
   findSecurityCatalogEntries(
     providerSymbols: readonly string[],

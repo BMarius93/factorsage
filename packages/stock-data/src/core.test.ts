@@ -311,9 +311,9 @@ describe("unified daily derived state", () => {
 
   it("rejects duplicate methodology rows for the same trading day", () => {
     const rows = buildDailyDerivedState({ prices: week1 });
-    expect(() =>
-      assertOneRowPerTradingDay([...rows, { ...rows[0]! }]),
-    ).toThrow("exactly one row per trading day");
+    expect(() => assertOneRowPerTradingDay([...rows, { ...rows[0]! }])).toThrow(
+      "exactly one row per trading day",
+    );
   });
 
   it("repeats the completed-week source on each later trading day until a newer week completes", () => {
@@ -360,9 +360,9 @@ describe("unified daily derived state", () => {
       prices: week1,
       weeklyBars: aggregateCompletedWeeks(week1, "2026-08-14"),
     });
-    expect(
-      rows.every((row) => row.weeklySourceWeekStart === undefined),
-    ).toBe(true);
+    expect(rows.every((row) => row.weeklySourceWeekStart === undefined)).toBe(
+      true,
+    );
   });
 
   it("materializes the daily oscillator family onto its exact trading day", () => {
@@ -525,10 +525,9 @@ describe("unified daily derived state", () => {
       const blend = calculateBlend(INTRINSIC_VALUE_BLENDS[blendId], components);
 
       expect(blend.status).toBe("CALCULATED");
-      expect(blend.status === "CALCULATED" && blend.value.valuePerShare).toBeCloseTo(
-        expected,
-        9,
-      );
+      expect(
+        blend.status === "CALCULATED" && blend.value.valuePerShare,
+      ).toBeCloseTo(expected, 9);
     }
   });
 

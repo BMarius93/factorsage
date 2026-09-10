@@ -32,6 +32,21 @@ export class BenchmarkNotFoundError extends Error {
   }
 }
 
+/**
+ * How much further back a benchmark series is retained than the product horizon.
+ *
+ * Not a calculation warm-up — a benchmark has nothing to calculate, which is exactly why this is
+ * one year rather than the stock loader's four. It is **execution-delay margin**: a backtest may be
+ * submitted at the very edge of the selectable horizon and executed later, and the pinned series
+ * has to still hold the bars that period names. Without it the benchmark's retention floor moved
+ * with the clock at precisely the same rate as the periods it had to cover, which is how a run
+ * pinned to 1996-09-09 came to be missing its first session.
+ *
+ * The stock loader retains a wider window for a different reason and the two now agree on the
+ * principle that matters: what is retained is strictly wider than what the product exposes.
+ */
+export const BENCHMARK_RETENTION_MARGIN_YEARS = 1;
+
 export type CanonicalBenchmarkDataServiceOptions = {
   historyYears?: number;
   recentPriceFreshnessMs?: number;
@@ -56,6 +71,7 @@ export type CanonicalBenchmarkDataServiceOptions = {
  */
 export class CanonicalBenchmarkDataService implements BenchmarkDataService {
   private readonly historyYears: number;
+  private readonly retentionYears: number;
   private readonly recentPriceFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
@@ -69,6 +85,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     options: CanonicalBenchmarkDataServiceOptions = {},
   ) {
     this.historyYears = options.historyYears ?? 30;
+    this.retentionYears = this.historyYears + BENCHMARK_RETENTION_MARGIN_YEARS;
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
@@ -282,23 +299,58 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    */
   private loadTarget(required: Required<DateRange>): Required<DateRange> {
     const today = this.today();
-    const horizonStart = subtractYears(today, this.historyYears);
+    const retentionStart = subtractYears(today, this.retentionYears);
     return {
-      from: maxDate(minDate(required.from, today), horizonStart),
-      to: maxDate(minDate(required.to, today), horizonStart),
+      from: maxDate(minDate(required.from, today), retentionStart),
+      to: maxDate(minDate(required.to, today), retentionStart),
     };
   }
 
+  /**
+   * What a read may return: the caller's range, clamped only to what is retained.
+   *
+   * The single consumer is a backtest — the execution calendar and the comparison series both come
+   * from here — and a backtest's period is immutable. Clamping it to `today - historyYears` made
+   * the bound a function of the clock at execution time rather than of the run's own snapshot, so a
+   * period that was valid at submission lost its first session once execution crossed UTC midnight,
+   * and a delayed retry executed a different period again. Measured on the validation matrix:
+   * 1996-09-09 vanished and the calendar came back with 7,546 sessions instead of 7,547.
+   */
   private projectionRange(
     requested: Required<DateRange>,
   ): Required<DateRange> | null {
     const today = this.today();
     const from = maxDate(
       requested.from,
-      subtractYears(today, this.historyYears),
+      subtractYears(today, this.retentionYears),
     );
     const to = minDate(requested.to, today);
     return from <= to ? { from, to } : null;
+  }
+
+  /**
+   * Ranges inside `period` the series has no durable coverage for.
+   *
+   * Empty means the provider was asked for the whole period with complete requests, so whatever
+   * bars exist are all there are — an empty prefix is then the series' own history starting later,
+   * not a gap. Anything else means the canonical data a run needs is genuinely unavailable, and a
+   * run must fail explicitly rather than execute a shorter period than the one it recorded.
+   */
+  async missingBenchmarkCoverage(
+    series: BenchmarkSeries,
+    period: Required<DateRange>,
+  ): Promise<Required<DateRange>[]> {
+    const bounded = this.projectionRange(period);
+    if (!bounded) {
+      return [period];
+    }
+    const coverage = await this.store.getDatasetCoverage(
+      series.id,
+      "DAILY_PRICE",
+      BENCHMARK_DAILY_PRICE_VARIANT,
+      bounded,
+    );
+    return missingCoverageRanges(bounded, coverage);
   }
 
   private recentTailRange(

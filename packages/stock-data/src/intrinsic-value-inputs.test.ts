@@ -688,8 +688,9 @@ describe("point-in-time valuation input assembly", () => {
       values: { ...(each.values as Values), netIncome: 9_999 },
     }));
 
-    expect(assemble([...completeStatements(), ...foreign]).RESIDUAL_INCOME)
-      .toMatchObject({ status: "READY", input: { netIncomeTtm: 80 } });
+    expect(
+      assemble([...completeStatements(), ...foreign]).RESIDUAL_INCOME,
+    ).toMatchObject({ status: "READY", input: { netIncomeTtm: 80 } });
     expect(assemble(foreign).GRAHAM).toEqual({
       status: "NOT_APPLICABLE",
       reason: "MISSING_TTM_WINDOW",

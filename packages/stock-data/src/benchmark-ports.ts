@@ -140,4 +140,14 @@ export interface BenchmarkDataService {
     series: BenchmarkSeries,
     range: Required<DateRange>,
   ): Promise<BenchmarkDailyPrice[]>;
+  /**
+   * Ranges inside `period` the series has no durable coverage for; empty means complete.
+   *
+   * Execution uses it to tell "the series' own history starts later" from "the canonical data is
+   * missing". The first is ordinary; the second must fail a run rather than shorten it.
+   */
+  missingBenchmarkCoverage(
+    series: BenchmarkSeries,
+    period: Required<DateRange>,
+  ): Promise<Required<DateRange>[]>;
 }
