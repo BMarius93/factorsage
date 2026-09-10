@@ -220,6 +220,8 @@ async function main(): Promise<void> {
   const writer = new MatrixReportWriter(matrixReportRoot(root), executionId);
 
   let pool: MatrixWorkerPool | null = null;
+  let sweepProviderRequests: ReturnType<MatrixWorkerPool["providerRequests"]> | null =
+    null;
   try {
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
       () => [] as string[],
@@ -418,6 +420,13 @@ async function main(): Promise<void> {
       console.log(
         `\nRe-executing ${rerunnable.length} golden combination(s) to verify determinism…`,
       );
+      // The sweep pool must be stopped first. Both pools claim from the same PostgreSQL queue, so
+      // a still-running sweep pool will happily take some of the rerun's jobs — and if the two
+      // disagree about capture, the archive count is whatever the race decided. Observed: ten
+      // archives where six were planned.
+      sweepProviderRequests = pool.providerRequests();
+      await pool.stop();
+      pool = null;
       const rerunArchives = archivePlan.rerunPool === "full";
       const rerunPool = new MatrixWorkerPool({
         environment,
@@ -526,8 +535,11 @@ async function main(): Promise<void> {
       determinism,
       coverageWarnings,
       providerRequestLedger: {
-        total: pool.providerRequests().total,
-        unattributed: pool.providerRequests().unattributed,
+        total: sweepProviderRequests?.total ?? pool?.providerRequests().total ?? 0,
+        unattributed:
+          sweepProviderRequests?.unattributed ??
+          pool?.providerRequests().unattributed ??
+          0,
       },
     });
     writer.writeReport(
