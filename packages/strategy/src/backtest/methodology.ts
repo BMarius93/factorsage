@@ -134,6 +134,24 @@ export const STRATEGY_EVALUATION_METHODOLOGY_VERSION =
  *   date. One malformed row in one security could move every number in the run.
  * - v2: the execution calendar alone. A date exists because the market traded, and for no other
  *   reason.
+ *
+ * **Not bumped for the clipping repairs**, and the evidence for that decision is worth stating,
+ * because the repairs did change numbers.
+ *
+ * The rule this version states is "the pinned calendar's trading days *inside the requested
+ * period*". The loader was intersecting that with a third range derived from the clock at
+ * execution time — first the product horizon, then a retained horizon one year wider — so a run
+ * whose period was fixed and recorded months earlier simulated a different set of dates depending
+ * on when it happened to execute. A sweep pinned to 1996-09-09 and executed on 2026-09-10 came
+ * back with 7,546 sessions where the calendar had 7,547, and a period at the horizon's edge lost
+ * its first session again one day past the retention margin. None of that is an alternative rule:
+ * it is this rule not being applied, and there was never a stable methodology under which a run's
+ * dates depended on the date it ran.
+ *
+ * A bump exists so a completed run stays identifiable and so a build refuses to execute a run
+ * whose recorded methodology it cannot honour. Neither applies here: the recorded rule is the one
+ * now implemented, and bumping would assert a semantic change that did not happen while leaving
+ * every previously stored run stamped with a version whose stated meaning it never received.
  */
 export const CALENDAR_METHODOLOGY_VERSION =
   "execution-calendar-authoritative@2" as const;

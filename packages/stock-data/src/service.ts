@@ -1907,34 +1907,41 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /**
-   * The slice of a requested range a read may return, and which horizon bounds it.
+   * The slice of a requested range a read may return, and which bound applies.
    *
    * `PRODUCT` is the one place the retained warm-up years are cut off: prices, derived state,
    * technicals, intrinsic values and Stock Details are read through it, so a row older than the
    * product horizon physically cannot reach a user however wide the load target was.
    *
-   * `BACKTEST` is bounded by what is **retained** instead, and that distinction is the whole point.
-   * A completed run's period is immutable — it was validated against the selectable horizon at
-   * submission and written into the run's own snapshot — so re-deriving a bound for it from the
-   * *current* clock silently rewrites what the run executes. The validation matrix measured that:
-   * a run pinned to 1996-09-09 and executed on 2026-09-10 simulated 7,546 sessions where its own
-   * calendar had 7,547, losing the first simulated date and with it the return-index base, the
-   * first contribution date and every number chained off them. A retry a week later would execute
-   * a third period again.
+   * `BACKTEST` applies **no clock-derived bound at all**, and that distinction is the whole point.
+   * A completed run's period is immutable — validated against the selectable horizon at submission
+   * and written into the run's own snapshot — so re-deriving any bound for it from the *current*
+   * clock silently rewrites what the run executes. The validation matrix measured the first
+   * version of that: a run pinned to 1996-09-09 and executed on 2026-09-10 simulated 7,546
+   * sessions where its own calendar had 7,547, losing the first simulated date and with it the
+   * return-index base, the first contribution date and every number chained off them.
    *
-   * The retained floor still applies, because a row that does not exist cannot be read, and the
-   * listing clamp inside it is real methodology: a security participates on the days its own frame
-   * has rows for. What is gone is the clock-derived product cut on a period nobody may reinterpret.
+   * Bounding by *retention* instead of by the product horizon only postponed it. Retention is a
+   * maintenance horizon, not a deletion one — nothing prunes `DailyPrice` — so a row below it is
+   * still there, and a period that survived midnight and a week's retry started a session later
+   * again one day past the margin. There is no version of a clock-derived floor that is safe for
+   * an immutable period; there is only a version that fails later.
+   *
+   * The listing clamp stays, because it is not a clock bound. A security participates on the days
+   * its own frame has rows for, which is `execution-calendar-authoritative@2` and not a clipped
+   * period.
    */
   private projectionRange(
     security: Security,
     requested: Required<DateRange>,
     bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ): Required<DateRange> | null {
-    const target =
-      bound === "BACKTEST"
-        ? this.priceRetentionTarget(security)
-        : this.productTarget(security);
+    if (bound === "BACKTEST") {
+      const listing = security.ipoDate;
+      const from = listing ? maxDate(requested.from, listing) : requested.from;
+      return from <= requested.to ? { from, to: requested.to } : null;
+    }
+    const target = this.productTarget(security);
     const from = maxDate(requested.from, target.from);
     const to = minDate(requested.to, target.to);
     return from <= to ? { from, to } : null;

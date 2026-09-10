@@ -22,7 +22,6 @@ import {
   maxDate,
   minDate,
   missingCoverageRanges,
-  subtractYears,
 } from "./dates.js";
 
 export class BenchmarkNotFoundError extends Error {
@@ -32,22 +31,15 @@ export class BenchmarkNotFoundError extends Error {
   }
 }
 
-/**
- * How much further back a benchmark series is retained than the product horizon.
- *
- * Not a calculation warm-up — a benchmark has nothing to calculate, which is exactly why this is
- * one year rather than the stock loader's four. It is **execution-delay margin**: a backtest may be
- * submitted at the very edge of the selectable horizon and executed later, and the pinned series
- * has to still hold the bars that period names. Without it the benchmark's retention floor moved
- * with the clock at precisely the same rate as the periods it had to cover, which is how a run
- * pinned to 1996-09-09 came to be missing its first session.
- *
- * The stock loader retains a wider window for a different reason and the two now agree on the
- * principle that matters: what is retained is strictly wider than what the product exposes.
- */
-export const BENCHMARK_RETENTION_MARGIN_YEARS = 1;
-
 export type CanonicalBenchmarkDataServiceOptions = {
+  /**
+   * Accepted and deliberately unused.
+   *
+   * A benchmark series has exactly one consumer — a backtest, whose period is immutable — so there
+   * is no horizon for this service to enforce: applying one would re-decide what an already
+   * recorded run simulates. The option is kept so existing callers still compile and so the
+   * absence is visible here rather than inferred from its disappearance.
+   */
   historyYears?: number;
   recentPriceFreshnessMs?: number;
   recentTailCalendarDays?: number;
@@ -70,8 +62,6 @@ export type CanonicalBenchmarkDataServiceOptions = {
  * state for it merely because it shares a provider with stocks would be waste.
  */
 export class CanonicalBenchmarkDataService implements BenchmarkDataService {
-  private readonly historyYears: number;
-  private readonly retentionYears: number;
   private readonly recentPriceFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
@@ -84,8 +74,6 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     private readonly coordinator: LoadCoordinator,
     options: CanonicalBenchmarkDataServiceOptions = {},
   ) {
-    this.historyYears = options.historyYears ?? 30;
-    this.retentionYears = this.historyYears + BENCHMARK_RETENTION_MARGIN_YEARS;
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
@@ -297,35 +285,46 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * Existing resident coverage is never narrowed by this — coverage is unioned, and a later read
    * that does reach today materializes the suffix incrementally.
    */
+  /**
+   * The range one hydration must materialize: what the caller asked for, and nothing narrower.
+   *
+   * Deliberately no retained-horizon floor. This service's only consumer is a backtest, whose
+   * period is immutable and was validated against the selectable horizon **at submission**; a
+   * floor computed from the current clock would silently shorten it later, which is exactly the
+   * defect. Nothing prunes benchmark rows, so history that was once loaded is still there to be
+   * read — and where it genuinely is not, {@link missingBenchmarkCoverage} says so rather than a
+   * clip quietly deciding.
+   *
+   * Still clamped at the upper end, because a range cannot be materialized into the future.
+   */
   private loadTarget(required: Required<DateRange>): Required<DateRange> {
     const today = this.today();
-    const retentionStart = subtractYears(today, this.retentionYears);
     return {
-      from: maxDate(minDate(required.from, today), retentionStart),
-      to: maxDate(minDate(required.to, today), retentionStart),
+      from: minDate(required.from, today),
+      to: minDate(required.to, today),
     };
   }
 
   /**
-   * What a read may return: the caller's range, clamped only to what is retained.
+   * What a read may return: **exactly** the caller's range.
    *
    * The single consumer is a backtest — the execution calendar and the comparison series both come
-   * from here — and a backtest's period is immutable. Clamping it to `today - historyYears` made
-   * the bound a function of the clock at execution time rather than of the run's own snapshot, so a
-   * period that was valid at submission lost its first session once execution crossed UTC midnight,
-   * and a delayed retry executed a different period again. Measured on the validation matrix:
-   * 1996-09-09 vanished and the calendar came back with 7,546 sessions instead of 7,547.
+   * from here — and a backtest's period is immutable. Any bound derived from the clock at execution
+   * time is therefore wrong by construction, not merely inconvenient: it re-decides what a run
+   * simulates months after the run recorded it. Clamping at `today - 30y` lost 1996-09-09
+   * from a sweep and returned 7,546 sessions where the calendar had 7,547; widening that to a
+   * retained horizon only moved the day it would happen. A period accepted at the edge of the
+   * selectable horizon survived midnight and a week's retry, and then, one day past the margin,
+   * quietly started a session later again.
+   *
+   * So there is no floor. If the rows are there the run reads them; if they are not,
+   * {@link missingBenchmarkCoverage} reports it against the period that was *requested* and the
+   * worker fails the attempt explicitly rather than simulating a shorter one.
    */
   private projectionRange(
     requested: Required<DateRange>,
   ): Required<DateRange> | null {
-    const today = this.today();
-    const from = maxDate(
-      requested.from,
-      subtractYears(today, this.retentionYears),
-    );
-    const to = minDate(requested.to, today);
-    return from <= to ? { from, to } : null;
+    return requested.from <= requested.to ? { ...requested } : null;
   }
 
   /**
@@ -340,17 +339,19 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     series: BenchmarkSeries,
     period: Required<DateRange>,
   ): Promise<Required<DateRange>[]> {
-    const bounded = this.projectionRange(period);
-    if (!bounded) {
+    if (period.from > period.to) {
       return [period];
     }
+    // Against the period the run **recorded**, never a clipped version of it. Asking only about
+    // the range that survived a clip is what made a silently shortened run pass: the answer always
+    // agreed with the clip, because the clip had chosen the question.
     const coverage = await this.store.getDatasetCoverage(
       series.id,
       "DAILY_PRICE",
       BENCHMARK_DAILY_PRICE_VARIANT,
-      bounded,
+      period,
     );
-    return missingCoverageRanges(bounded, coverage);
+    return missingCoverageRanges(period, coverage);
   }
 
   private recentTailRange(

@@ -250,6 +250,28 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
   });
 
+  it("fails when the retained prefix of the recorded period is no longer covered", async () => {
+    // The shape a delayed execution produces: the run recorded a period reaching further back
+    // than what is still maintained, and the durable store cannot vouch for the first stretch of
+    // it. Reading what happens to be there would simulate a different period from the one the
+    // snapshot names, so the attempt fails instead — and a retry of the same job fails the same
+    // way rather than producing a third answer.
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [
+        { date: "1998-01-05", close: 100 },
+        { date: "1998-01-06", close: 101 },
+      ],
+      missingCoverage: [{ from: "1996-09-09", to: "1998-01-02" }],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+  });
+
   it("proceeds when the series covers the period, however few sessions it holds", async () => {
     // An empty prefix under complete coverage is the series' own history, not a gap. It is
     // ordinary, and it must not fail a run.

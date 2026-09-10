@@ -4143,6 +4143,13 @@ describe("a backtest executes exactly the period it snapshotted", () => {
   const PERIOD = { from: "1996-08-24", to: "2026-08-24" };
   const JUST_AFTER_MIDNIGHT = "2026-08-25T00:01:00.000Z";
   const A_WEEK_LATER = "2026-08-31T09:00:00.000Z";
+  /**
+   * One day past the point where the retained horizon itself would clip the period.
+   *
+   * Thirty-four retained years from 2030-08-25 is 1996-08-25, one day after the period starts.
+   * The margin never made the period safe; it only chose the day it would stop being safe.
+   */
+  const BEYOND_RETENTION = "2030-08-25T09:00:00.000Z";
 
   async function ready(): Promise<{
     store: FakeStore;
@@ -4234,6 +4241,39 @@ describe("a backtest executes exactly the period it snapshotted", () => {
     expect(bounds?.lastDate).toBe("2026-08-24");
   });
 
+  it("keeps it one day past the retained horizon, because nothing prunes the rows", async () => {
+    const loader = await at(BEYOND_RETENTION);
+    const bounds = await loader.prepareDailyEvaluationData(security, PERIOD);
+    expect(bounds?.firstDate).toBe("1996-08-24");
+    const frame = await loader.readDailyEvaluationFrame(security, PERIOD, []);
+    expect(frame.dates[frame.periodStartIndex]).toBe("1996-08-24");
+  });
+
+  it("keeps it years past the retained horizon", async () => {
+    const loader = await at("2035-01-02T09:00:00.000Z");
+    const bounds = await loader.prepareDailyEvaluationData(security, PERIOD);
+    expect(bounds?.firstDate).toBe("1996-08-24");
+  });
+
+  it("still starts a security at its own listing date, which is not a clock bound", async () => {
+    // The one narrowing that is real methodology: a security participates on the days its own
+    // frame has rows for. A later listing is not a clipped period.
+    const { store, provider, cache } = await ready();
+    store.currentSecurity = { ...security, ipoDate: "1996-08-26" };
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => new Date(BEYOND_RETENTION),
+    );
+    const bounds = await loader.prepareDailyEvaluationData(
+      { ...security, ipoDate: "1996-08-26" },
+      PERIOD,
+    );
+    expect(bounds?.firstDate).toBe("1996-08-26");
+  });
+
   it("still hides the retained warm-up years from Stock Details", async () => {
     // The horizon is not gone: the 1992 bar exists to make a derived series valid on the first
     // visible day, and no product surface may return it.
@@ -4244,5 +4284,20 @@ describe("a backtest executes exactly the period it snapshotted", () => {
     });
     expect(prices.map((row) => row.date)).not.toContain("1992-08-24");
     expect(prices[0]?.date).toBe("1996-08-26");
+  });
+
+  it("hides them at every clock, including one where the backtest reads past them", async () => {
+    const loader = await at(BEYOND_RETENTION);
+    // The product horizon at this clock begins 2000-08-25, so every retained row is behind it.
+    const prices = await loader.getDailyPrices("AAPL", {
+      from: "1990-01-01",
+      to: "2030-08-25",
+    });
+    expect(prices.map((row) => row.date)).toEqual(["2026-08-24"]);
+    const technicals = await loader.getDailyTechnicals("AAPL", {
+      from: "1990-01-01",
+      to: "2030-08-25",
+    });
+    expect(technicals.every((row) => row.date >= "2000-08-25")).toBe(true);
   });
 });
