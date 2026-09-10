@@ -275,6 +275,25 @@ async function main(): Promise<void> {
 
   let pool: MatrixWorkerPool | null = null;
   let warmupTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("warmup");
+
+  // The pools run in their own process groups so that stopping one is guaranteed to reach every
+  // worker child — which also means a terminal interrupt no longer does. So Ctrl-C is handled
+  // here: an interrupted sweep must not leave workers claiming from the matrix queue.
+  let interrupted = false;
+  const onInterrupt = (signal: NodeJS.Signals): void => {
+    if (interrupted) {
+      return;
+    }
+    interrupted = true;
+    console.error(`\nReceived ${signal}; stopping the matrix worker pool…`);
+    void (async () => {
+      await pool?.stop().catch(() => {});
+      await context.close().catch(() => {});
+      process.exit(130);
+    })();
+  };
+  process.once("SIGINT", onInterrupt);
+  process.once("SIGTERM", onInterrupt);
   try {
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
       () => [] as string[],

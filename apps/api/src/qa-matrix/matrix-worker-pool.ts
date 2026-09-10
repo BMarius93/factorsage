@@ -35,6 +35,14 @@ export type WorkerPoolOptions = {
   readonly debugArchiveDir?: string;
   /** Receives every parsed log record, for a caller that wants to tee them to a file. */
   readonly onLogRecord?: (record: Record<string, unknown>) => void;
+  /**
+   * The process to spawn instead of the built worker supervisor.
+   *
+   * A seam for the lifecycle tests only: proving that a child which ignores SIGTERM and outlives
+   * its parent is still gone after {@link MatrixWorkerPool.stop} requires a process that
+   * deliberately behaves that way, and the real worker deliberately does not.
+   */
+  readonly entryPointOverride?: string;
 };
 
 /**
@@ -72,6 +80,9 @@ export class MatrixWorkerPool {
 
   /** The worker entry point, built. A source-only run would be a different process to production. */
   private workerEntryPoint(): string {
+    if (this.options.entryPointOverride) {
+      return this.options.entryPointOverride;
+    }
     const entry = join(
       this.options.repositoryRoot,
       "apps/worker/dist/index.js",
@@ -105,10 +116,15 @@ export class MatrixWorkerPool {
         : {}),
     };
 
+    // `detached` makes the supervisor a **process-group leader**, so its forked children join
+    // that group and a signal sent to the group reaches all of them. Without it the pool can only
+    // signal the supervisor, and a child that outlives its parent keeps claiming from the same
+    // PostgreSQL queue — see {@link stop}.
     this.child = spawn(process.execPath, [this.workerEntryPoint()], {
       cwd: this.options.repositoryRoot,
       env,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
     });
 
     for (const stream of [this.child.stdout, this.child.stderr]) {
@@ -177,23 +193,84 @@ export class MatrixWorkerPool {
   }
 
   /** Stops the supervisor, letting it release claims before it is killed. */
-  async stop(graceMs = 20_000): Promise<void> {
+  /**
+   * Signals the whole pool — supervisor and every worker child — rather than the supervisor alone.
+   *
+   * `process.kill(-pid)` addresses the process group, which the `detached` spawn made this
+   * supervisor the leader of. Failures are swallowed because the only ones that occur are ESRCH,
+   * meaning the group is already gone.
+   */
+  private signalGroup(signal: NodeJS.Signals): void {
+    const pid = this.child?.pid;
+    if (pid === undefined) {
+      return;
+    }
+    try {
+      process.kill(-pid, signal);
+    } catch {
+      // Already gone.
+    }
+  }
+
+  /** Whether any process in the pool's group still exists. */
+  private groupIsAlive(): boolean {
+    const pid = this.child?.pid;
+    if (pid === undefined) {
+      return false;
+    }
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Stops the pool, and does not return until nothing in it is running.
+   *
+   * "Stopped" has to mean *nothing from this pool can claim another job*, because the archive
+   * choreography depends on it: the sweep pool and the golden-rerun pool draw from the same
+   * PostgreSQL queue with different capture settings, so a single surviving child of the wrong
+   * pool silently takes a rerun's job and produces no archive for it.
+   *
+   * That is not hypothetical. A sweep whose pool reported itself stopped left three children alive
+   * and claiming; they took four of the six golden reruns, and the run ended with two archives
+   * where six were planned. The supervisor had logged `worker.stopped` and then kept running.
+   *
+   * So this no longer trusts the supervisor's own shutdown to be complete. It asks the group to
+   * stop, waits for the supervisor to exit — with a grace window **longer** than the supervisor's
+   * own child-kill timer, so the ordinary path is still a clean shutdown — and then kills anything
+   * left in the group and confirms the group is gone before returning.
+   */
+  async stop(graceMs = 45_000): Promise<void> {
     const child = this.child;
     if (!child || this.stopped) {
       return;
     }
     this.stopped = true;
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        resolve();
-      }, graceMs);
+      const timer = setTimeout(resolve, graceMs);
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();
       });
-      child.kill("SIGTERM");
+      this.signalGroup("SIGTERM");
     });
+
+    // Whatever survived the graceful path — an orphaned child, or a supervisor that reported
+    // itself stopped without reaping — goes now.
+    for (let attempt = 0; attempt < 50 && this.groupIsAlive(); attempt += 1) {
+      this.signalGroup("SIGKILL");
+      await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    }
+    if (this.groupIsAlive()) {
+      throw new Error(
+        `The matrix worker pool (process group ${child.pid}) is still running after SIGKILL. ` +
+          "Refusing to continue: a surviving worker claims jobs from the same queue as the next " +
+          "pool, which silently changes which runs are archived.",
+      );
+    }
     this.child = null;
   }
 }
