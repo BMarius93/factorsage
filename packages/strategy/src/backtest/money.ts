@@ -46,6 +46,22 @@ export type MoneyString = string;
 export type SharesString = string;
 
 /**
+ * Deliberately **unbranded**, and what enforces the distinction instead.
+ *
+ * A branded alias would make `moneyString(x)` unassignable where a `SharesString` is expected, and
+ * would also demand a cast at every boundary these cross — Prisma reads, `JSON.parse`, the archive
+ * reader, and every fixture in every suite — because none of those can produce a branded value. The
+ * mistake it would catch is a real one: the scales differ, decimal comparison ignores trailing
+ * zeros, so writing an eight-decimal price where six decimals are stored is invisible until
+ * PostgreSQL rounds two digits away.
+ *
+ * That property is asserted directly instead, over a real simulation, in
+ * `simulate.test.ts` → "persisted scales": every string the engine emits is checked to carry its
+ * own declared scale and no other. One place, no casts, and it fails on the value rather than on
+ * the type — which is where the damage actually happens.
+ */
+
+/**
  * Fractional digits of persisted money: `numeric(24,6)`.
  *
  * Six is the largest scale that is still *meaningful* at the contract maximum initial capital and
@@ -151,6 +167,53 @@ export function toNumber(value: MoneyValue | MoneyString): number {
 }
 
 export const MONEY_ZERO: MoneyValue = new Money(0);
+
+/**
+ * The cash side of a trade, with the trade's own cost included.
+ *
+ * V1 charges zero fees, so every one of these is the identity today — which is exactly why they
+ * exist as named functions rather than as inline arithmetic. `applyBuy` already folds `fees` into
+ * the position's cost total and `applySell` already subtracts them from realized P&L, so half the
+ * seam was implemented and half was not: cash moved by the amount alone. A reader adding a fee
+ * would see it threaded through the position helpers and reasonably conclude the seam was
+ * finished, and the ledger would then disagree with itself — a cost basis that paid a fee, and a
+ * cash balance that did not.
+ *
+ * Fees are **additional** to the amount, matching how `applyBuy` accumulates cost, so a purchase
+ * takes `amount + fees` out of cash and the shares have to be sized against what is left after the
+ * fee is reserved.
+ *
+ * Introducing a non-zero fee is still a methodology change: `zero-fees/zero-slippage@1` says what
+ * V1 charges, and changing it must bump that version. These make the arithmetic correct when it
+ * happens; they do not make it happen.
+ */
+export function buyCashOutflow(
+  amount: MoneyValue,
+  fees: MoneyValue,
+): MoneyValue {
+  return quantizeMoney(amount.plus(fees));
+}
+
+/** What an exit puts back into cash: the proceeds, less the cost of placing the trade. */
+export function exitCashInflow(
+  proceeds: MoneyValue,
+  fees: MoneyValue,
+): MoneyValue {
+  return quantizeMoney(proceeds.minus(fees));
+}
+
+/**
+ * What may be spent on shares once this trade's own fee is reserved, never below zero.
+ *
+ * Without the reservation a purchase sized to the whole balance would overdraw by exactly the fee.
+ */
+export function spendableAfterFees(
+  cash: MoneyValue,
+  fees: MoneyValue,
+): MoneyValue {
+  const spendable = cash.minus(fees);
+  return spendable.gt(MONEY_ZERO) ? quantizeMoney(spendable) : MONEY_ZERO;
+}
 
 /**
  * How far a re-derived quantity may sit from a persisted one, in the *validator's* terms.

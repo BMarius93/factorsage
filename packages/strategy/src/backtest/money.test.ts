@@ -1,12 +1,16 @@
 import Decimal from "decimal.js";
 import { describe, expect, it } from "vitest";
+import { V1_FEE_PER_TRADE } from "./methodology.js";
 import {
   MONEY_SCALE,
   MONEY_ZERO,
+  Money,
   PRICE_SCALE,
   SHARES_SCALE,
   SHARES_ULP,
+  buyCashOutflow,
   decimal,
+  exitCashInflow,
   moneyBudget,
   moneyString,
   priceString,
@@ -14,6 +18,7 @@ import {
   quantizePrice,
   quantizeSharesDown,
   sharesString,
+  spendableAfterFees,
   toNumber,
 } from "./money.js";
 
@@ -81,7 +86,9 @@ describe("the $1 configuration the matrix broke on", () => {
     const price = quantizePrice("148.84");
     const shares = quantizeSharesDown(decimal("0.025").div(price));
     const amount = quantizeMoney(shares.times(price));
-    expect(amount.div(shares).toDecimalPlaces(PRICE_SCALE).toNumber()).toBeCloseTo(148.84, 4);
+    expect(
+      amount.div(shares).toDecimalPlaces(PRICE_SCALE).toNumber(),
+    ).toBeCloseTo(148.84, 4);
   });
 });
 
@@ -155,5 +162,63 @@ describe("the reconciliation budget", () => {
 
   it("grows with magnitude, because a reader passing through float64 cannot do better", () => {
     expect(moneyBudget(334_310_721_745.96)).toBeGreaterThan(moneyBudget(1));
+  });
+});
+
+/**
+ * The fee seam, exercised at a fee V1 never charges.
+ *
+ * `V1_FEE_PER_TRADE` is zero, so nothing below changes a single number the product produces today.
+ * They exist because the seam was half-built: `applyBuy` folded fees into the position's cost total
+ * and `applySell` subtracted them from realized P&L, while cash moved by the amount alone. Someone
+ * introducing a fee would have found a ledger that disagreed with itself — a cost basis that paid
+ * the fee and a cash balance that did not — and nothing would have said so.
+ *
+ * Introducing one is still a methodology change. `zero-fees/zero-slippage@1` is what V1 charges,
+ * and moving off it must bump that version; this only makes the arithmetic right when it happens.
+ */
+describe("the fee seam", () => {
+  const money = (value: string) => new Money(value);
+
+  it("is the identity at V1's zero fee", () => {
+    expect(V1_FEE_PER_TRADE).toBe(0);
+    const zero = quantizeMoney(V1_FEE_PER_TRADE);
+    expect(buyCashOutflow(money("5000.000000"), zero).toFixed(6)).toBe(
+      "5000.000000",
+    );
+    expect(exitCashInflow(money("5000.000000"), zero).toFixed(6)).toBe(
+      "5000.000000",
+    );
+    expect(spendableAfterFees(money("5000.000000"), zero).toFixed(6)).toBe(
+      "5000.000000",
+    );
+  });
+
+  it("takes the fee out of cash on a purchase, on top of the amount", () => {
+    // The same total `applyBuy` adds to the position's cost, so the two halves agree.
+    expect(
+      buyCashOutflow(money("5000.000000"), money("1.250000")).toFixed(6),
+    ).toBe("5001.250000");
+  });
+
+  it("takes it out of the proceeds on an exit", () => {
+    expect(
+      exitCashInflow(money("5000.000000"), money("1.250000")).toFixed(6),
+    ).toBe("4998.750000");
+  });
+
+  it("reserves it before the shares are sized, so a full-balance buy cannot overdraw", () => {
+    const cash = money("5000.000000");
+    const fee = money("1.250000");
+    const spendable = spendableAfterFees(cash, fee);
+    expect(spendable.toFixed(6)).toBe("4998.750000");
+    // The whole point: amount + fee is exactly the balance, never a cent more.
+    expect(buyCashOutflow(spendable, fee).toFixed(6)).toBe(cash.toFixed(6));
+  });
+
+  it("never reports a negative spendable balance", () => {
+    expect(
+      spendableAfterFees(money("0.500000"), money("1.250000")).toFixed(6),
+    ).toBe("0.000000");
   });
 });

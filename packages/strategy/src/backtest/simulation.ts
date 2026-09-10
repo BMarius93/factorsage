@@ -20,7 +20,10 @@ import { BenchmarkCursor } from "./benchmark.js";
 import { buildContributionDates, buildExecutionCalendar } from "./calendar.js";
 import { ComparisonScenarios } from "./comparison.js";
 import {
+  buyCashOutflow,
+  exitCashInflow,
   MONEY_ZERO,
+  spendableAfterFees,
   SHARES_ULP,
   moneyString,
   priceString,
@@ -314,7 +317,9 @@ export class BacktestSimulation {
           "windows; a partially simulated run has no result",
       );
     }
-    const lastEquity = this.equity[this.equity.length - 1] as BacktestEquityPoint;
+    const lastEquity = this.equity[
+      this.equity.length - 1
+    ] as BacktestEquityPoint;
     const firstDate = this.calendar[0] as LocalDate;
     const lastDate = this.calendar[this.calendar.length - 1] as LocalDate;
     const { positions: openPositions, unrealizedPnl } = finalPositions(
@@ -542,8 +547,10 @@ export class BacktestSimulation {
             costRemoved,
             proceeds,
           } = applySell(position, shares, exitPrice, V1_FEE);
-          // Cash moves by exactly the proceeds the trade row records.
-          this.cash = quantizeMoney(this.cash.plus(proceeds));
+          // Cash moves by the proceeds the trade row records, less what the trade cost to place.
+          this.cash = quantizeMoney(
+            this.cash.plus(exitCashInflow(proceeds, V1_FEE)),
+          );
           this.realizedPnl = quantizeMoney(this.realizedPnl.plus(pnl));
           this.recordTrade({
             date,
@@ -598,7 +605,9 @@ export class BacktestSimulation {
           costRemoved,
           proceeds,
         } = applySell(position, shares, sellPrice, V1_FEE);
-        this.cash = quantizeMoney(this.cash.plus(proceeds));
+        this.cash = quantizeMoney(
+          this.cash.plus(exitCashInflow(proceeds, V1_FEE)),
+        );
         this.realizedPnl = quantizeMoney(this.realizedPnl.plus(pnl));
         position.sellLevelsFired.add(level.id);
         this.recordTrade({
@@ -719,13 +728,14 @@ export class BacktestSimulation {
         // The budget is measured against the portfolio value *after* today's contribution, which is
         // what lets a deposit lift an already-filled level's target.
         const target = (fullPositionBudget * candidate.percentage) / 100;
-        const currentValue = position
-          ? toNumber(position.shares) * close
-          : 0;
+        const currentValue = position ? toNumber(position.shares) * close : 0;
         const shortfall = Math.max(target - currentValue, 0);
 
         // ---- mutation boundary: exact from here -------------------------------------------
-        const available = this.cash.gt(MONEY_ZERO) ? this.cash : MONEY_ZERO;
+        // What the shares themselves may cost, with this trade's own fee already reserved. At
+        // V1's zero fee this is the cash balance; at any other it must not be, or a purchase
+        // sized to the whole balance would overdraw by exactly the fee.
+        const available = spendableAfterFees(this.cash, V1_FEE);
         let spend = quantizeMoney(shortfall);
         if (spend.gt(available)) {
           spend = available;
@@ -791,8 +801,11 @@ export class BacktestSimulation {
           continue;
         }
         applyBuy(position, sharesBought, amount, V1_FEE);
-        // Cash moves by exactly the amount the trade row records.
-        this.cash = quantizeMoney(this.cash.minus(amount));
+        // Cash moves by the amount the trade row records plus the fee that bought it — the same
+        // total `applyBuy` just added to the position's cost.
+        this.cash = quantizeMoney(
+          this.cash.minus(buyCashOutflow(amount, V1_FEE)),
+        );
         position.lastPrice = close;
         position.lastPriceDate = date;
         this.recordTrade({
@@ -869,7 +882,8 @@ export class BacktestSimulation {
       investedCapital: moneyString(this.investedCapital),
       returnIndex: this.returnIndex,
       benchmarkIndex,
-      benchmarkValue: benchmarkValue === null ? null : moneyString(benchmarkValue),
+      benchmarkValue:
+        benchmarkValue === null ? null : moneyString(benchmarkValue),
       cashBaselineValue: moneyString(cashBaselineValue),
       openPositions: positions.size,
     });
@@ -879,8 +893,7 @@ export class BacktestSimulation {
       benchmarkReturnPercent:
         benchmarkIndex === null ? null : indexToPercent(benchmarkIndex),
       strategyValue: totalValue,
-      benchmarkValue:
-        benchmarkValue === null ? null : toNumber(benchmarkValue),
+      benchmarkValue: benchmarkValue === null ? null : toNumber(benchmarkValue),
       cashBaselineValue: toNumber(cashBaselineValue),
     });
 
@@ -993,8 +1006,7 @@ export class BacktestSimulation {
       realizedPnl: toNumber(position.realizedPnl),
       buyLevelsSettled: [...position.buyLevelsSettled].sort(),
       sellLevelsFired: [...position.sellLevelsFired].sort(),
-      previousSignedReturnPercent:
-        position.previousSignedReturnPercent ?? null,
+      previousSignedReturnPercent: position.previousSignedReturnPercent ?? null,
       previousValueDate: position.previousValueDate ?? null,
     }));
 
@@ -1021,7 +1033,9 @@ export class BacktestSimulation {
       positionsValue:
         lastEquity === null ? 0 : toNumber(lastEquity.positionsValue),
       totalValue:
-        lastEquity === null ? toNumber(this.cash) : toNumber(lastEquity.totalValue),
+        lastEquity === null
+          ? toNumber(this.cash)
+          : toNumber(lastEquity.totalValue),
       investedCapital: toNumber(this.investedCapital),
       realizedPnl: toNumber(this.realizedPnl),
       returnIndex: this.returnIndex,
@@ -1037,9 +1051,7 @@ export class BacktestSimulation {
       positions,
       positionEpochs: [...this.epochs.entries()]
         .map(([securityId, epoch]) => ({ securityId, epoch }))
-        .sort((left, right) =>
-          left.securityId < right.securityId ? -1 : 1,
-        ),
+        .sort((left, right) => (left.securityId < right.securityId ? -1 : 1)),
       comparison: {
         benchmarkShares: this.scenarios.benchmarkShares,
         benchmarkPendingCapital: this.scenarios.pendingCapital,
@@ -1101,7 +1113,9 @@ export class BacktestSimulation {
       totalValue: input.totalValue,
       investedCapital: toNumber(this.investedCapital),
       netProfit: toNumber(
-        quantizeMoney(quantizeMoney(input.totalValue).minus(this.investedCapital)),
+        quantizeMoney(
+          quantizeMoney(input.totalValue).minus(this.investedCapital),
+        ),
       ),
       portfolioReturnPercent,
       benchmarkReturnPercent,

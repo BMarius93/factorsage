@@ -317,7 +317,8 @@ against `result/trades.ndjson`. Absent values are `null`; a real zero is `0`. Ro
 - **No run-scoped log capture.** Reusing `@intrinsic/observability` to tee a run's structured events
   into the archive would mean redesigning the logger; the structured timings, window and preparation
   metadata cover V1's needs.
-- **`archiveSchemaVersion` is 1 and there is no reader library.** Consumers parse the JSON directly.
+- **There is no reader library.** Consumers parse the JSON directly and branch on
+  `archiveSchemaVersion`, which is `2`.
 - **Local filesystem only.** Nothing is written to PostgreSQL or Redis, no table exists, and archives
   are never uploaded anywhere.
 

@@ -17,7 +17,10 @@ import {
   sellLevel,
   simulateBacktestByYear,
 } from "./backtest.test-helper.js";
-import { BacktestExecutionError, createBacktestSimulation } from "./simulation.js";
+import {
+  BacktestExecutionError,
+  createBacktestSimulation,
+} from "./simulation.js";
 import { simulateBacktest } from "./simulate.js";
 import type { BacktestCheckpoint } from "./types.js";
 
@@ -441,7 +444,8 @@ describe("absolute comparison scenarios", () => {
     const last = result.equity[result.equity.length - 1]!;
 
     // 100,000 + 11 contributions at 100 = 1,110 shares; 12 more at 50 = 240 shares.
-    const expectedShares = 100_000 / 100 + (11 * 1_000) / 100 + (12 * 1_000) / 50;
+    const expectedShares =
+      100_000 / 100 + (11 * 1_000) / 100 + (12 * 1_000) / 50;
     expect(last.benchmarkValue).toBeCloseTo(expectedShares * 50, 6);
 
     // The rejected implementation: contributed capital times the benchmark's growth index.

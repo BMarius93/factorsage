@@ -289,7 +289,9 @@ describe("contributions", () => {
       }),
     );
 
-    const invested = result.equity.map((point) => Number(point.investedCapital));
+    const invested = result.equity.map((point) =>
+      Number(point.investedCapital),
+    );
     expect(invested[0]).toBe(10_000);
     expect(invested[4]).toBe(10_000);
     expect(invested[5]).toBe(10_500);
@@ -964,6 +966,96 @@ describe("end-to-end methodology ledger", () => {
  * worker can persist every one of them even inside its write throttle, and there are at most about
  * thirty of them in a V1 run.
  */
+/**
+ * Every canonical string the engine emits carries its declared scale, and only its declared scale.
+ *
+ * This is the guard that `MoneyString` and `SharesString` do not provide. They are aliases for
+ * `string`, so nothing stops `moneyString` being written where `priceString` was meant — and the
+ * mistake is invisible at the type level *and* at the value level, because a decimal comparison
+ * ignores trailing zeros. It only surfaces when PostgreSQL rounds the extra digits away, at which
+ * point a price has silently lost two decimal places in a column that was meant to hold them.
+ *
+ * Branding the aliases would catch it at the call site, and would also require a cast at every
+ * boundary the values cross — Prisma reads, JSON, every fixture in every suite — for a mistake this
+ * catches directly, over a real run, in one place. So the aliases stay documentary and this is the
+ * property that is actually enforced.
+ */
+describe("persisted scales", () => {
+  const decimals = (value: string): number => value.split(".")[1]?.length ?? 0;
+
+  it("emits six decimals of money, ten of shares and eight of price, everywhere", async () => {
+    const dates = ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"];
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b100", 100, priceAboveSignal(1))],
+          sellLevels: [sellLevel("s50", 50, gainAboveSignal(1))],
+        }),
+        securities: [
+          securityInput(
+            frameOf({ symbol: "AAA", dates, closes: [100, 137, 211, 311] }),
+          ),
+        ],
+        initialCapital: 100_000,
+        monthlyContribution: 0,
+        maximumPositions: 3,
+      }),
+    );
+
+    expect(result.trades.length).toBeGreaterThan(0);
+    for (const trade of result.trades) {
+      expect([trade.action, decimals(trade.amount)]).toEqual([trade.action, 6]);
+      expect(decimals(trade.fees)).toBe(6);
+      expect(decimals(trade.cashAfter)).toBe(6);
+      expect(decimals(trade.shares)).toBe(10);
+      expect(decimals(trade.sharesAfter)).toBe(10);
+      expect(decimals(trade.price)).toBe(8);
+      if (trade.realizedPnl !== null) {
+        expect(decimals(trade.realizedPnl)).toBe(6);
+      }
+      if (trade.averageCostAfter !== null) {
+        expect(decimals(trade.averageCostAfter)).toBe(8);
+      }
+    }
+
+    expect(result.equity.length).toBeGreaterThan(0);
+    for (const point of result.equity) {
+      for (const value of [
+        point.cash,
+        point.positionsValue,
+        point.totalValue,
+        point.investedCapital,
+        point.cashBaselineValue,
+      ]) {
+        expect(decimals(value)).toBe(6);
+      }
+      if (point.benchmarkValue !== null) {
+        expect(decimals(point.benchmarkValue)).toBe(6);
+      }
+    }
+
+    for (const position of result.positions) {
+      expect(decimals(position.shares)).toBe(10);
+      expect(decimals(position.averageCost)).toBe(8);
+      expect(decimals(position.lastPrice)).toBe(8);
+      expect(decimals(position.marketValue)).toBe(6);
+      expect(decimals(position.unrealizedPnl)).toBe(6);
+    }
+
+    for (const value of [
+      result.summary.investedCapital,
+      result.summary.finalCash,
+      result.summary.finalPositionsValue,
+      result.summary.finalValue,
+      result.summary.netProfit,
+      result.summary.realizedPnl,
+      result.summary.unrealizedPnl,
+    ]) {
+      expect(decimals(value)).toBe(6);
+    }
+  });
+});
+
 describe("annual milestone checkpoints", () => {
   function yearsOfWeekdays(startYear: number, years: number): string[] {
     const out: string[] = [];
@@ -1538,9 +1630,7 @@ describe("the period, not the data, defines the run", () => {
     expect(beforeTrading.every((point) => point.returnIndex === 1)).toBe(true);
     expect(
       beforeTrading.every((point) => Number(point.totalValue) === 100_000),
-    ).toBe(
-      true,
-    );
+    ).toBe(true);
     expect(result.equity[0]?.date).toBe(dates[0]);
   });
 

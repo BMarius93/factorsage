@@ -19,10 +19,11 @@ import {
   readArchive,
   verifyArchiveInvariants,
 } from "./qa-matrix/matrix-archive";
+import { auditMatrixArchives } from "./qa-matrix/matrix-archive-audit";
 import { planMatrixArchives } from "./qa-matrix/matrix-archive-plan";
+import { runMatrixSweep, type MatrixSweepPool } from "./qa-matrix/matrix-sweep";
 import {
   evaluateMatrixGate,
-  type MatrixArchiveEvidence,
   type MatrixGateVerdict,
   type MatrixPhaseProviderTraffic,
 } from "./qa-matrix/matrix-gate";
@@ -39,7 +40,6 @@ import {
 } from "./qa-matrix/matrix-execution";
 import {
   validateRunInvariants,
-  type InvariantResult,
   type RunEvidence,
 } from "./qa-matrix/matrix-invariants";
 import { matrixReportRoot, repositoryRoot } from "./qa-matrix/matrix-paths";
@@ -274,9 +274,6 @@ async function main(): Promise<void> {
   const writer = new MatrixReportWriter(matrixReportRoot(root), executionId);
 
   let pool: MatrixWorkerPool | null = null;
-  let sweepProviderRequests: ReturnType<
-    MatrixWorkerPool["providerRequests"]
-  > | null = null;
   let warmupTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("warmup");
   try {
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
@@ -438,7 +435,9 @@ async function main(): Promise<void> {
 
     const goldenIds = new Set(golden.map((entry) => entry.caseId));
     const goldenEvidence = new Map<string, RunEvidence>();
+    const second = new Map<string, RunEvidence>();
     let settled = 0;
+    let activePool: MatrixSweepPool | null = null;
 
     const ports: MatrixRunnerPorts = {
       submit: (matrixCase) => submitMatrixCase(context, ids, matrixCase),
@@ -460,7 +459,8 @@ async function main(): Promise<void> {
         return evidence;
       },
       validate: validateRunInvariants,
-      providerRequestsFor: (runId) => pool?.providerRequestsFor(runId) ?? null,
+      providerRequestsFor: (runId) =>
+        activePool?.providerRequestsFor(runId) ?? null,
       onCaseSettled: (result) => {
         writer.appendCase(result);
         settled += 1;
@@ -475,162 +475,120 @@ async function main(): Promise<void> {
       now: () => Date.now(),
     };
 
-    const startedAt = Date.now();
-    const results = await runMatrixCases(selected, ports, { concurrency });
-    const durationMs = Date.now() - startedAt;
-    // Read before the pool can be stopped by the determinism phase below.
-    sweepProviderRequests = pool.providerRequests();
-
-    // ---- Determinism: re-execute the golden subset from the same canonical data --------------
-    // This is also where forensic capture happens for a full sweep: the same six combinations are
-    // re-executed anyway, so archiving them here costs one extra pool rather than 994 extra zips.
-    let determinism: {
-      cases: string[];
-      differences: { caseId: string; differences: readonly string[] }[];
-    } | null = null;
-    let rerunResults: readonly MatrixCaseResult[] = [];
-    let rerunTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("rerun");
-    const archivedRuns = new Map<string, string>();
-    if (mainPoolArchives) {
-      for (const result of results) {
-        if (result.runId && goldenIds.has(result.caseId)) {
-          archivedRuns.set(result.caseId, result.runId);
-        }
-      }
-    }
-
-    // The golden combinations that actually have first-execution evidence to compare against.
-    // Read again by the gate, so it outlives the branch below.
-    const rerunnable = golden.filter((entry) =>
-      goldenEvidence.has(entry.caseId),
-    );
-    if (flags.determinism && rerunnable.length > 0) {
-      console.log(
-        `\nRe-executing ${rerunnable.length} golden combination(s) to verify determinism…`,
-      );
-      // The sweep pool must be stopped first. Both pools claim from the same PostgreSQL queue, so
-      // a still-running sweep pool will happily take some of the rerun's jobs — and if the two
-      // disagree about capture, the archive count is whatever the race decided. Observed: ten
-      // archives where six were planned.
-      await pool.stop();
-      pool = null;
-      const rerunArchives = archivePlan.rerunPool === "full";
-      const rerunPool = new MatrixWorkerPool({
-        environment,
-        repositoryRoot: root,
-        processes: concurrency,
-        debugArchive: rerunArchives ? "full" : "off",
-        debugArchiveDir: `${writer.directory}/archives`,
-        onLogRecord: (record) =>
-          writer.writeWorkerLogLine(JSON.stringify(record)),
-      });
-      rerunPool.start();
-      const second = new Map<string, RunEvidence>();
-      const rerunPorts: MatrixRunnerPorts = {
-        ...ports,
-        providerRequestsFor: (runId) => rerunPool.providerRequestsFor(runId),
-        collectEvidence: async (runId, matrixCase) => {
-          const evidence = await collectRunEvidence(
-            prisma,
-            series,
-            runId,
-            matrixCase.caseId,
-          );
-          second.set(matrixCase.caseId, evidence);
-          return evidence;
+    const sweep = await runMatrixSweep({
+      selected,
+      plan: archivePlan,
+      determinismEnabled: flags.determinism,
+      now: () => Date.now(),
+      ports: {
+        startPool: ({ debugArchive }) => {
+          const created = new MatrixWorkerPool({
+            environment,
+            repositoryRoot: root,
+            processes: concurrency,
+            debugArchive,
+            debugArchiveDir: `${writer.directory}/archives`,
+            onLogRecord: (record) =>
+              writer.writeWorkerLogLine(JSON.stringify(record)),
+          });
+          created.start();
+          pool = created;
+          activePool = created;
+          return {
+            providerRequests: () => created.providerRequests(),
+            providerRequestsFor: (runId) => created.providerRequestsFor(runId),
+            stop: async () => {
+              await created.stop();
+              if (pool === created) {
+                pool = null;
+              }
+              if (activePool === created) {
+                activePool = null;
+              }
+            },
+          };
         },
-        onCaseSettled: (result) => {
-          if (rerunArchives && result.runId) {
-            archivedRuns.set(result.caseId, result.runId);
+        runMain: () => runMatrixCases(selected, ports, { concurrency }),
+        rerunnable: () =>
+          golden.filter((entry) => goldenEvidence.has(entry.caseId)),
+        runRerun: (_pool, cases) =>
+          runMatrixCases(
+            cases,
+            {
+              ...ports,
+              collectEvidence: async (runId, matrixCase) => {
+                const evidence = await collectRunEvidence(
+                  prisma,
+                  series,
+                  runId,
+                  matrixCase.caseId,
+                );
+                second.set(matrixCase.caseId, evidence);
+                return evidence;
+              },
+              onCaseSettled: (result) => {
+                console.log(`  rerun ${result.caseId} ${result.outcome}`);
+              },
+            },
+            { concurrency },
+          ),
+        onPhase: (line) => console.log(`\n${line}`),
+      },
+    });
+
+    const results = sweep.results;
+    const durationMs = sweep.durationMs;
+    const rerunResults = sweep.rerunResults;
+
+    // ---- Determinism: the golden subset, re-executed from the same canonical data -------------
+    const determinism =
+      sweep.rerunCaseIds.length > 0
+        ? {
+            cases: [...sweep.rerunCaseIds],
+            differences: sweep.rerunCaseIds
+              .map((caseId) => {
+                const first = goldenEvidence.get(caseId);
+                const again = second.get(caseId);
+                if (!first || !again) {
+                  // Never compare against evidence that does not exist. A rerun that produced none
+                  // is already a gate failure (`GOLDEN_RERUN_INCOMPLETE`); saying "identical" here
+                  // would quietly convert a missing measurement into a passing one.
+                  return {
+                    caseId,
+                    differences: [
+                      `no persisted evidence for the ${first ? "second" : "first"} execution, so ` +
+                        "determinism could not be compared",
+                    ] as readonly string[],
+                  };
+                }
+                return {
+                  caseId,
+                  differences: compareForDeterminism(first, again),
+                };
+              })
+              .filter((entry) => entry.differences.length > 0),
           }
-          console.log(`  rerun ${result.caseId} ${result.outcome}`);
-        },
-      };
-      try {
-        rerunResults = await runMatrixCases(rerunnable, rerunPorts, {
-          concurrency,
-        });
-      } finally {
-        rerunTraffic = phaseTraffic(
-          "rerun",
-          rerunPool.providerRequests(),
-          rerunResults,
-        );
-        await rerunPool.stop();
-      }
-      determinism = {
-        cases: rerunnable.map((entry) => entry.caseId),
-        differences: rerunnable
-          .map((entry) => {
-            const first = goldenEvidence.get(entry.caseId);
-            const again = second.get(entry.caseId);
-            if (!first || !again) {
-              // Never compare against evidence that does not exist. A rerun that produced none is
-              // already a gate failure (`GOLDEN_RERUN_INCOMPLETE`); saying "identical" here would
-              // quietly convert a missing measurement into a passing one.
-              return {
-                caseId: entry.caseId,
-                differences: [
-                  `no persisted evidence for the ${first ? "second" : "first"} execution, so ` +
-                    "determinism could not be compared",
-                ] as readonly string[],
-              };
-            }
-            return {
-              caseId: entry.caseId,
-              differences: compareForDeterminism(first, again),
-            };
-          })
-          .filter((entry) => entry.differences.length > 0),
-      };
-    }
+        : null;
 
     // ---- Forensic verification of the archived combinations ----------------------------------
     // The three invariants persisted results cannot settle — whether each BUY's Signal was actually
     // TRUE in the frame the day loop consumed, whether the row retained across a year boundary is
     // the one a Trigger read as `t - 1`, and whether every BUY fell inside a persisted window.
-    const archiveResults = new Map<string, readonly InvariantResult[]>();
-    const missingArchives: string[] = [];
-    const unreadableArchives: { caseId: string; reason: string }[] = [];
-    for (const [caseId, runId] of archivedRuns) {
-      const path = await findArchive(`${writer.directory}/archives`, runId);
-      if (!path) {
-        // Recorded, not merely logged. A missing archive means three invariants were never
-        // proven for that combination, which is an unmet condition rather than a note.
-        missingArchives.push(caseId);
-        console.log(`  no archive found for ${caseId}`);
-        continue;
-      }
-      let verified: readonly InvariantResult[];
-      try {
-        verified = verifyArchiveInvariants(await readArchive(path));
-      } catch (error) {
-        unreadableArchives.push({
-          caseId,
-          reason: error instanceof Error ? error.message : String(error),
-        });
-        console.log(
-          `  archive ${caseId} could not be read: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-        continue;
-      }
-      archiveResults.set(caseId, verified);
-      const failedHere = verified.filter((entry) => entry.status === "FAIL");
-      console.log(
-        `  archive ${caseId}: ${verified.length - failedHere.length}/${verified.length} ` +
-          `frame-level invariants proven` +
-          (failedHere.length > 0
-            ? ` — ${failedHere.map((entry) => `#${entry.id} ${entry.key}`).join(", ")}`
-            : ""),
-      );
-      for (const entry of failedHere) {
-        for (const violation of entry.violations ?? []) {
-          console.log(`      ${violation}`);
-        }
-      }
-    }
+    const archiveEvidence = flags.archive
+      ? await auditMatrixArchives({
+          directory: `${writer.directory}/archives`,
+          plan: archivePlan,
+          archivedRuns: sweep.archivedRuns,
+          expectedCaseIds: sweep.expectedArchiveCaseIds,
+          ports: {
+            countArchives,
+            findArchive,
+            verifyArchive: async (path) =>
+              verifyArchiveInvariants(await readArchive(path)),
+          },
+          onProgress: (line) => console.log(line),
+        })
+      : null;
 
     // ---- Reporting ------------------------------------------------------------------------------
     const aggregate = aggregateMatrixResults(
@@ -642,54 +600,21 @@ async function main(): Promise<void> {
       .filter((entry) => entry.status === "WARN")
       .flatMap((entry) => entry.problems ?? [entry.detail]);
 
-    const archiveVerification = [...archiveResults.entries()].map(
-      ([caseId, invariants]) => ({
-        caseId,
-        invariants: invariants.map((entry) => ({
-          id: entry.id,
-          key: entry.key,
-          status: entry.status,
-          detail: entry.detail,
-          violations: entry.violations ?? [],
-        })),
-      }),
-    );
+    const archiveVerification = archiveEvidence?.verification ?? [];
 
     // ---- The gate ------------------------------------------------------------------------------
     // One verdict, read by the report, the machine-readable summary and the exit code alike.
-    const archiveEvidence: MatrixArchiveEvidence | null = flags.archive
-      ? {
-          requested: true,
-          expected: archivePlan.expectedArchives,
-          actual: await countArchives(`${writer.directory}/archives`),
-          // The cases that *should* each hold one archive, from the plan rather than from what
-          // happened to appear — otherwise a case that silently produced nothing would define
-          // itself out of the check.
-          expectedCaseIds:
-            archivePlan.rerunPool === "full"
-              ? rerunnable.map((entry) => entry.caseId)
-              : archivePlan.mainPool === "full"
-                ? selected.map((entry) => entry.caseId)
-                : [],
-          missing: missingArchives,
-          unreadable: unreadableArchives,
-          verification: archiveVerification,
-        }
-      : null;
-
-    const mainTraffic = phaseTraffic("main", sweepProviderRequests, results);
-
     const gate: MatrixGateVerdict = evaluateMatrixGate({
       selectedCaseIds: selected.map((entry) => entry.caseId),
       results,
       aggregate,
       provider: {
         warmup: warmupTraffic,
-        main: mainTraffic,
-        rerun: rerunTraffic,
+        main: sweep.mainTraffic,
+        rerun: sweep.rerunTraffic,
       },
-      determinismRequested: flags.determinism && rerunnable.length > 0,
-      requiredRerunCaseIds: rerunnable.map((entry) => entry.caseId),
+      determinismRequested: flags.determinism && sweep.rerunCaseIds.length > 0,
+      requiredRerunCaseIds: sweep.rerunCaseIds,
       rerunResults,
       determinismDifferences: determinism?.differences ?? [],
       archives: archiveEvidence,
@@ -707,7 +632,7 @@ async function main(): Promise<void> {
       archives: archiveEvidence,
       determinism,
       rerun: {
-        cases: rerunnable.map((entry) => entry.caseId),
+        cases: [...sweep.rerunCaseIds],
         outcomes: rerunResults.map((result) => ({
           caseId: result.caseId,
           outcome: result.outcome,
@@ -719,8 +644,8 @@ async function main(): Promise<void> {
       // combined number the gate actually tests.
       providerRequestLedger: {
         warmup: warmupTraffic,
-        main: mainTraffic,
-        rerun: rerunTraffic,
+        main: sweep.mainTraffic,
+        rerun: sweep.rerunTraffic,
         combined: gate.providerRequestsTotal,
       },
     });

@@ -17,9 +17,13 @@
 -- Prices, percentages, ratios and share quantities are untouched.
 --
 -- Existing rows are widened in place. That is not a backfill and does not recover anything: a value
--- already rounded to 0.03 becomes 0.030000, not the 0.025 it should have been. Runs completed under
--- the previous methodology keep their own `resultPrecision` in their immutable snapshot and remain
--- identifiable as such; only fresh runs carry `decimal-ledger-24-6@1`.
+-- already rounded to 0.03 becomes 0.030000, not the 0.025 it should have been.
+--
+-- A run completed before this change is still identifiable, but by the **absence** of
+-- `resultPrecision` from its snapshot's methodology rather than by an older value of it: the field
+-- did not exist, so those snapshots carry no key for it at all. Nothing is backfilled into them —
+-- writing one now would claim the old runs recorded something they never did. Only runs submitted
+-- from this build onwards carry `decimal-ledger-24-6@1`.
 
 ALTER TABLE "BacktestTrade"
   ALTER COLUMN "amount"      TYPE numeric(24,6),
