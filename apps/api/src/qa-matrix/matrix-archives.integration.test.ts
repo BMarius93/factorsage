@@ -309,6 +309,103 @@ describe("a single reproduction captures exactly one", () => {
     expect(archives.verification).toHaveLength(1);
     expect(gateOver(sweep, archives, one).green).toBe(true);
   });
+
+  it("stays valid with `--no-determinism`, and still requires that one archive", async () => {
+    // The combination that is refused on a *full* sweep is legitimate here: one case is small
+    // enough for its own pool to capture, so there is nothing for a rerun pool to do. What must
+    // not change is the requirement — exactly one archive, read and verified.
+    const one = CASES.filter(
+      (entry) => !GOLDEN.some((golden) => golden.caseId === entry.caseId),
+    ).slice(0, 1);
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: 1,
+      goldenCases: GOLDEN.length,
+      determinismEnabled: false,
+    });
+    expect(plan.refusal).toBeNull();
+    expect([plan.mainPool, plan.rerunPool, plan.expectedArchives]).toEqual([
+      "full",
+      "off",
+      1,
+    ]);
+
+    const events: PoolEvent[] = [];
+    const { ports } = sweepPorts(one, [], events);
+    const sweep = await runMatrixSweep({
+      selected: one,
+      plan,
+      determinismEnabled: false,
+      now: () => 0,
+      ports,
+    });
+    // One pool, capturing, and no rerun pool at all.
+    expect(events).toEqual([
+      { kind: "start", phase: "main", debugArchive: "full" },
+      { kind: "stop", phase: "main" },
+    ]);
+    expect(sweep.rerunResults).toEqual([]);
+    expect(sweep.expectedArchiveCaseIds).toEqual([one[0]!.caseId]);
+
+    const directory = scratch();
+    for (const runId of sweep.archivedRuns.values()) {
+      writeArchive(directory, runId);
+    }
+    const archives = await auditMatrixArchives({
+      directory,
+      plan,
+      requested: true,
+      archivedRuns: sweep.archivedRuns,
+      expectedCaseIds: sweep.expectedArchiveCaseIds,
+      ports: { countArchives, findArchive, verifyArchive: async () => PROVEN },
+    });
+    expect(archives.requested).toBe(true);
+    expect([archives.expected, archives.actual]).toEqual([1, 1]);
+    expect(archives.verification).toHaveLength(1);
+    expect(gateOver(sweep, archives, one).green).toBe(true);
+  });
+
+  it("fails the gate when that one archive is not produced", async () => {
+    const one = CASES.filter(
+      (entry) => !GOLDEN.some((golden) => golden.caseId === entry.caseId),
+    ).slice(0, 1);
+    const plan = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: 1,
+      goldenCases: GOLDEN.length,
+      determinismEnabled: false,
+    });
+    const events: PoolEvent[] = [];
+    const { ports } = sweepPorts(one, [], events);
+    const sweep = await runMatrixSweep({
+      selected: one,
+      plan,
+      determinismEnabled: false,
+      now: () => 0,
+      ports,
+    });
+
+    // Nothing written: the directory stays empty.
+    const archives = await auditMatrixArchives({
+      directory: scratch(),
+      plan,
+      requested: true,
+      archivedRuns: sweep.archivedRuns,
+      expectedCaseIds: sweep.expectedArchiveCaseIds,
+      ports: { countArchives, findArchive, verifyArchive: async () => PROVEN },
+    });
+    expect(archives.actual).toBe(0);
+    expect(archives.missing).toEqual([one[0]!.caseId]);
+    const verdict = gateOver(sweep, archives, one);
+    expect(verdict.green).toBe(false);
+    expect(verdict.failures.map((entry) => entry.code)).toEqual(
+      expect.arrayContaining([
+        "ARCHIVE_COUNT",
+        "ARCHIVE_MISSING",
+        "ARCHIVE_UNVERIFIED",
+      ]),
+    );
+  });
 });
 
 describe("a directory that does not match the plan fails the gate", () => {

@@ -743,6 +743,14 @@ export class BacktestProcessor implements BacktestJobProcessor {
         FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
       );
     }
+    // Coverage **before** the load, deliberately. The calendar must span the period the run
+    // recorded, not merely return some dates inside it: quietly simulating a shorter one moves the
+    // first simulated date, and with it the return-index base, the first contribution and every
+    // number chained off them. Asking first also means a period the durable store cannot vouch
+    // for fails without a provider request — reading would try to fill the gap from FMP, which
+    // both re-dates an immutable run and puts live traffic inside a sweep whose whole claim is
+    // that it made none.
+    await this.assertCalendarCoversPeriod(seriesId, referenceCode, period);
     const prices = await this.loadSeriesPrices(seriesId, period, {
       role: "execution-calendar",
       code: referenceCode ?? seriesId,
@@ -759,11 +767,6 @@ export class BacktestProcessor implements BacktestJobProcessor {
         FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
       );
     }
-    // The calendar must span the period the run recorded, not merely return some dates inside it.
-    // A run executes exactly its immutable period or fails saying it could not: quietly simulating
-    // a shorter one moves the first simulated date, and with it the return-index base, the first
-    // contribution and every number chained off them.
-    await this.assertCalendarCoversPeriod(seriesId, referenceCode, period);
     this.dependencies.logger.info({
       event: "backtest.execution-calendar.loaded",
       durationMs: Date.now() - startedAt,

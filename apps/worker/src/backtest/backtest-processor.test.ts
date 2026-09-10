@@ -124,6 +124,8 @@ const lease: BacktestJobLease = {
 /** Records which series ids execution asked for, and can refuse any of them. */
 class RecordingBenchmarks implements BacktestBenchmarkLoader {
   readonly requested: string[] = [];
+  /** Every price load attempted, so a test can prove one did not happen. */
+  readonly priceLoads: string[] = [];
 
   constructor(
     private readonly unavailable: ReadonlySet<string> = new Set(),
@@ -153,6 +155,7 @@ class RecordingBenchmarks implements BacktestBenchmarkLoader {
   async getBenchmarkDailyPrices(
     series: BenchmarkSeries,
   ): Promise<BenchmarkDailyPrice[]> {
+    this.priceLoads.push(series.id);
     return (this.options.prices ?? []).map((bar) => ({
       seriesId: series.id,
       date: bar.date,
@@ -270,6 +273,10 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures).toHaveLength(1);
     expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+    // And it failed *before* reading prices. A read would try to fill the gap from the provider,
+    // which both re-dates an immutable run and puts live traffic inside a sweep whose whole claim
+    // is that it made none.
+    expect(benchmarks.priceLoads).toEqual([]);
   });
 
   it("proceeds when the series covers the period, however few sessions it holds", async () => {

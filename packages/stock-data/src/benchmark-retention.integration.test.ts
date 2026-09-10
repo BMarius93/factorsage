@@ -112,6 +112,12 @@ describeRetention(
     const SERIES_FROM = "1996-08-26";
     const SERIES_TO = "2026-08-24";
     const PERIOD = { from: SERIES_FROM, to: SERIES_TO } as const;
+    /**
+     * The date the reported scenario names. 1996-08-24 is a Saturday, so the series has no bar on
+     * it — which is exactly what made the defect easy to miss: the period's first *session* moved
+     * without its first *date* being a row anyone could point at.
+     */
+    const REQUESTED_FROM = "1996-08-24";
 
     let benchmark: BenchmarkWithSeries;
     let bars: BenchmarkDailyPrice[];
@@ -144,7 +150,12 @@ describeRetention(
       await store.saveDailyPriceSync({
         seriesId: benchmark.series.id,
         prices: bars,
-        successfulCoverage: [{ from: SERIES_FROM, to: SERIES_TO }],
+        // Coverage records the range that was **asked for**, not the range that came back — that
+        // is what makes "asked, and there was nothing" durable, and it is how provisioning records
+        // it. So the two market-closed days before the series' first bar are covered and hold no
+        // rows, which is also the shape that keeps a genuine later origin distinguishable from a
+        // gap.
+        successfulCoverage: [{ from: REQUESTED_FROM, to: SERIES_TO }],
         syncedAt: new Date().toISOString(),
         tailDate: SERIES_TO,
         freshThrough: SERIES_TO,
@@ -207,6 +218,50 @@ describeRetention(
       expect(missing).toHaveLength(1);
       expect(missing[0]?.from).toBe("1995-08-24");
       expect((missing[0]?.to ?? "") < SERIES_FROM).toBe(true);
+    }, 60_000);
+
+    /**
+     * The scenario exactly as reported, dates included.
+     *
+     * A period accepted on 2026-08-24 starting 1996-08-24, retried on 2027-08-25. 1996-08-24 is a
+     * Saturday, so the series has no bar on it — which is precisely what made the defect easy to
+     * miss. The *coverage interval* still begins there, and the old check asked only about the range
+     * that survived the clip, so it reported complete while the read had already moved the period's
+     * first session from 1996-08-26 to 1996-08-27.
+     */
+    it("keeps a period starting 1996-08-24 intact when retried on 2027-08-25", async () => {
+      const requested = { from: REQUESTED_FROM, to: SERIES_TO } as const;
+      const service = serviceAt("2027-08-25");
+
+      const rows = await service.getBenchmarkDailyPrices(
+        benchmark.series,
+        requested,
+      );
+      // The first session inside the requested period, not one the clock removed.
+      expect(rows[0]?.date).toBe(SERIES_FROM);
+      expect(rows.length).toBeGreaterThan(7_000);
+
+      // And coverage is answered about the period the run recorded — including the two days before
+      // the first bar, which durable coverage does vouch for.
+      const missing = await service.missingBenchmarkCoverage(
+        benchmark.series,
+        requested,
+      );
+      expect(missing).toEqual([]);
+
+      // The discriminating half. 1996-08-24 is a Saturday, so removing it costs no *session* and the
+      // loss is invisible in the rows — which is why the reported scenario needed the second
+      // question: is the range still being narrowed, and does coverage still say yes anyway?
+      //
+      // One day earlier is outside what this series was ever asked for. At the 2027-08-25 clock the
+      // old 31-year floor landed on 1996-08-25, so the clipped question skipped straight past the
+      // gap and answered "complete". Asked about the period the run actually recorded, it is a gap,
+      // and the worker fails the attempt instead of simulating a shorter run.
+      const beyond = await service.missingBenchmarkCoverage(benchmark.series, {
+        from: "1996-08-23",
+        to: SERIES_TO,
+      });
+      expect(beyond).toEqual([{ from: "1996-08-23", to: "1996-08-23" }]);
     }, 60_000);
 
     it("does not reach the provider for any of it", async () => {
