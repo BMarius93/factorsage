@@ -530,6 +530,24 @@ export async function readArchive(path: string): Promise<ArchiveContents> {
 }
 
 /** Finds an attempt's archive by run id in a directory of them. */
+/**
+ * How many archives the directory actually holds.
+ *
+ * The plan says how many should exist; this says how many do. They were never compared, which is
+ * how a sweep that produced ten archives where six were planned printed the plan and passed.
+ */
+export async function countArchives(directory: string): Promise<number> {
+  const { readdir } = await import("node:fs/promises");
+  try {
+    const names = await readdir(directory);
+    return names.filter(
+      (name) => name.startsWith("backtest-debug-") && name.endsWith(".zip"),
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
 export async function findArchive(
   directory: string,
   runId: string,
@@ -543,7 +561,8 @@ export async function findArchive(
   }
   const matches = names
     .filter(
-      (name) => name.startsWith(`backtest-debug-${runId}-`) && name.endsWith(".zip"),
+      (name) =>
+        name.startsWith(`backtest-debug-${runId}-`) && name.endsWith(".zip"),
     )
     .sort();
   const last = matches[matches.length - 1];

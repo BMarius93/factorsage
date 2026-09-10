@@ -2,16 +2,14 @@ import { mkdtempSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { evaluateMatrixGate } from "./matrix-gate";
 import {
   caseLine,
   MatrixReportWriter,
   renderMatrixReport,
   type MatrixManifest,
 } from "./matrix-report";
-import {
-  aggregateMatrixResults,
-  type MatrixCaseResult,
-} from "./matrix-runner";
+import { aggregateMatrixResults, type MatrixCaseResult } from "./matrix-runner";
 
 /**
  * The artefacts a sweep leaves behind.
@@ -79,6 +77,7 @@ function result(
     finalValue: 812_345.67,
     invariantsPassed: 38,
     invariantsFailed: 0,
+    invariantsIndeterminate: 0,
     invariantsNeedingArchive: 2,
     providerRequests: 0,
     failure: null,
@@ -87,9 +86,80 @@ function result(
   };
 }
 
+/**
+ * The verdict the report is given, reached the same way the command reaches it.
+ *
+ * The renderer no longer decides for itself whether a sweep is green — that split decision is what
+ * let a report say GREEN while the exit code disagreed — so these tests hand it a real verdict from
+ * a real gate evaluation over the same results.
+ */
+function gateFor(
+  results: readonly MatrixCaseResult[],
+  determinism: {
+    cases: readonly string[];
+    differences: readonly { caseId: string; differences: readonly string[] }[];
+  } | null,
+  archiveVerification: readonly {
+    caseId: string;
+    invariants: readonly {
+      id: number;
+      key: string;
+      status: string;
+      detail: string;
+      violations: readonly string[];
+    }[];
+  }[] = [],
+  expected = 1_000,
+): ReturnType<typeof evaluateMatrixGate> {
+  const quiet = (phase: "warmup" | "main" | "rerun") => ({
+    phase,
+    total: results.reduce(
+      (sum, r) => sum + (phase === "main" ? (r.providerRequests ?? 0) : 0),
+      0,
+    ),
+    unattributed: 0,
+    attributedToCases:
+      phase === "main"
+        ? results.reduce((sum, r) => sum + (r.providerRequests ?? 0), 0)
+        : 0,
+  });
+  return evaluateMatrixGate({
+    selectedCaseIds: results.map((entry) => entry.caseId),
+    results,
+    aggregate: aggregateMatrixResults(results, expected, 3_600_000),
+    provider: {
+      warmup: quiet("warmup"),
+      main: quiet("main"),
+      rerun: quiet("rerun"),
+    },
+    determinismRequested: determinism !== null,
+    requiredRerunCaseIds: determinism?.cases ?? [],
+    rerunResults: (determinism?.cases ?? []).map((caseId) => ({
+      ...(results[0] as MatrixCaseResult),
+      caseId,
+    })),
+    determinismDifferences: determinism?.differences ?? [],
+    archives:
+      archiveVerification.length > 0
+        ? {
+            requested: true,
+            expected: archiveVerification.length,
+            actual: archiveVerification.length,
+            expectedCaseIds: archiveVerification.map((entry) => entry.caseId),
+            missing: [],
+            unreadable: [],
+            verification: archiveVerification,
+          }
+        : null,
+  });
+}
+
 describe("incremental case output", () => {
   it("appends one NDJSON line per case as it settles", () => {
-    const writer = new MatrixReportWriter(scratch(), MANIFEST.matrixExecutionId);
+    const writer = new MatrixReportWriter(
+      scratch(),
+      MANIFEST.matrixExecutionId,
+    );
     writer.appendCase(result({ caseId: "S01-L01-C01" }));
     writer.appendCase(result({ caseId: "S01-L01-C02", tradeCount: 0 }));
 
@@ -97,14 +167,19 @@ describe("incremental case output", () => {
       .trim()
       .split("\n");
     expect(lines).toHaveLength(2);
-    const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    const parsed = lines.map(
+      (line) => JSON.parse(line) as Record<string, unknown>,
+    );
     expect(parsed[0]?.caseId).toBe("S01-L01-C01");
     expect(parsed[1]?.trades).toBe(0);
     expect(parsed[0]?.runId).toBe("run-S01-L01-C01");
   });
 
   it("writes a document per failing case, so each one is inspectable on its own", () => {
-    const writer = new MatrixReportWriter(scratch(), MANIFEST.matrixExecutionId);
+    const writer = new MatrixReportWriter(
+      scratch(),
+      MANIFEST.matrixExecutionId,
+    );
     writer.appendCase(result({ caseId: "S01-L01-C01" }));
     writer.appendCase(
       result({
@@ -128,22 +203,37 @@ describe("incremental case output", () => {
     const failures = readdirSync(join(writer.directory, "failures"));
     expect(failures).toEqual(["S04-L09-C06.json"]);
     const document = JSON.parse(
-      readFileSync(join(writer.directory, "failures", "S04-L09-C06.json"), "utf8"),
+      readFileSync(
+        join(writer.directory, "failures", "S04-L09-C06.json"),
+        "utf8",
+      ),
     ) as MatrixCaseResult;
     expect(document.failedInvariants[0]?.key).toBe("buy-sizing");
     expect(document.config.startDate).toBe("1996-09-09");
   });
 
   it("writes a failure document for a timed-out case too", () => {
-    const writer = new MatrixReportWriter(scratch(), MANIFEST.matrixExecutionId);
-    writer.appendCase(
-      result({ caseId: "S10-L08-C10", outcome: "TIMED_OUT", failure: "Still RUNNING" }),
+    const writer = new MatrixReportWriter(
+      scratch(),
+      MANIFEST.matrixExecutionId,
     );
-    expect(existsSync(join(writer.directory, "failures", "S10-L08-C10.json"))).toBe(true);
+    writer.appendCase(
+      result({
+        caseId: "S10-L08-C10",
+        outcome: "TIMED_OUT",
+        failure: "Still RUNNING",
+      }),
+    );
+    expect(
+      existsSync(join(writer.directory, "failures", "S10-L08-C10.json")),
+    ).toBe(true);
   });
 
   it("writes the manifest, preflight, summary and report to their own files", () => {
-    const writer = new MatrixReportWriter(scratch(), MANIFEST.matrixExecutionId);
+    const writer = new MatrixReportWriter(
+      scratch(),
+      MANIFEST.matrixExecutionId,
+    );
     writer.writeManifest(MANIFEST);
     writer.writePreflight(
       {
@@ -180,7 +270,12 @@ describe("incremental case output", () => {
 describe("the per-case record", () => {
   it("is flat, so it can be grepped and loaded into a table", () => {
     const line = caseLine(result({ caseId: "S03-L07-C04" }));
-    expect(Object.values(line).every((value) => typeof value !== "object" || value === null || Array.isArray(value))).toBe(true);
+    expect(
+      Object.values(line).every(
+        (value) =>
+          typeof value !== "object" || value === null || Array.isArray(value),
+      ),
+    ).toBe(true);
     expect(line).toMatchObject({
       caseId: "S03-L07-C04",
       strategy: "QA-MATRIX-S01-price-above-sma200-hold",
@@ -198,6 +293,7 @@ describe("the human report", () => {
       results,
       determinism,
       coverageWarnings: [],
+      gate: gateFor(results, determinism),
     });
 
   it("declares a clean sweep green and names the environment", () => {
@@ -249,6 +345,12 @@ describe("the human report", () => {
       results: [result({ caseId: "A" })],
       determinism: { cases: ["S01-L02-C04"], differences: [] },
       coverageWarnings: [],
+      gate: gateFor(
+        [result({ caseId: "A" })],
+        { cases: ["S01-L02-C04"], differences: [] },
+        [],
+        1,
+      ),
     });
     expect(clean).toContain("were identical in every one");
     expect(clean).toContain("**GREEN.**");
@@ -259,9 +361,22 @@ describe("the human report", () => {
       results: [result({ caseId: "A" })],
       determinism: {
         cases: ["S01-L02-C04"],
-        differences: [{ caseId: "S01-L02-C04", differences: ["trade #4 shares: 1 vs 2"] }],
+        differences: [
+          { caseId: "S01-L02-C04", differences: ["trade #4 shares: 1 vs 2"] },
+        ],
       },
       coverageWarnings: [],
+      gate: gateFor(
+        [result({ caseId: "A" })],
+        {
+          cases: ["S01-L02-C04"],
+          differences: [
+            { caseId: "S01-L02-C04", differences: ["trade #4 shares: 1 vs 2"] },
+          ],
+        },
+        [],
+        1,
+      ),
     });
     expect(drifted).toContain("did not reproduce");
     expect(drifted).toContain("**NOT GREEN.**");
@@ -273,7 +388,10 @@ describe("the human report", () => {
       aggregate: aggregateMatrixResults([result({ caseId: "A" })], 1, 1_000),
       results: [result({ caseId: "A" })],
       determinism: null,
-      coverageWarnings: ["2 securities carry no financial statements (MRNA, V)"],
+      coverageWarnings: [
+        "2 securities carry no financial statements (MRNA, V)",
+      ],
+      gate: gateFor([result({ caseId: "A" })], null, [], 1),
     });
     expect(markdown).toContain("## Data-coverage warnings");
     expect(markdown).toContain("MRNA, V");
@@ -288,9 +406,27 @@ describe("frame-level verification in the report", () => {
     {
       caseId: "S01-L02-C04",
       invariants: [
-        { id: 36, key: "trade-signal-evidence", status: "PASS", detail: "3 BUY(s) re-derived TRUE", violations: [] },
-        { id: 37, key: "trigger-previous-row", status: "PASS", detail: "0 year boundaries", violations: [] },
-        { id: 38, key: "buy-window-boundaries", status: "PASS", detail: "0 BUY(s) on an endpoint", violations: [] },
+        {
+          id: 36,
+          key: "trade-signal-evidence",
+          status: "PASS",
+          detail: "3 BUY(s) re-derived TRUE",
+          violations: [],
+        },
+        {
+          id: 37,
+          key: "trigger-previous-row",
+          status: "PASS",
+          detail: "0 year boundaries",
+          violations: [],
+        },
+        {
+          id: 38,
+          key: "buy-window-boundaries",
+          status: "PASS",
+          detail: "0 BUY(s) on an endpoint",
+          violations: [],
+        },
       ],
     },
   ];
@@ -298,11 +434,21 @@ describe("frame-level verification in the report", () => {
   const render = (archiveVerification: ArchiveVerification): string =>
     renderMatrixReport({
       manifest: MANIFEST,
-      aggregate: aggregateMatrixResults([result({ caseId: "S01-L02-C04" })], 1, 1_000),
+      aggregate: aggregateMatrixResults(
+        [result({ caseId: "S01-L02-C04" })],
+        1,
+        1_000,
+      ),
       results: [result({ caseId: "S01-L02-C04" })],
       determinism: null,
       coverageWarnings: [],
       archiveVerification,
+      gate: gateFor(
+        [result({ caseId: "S01-L02-C04" })],
+        null,
+        archiveVerification,
+        1,
+      ),
     });
 
   it("says what the archive proved that the database could not", () => {
@@ -323,7 +469,9 @@ describe("frame-level verification in the report", () => {
             key: "trade-signal-evidence",
             status: "FAIL",
             detail: "1 violation",
-            violations: ["#4 AAPL 2024-03-01 level 100%: the Signal re-derived is FALSE, not TRUE."],
+            violations: [
+              "#4 AAPL 2024-03-01 level 100%: the Signal re-derived is FALSE, not TRUE.",
+            ],
           },
           ...(passing[0] as ArchiveVerification[number]).invariants.slice(1),
         ],

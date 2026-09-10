@@ -13,8 +13,19 @@ import {
   QA_MATRIX_TOTAL_CASES,
   type QaMatrixCase,
 } from "./qa-matrix/matrix-case";
-import { findArchive, readArchive, verifyArchiveInvariants } from "./qa-matrix/matrix-archive";
+import {
+  countArchives,
+  findArchive,
+  readArchive,
+  verifyArchiveInvariants,
+} from "./qa-matrix/matrix-archive";
 import { planMatrixArchives } from "./qa-matrix/matrix-archive-plan";
+import {
+  evaluateMatrixGate,
+  type MatrixArchiveEvidence,
+  type MatrixGateVerdict,
+  type MatrixPhaseProviderTraffic,
+} from "./qa-matrix/matrix-gate";
 import { cleanupMatrixRuns } from "./qa-matrix/matrix-cleanup";
 import { resolveMatrixConcurrency } from "./qa-matrix/matrix-concurrency";
 import { useMatrixDatabase } from "./qa-matrix/matrix-environment";
@@ -98,7 +109,12 @@ function parseFlags(argv: readonly string[]): Flags {
     };
     switch (arg) {
       case "--case":
-        cases.push(...next().split(",").map((entry) => entry.trim()).filter(Boolean));
+        cases.push(
+          ...next()
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean),
+        );
         break;
       case "--concurrency":
         concurrency = next();
@@ -143,7 +159,10 @@ function parseFlags(argv: readonly string[]): Flags {
   };
 }
 
-function gitMetadata(root: string): { commit: string | null; branch: string | null } {
+function gitMetadata(root: string): {
+  commit: string | null;
+  branch: string | null;
+} {
   const read = (args: string[]): string | null => {
     try {
       return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
@@ -176,6 +195,7 @@ function warmupPorts(
   prisma: (typeof context)["prisma"],
   series: MatrixSeriesCache,
   timeoutSeconds: number,
+  pool: MatrixWorkerPool,
 ): MatrixRunnerPorts {
   return {
     submit: (matrixCase) => submitMatrixCase(context, ids, matrixCase),
@@ -187,7 +207,8 @@ function warmupPorts(
     collectEvidence: (runId, matrixCase) =>
       collectRunEvidence(prisma, series, runId, matrixCase.caseId),
     validate: () => [],
-    providerRequestsFor: () => null,
+    // Counted, not ignored: a warm-up that reaches the provider means the dataset was not pinned.
+    providerRequestsFor: (runId) => pool.providerRequestsFor(runId),
     onCaseSettled: (result) => {
       console.log(
         `  warm ${result.caseId} ${result.outcome} ${Math.round(result.durationMs / 1000)}s`,
@@ -196,6 +217,39 @@ function warmupPorts(
     now: () => Date.now(),
   };
 }
+
+/**
+ * One phase's provider traffic, as the gate needs to see it.
+ *
+ * `attributedToCases` comes from the phase's own results rather than from the pool, so the two can
+ * disagree — and when they do, that disagreement is itself a gate failure. A request the pool saw
+ * but the phase's cases cannot account for belongs to some other run, and "zero provider requests"
+ * stops being something the ledger can honestly claim.
+ */
+function phaseTraffic(
+  phase: MatrixPhaseProviderTraffic["phase"],
+  ledger: { total: number; unattributed: number } | null,
+  results: readonly MatrixCaseResult[],
+): MatrixPhaseProviderTraffic {
+  return {
+    phase,
+    total: ledger?.total ?? 0,
+    unattributed: ledger?.unattributed ?? 0,
+    attributedToCases: results.reduce(
+      (sum, result) => sum + (result.providerRequests ?? 0),
+      0,
+    ),
+  };
+}
+
+const NO_TRAFFIC = (
+  phase: MatrixPhaseProviderTraffic["phase"],
+): MatrixPhaseProviderTraffic => ({
+  phase,
+  total: 0,
+  unattributed: 0,
+  attributedToCases: 0,
+});
 
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
@@ -220,8 +274,10 @@ async function main(): Promise<void> {
   const writer = new MatrixReportWriter(matrixReportRoot(root), executionId);
 
   let pool: MatrixWorkerPool | null = null;
-  let sweepProviderRequests: ReturnType<MatrixWorkerPool["providerRequests"]> | null =
-    null;
+  let sweepProviderRequests: ReturnType<
+    MatrixWorkerPool["providerRequests"]
+  > | null = null;
+  let warmupTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("warmup");
   try {
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma).catch(
       () => [] as string[],
@@ -279,18 +335,40 @@ async function main(): Promise<void> {
         debugArchive: "off",
       });
       warmPool.start();
+      let warmupResults: readonly MatrixCaseResult[] = [];
       try {
-        await runMatrixCases(
+        warmupResults = await runMatrixCases(
           warmupCases,
-          warmupPorts(context, ids, prisma, series, flags.timeoutSeconds),
+          warmupPorts(
+            context,
+            ids,
+            prisma,
+            series,
+            flags.timeoutSeconds,
+            warmPool,
+          ),
           { concurrency: 1 },
         );
       } finally {
         await warmPool.stop();
       }
+      const warmLedger = warmPool.providerRequests();
+      warmupTraffic = phaseTraffic("warmup", warmLedger, warmupResults);
       console.log(
-        `Warm-up complete; ${warmPool.providerRequests().total} provider request(s).\n`,
+        `Warm-up complete; ${warmLedger.total} provider request(s).\n`,
       );
+      // A warm-up that reached FMP means the supposedly pinned dataset was incomplete or
+      // depended on live data. Whatever the sweep would then measure, it is not the canonical
+      // validation this command exists to perform — so it does not run.
+      if (warmLedger.total > 0) {
+        console.error(
+          `Refusing to start the matrix: the warm-up made ${warmLedger.total} provider ` +
+            "request(s), so the canonical dataset is not pinned. Nothing was swept.\n" +
+            "Re-provision the matrix database and re-run the preflight before trying again.",
+        );
+        process.exitCode = 1;
+        return;
+      }
     }
 
     // ---- Retention: clean before executing, never after -------------------------------------
@@ -312,9 +390,10 @@ async function main(): Promise<void> {
       concurrency,
       expectedCases: QA_MATRIX_TOTAL_CASES,
       selectedCases: selected.length,
-      selection: flags.cases.length > 0 || flags.golden
-        ? selected.map((entry) => entry.caseId)
-        : null,
+      selection:
+        flags.cases.length > 0 || flags.golden
+          ? selected.map((entry) => entry.caseId)
+          : null,
       debugArchive: flags.archive ? "full" : "off",
       goldenCases: golden.map((entry) => entry.caseId),
       dataRevisions: { ...BACKTEST_DATA_REVISIONS },
@@ -352,7 +431,8 @@ async function main(): Promise<void> {
       processes: concurrency,
       debugArchive: mainPoolArchives ? "full" : "off",
       debugArchiveDir: `${writer.directory}/archives`,
-      onLogRecord: (record) => writer.writeWorkerLogLine(JSON.stringify(record)),
+      onLogRecord: (record) =>
+        writer.writeWorkerLogLine(JSON.stringify(record)),
     });
     pool.start();
 
@@ -398,6 +478,8 @@ async function main(): Promise<void> {
     const startedAt = Date.now();
     const results = await runMatrixCases(selected, ports, { concurrency });
     const durationMs = Date.now() - startedAt;
+    // Read before the pool can be stopped by the determinism phase below.
+    sweepProviderRequests = pool.providerRequests();
 
     // ---- Determinism: re-execute the golden subset from the same canonical data --------------
     // This is also where forensic capture happens for a full sweep: the same six combinations are
@@ -406,6 +488,8 @@ async function main(): Promise<void> {
       cases: string[];
       differences: { caseId: string; differences: readonly string[] }[];
     } | null = null;
+    let rerunResults: readonly MatrixCaseResult[] = [];
+    let rerunTraffic: MatrixPhaseProviderTraffic = NO_TRAFFIC("rerun");
     const archivedRuns = new Map<string, string>();
     if (mainPoolArchives) {
       for (const result of results) {
@@ -415,7 +499,11 @@ async function main(): Promise<void> {
       }
     }
 
-    const rerunnable = golden.filter((entry) => goldenEvidence.has(entry.caseId));
+    // The golden combinations that actually have first-execution evidence to compare against.
+    // Read again by the gate, so it outlives the branch below.
+    const rerunnable = golden.filter((entry) =>
+      goldenEvidence.has(entry.caseId),
+    );
     if (flags.determinism && rerunnable.length > 0) {
       console.log(
         `\nRe-executing ${rerunnable.length} golden combination(s) to verify determinism…`,
@@ -424,7 +512,6 @@ async function main(): Promise<void> {
       // a still-running sweep pool will happily take some of the rerun's jobs — and if the two
       // disagree about capture, the archive count is whatever the race decided. Observed: ten
       // archives where six were planned.
-      sweepProviderRequests = pool.providerRequests();
       await pool.stop();
       pool = null;
       const rerunArchives = archivePlan.rerunPool === "full";
@@ -434,7 +521,8 @@ async function main(): Promise<void> {
         processes: concurrency,
         debugArchive: rerunArchives ? "full" : "off",
         debugArchiveDir: `${writer.directory}/archives`,
-        onLogRecord: (record) => writer.writeWorkerLogLine(JSON.stringify(record)),
+        onLogRecord: (record) =>
+          writer.writeWorkerLogLine(JSON.stringify(record)),
       });
       rerunPool.start();
       const second = new Map<string, RunEvidence>();
@@ -459,20 +547,40 @@ async function main(): Promise<void> {
         },
       };
       try {
-        await runMatrixCases(rerunnable, rerunPorts, { concurrency });
+        rerunResults = await runMatrixCases(rerunnable, rerunPorts, {
+          concurrency,
+        });
       } finally {
+        rerunTraffic = phaseTraffic(
+          "rerun",
+          rerunPool.providerRequests(),
+          rerunResults,
+        );
         await rerunPool.stop();
       }
       determinism = {
         cases: rerunnable.map((entry) => entry.caseId),
         differences: rerunnable
-          .map((entry) => ({
-            caseId: entry.caseId,
-            differences: compareForDeterminism(
-              goldenEvidence.get(entry.caseId) as RunEvidence,
-              second.get(entry.caseId) as RunEvidence,
-            ),
-          }))
+          .map((entry) => {
+            const first = goldenEvidence.get(entry.caseId);
+            const again = second.get(entry.caseId);
+            if (!first || !again) {
+              // Never compare against evidence that does not exist. A rerun that produced none is
+              // already a gate failure (`GOLDEN_RERUN_INCOMPLETE`); saying "identical" here would
+              // quietly convert a missing measurement into a passing one.
+              return {
+                caseId: entry.caseId,
+                differences: [
+                  `no persisted evidence for the ${first ? "second" : "first"} execution, so ` +
+                    "determinism could not be compared",
+                ] as readonly string[],
+              };
+            }
+            return {
+              caseId: entry.caseId,
+              differences: compareForDeterminism(first, again),
+            };
+          })
           .filter((entry) => entry.differences.length > 0),
       };
     }
@@ -482,13 +590,32 @@ async function main(): Promise<void> {
     // TRUE in the frame the day loop consumed, whether the row retained across a year boundary is
     // the one a Trigger read as `t - 1`, and whether every BUY fell inside a persisted window.
     const archiveResults = new Map<string, readonly InvariantResult[]>();
+    const missingArchives: string[] = [];
+    const unreadableArchives: { caseId: string; reason: string }[] = [];
     for (const [caseId, runId] of archivedRuns) {
       const path = await findArchive(`${writer.directory}/archives`, runId);
       if (!path) {
+        // Recorded, not merely logged. A missing archive means three invariants were never
+        // proven for that combination, which is an unmet condition rather than a note.
+        missingArchives.push(caseId);
         console.log(`  no archive found for ${caseId}`);
         continue;
       }
-      const verified = verifyArchiveInvariants(await readArchive(path));
+      let verified: readonly InvariantResult[];
+      try {
+        verified = verifyArchiveInvariants(await readArchive(path));
+      } catch (error) {
+        unreadableArchives.push({
+          caseId,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        console.log(
+          `  archive ${caseId} could not be read: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        continue;
+      }
       archiveResults.set(caseId, verified);
       const failedHere = verified.filter((entry) => entry.status === "FAIL");
       console.log(
@@ -528,18 +655,73 @@ async function main(): Promise<void> {
       }),
     );
 
+    // ---- The gate ------------------------------------------------------------------------------
+    // One verdict, read by the report, the machine-readable summary and the exit code alike.
+    const archiveEvidence: MatrixArchiveEvidence | null = flags.archive
+      ? {
+          requested: true,
+          expected: archivePlan.expectedArchives,
+          actual: await countArchives(`${writer.directory}/archives`),
+          // The cases that *should* each hold one archive, from the plan rather than from what
+          // happened to appear — otherwise a case that silently produced nothing would define
+          // itself out of the check.
+          expectedCaseIds:
+            archivePlan.rerunPool === "full"
+              ? rerunnable.map((entry) => entry.caseId)
+              : archivePlan.mainPool === "full"
+                ? selected.map((entry) => entry.caseId)
+                : [],
+          missing: missingArchives,
+          unreadable: unreadableArchives,
+          verification: archiveVerification,
+        }
+      : null;
+
+    const mainTraffic = phaseTraffic("main", sweepProviderRequests, results);
+
+    const gate: MatrixGateVerdict = evaluateMatrixGate({
+      selectedCaseIds: selected.map((entry) => entry.caseId),
+      results,
+      aggregate,
+      provider: {
+        warmup: warmupTraffic,
+        main: mainTraffic,
+        rerun: rerunTraffic,
+      },
+      determinismRequested: flags.determinism && rerunnable.length > 0,
+      requiredRerunCaseIds: rerunnable.map((entry) => entry.caseId),
+      rerunResults,
+      determinismDifferences: determinism?.differences ?? [],
+      archives: archiveEvidence,
+    });
+
     writer.writeSummary({
       matrixExecutionId: executionId,
+      gate: {
+        green: gate.green,
+        exitCode: gate.exitCode,
+        failures: gate.failures,
+      },
       ...aggregate,
       archiveVerification,
+      archives: archiveEvidence,
       determinism,
+      rerun: {
+        cases: rerunnable.map((entry) => entry.caseId),
+        outcomes: rerunResults.map((result) => ({
+          caseId: result.caseId,
+          outcome: result.outcome,
+          runId: result.runId,
+        })),
+      },
       coverageWarnings,
+      // Split by phase, as three separate measurements of three different things, plus the one
+      // combined number the gate actually tests.
       providerRequestLedger: {
-        total: sweepProviderRequests?.total ?? pool?.providerRequests().total ?? 0,
-        unattributed:
-          sweepProviderRequests?.unattributed ??
-          pool?.providerRequests().unattributed ??
-          0,
+        warmup: warmupTraffic,
+        main: mainTraffic,
+        rerun: rerunTraffic,
+        combined: gate.providerRequestsTotal,
       },
     });
     writer.writeReport(
@@ -550,28 +732,38 @@ async function main(): Promise<void> {
         determinism,
         coverageWarnings,
         archiveVerification,
+        gate,
       }),
     );
 
-    const archiveFailures = archiveVerification.filter((entry) =>
-      entry.invariants.some((invariant) => invariant.status === "FAIL"),
-    ).length;
-
-    reportToConsole(executionId, writer.directory, aggregate, results, determinism);
-    if (archiveVerification.length > 0) {
+    reportToConsole(
+      executionId,
+      writer.directory,
+      aggregate,
+      results,
+      determinism,
+    );
+    if (archiveEvidence) {
       console.log(
-        `archive-verified     ${archiveVerification.length} golden case(s), ${archiveFailures} with failures`,
+        `archives             ${archiveEvidence.actual} of ${archiveEvidence.expected} expected, ` +
+          `${archiveVerification.length} verified`,
       );
     }
-    if (
-      archiveFailures > 0 ||
-      aggregate.failed > 0 ||
-      aggregate.invariantFailures > 0 ||
-      aggregate.runnerErrors > 0 ||
-      (determinism?.differences.length ?? 0) > 0
-    ) {
-      process.exitCode = 1;
+    console.log("");
+    if (gate.green) {
+      console.log(
+        "GATE                 GREEN — every mandatory condition enforced and met",
+      );
+    } else {
+      console.log(
+        `GATE                 NOT GREEN — ${gate.failures.length} condition(s) unmet`,
+      );
+      for (const failure of gate.failures) {
+        console.log(`  ${failure.code}: ${failure.detail}`);
+      }
     }
+    console.log(`\nReport: ${writer.directory}/report.md`);
+    process.exitCode = gate.exitCode;
   } finally {
     await pool?.stop();
     await context.close();
@@ -594,19 +786,25 @@ function reportToConsole(
   console.log(`failed              ${aggregate.failed}`);
   console.log(`invariant failures  ${aggregate.invariantFailures}`);
   console.log(`runner errors       ${aggregate.runnerErrors}`);
-  console.log(`duration            ${Math.round(aggregate.durationMs / 1000)}s`);
+  console.log(
+    `duration            ${Math.round(aggregate.durationMs / 1000)}s`,
+  );
   console.log(
     `throughput          ${aggregate.throughputPerMinute.toFixed(2)} runs/min`,
   );
   console.log(`provider requests   ${aggregate.providerRequests}`);
   console.log(`zero-trade cases    ${aggregate.zeroTradeCases.length}`);
   if (determinism) {
-    console.log(`determinism         ${determinism.differences.length} difference(s)`);
+    console.log(
+      `determinism         ${determinism.differences.length} difference(s)`,
+    );
   }
   console.log("");
   const failures = results.filter((result) => result.outcome !== "COMPLETED");
   for (const failure of failures.slice(0, 20)) {
-    console.log(`  FAIL ${failure.caseId} — ${failure.failure ?? failure.outcome}`);
+    console.log(
+      `  FAIL ${failure.caseId} — ${failure.failure ?? failure.outcome}`,
+    );
   }
   if (failures.length > 20) {
     console.log(`  … ${failures.length - 20} more`);

@@ -307,6 +307,10 @@ trades, equity, final positions and summary must be identical. Run ids, worker a
 timings are not compared — they are legitimately different every time, and flagging them would train
 a reader to ignore the check.
 
+Every rerun must complete, and the comparison is never attempted against evidence that does not
+exist: a rerun that produced none is a `GOLDEN_RERUN_INCOMPLETE` failure, not an "identical" result.
+Saying "identical" there would quietly convert a missing measurement into a passing one.
+
 ## Output
 
 ```text
@@ -345,8 +349,54 @@ for every FMP request and carries the worker id; `backtest.claimed` and the term
 the run id. A worker child executes at most one backtest at a time, which is what makes associating
 the two an attribution rather than a guess.
 
-The expectation is **zero**. Any request means a coverage gap the preflight did not see, and it
-makes the affected runs dependent on live data.
+The expectation is **zero**, and it is enforced in three places rather than reported in one.
+Warm-up, main sweep and golden rerun each keep their own ledger, because a non-zero count means
+something different in each: warm-up traffic says the pinned dataset was incomplete *before* the
+sweep began, main-sweep traffic says a particular run depended on live data, and rerun traffic says
+the determinism comparison was not against the same data twice. The three are reported separately
+in `summary.json` and summed into the one number the gate tests.
+
+A warm-up that reaches the provider **stops the command before the main sweep**. Whatever a sweep
+would then measure, it is not the canonical validation this command exists to perform.
+
+Each phase's ledger also has to add up: every request is either attributed to one of that phase's
+own cases or explicitly unattributed. A remainder means some request belongs to a run the phase
+does not know about, and then "zero provider requests" is not something the ledger can honestly
+claim. That is a separate failure (`PROVIDER_ACCOUNTING`) from having had traffic at all.
+
+## The gate
+
+One verdict, in `matrix-gate.ts`, read by the Markdown report, `summary.json` and the process exit
+code alike. Before it existed the decision was spread across three places that did not agree — an
+expression at the bottom of the command, a boolean inside the report renderer, and a set of
+`console.log` lines reporting conditions nobody checked. A sweep could print **GREEN**, exit zero,
+and have reached the provider, produced ten archives where six were planned, skipped a golden
+rerun, and classified a run whose invariants could not be decided as `COMPLETED`.
+
+Every mandatory condition is one entry with a stable code. Any one of them, on its own, makes the
+report **NOT GREEN** and the process exit `1`:
+
+| Code | The condition |
+| --- | --- |
+| `CASE_NOT_SUBMITTED` | a selected case was never submitted |
+| `COUNTS_MISMATCH` | submitted or completed differs from the selected count |
+| `EXECUTION_FAILED` | an execution failed, was rejected at submission, or timed out |
+| `RUNNER_ERROR` | an error inside the runner itself |
+| `INVARIANT_FAILED` | any invariant failed |
+| `INVARIANT_INDETERMINATE` | persisted evidence left an invariant undecided |
+| `GOLDEN_RERUN_INCOMPLETE` | a required golden rerun did not complete |
+| `DETERMINISM_DIFFERENCE` | two executions of the same case differ in any compared field |
+| `PROVIDER_REQUESTS` | warm-up + main + rerun traffic is not zero |
+| `PROVIDER_ACCOUNTING` | traffic that the phase's own cases cannot account for |
+| `ARCHIVE_COUNT` | the archive directory does not hold exactly what was planned |
+| `ARCHIVE_MISSING` | a case that should have produced an archive did not |
+| `ARCHIVE_UNREADABLE` | an archive exists but could not be read or verified |
+| `ARCHIVE_INVARIANT_FAILED` | a frame-level invariant failed |
+| `ARCHIVE_INVARIANT_UNRESOLVED` | a frame-level invariant is still unanswered after reading the archive |
+
+The module is pure — no filesystem, no database, no worker pool — so every condition is asserted
+independently in `matrix-gate.test.ts`: one violation at a time against an otherwise perfect sweep.
+A condition that only fails in company with another is a condition that is not really enforced.
 
 ## The matrix clock is a parameter, and it ages
 

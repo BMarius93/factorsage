@@ -1,6 +1,10 @@
 import { qaMatrixFixtures } from "@intrinsic/testing";
 import { describe, expect, it } from "vitest";
-import { qaMatrixCases, selectQaMatrixCases, type QaMatrixCase } from "./matrix-case";
+import {
+  qaMatrixCases,
+  selectQaMatrixCases,
+  type QaMatrixCase,
+} from "./matrix-case";
 import type { InvariantResult, RunEvidence } from "./matrix-invariants";
 import {
   aggregateMatrixResults,
@@ -134,7 +138,10 @@ describe("failure continuation", () => {
       ports({
         awaitTerminal: async (_runId, matrixCase) =>
           matrixCase.caseId === failing.caseId
-            ? { status: "FAILED", failure: "PROVIDER_UNAVAILABLE in PREPARING_DATA" }
+            ? {
+                status: "FAILED",
+                failure: "PROVIDER_UNAVAILABLE in PREPARING_DATA",
+              }
             : { status: "COMPLETED", failure: null },
       }),
       { concurrency: 2 },
@@ -143,7 +150,9 @@ describe("failure continuation", () => {
     const failed = results.find((entry) => entry.caseId === failing.caseId);
     expect(failed?.outcome).toBe("FAILED");
     expect(failed?.failure).toContain("PROVIDER_UNAVAILABLE");
-    expect(results.filter((entry) => entry.outcome === "COMPLETED")).toHaveLength(5);
+    expect(
+      results.filter((entry) => entry.outcome === "COMPLETED"),
+    ).toHaveLength(5);
   });
 
   it("records a rejected submission without a run id", async () => {
@@ -271,6 +280,7 @@ describe("aggregation", () => {
     finalValue: 1_000,
     invariantsPassed: 38,
     invariantsFailed: 0,
+    invariantsIndeterminate: 0,
     invariantsNeedingArchive: 2,
     providerRequests: 0,
     failure: null,
@@ -283,8 +293,16 @@ describe("aggregation", () => {
       [
         result({ caseId: "S01-L01-C01" }),
         result({ caseId: "S06-L01-C03", tradeCount: 0 }),
-        result({ caseId: "S02-L01-C01", outcome: "FAILED", runStatus: "FAILED" }),
-        result({ caseId: "S03-L01-C01", outcome: "INVARIANT_FAILED", invariantsFailed: 2 }),
+        result({
+          caseId: "S02-L01-C01",
+          outcome: "FAILED",
+          runStatus: "FAILED",
+        }),
+        result({
+          caseId: "S03-L01-C01",
+          outcome: "INVARIANT_FAILED",
+          invariantsFailed: 2,
+        }),
         result({ caseId: "S04-L01-C01", outcome: "RUNNER_ERROR", runId: null }),
       ],
       1_000,
@@ -326,7 +344,10 @@ describe("aggregation", () => {
       1_000,
     );
     expect(aggregate.slowestCases[0]?.caseId).toBe("B");
-    expect(aggregate.highestTradeCases[0]).toEqual({ caseId: "B", trades: 400 });
+    expect(aggregate.highestTradeCases[0]).toEqual({
+      caseId: "B",
+      trades: 400,
+    });
     expect(aggregate.totalTrades).toBe(491);
   });
 });
@@ -379,7 +400,12 @@ describe("determinism comparison", () => {
     const second = base();
     const differences = compareForDeterminism(base(), {
       ...second,
-      trades: [{ ...(second.trades[0] as (typeof second.trades)[number]), shares: "2.0000000000" }],
+      trades: [
+        {
+          ...(second.trades[0] as (typeof second.trades)[number]),
+          shares: "2.0000000000",
+        },
+      ],
     });
     expect(differences.join(" ")).toContain("shares");
   });

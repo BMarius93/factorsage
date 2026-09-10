@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { MatrixGateVerdict } from "./matrix-gate";
 import type { QaMatrixPreflightReport } from "./matrix-preflight";
 import type { MatrixAggregate, MatrixCaseResult } from "./matrix-runner";
 
@@ -41,7 +42,10 @@ export type MatrixManifest = {
   readonly goldenCases: readonly string[];
   readonly dataRevisions: Record<string, unknown>;
   readonly methodology: Record<string, unknown>;
-  readonly git: { readonly commit: string | null; readonly branch: string | null };
+  readonly git: {
+    readonly commit: string | null;
+    readonly branch: string | null;
+  };
   readonly executionCalendar: {
     readonly sessions: number;
     readonly from: string | null;
@@ -149,6 +153,7 @@ export function caseLine(result: MatrixCaseResult): Record<string, unknown> {
     finalValue: result.finalValue,
     invariantsPassed: result.invariantsPassed,
     invariantsFailed: result.invariantsFailed,
+    invariantsIndeterminate: result.invariantsIndeterminate,
     invariantsNeedingArchive: result.invariantsNeedingArchive,
     providerRequests: result.providerRequests,
     failure: result.failure,
@@ -194,7 +199,10 @@ export function renderMatrixReport(input: {
   readonly results: readonly MatrixCaseResult[];
   readonly determinism: {
     readonly cases: readonly string[];
-    readonly differences: readonly { caseId: string; differences: readonly string[] }[];
+    readonly differences: readonly {
+      caseId: string;
+      differences: readonly string[];
+    }[];
   } | null;
   readonly coverageWarnings: readonly string[];
   /** Frame-level verdicts for the archived golden combinations, when archives were captured. */
@@ -208,6 +216,14 @@ export function renderMatrixReport(input: {
       readonly violations: readonly string[];
     }[];
   }[];
+  /**
+   * The verdict, decided by `evaluateMatrixGate` and never recomputed here.
+   *
+   * The report used to decide for itself, with a shorter list of conditions than the exit code
+   * used — so a sweep could print GREEN and exit non-zero, or worse, print GREEN over four hundred
+   * provider requests and ten unplanned archives. There is one verdict now and this renders it.
+   */
+  readonly gate: MatrixGateVerdict;
 }): string {
   const {
     manifest,
@@ -216,28 +232,30 @@ export function renderMatrixReport(input: {
     determinism,
     coverageWarnings,
     archiveVerification = [],
+    gate,
   } = input;
-  const failures = results.filter(
-    (result) => result.outcome !== "COMPLETED",
-  );
-  const archiveFailures = archiveVerification.filter((entry) =>
-    entry.invariants.some((invariant) => invariant.status === "FAIL"),
-  );
-  const green =
-    failures.length === 0 &&
-    archiveFailures.length === 0 &&
-    (determinism === null || determinism.differences.length === 0);
+  const failures = results.filter((result) => result.outcome !== "COMPLETED");
 
   const lines: string[] = [];
   lines.push(`# QA Matrix — ${manifest.matrixExecutionId}`);
   lines.push("");
   lines.push(
-    green
-      ? `**GREEN.** ${aggregate.completed} of ${aggregate.expected} combinations completed and every ` +
-          "invariant reconciled."
-      : `**NOT GREEN.** ${failures.length} of ${aggregate.expected} combinations did not pass.`,
+    gate.green
+      ? `**GREEN.** ${aggregate.completed} of ${aggregate.expected} combinations completed, every ` +
+          "invariant reconciled, and every mandatory gate condition was enforced and met."
+      : `**NOT GREEN.** ${gate.failures.length} mandatory condition(s) were not met.`,
   );
   lines.push("");
+  if (!gate.green) {
+    lines.push("| Condition | Detail |");
+    lines.push("| --- | --- |");
+    for (const failure of gate.failures) {
+      lines.push(
+        `| \`${failure.code}\` | ${failure.detail.replace(/\|/g, "\\|")} |`,
+      );
+    }
+    lines.push("");
+  }
   lines.push("| | |");
   lines.push("| --- | --- |");
   lines.push(`| Clock | \`${manifest.asOfDate}\` |`);
@@ -261,19 +279,24 @@ export function renderMatrixReport(input: {
   lines.push(`| Completed | ${aggregate.completed} |`);
   lines.push(`| Failed | ${aggregate.failed} |`);
   lines.push(`| Invariant failures | ${aggregate.invariantFailures} |`);
+  lines.push(`| Invariants undecided | ${aggregate.invariantIndeterminates} |`);
   lines.push(`| Runner errors | ${aggregate.runnerErrors} |`);
   lines.push(`| Duration | ${duration(aggregate.durationMs)} |`);
   lines.push(
     `| Throughput | ${aggregate.throughputPerMinute.toFixed(2)} runs/minute |`,
   );
-  lines.push(`| Trades persisted | ${aggregate.totalTrades.toLocaleString("en-US")} |`);
+  lines.push(
+    `| Trades persisted | ${aggregate.totalTrades.toLocaleString("en-US")} |`,
+  );
   lines.push(
     `| Equity rows persisted | ${aggregate.totalEquityRows.toLocaleString("en-US")} |`,
   );
-  lines.push(`| Provider requests | ${aggregate.providerRequests} |`);
+  lines.push(
+    `| Provider requests (warm-up + main + rerun) | ${gate.providerRequestsTotal} |`,
+  );
   lines.push("");
 
-  if (aggregate.providerRequests > 0) {
+  if (gate.providerRequestsTotal > 0) {
     lines.push(
       "> **Provider traffic during execution.** The matrix runs against a pinned copy of canonical " +
         "data and should reach FMP zero times. Any request here means a coverage gap the preflight " +
@@ -354,7 +377,9 @@ export function renderMatrixReport(input: {
           ? `pass — ${invariant.detail.replace(/\|/g, "\\|").slice(0, 90)}`
           : `**FAIL** — ${invariant.violations[0]?.replace(/\|/g, "\\|").slice(0, 90) ?? ""}`;
       };
-      lines.push(`| \`${entry.caseId}\` | ${cell(36)} | ${cell(37)} | ${cell(38)} |`);
+      lines.push(
+        `| \`${entry.caseId}\` | ${cell(36)} | ${cell(37)} | ${cell(38)} |`,
+      );
     }
     lines.push("");
   }
@@ -405,7 +430,9 @@ export function renderMatrixReport(input: {
   lines.push("| Case | Trades |");
   lines.push("| --- | --- |");
   for (const entry of aggregate.highestTradeCases) {
-    lines.push(`| \`${entry.caseId}\` | ${entry.trades.toLocaleString("en-US")} |`);
+    lines.push(
+      `| \`${entry.caseId}\` | ${entry.trades.toLocaleString("en-US")} |`,
+    );
   }
   lines.push("");
 
@@ -422,7 +449,9 @@ export function renderMatrixReport(input: {
   if (completed.length > 0) {
     lines.push("### Sample of completed combinations");
     lines.push("");
-    lines.push("| Case | Run | Trades | Equity rows | Final value | Invariants |");
+    lines.push(
+      "| Case | Run | Trades | Equity rows | Final value | Invariants |",
+    );
     lines.push("| --- | --- | --- | --- | --- | --- |");
     for (const result of completed.slice(0, 15)) {
       lines.push(
@@ -441,8 +470,12 @@ export function renderMatrixReport(input: {
   lines.push("```text");
   lines.push(`.debug/qa-matrix/${manifest.matrixExecutionId}/`);
   lines.push("  manifest.json    the identity of this sweep");
-  lines.push("  preflight.json   the gate that had to be green before anything ran");
-  lines.push("  cases.ndjson     one line per combination, appended as it settled");
+  lines.push(
+    "  preflight.json   the gate that had to be green before anything ran",
+  );
+  lines.push(
+    "  cases.ndjson     one line per combination, appended as it settled",
+  );
   lines.push("  failures/        one document per failing combination");
   lines.push("  summary.json     the aggregate above, machine-readable");
   lines.push("  report.md        this page");

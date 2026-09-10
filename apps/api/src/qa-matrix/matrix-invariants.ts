@@ -2291,16 +2291,24 @@ function checkNoWarmupDates(
   );
 }
 
-/** Summarizes a run's invariant results for the report. */
+/**
+ * Summarizes a run's invariant results for the report.
+ *
+ * `indeterminate` is counted because it was once not, and a status nobody counts is a status
+ * nobody enforces: a run whose invariants could not be decided settled as COMPLETED and the sweep
+ * reported GREEN over it. An undecided invariant is an unmet condition, not an absent one.
+ */
 export function summarizeInvariants(results: readonly InvariantResult[]): {
   readonly passed: number;
   readonly failed: number;
+  readonly indeterminate: number;
   readonly needsArchive: number;
   readonly notApplicable: number;
 } {
   return {
     passed: results.filter((r) => r.status === "PASS").length,
     failed: results.filter((r) => r.status === "FAIL").length,
+    indeterminate: results.filter((r) => r.status === "INDETERMINATE").length,
     needsArchive: results.filter((r) => r.status === "NEEDS_ARCHIVE").length,
     notApplicable: results.filter((r) => r.status === "NOT_APPLICABLE").length,
   };

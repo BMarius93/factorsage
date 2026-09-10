@@ -26,6 +26,8 @@ export type CaseOutcome =
   | "COMPLETED"
   | "FAILED"
   | "INVARIANT_FAILED"
+  /** The run completed, but persisted evidence could not decide at least one invariant. */
+  | "INVARIANT_INDETERMINATE"
   | "SUBMIT_FAILED"
   | "TIMED_OUT"
   | "RUNNER_ERROR";
@@ -58,6 +60,7 @@ export type MatrixCaseResult = {
   readonly finalValue: number | null;
   readonly invariantsPassed: number;
   readonly invariantsFailed: number;
+  readonly invariantsIndeterminate: number;
   readonly invariantsNeedingArchive: number;
   readonly providerRequests: number | null;
   readonly failure: string | null;
@@ -78,7 +81,10 @@ export type MatrixRunnerPorts = {
     runId: string,
     matrixCase: QaMatrixCase,
   ): Promise<{ status: string; failure: string | null }>;
-  collectEvidence(runId: string, matrixCase: QaMatrixCase): Promise<RunEvidence>;
+  collectEvidence(
+    runId: string,
+    matrixCase: QaMatrixCase,
+  ): Promise<RunEvidence>;
   validate(evidence: RunEvidence): readonly InvariantResult[];
   providerRequestsFor(runId: string): number | null;
   /** Called as each case settles, so a long sweep is inspectable while it runs. */
@@ -132,6 +138,7 @@ export async function executeMatrixCase(
     configName: matrixCase.combination.config.name,
     config: matrixCase.combination.config.request,
     submittedAt,
+    invariantsIndeterminate: 0,
     invariantsNeedingArchive: 0,
     failedInvariants: [] as readonly InvariantResult[],
   };
@@ -151,6 +158,7 @@ export async function executeMatrixCase(
       finalValue: null,
       invariantsPassed: 0,
       invariantsFailed: 0,
+      invariantsIndeterminate: 0,
       providerRequests: null,
       failure: failureText(error),
     };
@@ -162,12 +170,19 @@ export async function executeMatrixCase(
     const invariants = ports.validate(evidence);
     const counts = summarizeInvariants(invariants);
     const failed = invariants.filter((entry) => entry.status === "FAIL");
+    // An invariant the persisted evidence could not settle is an open question about a financial
+    // result, and a case carrying one has not been validated. It used to settle as COMPLETED.
+    const undecided = invariants.filter(
+      (entry) => entry.status === "INDETERMINATE",
+    );
 
     const outcome: CaseOutcome =
       terminal.status === "COMPLETED"
         ? failed.length > 0
           ? "INVARIANT_FAILED"
-          : "COMPLETED"
+          : undecided.length > 0
+            ? "INVARIANT_INDETERMINATE"
+            : "COMPLETED"
         : terminal.status === "TIMED_OUT"
           ? "TIMED_OUT"
           : "FAILED";
@@ -181,11 +196,10 @@ export async function executeMatrixCase(
       tradeCount: evidence.trades.length,
       equityRowCount: evidence.equity.length,
       finalValue:
-        evidence.summary === null
-          ? null
-          : Number(evidence.summary.finalValue),
+        evidence.summary === null ? null : Number(evidence.summary.finalValue),
       invariantsPassed: counts.passed,
       invariantsFailed: counts.failed,
+      invariantsIndeterminate: counts.indeterminate,
       invariantsNeedingArchive: counts.needsArchive,
       providerRequests: ports.providerRequestsFor(runId),
       failure:
@@ -194,7 +208,11 @@ export async function executeMatrixCase(
           ? `${failed.length} invariant(s) failed: ${failed
               .map((entry) => `#${entry.id} ${entry.key}`)
               .join(", ")}`
-          : null),
+          : undecided.length > 0
+            ? `${undecided.length} invariant(s) undecided: ${undecided
+                .map((entry) => `#${entry.id} ${entry.key}`)
+                .join(", ")}`
+            : null),
       failedInvariants: failed,
     };
   } catch (error) {
@@ -209,6 +227,7 @@ export async function executeMatrixCase(
       finalValue: null,
       invariantsPassed: 0,
       invariantsFailed: 0,
+      invariantsIndeterminate: 0,
       providerRequests: ports.providerRequestsFor(runId),
       failure: failureText(error),
     };
@@ -254,7 +273,9 @@ export async function runMatrixCases(
     Array.from({ length: Math.min(options.concurrency, cases.length) }, worker),
   );
 
-  return results.filter((entry): entry is MatrixCaseResult => entry !== undefined);
+  return results.filter(
+    (entry): entry is MatrixCaseResult => entry !== undefined,
+  );
 }
 
 export type MatrixAggregate = {
@@ -263,6 +284,7 @@ export type MatrixAggregate = {
   readonly completed: number;
   readonly failed: number;
   readonly invariantFailures: number;
+  readonly invariantIndeterminates: number;
   readonly runnerErrors: number;
   readonly durationMs: number;
   readonly throughputPerMinute: number;
@@ -270,7 +292,10 @@ export type MatrixAggregate = {
   readonly zeroTradeCases: readonly string[];
   readonly highestTradeCases: readonly { caseId: string; trades: number }[];
   readonly providerRequests: number;
-  readonly providerRequestsByCase: readonly { caseId: string; requests: number }[];
+  readonly providerRequestsByCase: readonly {
+    caseId: string;
+    requests: number;
+  }[];
   readonly totalTrades: number;
   readonly totalEquityRows: number;
 };
@@ -290,6 +315,9 @@ export function aggregateMatrixResults(
   const completed = results.filter((r) => r.outcome === "COMPLETED");
   const invariantFailures = results.filter(
     (r) => r.outcome === "INVARIANT_FAILED",
+  );
+  const invariantIndeterminates = results.filter(
+    (r) => r.outcome === "INVARIANT_INDETERMINATE",
   );
   const failed = results.filter(
     (r) =>
@@ -317,6 +345,7 @@ export function aggregateMatrixResults(
     completed: completed.length,
     failed: failed.length,
     invariantFailures: invariantFailures.length,
+    invariantIndeterminates: invariantIndeterminates.length,
     runnerErrors: runnerErrors.length,
     durationMs,
     throughputPerMinute:
@@ -417,9 +446,7 @@ export function compareForDeterminism(
     }
   }
 
-  const positionKey = (
-    position: (typeof first.positions)[number],
-  ): string =>
+  const positionKey = (position: (typeof first.positions)[number]): string =>
     [
       position.symbol,
       position.openedDate,
