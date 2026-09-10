@@ -134,7 +134,9 @@ export function selectQaMatrixCases(
       throw new QaMatrixCaseSelectionError(
         `\`${caseId}\` is not a combination of this matrix. Strategies are S01-S${String(
           QA_MATRIX_EXPECTED_STRATEGIES,
-        ).padStart(2, "0")}, lists L01-L${String(QA_MATRIX_EXPECTED_LISTS).padStart(
+        ).padStart(2, "0")}, lists L01-L${String(
+          QA_MATRIX_EXPECTED_LISTS,
+        ).padStart(
           2,
           "0",
         )} and configurations C01-C${String(QA_MATRIX_EXPECTED_CONFIGS).padStart(2, "0")}.`,
@@ -250,12 +252,11 @@ export function qaMatrixWarmupCases(
   }
   const strategyId = first.strategyId;
   // The earliest-starting configuration covers every year chunk the other nine can ask for.
-  const configId = [...cases]
-    .sort((left, right) =>
-      left.combination.config.request.startDate.localeCompare(
-        right.combination.config.request.startDate,
-      ),
-    )[0]?.configId as string;
+  const configId = [...cases].sort((left, right) =>
+    left.combination.config.request.startDate.localeCompare(
+      right.combination.config.request.startDate,
+    ),
+  )[0]?.configId as string;
 
   const byList = new Map<string, QaMatrixCase>();
   for (const entry of cases) {

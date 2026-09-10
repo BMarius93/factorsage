@@ -303,9 +303,25 @@ No tolerance in this validator is relative to portfolio size.
 ## Determinism
 
 After the sweep, the golden combinations are re-executed from the same canonical data and compared:
-trades, equity, final positions and summary must be identical. Run ids, worker assignment and
-timings are not compared — they are legitimately different every time, and flagging them would train
-a reader to ignore the check.
+trades, equity, final positions and summary must be identical.
+
+**Every persisted column**, not a subset. The comparison this replaced read thirteen of a trade's
+fifteen columns, seven of an equity row's ten, six of a position's twelve, and reduced the whole
+summary to a `JSON.stringify` that could say only "summary differs" — so `securityId`, `fees`,
+`realizedPnlPercent`, `investedCapital`, `returnIndex`, `benchmarkIndex`, `lastPrice`,
+`lastPriceDate`, `unrealizedPnlPercent` and `allocationPercent` were never compared at all, and
+several were never even read out of the database. The field lists are now checked for completeness
+at compile time: adding a column to a result table is a type error until it is named, and
+`matrix-determinism.test.ts` mutates each one individually to prove the comparison can fail on it.
+
+Run ids, the job, the worker that claimed it and timings are excluded — they are legitimately
+different every time, and flagging them would train a reader to ignore the check. So are the
+snapshot, the execution calendar and the benchmark bars: those are *inputs*, pinned by the preflight
+and the dataset, and reporting an environment change as a determinism failure would say the wrong
+thing.
+
+Positions are matched by security rather than by list order, because the persisted rows carry no
+ordering of their own and a reordering is not a difference in what the run computed.
 
 Every rerun must complete, and the comparison is never attempted against evidence that does not
 exist: a rerun that produced none is a `GOLDEN_RERUN_INCOMPLETE` failure, not an "identical" result.

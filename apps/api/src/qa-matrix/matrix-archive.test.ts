@@ -104,7 +104,10 @@ function trade(overrides: Partial<ArchiveTrade> = {}): ArchiveTrade {
   };
 }
 
-const byId = (results: readonly InvariantResult[], id: number): InvariantResult =>
+const byId = (
+  results: readonly InvariantResult[],
+  id: number,
+): InvariantResult =>
   results.find((entry) => entry.id === id) as InvariantResult;
 
 describe("invariant 36 — the Signal behind a BUY", () => {
@@ -142,7 +145,9 @@ describe("invariant 36 — the Signal behind a BUY", () => {
       contents([100, 100, 120], [105, 105, 105], "2024-01-03"),
     );
     expect(byId(results, 36).status).toBe("FAIL");
-    expect(byId(results, 36).violations?.join(" ")).toContain("is FALSE, not TRUE");
+    expect(byId(results, 36).violations?.join(" ")).toContain(
+      "is FALSE, not TRUE",
+    );
   });
 
   it("fails a BUY whose operand was absent, rather than treating absence as zero", () => {
@@ -252,9 +257,7 @@ describe("invariant 36 — the Signal behind a BUY", () => {
 });
 
 describe("invariant 37 — the row retained across a year boundary", () => {
-  const twoYears = (
-    second: Partial<ArchiveFrame>,
-  ): ArchiveContents => ({
+  const twoYears = (second: Partial<ArchiveFrame>): ArchiveContents => ({
     snapshot: snapshot(),
     frames: new Map([
       [
@@ -421,20 +424,28 @@ describe("invariant 38 — buy-window boundaries", () => {
 
   it("counts a BUY on the exact first or last day of a window as inside it", () => {
     const opening = verifyArchiveInvariants(
-      withWindow("2024-01-03", [{ startDate: "2024-01-03", endDate: "2024-01-04" }]),
+      withWindow("2024-01-03", [
+        { startDate: "2024-01-03", endDate: "2024-01-04" },
+      ]),
     );
     expect(byId(opening, 38).status).toBe("PASS");
-    expect(byId(opening, 38).detail).toContain("1 BUY(s) executed exactly on a window endpoint");
+    expect(byId(opening, 38).detail).toContain(
+      "1 BUY(s) executed exactly on a window endpoint",
+    );
 
     const closing = verifyArchiveInvariants(
-      withWindow("2024-01-03", [{ startDate: "2024-01-02", endDate: "2024-01-03" }]),
+      withWindow("2024-01-03", [
+        { startDate: "2024-01-02", endDate: "2024-01-03" },
+      ]),
     );
     expect(byId(closing, 38).status).toBe("PASS");
   });
 
   it("fails a BUY one day outside a window", () => {
     const results = verifyArchiveInvariants(
-      withWindow("2024-01-04", [{ startDate: "2024-01-02", endDate: "2024-01-03" }]),
+      withWindow("2024-01-04", [
+        { startDate: "2024-01-02", endDate: "2024-01-03" },
+      ]),
     );
     expect(byId(results, 38).status).toBe("FAIL");
     expect(byId(results, 38).violations?.join(" ")).toContain(
@@ -446,7 +457,9 @@ describe("invariant 38 — buy-window boundaries", () => {
     expect(
       byId(
         verifyArchiveInvariants(
-          withWindow("2024-01-04", [{ startDate: "2024-01-02", endDate: null }]),
+          withWindow("2024-01-04", [
+            { startDate: "2024-01-02", endDate: null },
+          ]),
         ),
         38,
       ).status,

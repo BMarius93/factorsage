@@ -215,7 +215,9 @@ async function checkDatabaseIdentity(
   const problems: string[] = [];
   const rows = await input.prisma.$queryRawUnsafe<
     { database: string; server: string }[]
-  >("select current_database() as database, inet_server_addr()::text as server");
+  >(
+    "select current_database() as database, inet_server_addr()::text as server",
+  );
   const actual = rows[0]?.database ?? "";
   if (actual !== input.environment.databaseName) {
     problems.push(
@@ -388,7 +390,10 @@ async function checkStrategyFixtures(
 ): Promise<PreflightCheck> {
   const problems: string[] = [];
   const rows = await input.prisma.strategy.findMany({
-    where: { userId: ownerUserId, name: { startsWith: `${QA_MATRIX_NAME_PREFIX}S` } },
+    where: {
+      userId: ownerUserId,
+      name: { startsWith: `${QA_MATRIX_NAME_PREFIX}S` },
+    },
     include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
   });
 
@@ -446,7 +451,10 @@ async function checkListFixtures(
 ): Promise<PreflightCheck> {
   const problems: string[] = [];
   const rows = await input.prisma.stockList.findMany({
-    where: { userId: ownerUserId, name: { startsWith: `${QA_MATRIX_NAME_PREFIX}L` } },
+    where: {
+      userId: ownerUserId,
+      name: { startsWith: `${QA_MATRIX_NAME_PREFIX}L` },
+    },
     include: {
       items: { include: { security: true, buyWindows: true } },
     },
@@ -666,10 +674,7 @@ function checkFixtureCompleteness(input: PreflightInput): PreflightCheck {
  */
 function checkProductHorizon(input: PreflightInput): PreflightCheck {
   const problems: string[] = [];
-  const horizonStart = subtractYears(
-    input.asOfDate,
-    BACKTEST_MAX_PERIOD_YEARS,
-  );
+  const horizonStart = subtractYears(input.asOfDate, BACKTEST_MAX_PERIOD_YEARS);
   /**
    * The horizon the **loader** will actually enforce, from the real clock — not the pinned one.
    *
@@ -715,7 +720,12 @@ function checkProductHorizon(input: PreflightInput): PreflightCheck {
     problems,
     `every period inside [${horizonStart}, ${input.asOfDate}], and inside the loader's own ` +
       `horizon from ${loaderHorizonStart}`,
-    { horizonStart, loaderHorizonStart, asOfDate: input.asOfDate, today: input.today },
+    {
+      horizonStart,
+      loaderHorizonStart,
+      asOfDate: input.asOfDate,
+      today: input.today,
+    },
   );
 }
 
@@ -1022,7 +1032,10 @@ async function checkSecurityCoverage(
       }
     }
     const requiredTo = calendar?.onOrBefore(
-      security.periods.reduce((max, p) => (p.end > max ? p.end : max), "0000-01-01"),
+      security.periods.reduce(
+        (max, p) => (p.end > max ? p.end : max),
+        "0000-01-01",
+      ),
     );
     if (requiredTo && to < requiredTo) {
       problems.push(
@@ -1156,7 +1169,9 @@ async function checkFundamentalsCoverage(
       ? [
           `${missing.length} securities carry no financial statements (${missing
             .slice(0, 8)
-            .join(", ")}${missing.length > 8 ? ", …" : ""}); their valuation predicates stay NOT_EVALUABLE.`,
+            .join(
+              ", ",
+            )}${missing.length > 8 ? ", …" : ""}); their valuation predicates stay NOT_EVALUABLE.`,
         ]
       : [];
 

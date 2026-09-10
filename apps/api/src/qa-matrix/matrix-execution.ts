@@ -117,7 +117,11 @@ export async function resolveMatrixFixtureIds(
     }
     stockListIdByFixtureId.set(fixture.id, id);
   }
-  return { ownerUserId: owner.id, strategyIdByFixtureId, stockListIdByFixtureId };
+  return {
+    ownerUserId: owner.id,
+    strategyIdByFixtureId,
+    stockListIdByFixtureId,
+  };
 }
 
 /**
@@ -193,9 +197,7 @@ export async function awaitTerminalRun(
         failure: `Still ${run.status} after ${Math.round(options.timeoutMs / 1000)}s.`,
       };
     }
-    await new Promise((resolve) =>
-      setTimeout(resolve, options.pollIntervalMs),
-    );
+    await new Promise((resolve) => setTimeout(resolve, options.pollIntervalMs));
   }
 }
 
@@ -277,7 +279,9 @@ export class MatrixSeriesCache {
     return new Map(
       securityIds
         .map((id) => [id, this.firstPrices.get(id)] as const)
-        .filter((entry): entry is readonly [string, string] => entry[1] !== undefined),
+        .filter(
+          (entry): entry is readonly [string, string] => entry[1] !== undefined,
+        ),
     );
   }
 }
@@ -335,6 +339,14 @@ export async function collectRunEvidence(
         finalPositionsValue: required(run.summary.finalPositionsValue),
         finalValue: required(run.summary.finalValue),
         netProfit: required(run.summary.netProfit),
+        portfolioReturnPercent: required(run.summary.portfolioReturnPercent),
+        benchmarkReturnPercent: num(run.summary.benchmarkReturnPercent),
+        alphaPercent: num(run.summary.alphaPercent),
+        portfolioCagrPercent: num(run.summary.portfolioCagrPercent),
+        maxDrawdownPercent: required(run.summary.maxDrawdownPercent),
+        benchmarkMaxDrawdownPercent: num(
+          run.summary.benchmarkMaxDrawdownPercent,
+        ),
         realizedPnl: required(run.summary.realizedPnl),
         unrealizedPnl: required(run.summary.unrealizedPnl),
         totalTrades: run.summary.totalTrades,
@@ -361,49 +373,51 @@ export async function collectRunEvidence(
     monthlyContribution: required(run.monthlyContribution),
     maximumPositions: run.maximumPositions,
     summary,
-    equity: equity.map(
-      (row): EvidenceEquity => ({
-        date: day(row.date),
-        cash: required(row.cash),
-        positionsValue: required(row.positionsValue),
-        totalValue: required(row.totalValue),
-        investedCapital: required(row.investedCapital),
-        benchmarkValue: num(row.benchmarkValue),
-        cashBaselineValue: required(row.cashBaselineValue),
-        openPositions: row.openPositions,
-      }),
-    ),
-    trades: trades.map(
-      (row): EvidenceTrade => ({
-        sequence: row.sequence,
-        date: day(row.date),
-        securityId: row.securityId,
-        symbol: row.symbol,
-        action: row.action as EvidenceTrade["action"],
-        levelId: row.levelId,
-        levelPercentage: row.levelPercentage,
-        shares: required(row.shares),
-        price: required(row.price),
-        amount: required(row.amount),
-        fees: required(row.fees),
-        realizedPnl: num(row.realizedPnl),
-        cashAfter: required(row.cashAfter),
-        sharesAfter: required(row.sharesAfter),
-        averageCostAfter: num(row.averageCostAfter),
-      }),
-    ),
-    positions: positions.map(
-      (row): EvidencePosition => ({
-        securityId: row.securityId,
-        symbol: row.symbol,
-        openedDate: day(row.openedDate),
-        shares: required(row.shares),
-        averageCost: required(row.averageCost),
-        lastPrice: required(row.lastPrice),
-        marketValue: required(row.marketValue),
-        unrealizedPnl: required(row.unrealizedPnl),
-      }),
-    ),
+    equity: equity.map((row): EvidenceEquity => ({
+      date: day(row.date),
+      cash: required(row.cash),
+      positionsValue: required(row.positionsValue),
+      totalValue: required(row.totalValue),
+      investedCapital: required(row.investedCapital),
+      returnIndex: required(row.returnIndex),
+      benchmarkIndex: num(row.benchmarkIndex),
+      benchmarkValue: num(row.benchmarkValue),
+      cashBaselineValue: required(row.cashBaselineValue),
+      openPositions: row.openPositions,
+    })),
+    trades: trades.map((row): EvidenceTrade => ({
+      sequence: row.sequence,
+      date: day(row.date),
+      securityId: row.securityId,
+      symbol: row.symbol,
+      name: row.name,
+      action: row.action as EvidenceTrade["action"],
+      levelId: row.levelId,
+      levelPercentage: row.levelPercentage,
+      shares: required(row.shares),
+      price: required(row.price),
+      amount: required(row.amount),
+      fees: required(row.fees),
+      realizedPnl: num(row.realizedPnl),
+      realizedPnlPercent: num(row.realizedPnlPercent),
+      cashAfter: required(row.cashAfter),
+      sharesAfter: required(row.sharesAfter),
+      averageCostAfter: num(row.averageCostAfter),
+    })),
+    positions: positions.map((row): EvidencePosition => ({
+      securityId: row.securityId,
+      symbol: row.symbol,
+      name: row.name,
+      openedDate: day(row.openedDate),
+      shares: required(row.shares),
+      averageCost: required(row.averageCost),
+      lastPrice: required(row.lastPrice),
+      lastPriceDate: day(row.lastPriceDate),
+      marketValue: required(row.marketValue),
+      unrealizedPnl: required(row.unrealizedPnl),
+      unrealizedPnlPercent: required(row.unrealizedPnlPercent),
+      allocationPercent: required(row.allocationPercent),
+    })),
     executionCalendarDates: calendarDates,
     benchmarkCloses,
     firstPriceDateBySecurityId,

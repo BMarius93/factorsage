@@ -43,14 +43,15 @@ async function preflight(
 const check = (
   report: QaMatrixPreflightReport,
   id: string,
-): PreflightCheck | undefined =>
-  report.checks.find((entry) => entry.id === id);
+): PreflightCheck | undefined => report.checks.find((entry) => entry.id === id);
 
 describe("a healthy matrix environment", () => {
   it("is green, and says what it checked", async () => {
     const report = await preflight();
     const failures = report.checks.filter((entry) => entry.status === "FAIL");
-    expect(failures.map((entry) => `${entry.id}: ${entry.problems?.join("; ")}`)).toEqual([]);
+    expect(
+      failures.map((entry) => `${entry.id}: ${entry.problems?.join("; ")}`),
+    ).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.failed).toBe(0);
   });
@@ -148,7 +149,9 @@ describe("preflight rejection", () => {
   it("refuses a list member with no catalog identity", async () => {
     const report = await preflight({ missingSymbols: ["NVDA"] });
     expect(check(report, "missing-symbols")?.status).toBe("FAIL");
-    expect(check(report, "missing-symbols")?.problems?.join(" ")).toContain("NVDA");
+    expect(check(report, "missing-symbols")?.problems?.join(" ")).toContain(
+      "NVDA",
+    );
   });
 
   it("refuses a security whose price history starts after a run does", async () => {
@@ -175,12 +178,16 @@ describe("preflight rejection", () => {
     const report = await preflight({ staleDerivedVariant: true });
     const revisions = check(report, "dataset-revisions");
     expect(revisions?.status).toBe("FAIL");
-    expect(revisions?.problems?.join(" ")).toContain("recalculated during the sweep");
+    expect(revisions?.problems?.join(" ")).toContain(
+      "recalculated during the sweep",
+    );
   });
 
   it("refuses an unapplied migration", async () => {
     const report = await preflight({
-      unappliedMigrations: ["20260909093000_add_backtest_absolute_comparison_values"],
+      unappliedMigrations: [
+        "20260909093000_add_backtest_absolute_comparison_values",
+      ],
     });
     expect(check(report, "migrations")?.status).toBe("FAIL");
   });
@@ -234,7 +241,7 @@ describe("environment safety, as a reported check", () => {
       fixtures: FIXTURES,
       asOfDate: AS_OF,
       ownerEmail: "qa-user@factorsage.test",
-    today: AS_OF,
+      today: AS_OF,
       repositoryRoot: repositoryRoot(),
     });
 
@@ -243,9 +250,9 @@ describe("environment safety, as a reported check", () => {
     // would compare the matrix with itself and report an isolation it never verified.
     const report = await withEnvironment({});
     expect(check(report, "environment-safety")?.status).toBe("PASS");
-    expect(check(report, "environment-safety")?.facts?.developmentDatabase).toContain(
-      "intrinsic_value",
-    );
+    expect(
+      check(report, "environment-safety")?.facts?.developmentDatabase,
+    ).toContain("intrinsic_value");
   });
 
   it("fails when the matrix Redis shares the development stack's logical database", async () => {
@@ -261,9 +268,9 @@ describe("environment safety, as a reported check", () => {
     const asDevelopment = await withEnvironment({
       developmentDatabaseUrl: MATRIX_ENVIRONMENT.databaseUrl,
     });
-    expect(check(asDevelopment, "environment-safety")?.problems?.join(" ")).toContain(
-      "equals DATABASE_URL",
-    );
+    expect(
+      check(asDevelopment, "environment-safety")?.problems?.join(" "),
+    ).toContain("equals DATABASE_URL");
     const asTest = await withEnvironment({
       testDatabaseUrl: MATRIX_ENVIRONMENT.databaseUrl,
     });

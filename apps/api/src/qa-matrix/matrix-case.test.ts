@@ -26,7 +26,9 @@ const FIXTURES = qaMatrixFixtures("2026-09-09");
 
 describe("matrix enumeration", () => {
   it("enumerates exactly one thousand combinations", () => {
-    expect(qaMatrixCases(FIXTURES)).toHaveLength(QA_MATRIX_EXPECTED_COMBINATIONS);
+    expect(qaMatrixCases(FIXTURES)).toHaveLength(
+      QA_MATRIX_EXPECTED_COMBINATIONS,
+    );
     expect(QA_MATRIX_TOTAL_CASES).toBe(1_000);
   });
 
@@ -49,8 +51,12 @@ describe("matrix enumeration", () => {
   });
 
   it("is deterministic: two enumerations of one clock are the same sequence", () => {
-    const first = qaMatrixCases(qaMatrixFixtures("2026-09-09")).map((e) => e.label);
-    const second = qaMatrixCases(qaMatrixFixtures("2026-09-09")).map((e) => e.label);
+    const first = qaMatrixCases(qaMatrixFixtures("2026-09-09")).map(
+      (e) => e.label,
+    );
+    const second = qaMatrixCases(qaMatrixFixtures("2026-09-09")).map(
+      (e) => e.label,
+    );
     expect(first).toEqual(second);
   });
 
@@ -59,7 +65,9 @@ describe("matrix enumeration", () => {
   });
 
   it("carries the configuration a runner submits", () => {
-    const entry = qaMatrixCases(FIXTURES).find((e) => e.caseId === "S03-L07-C04");
+    const entry = qaMatrixCases(FIXTURES).find(
+      (e) => e.caseId === "S03-L07-C04",
+    );
     expect(entry?.combination.config.request.maximumPositions).toBe(10);
     expect(entry?.combination.strategy.id).toBe("S03");
     expect(entry?.combination.list.id).toBe("L07");
@@ -174,7 +182,9 @@ describe("the warm-up set", () => {
         list.members.map((member) => member.symbol),
       ),
     );
-    expect([...everySymbol].filter((symbol) => !covered.has(symbol))).toEqual([]);
+    expect([...everySymbol].filter((symbol) => !covered.has(symbol))).toEqual(
+      [],
+    );
   });
 
   it("stays small: it is a precondition, not a second sweep", () => {
@@ -196,8 +206,8 @@ describe("the warm-up set", () => {
     expect(qaMatrixWarmupCases(cases).map((entry) => entry.caseId)).toEqual(
       warmup.map((entry) => entry.caseId),
     );
-    expect([...warmup].sort((a, b) => a.index - b.index).map((e) => e.caseId)).toEqual(
-      warmup.map((e) => e.caseId),
-    );
+    expect(
+      [...warmup].sort((a, b) => a.index - b.index).map((e) => e.caseId),
+    ).toEqual(warmup.map((e) => e.caseId));
   });
 });

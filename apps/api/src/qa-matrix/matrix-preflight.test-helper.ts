@@ -7,7 +7,10 @@ import {
   DAILY_PRICE_VARIANT_FAMILY,
   PRICE_DATASET_VERSION,
 } from "@intrinsic/stock-data";
-import { QA_MATRIX_SECURITIES, type QaMatrixFixtures } from "@intrinsic/testing";
+import {
+  QA_MATRIX_SECURITIES,
+  type QaMatrixFixtures,
+} from "@intrinsic/testing";
 import { repositoryRoot } from "./matrix-paths";
 import type { MatrixEnvironment } from "./matrix-environment";
 
@@ -98,7 +101,9 @@ export function stubPrisma(
     if (late) {
       return late;
     }
-    const fixture = QA_MATRIX_SECURITIES.find((entry) => entry.symbol === symbol);
+    const fixture = QA_MATRIX_SECURITIES.find(
+      (entry) => entry.symbol === symbol,
+    );
     return fixture && fixture.coverage === "LATER_LISTING"
       ? fixture.listedOn
       : "1992-01-02";
@@ -107,7 +112,9 @@ export function stubPrisma(
   const symbolOfSecurityId = (id: string): string => id.replace(/^sec-/, "");
 
   const strategies = fixtures.strategies
-    .filter((fixture) => !(options.missingStrategies ?? []).includes(fixture.id))
+    .filter(
+      (fixture) => !(options.missingStrategies ?? []).includes(fixture.id),
+    )
     .map((fixture) => ({
       id: `strategy-${fixture.id}`,
       name: fixture.name,
@@ -146,7 +153,8 @@ export function stubPrisma(
       if (sql.includes("current_database")) {
         return [
           {
-            database: options.connectedDatabase ?? MATRIX_ENVIRONMENT.databaseName,
+            database:
+              options.connectedDatabase ?? MATRIX_ENVIRONMENT.databaseName,
             server: "127.0.0.1",
           },
         ];
@@ -161,7 +169,9 @@ export function stubPrisma(
     },
     user: {
       findFirst: async () =>
-        options.noOwner ? null : { id: "qa-user", email: "qa-user@factorsage.test" },
+        options.noOwner
+          ? null
+          : { id: "qa-user", email: "qa-user@factorsage.test" },
     },
     strategy: { findMany: async () => strategies },
     stockList: { findMany: async () => lists },
@@ -174,7 +184,8 @@ export function stubPrisma(
       }),
     },
     benchmarkDailyPrice: {
-      findMany: async () => calendarDates.map((date) => ({ date: asDate(date) })),
+      findMany: async () =>
+        calendarDates.map((date) => ({ date: asDate(date) })),
       aggregate: async () => ({
         _min: { date: calendarDates[0] ? asDate(calendarDates[0]) : null },
         _max: { date: asDate(lastPrice) },
@@ -186,7 +197,9 @@ export function stubPrisma(
         where.symbol.in
           .filter((symbol) => !missingSymbols.has(symbol))
           .map((symbol) => {
-            const fixture = QA_MATRIX_SECURITIES.find((e) => e.symbol === symbol);
+            const fixture = QA_MATRIX_SECURITIES.find(
+              (e) => e.symbol === symbol,
+            );
             return {
               id: securityIdOf(symbol),
               symbol,
@@ -222,7 +235,11 @@ export function stubPrisma(
         noStatements.has(symbolOfSecurityId(where.securityId)) ? 0 : 500,
     },
     stockDatasetState: {
-      findMany: async ({ where }: { where: { securityId: { in: string[] } } }) =>
+      findMany: async ({
+        where,
+      }: {
+        where: { securityId: { in: string[] } };
+      }) =>
         where.securityId.in.flatMap((securityId) => [
           {
             securityId,

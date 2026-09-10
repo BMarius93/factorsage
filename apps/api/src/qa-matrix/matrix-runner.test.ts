@@ -15,7 +15,7 @@ import {
   type MatrixCaseResult,
   type MatrixRunnerPorts,
 } from "./matrix-runner";
-import { emptyEvidence } from "./matrix-evidence.test-helper";
+import { completeEvidence, emptyEvidence } from "./matrix-evidence.test-helper";
 
 /**
  * The orchestration, without a database, a worker or a backtest.
@@ -353,50 +353,21 @@ describe("aggregation", () => {
 });
 
 describe("determinism comparison", () => {
+  /**
+   * The shape only. Field-by-field coverage lives in `matrix-determinism.test.ts`, which mutates
+   * every persisted column of every result table one at a time — the property that actually makes
+   * "two executions were identical" a statement rather than a hope.
+   */
   const base = (): RunEvidence =>
-    emptyEvidence({
-      runId: "run-1",
-      caseId: "S01-L01-C04",
-      equity: [
-        {
-          date: "2026-01-02",
-          cash: "100.000000",
-          positionsValue: "0.000000",
-          totalValue: "100.000000",
-          investedCapital: "100.000000",
-          benchmarkValue: "100.000000",
-          cashBaselineValue: "100.000000",
-          openPositions: 0,
-        },
-      ],
-      trades: [
-        {
-          sequence: 0,
-          date: "2026-01-02",
-          securityId: "sec-1",
-          symbol: "AAPL",
-          action: "BUY",
-          levelId: "b1",
-          levelPercentage: 100,
-          shares: "1.0000000000",
-          price: "10.00000000",
-          amount: "10.000000",
-          fees: "0.000000",
-          realizedPnl: null,
-          cashAfter: "90.000000",
-          sharesAfter: "1.0000000000",
-          averageCostAfter: "10.00000000",
-        },
-      ],
-    });
+    completeEvidence({ runId: "run-1", caseId: "S01-L01-C04" });
 
   it("accepts two identical executions and ignores operational identity", () => {
-    const first = base();
-    const second = { ...base(), runId: "run-2" };
-    expect(compareForDeterminism(first, second)).toEqual([]);
+    expect(
+      compareForDeterminism(base(), { ...base(), runId: "run-2" }),
+    ).toEqual([]);
   });
 
-  it("reports a differing trade", () => {
+  it("names the field that differs rather than only the record", () => {
     const second = base();
     const differences = compareForDeterminism(base(), {
       ...second,
@@ -407,45 +378,8 @@ describe("determinism comparison", () => {
         },
       ],
     });
-    expect(differences.join(" ")).toContain("shares");
-  });
-
-  it("reports a differing equity row and a differing summary", () => {
-    const second = base();
-    expect(
-      compareForDeterminism(base(), {
-        ...second,
-        equity: [
-          {
-            ...(second.equity[0] as (typeof second.equity)[number]),
-            totalValue: "101.000000",
-          },
-        ],
-      }),
-    ).toContain("equity 2026-01-02 differs");
-    expect(
-      compareForDeterminism(base(), {
-        ...second,
-        summary: {
-          firstSimulatedDate: "2026-01-02",
-          lastSimulatedDate: "2026-01-02",
-          tradingDays: 1,
-          investedCapital: "100.000000",
-          finalCash: "90.000000",
-          finalPositionsValue: "10.000000",
-          finalValue: "100.000000",
-          netProfit: "0.000000",
-          realizedPnl: "0.000000",
-          unrealizedPnl: "0.000000",
-          totalTrades: 1,
-          buyTrades: 1,
-          sellTrades: 0,
-          finalExitTrades: 0,
-          winningTrades: 0,
-          losingTrades: 0,
-          openPositions: 1,
-        },
-      }),
-    ).toContain("summary differs");
+    expect(differences).toEqual([
+      "trade #1 shares: 10.0000000000 vs 2.0000000000",
+    ]);
   });
 });

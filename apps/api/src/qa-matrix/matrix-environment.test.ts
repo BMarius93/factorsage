@@ -25,7 +25,8 @@ const BASE: NodeJS.ProcessEnv = {
   NODE_ENV: "development",
   DATABASE_URL: "postgresql://u:p@localhost:5432/intrinsic_value",
   TEST_DATABASE_URL: "postgresql://u:p@localhost:5432/intrinsic_value_test",
-  QA_MATRIX_DATABASE_URL: "postgresql://u:p@localhost:5432/intrinsic_value_matrix",
+  QA_MATRIX_DATABASE_URL:
+    "postgresql://u:p@localhost:5432/intrinsic_value_matrix",
   REDIS_URL: "redis://localhost:6379",
 };
 
@@ -76,7 +77,8 @@ describe("matrix environment safety", () => {
   it("refuses a remote host unless it is explicitly allowed", () => {
     const remote = {
       ...BASE,
-      QA_MATRIX_DATABASE_URL: "postgresql://u:p@db.example.com:5432/value_matrix",
+      QA_MATRIX_DATABASE_URL:
+        "postgresql://u:p@db.example.com:5432/value_matrix",
     };
     expect(() => resolveMatrixEnvironment(remote)).toThrow(/not a local host/);
     expect(
@@ -114,7 +116,9 @@ describe("matrix Redis isolation", () => {
   });
 
   it("honours an explicit index", () => {
-    expect(resolveMatrixRedis({ ...BASE, QA_MATRIX_REDIS_DB: "7" }).redisDb).toBe(7);
+    expect(
+      resolveMatrixRedis({ ...BASE, QA_MATRIX_REDIS_DB: "7" }).redisDb,
+    ).toBe(7);
   });
 
   it("refuses to share the development stack's logical database", () => {
@@ -183,7 +187,9 @@ describe("matrix concurrency", () => {
 
   it("prefers an explicit flag, then the environment, then the machine", () => {
     expect(resolveMatrixConcurrency("6", {})).toBe(6);
-    expect(resolveMatrixConcurrency(undefined, { QA_MATRIX_CONCURRENCY: "2" })).toBe(2);
+    expect(
+      resolveMatrixConcurrency(undefined, { QA_MATRIX_CONCURRENCY: "2" }),
+    ).toBe(2);
     expect(resolveMatrixConcurrency(undefined, {})).toBeGreaterThanOrEqual(1);
   });
 

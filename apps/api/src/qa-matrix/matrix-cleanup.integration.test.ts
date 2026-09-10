@@ -110,8 +110,14 @@ describe("matrix run retention", () => {
   it("deletes the QA account's matrix runs and nothing else", async () => {
     const matrixRun = await createRun(qaUserId, runNames.matrix);
     const ordinaryRun = await createRun(qaUserId, runNames.ordinary);
-    const hybridA = await createRun(qaUserId, runNames.matrixStrategyPersonalList);
-    const hybridB = await createRun(qaUserId, runNames.personalStrategyMatrixList);
+    const hybridA = await createRun(
+      qaUserId,
+      runNames.matrixStrategyPersonalList,
+    );
+    const hybridB = await createRun(
+      qaUserId,
+      runNames.personalStrategyMatrixList,
+    );
     const otherUsersMatrixRun = await createRun(otherUserId, runNames.matrix);
 
     expect(await countMatrixRuns(prisma, qaUserId)).toBe(1);
@@ -142,10 +148,16 @@ describe("matrix run retention", () => {
     const result = await cleanupMatrixRuns(prisma, qaUserId, [keep]);
     expect(result.deleted).toBe(1);
     expect(
-      await prisma.backtestRun.findUnique({ where: { id: keep }, select: { id: true } }),
+      await prisma.backtestRun.findUnique({
+        where: { id: keep },
+        select: { id: true },
+      }),
     ).not.toBeNull();
     expect(
-      await prisma.backtestRun.findUnique({ where: { id: drop }, select: { id: true } }),
+      await prisma.backtestRun.findUnique({
+        where: { id: drop },
+        select: { id: true },
+      }),
     ).toBeNull();
   });
 
@@ -169,8 +181,12 @@ describe("matrix run retention", () => {
     }
 
     await cleanupMatrixRuns(prisma, qaUserId);
-    expect(await prisma.backtestDailyEquity.count({ where: { runId } })).toBe(0);
-    expect(await prisma.backtestDailyEquity.count({ where: { runId: keptRunId } })).toBe(1);
+    expect(await prisma.backtestDailyEquity.count({ where: { runId } })).toBe(
+      0,
+    );
+    expect(
+      await prisma.backtestDailyEquity.count({ where: { runId: keptRunId } }),
+    ).toBe(1);
   });
 
   it("is a no-op on an account with no matrix runs", async () => {

@@ -72,7 +72,10 @@ export class MatrixWorkerPool {
 
   /** The worker entry point, built. A source-only run would be a different process to production. */
   private workerEntryPoint(): string {
-    const entry = join(this.options.repositoryRoot, "apps/worker/dist/index.js");
+    const entry = join(
+      this.options.repositoryRoot,
+      "apps/worker/dist/index.js",
+    );
     if (!existsSync(entry)) {
       throw new Error(
         `The backtest worker is not built (${entry} does not exist). The matrix executes runs ` +

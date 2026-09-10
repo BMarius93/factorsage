@@ -25,11 +25,11 @@ export function defaultMatrixConcurrency(
   totalMemoryBytes = totalmem(),
 ): number {
   const byCpu = Math.max(1, Math.floor(cpuCount / 2));
-  const byMemory = Math.max(1, Math.floor(totalMemoryBytes / (2 * 1024 ** 3)) - 1);
-  return Math.max(
+  const byMemory = Math.max(
     1,
-    Math.min(MATRIX_MAX_DEFAULT_CONCURRENCY, byCpu, byMemory),
+    Math.floor(totalMemoryBytes / (2 * 1024 ** 3)) - 1,
   );
+  return Math.max(1, Math.min(MATRIX_MAX_DEFAULT_CONCURRENCY, byCpu, byMemory));
 }
 
 export class MatrixConcurrencyConfigError extends Error {

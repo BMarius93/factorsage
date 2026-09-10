@@ -152,11 +152,20 @@ function archive(
  * digits rather than a float64 rendering of them. At C08 magnitudes the difference is the whole
  * question: a $334bn portfolio is 18 significant digits and float64 carries about 15.95.
  */
+/**
+ * One persisted trade row, in full.
+ *
+ * "In full" is the point: the determinism comparison is only the literal statement it claims to be
+ * if the evidence carries every column the database holds. Fields no invariant re-derives — the
+ * denormalized `name`, the `realizedPnlPercent` ratio — are here because two executions of the same
+ * case must agree about them too.
+ */
 export type EvidenceTrade = {
   readonly sequence: number;
   readonly date: string;
   readonly securityId: string;
   readonly symbol: string;
+  readonly name: string;
   readonly action: "BUY" | "SELL" | "FINAL_EXIT";
   readonly levelId: string | null;
   readonly levelPercentage: number | null;
@@ -165,6 +174,7 @@ export type EvidenceTrade = {
   readonly amount: string;
   readonly fees: string;
   readonly realizedPnl: string | null;
+  readonly realizedPnlPercent: string | null;
   readonly cashAfter: string;
   readonly sharesAfter: string;
   readonly averageCostAfter: string | null;
@@ -176,6 +186,9 @@ export type EvidenceEquity = {
   readonly positionsValue: string;
   readonly totalValue: string;
   readonly investedCapital: string;
+  /** The time-weighted index the chart draws. Ten decimals, so carried as a string like the rest. */
+  readonly returnIndex: string;
+  readonly benchmarkIndex: string | null;
   readonly benchmarkValue: string | null;
   readonly cashBaselineValue: string;
   readonly openPositions: number;
@@ -184,12 +197,16 @@ export type EvidenceEquity = {
 export type EvidencePosition = {
   readonly securityId: string;
   readonly symbol: string;
+  readonly name: string;
   readonly openedDate: string;
   readonly shares: string;
   readonly averageCost: string;
   readonly lastPrice: string;
+  readonly lastPriceDate: string;
   readonly marketValue: string;
   readonly unrealizedPnl: string;
+  readonly unrealizedPnlPercent: string;
+  readonly allocationPercent: string;
 };
 
 export type EvidenceSummary = {
@@ -201,6 +218,12 @@ export type EvidenceSummary = {
   readonly finalPositionsValue: string;
   readonly finalValue: string;
   readonly netProfit: string;
+  readonly portfolioReturnPercent: string;
+  readonly benchmarkReturnPercent: string | null;
+  readonly alphaPercent: string | null;
+  readonly portfolioCagrPercent: string | null;
+  readonly maxDrawdownPercent: string;
+  readonly benchmarkMaxDrawdownPercent: string | null;
   readonly realizedPnl: string;
   readonly unrealizedPnl: string;
   readonly totalTrades: number;

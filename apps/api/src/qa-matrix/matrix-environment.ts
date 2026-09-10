@@ -257,7 +257,9 @@ export function resolveMatrixRedis(env: NodeJS.ProcessEnv = process.env): {
   redisDb: number;
 } {
   const configuredDb = env[MATRIX_REDIS_DB_ENV]?.trim();
-  const matrixDb = configuredDb ? Number(configuredDb) : DEFAULT_MATRIX_REDIS_DB;
+  const matrixDb = configuredDb
+    ? Number(configuredDb)
+    : DEFAULT_MATRIX_REDIS_DB;
   if (!Number.isInteger(matrixDb) || matrixDb < 0 || matrixDb > 15) {
     throw new MatrixEnvironmentError(
       `${MATRIX_REDIS_DB_ENV} must be an integer Redis database index between 0 and 15; received ` +
@@ -287,9 +289,7 @@ export function resolveMatrixRedis(env: NodeJS.ProcessEnv = process.env): {
   }
 
   const resolvedDb = redisDatabaseIndexOf(url);
-  const developmentDb = baseUrl
-    ? redisDatabaseIndexOf(new URL(baseUrl))
-    : null;
+  const developmentDb = baseUrl ? redisDatabaseIndexOf(new URL(baseUrl)) : null;
   if (
     developmentDb !== null &&
     resolvedDb === developmentDb &&

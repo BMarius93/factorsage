@@ -372,12 +372,149 @@ export function aggregateMatrixResults(
 }
 
 /**
+ * Proves at compile time that a field list names every key of a type.
+ *
+ * The determinism comparison exists to say "these two executions are identical", and that is only
+ * true of the fields it actually reads. The one this replaced read thirteen of a trade's fifteen
+ * columns, seven of an equity row's ten and six of a position's twelve — and nothing anywhere said
+ * so. Adding a column to a result table is now a compile error until it is named here.
+ */
+function everyFieldOf<T>() {
+  return <K extends readonly (keyof T)[]>(
+    keys: K &
+      ([Exclude<keyof T, K[number]>] extends [never]
+        ? unknown
+        : {
+            readonly __missingFields: Exclude<keyof T, K[number]>;
+          }),
+  ): readonly (keyof T)[] => keys as readonly (keyof T)[];
+}
+
+const TRADE_FIELDS = everyFieldOf<RunEvidence["trades"][number]>()([
+  "sequence",
+  "date",
+  "securityId",
+  "symbol",
+  "name",
+  "action",
+  "levelId",
+  "levelPercentage",
+  "shares",
+  "price",
+  "amount",
+  "fees",
+  "realizedPnl",
+  "realizedPnlPercent",
+  "cashAfter",
+  "sharesAfter",
+  "averageCostAfter",
+] as const);
+
+const EQUITY_FIELDS = everyFieldOf<RunEvidence["equity"][number]>()([
+  "date",
+  "cash",
+  "positionsValue",
+  "totalValue",
+  "investedCapital",
+  "returnIndex",
+  "benchmarkIndex",
+  "benchmarkValue",
+  "cashBaselineValue",
+  "openPositions",
+] as const);
+
+const POSITION_FIELDS = everyFieldOf<RunEvidence["positions"][number]>()([
+  "securityId",
+  "symbol",
+  "name",
+  "openedDate",
+  "shares",
+  "averageCost",
+  "lastPrice",
+  "lastPriceDate",
+  "marketValue",
+  "unrealizedPnl",
+  "unrealizedPnlPercent",
+  "allocationPercent",
+] as const);
+
+const SUMMARY_FIELDS = everyFieldOf<NonNullable<RunEvidence["summary"]>>()([
+  "firstSimulatedDate",
+  "lastSimulatedDate",
+  "tradingDays",
+  "investedCapital",
+  "finalCash",
+  "finalPositionsValue",
+  "finalValue",
+  "netProfit",
+  "portfolioReturnPercent",
+  "benchmarkReturnPercent",
+  "alphaPercent",
+  "portfolioCagrPercent",
+  "maxDrawdownPercent",
+  "benchmarkMaxDrawdownPercent",
+  "realizedPnl",
+  "unrealizedPnl",
+  "totalTrades",
+  "buyTrades",
+  "sellTrades",
+  "finalExitTrades",
+  "winningTrades",
+  "losingTrades",
+  "openPositions",
+] as const);
+
+/**
+ * The run-level facts two executions of the same case must agree about.
+ *
+ * Deliberately not every key of `RunEvidence`: `runId` and `caseId` are operational identity,
+ * `failureMessage` can carry a run id or a timestamp, and the snapshot, calendar, benchmark bars
+ * and listing dates are *inputs* rather than results — the preflight and the pinned dataset are
+ * what make those the same, and re-asserting them here would report an environment change as a
+ * determinism failure.
+ */
+const RUN_FIELDS = [
+  "status",
+  "failureCode",
+  "failurePhase",
+  "startDate",
+  "endDate",
+  "initialCapital",
+  "monthlyContribution",
+  "maximumPositions",
+] as const satisfies readonly (keyof RunEvidence)[];
+
+/** Canonical values are compared as the strings they are stored as. Never through a float. */
+const show = (value: unknown): string =>
+  value === null || value === undefined ? "null" : String(value);
+
+function compareRecords<T>(
+  label: string,
+  fields: readonly (keyof T)[],
+  first: T,
+  second: T,
+  differences: string[],
+): void {
+  for (const field of fields) {
+    if (first[field] !== second[field]) {
+      differences.push(
+        `${label} ${String(field)}: ${show(first[field])} vs ${show(second[field])}`,
+      );
+    }
+  }
+}
+
+/**
  * Compares two executions of the same case for determinism.
  *
- * Trades, the equity curve, the final positions and the summary must be identical from the same
- * canonical data. Operational facts — the run id, the worker that claimed it, timings — must not be
- * compared: they are legitimately different every time, and a determinism check that flagged them
- * would be noise that trains a reader to ignore it.
+ * Every persisted financial and result field in the trade log, the daily equity curve, the final
+ * positions and the summary, compared as the canonical strings they are stored as. Operational
+ * facts — the run id, the job, the worker that claimed it, timings — are excluded: they are
+ * legitimately different every time, and a check that flagged them would be noise that trains a
+ * reader to ignore it.
+ *
+ * Positions are matched by security rather than by list order, because the persisted rows carry no
+ * ordering of their own and a reordering is not a difference in what the run computed.
  */
 export function compareForDeterminism(
   first: RunEvidence,
@@ -385,36 +522,27 @@ export function compareForDeterminism(
 ): readonly string[] {
   const differences: string[] = [];
 
+  for (const field of RUN_FIELDS) {
+    if (first[field] !== second[field]) {
+      differences.push(
+        `run ${field}: ${show(first[field])} vs ${show(second[field])}`,
+      );
+    }
+  }
+
   if (first.trades.length !== second.trades.length) {
     differences.push(
-      `trade count ${first.trades.length} vs ${second.trades.length}`,
+      `trade count: ${first.trades.length} vs ${second.trades.length}`,
     );
   } else {
     for (let index = 0; index < first.trades.length; index += 1) {
-      const a = first.trades[index] as (typeof first.trades)[number];
-      const b = second.trades[index] as (typeof second.trades)[number];
-      const fields: (keyof typeof a)[] = [
-        "sequence",
-        "date",
-        "symbol",
-        "action",
-        "levelId",
-        "levelPercentage",
-        "shares",
-        "price",
-        "amount",
-        "realizedPnl",
-        "cashAfter",
-        "sharesAfter",
-        "averageCostAfter",
-      ];
-      for (const field of fields) {
-        if (a[field] !== b[field]) {
-          differences.push(
-            `trade #${index} ${String(field)}: ${String(a[field])} vs ${String(b[field])}`,
-          );
-        }
-      }
+      compareRecords(
+        `trade #${index + 1}`,
+        TRADE_FIELDS,
+        first.trades[index] as RunEvidence["trades"][number],
+        second.trades[index] as RunEvidence["trades"][number],
+        differences,
+      );
       if (differences.length > 20) {
         break;
       }
@@ -423,46 +551,68 @@ export function compareForDeterminism(
 
   if (first.equity.length !== second.equity.length) {
     differences.push(
-      `equity rows ${first.equity.length} vs ${second.equity.length}`,
+      `equity row count: ${first.equity.length} vs ${second.equity.length}`,
     );
   } else {
     for (let index = 0; index < first.equity.length; index += 1) {
-      const a = first.equity[index] as (typeof first.equity)[number];
-      const b = second.equity[index] as (typeof second.equity)[number];
-      if (
-        a.date !== b.date ||
-        a.cash !== b.cash ||
-        a.positionsValue !== b.positionsValue ||
-        a.totalValue !== b.totalValue ||
-        a.cashBaselineValue !== b.cashBaselineValue ||
-        a.benchmarkValue !== b.benchmarkValue ||
-        a.openPositions !== b.openPositions
-      ) {
-        differences.push(`equity ${a.date} differs`);
-        if (differences.length > 20) {
-          break;
-        }
+      const row = first.equity[index] as RunEvidence["equity"][number];
+      compareRecords(
+        `equity ${row.date}`,
+        EQUITY_FIELDS,
+        row,
+        second.equity[index] as RunEvidence["equity"][number],
+        differences,
+      );
+      if (differences.length > 20) {
+        break;
       }
     }
   }
 
-  const positionKey = (position: (typeof first.positions)[number]): string =>
-    [
-      position.symbol,
-      position.openedDate,
-      position.shares,
-      position.averageCost,
-      position.marketValue,
-      position.unrealizedPnl,
-    ].join("|");
-  const firstPositions = first.positions.map(positionKey).sort().join("\n");
-  const secondPositions = second.positions.map(positionKey).sort().join("\n");
-  if (firstPositions !== secondPositions) {
-    differences.push("final positions differ");
+  const bySecurity = (
+    positions: RunEvidence["positions"],
+  ): ReadonlyMap<string, RunEvidence["positions"][number]> =>
+    new Map(positions.map((position) => [position.securityId, position]));
+  const firstPositions = bySecurity(first.positions);
+  const secondPositions = bySecurity(second.positions);
+  for (const [securityId, position] of firstPositions) {
+    const other = secondPositions.get(securityId);
+    if (!other) {
+      differences.push(
+        `position ${position.symbol} securityId ${securityId}: held in the first execution, absent in the second`,
+      );
+      continue;
+    }
+    compareRecords(
+      `position ${position.symbol}`,
+      POSITION_FIELDS,
+      position,
+      other,
+      differences,
+    );
+  }
+  for (const [securityId, position] of secondPositions) {
+    if (!firstPositions.has(securityId)) {
+      differences.push(
+        `position ${position.symbol} securityId ${securityId}: held in the second execution, absent in the first`,
+      );
+    }
   }
 
-  if (JSON.stringify(first.summary) !== JSON.stringify(second.summary)) {
-    differences.push("summary differs");
+  if ((first.summary === null) !== (second.summary === null)) {
+    differences.push(
+      `summary: ${first.summary === null ? "absent" : "present"} vs ${
+        second.summary === null ? "absent" : "present"
+      }`,
+    );
+  } else if (first.summary && second.summary) {
+    compareRecords(
+      "summary",
+      SUMMARY_FIELDS,
+      first.summary,
+      second.summary,
+      differences,
+    );
   }
 
   return differences;
