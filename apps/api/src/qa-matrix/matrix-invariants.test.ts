@@ -147,7 +147,7 @@ const EQUITY: EvidenceEquity[] = [
     positionsValue: "550.000000",
     totalValue: "1650.000000",
     investedCapital: "1100.000000",
-    benchmarkValue: "1333.330000",
+    benchmarkValue: "1333.333333",
     cashBaselineValue: "1100.000000",
     openPositions: 1,
   },
@@ -201,7 +201,8 @@ function evidence(overrides: Partial<RunEvidence> = {}): RunEvidence {
       },
     ],
     executionCalendarDates: CALENDAR,
-    // 10 shares at 100, then 100 more at 90 -> 11.111... shares, 1,333.33 at 120.
+    // 10 shares at 100, then 100/90 truncated to ten places -> 11.1111111111 shares, which mark
+    // to 1,000.00 at 90 and 1,333.333333 at 120.
     benchmarkCloses: [
       { date: "2026-01-02", close: "100.00000000" },
       { date: "2026-01-05", close: "110.00000000" },
@@ -213,7 +214,10 @@ function evidence(overrides: Partial<RunEvidence> = {}): RunEvidence {
   };
 }
 
-const byId = (results: readonly InvariantResult[], id: number): InvariantResult =>
+const byId = (
+  results: readonly InvariantResult[],
+  id: number,
+): InvariantResult =>
   results.find((entry) => entry.id === id) as InvariantResult;
 
 const failed = (results: readonly InvariantResult[]): number[] =>
@@ -262,7 +266,9 @@ describe("a run that did not complete", () => {
   it("reports the failure once instead of thirty-eight derived failures", () => {
     expect(byId(results, 1).status).toBe("FAIL");
     expect(byId(results, 2).status).toBe("FAIL");
-    expect(byId(results, 2).violations?.join(" ")).toContain("PROVIDER_UNAVAILABLE");
+    expect(byId(results, 2).violations?.join(" ")).toContain(
+      "PROVIDER_UNAVAILABLE",
+    );
     expect(failed(results)).toEqual([1, 2]);
     expect(summarizeInvariants(results).notApplicable).toBe(38);
   });
@@ -295,7 +301,10 @@ describe("execution dates and the equity curve", () => {
   it("rejects negative cash", () => {
     const results = validateRunInvariants(
       evidence({
-        equity: [{ ...(EQUITY[0] as EvidenceEquity), cash: "-1.000000" }, ...EQUITY.slice(1)],
+        equity: [
+          { ...(EQUITY[0] as EvidenceEquity), cash: "-1.000000" },
+          ...EQUITY.slice(1),
+        ],
       }),
     );
     expect(byId(results, 6).status).toBe("FAIL");
@@ -313,7 +322,9 @@ describe("execution dates and the equity curve", () => {
 
   it("rejects an open-position count the trade log does not support", () => {
     const results = validateRunInvariants(
-      evidence({ equity: EQUITY.map((point) => ({ ...point, openPositions: 2 })) }),
+      evidence({
+        equity: EQUITY.map((point) => ({ ...point, openPositions: 2 })),
+      }),
     );
     expect(byId(results, 8).status).toBe("FAIL");
   });
@@ -340,7 +351,10 @@ describe("trades", () => {
   it("rejects an amount that is not shares x price", () => {
     const results = validateRunInvariants(
       evidence({
-        trades: [{ ...(TRADES[0] as EvidenceTrade), amount: "499.000000" }, ...TRADES.slice(1)],
+        trades: [
+          { ...(TRADES[0] as EvidenceTrade), amount: "499.000000" },
+          ...TRADES.slice(1),
+        ],
       }),
     );
     expect(byId(results, 10).status).toBe("FAIL");
@@ -349,7 +363,10 @@ describe("trades", () => {
   it("rejects any fee, because V1 methodology is zero fees and zero slippage", () => {
     const results = validateRunInvariants(
       evidence({
-        trades: [{ ...(TRADES[0] as EvidenceTrade), fees: "1.000000" }, ...TRADES.slice(1)],
+        trades: [
+          { ...(TRADES[0] as EvidenceTrade), fees: "1.000000" },
+          ...TRADES.slice(1),
+        ],
       }),
     );
     expect(byId(results, 10).status).toBe("FAIL");
@@ -360,7 +377,8 @@ describe("trades", () => {
       ...SNAPSHOT,
       securities: [
         {
-          ...(SNAPSHOT.securities[0] as BacktestRunSnapshot["securities"][number]),
+          ...(SNAPSHOT
+            .securities[0] as BacktestRunSnapshot["securities"][number]),
           buyWindowMode: "CUSTOM" as const,
           buyWindows: [{ startDate: "2026-01-01", endDate: "2026-01-31" }],
         },
@@ -370,7 +388,9 @@ describe("trades", () => {
     // The 02-02 top-up is now outside the window and must fail; the 02-03 SELL is not restricted.
     expect(byId(results, 11).status).toBe("FAIL");
     expect(byId(results, 12).status).toBe("PASS");
-    expect(byId(results, 12).detail).toContain("1 of 1 SELL trades executed outside");
+    expect(byId(results, 12).detail).toContain(
+      "1 of 1 SELL trades executed outside",
+    );
   });
 
   it("rejects a second BUY for one security on one date", () => {
@@ -389,7 +409,10 @@ describe("trades", () => {
   it("rejects a BUY naming a level the snapshot's definition does not contain", () => {
     const results = validateRunInvariants(
       evidence({
-        trades: [{ ...(TRADES[0] as EvidenceTrade), levelId: "ghost" }, ...TRADES.slice(1)],
+        trades: [
+          { ...(TRADES[0] as EvidenceTrade), levelId: "ghost" },
+          ...TRADES.slice(1),
+        ],
       }),
     );
     expect(byId(results, 19).status).toBe("FAIL");
@@ -402,7 +425,9 @@ describe("trades", () => {
       }),
     );
     expect(byId(results, 39).status).toBe("FAIL");
-    expect(byId(results, 39).violations?.join(" ")).toContain("before its first canonical price");
+    expect(byId(results, 39).violations?.join(" ")).toContain(
+      "before its first canonical price",
+    );
   });
 });
 
@@ -458,7 +483,10 @@ describe("contributions and the funded scenarios", () => {
       evidence({
         equity: [
           EQUITY[0] as EvidenceEquity,
-          { ...(EQUITY[1] as EvidenceEquity), cashBaselineValue: "1100.000000" },
+          {
+            ...(EQUITY[1] as EvidenceEquity),
+            cashBaselineValue: "1100.000000",
+          },
           ...EQUITY.slice(2),
         ],
       }),
@@ -469,7 +497,10 @@ describe("contributions and the funded scenarios", () => {
   it("rejects a cash baseline that is not initial capital plus contributions to date", () => {
     const results = validateRunInvariants(
       evidence({
-        equity: EQUITY.map((point) => ({ ...point, cashBaselineValue: "12345.000000" })),
+        equity: EQUITY.map((point) => ({
+          ...point,
+          cashBaselineValue: "12345.000000",
+        })),
       }),
     );
     expect(byId(results, 15).status).toBe("FAIL");
@@ -508,7 +539,9 @@ describe("contributions and the funded scenarios", () => {
 describe("position lifecycle rules", () => {
   it("permits a level to re-fire on a contribution date and rejects it on any other", () => {
     expect(byId(validateRunInvariants(evidence()), 20).status).toBe("PASS");
-    expect(byId(validateRunInvariants(evidence()), 21).detail).toContain("1 top-up");
+    expect(byId(validateRunInvariants(evidence()), 21).detail).toContain(
+      "1 top-up",
+    );
 
     const onOrdinaryDay = validateRunInvariants(
       evidence({
@@ -522,11 +555,15 @@ describe("position lifecycle rules", () => {
     expect(byId(onOrdinaryDay, 20).status).toBe("FAIL");
     expect(byId(onOrdinaryDay, 21).status).toBe("FAIL");
     expect(byId(onOrdinaryDay, 22).status).toBe("FAIL");
-    expect(byId(onOrdinaryDay, 22).violations?.join(" ")).toContain("rebalance");
+    expect(byId(onOrdinaryDay, 22).violations?.join(" ")).toContain(
+      "rebalance",
+    );
   });
 
   it("rejects a top-up in a configuration that contributes nothing", () => {
-    const results = validateRunInvariants(evidence({ monthlyContribution: "0.000000" }));
+    const results = validateRunInvariants(
+      evidence({ monthlyContribution: "0.000000" }),
+    );
     expect(byId(results, 21).status).toBe("FAIL");
   });
 
@@ -546,7 +583,9 @@ describe("position lifecycle rules", () => {
       }),
     );
     expect(byId(results, 20).status).toBe("FAIL");
-    expect(byId(results, 20).violations?.join(" ")).toContain("settles every smaller one");
+    expect(byId(results, 20).violations?.join(" ")).toContain(
+      "settles every smaller one",
+    );
   });
 
   it("rejects a SELL that is not the level's percentage of the remaining shares", () => {
@@ -554,7 +593,11 @@ describe("position lifecycle rules", () => {
       evidence({
         trades: [
           ...TRADES.slice(0, 2),
-          { ...(TRADES[2] as EvidenceTrade), shares: "3.0000000000", sharesAfter: "8.0000000000" },
+          {
+            ...(TRADES[2] as EvidenceTrade),
+            shares: "3.0000000000",
+            sharesAfter: "8.0000000000",
+          },
         ],
       }),
     );
@@ -598,7 +641,10 @@ describe("position lifecycle rules", () => {
       byId(
         validateRunInvariants(
           evidence({
-            trades: [...TRADES.slice(0, 2), { ...closing, sharesAfter: "1.0000000000" }],
+            trades: [
+              ...TRADES.slice(0, 2),
+              { ...closing, sharesAfter: "1.0000000000" },
+            ],
           }),
         ),
         25,
@@ -646,7 +692,10 @@ describe("cost basis and profit and loss", () => {
     // position. A moved basis is a different cost policy wearing the same name.
     const results = validateRunInvariants(
       evidence({
-        trades: [...TRADES.slice(0, 2), { ...(TRADES[2] as EvidenceTrade), averageCostAfter: "62.00000000" }],
+        trades: [
+          ...TRADES.slice(0, 2),
+          { ...(TRADES[2] as EvidenceTrade), averageCostAfter: "62.00000000" },
+        ],
       }),
     );
     expect(byId(results, 28).status).toBe("FAIL");
@@ -655,7 +704,10 @@ describe("cost basis and profit and loss", () => {
   it("rejects realized P&L that is not shares x (price - basis)", () => {
     const results = validateRunInvariants(
       evidence({
-        trades: [...TRADES.slice(0, 2), { ...(TRADES[2] as EvidenceTrade), realizedPnl: "300.000000" }],
+        trades: [
+          ...TRADES.slice(0, 2),
+          { ...(TRADES[2] as EvidenceTrade), realizedPnl: "300.000000" },
+        ],
       }),
     );
     expect(byId(results, 29).status).toBe("FAIL");
@@ -786,25 +838,42 @@ describe("a run that legitimately never traded", () => {
   });
 });
 
-describe("tolerances at the contract's maximum capital", () => {
+describe("at the contract's maximum capital, the identity is still exact", () => {
   /**
-   * `C08` starts with a billion dollars, so a 1997 position in a stock trading at sixteen cents
-   * split-adjusted holds 273 million shares — where 5e-9 of rounding in an eight-decimal basis is
-   * $1.37 of profit and loss. The tolerance has to follow the share count, or a correct run is
-   * reported as a defect; it must not follow it so far that a real disagreement disappears.
+   * `C08` starts with a billion dollars, so a 1997 position in a stock trading at nineteen cents
+   * split-adjusted holds 2.59 **billion** shares. That share count used to buy the validator its
+   * slack: `pnlEpsilon` was `shares x 1e-8`, which here is **$25.95** of realized profit and loss
+   * that could differ without anyone noticing, and the same reasoning across the matrix's 181,831
+   * trades came to $909.17.
+   *
+   * The slack existed because the check re-derived the exit as `shares x (price - basis)` — a
+   * different quantity from the one the engine computes, and one that genuinely cannot be pinned
+   * down to a cent when the basis is only eight decimals wide. The Decimal ledger removed the
+   * reason: an exit realizes `proceeds - costRemoved - fees`, every operand is persisted at its own
+   * declared scale, and there is nothing left to tolerate.
+   *
+   * Every number below was derived from the ledger rules, at scale, before it was written down.
    */
-  const SHARES = 273_561_496.4795988;
-  const PRICE = 0.1596;
-  const BASIS = 0.19265445;
-  const shares6 = SHARES.toFixed(10);
-  const price8 = PRICE.toFixed(8);
-  const basis8 = BASIS.toFixed(8);
-  const m = (v: number): string => v.toFixed(6);
+  const SHARES = "2595320274.2007776098";
+  const BASIS = "0.19265445";
+  const EXIT_PRICE = "0.15960000";
+  const COST = "500000000.000000";
+  const PROCEEDS = "414213115.762444";
+  const EXACT_PNL = "-85786884.237556";
+  const CAPITAL = "1000000000.000000";
 
-  const hugePosition = (realizedPnl: number): RunEvidence =>
+  const maximumCapital = (realizedPnl: string): RunEvidence =>
     evidence({
+      initialCapital: CAPITAL,
       monthlyContribution: "0.000000",
-      initialCapital: "1000000000.000000",
+      maximumPositions: 2,
+      startDate: "2026-01-01",
+      endDate: "2026-02-03",
+      executionCalendarDates: ["2026-01-02", "2026-02-03"],
+      benchmarkCloses: [
+        { date: "2026-01-02", close: "100.00000000" },
+        { date: "2026-02-03", close: "110.00000000" },
+      ],
       trades: [
         {
           sequence: 1,
@@ -814,14 +883,14 @@ describe("tolerances at the contract's maximum capital", () => {
           action: "BUY",
           levelId: "b100",
           levelPercentage: 100,
-          shares: shares6,
-          price: basis8,
-          amount: m(SHARES * BASIS),
+          shares: SHARES,
+          price: BASIS,
+          amount: COST,
           fees: "0.000000",
           realizedPnl: null,
-          cashAfter: "0.000000",
-          sharesAfter: shares6,
-          averageCostAfter: basis8,
+          cashAfter: "500000000.000000",
+          sharesAfter: SHARES,
+          averageCostAfter: BASIS,
         },
         {
           sequence: 2,
@@ -831,37 +900,86 @@ describe("tolerances at the contract's maximum capital", () => {
           action: "FINAL_EXIT",
           levelId: "exit",
           levelPercentage: null,
-          shares: shares6,
-          price: price8,
-          amount: m(SHARES * PRICE),
+          shares: SHARES,
+          price: EXIT_PRICE,
+          amount: PROCEEDS,
           fees: "0.000000",
-          realizedPnl: m(realizedPnl),
-          cashAfter: m(SHARES * PRICE),
+          realizedPnl,
+          cashAfter: "914213115.762444",
           sharesAfter: "0.0000000000",
           averageCostAfter: null,
         },
       ],
+      equity: [
+        {
+          date: "2026-01-02",
+          cash: "500000000.000000",
+          positionsValue: "500000000.000000",
+          totalValue: CAPITAL,
+          investedCapital: CAPITAL,
+          benchmarkValue: CAPITAL,
+          cashBaselineValue: CAPITAL,
+          openPositions: 1,
+        },
+        {
+          date: "2026-02-03",
+          cash: "914213115.762444",
+          positionsValue: "0.000000",
+          totalValue: "914213115.762444",
+          investedCapital: CAPITAL,
+          benchmarkValue: "1100000000.000000",
+          cashBaselineValue: CAPITAL,
+          openPositions: 0,
+        },
+      ],
       positions: [],
-      equity: EQUITY.map((point) => ({ ...point, cashBaselineValue: "1000000000.000000", investedCapital: "1000000000.000000" })),
-      summary: null,
+      summary: {
+        firstSimulatedDate: "2026-01-02",
+        lastSimulatedDate: "2026-02-03",
+        tradingDays: 2,
+        investedCapital: CAPITAL,
+        finalCash: "914213115.762444",
+        finalPositionsValue: "0.000000",
+        finalValue: "914213115.762444",
+        netProfit: EXACT_PNL,
+        realizedPnl,
+        unrealizedPnl: "0.000000",
+        totalTrades: 2,
+        buyTrades: 1,
+        sellTrades: 0,
+        finalExitTrades: 1,
+        winningTrades: 0,
+        losingTrades: 1,
+        openPositions: 0,
+      },
     });
 
-  const exact = SHARES * (PRICE - BASIS);
+  it("reconciles a 2.59-billion-share position with nothing left over", () => {
+    const results = validateRunInvariants(maximumCapital(EXACT_PNL));
+    expect(failed(results)).toEqual([]);
+    expect(results.filter((entry) => entry.status === "INDETERMINATE")).toEqual(
+      [],
+    );
+  });
 
-  it("accepts a difference that is only the eight-decimal basis being rounded", () => {
-    // The engine multiplied unrounded floats; this reconstruction multiplies the stored basis.
-    const results = validateRunInvariants(hugePosition(Number((exact + 0.97).toFixed(2))));
-    expect(byId(results, 29).status).toBe("PASS");
-    expect(byId(results, 10).status).toBe("PASS");
+  it("rejects one millionth of a dollar on a billion-dollar exit", () => {
+    const results = validateRunInvariants(maximumCapital("-85786884.237555"));
+    expect(byId(results, 29).status).toBe("FAIL");
+  });
+
+  it("rejects the $25.95 the share count used to buy", () => {
+    // `pnlEpsilon(2_595_320_274.2) = shares x 1e-8 + 0.01`. This is that number, to the cent.
+    const results = validateRunInvariants(maximumCapital("-85786858.284353"));
+    expect(byId(results, 29).status).toBe("FAIL");
   });
 
   it("still rejects a difference the representation cannot explain", () => {
-    const results = validateRunInvariants(hugePosition(Number((exact + 500).toFixed(2))));
+    const results = validateRunInvariants(maximumCapital("-85786384.237556"));
     expect(byId(results, 29).status).toBe("FAIL");
   });
 
   it("keeps a cent-scale disagreement visible on an ordinary-sized position", () => {
-    // Ten shares buy no slack at all: the budget follows the share count, so it stays tight here.
+    // Ten shares never bought any slack, and now neither does a billion.
     const results = validateRunInvariants(
       evidence({
         trades: [
@@ -1001,9 +1119,9 @@ describe("C07 — the contract minimum, at the new precision", () => {
   it("is fully verifiable — every invariant PASS, none INDETERMINATE", () => {
     const results = validateRunInvariants(c07());
     expect(failed(results)).toEqual([]);
-    expect(
-      results.filter((entry) => entry.status === "INDETERMINATE"),
-    ).toEqual([]);
+    expect(results.filter((entry) => entry.status === "INDETERMINATE")).toEqual(
+      [],
+    );
     // Only the two frame-dependent invariants are deferred, and they are deferred for everyone.
     expect(summarizeInvariants(results).needsArchive).toBe(2);
   });

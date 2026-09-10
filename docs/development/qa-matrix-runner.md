@@ -273,14 +273,32 @@ position-dependent metric, so a BUY is decidable from market data alone. SELL an
 may compare `Gain` or `Loss`, which need simulated position state, and are left out rather than
 approximated.
 
-### Tolerances
+### Exactness, and the one place it ends
 
-Derived from the storage format, never chosen to make something pass. Money is `Decimal(20,2)`, so
-two independently rounded values differ by up to a cent and a sum of _n_ of them by _n_ half-cents.
-Average cost is the interesting one: a BUY's cost is known only to half a cent through `amount`, and
-dividing that by the share count spreads the half-cent across every share — about 3 × 10⁻⁵ for a
-172-share position, 8 × 10⁻⁶ for a 646-share one. That band is computed per trade. A partial SELL
-must leave the basis per share arithmetically unchanged, which is exact.
+Almost every check here is an **equality**, because the engine's ledger is exact. Money is
+`numeric(24,6)`, shares are `Decimal(28,10)`, prices `Decimal(20,8)`, and every value the engine
+persists is quantized once at its own declared scale from operands that are themselves persisted.
+So the daily identity, the cash ledger, the canonical trade amount, the sell fraction, the
+average-cost basis, realized and unrealized profit and loss, the final positions, the summary's
+closing figures, the funding schedule and the funded benchmark are all compared with `.eq()`. A
+difference of `0.000001` is a difference.
+
+That matters because the alternative was measured. The tolerances this replaced allowed **$909.17**
+across the matrix's 181,831 trades, **$33,431.07** of invested capital on the largest run, **$25.95**
+of realized profit and loss on a 2.59-billion-share position, and — at the one-dollar contract
+minimum — an average cost of **$178** for a stock that closed at **$148.84**. Each was derived
+honestly from `Decimal(20,2)` and from a reconstruction (`sharesBefore × averageCostBefore`,
+`shares × (price − basis)`) that the Decimal ledger no longer computes that way.
+
+**Invariant 18 is the single exception**, and it is exact about why. The engine's *sizing* decision
+is deliberately float — it chooses a target, nothing is reconciled against it — so `portfolioValue`
+is `toNumber(cash) + toNumber(positionsValue)`, and that conversion is lossy at the magnitudes this
+matrix reaches. Its budget is the sum of four derived terms: 1.5 money units per trade on the date
+(the recorded total is a proxy for the value actually sized against), 2⁻⁵³ × magnitude × 8 for the
+float64 path, half a money unit for quantizing the shortfall, and `price × 10⁻¹⁰` for truncating
+the shares down. At the largest run in the matrix that is about five hundredths of a cent.
+
+No tolerance in this validator is relative to portfolio size.
 
 ## Determinism
 
