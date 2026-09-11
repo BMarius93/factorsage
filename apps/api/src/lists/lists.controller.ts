@@ -6,6 +6,7 @@ import type {
 import { BuyWindowValidationError } from "@intrinsic/domain";
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
@@ -30,6 +31,7 @@ import {
   parseUpdateStockListRequest,
 } from "./stock-list-requests";
 import {
+  StockListInUseByMonitorError,
   StockListItemNotFoundError,
   StockListNotFoundError,
   StockListsService,
@@ -146,6 +148,11 @@ export class ListsController {
         error instanceof StockListItemNotFoundError
       ) {
         throw new NotFoundException(error.message);
+      }
+      // The list exists and is the caller's; something still references it. That is a conflict with
+      // the current state, not a malformed request.
+      if (error instanceof StockListInUseByMonitorError) {
+        throw new ConflictException(error.message);
       }
       if (
         error instanceof UnsupportedSecurityError ||

@@ -4,6 +4,8 @@ import {
   securityCatalogFieldsChanged,
   SUPPORTED_EXCHANGE_CODES,
   SUPPORTED_EXCHANGE_CURRENCIES,
+  SUPPORTED_EXCHANGE_TIMEZONE,
+  tradingSessionDate,
   type SecurityListingCandidate,
 } from "./security-universe.js";
 import type { Security } from "./stock-data.js";
@@ -50,6 +52,64 @@ describe("supported exchange table", () => {
     for (const code of SUPPORTED_EXCHANGE_CODES) {
       expect(SUPPORTED_EXCHANGE_CURRENCIES[code]).toMatch(/^[A-Z]{3}$/);
     }
+  });
+});
+
+/**
+ * The drift guard behind {@link SUPPORTED_EXCHANGE_TIMEZONE}.
+ *
+ * Naming a trading session from one timezone is exact only while every supported venue is on that
+ * clock. Admitting a venue elsewhere must fail here, so the author has to decide what a session
+ * date means for it rather than discovering later that its observations were mis-dated.
+ */
+describe("supported exchanges share one trading clock", () => {
+  it("admits exactly the US venues the timezone claim covers", () => {
+    expect([...SUPPORTED_EXCHANGE_CODES].sort()).toEqual([
+      "AMEX",
+      "NASDAQ",
+      "NYSE",
+    ]);
+    expect(SUPPORTED_EXCHANGE_TIMEZONE).toBe("America/New_York");
+  });
+});
+
+describe("tradingSessionDate", () => {
+  it("names the session an instant belongs to, not its UTC day", () => {
+    // 19:30 New York on a Monday in January is already Tuesday in UTC. Deriving the day in UTC
+    // would name a session that has not started; the exchange clock names the one being traded.
+    const mondayAfterHours = new Date("2026-01-06T00:30:00.000Z");
+    expect(mondayAfterHours.toISOString().slice(0, 10)).toBe("2026-01-06");
+    expect(tradingSessionDate(mondayAfterHours)).toBe("2026-01-05");
+  });
+
+  it("keeps a Friday evening on Friday rather than rolling into Saturday", () => {
+    // The same rollover on the last session of the week would otherwise name a weekend date.
+    const fridayAfterHours = new Date("2026-01-10T00:30:00.000Z");
+    expect(fridayAfterHours.toISOString().slice(0, 10)).toBe("2026-01-10");
+    expect(tradingSessionDate(fridayAfterHours)).toBe("2026-01-09");
+  });
+
+  it("agrees with UTC during the regular session, in both DST offsets", () => {
+    // Winter (EST, UTC-5): 09:30-16:00 local is 14:30-21:00 UTC, the same calendar day.
+    expect(tradingSessionDate(new Date("2026-01-05T14:30:00.000Z"))).toBe(
+      "2026-01-05",
+    );
+    expect(tradingSessionDate(new Date("2026-01-05T21:00:00.000Z"))).toBe(
+      "2026-01-05",
+    );
+    // Summer (EDT, UTC-4): 13:30-20:00 UTC, likewise.
+    expect(tradingSessionDate(new Date("2026-07-06T13:30:00.000Z"))).toBe(
+      "2026-07-06",
+    );
+    expect(tradingSessionDate(new Date("2026-07-06T20:00:00.000Z"))).toBe(
+      "2026-07-06",
+    );
+  });
+
+  it("reads the instant it is given and no clock", () => {
+    const instant = new Date("2026-03-02T18:00:00.000Z");
+    expect(tradingSessionDate(instant)).toBe(tradingSessionDate(instant));
+    expect(instant.toISOString()).toBe("2026-03-02T18:00:00.000Z");
   });
 });
 

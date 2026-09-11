@@ -164,3 +164,48 @@ order), `BacktestPosition` (final open positions) and `BacktestRunSummary` (one 
 `BacktestTrade.securityId` and `BacktestPosition.securityId` are `onDelete: Restrict` for the same
 reason `StockListItem.securityId` is, and both denormalize `symbol`/`name` so a completed result
 renders without joining the mutable catalog.
+
+Migration `20260911110000_add_monitors` adds the Monitor V1 slice: `Monitor`, `MonitorSignalState`,
+`MonitorSignal`, `MonitorScanSchedule` and the `MonitorEvaluationOutcome`, `MonitorEvaluableResult`
+and `MonitorLevelKind` enums. See `../product/monitors.md` for the product invariants and
+`monitor-engine.md` for the engine.
+
+`Monitor` (cascades from `User`) is a Strategy plus a Stock List plus `enabled`. It references
+`Strategy`, **not** a pinned `StrategyVersion`: a Monitor is live, so editing the Strategy must
+change what is being watched. `strategyId` and `stockListId` are `onDelete: Restrict`, so deleting
+either while a Monitor references it is refused and the API answers `409` — a Monitor owns Signal
+history and is not a derived view of its inputs. Cascading from `User` still removes everything,
+which PostgreSQL resolves correctly: the user-cascade deletes the Monitor rows before the restricted
+references are evaluated. There is deliberately **no cadence, interval or schedule column** —
+`../product/monitors.md` keeps monitoring cadence an application decision, and a column would make
+it a user-configurable one.
+
+`MonitorSignalState` is the durable transition state, one row per `(monitorId, securityId, levelId)`
+under the explicitly named `MonitorSignalState_identity_key` (the generated name would exceed
+PostgreSQL's 63-character limit). It is the minimum state that makes trigger and condition semantics
+survive a restart, and it is not a cache of anything. Three columns carry the decisions:
+`lastEvaluableResult` is the latch and can only ever hold a **decided** value, which is why
+`MonitorEvaluableResult` has two members while `MonitorEvaluationOutcome` has three — a
+`NOT_EVALUABLE` cycle records itself in `lastOutcome` only, so a provider outage can neither end an
+active match nor re-emit it on recovery. `signalFingerprint` scopes the latch to the canonical logic of that
+level — not to the Strategy version, which would reset every level on any edit and re-emit a Signal
+on each unchanged one. `stateVersion`
+is an optimistic guard: the transition is applied with an `updateMany` filtered on the version it was
+read at, so two workers whose leases briefly overlap cannot both emit a Signal for one transition.
+
+`MonitorSignal` is the append-only product record, created on the `NOT_MATCHED -> MATCHED` edge and
+only there — which is what stops a condition that stays true from producing a Signal per scan, and a
+trigger that fired from repeating while the value stays on the same side. `resolvedAt` is set when
+the match ends; rows are never deleted. `MonitorSignalState.activeSignalId` is `@unique`, so one
+state can never point at two live Signals. `hasTrigger` is explanation metadata, not a second
+product concept. Signals cascade from `Monitor`: unlike a `BacktestRun`, a Signal is not an
+independently addressable user-owned execution record — it names a level id inside that Monitor's
+Strategy and means nothing without it. `securityId` is `onDelete: Restrict` for the same reason
+`StockListItem.securityId` is.
+
+`MonitorScanSchedule` is the durable scan cadence: exactly one row, id `GLOBAL`. A worker claims it
+with `SELECT ... FOR UPDATE SKIP LOCKED` once `dueAt` has passed, holds a renewable lease while it
+runs the cycle, then sets the next `dueAt` and releases — so cadence survives a restart, two
+processes never scan at once, and no cron, timer or queue library is involved. A crashed holder's
+lease expires and any worker frees it, which is the one failure mode a singleton has that a queue of
+independent jobs does not.

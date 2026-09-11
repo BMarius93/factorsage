@@ -8,6 +8,7 @@ import { DatabaseModule } from "./database/database.module";
 import { HealthController } from "./health.controller";
 import { ListsModule } from "./lists/lists.module";
 import { StocksModule } from "./stocks/stocks.module";
+import { MonitorsModule } from "./monitors/monitors.module";
 import { StrategiesModule } from "./strategies/strategies.module";
 
 @Module({
@@ -20,6 +21,7 @@ import { StrategiesModule } from "./strategies/strategies.module";
     BacktestsModule,
     ListsModule,
     StocksModule,
+    MonitorsModule,
     StrategiesModule,
   ],
   controllers: [HealthController],

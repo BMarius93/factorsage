@@ -22,9 +22,24 @@ export type OperandKey = string;
 /** Canonical end-of-day close. Deliberately not a catalog series, so it has its own key. */
 export const PRICE_OPERAND: OperandKey = "price";
 
+const SERIES_PREFIX = "series:";
+
 /** A catalog series read straight off the materialized daily derived state. */
 export function seriesOperand(seriesId: SelectableSeriesId): OperandKey {
-  return `series:${seriesId}`;
+  return `${SERIES_PREFIX}${seriesId}`;
+}
+
+/**
+ * The catalog series a key addresses, or null when it addresses something else.
+ *
+ * The inverse of {@link seriesOperand}, and it lives here for the same reason the builder does: the
+ * encoding is this module's, and a caller that needs to know which series a key names must ask
+ * rather than slice the string itself.
+ */
+export function operandSeriesId(key: OperandKey): SelectableSeriesId | null {
+  return key.startsWith(SERIES_PREFIX)
+    ? (key.slice(SERIES_PREFIX.length) as SelectableSeriesId)
+    : null;
 }
 
 /**

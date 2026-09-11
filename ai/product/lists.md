@@ -23,6 +23,10 @@ User
 - Deleting a list cascades its items; deleting an item cascades its buy windows.
   `StockListItem.securityId` is `onDelete: Restrict`: catalog rows are never product-deleted, and
   user list data must not vanish through a catalog mutation.
+- **A list a Monitor references cannot be deleted.** `Monitor.stockListId` is `onDelete: Restrict`,
+  and `DELETE /lists/:listId` answers `409` naming how many Monitors still use it. A Monitor owns
+  Signal history — a record of what was observed — so it must not disappear silently because its
+  universe was deleted. The user deletes the Monitor first. See `monitors.md`.
 - Rendering lists uses list data plus catalog identity only — never price/fundamentals/intrinsic
   hydration.
 
@@ -37,8 +41,8 @@ authorization authority.
 
 ## Buy windows
 
-Each list item independently restricts when a future strategy/backtest may open a **new BUY** in
-that stock. Selling is never restricted.
+Each list item independently restricts when a strategy/backtest may open a **new BUY** in that
+stock, and equally when a Monitor may report a **BUY** Signal for it. Selling is never restricted.
 
 ```text
 FULL    eligible on every date the strategy/backtest covers; zero persisted rows
@@ -66,6 +70,18 @@ The API replaces an item's complete configuration atomically
 (`PUT /lists/:listId/items/:itemId/buy-windows`) inside one transaction and returns the canonical
 result; there is no incremental range endpoint. Switching CUSTOM → FULL deletes every persisted
 row. The browser may pre-validate, but the API response is what gets rendered after save.
+
+### Buy windows under a Monitor
+
+A backtest covers a date range; a Monitor evaluates **one** date — its current observation. The same
+eligibility rule applies to that single date:
+
+- a BUY level produces no Signal for a symbol whose buy window does not admit the current
+  observation date;
+- SELL and FINAL EXIT are unrestricted, exactly as they are in a backtest.
+
+`isBuyWindowEligible` in `@intrinsic/domain` is the one implementation of that question; the backtest
+engine and the Monitor cycle both call it and neither restates it.
 
 Do not reintroduce index-membership PIT through list semantics.
 

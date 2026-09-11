@@ -68,6 +68,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intrinsic}:${POSTGRES_PASSWORD:-intrinsic_dev_password}@postgres:5432/${POSTGRES_DB:-intrinsic_value}
       REDIS_URL: redis://redis:6379
+      # The supervisor forks backtest children and Monitor children. Both default in code; they are
+      # named here so a deployment can size or disable either without rebuilding the image.
+      BACKTEST_WORKER_PROCESSES: ${BACKTEST_WORKER_PROCESSES:-2}
+      MONITOR_WORKER_PROCESSES: ${MONITOR_WORKER_PROCESSES:-1}
+      MONITOR_SCAN_INTERVAL_MS: ${MONITOR_SCAN_INTERVAL_MS:-300000}
     depends_on:
       postgres:
         condition: service_healthy

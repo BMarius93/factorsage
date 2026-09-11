@@ -154,6 +154,11 @@ export class MatrixWorkerPool {
       DATABASE_URL: this.options.environment.databaseUrl,
       REDIS_URL: this.options.environment.redisUrl,
       BACKTEST_WORKER_PROCESSES: String(this.options.processes),
+      // The same supervisor also forks Monitor children. A Monitor cycle reaches the provider on
+      // its own schedule, and the sweep attributes every `stock-data.provider.request` line it
+      // sees to a backtest — so a monitor child would show up as traffic no run made. The sweep
+      // measures backtests; monitoring is switched off for its duration.
+      MONITOR_WORKER_PROCESSES: "0",
       // Provider requests are logged at debug; without this the sweep cannot count them.
       LOG_LEVEL: "debug",
       STOCK_RECENT_PRICE_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,

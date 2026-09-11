@@ -95,6 +95,14 @@ export type DailyPriceBounds = {
 export interface StockDataStore {
   findSecurityByProviderSymbol(symbol: string): Promise<Security | null>;
   /**
+   * Catalog rows for a set of internal ids, in symbol order.
+   *
+   * Keyed by `SecurityId` rather than by symbol because a caller that already holds catalog
+   * identities — a Monitor's list membership, for instance — must not round-trip them through a
+   * ticker, which is indexed lookup data and never a durable identity.
+   */
+  findSecuritiesByIds(securityIds: readonly SecurityId[]): Promise<Security[]>;
+  /**
    * Candidate securities for the global search, matched case-insensitively on symbol prefix or
    * name substring. Returns unranked candidates: relevance ordering is a domain concern applied by
    * the service, so the store stays a plain persistence read.

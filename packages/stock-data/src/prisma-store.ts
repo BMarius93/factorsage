@@ -438,6 +438,19 @@ export class PrismaStockDataStore implements StockDataStore {
     return row ? mapSecurity(row) : null;
   }
 
+  async findSecuritiesByIds(
+    securityIds: readonly string[],
+  ): Promise<Security[]> {
+    if (securityIds.length === 0) {
+      return [];
+    }
+    const rows = await this.prisma.security.findMany({
+      where: { id: { in: [...securityIds] } },
+      orderBy: { symbol: "asc" },
+    });
+    return rows.map(mapSecurity);
+  }
+
   async searchSecurities(input: {
     term: string;
     limit: number;

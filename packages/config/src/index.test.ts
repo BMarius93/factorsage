@@ -8,6 +8,7 @@ import {
   getBacktestDebugArchiveConfig,
   getBacktestWorkerConfig,
   getGoogleOAuthConfig,
+  getMonitorWorkerConfig,
   getQaPersonaConfig,
   getSmtpConfig,
   getWebBaseUrl,
@@ -508,6 +509,7 @@ describe(".env.example template", () => {
     expect(() => getAuthConfig(template)).not.toThrow();
     expect(() => getApiConfig(template)).not.toThrow();
     expect(() => getBacktestWorkerConfig(template)).not.toThrow();
+    expect(() => getMonitorWorkerConfig(template)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(template).enabled).toBe(false);
   });
 });
