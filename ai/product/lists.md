@@ -88,11 +88,13 @@ Do not reintroduce index-membership PIT through list semantics.
 ## Mutability and the backtest reproducibility invariant
 
 A `StockList` is mutable configuration. **A completed or running backtest must never depend on the
-current state of a list.** When backtests are implemented, their input must snapshot the selected
-universe and each member's buy-window configuration at submission time, so editing or deleting a
-list later cannot retroactively change historical results. Today's schema keeps that cheap: one
-item plus its window rows is a small self-contained value that can be copied into a snapshot
-structure.
+current state of a list.** A backtest snapshots the selected universe and each member's buy-window
+configuration at submission time, so editing or deleting a list later cannot retroactively change
+historical results (`backtests.md`). A Monitor is the deliberate opposite: it snapshots nothing and
+reads the list's current membership and windows at the start of every scan cycle, so an edit is
+watched from the next cycle on and a removed member's active Signals are resolved by that cycle
+(`monitors.md`, "Lifecycle in one place"). The two consumers of a list therefore answer "which
+universe?" differently, and both on purpose.
 
 ## API surface
 

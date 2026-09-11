@@ -5,10 +5,34 @@ can answer "what does the system actually guarantee here?" without re-deriving i
 Each entry names the question, the behaviour as verified in code and tests, the invariants that
 must hold, the edge cases tried, a classification and what was changed. Canonical explanations
 live in the owner documents linked from each entry; this log points at them rather than repeating
-them. Entries are in the order they were investigated, because each one builds on the last.
+them. Entries are numbered by topic; the log was built sequentially, each entry using the conclusions
+of the ones before it (7 was completed after 9, because it needed a fix).
 
 Finding classes: Healthy · Design limitation · Product decision required · Documentation mismatch ·
 Test gap · Performance risk · Correctness issue · Security issue.
+
+Quick answers (each points at the entry and the owner document):
+
+- *What is live and what is snapshotted?* A Monitor reads the newest Strategy version and the
+  current List membership at the start of every cycle (1, 2); a backtest snapshots everything at
+  submission (`product/backtests.md`).
+- *What does a Monitor actually evaluate?* Closed persisted history plus the provider's last trade
+  as a provisional row for the last-trade session (3); every level of every member (2).
+- *What identifies a market observation?* `(securityId, exchange session date)` (3).
+- *When exactly is a Signal emitted?* On the not-matched → matched edge of a level's durable latch,
+  once per session for a trigger, within one logic-and-membership epoch (4).
+- *What happens to active Signals after Strategy/List changes?* Reset only for levels whose logic
+  or id changed; resolved for removed members; untouched by unrelated edits (1, 2).
+- *How do Monitor and Backtest evaluation differ?* Same evaluator; live observation, bounded
+  recomputation of daily series, carried-forward weekly/intrinsic values, no position (5).
+- *What survives a restart?* Everything: every decision is re-derived from PostgreSQL rows (4, 8).
+- *What can be recomputed?* Every Redis key and every derived series (6, 7).
+- *What is PostgreSQL authoritative for?* All user-owned data, all history, all Monitor state and
+  the two claim protocols. *Redis?* Nothing durable; projections and coordination only (7, 8).
+- *Which work is global and which is per-user?* Quotes, hydration and frames are per security
+  and shared; evaluation and Signal state are per Monitor (10).
+- *Which behaviours are deliberate product decisions still open?* `product/monitors.md`,
+  "Open product decisions" (11–13).
 
 ---
 
@@ -340,6 +364,39 @@ older than ten calendar days are invisible without a dataset version bump.
 
 ---
 
+## 7. Cache invalidation versus domain mutation
+
+**Question.** Following each real mutation event rather than reviewing Redis in general: which
+cached or derived artifact can go stale, how does it recover, and is there a stale-but-valid state
+that raises no error?
+
+**Current behaviour.**
+
+| Mutation | What could be stale | How it recovers |
+| --- | --- | --- |
+| Strategy / List / Monitor edited | Nothing cached: no user-scoped key exists; a cycle re-reads PostgreSQL. The web app keeps no client cache library (fetch on render). | n/a |
+| Price tail refreshed / history widened | Yearly price and derived chunks | Rewritten for the affected years in the same lease; a reader that sees no READY projection rebuilds from PostgreSQL |
+| Fundamentals refreshed | Derived intrinsic columns | Rebuilt from the earliest availability date of the loaded batch; revision-gated |
+| Methodology or dataset revision bumped | Every manifest | `isCurrent()` rejects the manifest on the next read; lazy rebuild |
+| Exchange schedule changed | In-process calendar, 24h TTL, last-known-good on refetch failure | Direction of error is safe: an unexpected closure has no trades to date, an unexpected open day is refused for a day (NOT_EVALUABLE), never fabricated |
+| **Catalog sync renames or deactivates a security** | The cached identity row `stock-data:v2:symbol:<SYMBOL>:security` that `getSecurity` serves Stock Details from. No TTL; refreshed only by profile hydration or eviction. | **Was not refreshed at all** — a stale-but-valid state with no error. Fixed: the sync now writes the updated row through, and an entry whose cache refresh fails is reported as failed rather than updated. |
+
+**Invariants.** Every Redis artifact is either rebuilt from PostgreSQL on the next read or written
+through by the operation that changed its source; nothing user-owned is cached anywhere.
+
+**Evidence.** `packages/stock-data/src/security-catalog.ts` (write-through),
+`security-catalog.test.ts` ("refreshes the cached identity row…", "reports a row whose cache
+refresh failed…"), `service.ts` (`getSecurity` cache-first, `hydrateSecurityProfileWithinLease`
+already writing through), `apps/api/src/stocks/stocks.module.ts` (cache injected into the sync),
+`trading-calendar.ts`.
+
+**Finding.** **Correctness issue** (minor, cosmetic scope: the Stock Details identity header could
+show a stale name, exchange or trading flag after an admin sync until eviction) — fixed.
+
+**Action.** Write-through added; `updateSecurityCatalogEntry` now returns the persisted row.
+
+---
+
 ## 8. Failure after external work, before durable commit
 
 **Question.** For each flow that spends provider or compute work before a PostgreSQL commit, what
@@ -400,39 +457,6 @@ refusal ("refuses to delete a strategy a monitor is still using").
 
 ---
 
-## 7. Cache invalidation versus domain mutation
-
-**Question.** Following each real mutation event rather than reviewing Redis in general: which
-cached or derived artifact can go stale, how does it recover, and is there a stale-but-valid state
-that raises no error?
-
-**Current behaviour.**
-
-| Mutation | What could be stale | How it recovers |
-| --- | --- | --- |
-| Strategy / List / Monitor edited | Nothing cached: no user-scoped key exists; a cycle re-reads PostgreSQL. The web app keeps no client cache library (fetch on render). | n/a |
-| Price tail refreshed / history widened | Yearly price and derived chunks | Rewritten for the affected years in the same lease; a reader that sees no READY projection rebuilds from PostgreSQL |
-| Fundamentals refreshed | Derived intrinsic columns | Rebuilt from the earliest availability date of the loaded batch; revision-gated |
-| Methodology or dataset revision bumped | Every manifest | `isCurrent()` rejects the manifest on the next read; lazy rebuild |
-| Exchange schedule changed | In-process calendar, 24h TTL, last-known-good on refetch failure | Direction of error is safe: an unexpected closure has no trades to date, an unexpected open day is refused for a day (NOT_EVALUABLE), never fabricated |
-| **Catalog sync renames or deactivates a security** | The cached identity row `stock-data:v2:symbol:<SYMBOL>:security` that `getSecurity` serves Stock Details from. No TTL; refreshed only by profile hydration or eviction. | **Was not refreshed at all** — a stale-but-valid state with no error. Fixed: the sync now writes the updated row through, and an entry whose cache refresh fails is reported as failed rather than updated. |
-
-**Invariants.** Every Redis artifact is either rebuilt from PostgreSQL on the next read or written
-through by the operation that changed its source; nothing user-owned is cached anywhere.
-
-**Evidence.** `packages/stock-data/src/security-catalog.ts` (write-through),
-`security-catalog.test.ts` ("refreshes the cached identity row…", "reports a row whose cache
-refresh failed…"), `service.ts` (`getSecurity` cache-first, `hydrateSecurityProfileWithinLease`
-already writing through), `apps/api/src/stocks/stocks.module.ts` (cache injected into the sync),
-`trading-calendar.ts`.
-
-**Finding.** **Correctness issue** (minor, cosmetic scope: the Stock Details identity header could
-show a stale name, exchange or trading flag after an admin sync until eviction) — fixed.
-
-**Action.** Write-through added; `updateSecurityCatalogEntry` now returns the persisted row.
-
----
-
 ## 10. Scale boundaries
 
 **Question.** From the implementation, where is Monitor work shared and where is it repeated, and
@@ -485,3 +509,154 @@ read the Monitor's price window straight from PostgreSQL the way the derived tai
 size cap is a separate product decision (investigation 11).
 
 **Action.** None in code; numbers recorded here.
+
+---
+
+## 11. Product-model contradictions
+
+**Question.** After the investigations above, does the product/domain documentation contradict
+itself or the implementation on live-versus-snapshot, Signal-versus-state, Strategy-versus-execution
+semantics, user data versus shared market data, immutable history versus recomputable derived data,
+or List universe versus Monitor universe?
+
+**Found and resolved.**
+
+- `lists.md` still described backtest snapshotting as future work and said nothing about how a
+  Monitor consumes a list; it now states both consumers' answers to "which universe?".
+- `strategies.md` described the Monitor as a future consumer; it now states the live reference and
+  the level-id identity rule.
+- Level ids were documented as diagnostics only while being Monitor identity (investigation 1).
+- "Redis is disposable" read as "the app tolerates Redis being down"; its availability is required,
+  its contents are not (audit, invariant 16).
+- "Backtests use closed observations" is true of every day except a run's last day when that day is
+  today (investigation 5); stated in `backtests.md` with the decision left open.
+- "A quote is refused when its timestamp cannot be read" omitted that an absent timestamp is
+  accepted (investigation 3).
+- "Signal" named both a Strategy rule and a Monitor outcome; both documents now disambiguate.
+
+**Consistent on inspection.** User-owned data is never in Redis and market data is never per-user;
+`BacktestRun` and `MonitorSignal` rows are immutable while every derived series is recomputable;
+a Strategy owns no execution input; a List owns no logic; Monitor cadence is nowhere user-facing;
+the buy-window rule has one implementation used by both consumers.
+
+**Product decisions surfaced (recorded in `ai/product/monitors.md`, "Open product decisions").**
+A member that stops trading keeps its Signals active forever (investigation 12); scanning outside
+sessions spends provider budget for nothing new (investigation 13); no total List size cap; no
+Signal paging; a backtest may end on the still-open session.
+
+**Finding.** Documentation mismatch (resolved) plus five **Product decisions required**.
+
+**Action.** `ai/product/{lists,strategies,monitors}.md` updated.
+
+---
+
+## 12. Signals on a security that stops trading
+
+**Question.** What happens to an active Signal when its security is delisted or halted for longer
+than the quote age window, with the member still in the List?
+
+**Current behaviour.** The provider returns no usable quote (absent, or older than
+`MONITOR_QUOTE_MAX_AGE_MS`), so every cycle evaluates the member as `NOT_EVALUABLE` **with no
+observation**. By the rules of investigation 4 that moves nothing: the condition latch stays
+MATCHED and its Signal stays active; a trigger Signal is closed only by a later observed session,
+which never comes. The state row records `lastOutcome = NOT_EVALUABLE` with `lastOutcomeAt` from
+the first such cycle (later identical cycles take the fast path). The catalog sync's deactivation
+flag is not consulted by the cycle, and the List keeps the member.
+
+**Invariants.** This is the same rule that makes a provider outage invisible: "no observation
+changes nothing". The two cases are indistinguishable to the engine by design — only their
+duration differs.
+
+**Evidence.** `applyTransition` NOT_EVALUABLE branch (`monitor-repository.ts`), `closesEventSession`
+(null observation → false), test "leaves a Trigger Signal alone on a day no session was observed".
+
+**Finding.** **Product decision required** (recorded in `ai/product/monitors.md`). No code change:
+resolving on deactivation would be a new rule, not a fix.
+
+---
+
+## 13. Scanning outside trading sessions
+
+**Question.** What does a cycle do when no admitted venue is open, and what does it cost?
+
+**Current behaviour.** The schedule is time-blind: every `MONITOR_SCAN_INTERVAL_MS` (5 min) a
+cycle runs, fetches `ceil(U / 50)` quote batches, resolves every quote to the last session's date
+(Friday on a weekend, yesterday overnight), and re-evaluates that session. Because the observation
+date does not advance, triggers cannot fire again and unchanged conditions write nothing; the only
+possible changes come from after-hours prices moving a condition across its boundary, which is the
+live-observation rule working as specified. The tail refresh does not fire more often (6h clock).
+Cost: 288 cycles/day × `ceil(U / 50)` provider requests, roughly 70% of them outside any session.
+
+**Invariants.** Nothing semantic depends on scanning outside sessions: the first cycle after a
+close already observed the final print, and the next new information arrives with the next
+session's first trade.
+
+**Evidence.** `monitor-loop.ts` (interval from cycle end, no session awareness), `monitor-cycle.ts`
+(`resolveObservation`), `CachedTradingCalendar` (already answers "is this a session").
+
+**Finding.** **Performance risk** (provider budget) and a **Product decision required**: idle the
+cycle while no admitted venue has a session in progress. Not changed — cadence is an application
+decision the product owner should make explicitly.
+
+---
+
+## 14. Continuation checks that only confirmed understood behaviour
+
+Asked after 1–13, each traced far enough to be sure, none producing new information:
+
+- **A running backtest versus a concurrent tail refresh of the same security.** Both go through the
+  hydration lock, READY gating and the per-security advisory lock; a refresh rewrites only recent
+  years, and a mid-run dataset-revision bump cannot happen without a deploy that restarts the
+  worker, after which the requeued run's recorded revisions are checked on claim.
+- **A new listing added to a List.** The first cycle hydrates it through the canonical path (window
+  plus warm-up, fundamentals if an intrinsic operand needs them) — the same cost as a first Stock
+  Details visit, once.
+- **Two Monitors needing different series on one security.** One frame with the union of operands;
+  the narrower Monitor simply ignores columns.
+- **Long closures and the 4-day quote age.** A Thursday close followed by a Friday holiday and the
+  weekend leaves Tuesday pre-open cycles without an observation until the first trade; nothing
+  moves, nothing fabricates.
+- **A BUY window edited to exclude today after a BUY trigger fired today.** The Signal stays active
+  for its session and closes on the next observed session — the event rule, not the window rule.
+- **A cycle slower than the interval.** `dueAt` is set from the cycle's end, so cycles run
+  back-to-back rather than overlapping; `monitor.cycle.completed` carries `durationMs`, and no
+  alert exists for a cadence that has silently become "as fast as possible" (observability note).
+- **Same-symbol collision in the quote batch** (`getCurrentObservations` keys by ticker): a
+  `Security.providerSymbol` is unique, a listing transfer updates the row in place, and FMP's symbol
+  is the ticker, so two catalog rows cannot share a ticker in practice.
+
+Stopping here: three consecutive investigations confirmed already-understood behaviour.
+
+---
+
+## Things that looked suspicious but are correct
+
+Recorded so they are not "fixed".
+
+- **A trigger row with `lastEvaluableResult = NOT_MATCHED` and an active Signal.** Intentional: an
+  intraday move back across the line neither ends the event nor clears its fire date.
+- **A Signal for a security no longer in the List, or for a disabled Monitor, still `active`.** The
+  removed member is resolved by the next cycle; a disabled Monitor is deliberately untouched so
+  re-enabling resumes rather than re-emits.
+- **Two Signals with the same `(monitor, security, level, observationDate)`.** Legitimate across a
+  logic edit or a remove-and-re-add on the same day; do not add a unique index for it.
+- **`stateVersion`-guarded `updateMany` returning 0 rows and the transaction throwing.** That throw
+  is the rollback of the Signal created in the same transaction; it is caught and reported as
+  "not applied".
+- **`resolveUnvisitedSignals` keeping the reset state row.** Absence versus a NOT_MATCHED row decide
+  the same way; the row is harmless and keeps `stateVersion` history.
+- **The cycle's fast path writing nothing, so `lastEvaluableAt` does not advance.** It records when
+  the latch was decided, not the last confirmation; `Monitor.lastScanAt` carries the cycle.
+- **`markScanned` bypassing Prisma to avoid `@updatedAt`.** A scan is not a user edit; the
+  collection's newest-changed ordering must not move on every cycle.
+- **The stock loader's `today()` being the UTC day.** It only bounds retention and a provider `to`;
+  observation dating uses the exchange session everywhere it matters.
+- **Today's `DailyPrice` row existing during the session.** The provider lists the in-progress bar;
+  the Monitor supersedes it by date, and the next refresh after the close finalizes it.
+- **The Monitor reading the derived tail straight from PostgreSQL** while prices come from the Redis
+  projection: an empty projection is a cache miss that would re-hydrate the security every cycle.
+- **`NOT_EVALUABLE` with no observation writing no row for a never-evaluated level.** There is no
+  latch to preserve; a later decidable evaluation creates it.
+- **Backtest `endDate == today` accepted.** Deliberate until the open product decision is made.
+- **`definitionHash` ignoring row ids, so a re-keyed no-op submission returns the old ids.** Ids are
+  identity; logic is what versions.

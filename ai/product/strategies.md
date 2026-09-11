@@ -25,8 +25,10 @@ Keep these concepts separate:
 A Strategy does **not** own a Stock List, backtest date range, initial capital, monthly
 contributions, `maximumPositions`, or other run-specific inputs.
 
-A monitor may later evaluate the same canonical Strategy logic against current data. Monitoring
-must not define a second strategy language.
+A Monitor evaluates the same canonical Strategy logic against current data (`monitors.md`), and
+references the live Strategy rather than a pinned version. Monitoring must not define a second
+strategy language, and a level's id is the identity its durable Monitor state is keyed by across
+versions (`../architecture/strategy-builder.md`).
 
 ## Strategy shape
 

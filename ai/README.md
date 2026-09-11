@@ -12,6 +12,9 @@ For substantial work:
 4. Relevant product/domain document for the task.
 5. `workflows/validation.md`
 6. Relevant ADRs in `../docs/decisions/`.
+7. `architecture/deep-discovery.md` when the question is "what does the system actually
+   guarantee here?" — verified end-to-end behaviour, invariants, open product decisions, and the
+   behaviours that look wrong but are deliberate.
 
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.

@@ -278,6 +278,28 @@ a wrong Signal.
 - Backtest configuration remains separate from Monitor configuration.
 - Redis/in-memory caches are implementation accelerators, never the semantic source of truth.
 
+## Open product decisions
+
+Recorded so they are decided deliberately rather than by whichever code path is touched next. Each
+is traced in `ai/architecture/deep-discovery.md`.
+
+1. **A member that stops trading.** A delisted or indefinitely halted security yields no usable
+   quote, so every evaluation is `NOT_EVALUABLE`, the latch never moves and its active Signals —
+   condition or trigger — stay active indefinitely with `lastOutcome = NOT_EVALUABLE`. Nothing
+   resolves them today; the catalog sync marks the security inactive but the List still holds it.
+   Options: resolve on deactivation like a removed member, or surface "no current data since" and
+   leave the Signal. Not decided.
+2. **Scanning outside trading sessions.** The cycle runs on the same cadence around the clock; on a
+   weekend or overnight it re-observes the last session with an unchanged or after-hours quote,
+   spending one provider batch per 50 symbols per cycle for no new information (after-hours moves
+   can still resolve and re-emit condition Signals, which is the live-observation rule, not a
+   defect). Idling while no admitted venue has a session is an application-side change the
+   calendar already makes possible. Not decided.
+3. **Monitored-universe size.** No total cap on a List exists (investigation 10 quantifies the
+   cost beyond the resident-stock bound). A cap is a product rule, not an engine limit.
+4. **Signal history beyond the newest 100.** The contract has no paging; the web slice needs it.
+5. **A backtest ending today** simulates an in-progress last day (`backtests.md`).
+
 ## Out of scope / do not invent
 
 Unless another canonical product document explicitly decides otherwise, do not add during V1:
