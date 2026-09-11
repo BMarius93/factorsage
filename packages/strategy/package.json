@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@intrinsic/contracts": "workspace:*",
-    "@intrinsic/domain": "workspace:*"
+    "@intrinsic/domain": "workspace:*",
+    "decimal.js": "10.6.0"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

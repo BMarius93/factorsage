@@ -278,10 +278,11 @@ describe("financial statement persistence", () => {
         orderBy: [{ observedAt: "asc" }, { contentHash: "asc" }],
       });
       expect(rows).toHaveLength(2);
-      expect(rows.map((row) => row.availableFromDate.toISOString().slice(0, 10)).sort()).toEqual([
-        "2020-04-21",
-        "2020-05-10",
-      ]);
+      expect(
+        rows
+          .map((row) => row.availableFromDate.toISOString().slice(0, 10))
+          .sort(),
+      ).toEqual(["2020-04-21", "2020-05-10"]);
 
       await expect(
         store.getFinancialStatements(securityId, {
@@ -353,8 +354,12 @@ describe("financial statement persistence", () => {
       });
 
       const [rowA, rowB] = await Promise.all([
-        prisma.financialStatement.findFirst({ where: { securityId: securityIdA } }),
-        prisma.financialStatement.findFirst({ where: { securityId: securityIdB } }),
+        prisma.financialStatement.findFirst({
+          where: { securityId: securityIdA },
+        }),
+        prisma.financialStatement.findFirst({
+          where: { securityId: securityIdB },
+        }),
       ]);
       expect(rowA?.contentHash).toBeTruthy();
       expect(rowA?.contentHash).toBe(rowB?.contentHash);

@@ -1066,7 +1066,10 @@ describe("backtests", () => {
   });
 
   it("still renders a run completed before the funded benchmark scenario existed", async () => {
-    const run = await submit({ startDate: "2015-01-01", endDate: "2015-01-31" });
+    const run = await submit({
+      startDate: "2015-01-01",
+      endDate: "2015-01-31",
+    });
     // Exactly the shape the migration leaves behind: `cashBaselineValue` projected from the
     // `investedCapital` those rows already held, and `benchmarkValue` absent because a funded
     // portfolio is not derivable from a growth index once a run has contributions.

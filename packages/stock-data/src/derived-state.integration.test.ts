@@ -156,7 +156,10 @@ describe("daily derived state persistence", () => {
         if (original[oscillator.field] === undefined) {
           expect(row[oscillator.field]).toBeUndefined();
         } else {
-          expect(row[oscillator.field]).toBeCloseTo(original[oscillator.field]!, 7);
+          expect(row[oscillator.field]).toBeCloseTo(
+            original[oscillator.field]!,
+            7,
+          );
         }
       }
       expect(row.weeklySourceWeekStart).toBe(original.weeklySourceWeekStart);
@@ -181,7 +184,10 @@ describe("daily derived state persistence", () => {
     expect(DAILY_OSCILLATORS.length).toBeGreaterThan(0);
     for (const oscillator of DAILY_OSCILLATORS) {
       expect(expected[oscillator.field]).toBeDefined();
-      expect(read?.[oscillator.field]).toBeCloseTo(expected[oscillator.field]!, 7);
+      expect(read?.[oscillator.field]).toBeCloseTo(
+        expected[oscillator.field]!,
+        7,
+      );
     }
     expect(read?.weeklySourceWeekStart).toBe(expected.weeklySourceWeekStart);
   });

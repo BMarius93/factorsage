@@ -972,7 +972,7 @@ describeRetention(
 
     describe("a maximum-length backtest at the product boundary", () => {
       it(
-        "has the long weekly operands on its first eligible day, and no earlier day can trade",
+        "starts exactly where it asked to, with its trigger context and its long operands",
         async () => {
           const security = await createSecurity("FRAME");
           await seedFundamentalsStates(security.id);
@@ -987,16 +987,30 @@ describeRetention(
             operands,
           );
 
-          // A period that starts exactly on the product boundary gets no leading context rows at
-          // all: the projection is cut there, so the frame begins on the first eligible day of the
-          // period itself. That is the guarantee that matters — not one retained warm-up row is in
-          // the frame, so not one of them can be walked by the day loop or produce a trade.
-          expect(frame.periodStartIndex).toBe(0);
-          expect(frame.dates[0]! >= PRODUCT_START).toBe(true);
-          expect(frame.dates.every((date) => date >= PRODUCT_START)).toBe(true);
+          // The period begins on the day it asked for. This is the assertion that changed, and it
+          // changed because the old one was describing a defect: the backtest projection used to be
+          // cut at `today - 30y`, so a boundary period got `periodStartIndex === 0` and **no**
+          // leading context at all — while every interior period got its `t - 1` row. A Trigger
+          // could therefore fire on the first simulated day of a 29-year run and not of a 30-year
+          // one, for no reason a user could see. Worse, the cut moved with the clock: the same run
+          // executed after UTC midnight lost its first simulated day outright.
+          expect(frame.dates[frame.periodStartIndex]).toBe(
+            frame.dates.find((date) => date >= PRODUCT_START),
+          );
+          // The boundary now behaves exactly like anywhere else: leading context exists, and it is
+          // context — every row before the period start is outside the period, so the day loop,
+          // which walks the execution calendar rather than the frame, can never reach one.
+          expect(frame.periodStartIndex).toBeGreaterThan(0);
+          expect(
+            frame.dates
+              .slice(0, frame.periodStartIndex)
+              .every((date) => date < PRODUCT_START),
+          ).toBe(true);
+          // And the frame still cannot reach past what is retained.
+          expect(frame.dates[0]! >= RETENTION_START).toBe(true);
 
-          // And yet every long operand is already valid on that very first day, which is the whole
-          // reason the four warm-up years are retained.
+          // Every long operand is already valid on that first day, which is the whole reason the
+          // four warm-up years are retained.
           for (const operand of operands) {
             const column = frame.columns.get(operand)!;
             const value = column[frame.periodStartIndex]!;
@@ -1004,7 +1018,8 @@ describeRetention(
             expect(value).toBeGreaterThan(0);
           }
 
-          // A period that starts later does get its trigger context, unchanged by any of this.
+          // A period that starts later behaves identically, which is now the point rather than the
+          // contrast.
           const inside = await loader.getDailyEvaluationFrame(
             security,
             { from: "2005-06-01", to: TODAY },
@@ -1012,6 +1027,42 @@ describeRetention(
           );
           expect(inside.periodStartIndex).toBeGreaterThan(0);
           expect(inside.dates[0]! < "2005-06-01").toBe(true);
+        },
+        SLOW,
+      );
+
+      it(
+        "keeps the retained warm-up years out of every product surface",
+        async () => {
+          // The horizon did not go away. It moved to where it belongs: the product reads, which
+          // are the ones a user can reach.
+          const security = await createSecurity("HIDDEN");
+          await seedFundamentalsStates(security.id);
+          const loader = createService({ provider: new RecordingProvider() });
+
+          const prices = await loader.getDailyPrices(security.symbol, {
+            from: RETENTION_START,
+            to: TODAY,
+          });
+          expect(prices.length).toBeGreaterThan(0);
+          expect(prices.every((row) => row.date >= PRODUCT_START)).toBe(true);
+
+          const technicals = await loader.getDailyTechnicals(security.symbol, {
+            from: RETENTION_START,
+            to: TODAY,
+          });
+          expect(technicals.every((row) => row.date >= PRODUCT_START)).toBe(
+            true,
+          );
+
+          const details = await loader.getStockDetails(security.symbol, {
+            from: RETENTION_START,
+            to: TODAY,
+          });
+          expect(details.prices.every((row) => row.date >= PRODUCT_START)).toBe(
+            true,
+          );
+          expect(details.history.start >= PRODUCT_START).toBe(true);
         },
         SLOW,
       );

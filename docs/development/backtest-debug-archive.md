@@ -104,10 +104,33 @@ backtest-debug-<runId>-attempt-<n>.zip
     failure.json                   only for a failed attempt
 ```
 
-`manifest.json` carries `archiveSchemaVersion` — currently `1`. It versions the **diagnostic file
+`manifest.json` carries `archiveSchemaVersion` — currently `2`. It versions the **diagnostic file
 layout** and nothing else: it is not a Backtest methodology version, adding a field to it cannot
 change what a run computes, and changing a methodology does not reorganize these files. Bump it when
 a reader written against the previous layout would misread the next one.
+
+### Version 2 — monetary values are canonical decimal strings
+
+Every monetary and share quantity is written as a decimal **string** at its persisted scale, where
+version 1 wrote a JSON number:
+
+```diff
+- "amount": 1234.56,          "shares": 646.1771818,
++ "amount": "1234.560000",    "shares": "646.1771818307",
+```
+
+The reason is arithmetic, not taste. Float64 carries about 15.95 significant digits, and the
+validation matrix produced a $334,310,721,745.96 portfolio (18) and a 2,415,434,113.5728870 share
+count (17). A number in the forensic record therefore discarded exactly the digits the record exists
+to preserve — and it did so silently.
+
+Unchanged: percentages, ratios, the return index, drawdowns, durations and counts. None was ever a
+ledger value, all are display or comparison quantities, and all remain JSON numbers.
+
+**A reader must branch on `archiveSchemaVersion`, never sniff the type.** A version 1 archive stays
+readable as what it is — numbers, at the precision they were written with — and must not be
+reinterpreted as though it carried more. There is no migration and none is possible: the precision
+a version 1 archive lost cannot be recovered from it.
 
 JSON where a document is read whole and NDJSON where the size follows the run's length (equity,
 trades, contributions, windows, checkpoints) — so a window can flush its rows and forget them, and a
@@ -294,7 +317,8 @@ against `result/trades.ndjson`. Absent values are `null`; a real zero is `0`. Ro
 - **No run-scoped log capture.** Reusing `@intrinsic/observability` to tee a run's structured events
   into the archive would mean redesigning the logger; the structured timings, window and preparation
   metadata cover V1's needs.
-- **`archiveSchemaVersion` is 1 and there is no reader library.** Consumers parse the JSON directly.
+- **There is no reader library.** Consumers parse the JSON directly and branch on
+  `archiveSchemaVersion`, which is `2`.
 - **Local filesystem only.** Nothing is written to PostgreSQL or Redis, no table exists, and archives
   are never uploaded anywhere.
 

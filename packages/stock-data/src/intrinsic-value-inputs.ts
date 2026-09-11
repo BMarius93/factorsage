@@ -152,7 +152,9 @@ function latestRank(index: QuarterlyIndex): number | undefined {
  * eligible for every required family becomes authoritative even if one of its fields is missing,
  * which then makes the model unavailable rather than silently reusing an older window.
  */
-function latestCommonRank(indexes: readonly QuarterlyIndex[]): number | undefined {
+function latestCommonRank(
+  indexes: readonly QuarterlyIndex[],
+): number | undefined {
   const [first, ...rest] = indexes;
   if (!first) {
     return undefined;
@@ -428,10 +430,7 @@ function assembleResidualIncome(
     return notApplicable("MISSING_LATEST_STATE");
   }
 
-  const bookValue = numericValue(
-    latestBalanceSheet,
-    "totalStockholdersEquity",
-  );
+  const bookValue = numericValue(latestBalanceSheet, "totalStockholdersEquity");
   const shares = numericValue(latestIncome, "weightedAverageShsOutDil");
   if (bookValue === undefined || shares === undefined) {
     return notApplicable("MISSING_REQUIRED_FIELD");
@@ -470,7 +469,10 @@ function assembleDdm(
       return notApplicable("MISSING_TTM_WINDOW");
     }
     // Common dividends only; a missing field is never a zero dividend.
-    const commonDividendsPaid = numericValue(cashFlowRow, "commonDividendsPaid");
+    const commonDividendsPaid = numericValue(
+      cashFlowRow,
+      "commonDividendsPaid",
+    );
     const shares = numericValue(incomeRow, "weightedAverageShsOutDil");
     if (commonDividendsPaid === undefined || shares === undefined) {
       return notApplicable("MISSING_REQUIRED_FIELD");

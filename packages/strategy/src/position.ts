@@ -4,6 +4,13 @@ import type {
   StrategyTrigger,
 } from "@intrinsic/contracts";
 import type { LocalDate, SecurityId } from "@intrinsic/domain";
+import {
+  MONEY_ZERO,
+  quantizeMoney,
+  quantizePrice,
+  toNumber,
+  type MoneyValue,
+} from "./backtest/money.js";
 import { Evaluability, evaluabilityAll } from "./evaluability.js";
 import { isPositionDependentMetric } from "./operands.js";
 import {
@@ -28,9 +35,35 @@ export type PositionState = {
   name: string;
   epoch: number;
   openedDate: LocalDate;
-  shares: number;
-  /** Total cost of the shares currently held, under the AVERAGE_COST policy. */
-  costTotal: number;
+  /**
+   * Shares held, exact.
+   *
+   * A `Decimal` rather than a number because the persisted scale is ten and the largest quantity
+   * the validation matrix produced — 2,415,434,113.5728870 — is seventeen significant digits,
+   * already beyond float64. A share count that cannot be represented cannot satisfy
+   * `amount == shares x price`.
+   */
+  shares: MoneyValue;
+  /**
+   * Basis per share, and the **canonical** cost state of the position.
+   *
+   * Cost total is derived from this rather than accumulated beside it, which is what makes a
+   * partial SELL leave the basis per share unchanged *by construction* instead of by cancellation.
+   * Accumulating a cost total and dividing it independently was measured to drift by 3.4e-3 over a
+   * thousand partial sells at the $1 contract minimum; carrying the basis directly drifts by zero.
+   */
+  averageCostValue: MoneyValue;
+  /**
+   * Total cost of the shares currently held, also canonical.
+   *
+   * Both are carried because neither alone is sufficient at the extremes. Deriving the basis from
+   * an accumulated cost total drifts across partial sells (measured at 3.4e-3 over a thousand
+   * cycles at the $1 minimum). Deriving the cost total from an eight-decimal basis loses $10.44 on
+   * a 2.4-billion-share, $2.6-billion position, because that is what eight decimals are worth at
+   * that share count. So the basis is pinned — a partial sell never moves it — and the cost total
+   * is reduced by the cost actually removed, each exact at its own declared scale.
+   */
+  costTotalValue: MoneyValue;
   /**
    * BUY levels whose allocation opportunity this position lifecycle has consumed.
    *
@@ -47,7 +80,7 @@ export type PositionState = {
   previousValueDate?: LocalDate;
   lastPrice: number;
   lastPriceDate: LocalDate;
-  realizedPnl: number;
+  realizedPnl: MoneyValue;
 };
 
 /**
@@ -63,10 +96,27 @@ export const COST_BASIS_POLICY = "AVERAGE_COST" as const;
 
 export type CostBasisPolicyId = typeof COST_BASIS_POLICY;
 
+/**
+ * The basis per share as a plain number, for the `Gain` / `Loss` predicates.
+ *
+ * Those are percentages compared against a Strategy threshold, not ledger values: they are never
+ * persisted and never reconciled, so a float is the right representation and the exact basis stays
+ * in {@link PositionState.averageCostValue}.
+ */
 export function averageCost(position: PositionState): number {
-  return position.shares > 0
-    ? position.costTotal / position.shares
+  return position.shares.gt(0)
+    ? toNumber(position.averageCostValue)
     : Number.NaN;
+}
+
+/** The exact basis per share. */
+export function averageCostValue(position: PositionState): MoneyValue {
+  return position.averageCostValue;
+}
+
+/** Total cost of the shares currently held. */
+export function costTotal(position: PositionState): MoneyValue {
+  return position.costTotalValue;
 }
 
 /** `Gain = (Price - AverageCost) / AverageCost * 100`. Signed, never below -100 for a long position. */
@@ -187,15 +237,26 @@ export function evaluatePositionSignal(
   return evaluabilityAll(results);
 }
 
-/** Applies a BUY under the AVERAGE_COST policy. Fees are zero in V1 and enter through this seam. */
+/**
+ * Applies a BUY under the AVERAGE_COST policy.
+ *
+ * Takes the **canonical amount that will be persisted**, not a price to re-multiply: the basis has
+ * to be re-averaged from the same value the trade row and the cash mutation use, or the three
+ * disagree. Fees are zero in V1 and enter through this seam.
+ */
 export function applyBuy(
   position: PositionState,
-  shares: number,
-  price: number,
-  fees: number,
+  shares: MoneyValue,
+  amount: MoneyValue,
+  fees: MoneyValue,
 ): void {
-  position.shares += shares;
-  position.costTotal += shares * price + fees;
+  position.costTotalValue = quantizeMoney(
+    position.costTotalValue.plus(amount).plus(fees),
+  );
+  position.shares = position.shares.plus(shares);
+  position.averageCostValue = quantizePrice(
+    position.costTotalValue.div(position.shares),
+  );
 }
 
 /**
@@ -204,16 +265,29 @@ export function applyBuy(
  */
 export function applySell(
   position: PositionState,
-  shares: number,
-  price: number,
-  fees: number,
-): { realizedPnl: number; costRemoved: number } {
-  const basis = averageCost(position);
-  const costRemoved = Number.isFinite(basis) ? basis * shares : 0;
-  position.shares = Math.max(0, position.shares - shares);
-  position.costTotal =
-    position.shares === 0 ? 0 : position.costTotal - costRemoved;
-  const realizedPnl = shares * price - costRemoved - fees;
-  position.realizedPnl += realizedPnl;
-  return { realizedPnl, costRemoved };
+  shares: MoneyValue,
+  price: MoneyValue,
+  fees: MoneyValue,
+): { realizedPnl: MoneyValue; costRemoved: MoneyValue; proceeds: MoneyValue } {
+  const closesPosition = shares.gte(position.shares);
+  // A full exit removes exactly the whole basis, so the position closes at precisely zero rather
+  // than at whatever a proportional calculation happened to leave behind.
+  const costRemoved = closesPosition
+    ? position.costTotalValue
+    : quantizeMoney(position.averageCostValue.times(shares));
+  const proceeds = quantizeMoney(price.times(shares));
+  position.shares = closesPosition
+    ? MONEY_ZERO
+    : position.shares.minus(shares);
+  position.costTotalValue = closesPosition
+    ? MONEY_ZERO
+    : quantizeMoney(position.costTotalValue.minus(costRemoved));
+  if (closesPosition) {
+    position.averageCostValue = MONEY_ZERO;
+  }
+  // The basis per share is deliberately untouched on a partial sell: that is the AVERAGE_COST
+  // policy, and it is why `Gain` keeps describing the same position afterwards.
+  const realizedPnl = quantizeMoney(proceeds.minus(costRemoved).minus(fees));
+  position.realizedPnl = quantizeMoney(position.realizedPnl.plus(realizedPnl));
+  return { realizedPnl, costRemoved, proceeds };
 }

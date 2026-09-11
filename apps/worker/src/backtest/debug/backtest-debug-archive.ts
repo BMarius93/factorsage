@@ -13,6 +13,7 @@ import type {
 } from "@intrinsic/strategy";
 import { BacktestDebugArchiveStaging } from "./archive-staging.js";
 import {
+  archiveDecimal,
   archiveNumber,
   archiveNumbers,
   safeFileId,
@@ -29,7 +30,22 @@ import { scrubSecrets } from "./redaction.js";
  * cannot change what a run computes, and changing a methodology does not reorganize these files.
  * Bump it whenever a reader written against the previous layout would misread this one.
  */
-export const BACKTEST_ARCHIVE_SCHEMA_VERSION = 1;
+/**
+ * Version 2: monetary and share quantities are canonical decimal **strings**, not numbers.
+ *
+ * A version-1 archive wrote `"amount": 1234.56`; a version-2 archive writes `"amount": "1234.560000"`.
+ * The change exists because float64 cannot carry these values at the magnitudes the product
+ * reaches — the validation matrix produced a $334,310,721,745.96 portfolio and a
+ * 2,415,434,113.5728870 share count, 18 and 17 significant digits against float64's ~15.95 — so a
+ * number in the forensic record discarded exactly the digits the record exists to preserve.
+ *
+ * Percentages, ratios, the return index and drawdowns are unchanged: they were never ledger values.
+ *
+ * A reader must branch on `archiveSchemaVersion` rather than sniff the type. Version 1 archives
+ * remain readable as what they are — numbers, with the precision they were written at — and must
+ * not be reinterpreted as though they carried more.
+ */
+export const BACKTEST_ARCHIVE_SCHEMA_VERSION = 2;
 
 /** How the attempt ended, from the worker's point of view. */
 export type BacktestArchiveStatus = "COMPLETED" | "FAILED" | "INTERRUPTED";
@@ -333,12 +349,12 @@ export class BacktestDebugArchive {
           symbol: position.symbol,
           name: position.name,
           openedDate: position.openedDate,
-          shares: archiveNumber(position.shares),
-          averageCost: archiveNumber(position.averageCost),
-          lastPrice: archiveNumber(position.lastPrice),
+          shares: archiveDecimal(position.shares),
+          averageCost: archiveDecimal(position.averageCost),
+          lastPrice: archiveDecimal(position.lastPrice),
           lastPriceDate: position.lastPriceDate,
-          marketValue: archiveNumber(position.marketValue),
-          unrealizedPnl: archiveNumber(position.unrealizedPnl),
+          marketValue: archiveDecimal(position.marketValue),
+          unrealizedPnl: archiveDecimal(position.unrealizedPnl),
           unrealizedPnlPercent: archiveNumber(position.unrealizedPnlPercent),
           allocationPercent: archiveNumber(position.allocationPercent),
         })),
@@ -594,15 +610,15 @@ export class BacktestDebugArchive {
         action: trade.action,
         levelId: trade.levelId,
         levelPercentage: archiveNumber(trade.levelPercentage),
-        shares: archiveNumber(trade.shares),
-        price: archiveNumber(trade.price),
-        amount: archiveNumber(trade.amount),
-        fees: archiveNumber(trade.fees),
-        realizedPnl: archiveNumber(trade.realizedPnl),
+        shares: archiveDecimal(trade.shares),
+        price: archiveDecimal(trade.price),
+        amount: archiveDecimal(trade.amount),
+        fees: archiveDecimal(trade.fees),
+        realizedPnl: archiveDecimal(trade.realizedPnl),
         realizedPnlPercent: archiveNumber(trade.realizedPnlPercent),
-        cashAfter: archiveNumber(trade.cashAfter),
-        sharesAfter: archiveNumber(trade.sharesAfter),
-        averageCostAfter: archiveNumber(trade.averageCostAfter),
+        cashAfter: archiveDecimal(trade.cashAfter),
+        sharesAfter: archiveDecimal(trade.sharesAfter),
+        averageCostAfter: archiveDecimal(trade.averageCostAfter),
         // There is deliberately no `reason` here. See the class comment.
       })),
     );
@@ -611,14 +627,14 @@ export class BacktestDebugArchive {
       "result/equity.ndjson",
       diagnostics.equity.map((point) => ({
         date: point.date,
-        cash: archiveNumber(point.cash),
-        positionsValue: archiveNumber(point.positionsValue),
-        totalValue: archiveNumber(point.totalValue),
-        investedCapital: archiveNumber(point.investedCapital),
+        cash: archiveDecimal(point.cash),
+        positionsValue: archiveDecimal(point.positionsValue),
+        totalValue: archiveDecimal(point.totalValue),
+        investedCapital: archiveDecimal(point.investedCapital),
         returnIndex: archiveNumber(point.returnIndex),
         benchmarkIndex: archiveNumber(point.benchmarkIndex),
-        benchmarkValue: archiveNumber(point.benchmarkValue),
-        cashBaselineValue: archiveNumber(point.cashBaselineValue),
+        benchmarkValue: archiveDecimal(point.benchmarkValue),
+        cashBaselineValue: archiveDecimal(point.cashBaselineValue),
         openPositions: point.openPositions,
       })),
     );

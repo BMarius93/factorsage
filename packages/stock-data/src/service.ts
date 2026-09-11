@@ -612,8 +612,8 @@ export class CanonicalStockDataService implements StockDataService {
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
     const [prices, derived] = await Promise.all([
-      this.readDailyPriceProjection(security, context),
-      this.readDailyDerivedStateProjection(security, context),
+      this.readDailyPriceProjection(security, context, "BACKTEST"),
+      this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
     ]);
     return projectEvaluationFrame({
       security,
@@ -656,7 +656,7 @@ export class CanonicalStockDataService implements StockDataService {
     const load = this.loadTarget(security, context);
     await this.ensureStockHydrated(security, load);
     await this.ensureStockFresh(security, load);
-    const projection = this.projectionRange(security, period);
+    const projection = this.projectionRange(security, period, "BACKTEST");
     return projection
       ? this.store.getDailyPriceBounds(security.id, projection)
       : null;
@@ -690,8 +690,8 @@ export class CanonicalStockDataService implements StockDataService {
       to: period.to,
     };
     const [prices, derived] = await Promise.all([
-      this.readDailyPriceProjection(security, context),
-      this.readDailyDerivedStateProjection(security, context),
+      this.readDailyPriceProjection(security, context, "BACKTEST"),
+      this.readDailyDerivedStateProjection(security, context, "BACKTEST"),
     ]);
     return projectEvaluationFrame({
       security,
@@ -996,8 +996,9 @@ export class CanonicalStockDataService implements StockDataService {
   private async readDailyPriceProjection(
     security: Security,
     requested: Required<DateRange>,
+    bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ) {
-    const projection = this.projectionRange(security, requested);
+    const projection = this.projectionRange(security, requested, bound);
     if (!projection) {
       return [];
     }
@@ -1023,8 +1024,9 @@ export class CanonicalStockDataService implements StockDataService {
   private async readDailyDerivedStateProjection(
     security: Security,
     requested: Required<DateRange>,
+    bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ): Promise<DailyDerivedState[]> {
-    const projection = this.projectionRange(security, requested);
+    const projection = this.projectionRange(security, requested, bound);
     if (!projection) {
       return [];
     }
@@ -1905,16 +1907,40 @@ export class CanonicalStockDataService implements StockDataService {
   }
 
   /**
-   * The product-visible slice of a requested range.
+   * The slice of a requested range a read may return, and which bound applies.
    *
-   * The one place the retained warm-up years are cut off. Prices, derived state, technicals,
-   * intrinsic values and every backtest frame are read through it, so a row older than the product
-   * horizon physically cannot reach a caller however wide the load target was.
+   * `PRODUCT` is the one place the retained warm-up years are cut off: prices, derived state,
+   * technicals, intrinsic values and Stock Details are read through it, so a row older than the
+   * product horizon physically cannot reach a user however wide the load target was.
+   *
+   * `BACKTEST` applies **no clock-derived bound at all**, and that distinction is the whole point.
+   * A completed run's period is immutable — validated against the selectable horizon at submission
+   * and written into the run's own snapshot — so re-deriving any bound for it from the *current*
+   * clock silently rewrites what the run executes. The validation matrix measured the first
+   * version of that: a run pinned to 1996-09-09 and executed on 2026-09-10 simulated 7,546
+   * sessions where its own calendar had 7,547, losing the first simulated date and with it the
+   * return-index base, the first contribution date and every number chained off them.
+   *
+   * Bounding by *retention* instead of by the product horizon only postponed it. Retention is a
+   * maintenance horizon, not a deletion one — nothing prunes `DailyPrice` — so a row below it is
+   * still there, and a period that survived midnight and a week's retry started a session later
+   * again one day past the margin. There is no version of a clock-derived floor that is safe for
+   * an immutable period; there is only a version that fails later.
+   *
+   * The listing clamp stays, because it is not a clock bound. A security participates on the days
+   * its own frame has rows for, which is `execution-calendar-authoritative@2` and not a clipped
+   * period.
    */
   private projectionRange(
     security: Security,
     requested: Required<DateRange>,
+    bound: "PRODUCT" | "BACKTEST" = "PRODUCT",
   ): Required<DateRange> | null {
+    if (bound === "BACKTEST") {
+      const listing = security.ipoDate;
+      const from = listing ? maxDate(requested.from, listing) : requested.from;
+      return from <= requested.to ? { from, to: requested.to } : null;
+    }
     const target = this.productTarget(security);
     const from = maxDate(requested.from, target.from);
     const to = minDate(requested.to, target.to);

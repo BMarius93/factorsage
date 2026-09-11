@@ -11,34 +11,141 @@ import { scrubSecrets } from "./redaction.js";
  * exists.
  */
 describe("the debug archive stays out of the product", () => {
-  it("is not referenced by the web app, the API or the wire contracts", async () => {
-    const root = repositoryRoot();
-    const markers = [
-      "debugArchive",
-      "BACKTEST_DEBUG_ARCHIVE",
-      "archiveSchemaVersion",
-      "backtest-debug-archive",
-    ];
+  const MARKERS = [
+    "debugArchive",
+    "BACKTEST_DEBUG_ARCHIVE",
+    "archiveSchemaVersion",
+    "backtest-debug-archive",
+  ];
 
+  it("is not referenced by the web app or the wire contracts", async () => {
+    const root = repositoryRoot();
     const offenders: string[] = [];
-    for (const area of [
-      "apps/web/src",
-      "apps/api/src",
-      "packages/contracts/src",
-    ]) {
+    for (const area of ["apps/web/src", "packages/contracts/src"]) {
       for await (const file of sourceFiles(join(root, area))) {
         const contents = await readFile(file, "utf8");
-        if (markers.some((marker) => contents.includes(marker))) {
+        if (MARKERS.some((marker) => contents.includes(marker))) {
           offenders.push(file.slice(root.length + 1));
         }
       }
     }
+    // A `debug` field on the public Backtest contract, or anything in the browser that knows an
+    // archive exists, would make this a product feature by accident.
+    expect(offenders).toEqual([]);
+  });
 
-    // A `debug` field on the public Backtest contract, or archive configuration read by the API,
-    // would make this a product feature by accident. It is worker-only on purpose.
+  /**
+   * The property that actually matters for the API, stated as what it is.
+   *
+   * "No file under `apps/api/src`" was a proxy for it, and the proxy broke the moment developer-only
+   * tooling landed in that tree — `apps/api/src/qa-matrix`, the QA validation-matrix runner, spawns
+   * the real worker with `BACKTEST_DEBUG_ARCHIVE=full` for a handful of golden combinations and
+   * reads the archives back. That is a `tsx` command a developer runs, not a route a user can
+   * reach, and forbidding it would have said nothing about the product.
+   *
+   * So the boundary is drawn where it belongs: the **running API's own module graph**, walked from
+   * `app.module.ts` through its relative imports. Nothing the Nest application can reach may mention
+   * the archive — which is the guarantee the original test was written to protect, made exact rather
+   * than approximated by a directory name.
+   */
+  it("is unknown to the API's own application graph", async () => {
+    const root = repositoryRoot();
+    const graph = await apiApplicationGraph(root);
+    const offenders: string[] = [];
+    for (const [file, contents] of graph) {
+      if (MARKERS.some((marker) => contents.includes(marker))) {
+        offenders.push(file.slice(root.length + 1));
+      }
+    }
+    expect(graph.size).toBeGreaterThan(20);
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * And the developer tooling that is allowed to know stays developer tooling: the API application
+   * may not reach it, and it may not declare a route.
+   *
+   * The `qa-matrix` tree holds `tsx` entry points — the fixture seeder and the validation-matrix
+   * runner — which is exactly why they are outside the graph above rather than exempted from it.
+   */
+  it("keeps the QA matrix tooling out of the request path", async () => {
+    const root = repositoryRoot();
+    const offenders: string[] = [];
+
+    for (const [file, contents] of await apiApplicationGraph(root)) {
+      if (/from\s+"[^"]*qa-matrix[^"]*"/.test(contents)) {
+        offenders.push(
+          `${file.slice(root.length + 1)} is in the API graph and imports the QA matrix tooling`,
+        );
+      }
+    }
+    for await (const file of sourceFiles(join(root, "apps/api/src/qa-matrix"))) {
+      const contents = await readFile(file, "utf8");
+      if (contents.includes("@Controller")) {
+        offenders.push(`${file.slice(root.length + 1)} declares a controller`);
+      }
+    }
+
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * Every source file the Nest application can reach from its root module, with its contents.
+ *
+ * Walked through relative imports only, which is all the API's own graph is built from: a workspace
+ * package is a different boundary with its own rules.
+ */
+async function apiApplicationGraph(
+  root: string,
+): Promise<Map<string, string>> {
+  const graph = new Map<string, string>();
+  const queue = [join(root, "apps/api/src/app.module.ts")];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (graph.has(file)) {
+      continue;
+    }
+    let contents: string;
+    try {
+      contents = await readFile(file, "utf8");
+    } catch {
+      continue;
+    }
+    graph.set(file, contents);
+    for (const specifier of relativeImports(contents)) {
+      const resolved = await resolveModule(dirname(file), specifier);
+      if (resolved) {
+        queue.push(resolved);
+      }
+    }
+  }
+  return graph;
+}
+
+/** Relative import specifiers, which is all the API's own graph is built from. */
+function relativeImports(contents: string): string[] {
+  const specifiers: string[] = [];
+  const pattern = /(?:from|import)\s+"(\.[^"]*)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(contents)) !== null) {
+    specifiers.push(match[1] as string);
+  }
+  return specifiers;
+}
+
+async function resolveModule(
+  from: string,
+  specifier: string,
+): Promise<string | null> {
+  const base = resolve(from, specifier.replace(/\.js$/, ""));
+  for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
 
 /**
  * The encoding rule the whole archive rests on, asserted directly rather than only through a run.

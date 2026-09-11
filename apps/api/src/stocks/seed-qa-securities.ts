@@ -70,12 +70,23 @@ export const QA_SECURITIES = [
  * test database by overwriting `DATABASE_URL`, having already made this exact check against the
  * real one first. It records that with `INTRINSIC_TEST_DATABASE_ACTIVE`, named literally here so
  * this guard keeps no runtime dependency on a test-only package.
+ *
+ * The QA validation matrix is the third proven-safe target, recorded the same way with
+ * `INTRINSIC_QA_MATRIX_DATABASE_ACTIVE`. Its own resolver has already refused production, refused
+ * the development and test databases by name, and required a database whose name says what it is —
+ * a stricter set of checks than this one, made before any client existed. It is accepted before
+ * `TEST_DATABASE_URL` is required rather than after, because a matrix environment legitimately has
+ * nothing to do with the test database and must not be blocked by its absence.
  */
 export function assertQaSecuritySeedingAllowed(
   env: NodeJS.ProcessEnv = process.env,
 ): void {
   if (env.NODE_ENV?.trim() === "production") {
     throw new Error(PRODUCTION_QA_SECURITIES_MESSAGE);
+  }
+
+  if (env.INTRINSIC_QA_MATRIX_DATABASE_ACTIVE === "true") {
+    return;
   }
 
   const testDatabaseUrl = env.TEST_DATABASE_URL?.trim();

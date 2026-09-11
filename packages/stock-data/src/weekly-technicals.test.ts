@@ -259,7 +259,9 @@ describe("weekly moving averages", () => {
         expect(value).toBeGreaterThanOrEqual(Math.min(...window));
         expect(value).toBeLessThanOrEqual(Math.max(...window));
       });
-      const deltas = series.slice(1).map((value, index) => value - series[index]!);
+      const deltas = series
+        .slice(1)
+        .map((value, index) => value - series[index]!);
       for (const delta of deltas) {
         expect(direction === "rising" ? delta : -delta).toBeGreaterThan(0);
       }
@@ -323,11 +325,9 @@ describe("weekly moving averages", () => {
     );
     for (const average of WEEKLY_MOVING_AVERAGES) {
       expect(warmed[average.field]).toBeCloseTo(
-        referenceMovingAverage(
-          WEEKLY_CLOSES,
-          average.type,
-          average.period,
-        ).at(-1)!,
+        referenceMovingAverage(WEEKLY_CLOSES, average.type, average.period).at(
+          -1,
+        )!,
         9,
       );
     }

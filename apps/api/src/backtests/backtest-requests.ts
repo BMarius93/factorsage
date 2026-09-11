@@ -6,6 +6,7 @@ import {
   BACKTEST_MAX_PERIOD_YEARS,
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
+  subtractYears,
 } from "@intrinsic/contracts";
 import { BadRequestException } from "@nestjs/common";
 
@@ -105,15 +106,37 @@ function parseAmount(
   return value;
 }
 
-/** The calendar date `years` after `date`, used as the inclusive upper bound of a period. */
+/**
+ * The calendar date `years` after `date`, used as the inclusive upper bound of a period.
+ *
+ * The mirror of `subtractYears`, clamp included: without it 29 February rolls forward to 1 March
+ * and the two bounds disagree about the same thirty years every fourth year — so a start date the
+ * horizon check accepts could be one the length check rejects.
+ */
 function addYears(date: string, years: number): string {
   const shifted = new Date(`${date}T00:00:00.000Z`);
+  const day = shifted.getUTCDate();
+  shifted.setUTCDate(1);
   shifted.setUTCFullYear(shifted.getUTCFullYear() + years);
+  const lastDayOfMonth = new Date(
+    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  shifted.setUTCDate(Math.min(day, lastDayOfMonth));
   return shifted.toISOString().slice(0, 10);
 }
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * The earliest date a backtest may start today.
+ *
+ * The same day the New Backtest form offers as its `MIN`, computed from the same shared
+ * `subtractYears` so the browser and the API cannot disagree about it.
+ */
+export function earliestSelectableBacktestStart(today: string): string {
+  return subtractYears(today, BACKTEST_MAX_PERIOD_YEARS);
 }
 
 export type ParsedCreateBacktestRunRequest = {
@@ -131,6 +154,8 @@ export type ParsedCreateBacktestRunRequest = {
 
 export function parseCreateBacktestRunRequest(
   body: unknown,
+  /** Injectable so the horizon boundary is testable; production reads the real clock. */
+  today: string = todayIsoDate(),
 ): ParsedCreateBacktestRunRequest {
   const record = asRecord(body);
   rejectUnknownKeys(record, [
@@ -151,12 +176,25 @@ export function parseCreateBacktestRunRequest(
   }
   // A period that has not happened yet cannot be simulated, and the future half of one would
   // silently shorten the run instead of reporting that the request was wrong.
-  if (endDate > todayIsoDate()) {
+  if (endDate > today) {
     throw backtestInvalid("A backtest period cannot end in the future");
   }
   if (endDate > addYears(startDate, BACKTEST_MAX_PERIOD_YEARS)) {
     throw backtestInvalid(
       `A backtest period can cover at most ${BACKTEST_MAX_PERIOD_YEARS} years`,
+    );
+  }
+  // And the *start* has to be inside the horizon the product actually keeps, not merely within
+  // thirty years of the end. Without this a caller could submit an old but short period — 1985 to
+  // 1990 — which no data exists for, and the loader would quietly narrow it at execution time to
+  // whatever the current clock allowed. The run would complete, report a period it did not
+  // simulate, and be irreproducible tomorrow. It is refused here instead, where the caller can
+  // see it.
+  const earliest = earliestSelectableBacktestStart(today);
+  if (startDate < earliest) {
+    throw backtestInvalid(
+      `A backtest cannot start before ${earliest}: the product keeps ${BACKTEST_MAX_PERIOD_YEARS} ` +
+        "years of history",
     );
   }
 

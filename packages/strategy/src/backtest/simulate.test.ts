@@ -121,7 +121,9 @@ describe("allocation under maximumPositions", () => {
 
     // Two slots at 50% of 1,000 each: the whole balance is deployed and nothing overdraws.
     expect(result.summary.finalCash).toBeCloseTo(0, 6);
-    expect(result.equity.every((point) => point.cash >= -1e-9)).toBe(true);
+    expect(result.equity.every((point) => Number(point.cash) >= -1e-9)).toBe(
+      true,
+    );
   });
 });
 
@@ -254,8 +256,8 @@ describe("exits", () => {
     expect(buys).toHaveLength(2);
     const secondBuy = buys[1];
     const blended =
-      ((buys[0]?.amount ?? 0) + (secondBuy?.amount ?? 0)) /
-      ((buys[0]?.shares ?? 0) + (secondBuy?.shares ?? 0));
+      (Number(buys[0]?.amount ?? 0) + Number(secondBuy?.amount ?? 0)) /
+      (Number(buys[0]?.shares ?? 0) + Number(secondBuy?.shares ?? 0));
     expect(secondBuy?.averageCostAfter).toBeCloseTo(blended, 6);
 
     const sell = result.trades.find((trade) => trade.action === "SELL");
@@ -287,14 +289,16 @@ describe("contributions", () => {
       }),
     );
 
-    const invested = result.equity.map((point) => point.investedCapital);
+    const invested = result.equity.map((point) =>
+      Number(point.investedCapital),
+    );
     expect(invested[0]).toBe(10_000);
     expect(invested[4]).toBe(10_000);
     expect(invested[5]).toBe(10_500);
     expect(invested[9]).toBe(10_500);
     expect(invested[10]).toBe(11_000);
-    expect(result.summary.investedCapital).toBe(11_000);
-    expect(result.summary.finalCash).toBe(11_000);
+    expect(Number(result.summary.investedCapital)).toBe(11_000);
+    expect(Number(result.summary.finalCash)).toBe(11_000);
   });
 
   it("keeps a contribution out of the return, so a pure-cash portfolio reports 0%", async () => {
@@ -320,8 +324,8 @@ describe("contributions", () => {
     );
 
     expect(result.summary.portfolioReturnPercent).toBeCloseTo(0, 9);
-    expect(result.summary.finalValue).toBe(15_000);
-    expect(result.summary.netProfit).toBe(0);
+    expect(Number(result.summary.finalValue)).toBe(15_000);
+    expect(Number(result.summary.netProfit)).toBe(0);
   });
 });
 
@@ -462,7 +466,7 @@ describe("unavailable data", () => {
       }),
     );
 
-    expect(result.equity.map((point) => point.totalValue)).toEqual([
+    expect(result.equity.map((point) => Number(point.totalValue))).toEqual([
       100_000, 100_000, 100_000, 100_000,
     ]);
     expect(result.summary.portfolioReturnPercent).toBeCloseTo(0, 9);
@@ -833,7 +837,9 @@ describe("contribution-date DCA top-ups", () => {
       }),
     );
 
-    expect(result.equity.every((point) => point.cash >= -1e-9)).toBe(true);
+    expect(result.equity.every((point) => Number(point.cash) >= -1e-9)).toBe(
+      true,
+    );
     const topUp = result.trades.find(
       (trade) => trade.date === contributionDate,
     );
@@ -913,8 +919,8 @@ describe("end-to-end methodology ledger", () => {
       trade.date,
       trade.action,
       trade.levelPercentage,
-      Number(trade.amount.toFixed(2)),
-      Number(trade.sharesAfter.toFixed(4)),
+      Number(Number(trade.amount).toFixed(2)),
+      Number(Number(trade.sharesAfter).toFixed(4)),
     ]);
 
     expect(ledger).toEqual([
@@ -940,15 +946,15 @@ describe("end-to-end methodology ledger", () => {
 
     // Seven calendar months are simulated and six contributions land: the opening month is funded
     // by the initial capital instead.
-    expect(result.summary.investedCapital).toBe(100_000 + 6 * 20_000);
-    expect(result.summary.realizedPnl).toBeCloseTo(3_320.625, 3);
+    expect(Number(result.summary.investedCapital)).toBe(100_000 + 6 * 20_000);
+    expect(Number(result.summary.realizedPnl)).toBeCloseTo(3_320.625, 3);
     expect(result.summary.openPositions).toBe(1);
 
     // A partial sell leaves the basis per share untouched; a top-up blends it.
     const sell = result.trades.find((trade) => trade.action === "SELL");
     const beforeSell = result.trades[2];
     expect(sell?.averageCostAfter).toBeCloseTo(
-      beforeSell?.averageCostAfter as number,
+      Number(beforeSell?.averageCostAfter),
       6,
     );
     expect(result.positions[0]?.averageCost).toBeCloseTo(49.1602, 4);
@@ -960,6 +966,96 @@ describe("end-to-end methodology ledger", () => {
  * worker can persist every one of them even inside its write throttle, and there are at most about
  * thirty of them in a V1 run.
  */
+/**
+ * Every canonical string the engine emits carries its declared scale, and only its declared scale.
+ *
+ * This is the guard that `MoneyString` and `SharesString` do not provide. They are aliases for
+ * `string`, so nothing stops `moneyString` being written where `priceString` was meant — and the
+ * mistake is invisible at the type level *and* at the value level, because a decimal comparison
+ * ignores trailing zeros. It only surfaces when PostgreSQL rounds the extra digits away, at which
+ * point a price has silently lost two decimal places in a column that was meant to hold them.
+ *
+ * Branding the aliases would catch it at the call site, and would also require a cast at every
+ * boundary the values cross — Prisma reads, JSON, every fixture in every suite — for a mistake this
+ * catches directly, over a real run, in one place. So the aliases stay documentary and this is the
+ * property that is actually enforced.
+ */
+describe("persisted scales", () => {
+  const decimals = (value: string): number => value.split(".")[1]?.length ?? 0;
+
+  it("emits six decimals of money, ten of shares and eight of price, everywhere", async () => {
+    const dates = ["2021-01-04", "2021-01-05", "2021-01-06", "2021-01-07"];
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b100", 100, priceAboveSignal(1))],
+          sellLevels: [sellLevel("s50", 50, gainAboveSignal(1))],
+        }),
+        securities: [
+          securityInput(
+            frameOf({ symbol: "AAA", dates, closes: [100, 137, 211, 311] }),
+          ),
+        ],
+        initialCapital: 100_000,
+        monthlyContribution: 0,
+        maximumPositions: 3,
+      }),
+    );
+
+    expect(result.trades.length).toBeGreaterThan(0);
+    for (const trade of result.trades) {
+      expect([trade.action, decimals(trade.amount)]).toEqual([trade.action, 6]);
+      expect(decimals(trade.fees)).toBe(6);
+      expect(decimals(trade.cashAfter)).toBe(6);
+      expect(decimals(trade.shares)).toBe(10);
+      expect(decimals(trade.sharesAfter)).toBe(10);
+      expect(decimals(trade.price)).toBe(8);
+      if (trade.realizedPnl !== null) {
+        expect(decimals(trade.realizedPnl)).toBe(6);
+      }
+      if (trade.averageCostAfter !== null) {
+        expect(decimals(trade.averageCostAfter)).toBe(8);
+      }
+    }
+
+    expect(result.equity.length).toBeGreaterThan(0);
+    for (const point of result.equity) {
+      for (const value of [
+        point.cash,
+        point.positionsValue,
+        point.totalValue,
+        point.investedCapital,
+        point.cashBaselineValue,
+      ]) {
+        expect(decimals(value)).toBe(6);
+      }
+      if (point.benchmarkValue !== null) {
+        expect(decimals(point.benchmarkValue)).toBe(6);
+      }
+    }
+
+    for (const position of result.positions) {
+      expect(decimals(position.shares)).toBe(10);
+      expect(decimals(position.averageCost)).toBe(8);
+      expect(decimals(position.lastPrice)).toBe(8);
+      expect(decimals(position.marketValue)).toBe(6);
+      expect(decimals(position.unrealizedPnl)).toBe(6);
+    }
+
+    for (const value of [
+      result.summary.investedCapital,
+      result.summary.finalCash,
+      result.summary.finalPositionsValue,
+      result.summary.finalValue,
+      result.summary.netProfit,
+      result.summary.realizedPnl,
+      result.summary.unrealizedPnl,
+    ]) {
+      expect(decimals(value)).toBe(6);
+    }
+  });
+});
+
 describe("annual milestone checkpoints", () => {
   function yearsOfWeekdays(startYear: number, years: number): string[] {
     const out: string[] = [];
@@ -1085,9 +1181,9 @@ describe("BUY allocation tiers", () => {
       }),
     );
 
-    expect(result.trades.map((trade) => [trade.levelId, trade.amount])).toEqual(
-      [["b100", 100_000]],
-    );
+    expect(
+      result.trades.map((trade) => [trade.levelId, Number(trade.amount)]),
+    ).toEqual([["b100", 100_000]]);
   });
 
   it("does not resurrect a smaller tier when the position falls below it", async () => {
@@ -1217,8 +1313,8 @@ describe("BUY allocation tiers", () => {
     // day it could not afford: it enters once cash exists again.
     const bbbTrades = result.trades.filter((trade) => trade.symbol === "BBB");
     expect(bbbTrades.length).toBeGreaterThan(0);
-    expect(bbbTrades[0]?.shares).toBeGreaterThan(0);
-    expect(result.trades.every((trade) => trade.shares > 0)).toBe(true);
+    expect(Number(bbbTrades[0]?.shares)).toBeGreaterThan(0);
+    expect(result.trades.every((trade) => Number(trade.shares) > 0)).toBe(true);
   });
 });
 
@@ -1532,9 +1628,9 @@ describe("the period, not the data, defines the run", () => {
     );
     expect(beforeTrading).toHaveLength(40);
     expect(beforeTrading.every((point) => point.returnIndex === 1)).toBe(true);
-    expect(beforeTrading.every((point) => point.totalValue === 100_000)).toBe(
-      true,
-    );
+    expect(
+      beforeTrading.every((point) => Number(point.totalValue) === 100_000),
+    ).toBe(true);
     expect(result.equity[0]?.date).toBe(dates[0]);
   });
 
@@ -1563,7 +1659,7 @@ describe("the period, not the data, defines the run", () => {
 
     // The run exists from its first day: cash only, 0%, no position, no fabricated price.
     expect(result.equity[0]?.date).toBe(marketDates[0]);
-    expect(result.equity[0]?.totalValue).toBe(100_000);
+    expect(Number(result.equity[0]?.totalValue)).toBe(100_000);
     expect(result.summary.firstSimulatedDate).toBe(marketDates[0]);
     const beforeListing = result.equity.filter(
       (point) => point.date < (lateDates[0] as string),
@@ -1723,7 +1819,7 @@ describe("securities whose history does not span the run", () => {
     expect(position?.symbol).toBe("GONE");
     // The value is held at the last real close, and the date that close came from is reported, so
     // a stale holding is visible rather than silent.
-    expect(position?.lastPrice).toBe(100);
+    expect(Number(position?.lastPrice)).toBe(100);
     expect(position?.lastPriceDate).toBe(truncated[truncated.length - 1]);
     // With no benchmark and no other security still reporting, there are no market dates left to
     // simulate, so the run ends where its data ends rather than inventing days to fill the period.
@@ -1764,7 +1860,7 @@ describe("securities whose history does not span the run", () => {
     // The market calendar continues, so the run does too — and the holding is carried at the last
     // close it actually had, with the date that close came from reported alongside it.
     expect(result.summary.lastSimulatedDate).toBe(full[full.length - 1]);
-    expect(result.positions[0]?.lastPrice).toBe(100);
+    expect(Number(result.positions[0]?.lastPrice)).toBe(100);
     expect(result.positions[0]?.lastPriceDate).toBe(
       truncated[truncated.length - 1],
     );

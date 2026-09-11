@@ -68,6 +68,9 @@ importers:
       cookie:
         specifier: ^1.1.1
         version: 1.1.1
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
       google-auth-library:
         specifier: ^10.9.1
         version: 10.9.1(supports-color@8.1.1)
@@ -102,6 +105,9 @@ importers:
       '@types/supertest':
         specifier: ^7.2.1
         version: 7.2.1
+      '@types/yauzl':
+        specifier: ^3.4.0
+        version: 3.4.0
       supertest:
         specifier: ^7.2.2
         version: 7.2.2(supports-color@8.1.1)
@@ -114,6 +120,9 @@ importers:
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@1.8.0))(lightningcss@1.33.0)(supports-color@8.1.1)(terser@5.50.0)
+      yauzl:
+        specifier: ^3.4.0
+        version: 3.4.0
 
   apps/web:
     dependencies:
@@ -335,6 +344,9 @@ importers:
       '@intrinsic/domain':
         specifier: workspace:*
         version: link:../domain
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
     devDependencies:
       typescript:
         specifier: ^5.9.0

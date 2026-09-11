@@ -66,8 +66,7 @@ function weekdays(from: string, to: string): string[] {
 
 /** Every trading day of the fixture, from a year before the run so context reads are realistic. */
 const HISTORY = weekdays("2018-06-01", END);
-const closeOn = (date: string): number =>
-  100 + HISTORY.indexOf(date) * 0.05;
+const closeOn = (date: string): number => 100 + HISTORY.indexOf(date) * 0.05;
 
 function snapshotDocument(overrides: Record<string, unknown> = {}) {
   return {
@@ -232,9 +231,7 @@ class RecordingFrameLoader implements BacktestFrameLoader {
     const context = new Date(`${range.from}T00:00:00.000Z`);
     context.setUTCDate(context.getUTCDate() - 10);
     const from = context.toISOString().slice(0, 10);
-    const dates = HISTORY.filter(
-      (date) => date >= from && date <= range.to,
-    );
+    const dates = HISTORY.filter((date) => date >= from && date <= range.to);
     const closes = Float64Array.from(dates.map(closeOn));
     const columns = new Map<OperandKey, Float64Array>();
     for (const operand of operands) {
@@ -287,6 +284,10 @@ class FixtureBenchmarks implements BacktestBenchmarkLoader {
       close: 400 + index * 0.2,
       volume: 5_000,
     }));
+  }
+
+  async missingBenchmarkCoverage(): Promise<Required<DateRange>[]> {
+    return [];
   }
 }
 
@@ -357,9 +358,7 @@ describe("annual execution windows", () => {
   });
 
   it("produces one continuous result across the year boundaries", async () => {
-    const { processor, repository } = processorWith(
-      new RecordingFrameLoader(),
-    );
+    const { processor, repository } = processorWith(new RecordingFrameLoader());
 
     await processor.process(claimOf(snapshotDocument()), lease);
 
@@ -403,9 +402,7 @@ describe("annual execution windows", () => {
   });
 
   it("exposes each completed year's computed prefix to the running page", async () => {
-    const { processor, repository } = processorWith(
-      new RecordingFrameLoader(),
-    );
+    const { processor, repository } = processorWith(new RecordingFrameLoader());
 
     await processor.process(claimOf(snapshotDocument()), lease);
 

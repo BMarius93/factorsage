@@ -79,10 +79,13 @@ function toTrade(trade: BacktestTradeRecord): BacktestTradeResponse {
     name: trade.name,
     action: trade.action,
     levelPercentage: trade.levelPercentage,
-    shares: trade.shares,
-    price: trade.price,
-    amount: trade.amount,
-    realizedPnl: trade.realizedPnl,
+    // The live snapshot is a progress projection for the running UI, not the durable result, so
+    // the canonical strings are parsed here rather than carried: a chart needs numbers and the
+    // record it came from is not the record anything reconciles against.
+    shares: Number(trade.shares),
+    price: Number(trade.price),
+    amount: Number(trade.amount),
+    realizedPnl: trade.realizedPnl === null ? null : Number(trade.realizedPnl),
     realizedPnlPercent: trade.realizedPnlPercent,
   };
 }

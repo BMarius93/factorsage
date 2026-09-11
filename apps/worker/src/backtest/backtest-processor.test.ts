@@ -1,7 +1,12 @@
 import { BACKTEST_SNAPSHOT_VERSION } from "@intrinsic/contracts";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
-import type { BenchmarkSeries, Security } from "@intrinsic/domain";
+import type {
+  BenchmarkDailyPrice,
+  BenchmarkSeries,
+  DateRange,
+  Security,
+} from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
 import {
@@ -120,8 +125,17 @@ const lease: BacktestJobLease = {
 /** Records which series ids execution asked for, and can refuse any of them. */
 class RecordingBenchmarks implements BacktestBenchmarkLoader {
   readonly requested: string[] = [];
+  /** Every price load attempted, so a test can prove one did not happen. */
+  readonly priceLoads: string[] = [];
 
-  constructor(private readonly unavailable: ReadonlySet<string> = new Set()) {}
+  constructor(
+    private readonly unavailable: ReadonlySet<string> = new Set(),
+    /** Bars the pinned series returns, and the coverage gaps it reports. */
+    private readonly options: {
+      readonly prices?: readonly { date: string; close: number }[];
+      readonly missingCoverage?: readonly { from: string; to: string }[];
+    } = {},
+  ) {}
 
   async getSeries(seriesId: string): Promise<BenchmarkSeries> {
     this.requested.push(seriesId);
@@ -139,8 +153,23 @@ class RecordingBenchmarks implements BacktestBenchmarkLoader {
     };
   }
 
-  async getBenchmarkDailyPrices() {
-    return [];
+  async getBenchmarkDailyPrices(
+    series: BenchmarkSeries,
+  ): Promise<BenchmarkDailyPrice[]> {
+    this.priceLoads.push(series.id);
+    return (this.options.prices ?? []).map((bar) => ({
+      seriesId: series.id,
+      date: bar.date,
+      open: bar.close,
+      high: bar.close,
+      low: bar.close,
+      close: bar.close,
+      volume: 0,
+    }));
+  }
+
+  async missingBenchmarkCoverage() {
+    return [...(this.options.missingCoverage ?? [])];
   }
 }
 
@@ -194,6 +223,174 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
     // No securities-union fallback: it never reached the frame loader, which would have thrown.
     expect(benchmarks.requested).toContain(CALENDAR_SERIES);
+  });
+
+  /**
+   * The clipping defect, from the worker's side.
+   *
+   * A run's period is immutable, so the only two honest outcomes are "executed exactly that
+   * period" and "failed saying the data was not there". Returning a shorter calendar is the third
+   * one that used to happen silently: the loader cut every projection at `today - 30y`, so a run
+   * pinned to 1996-09-09 and executed on 2026-09-10 simulated 7,546 sessions instead of 7,547 —
+   * moving its first simulated date, its return-index base and its first contribution.
+   *
+   * The read path no longer clips. What remains is a genuine gap in the canonical data, and that
+   * has to fail the attempt rather than shorten it.
+   */
+  it("fails rather than simulating a shorter period when the series does not cover it", async () => {
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [
+        { date: "1996-09-10", close: 100 },
+        { date: "1996-09-11", close: 101 },
+      ],
+      missingCoverage: [{ from: "1996-09-09", to: "1996-09-09" }],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+  });
+
+  /**
+   * A cold database, a benchmark-data reset, or simply a period nobody has asked for yet.
+   *
+   * Missing local coverage is not evidence that the provider has nothing; it is evidence that this
+   * deployment has not asked yet. The canonical loader exists precisely to close that gap, and
+   * checking coverage before letting it run turns every cold start into
+   * `EXECUTION_CALENDAR_UNAVAILABLE` for data that was available all along.
+   *
+   * The loader below models the causal relationship rather than asserting the conclusion: coverage
+   * reports a gap until the prices are actually loaded, and the load is what fills it — which is
+   * what the real `CanonicalBenchmarkDataService` does when it hydrates from the provider and
+   * records the range it asked for.
+   */
+  class ColdThenHydratedBenchmarks implements BacktestBenchmarkLoader {
+    readonly priceLoads: string[] = [];
+    private hydrated = false;
+
+    constructor(
+      private readonly bars: readonly { date: string; close: number }[],
+      /** What stays missing even after hydration, if anything. */
+      private readonly unfillable: readonly { from: string; to: string }[] = [],
+    ) {}
+
+    async getSeries(seriesId: string): Promise<BenchmarkSeries> {
+      return {
+        id: seriesId,
+        benchmarkId: "benchmark-1",
+        version: 1,
+        sourceKind: "FMP_SYMBOL",
+        providerSymbol: "SPY",
+        currency: "USD",
+        methodologyVersion: 1,
+      };
+    }
+
+    async getBenchmarkDailyPrices(
+      series: BenchmarkSeries,
+    ): Promise<BenchmarkDailyPrice[]> {
+      this.priceLoads.push(series.id);
+      this.hydrated = true;
+      return this.bars.map((bar) => ({
+        seriesId: series.id,
+        date: bar.date,
+        open: bar.close,
+        high: bar.close,
+        low: bar.close,
+        close: bar.close,
+        volume: 0,
+      }));
+    }
+
+    async missingBenchmarkCoverage(): Promise<Required<DateRange>[]> {
+      if (!this.hydrated) {
+        // Cold: nothing has been asked for, so nothing is covered.
+        return [{ from: "2020-01-01", to: "2020-12-31" }];
+      }
+      return [...this.unfillable];
+    }
+  }
+
+  it("hydrates a cold series instead of refusing it", async () => {
+    const benchmarks = new ColdThenHydratedBenchmarks([
+      { date: "2020-01-02", close: 100 },
+      { date: "2020-01-03", close: 101 },
+    ]);
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    // The loader ran for the pinned calendar series, and the run was not refused for the calendar.
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
+    expect(repository.failures.map((failure) => failure.code)).not.toContain(
+      "EXECUTION_CALENDAR_UNAVAILABLE",
+    );
+  });
+
+  it("still fails explicitly when hydration leaves the period incomplete", async () => {
+    // The loader was given its chance and the gap survived it. That is canonical data genuinely
+    // unavailable, and the run says so rather than simulating the part it did get.
+    const benchmarks = new ColdThenHydratedBenchmarks(
+      [
+        { date: "2020-06-01", close: 100 },
+        { date: "2020-06-02", close: 101 },
+      ],
+      [{ from: "2020-01-01", to: "2020-05-29" }],
+    );
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+  });
+
+  it("fails when the retained prefix of the recorded period is no longer covered", async () => {
+    // The shape a delayed execution produces: the run recorded a period reaching further back
+    // than what is still maintained, and the durable store cannot vouch for the first stretch of
+    // it. Reading what happens to be there would simulate a different period from the one the
+    // snapshot names, so the attempt fails instead — and a retry of the same job fails the same
+    // way rather than producing a third answer.
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [
+        { date: "1998-01-05", close: 100 },
+        { date: "1998-01-06", close: 101 },
+      ],
+      missingCoverage: [{ from: "1996-09-09", to: "1998-01-02" }],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+    // The loader was given its chance first — missing coverage is not proof the provider has
+    // nothing — and the gap survived it. Keeping a sweep's provider traffic at zero is the
+    // provisioned matrix environment's job, enforced by its preflight and its gate, not something
+    // execution achieves by refusing to hydrate.
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
+  });
+
+  it("proceeds when the series covers the period, however few sessions it holds", async () => {
+    // An empty prefix under complete coverage is the series' own history, not a gap. It is
+    // ordinary, and it must not fail a run.
+    const benchmarks = new RecordingBenchmarks(new Set(), {
+      prices: [{ date: "1996-09-10", close: 100 }],
+      missingCoverage: [],
+    });
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(repository.failures.map((failure) => failure.code)).not.toContain(
+      "EXECUTION_CALENDAR_UNAVAILABLE",
+    );
   });
 
   it("refuses a snapshot that pins no calendar rather than choosing one", async () => {

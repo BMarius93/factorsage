@@ -17,7 +17,10 @@ import {
   sellLevel,
   simulateBacktestByYear,
 } from "./backtest.test-helper.js";
-import { BacktestExecutionError, createBacktestSimulation } from "./simulation.js";
+import {
+  BacktestExecutionError,
+  createBacktestSimulation,
+} from "./simulation.js";
 import { simulateBacktest } from "./simulate.js";
 import type { BacktestCheckpoint } from "./types.js";
 
@@ -308,10 +311,10 @@ describe("contributions across a year boundary", () => {
       const dates: LocalDate[] = [];
       let previous = 0;
       for (const point of result.equity) {
-        if (previous !== 0 && point.investedCapital > previous) {
+        if (previous !== 0 && Number(point.investedCapital) > previous) {
           dates.push(point.date);
         }
-        previous = point.investedCapital;
+        previous = Number(point.investedCapital);
       }
       return dates;
     };
@@ -365,12 +368,18 @@ describe("absolute comparison scenarios", () => {
     const last = result.equity[result.equity.length - 1]!;
 
     // 24 months, the first funded by the initial capital: 23 contributions.
-    expect(last.cashBaselineValue).toBeCloseTo(123_000, 6);
+    expect(Number(last.cashBaselineValue)).toBeCloseTo(123_000, 6);
     expect(last.totalValue).toBeCloseTo(123_000, 6);
     expect(last.benchmarkValue).toBeCloseTo(123_000, 6);
     for (const point of result.equity) {
-      expect(point.cashBaselineValue).toBeCloseTo(point.investedCapital, 6);
-      expect(point.benchmarkValue).toBeCloseTo(point.cashBaselineValue, 6);
+      expect(Number(point.cashBaselineValue)).toBeCloseTo(
+        Number(point.investedCapital),
+        6,
+      );
+      expect(Number(point.benchmarkValue)).toBeCloseTo(
+        Number(point.cashBaselineValue),
+        6,
+      );
     }
   });
 
@@ -397,12 +406,15 @@ describe("absolute comparison scenarios", () => {
     const result = await simulateBacktestByYear(input);
     const last = result.equity[result.equity.length - 1]!;
 
-    expect(last.cashBaselineValue).toBeCloseTo(123_000, 6);
+    expect(Number(last.cashBaselineValue)).toBeCloseTo(123_000, 6);
     // The Strategy put nearly everything to work, so its uninvested cash is nothing like the
     // Cash line — which is exactly the confusion the separate name exists to prevent.
-    expect(last.cash).toBeLessThan(5_000);
-    expect(last.positionsValue).toBeGreaterThan(100_000);
-    expect(last.totalValue).toBeCloseTo(last.cash + last.positionsValue, 6);
+    expect(Number(last.cash)).toBeLessThan(5_000);
+    expect(Number(last.positionsValue)).toBeGreaterThan(100_000);
+    expect(Number(last.totalValue)).toBeCloseTo(
+      Number(last.cash) + Number(last.positionsValue),
+      6,
+    );
   });
 
   it("buys benchmark shares with each contribution instead of scaling one growth index", async () => {
@@ -432,11 +444,12 @@ describe("absolute comparison scenarios", () => {
     const last = result.equity[result.equity.length - 1]!;
 
     // 100,000 + 11 contributions at 100 = 1,110 shares; 12 more at 50 = 240 shares.
-    const expectedShares = 100_000 / 100 + (11 * 1_000) / 100 + (12 * 1_000) / 50;
+    const expectedShares =
+      100_000 / 100 + (11 * 1_000) / 100 + (12 * 1_000) / 50;
     expect(last.benchmarkValue).toBeCloseTo(expectedShares * 50, 6);
 
     // The rejected implementation: contributed capital times the benchmark's growth index.
-    const growthIndexValue = last.cashBaselineValue * (50 / 100);
+    const growthIndexValue = Number(last.cashBaselineValue) * (50 / 100);
     expect(last.benchmarkValue).not.toBeCloseTo(growthIndexValue, 2);
 
     // And the existing percentage-growth methodology is untouched by any of it.
@@ -475,7 +488,7 @@ describe("absolute comparison scenarios", () => {
     // scenario stays funded with exactly the cash flows the Strategy received.
     const first2021 = result.equity.find((point) => point.date >= "2021-01-01");
     expect(first2021?.benchmarkValue).toBeCloseTo(
-      first2021!.cashBaselineValue,
+      Number(first2021!.cashBaselineValue),
       6,
     );
   });

@@ -60,7 +60,10 @@ engine was built from. `../docs/decisions/backtest-run-persistence.md` records t
 decision, and `../docs/development/backtest-debug-archive.md` documents the opt-in developer-only
 forensic archive a worker can write for one attempt when a run's numbers have to be verified
 independently. `../docs/development/qa-matrix-fixtures.md` documents the deterministic QA-MATRIX
-Strategy/List/configuration fixtures the future 1,000-run validation matrix is built from. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
+Strategy/List/configuration fixtures the 1,000-run validation matrix is built from, and
+`../docs/development/qa-matrix-runner.md` documents the developer-only runner that executes
+them through the real application/worker path — its dedicated database, its preflight, the
+forty invariants it validates independently, and which three of those need the debug archive. Strategy semantics stay owned by `product/strategies.md`; execution behaviour it leaves
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 

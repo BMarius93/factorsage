@@ -93,7 +93,17 @@ describe("live FMP opt-in gate", () => {
 
     // Everything else leaves the suites skipped. `true`/`yes`/`on` are the near-misses a
     // developer actually types, so they are pinned rather than assumed.
-    for (const value of ["", "0", "true", "TRUE", "yes", "on", "2", " 1", "1 "]) {
+    for (const value of [
+      "",
+      "0",
+      "true",
+      "TRUE",
+      "yes",
+      "on",
+      "2",
+      " 1",
+      "1 ",
+    ]) {
       expect(liveFmpTestsEnabled({ [LIVE_FMP_OPT_IN_ENV]: value })).toBe(false);
     }
     expect(liveFmpTestsEnabled({})).toBe(false);

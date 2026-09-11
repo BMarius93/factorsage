@@ -84,7 +84,10 @@ export function blendSourceDataAsOf(
   let latest: Instant | undefined;
   for (const model of blendComponentModels(blendId)) {
     const sourceAsOf = intrinsicModelSourceAsOf(row, model);
-    if (row.intrinsicValues?.[model] === undefined || sourceAsOf === undefined) {
+    if (
+      row.intrinsicValues?.[model] === undefined ||
+      sourceAsOf === undefined
+    ) {
       return undefined;
     }
     if (latest === undefined || sourceAsOf > latest) {

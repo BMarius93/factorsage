@@ -93,7 +93,11 @@ describe("daily moving averages", () => {
     // appearing here would mean the daily calculator had started inventing carried-forward state,
     // which belongs to `buildDailyDerivedState` instead.
     expect(Object.keys(LAST_ROW).sort()).toEqual(
-      ["securityId", "date", ...DAILY_MOVING_AVERAGES.map((a) => a.field)].sort(),
+      [
+        "securityId",
+        "date",
+        ...DAILY_MOVING_AVERAGES.map((a) => a.field),
+      ].sort(),
     );
     for (const weekly of WEEKLY_MOVING_AVERAGES) {
       expect(LAST_ROW).not.toHaveProperty(weekly.field);

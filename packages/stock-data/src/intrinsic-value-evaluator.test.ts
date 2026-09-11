@@ -131,7 +131,10 @@ function completeStatements(
     ...WINDOW.flatMap((each) => [
       income(each, { ...INCOME_QUARTER, ...overrides.income }),
       cashFlow(each, { ...CASH_FLOW_QUARTER, ...overrides.cashFlow }),
-      balanceSheet(each, { ...BALANCE_SHEET_QUARTER, ...overrides.balanceSheet }),
+      balanceSheet(each, {
+        ...BALANCE_SHEET_QUARTER,
+        ...overrides.balanceSheet,
+      }),
     ]),
     // Published after the quarterly rows, so growth-consuming models carry newer provenance
     // than DDM, which never reads an annual statement.
@@ -354,7 +357,11 @@ describe("intrinsic value evaluation", () => {
       result.blends.DIVIDEND.status === "CALCULATED" &&
         result.blends.DIVIDEND.sourceDataAsOf,
     ).toBe(
-      maxOf(dcf.sourceDataAsOf, ddm.sourceDataAsOf, residualIncome.sourceDataAsOf),
+      maxOf(
+        dcf.sourceDataAsOf,
+        ddm.sourceDataAsOf,
+        residualIncome.sourceDataAsOf,
+      ),
     );
     // The maximum is a real choice here: DDM's own provenance is strictly older.
     expect(ddm.sourceDataAsOf < dcf.sourceDataAsOf).toBe(true);

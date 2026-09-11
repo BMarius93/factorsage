@@ -14,10 +14,26 @@ import {
   evaluatePositionSignal,
   gainPercent,
   type PositionState,
+  costTotal,
 } from "../position.js";
 import { BenchmarkCursor } from "./benchmark.js";
 import { buildContributionDates, buildExecutionCalendar } from "./calendar.js";
 import { ComparisonScenarios } from "./comparison.js";
+import {
+  buyCashOutflow,
+  exitCashInflow,
+  MONEY_ZERO,
+  spendableAfterFees,
+  SHARES_ULP,
+  moneyString,
+  priceString,
+  sharesString,
+  quantizeMoney,
+  quantizePrice,
+  quantizeSharesDown,
+  toNumber,
+  type MoneyValue,
+} from "./money.js";
 import {
   DrawdownTracker,
   alphaPercent,
@@ -32,6 +48,14 @@ import type {
   BacktestStateDiagnostics,
 } from "./diagnostics.js";
 import { V1_FEE_PER_TRADE } from "./methodology.js";
+
+/**
+ * The V1 fee, quantized once.
+ *
+ * Zero under `zero-fees/zero-slippage@1`, but routed through the ledger rather than dropped at the
+ * call sites, so the seam that will carry a real fee still exists and is exercised.
+ */
+const V1_FEE = quantizeMoney(V1_FEE_PER_TRADE);
 import type {
   BacktestCheckpoint,
   BacktestCheckpointHolding,
@@ -146,11 +170,11 @@ export class BacktestSimulation {
   private runtimes: SecurityRuntime[] = [];
   private runtimesById = new Map<SecurityId, SecurityRuntime>();
 
-  private cash: number;
-  private investedCapital: number;
+  private cash: MoneyValue;
+  private investedCapital: MoneyValue;
   private returnIndex = 1;
   private previousTotalValue: number;
-  private realizedPnl = 0;
+  private realizedPnl: MoneyValue = MONEY_ZERO;
   private sequence = 0;
   private completedDays = 0;
   private nextWindowIndex = 0;
@@ -192,8 +216,8 @@ export class BacktestSimulation {
     this.fullPositionFraction = 1 / input.maximumPositions;
     this.benchmark = new BenchmarkCursor(input.benchmark);
 
-    this.cash = input.initialCapital;
-    this.investedCapital = input.initialCapital;
+    this.cash = quantizeMoney(input.initialCapital);
+    this.investedCapital = quantizeMoney(input.initialCapital);
     this.previousTotalValue = input.initialCapital;
     // The initial capital is an external cash flow like any other: all three scenarios receive it,
     // and the benchmark scenario invests it at the first close it can be priced against.
@@ -293,13 +317,14 @@ export class BacktestSimulation {
           "windows; a partially simulated run has no result",
       );
     }
-    const lastEquity = this.equity[this.equity.length - 1] as BacktestEquityPoint;
+    const lastEquity = this.equity[
+      this.equity.length - 1
+    ] as BacktestEquityPoint;
     const firstDate = this.calendar[0] as LocalDate;
     const lastDate = this.calendar[this.calendar.length - 1] as LocalDate;
-    const openPositions = finalPositions(this.positions, lastEquity.totalValue);
-    const unrealizedPnl = openPositions.reduce(
-      (total, position) => total + position.unrealizedPnl,
-      0,
+    const { positions: openPositions, unrealizedPnl } = finalPositions(
+      this.positions,
+      quantizeMoney(lastEquity.totalValue),
     );
     const portfolioReturnPercent = indexToPercent(lastEquity.returnIndex);
     const benchmarkReturnPercent =
@@ -311,11 +336,15 @@ export class BacktestSimulation {
       firstSimulatedDate: firstDate,
       lastSimulatedDate: lastDate,
       tradingDays: this.calendar.length,
-      investedCapital: this.investedCapital,
+      investedCapital: moneyString(this.investedCapital),
       finalCash: lastEquity.cash,
       finalPositionsValue: lastEquity.positionsValue,
       finalValue: lastEquity.totalValue,
-      netProfit: lastEquity.totalValue - this.investedCapital,
+      netProfit: moneyString(
+        quantizeMoney(
+          quantizeMoney(lastEquity.totalValue).minus(this.investedCapital),
+        ),
+      ),
       portfolioReturnPercent,
       benchmarkReturnPercent,
       alphaPercent: alphaPercent(
@@ -332,19 +361,27 @@ export class BacktestSimulation {
         this.input.benchmark === null
           ? null
           : this.benchmarkDrawdown.maxDrawdownPercent,
-      realizedPnl: this.realizedPnl,
-      unrealizedPnl,
+      realizedPnl: moneyString(this.realizedPnl),
+      unrealizedPnl: moneyString(unrealizedPnl),
       totalTrades: this.trades.length,
       buyTrades: this.trades.filter((trade) => trade.action === "BUY").length,
       sellTrades: this.trades.filter((trade) => trade.action === "SELL").length,
       finalExitTrades: this.trades.filter(
         (trade) => trade.action === "FINAL_EXIT",
       ).length,
+      // Classified from the canonical value the trade row carries, not from an unrounded
+      // intermediate. That difference is the whole defect: a real profit of 0.004 stored at two
+      // decimals became 0.00, and the summary went on counting it as a win the trade log could not
+      // support.
       winningTrades: this.trades.filter(
-        (trade) => trade.realizedPnl !== null && trade.realizedPnl > 0,
+        (trade) =>
+          trade.realizedPnl !== null &&
+          quantizeMoney(trade.realizedPnl).gt(MONEY_ZERO),
       ).length,
       losingTrades: this.trades.filter(
-        (trade) => trade.realizedPnl !== null && trade.realizedPnl < 0,
+        (trade) =>
+          trade.realizedPnl !== null &&
+          quantizeMoney(trade.realizedPnl).lt(MONEY_ZERO),
       ).length,
       openPositions: openPositions.length,
     };
@@ -433,8 +470,8 @@ export class BacktestSimulation {
         date,
         type: "INITIAL_CAPITAL",
         amount: this.input.initialCapital,
-        cashAfter: this.cash,
-        investedCapitalAfter: this.investedCapital,
+        cashAfter: toNumber(this.cash),
+        investedCapitalAfter: toNumber(this.investedCapital),
       });
     }
 
@@ -445,8 +482,9 @@ export class BacktestSimulation {
         : 0;
     const depositedToday = contribution > 0;
     if (depositedToday) {
-      this.cash += contribution;
-      this.investedCapital += contribution;
+      const deposit = quantizeMoney(contribution);
+      this.cash = quantizeMoney(this.cash.plus(deposit));
+      this.investedCapital = quantizeMoney(this.investedCapital.plus(deposit));
       // The same deposit, on the same date, reaches the two comparison scenarios: the S&P 500
       // portfolio buys more shares with it and the Cash baseline simply holds it.
       this.scenarios.fund(contribution);
@@ -454,8 +492,8 @@ export class BacktestSimulation {
         date,
         type: "MONTHLY_CONTRIBUTION",
         amount: contribution,
-        cashAfter: this.cash,
-        investedCapitalAfter: this.investedCapital,
+        cashAfter: toNumber(this.cash),
+        investedCapitalAfter: toNumber(this.investedCapital),
       });
     }
 
@@ -503,14 +541,17 @@ export class BacktestSimulation {
         );
         if (result === Evaluability.TRUE) {
           const shares = position.shares;
-          const { realizedPnl: pnl, costRemoved } = applySell(
-            position,
-            shares,
-            close,
-            V1_FEE_PER_TRADE,
+          const exitPrice = quantizePrice(close);
+          const {
+            realizedPnl: pnl,
+            costRemoved,
+            proceeds,
+          } = applySell(position, shares, exitPrice, V1_FEE);
+          // Cash moves by the proceeds the trade row records, less what the trade cost to place.
+          this.cash = quantizeMoney(
+            this.cash.plus(exitCashInflow(proceeds, V1_FEE)),
           );
-          this.cash += shares * close - V1_FEE_PER_TRADE;
-          this.realizedPnl += pnl;
+          this.realizedPnl = quantizeMoney(this.realizedPnl.plus(pnl));
           this.recordTrade({
             date,
             securityId: position.securityId,
@@ -519,15 +560,16 @@ export class BacktestSimulation {
             action: "FINAL_EXIT",
             levelId: definition.finalExit.id,
             levelPercentage: null,
-            shares,
-            price: close,
-            amount: shares * close,
-            fees: V1_FEE_PER_TRADE,
-            realizedPnl: pnl,
-            realizedPnlPercent:
-              costRemoved > 0 ? (pnl / costRemoved) * 100 : null,
-            cashAfter: this.cash,
-            sharesAfter: 0,
+            shares: sharesString(shares),
+            price: priceString(exitPrice),
+            amount: moneyString(proceeds),
+            fees: moneyString(V1_FEE),
+            realizedPnl: moneyString(pnl),
+            realizedPnlPercent: costRemoved.gt(MONEY_ZERO)
+              ? (toNumber(pnl) / toNumber(costRemoved)) * 100
+              : null,
+            cashAfter: moneyString(this.cash),
+            sharesAfter: sharesString(MONEY_ZERO),
             averageCostAfter: null,
           });
           positions.delete(position.securityId);
@@ -536,7 +578,10 @@ export class BacktestSimulation {
       }
 
       for (const level of definition.sellLevels) {
-        if (position.shares <= 0 || position.sellLevelsFired.has(level.id)) {
+        if (
+          !position.shares.gt(MONEY_ZERO) ||
+          position.sellLevelsFired.has(level.id)
+        ) {
           continue;
         }
         const result = evaluabilityAnd(
@@ -546,19 +591,24 @@ export class BacktestSimulation {
         if (result !== Evaluability.TRUE) {
           continue;
         }
-        // The percentage is a fraction of the position remaining at execution time.
-        const shares = (position.shares * level.percentage) / 100;
-        if (!(shares > 0)) {
+        // The percentage is a fraction of the position remaining at execution time. Quantized
+        // downward like every other share quantity, so proceeds can never exceed the holding.
+        const shares = quantizeSharesDown(
+          position.shares.times(level.percentage).div(100),
+        );
+        if (!shares.gt(MONEY_ZERO)) {
           continue;
         }
-        const { realizedPnl: pnl, costRemoved } = applySell(
-          position,
-          shares,
-          close,
-          V1_FEE_PER_TRADE,
+        const sellPrice = quantizePrice(close);
+        const {
+          realizedPnl: pnl,
+          costRemoved,
+          proceeds,
+        } = applySell(position, shares, sellPrice, V1_FEE);
+        this.cash = quantizeMoney(
+          this.cash.plus(exitCashInflow(proceeds, V1_FEE)),
         );
-        this.cash += shares * close - V1_FEE_PER_TRADE;
-        this.realizedPnl += pnl;
+        this.realizedPnl = quantizeMoney(this.realizedPnl.plus(pnl));
         position.sellLevelsFired.add(level.id);
         this.recordTrade({
           date,
@@ -568,18 +618,21 @@ export class BacktestSimulation {
           action: "SELL",
           levelId: level.id,
           levelPercentage: level.percentage,
-          shares,
-          price: close,
-          amount: shares * close,
-          fees: V1_FEE_PER_TRADE,
-          realizedPnl: pnl,
-          realizedPnlPercent:
-            costRemoved > 0 ? (pnl / costRemoved) * 100 : null,
-          cashAfter: this.cash,
-          sharesAfter: position.shares,
-          averageCostAfter: position.shares > 0 ? averageCost(position) : null,
+          shares: sharesString(shares),
+          price: priceString(sellPrice),
+          amount: moneyString(proceeds),
+          fees: moneyString(V1_FEE),
+          realizedPnl: moneyString(pnl),
+          realizedPnlPercent: costRemoved.gt(MONEY_ZERO)
+            ? (toNumber(pnl) / toNumber(costRemoved)) * 100
+            : null,
+          cashAfter: moneyString(this.cash),
+          sharesAfter: sharesString(position.shares),
+          averageCostAfter: position.shares.gt(MONEY_ZERO)
+            ? priceString(position.averageCostValue)
+            : null,
         });
-        if (position.shares <= 0) {
+        if (!position.shares.gt(MONEY_ZERO)) {
           positions.delete(position.securityId);
           break;
         }
@@ -649,7 +702,10 @@ export class BacktestSimulation {
     // the order candidates execute in cannot change the budget each of them is measured against.
     if (candidates.length > 0) {
       candidates.sort(compareCandidates);
-      const portfolioValue = this.cash + positionsValue(positions);
+      // The sizing decision stays in float: it chooses a target, it is not a ledger value, and
+      // nothing is reconciled against it. Everything below the mutation boundary is exact.
+      const portfolioValue =
+        toNumber(this.cash) + toNumber(positionsValue(positions));
       const fullPositionBudget = portfolioValue * this.fullPositionFraction;
 
       for (const candidate of candidates) {
@@ -672,16 +728,37 @@ export class BacktestSimulation {
         // The budget is measured against the portfolio value *after* today's contribution, which is
         // what lets a deposit lift an already-filled level's target.
         const target = (fullPositionBudget * candidate.percentage) / 100;
-        const currentValue = position ? position.shares * close : 0;
+        const currentValue = position ? toNumber(position.shares) * close : 0;
         const shortfall = Math.max(target - currentValue, 0);
-        const spend = Math.min(shortfall, Math.max(this.cash, 0));
-        if (!position && !(spend > 0)) {
+
+        // ---- mutation boundary: exact from here -------------------------------------------
+        // What the shares themselves may cost, with this trade's own fee already reserved. At
+        // V1's zero fee this is the cash balance; at any other it must not be, or a purchase
+        // sized to the whole balance would overdraw by exactly the fee.
+        const available = spendableAfterFees(this.cash, V1_FEE);
+        let spend = quantizeMoney(shortfall);
+        if (spend.gt(available)) {
+          spend = available;
+        }
+        const buyPrice = quantizePrice(close);
+        // Truncated, never rounded up: shares x price must not exceed the spend that paid for it.
+        let sharesBought = quantizeSharesDown(spend.div(buyPrice));
+        // The amount is derived from the *quantized* shares, so the persisted row satisfies
+        // `amount == shares x price` exactly rather than approximately.
+        let amount = quantizeMoney(sharesBought.times(buyPrice));
+        // Defensive retreat. Truncation already guarantees `amount <= spend <= cash`; this makes
+        // the guarantee independent of that reasoning, one share-ulp at a time.
+        while (amount.gt(available) && sharesBought.gt(MONEY_ZERO)) {
+          sharesBought = sharesBought.minus(SHARES_ULP);
+          amount = quantizeMoney(sharesBought.times(buyPrice));
+        }
+        const buyable = sharesBought.gt(MONEY_ZERO) && amount.gt(MONEY_ZERO);
+        if (!position && !buyable) {
           // Nothing can be bought and there is no position, so no lifecycle begins. Opening one
           // would be a zero-share holding that consumed a slot and a signal for nothing; instead
           // the security stays eligible for a later date on which its signal is TRUE again.
           continue;
         }
-        const shares = spend / close;
         if (!position) {
           const epoch = (this.epochs.get(setup.securityId) ?? 0) + 1;
           this.epochs.set(setup.securityId, epoch);
@@ -691,13 +768,14 @@ export class BacktestSimulation {
             name: setup.name,
             epoch,
             openedDate: date,
-            shares: 0,
-            costTotal: 0,
+            shares: MONEY_ZERO,
+            averageCostValue: MONEY_ZERO,
+            costTotalValue: MONEY_ZERO,
             buyLevelsSettled: new Set<string>(),
             sellLevelsFired: new Set<string>(),
             lastPrice: close,
             lastPriceDate: date,
-            realizedPnl: 0,
+            realizedPnl: MONEY_ZERO,
           };
           positions.set(setup.securityId, position);
         }
@@ -717,11 +795,17 @@ export class BacktestSimulation {
             position.buyLevelsSettled.add(level.id);
           }
         }
-        if (!(spend > 0)) {
+        if (!buyable) {
+          // The tier is consumed whether or not the cash was there, but no zero-share or
+          // zero-amount trade is ever recorded.
           continue;
         }
-        applyBuy(position, shares, close, V1_FEE_PER_TRADE);
-        this.cash -= spend + V1_FEE_PER_TRADE;
+        applyBuy(position, sharesBought, amount, V1_FEE);
+        // Cash moves by the amount the trade row records plus the fee that bought it — the same
+        // total `applyBuy` just added to the position's cost.
+        this.cash = quantizeMoney(
+          this.cash.minus(buyCashOutflow(amount, V1_FEE)),
+        );
         position.lastPrice = close;
         position.lastPriceDate = date;
         this.recordTrade({
@@ -732,15 +816,15 @@ export class BacktestSimulation {
           action: "BUY",
           levelId: candidate.levelId,
           levelPercentage: candidate.percentage,
-          shares,
-          price: close,
-          amount: spend,
-          fees: V1_FEE_PER_TRADE,
+          shares: sharesString(sharesBought),
+          price: priceString(buyPrice),
+          amount: moneyString(amount),
+          fees: moneyString(V1_FEE),
           realizedPnl: null,
           realizedPnlPercent: null,
-          cashAfter: this.cash,
-          sharesAfter: position.shares,
-          averageCostAfter: averageCost(position),
+          cashAfter: moneyString(this.cash),
+          sharesAfter: sharesString(position.shares),
+          averageCostAfter: priceString(position.averageCostValue),
         });
       }
     }
@@ -768,7 +852,8 @@ export class BacktestSimulation {
 
     // 7. Value the day and extend the curves.
     const holdingsValue = positionsValue(positions);
-    const totalValue = this.cash + holdingsValue;
+    const totalValueExact = quantizeMoney(this.cash.plus(holdingsValue));
+    const totalValue = toNumber(totalValueExact);
     this.returnIndex = chainReturnIndex(
       this.returnIndex,
       this.previousTotalValue,
@@ -791,14 +876,15 @@ export class BacktestSimulation {
 
     this.equity.push({
       date,
-      cash: this.cash,
-      positionsValue: holdingsValue,
-      totalValue,
-      investedCapital: this.investedCapital,
+      cash: moneyString(this.cash),
+      positionsValue: moneyString(holdingsValue),
+      totalValue: moneyString(totalValueExact),
+      investedCapital: moneyString(this.investedCapital),
       returnIndex: this.returnIndex,
       benchmarkIndex,
-      benchmarkValue,
-      cashBaselineValue,
+      benchmarkValue:
+        benchmarkValue === null ? null : moneyString(benchmarkValue),
+      cashBaselineValue: moneyString(cashBaselineValue),
       openPositions: positions.size,
     });
     this.curve.push({
@@ -807,8 +893,8 @@ export class BacktestSimulation {
       benchmarkReturnPercent:
         benchmarkIndex === null ? null : indexToPercent(benchmarkIndex),
       strategyValue: totalValue,
-      benchmarkValue,
-      cashBaselineValue,
+      benchmarkValue: benchmarkValue === null ? null : toNumber(benchmarkValue),
+      cashBaselineValue: toNumber(cashBaselineValue),
     });
 
     this.completedDays += 1;
@@ -840,11 +926,12 @@ export class BacktestSimulation {
       await this.options.onCheckpoint(
         this.buildCheckpoint({
           date,
-          holdingsValue,
+          holdingsValue: toNumber(holdingsValue),
           totalValue,
           benchmarkIndex,
-          benchmarkValue,
-          cashBaselineValue,
+          benchmarkValue:
+            benchmarkValue === null ? null : toNumber(benchmarkValue),
+          cashBaselineValue: toNumber(cashBaselineValue),
           milestone: isYearBoundary ? year : null,
         }),
       );
@@ -911,16 +998,15 @@ export class BacktestSimulation {
       symbol: position.symbol,
       epoch: position.epoch,
       openedDate: position.openedDate,
-      shares: position.shares,
-      costTotal: position.costTotal,
+      shares: toNumber(position.shares),
+      costTotal: toNumber(costTotal(position)),
       averageCost: averageCost(position),
       lastPrice: position.lastPrice,
       lastPriceDate: position.lastPriceDate,
-      realizedPnl: position.realizedPnl,
+      realizedPnl: toNumber(position.realizedPnl),
       buyLevelsSettled: [...position.buyLevelsSettled].sort(),
       sellLevelsFired: [...position.sellLevelsFired].sort(),
-      previousSignedReturnPercent:
-        position.previousSignedReturnPercent ?? null,
+      previousSignedReturnPercent: position.previousSignedReturnPercent ?? null,
       previousValueDate: position.previousValueDate ?? null,
     }));
 
@@ -943,11 +1029,15 @@ export class BacktestSimulation {
       simulatedThrough: lastEquity?.date ?? null,
       completedDays: this.completedDays,
       totalDays: this.calendar.length,
-      cash: this.cash,
-      positionsValue: lastEquity?.positionsValue ?? 0,
-      totalValue: lastEquity?.totalValue ?? this.cash,
-      investedCapital: this.investedCapital,
-      realizedPnl: this.realizedPnl,
+      cash: toNumber(this.cash),
+      positionsValue:
+        lastEquity === null ? 0 : toNumber(lastEquity.positionsValue),
+      totalValue:
+        lastEquity === null
+          ? toNumber(this.cash)
+          : toNumber(lastEquity.totalValue),
+      investedCapital: toNumber(this.investedCapital),
+      realizedPnl: toNumber(this.realizedPnl),
       returnIndex: this.returnIndex,
       previousTotalValue: this.previousTotalValue,
       maxDrawdownPercent: this.drawdown.maxDrawdownPercent,
@@ -961,13 +1051,11 @@ export class BacktestSimulation {
       positions,
       positionEpochs: [...this.epochs.entries()]
         .map(([securityId, epoch]) => ({ securityId, epoch }))
-        .sort((left, right) =>
-          left.securityId < right.securityId ? -1 : 1,
-        ),
+        .sort((left, right) => (left.securityId < right.securityId ? -1 : 1)),
       comparison: {
         benchmarkShares: this.scenarios.benchmarkShares,
         benchmarkPendingCapital: this.scenarios.pendingCapital,
-        cashBaselineValue: this.scenarios.cashBaselineValue,
+        cashBaselineValue: toNumber(this.scenarios.cashBaselineValue),
       },
       contextRows,
     };
@@ -995,20 +1083,21 @@ export class BacktestSimulation {
     const holdings: BacktestCheckpointHolding[] = sortedPositions(
       this.positions,
     ).map((position) => {
-      const marketValue = position.shares * position.lastPrice;
+      const marketValue = toNumber(
+        quantizeMoney(position.shares.times(quantizePrice(position.lastPrice))),
+      );
+      const cost = toNumber(costTotal(position));
       return {
         securityId: position.securityId,
         symbol: position.symbol,
         name: position.name,
-        shares: position.shares,
+        shares: toNumber(position.shares),
         averageCost: averageCost(position),
         lastPrice: position.lastPrice,
         lastPriceDate: position.lastPriceDate,
         marketValue,
         unrealizedPnlPercent:
-          position.costTotal > 0
-            ? ((marketValue - position.costTotal) / position.costTotal) * 100
-            : 0,
+          cost > 0 ? ((marketValue - cost) / cost) * 100 : 0,
         allocationPercent:
           input.totalValue > 0 ? (marketValue / input.totalValue) * 100 : 0,
       };
@@ -1019,11 +1108,15 @@ export class BacktestSimulation {
       milestone: input.milestone,
       completedDays: this.completedDays,
       totalDays: this.calendar.length,
-      cash: this.cash,
+      cash: toNumber(this.cash),
       positionsValue: input.holdingsValue,
       totalValue: input.totalValue,
-      investedCapital: this.investedCapital,
-      netProfit: input.totalValue - this.investedCapital,
+      investedCapital: toNumber(this.investedCapital),
+      netProfit: toNumber(
+        quantizeMoney(
+          quantizeMoney(input.totalValue).minus(this.investedCapital),
+        ),
+      ),
       portfolioReturnPercent,
       benchmarkReturnPercent,
       alphaPercent: alphaPercent(
@@ -1115,12 +1208,23 @@ function sortedPositions(
   });
 }
 
-function positionsValue(positions: ReadonlyMap<string, PositionState>): number {
-  let total = 0;
+/**
+ * Market value of every open position, exact.
+ *
+ * The daily equity identity `cash + positionsValue == totalValue` is one the matrix reconciles, so
+ * this is a Decimal sum of quantized products rather than a float accumulation over up to thirty
+ * securities and seven and a half thousand sessions.
+ */
+function positionsValue(
+  positions: ReadonlyMap<string, PositionState>,
+): MoneyValue {
+  let total = MONEY_ZERO;
   for (const position of positions.values()) {
-    total += position.shares * position.lastPrice;
+    total = total.plus(
+      quantizeMoney(position.shares.times(quantizePrice(position.lastPrice))),
+    );
   }
-  return total;
+  return quantizeMoney(total);
 }
 
 /** Moves a frame cursor forward to the last index at or before `date`. */
@@ -1167,25 +1271,34 @@ function closeAt(runtime: SecurityRuntime, date: LocalDate): number | null {
 
 function finalPositions(
   positions: ReadonlyMap<string, PositionState>,
-  totalValue: number,
-): BacktestOpenPosition[] {
-  return sortedPositions(positions).map((position) => {
-    const basis = averageCost(position);
-    const marketValue = position.shares * position.lastPrice;
-    const cost = position.costTotal;
+  totalValue: MoneyValue,
+): { positions: BacktestOpenPosition[]; unrealizedPnl: MoneyValue } {
+  let unrealized = MONEY_ZERO;
+  const rows = sortedPositions(positions).map((position) => {
+    const lastPrice = quantizePrice(position.lastPrice);
+    const marketValueExact = quantizeMoney(position.shares.times(lastPrice));
+    const costExact = costTotal(position);
+    const unrealizedExact = quantizeMoney(marketValueExact.minus(costExact));
+    unrealized = quantizeMoney(unrealized.plus(unrealizedExact));
+    const marketValue = toNumber(marketValueExact);
+    const cost = toNumber(costExact);
     return {
       securityId: position.securityId,
       symbol: position.symbol,
       name: position.name,
       openedDate: position.openedDate,
-      shares: position.shares,
-      averageCost: basis,
-      lastPrice: position.lastPrice,
+      shares: sharesString(position.shares),
+      averageCost: priceString(position.averageCostValue),
+      lastPrice: priceString(lastPrice),
       lastPriceDate: position.lastPriceDate,
-      marketValue,
-      unrealizedPnl: marketValue - cost,
+      marketValue: moneyString(marketValueExact),
+      unrealizedPnl: moneyString(unrealizedExact),
+      // Ratios, so numbers.
       unrealizedPnlPercent: cost > 0 ? ((marketValue - cost) / cost) * 100 : 0,
-      allocationPercent: totalValue > 0 ? (marketValue / totalValue) * 100 : 0,
+      allocationPercent: totalValue.gt(MONEY_ZERO)
+        ? (marketValue / toNumber(totalValue)) * 100
+        : 0,
     };
   });
+  return { positions: rows, unrealizedPnl: unrealized };
 }

@@ -148,11 +148,13 @@ describe("daily intrinsic materialization", () => {
     expect(
       Object.keys(stateOn(states, "2026-02-02").intrinsicValues ?? {}).sort(),
     ).toEqual(["DCF_FCFF", "DDM", "GRAHAM", "RESIDUAL_INCOME"]);
-    expect(planIntrinsicEvaluationDates({
-      securityId: SECURITY_ID,
-      tradingDates: TRADING_DATES,
-      statements: completeYear(2025, BASE_AVAILABLE),
-    })).toEqual(["2026-02-02"]);
+    expect(
+      planIntrinsicEvaluationDates({
+        securityId: SECURITY_ID,
+        tradingDates: TRADING_DATES,
+        statements: completeYear(2025, BASE_AVAILABLE),
+      }),
+    ).toEqual(["2026-02-02"]);
   });
 
   it("applies an event on the trading day the statement becomes available", () => {
@@ -196,9 +198,7 @@ describe("daily intrinsic materialization", () => {
       }),
     ).toEqual(["2026-02-05", "2026-02-09"]);
     const states = materialize(tradingDates, statements);
-    expect(
-      stateOn(states, "2026-02-06").intrinsicValues?.GRAHAM,
-    ).toBeDefined();
+    expect(stateOn(states, "2026-02-06").intrinsicValues?.GRAHAM).toBeDefined();
     expect(
       stateOn(states, "2026-02-09").intrinsicValues?.GRAHAM,
     ).toBeUndefined();
@@ -337,13 +337,9 @@ describe("daily intrinsic materialization", () => {
         "2026-02-04",
       ),
       // A later revision of that same quarter restores diluted EPS.
-      statement(
-        "INCOME",
-        invalidatingQuarter,
-        INCOME_QUARTER,
-        "2026-02-06",
-        { contentHash: "restated-with-eps" },
-      ),
+      statement("INCOME", invalidatingQuarter, INCOME_QUARTER, "2026-02-06", {
+        contentHash: "restated-with-eps",
+      }),
     ];
 
     const states = materialize(TRADING_DATES, statements);
@@ -361,9 +357,7 @@ describe("daily intrinsic materialization", () => {
     expect(
       stateOn(states, "2026-02-05").intrinsicValueBlends?.DIVIDEND,
     ).toBeDefined();
-    expect(
-      stateOn(states, "2026-02-06").intrinsicValues?.GRAHAM,
-    ).toBeDefined();
+    expect(stateOn(states, "2026-02-06").intrinsicValues?.GRAHAM).toBeDefined();
     expect(
       stateOn(states, "2026-02-06").intrinsicValueBlends?.BALANCED,
     ).toBeDefined();

@@ -711,11 +711,11 @@ model BacktestTrade {
   levelPercentage    Int?
   shares             Decimal             @db.Decimal(28, 10)
   price              Decimal             @db.Decimal(20, 8)
-  amount             Decimal             @db.Decimal(20, 2)
-  fees               Decimal             @db.Decimal(20, 2)
-  realizedPnl        Decimal?            @db.Decimal(20, 2)
+  amount             Decimal             @db.Decimal(24, 6)
+  fees               Decimal             @db.Decimal(24, 6)
+  realizedPnl        Decimal?            @db.Decimal(24, 6)
   realizedPnlPercent Decimal?            @db.Decimal(20, 8)
-  cashAfter          Decimal             @db.Decimal(20, 2)
+  cashAfter          Decimal             @db.Decimal(24, 6)
   sharesAfter        Decimal             @db.Decimal(28, 10)
   averageCostAfter   Decimal?            @db.Decimal(20, 8)
   run                BacktestRun         @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -744,20 +744,20 @@ model BacktestTrade {
 model BacktestDailyEquity {
   runId           String
   date            DateTime    @db.Date
-  cash            Decimal     @db.Decimal(20, 2)
-  positionsValue  Decimal     @db.Decimal(20, 2)
-  totalValue      Decimal     @db.Decimal(20, 2)
-  investedCapital Decimal     @db.Decimal(20, 2)
+  cash            Decimal     @db.Decimal(24, 6)
+  positionsValue  Decimal     @db.Decimal(24, 6)
+  totalValue      Decimal     @db.Decimal(24, 6)
+  investedCapital Decimal     @db.Decimal(24, 6)
   returnIndex     Decimal     @db.Decimal(20, 10)
   benchmarkIndex  Decimal?    @db.Decimal(20, 10)
   /// Absolute value of the funded benchmark scenario. Null on a date the benchmark cannot be
   /// priced, and null for every run completed before the scenario existed — it is not derivable
   /// from `benchmarkIndex` once the run has contributions, so it is never backfilled.
-  benchmarkValue  Decimal?    @db.Decimal(20, 2)
+  benchmarkValue  Decimal?    @db.Decimal(24, 6)
   /// Absolute value of the `Cash` scenario: initial capital plus contributions to date, earning
   /// nothing under `zero-interest@1`. Deliberately not `cash`, which is the Strategy's own
   /// uninvested balance.
-  cashBaselineValue Decimal   @db.Decimal(20, 2)
+  cashBaselineValue Decimal   @db.Decimal(24, 6)
   openPositions   Int
   run             BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
@@ -776,8 +776,8 @@ model BacktestPosition {
   averageCost          Decimal     @db.Decimal(20, 8)
   lastPrice            Decimal     @db.Decimal(20, 8)
   lastPriceDate        DateTime    @db.Date
-  marketValue          Decimal     @db.Decimal(20, 2)
-  unrealizedPnl        Decimal     @db.Decimal(20, 2)
+  marketValue          Decimal     @db.Decimal(24, 6)
+  unrealizedPnl        Decimal     @db.Decimal(24, 6)
   unrealizedPnlPercent Decimal     @db.Decimal(20, 8)
   allocationPercent    Decimal     @db.Decimal(20, 8)
   run                  BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -793,19 +793,19 @@ model BacktestRunSummary {
   firstSimulatedDate          DateTime    @db.Date
   lastSimulatedDate           DateTime    @db.Date
   tradingDays                 Int
-  investedCapital             Decimal     @db.Decimal(20, 2)
-  finalCash                   Decimal     @db.Decimal(20, 2)
-  finalPositionsValue         Decimal     @db.Decimal(20, 2)
-  finalValue                  Decimal     @db.Decimal(20, 2)
-  netProfit                   Decimal     @db.Decimal(20, 2)
+  investedCapital             Decimal     @db.Decimal(24, 6)
+  finalCash                   Decimal     @db.Decimal(24, 6)
+  finalPositionsValue         Decimal     @db.Decimal(24, 6)
+  finalValue                  Decimal     @db.Decimal(24, 6)
+  netProfit                   Decimal     @db.Decimal(24, 6)
   portfolioReturnPercent      Decimal     @db.Decimal(20, 8)
   benchmarkReturnPercent      Decimal?    @db.Decimal(20, 8)
   alphaPercent                Decimal?    @db.Decimal(20, 8)
   portfolioCagrPercent        Decimal?    @db.Decimal(20, 8)
   maxDrawdownPercent          Decimal     @db.Decimal(20, 8)
   benchmarkMaxDrawdownPercent Decimal?    @db.Decimal(20, 8)
-  realizedPnl                 Decimal     @db.Decimal(20, 2)
-  unrealizedPnl               Decimal     @db.Decimal(20, 2)
+  realizedPnl                 Decimal     @db.Decimal(24, 6)
+  unrealizedPnl               Decimal     @db.Decimal(24, 6)
   totalTrades                 Int
   buyTrades                   Int
   sellTrades                  Int

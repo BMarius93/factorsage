@@ -134,6 +134,24 @@ export const STRATEGY_EVALUATION_METHODOLOGY_VERSION =
  *   date. One malformed row in one security could move every number in the run.
  * - v2: the execution calendar alone. A date exists because the market traded, and for no other
  *   reason.
+ *
+ * **Not bumped for the clipping repairs**, and the evidence for that decision is worth stating,
+ * because the repairs did change numbers.
+ *
+ * The rule this version states is "the pinned calendar's trading days *inside the requested
+ * period*". The loader was intersecting that with a third range derived from the clock at
+ * execution time — first the product horizon, then a retained horizon one year wider — so a run
+ * whose period was fixed and recorded months earlier simulated a different set of dates depending
+ * on when it happened to execute. A sweep pinned to 1996-09-09 and executed on 2026-09-10 came
+ * back with 7,546 sessions where the calendar had 7,547, and a period at the horizon's edge lost
+ * its first session again one day past the retention margin. None of that is an alternative rule:
+ * it is this rule not being applied, and there was never a stable methodology under which a run's
+ * dates depended on the date it ran.
+ *
+ * A bump exists so a completed run stays identifiable and so a build refuses to execute a run
+ * whose recorded methodology it cannot honour. Neither applies here: the recorded rule is the one
+ * now implemented, and bumping would assert a semantic change that did not happen while leaving
+ * every previously stored run stamped with a version whose stated meaning it never received.
  */
 export const CALENDAR_METHODOLOGY_VERSION =
   "execution-calendar-authoritative@2" as const;
@@ -195,6 +213,13 @@ export const RETURN_METHODOLOGY_VERSION = "time-weighted-index@1" as const;
  *   is deliberately **not** `contributedCapital × (close / openingClose)`: that growth index knows
  *   nothing about the price each contribution actually bought at, and the two agree only when there
  *   are no contributions.
+ *
+ *   `amount / close` is **exact**, and the benchmark share count is not subject to the ten-decimal
+ *   scale a persisted position uses. Those shares are internal to the scenario — only the marked
+ *   value is stored — so no share scale applies to them, and applying one would discard the
+ *   remainder between the capital that arrived and what a truncated share count could buy. That is
+ *   this scenario's whole reason for existing stated backwards: every dollar the Strategy receives
+ *   reaches the benchmark too, or the gap between the lines stops meaning what it claims.
  * - `Cash` = `initialCapital + cumulativeExternalContributionsThrough(d)`. Never invested, and
  *   earning nothing under `zero-interest@1`. It is **not** the Strategy's uninvested cash balance.
  *
@@ -226,6 +251,23 @@ export const BACKTEST_METHODOLOGY = {
   returns: RETURN_METHODOLOGY_VERSION,
   comparisonScenarios: COMPARISON_SCENARIO_METHODOLOGY_VERSION,
   costBasis: "AVERAGE_COST" as const,
+
+  /**
+   * How a completed run's monetary results are represented.
+   *
+   * `decimal-ledger-24-6@1`: the financial ledger is exact decimal, every monetary mutation is
+   * quantized to six decimal places with half-away-from-zero rounding matching PostgreSQL, and the
+   * values persisted are the same canonical values the ledger mutated and the summary counted.
+   *
+   * It is versioned because it can change a reported number for an unchanged Strategy against
+   * unchanged data: under the previous representation a real profit of 0.004 was stored as 0.00 and
+   * still counted as a winning trade. That is a different answer, so it is a different methodology,
+   * and a run recorded under the old one stays identifiable as such.
+   *
+   * Deliberately **not** a data revision. `BACKTEST_DATA_REVISIONS` covers how *input* data is
+   * interpreted — prices, derived series, fundamentals, benchmark bars — and none of that changes.
+   */
+  resultPrecision: "decimal-ledger-24-6@1" as const,
 } as const;
 
 export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;

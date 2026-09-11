@@ -348,7 +348,9 @@ export class RedisStockDataCache implements StockDataCache {
         .flatMap(
           (payload) => JSON.parse(payload ?? "[]") as FinancialStatement[],
         )
-        .filter((row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to),
+        .filter(
+          (row) => row.fiscalDate >= range.from && row.fiscalDate <= range.to,
+        ),
       query,
     );
     await this.touch(securityId);
@@ -368,8 +370,7 @@ export class RedisStockDataCache implements StockDataCache {
       statements,
       years,
       (row) => row.fiscalDate,
-      (year) =>
-        this.financialYearKey(securityId, statementType, cadence, year),
+      (year) => this.financialYearKey(securityId, statementType, cadence, year),
       hydrating,
     );
   }

@@ -22,7 +22,6 @@ import {
   maxDate,
   minDate,
   missingCoverageRanges,
-  subtractYears,
 } from "./dates.js";
 
 export class BenchmarkNotFoundError extends Error {
@@ -33,6 +32,14 @@ export class BenchmarkNotFoundError extends Error {
 }
 
 export type CanonicalBenchmarkDataServiceOptions = {
+  /**
+   * Accepted and deliberately unused.
+   *
+   * A benchmark series has exactly one consumer — a backtest, whose period is immutable — so there
+   * is no horizon for this service to enforce: applying one would re-decide what an already
+   * recorded run simulates. The option is kept so existing callers still compile and so the
+   * absence is visible here rather than inferred from its disappearance.
+   */
   historyYears?: number;
   recentPriceFreshnessMs?: number;
   recentTailCalendarDays?: number;
@@ -55,7 +62,6 @@ export type CanonicalBenchmarkDataServiceOptions = {
  * state for it merely because it shares a provider with stocks would be waste.
  */
 export class CanonicalBenchmarkDataService implements BenchmarkDataService {
-  private readonly historyYears: number;
   private readonly recentPriceFreshnessMs: number;
   private readonly recentTailCalendarDays: number;
   private readonly now: () => Date;
@@ -68,7 +74,6 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     private readonly coordinator: LoadCoordinator,
     options: CanonicalBenchmarkDataServiceOptions = {},
   ) {
-    this.historyYears = options.historyYears ?? 30;
     this.recentPriceFreshnessMs =
       options.recentPriceFreshnessMs ?? 6 * 60 * 60 * 1000;
     this.recentTailCalendarDays = options.recentTailCalendarDays ?? 10;
@@ -280,25 +285,73 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
    * Existing resident coverage is never narrowed by this — coverage is unioned, and a later read
    * that does reach today materializes the suffix incrementally.
    */
+  /**
+   * The range one hydration must materialize: what the caller asked for, and nothing narrower.
+   *
+   * Deliberately no retained-horizon floor. This service's only consumer is a backtest, whose
+   * period is immutable and was validated against the selectable horizon **at submission**; a
+   * floor computed from the current clock would silently shorten it later, which is exactly the
+   * defect. Nothing prunes benchmark rows, so history that was once loaded is still there to be
+   * read — and where it genuinely is not, {@link missingBenchmarkCoverage} says so rather than a
+   * clip quietly deciding.
+   *
+   * Still clamped at the upper end, because a range cannot be materialized into the future.
+   */
   private loadTarget(required: Required<DateRange>): Required<DateRange> {
     const today = this.today();
-    const horizonStart = subtractYears(today, this.historyYears);
     return {
-      from: maxDate(minDate(required.from, today), horizonStart),
-      to: maxDate(minDate(required.to, today), horizonStart),
+      from: minDate(required.from, today),
+      to: minDate(required.to, today),
     };
   }
 
+  /**
+   * What a read may return: **exactly** the caller's range.
+   *
+   * The single consumer is a backtest — the execution calendar and the comparison series both come
+   * from here — and a backtest's period is immutable. Any bound derived from the clock at execution
+   * time is therefore wrong by construction, not merely inconvenient: it re-decides what a run
+   * simulates months after the run recorded it. Clamping at `today - 30y` lost 1996-09-09
+   * from a sweep and returned 7,546 sessions where the calendar had 7,547; widening that to a
+   * retained horizon only moved the day it would happen. A period accepted at the edge of the
+   * selectable horizon survived midnight and a week's retry, and then, one day past the margin,
+   * quietly started a session later again.
+   *
+   * So there is no floor. If the rows are there the run reads them; if they are not,
+   * {@link missingBenchmarkCoverage} reports it against the period that was *requested* and the
+   * worker fails the attempt explicitly rather than simulating a shorter one.
+   */
   private projectionRange(
     requested: Required<DateRange>,
   ): Required<DateRange> | null {
-    const today = this.today();
-    const from = maxDate(
-      requested.from,
-      subtractYears(today, this.historyYears),
+    return requested.from <= requested.to ? { ...requested } : null;
+  }
+
+  /**
+   * Ranges inside `period` the series has no durable coverage for.
+   *
+   * Empty means the provider was asked for the whole period with complete requests, so whatever
+   * bars exist are all there are — an empty prefix is then the series' own history starting later,
+   * not a gap. Anything else means the canonical data a run needs is genuinely unavailable, and a
+   * run must fail explicitly rather than execute a shorter period than the one it recorded.
+   */
+  async missingBenchmarkCoverage(
+    series: BenchmarkSeries,
+    period: Required<DateRange>,
+  ): Promise<Required<DateRange>[]> {
+    if (period.from > period.to) {
+      return [period];
+    }
+    // Against the period the run **recorded**, never a clipped version of it. Asking only about
+    // the range that survived a clip is what made a silently shortened run pass: the answer always
+    // agreed with the clip, because the clip had chosen the question.
+    const coverage = await this.store.getDatasetCoverage(
+      series.id,
+      "DAILY_PRICE",
+      BENCHMARK_DAILY_PRICE_VARIANT,
+      period,
     );
-    const to = minDate(requested.to, today);
-    return from <= to ? { from, to } : null;
+    return missingCoverageRanges(period, coverage);
   }
 
   private recentTailRange(

@@ -54,8 +54,7 @@ export type EvaluatedIntrinsicModel =
 
 /** Blend-level unavailability: the pure calculator's reasons plus a blend currency conflict. */
 export type EvaluatedIntrinsicBlendReason =
-  | ValuationNotApplicableReason
-  | "CURRENCY_MISMATCH";
+  ValuationNotApplicableReason | "CURRENCY_MISMATCH";
 
 export type EvaluatedIntrinsicBlend =
   | {
