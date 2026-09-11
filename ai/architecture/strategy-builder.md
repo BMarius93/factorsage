@@ -141,9 +141,12 @@ tests assert the absence of a field rather than a rejection path:
 are addressed through their **catalog ids**, never a parallel enum. `Margin of Safety` is a first-class metric parameterized
 by a catalog intrinsic source — never a comparison operator.
 
-Ids on levels, conditions and the trigger are client-generated, stable and persisted, so future
-per-level diagnostics can reference them. They are stripped before hashing (§ 5), so re-keying a
-row never creates a new version while genuine reordering still does.
+Ids on levels, conditions and the trigger are client-generated, stable and persisted. They are
+stripped before hashing (§ 5), so re-keying a row never creates a new version while genuine
+reordering still does — and the persisted ids win over a re-keyed no-op submission. A **level id is
+the identity Monitor state is keyed by** across versions (`docs/decisions/strategy-definition-storage.md`),
+so the Builder must edit rows in place and never regenerate the id of an existing level; a new id
+belongs only to a newly added row.
 
 ---
 

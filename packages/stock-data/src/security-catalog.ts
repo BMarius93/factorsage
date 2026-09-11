@@ -7,6 +7,7 @@ import {
   type SecurityListingRejection,
 } from "@intrinsic/domain";
 import type { FmpSecurityCatalogPort } from "@intrinsic/fmp";
+import type { StockDataCache } from "./cache.js";
 import type { SecurityCatalogEntry, StockDataStore } from "./ports.js";
 
 /**
@@ -84,6 +85,14 @@ export class CanonicalSecurityCatalogService {
     private readonly store: StockDataStore,
     private readonly provider: FmpSecurityCatalogPort,
     private readonly exchangeCodes: readonly string[] = SUPPORTED_EXCHANGE_CODES,
+    /**
+     * Where the identity row a symbol resolves to is cached. `CanonicalStockDataService.getSecurity`
+     * serves Stock Details from that cached row, which has no TTL and is otherwise refreshed only by
+     * profile hydration or eviction — so a rename or deactivation applied here would keep reading
+     * as the old row for as long as the stock stays resident. An updated row is written through
+     * instead; a missing cache means nothing is cached and there is nothing to refresh.
+     */
+    private readonly cache?: Pick<StockDataCache, "setSecurity">,
   ) {}
 
   async sync(): Promise<SecurityCatalogSyncResult> {
@@ -141,7 +150,11 @@ export class CanonicalSecurityCatalogService {
 
     for (const entry of toUpdate) {
       try {
-        await this.store.updateSecurityCatalogEntry(entry);
+        const updated = await this.store.updateSecurityCatalogEntry(entry);
+        // Inside the same failure boundary on purpose: a row whose durable update landed but whose
+        // cached copy could not be refreshed is reported as a failed entry rather than as a clean
+        // update that Stock Details would keep contradicting.
+        await this.cache?.setSecurity(updated);
         summary.updated += 1;
       } catch (error) {
         summary.failed += 1;

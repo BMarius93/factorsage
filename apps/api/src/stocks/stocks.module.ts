@@ -179,14 +179,27 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     {
       provide: SECURITY_CATALOG_SERVICE,
-      inject: [STOCK_DATA_STORE, STOCK_DATA_PROVIDER, STOCK_DATA_LOGGER],
+      inject: [
+        STOCK_DATA_STORE,
+        STOCK_DATA_PROVIDER,
+        STOCK_DATA_LOGGER,
+        STOCK_DATA_CACHE,
+      ],
       useFactory: (
         store: StockDataStore,
         provider: FmpClient,
         logger: StructuredLogger,
+        cache: StockDataCache,
       ): SecurityCatalogService =>
         new LoggedSecurityCatalogService(
-          new CanonicalSecurityCatalogService(store, provider),
+          // The cache is the one Stock Details reads a symbol's identity row from; the sync writes
+          // an updated row through so a rename or deactivation is visible before eviction.
+          new CanonicalSecurityCatalogService(
+            store,
+            provider,
+            undefined,
+            cache,
+          ),
           logger.child({ component: "security-catalog" }),
         ),
     },

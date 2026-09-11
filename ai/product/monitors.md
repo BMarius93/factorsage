@@ -82,6 +82,18 @@ current data therefore carries **no** observation date at all rather than a synt
 The `false -> true -> true -> false` state table applies to **condition-only** signals, which
 describe a state that genuinely ends and begins again.
 
+### What identifies a Signal
+
+A condition Signal is one unbroken run of matched evaluations of one level for one security under
+one Monitor: it begins on the first decided match and ends on the first decided non-match, on the
+security leaving the List, on the level leaving the Strategy, or on the level's logic changing. A
+trigger Signal is one crossing on one observation date within one such run of the same logic and
+membership; the same date may carry a second trigger Signal only after the run was broken — the
+level's logic changed and the new rule also crosses that day, or the member was removed and
+re-added. Restarts, retries, duplicate scans and re-observations of a session never create a
+Signal, because every decision is re-derived from the durable state and reaches the same
+conclusion. `ai/architecture/deep-discovery.md` investigation 4 records the full table.
+
 ## Monitored universe and BUY eligibility
 
 A Monitor's universe is a Stock List. Membership is the canonical `Security` catalog reference, never
@@ -137,7 +149,11 @@ Strategy changes what is being watched, immediately and without recreating the M
 deliberate opposite of a Backtest run, whose immutable snapshot is its reproducibility authority.
 
 Persisted Monitor state is scoped to the **canonical logic of its own level**, not to the Strategy
-version. Editing one level appends a new Strategy version, and that must not reset the state of every
+version, and addressed by the level's id. The id is therefore identity: a level that keeps its id
+and its logic keeps its state and its active Signal through any number of edits elsewhere; a level
+whose logic changed is reset; a level whose id changed is, to the Monitor, a removed level and a new
+one. Only the newest version is ever evaluated — edits between two cycles are invisible except
+through their net effect on each level's id and logic. Editing one level appends a new Strategy version, and that must not reset the state of every
 other, unchanged level — doing so would re-emit a Signal on each of them for a match that never
 stopped. A level whose logic genuinely changed no longer describes what its state latched, so that
 state is reset and any Signal still active under the old logic is closed.
@@ -188,6 +204,27 @@ Backtests continue to use closed historical observations according to the canoni
 
 Missing/warm-up/PIT-unavailable inputs remain `NOT_EVALUABLE`; monitoring must not replace them with zero, future data, or fabricated values.
 
+### How Monitor evaluation differs from a backtest
+
+Both run the same evaluator over the same frame projection, so operators, the 2% closeness
+tolerance, buy-window gating, `NOT_EVALUABLE` and the choice of `t - 1` (the previous row of the
+trading-day axis) are identical. The differences are the observation, not the language:
+
+- **The observation is live.** A backtest evaluates the closed bar; a Monitor evaluates the last
+  trade at scan time, pre-market and after-hours included. A crossing the close never confirms can
+  fire a Monitor Signal and would not appear in a backtest; both are correct for what they observe.
+- **Daily averages and oscillators are recomputed** over a bounded window whose warm-up is derived
+  from each series' definition, so the seed's influence is below `1e-6` of the value; a backtest
+  reads the full-history materialized columns. A strict comparison decided inside that tolerance
+  could differ by design; nothing else can.
+- **Weekly series and intrinsic values are carried forward** from the newest closed derived row —
+  neither can change intraday — where a backtest reads each day's own row.
+- **Position-dependent metrics** (`Gain`, `Loss`) are `NOT_EVALUABLE` for a Monitor and live for a
+  backtest.
+- **The last day of a backtest ending today may itself be an in-progress bar**, because the
+  provider's EOD feed already lists the current session while it is open (see
+  `ai/product/backtests.md`).
+
 ## Intrinsic value and price-dependent metrics
 
 Do not rerun expensive fundamental/intrinsic calculations merely because the live price changed if their underlying inputs have not changed.
@@ -212,8 +249,11 @@ a wrong Signal.
   re-hydrates symbols from durable storage each cycle. This is a throughput limitation. Do not
   redesign Redis or add a Monitor-specific cache for it.
 - **A quote is refused rather than trusted** when it is older than the configured maximum age, when
-  it is dated in a session later than the cycle's own, or when its timestamp cannot be read. Each of
-  those would otherwise fabricate an observation.
+  it is dated in a session later than the cycle's own, or when its timestamp is present but cannot
+  be read. Each of those would otherwise fabricate an observation. A quote that carries **no**
+  timestamp at all is taken at its word and dated to the cycle's own session; for a symbol that did
+  not trade that day this can append a bar the market never produced. Accepted in V1 because failing
+  closed would stop monitoring every symbol whose feed omits the field.
 - **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
   100 Signals and nothing pages further back; older rows are durable but not yet addressable
   through the API. Pagination is a contract addition for the web slice, not a redesign.

@@ -391,7 +391,9 @@ class FakeStore implements StockDataStore {
   async createSecurityCatalogEntries(entries: readonly SecurityCatalogEntry[]) {
     return entries.length;
   }
-  async updateSecurityCatalogEntry() {}
+  async updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<Security> {
+    return { ...entry.security, id: "security-updated" };
+  }
   async getProfile() {
     return this.profile;
   }

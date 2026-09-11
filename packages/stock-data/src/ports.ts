@@ -123,7 +123,8 @@ export interface StockDataStore {
    * Updates the lightweight catalog fields of one existing row. Never creates: a `Security` may
    * only come into existence through an explicit catalog synchronization.
    */
-  updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<void>;
+  /** Writes the catalog-owned fields and returns the persisted row as it now reads. */
+  updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<Security>;
   /**
    * Persists the per-stock profile and refreshes the identity fields the bulk catalog cannot
    * supply. Keyed by `securityId` rather than provider symbol so it can only ever refine a

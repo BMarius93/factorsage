@@ -67,7 +67,7 @@ forty invariants it validates independently, and which three of those need the d
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
-For Monitor work, read `product/product-overview.md` (the domain map) and `product/monitors.md` first, then `architecture/monitor-engine.md`,
+For Monitor work, read `product/product-overview.md` (the domain map) and `product/monitors.md` first, then `architecture/monitor-engine.md`, `architecture/deep-discovery.md` (verified end-to-end behaviour, invariants and open product questions, one investigation per entry),
 `product/strategies.md`, `architecture/strategy-evaluation.md`, and `architecture/calculated-series.md`.
 Monitor reuses the canonical Strategy language but evaluates it against current data. The V1 architecture
 loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
