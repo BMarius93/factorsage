@@ -49,6 +49,7 @@ describe("monitors", () => {
   let strategyId = "";
   let stockListId = "";
   let otherStrategyId = "";
+  let otherStockListId = "";
 
   function definition(): StrategyDefinition {
     return {
@@ -156,6 +157,11 @@ describe("monitors", () => {
     stockListId = (
       await prisma.stockList.create({
         data: { userId: ownerId, name: "Monitor List" },
+      })
+    ).id;
+    otherStockListId = (
+      await prisma.stockList.create({
+        data: { userId: otherId, name: "Someone Else's List" },
       })
     ).id;
   });
@@ -313,11 +319,35 @@ describe("monitors", () => {
       .expect(400);
   });
 
-  it("rejects a monitor over a strategy the caller does not own", async () => {
-    await owner
+  it("rejects a monitor over a strategy or a stock list the caller does not own", async () => {
+    // Both references are checked against the caller, and a foreign row must be indistinguishable
+    // from one that does not exist: the rejection is the same body as for an unknown id.
+    const unknownStrategy = await owner
+      .post("/monitors")
+      .send({ name: "Borrowed", strategyId: randomUUID(), stockListId })
+      .expect(400);
+    const foreignStrategy = await owner
       .post("/monitors")
       .send({ name: "Borrowed", strategyId: otherStrategyId, stockListId })
       .expect(400);
+    expect(foreignStrategy.body).toEqual(unknownStrategy.body);
+
+    const unknownList = await owner
+      .post("/monitors")
+      .send({ name: "Borrowed", strategyId, stockListId: randomUUID() })
+      .expect(400);
+    const foreignList = await owner
+      .post("/monitors")
+      .send({ name: "Borrowed", strategyId, stockListId: otherStockListId })
+      .expect(400);
+    expect(foreignList.body).toEqual(unknownList.body);
+
+    // Nothing was created for either owner.
+    expect(
+      await prisma.monitor.count({
+        where: { OR: [{ stockListId: otherStockListId }, { strategyId: otherStrategyId }] },
+      }),
+    ).toBe(0);
   });
 
   it("requires a name, a strategy and a stock list", async () => {

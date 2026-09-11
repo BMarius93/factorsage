@@ -69,6 +69,7 @@ describe("backtests", () => {
   let stockListId = "";
   let emptyListId = "";
   let otherStrategyId = "";
+  let otherStockListId = "";
   const securityIdsBySymbol = new Map<string, string>();
 
   /** Symbols sort A, B, C while the securities and memberships are created C, A, B. */
@@ -227,6 +228,11 @@ describe("backtests", () => {
       },
     });
     otherStrategyId = otherStrategy.id;
+
+    const otherList = await prisma.stockList.create({
+      data: { userId: otherUserId, name: "Not your universe" },
+    });
+    otherStockListId = otherList.id;
 
     const list = await prisma.stockList.create({
       data: { userId: ownerUserId, name: "Core universe" },
@@ -609,10 +615,16 @@ describe("backtests", () => {
     // A strategy that belongs to someone else must be indistinguishable from a missing one.
     expect(foreignStrategy).toEqual(unknownStrategy);
 
-    await expectRejected(
+    const unknownList = await expectRejected(
       submission({ stockListId: randomUUID() }),
       "stock list was not found",
     );
+    const foreignList = await expectRejected(
+      submission({ stockListId: otherStockListId }),
+      "stock list was not found",
+    );
+    // A stock list that belongs to someone else must be indistinguishable from a missing one.
+    expect(foreignList).toEqual(unknownList);
     await expectRejected(
       submission({ stockListId: emptyListId }),
       "stock list is empty",
