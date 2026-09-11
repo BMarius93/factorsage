@@ -67,6 +67,13 @@ forty invariants it validates independently, and which three of those need the d
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
+For Monitor work, read `product/monitors.md` first, then `architecture/monitor-engine.md`,
+`product/strategies.md`, `architecture/strategy-evaluation.md`, and `architecture/calculated-series.md`.
+Monitor reuses the canonical Strategy language but evaluates it against current data. The V1 architecture
+loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
+transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
+Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1.
+
 For frontend/UI work, also read
 `architecture/frontend.md`.
 
