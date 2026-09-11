@@ -19,6 +19,7 @@ import {
 } from "./oscillators.js";
 import { calculateDailyTechnicals, type DailyMovingAverageSubset } from "./technicals.js";
 import { projectEvaluationFrame } from "./evaluation-frame.js";
+import { isWeekend } from "./trading-calendar.js";
 
 /**
  * Building the frame a Monitor evaluates: persisted closed daily history plus the current live
@@ -262,9 +263,8 @@ export type MonitorEvaluationFrame = {
  *
  * **The observation must belong to a session.** Its date is the provider's own quote date, so an
  * ordinary weekend quote still carries Friday's date and supersedes Friday's persisted row rather
- * than opening a new day. A weekend date is refused outright. A market *holiday* cannot be detected
- * without an exchange calendar, which this product does not have; the residual is one duplicate-
- * priced bar on such a day, and adding a calendar is the proper fix if that ever matters.
+ * than opening a new day. A weekend date is refused here; a fully closed exchange holiday is
+ * refused by the caller, which resolves the venue's schedule first so this stays pure.
  *
  * **A current observation is required.** Without a usable one this returns `null` and the caller
  * reports `NOT_EVALUABLE`; it deliberately does *not* fall back to evaluating the last closed day.
@@ -308,9 +308,9 @@ export function projectMonitorEvaluationFrame(input: {
     observationDate < newestClosed.date ||
     // A bar on a day no session ran is a fabricated observation: it lengthens every rolling window
     // by one and can move an indicator past a price that never moved, which reads as a crossing.
-    // Weekends are the one closure that holds for every equity venue this product lists, so they
-    // are excluded without inventing an exchange calendar. Holidays are not excluded — see the
-    // note on {@link projectMonitorEvaluationFrame}.
+    // Weekends are refused here because they need no provider knowledge. A fully closed exchange
+    // *holiday* is refused by the caller, which resolves the venue's schedule before asking for a
+    // frame — this projector stays pure and does no I/O.
     (observationDate > newestClosed.date && isWeekend(observationDate))
   ) {
     return null;
@@ -408,12 +408,6 @@ function provisionalBar(
     close: price,
     volume: finiteOr(observation.volume, 0),
   };
-}
-
-/** Saturday or Sunday, on the canonical `YYYY-MM-DD` product date. */
-function isWeekend(date: LocalDate): boolean {
-  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
-  return day === 0 || day === 6;
 }
 
 function finiteOr(value: number | undefined, fallback: number): number {

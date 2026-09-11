@@ -19,6 +19,7 @@ export * from "./security-catalog.js";
 export * from "./security-search.js";
 export * from "./service.js";
 export * from "./technicals.js";
+export * from "./trading-calendar.js";
 export * from "./weekly.js";
 export * from "./benchmark-ports.js";
 export * from "./benchmark-prisma-store.js";

@@ -10,11 +10,15 @@ import {
   mapFmpBenchmarkDailyPrices,
   mapFmpFinancialStatements,
   financialStatementPath,
+  mapFmpExchangeHolidays,
   mapFmpProfile,
   mapFmpQuotes,
   mapFmpStockUniverse,
   type FmpCurrentQuote,
   type FmpCurrentQuoteProviderPort,
+  type FmpExchangeCalendarPort,
+  type FmpExchangeHoliday,
+  type FmpExchangeHolidayDto,
   type FmpDailyPriceDto,
   type FmpProfileDto,
   type FmpQuoteDto,
@@ -131,7 +135,8 @@ export class FmpClient
     FmpStockProviderPort,
     FmpSecurityCatalogPort,
     FmpBenchmarkProviderPort,
-    FmpCurrentQuoteProviderPort
+    FmpCurrentQuoteProviderPort,
+    FmpExchangeCalendarPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -297,6 +302,24 @@ export class FmpClient
       quotes.push(...mapFmpQuotes(payload));
     }
     return quotes;
+  }
+
+  /**
+   * The non-standard sessions one exchange schedules inside a date range.
+   *
+   * One request per exchange and range, never per symbol: every security listed on a venue shares
+   * its calendar, so a caller resolves the schedule once and answers for all of them.
+   */
+  async getExchangeHolidays(
+    exchangeCode: string,
+    from: string,
+    to: string,
+  ): Promise<FmpExchangeHoliday[]> {
+    const payload = await this.request<FmpExchangeHolidayDto[]>(
+      "holidays-by-exchange",
+      { exchange: exchangeCode.trim().toUpperCase(), from, to },
+    );
+    return mapFmpExchangeHolidays(payload);
   }
 
   async getFinancialStatements(

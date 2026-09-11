@@ -3,6 +3,7 @@ import {
   mapFmpDailyPrices,
   mapFmpFinancialStatements,
   mapFmpProfile,
+  mapFmpExchangeHolidays,
   mapFmpStockUniverse,
   normalizeFmpPercentage,
 } from "./mapping.js";
@@ -422,5 +423,56 @@ describe("mapFmpStockUniverse", () => {
         { symbol: "  ", companyName: "Blank", exchangeShortName: "NYSE" },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("mapFmpExchangeHolidays", () => {
+  it("marks only an explicit closure as a full close", () => {
+    // The two live shapes: a full closure reports `isClosed: true` with no `isFullyClosed`, an
+    // early close reports `isClosed: null` with `isFullyClosed: false`. An early close is still a
+    // session — the venue opened and closed sooner — so reading one as a closure would silently
+    // stop monitoring a real trading day.
+    expect(
+      mapFmpExchangeHolidays([
+        { date: "2026-01-01", name: "New Year's Day", isClosed: true },
+        {
+          date: "2026-11-27",
+          name: "Day After Thanksgiving",
+          isClosed: null,
+          isFullyClosed: false,
+          adjCloseTime: "13:00",
+        },
+      ]),
+    ).toEqual([
+      { date: "2026-01-01", name: "New Year's Day", fullClose: true },
+      { date: "2026-11-27", name: "Day After Thanksgiving", fullClose: false },
+    ]);
+  });
+
+  it("lets the more specific isFullyClosed decide when the provider sends both", () => {
+    expect(
+      mapFmpExchangeHolidays([
+        { date: "2026-12-24", isClosed: true, isFullyClosed: false },
+        { date: "2026-12-25", isClosed: true, isFullyClosed: true },
+      ]).map((holiday) => holiday.fullClose),
+    ).toEqual([false, true]);
+  });
+
+  it("returns rows ascending and skips any without a usable date", () => {
+    expect(
+      mapFmpExchangeHolidays([
+        { date: "2026-07-03", isClosed: false },
+        { date: "not-a-date", isClosed: true },
+        { isClosed: true },
+        { date: "2026-01-01", isClosed: true },
+      ]).map((holiday) => holiday.date),
+    ).toEqual(["2026-01-01", "2026-07-03"]);
+  });
+
+  it("refuses a response that is not a schedule", () => {
+    // The dangerous failure is a silent empty schedule: a caller would read it as "open every day".
+    expect(() =>
+      mapFmpExchangeHolidays({ error: "nope" } as never),
+    ).toThrow(/exchange holiday schedule/);
   });
 });

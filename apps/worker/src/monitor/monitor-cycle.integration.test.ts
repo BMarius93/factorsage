@@ -7,11 +7,13 @@ import { PrismaClient, SecurityType } from "@intrinsic/database";
 import type { DailyPrice, Security, SecurityId } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
 import {
+  CachedTradingCalendar,
   monitorWindowObservations,
   projectMonitorEvaluationFrame,
   requiredDailySeries,
   type CurrentObservation,
   type MonitorEvaluationFrame,
+  type TradingCalendar,
 } from "@intrinsic/stock-data";
 import { PRICE_OPERAND, seriesOperand, type OperandKey } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -140,6 +142,44 @@ class FixtureLoader implements MonitorDataLoader {
   }
 }
 
+/** A plausible year of full closures, so the calendar's plausibility floor is satisfied. */
+const FULL_YEAR_2026 = [
+  "2026-01-01",
+  "2026-01-19",
+  "2026-02-16",
+  "2026-04-03",
+  "2026-05-25",
+  "2026-06-19",
+  "2026-07-03",
+  "2026-09-07",
+  "2026-11-26",
+  "2026-12-25",
+].map((date) => ({ date, fullClose: true }));
+
+/**
+ * A calendar the tests drive: every weekday is a session unless named as a full close.
+ *
+ * It counts its calls, which is how "one schedule per exchange, not per symbol" is asserted without
+ * reaching into the production cache.
+ */
+class FixtureCalendar implements TradingCalendar {
+  fullCloses = new Set<string>();
+  failure: Error | null = null;
+  calls: string[] = [];
+
+  async isTradingSession(exchangeCode: string, date: string): Promise<boolean> {
+    this.calls.push(`${exchangeCode} ${date}`);
+    if (this.failure) {
+      throw this.failure;
+    }
+    const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    if (day === 0 || day === 6) {
+      return false;
+    }
+    return !this.fullCloses.has(date);
+  }
+}
+
 /** Twenty-five flat weekday closes, so a 20-bar SMA is warmed up and exactly equal to `close`. */
 function flatHistory(securityId: string, close: number): DailyPrice[] {
   const prices: DailyPrice[] = [];
@@ -243,13 +283,16 @@ async function createUser(): Promise<string> {
   return user.id;
 }
 
-async function createSecurity(symbol: string): Promise<Security> {
+async function createSecurity(
+  symbol: string,
+  exchangeCode = "NASDAQ",
+): Promise<Security> {
   const row = await prisma.security.create({
     data: {
       providerSymbol: `${symbol}.${suffix}`,
       symbol,
       name: `${symbol} Test`,
-      exchangeCode: "NASDAQ",
+      exchangeCode,
       currency: "USD",
       type: SecurityType.STOCK,
       isAdr: false,
@@ -325,8 +368,9 @@ const SESSION_ONE = new Date("2026-03-02T15:00:00.000Z");
 function cycleOf(
   loader: MonitorDataLoader,
   now: Date = SESSION_ONE,
+  calendar: TradingCalendar = new FixtureCalendar(),
 ): MonitorCycle {
-  return new MonitorCycle(repository, loader, logger, {
+  return new MonitorCycle(repository, loader, calendar, logger, {
     symbolConcurrency: 4,
     quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
     now: () => now,
@@ -618,6 +662,7 @@ describe("monitor evaluation cycle", () => {
     const restarted = new MonitorCycle(
       new PrismaMonitorRepository(prisma),
       loader,
+      new FixtureCalendar(),
       logger,
       {
         symbolConcurrency: 4,
@@ -752,10 +797,17 @@ describe("monitor evaluation cycle", () => {
     loader.currentPrice = 150;
     loader.quotedAt = "2020-01-01T00:00:00.000Z";
 
-    const summary = await new MonitorCycle(repository, loader, logger, {
-      symbolConcurrency: 4,
-      quoteMaxAgeMs: 60_000,
-    }).run(nextCycle());
+    const summary = await new MonitorCycle(
+      repository,
+      loader,
+      new FixtureCalendar(),
+      logger,
+      {
+        symbolConcurrency: 4,
+        quoteMaxAgeMs: 60_000,
+        now: () => SESSION_ONE,
+      },
+    ).run(nextCycle());
 
     // A stale quote as "today's" observation would be a fabricated bar.
     expect(summary.symbolsWithoutCurrentData).toBe(1);
@@ -1389,6 +1441,241 @@ describe("monitor evaluation cycle", () => {
     expect(signal?.observationDate.toISOString().slice(0, 10)).toBe(
       "2026-03-02",
     );
+  });
+
+  it("keeps a Friday Trigger active through a Monday exchange holiday", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`HOL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceCrossesAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    const calendar = new FixtureCalendar();
+    calendar.fullCloses.add("2026-03-09");
+
+    // Friday: a crossing fires.
+    loader.currentPrice = 150;
+    await cycleOf(loader, sessionOn("2026-03-06"), calendar).run(nextCycle());
+    let signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // Monday is a full exchange closure. The venue held no session, so nothing was observed — and
+    // a day the market never opened must not end a crossing that fired on a real one.
+    loader.currentPrice = 160;
+    await cycleOf(loader, sessionOn("2026-03-09"), calendar).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // Tuesday is a genuine session, and it closes Friday's crossing normally.
+    loader.currentPrice = 90;
+    await cycleOf(loader, sessionOn("2026-03-10"), calendar).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).not.toBeNull();
+  });
+
+  it("appends no provisional row on a full exchange closure", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`HNB${suffix.slice(0, 4)}`);
+    await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    const calendar = new FixtureCalendar();
+    calendar.fullCloses.add("2026-03-09");
+
+    const summary = await cycleOf(
+      loader,
+      sessionOn("2026-03-09"),
+      calendar,
+    ).run(nextCycle());
+
+    // No frame was built at all, so there is no bar to lengthen a rolling window with.
+    expect(summary.symbolsOutsideTradingSession).toBe(1);
+    expect(loader.frameCalls).toEqual([]);
+    expect(summary.notEvaluable).toBeGreaterThan(0);
+  });
+
+  it("cannot manufacture a crossing on a full exchange closure", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`HXC${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceCrossesAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    // A price that would cross decisively above the average if it were allowed to become a bar.
+    loader.currentPrice = 10_000;
+    const calendar = new FixtureCalendar();
+    calendar.fullCloses.add("2026-03-09");
+
+    await cycleOf(loader, sessionOn("2026-03-09"), calendar).run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+
+    // The same price on the next real session does produce one, so the fixture is not simply inert.
+    await cycleOf(loader, sessionOn("2026-03-10"), calendar).run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+  });
+
+  it("treats an early-close day as an ordinary trading session", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`ERL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+
+    // The real calendar over a provider schedule that lists 2026-03-09 as an EARLY close. The
+    // venue opened and closed sooner, so the day's bar is ordinary — driving this through
+    // `CachedTradingCalendar` is what makes the test about the early-close rule rather than about
+    // a fixture that simply returns true.
+    const calendar = new CachedTradingCalendar({
+      getExchangeHolidays: async () => [
+        ...FULL_YEAR_2026,
+        { date: "2026-03-09", name: "Half Day", fullClose: false },
+      ],
+    });
+
+    await cycleOf(loader, sessionOn("2026-03-09"), calendar).run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+  });
+
+  it("refuses the same day when the schedule calls it a full closure", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`FCL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+
+    // The control for the test above: the only difference is `fullClose`, and it decides.
+    const calendar = new CachedTradingCalendar({
+      getExchangeHolidays: async () => [
+        ...FULL_YEAR_2026,
+        { date: "2026-03-09", name: "Closed", fullClose: true },
+      ],
+    });
+
+    const summary = await cycleOf(
+      loader,
+      sessionOn("2026-03-09"),
+      calendar,
+    ).run(nextCycle());
+
+    expect(summary.symbolsOutsideTradingSession).toBe(1);
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+  });
+
+  it("fails the cycle when the trading calendar cannot be resolved", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`CAL${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    const calendar = new FixtureCalendar();
+    calendar.failure = new Error("calendar unavailable");
+
+    // Not knowing whether the exchange opened is not the same as knowing it did. The cycle fails
+    // rather than assuming a session and fabricating a bar on a day that may not have had one.
+    await expect(
+      cycleOf(loader, SESSION_ONE, calendar).run(nextCycle()),
+    ).rejects.toThrow("calendar unavailable");
+
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+    expect(loader.frameCalls).toEqual([]);
+    // The cycle failed, so it recorded no scan: it goes to the worker's retry path rather than
+    // counting as a cycle that ran.
+    expect(
+      (await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } }))
+        .lastScanAt,
+    ).toBeNull();
+  });
+
+  it("asks the calendar once per exchange session, not once per symbol", async () => {
+    const userId = await createUser();
+    const first = await createSecurity(`CS1${suffix.slice(0, 4)}`);
+    const second = await createSecurity(`CS2${suffix.slice(0, 4)}`);
+    const third = await createSecurity(`CS3${suffix.slice(0, 4)}`);
+    await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [first, second, third],
+    });
+
+    const loader = new FixtureLoader([first, second, third]);
+    for (const security of [first, second, third]) {
+      loader.prices.set(security.id, flatHistory(security.id, 100));
+    }
+    loader.currentPrice = 150;
+    const calendar = new FixtureCalendar();
+
+    await cycleOf(loader, SESSION_ONE, calendar).run(nextCycle());
+
+    // Three symbols on one venue observing one session is one question, not three.
+    expect(calendar.calls).toEqual(["NASDAQ 2026-03-02"]);
+  });
+
+  it("asks each venue separately when a Monitor spans exchanges", async () => {
+    const userId = await createUser();
+    const nasdaq = await createSecurity(`XN1${suffix.slice(0, 4)}`, "NASDAQ");
+    const nyse = await createSecurity(`XY1${suffix.slice(0, 4)}`, "NYSE");
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [nasdaq, nyse],
+    });
+
+    const loader = new FixtureLoader([nasdaq, nyse]);
+    loader.prices.set(nasdaq.id, flatHistory(nasdaq.id, 100));
+    loader.prices.set(nyse.id, flatHistory(nyse.id, 100));
+    loader.currentPrice = 150;
+    const calendar = new FixtureCalendar();
+    // The venues keep separate schedules, so one closure must not silence the other.
+    calendar.fullCloses.add("2026-03-02");
+
+    const summary = await cycleOf(loader, SESSION_ONE, calendar).run(
+      nextCycle(),
+    );
+
+    expect([...calendar.calls].sort()).toEqual([
+      "NASDAQ 2026-03-02",
+      "NYSE 2026-03-02",
+    ]);
+    // Both venues are closed that day in this fixture, so neither produces an observation.
+    expect(summary.symbolsOutsideTradingSession).toBe(2);
+    expect(await signalsOf(monitorId)).toHaveLength(0);
   });
 
   it("does not double-emit when the same transition is applied twice", async () => {

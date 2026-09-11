@@ -14,6 +14,7 @@ import type { StructuredLogger } from "@intrinsic/observability";
 import type {
   CurrentObservation,
   MonitorEvaluationFrame,
+  TradingCalendar,
 } from "@intrinsic/stock-data";
 import {
   Evaluability,
@@ -92,9 +93,12 @@ export type MonitorCycleSummary = {
   notEvaluable: number;
   /** Symbols with no usable current quote. Every Monitor watching one is NOT_EVALUABLE. */
   symbolsWithoutCurrentData: number;
+  /** Symbols whose quote named a day the exchange did not hold a session on. */
+  symbolsOutsideTradingSession: number;
   /**
-   * Symbols the cycle could build no evaluable snapshot for: no persisted history, a weekend-dated
-   * observation, or a price the provider could not give. Every predicate is NOT_EVALUABLE.
+   * Symbols the cycle could build no evaluable snapshot for — no persisted history, or a price the
+   * provider could not give. Every predicate is NOT_EVALUABLE. A day the venue did not open is
+   * counted separately, in `symbolsOutsideTradingSession`.
    */
   symbolsWithoutSnapshot: number;
   /** Transitions a concurrent cycle applied first. Persistently non-zero means overlapping cycles. */
@@ -120,6 +124,7 @@ export class MonitorCycle {
   constructor(
     private readonly repository: MonitorRepository,
     private readonly data: MonitorDataLoader,
+    private readonly calendar: TradingCalendar,
     private readonly logger: StructuredLogger,
     private readonly options: MonitorCycleOptions,
   ) {
@@ -140,6 +145,7 @@ export class MonitorCycle {
       signalsResolved: 0,
       notEvaluable: 0,
       symbolsWithoutCurrentData: 0,
+      symbolsOutsideTradingSession: 0,
       symbolsWithoutSnapshot: 0,
       transitionsContended: 0,
       transitionsUnchanged: 0,
@@ -217,6 +223,31 @@ export class MonitorCycle {
       throw err;
     }
 
+    // Which quote belongs to which session, decided before any symbol work so the calendar is
+    // resolved once for the cycle rather than once per symbol.
+    const resolvedObservations = new Map<
+      SecurityId,
+      { observation: CurrentObservation; date: LocalDate }
+    >();
+    for (const security of securities) {
+      const resolved = this.resolveObservation(
+        observations.get(security.id),
+        now,
+      );
+      if (resolved) {
+        resolvedObservations.set(security.id, resolved);
+      }
+    }
+
+    // One calendar answer per (exchange, session) for the whole cycle. A cycle over a thousand
+    // symbols on three venues asks at most three times, and a failure here fails the cycle for the
+    // same reason a failed quote read does: the alternative is assuming the exchange was open.
+    const sessions = await this.resolveTradingSessions(
+      securities,
+      resolvedObservations,
+      cycleSequence,
+    );
+
     const snapshots = new Map<SecurityId, SymbolSnapshot>();
     await mapWithConcurrency(
       securities,
@@ -225,10 +256,21 @@ export class MonitorCycle {
         const operands = [
           ...(operandsBySecurity.get(security.id) ?? new Set<OperandKey>()),
         ].sort();
-        const resolved = this.resolveObservation(
-          observations.get(security.id),
-          now,
-        );
+        const resolved = resolvedObservations.get(security.id);
+        if (resolved && !sessions.get(sessionKey(security.exchangeCode, resolved.date))) {
+          // The venue held no session that day, so there is no observation to evaluate — and
+          // nothing that may append a bar, shift a rolling window or end a Trigger's session.
+          summary.symbolsOutsideTradingSession += 1;
+          this.logger.debug({
+            event: "monitor.symbol.outside-session",
+            cycleSequence,
+            symbol: security.symbol,
+            exchangeCode: security.exchangeCode,
+            observationDate: resolved.date,
+          });
+          snapshots.set(security.id, { security, frame: null });
+          return;
+        }
         if (!resolved) {
           // No current observation means the evaluation a Monitor is defined to make cannot be
           // made. It is reported as NOT_EVALUABLE rather than decided from closed history, so an
@@ -538,6 +580,54 @@ export class MonitorCycle {
   }
 
   /**
+   * Whether each (exchange, session) the cycle is about to evaluate was a trading day.
+   *
+   * Resolved once for the whole cycle, from the distinct pairs the quotes actually named, so the
+   * venue's schedule is fetched per exchange rather than per symbol or per Monitor.
+   *
+   * A failure fails the cycle. That is the same rule a failed quote read follows and for the same
+   * reason: the only alternative is assuming the exchange was open, which is precisely the
+   * assumption that fabricates a bar on a day nothing traded.
+   */
+  private async resolveTradingSessions(
+    securities: readonly Security[],
+    resolved: ReadonlyMap<SecurityId, { date: LocalDate }>,
+    cycleSequence: number,
+  ): Promise<Map<string, boolean>> {
+    const pairs = new Map<string, { exchangeCode: string; date: LocalDate }>();
+    for (const security of securities) {
+      const observation = resolved.get(security.id);
+      if (observation) {
+        pairs.set(sessionKey(security.exchangeCode, observation.date), {
+          exchangeCode: security.exchangeCode,
+          date: observation.date,
+        });
+      }
+    }
+
+    const sessions = new Map<string, boolean>();
+    try {
+      await Promise.all(
+        [...pairs].map(async ([key, pair]) => {
+          sessions.set(
+            key,
+            await this.calendar.isTradingSession(pair.exchangeCode, pair.date),
+          );
+        }),
+      );
+    } catch (err) {
+      this.logger.error({
+        event: "monitor.trading-calendar.failed",
+        cycleSequence,
+        sessions: pairs.size,
+        err,
+      });
+      throw err;
+    }
+    return sessions;
+  }
+
+  /**
    * The observation to evaluate this symbol on, with the trading session it belongs to.
    *
    * Three ways a quote is refused, and none of them fabricate anything:
@@ -576,6 +666,11 @@ export class MonitorCycle {
     const date = tradingSessionDate(new Date(quotedAt));
     return date > cycleSession ? null : { observation, date };
   }
+}
+
+/** One exchange's session on one day, as a map key. */
+function sessionKey(exchangeCode: string, date: LocalDate): string {
+  return `${exchangeCode.trim().toUpperCase()} ${date}`;
 }
 
 /** The cycle's own UTC calendar day. Product dates carry no timezone (`LocalDate`). */

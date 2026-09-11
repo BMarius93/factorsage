@@ -9,6 +9,7 @@ import type { Security, SecurityId } from "@intrinsic/domain";
 import { FmpClient } from "@intrinsic/fmp";
 import type { StructuredLogger } from "@intrinsic/observability";
 import {
+  CachedTradingCalendar,
   CanonicalStockDataService,
   IoredisCacheClient,
   PrismaStockDataStore,
@@ -19,6 +20,7 @@ import {
   monitorWindowObservations,
   requiredDailySeries,
   type ProviderRequestEvent,
+  type TradingCalendar,
 } from "@intrinsic/stock-data";
 import type { OperandKey } from "@intrinsic/strategy";
 import type { MonitorDataLoader } from "./monitor-cycle.js";
@@ -35,6 +37,7 @@ export type MonitorRuntime = {
   scans: MonitorScanRepository;
   monitors: MonitorRepository;
   data: MonitorDataLoader;
+  calendar: TradingCalendar;
   close(): Promise<void>;
 };
 
@@ -99,6 +102,10 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     scans: new PrismaMonitorScanRepository(prisma),
     monitors: new PrismaMonitorRepository(prisma),
     data: new PrismaMonitorDataLoader(stockData),
+    // Built from the same gated provider as everything else, so a schedule fetch is throttled with
+    // the rest of the cycle's traffic. Its cache is process memory by design — see
+    // `CachedTradingCalendar`; nothing about it belongs in Redis.
+    calendar: new CachedTradingCalendar(provider),
     async close(): Promise<void> {
       redis.disconnect();
       await prisma.$disconnect();

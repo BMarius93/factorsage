@@ -119,6 +119,38 @@ export type FmpCurrentQuote = {
   quotedAt?: string;
 };
 
+/**
+ * One row of the exchange holiday schedule.
+ *
+ * Only the fields that decide whether the venue opens are declared. The provider also returns the
+ * holiday's name and adjusted session times; the name is mapped for diagnostics and the times are
+ * not, because an adjusted session is still a session and this boundary answers one question only.
+ */
+export type FmpExchangeHolidayDto = {
+  exchange?: unknown;
+  date?: unknown;
+  name?: unknown;
+  /** `true` on a full closure. An early-close row carries `null` here. */
+  isClosed?: unknown;
+  /** Present on early-close rows as `false`. Absent on full closures. */
+  isFullyClosed?: unknown;
+  adjOpenTime?: unknown;
+  adjCloseTime?: unknown;
+};
+
+/**
+ * A scheduled non-standard session on one exchange.
+ *
+ * `fullClose` is the only thing the product acts on: a fully closed day has no session, while an
+ * early close is an ordinary trading day that ends sooner. Both appear in the provider's schedule,
+ * so the distinction has to be carried rather than inferred from presence.
+ */
+export type FmpExchangeHoliday = {
+  date: string;
+  name?: string;
+  fullClose: boolean;
+};
+
 export type MappedFmpProfile = {
   providerSymbol: string;
   security: Omit<Security, "id">;
@@ -451,6 +483,48 @@ function quoteInstant(value: unknown): string | undefined {
 }
 
 /**
+ * Maps an exchange holiday schedule, skipping rows that carry no usable date.
+ *
+ * A row is a **full close** only when the provider says so. Anything else that parses is a session:
+ * an early close is a trading day, and reading one as a closure would silently stop monitoring a
+ * real session.
+ *
+ * Two fields carry that distinction, verified against the live endpoint on 2026-09-11: a full
+ * closure reports `isClosed: true` and no `isFullyClosed`, while an early close reports
+ * `isClosed: null` with `isFullyClosed: false` beside its adjusted times. `isFullyClosed` is the
+ * more specific of the two, so it decides when present — which also keeps the reading correct if
+ * the provider ever emits it on full closures as well.
+ *
+ * A response that is not a list of rows throws. Judging whether a *parseable* schedule is
+ * plausible is the calendar's job, not the mapper's: it is the layer that knows a complete year is
+ * being asked for.
+ */
+export function mapFmpExchangeHolidays(
+  rows: readonly FmpExchangeHolidayDto[],
+): FmpExchangeHoliday[] {
+  if (!Array.isArray(rows)) {
+    throw new Error("Invalid FMP exchange holiday schedule");
+  }
+  const holidays: FmpExchangeHoliday[] = [];
+  for (const row of rows) {
+    const date = optionalString(row.date);
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      continue;
+    }
+    const name = optionalString(row.name);
+    holidays.push({
+      date,
+      ...(name ? { name } : {}),
+      fullClose:
+        typeof row.isFullyClosed === "boolean"
+          ? row.isFullyClosed
+          : row.isClosed === true,
+    });
+  }
+  return holidays.sort((left, right) => left.date.localeCompare(right.date));
+}
+
+/**
  * The same provider bars, stamped with a benchmark identity instead of a security identity.
  *
  * A benchmark is not a `Security`, so its rows never enter `DailyPrice`. What is shared is the
@@ -548,6 +622,21 @@ export type FmpBenchmarkProviderPort = {
 export type FmpCurrentQuoteProviderPort = {
   /** One request for many symbols. Never one request per symbol, and never one per Monitor. */
   getCurrentQuotes(providerSymbols: readonly string[]): Promise<FmpCurrentQuote[]>;
+};
+
+/**
+ * The exchange trading calendar, kept as its own port.
+ *
+ * It is per *exchange*, never per security: a caller resolves one schedule and shares it across
+ * every symbol listed there. Splitting the port keeps a calendar consumer — and its fakes —
+ * depending on one method, exactly as the catalog, benchmark and quote ports are split out.
+ */
+export type FmpExchangeCalendarPort = {
+  getExchangeHolidays(
+    exchangeCode: string,
+    from: string,
+    to: string,
+  ): Promise<FmpExchangeHoliday[]>;
 };
 
 export type FmpStockProviderPort = {

@@ -152,4 +152,38 @@ describeLive("live FMP verification", () => {
     expect(local?.sma20d).toBeCloseTo(fmpSma?.value ?? Number.NaN, 1);
     expect(local?.ema20d).toBeCloseTo(fmpEma?.value ?? Number.NaN, 1);
   });
+
+  /**
+   * The exchange holiday schedule is the one provider contract the Monitor's session boundary
+   * depends on, and mapping it defensively is not the same as knowing the shape. This is the only
+   * place that can verify it, and it asserts invariants rather than a fixed list: the schedule for
+   * a past year must parse, be dated, and contain at least one full closure — a year in which the
+   * US market never closed would itself be the anomaly.
+   */
+  it("returns a parseable NASDAQ holiday schedule with real closures", async () => {
+    // The same range `CachedTradingCalendar` asks for: `from` is exclusive, so a year is requested
+    // from the last day of the previous one.
+    const holidays = await client.getExchangeHolidays(
+      "NASDAQ",
+      "2023-12-31",
+      "2024-12-31",
+    );
+
+    for (const holiday of holidays) {
+      expect(holiday.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(typeof holiday.fullClose).toBe("boolean");
+    }
+
+    const fullCloses = holidays
+      .filter((holiday) => holiday.fullClose && holiday.date.startsWith("2024"))
+      .map((holiday) => holiday.date);
+
+    // New Year's Day is the boundary case and the reason the range starts a day early: requesting
+    // from 2024-01-01 silently drops it, because the provider filters strictly greater-than. It is
+    // also the one full closure that occurs every single year, so its absence here would mean the
+    // Monitor treats it as a trading session.
+    expect(fullCloses).toContain("2024-01-01");
+    // A real year has nine or ten; the floor is what makes a degenerate schedule detectable.
+    expect(fullCloses.length).toBeGreaterThanOrEqual(6);
+  });
 });

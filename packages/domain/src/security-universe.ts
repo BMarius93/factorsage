@@ -51,8 +51,8 @@ const SESSION_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
  * The trading day an instant belongs to, as a canonical `YYYY-MM-DD` product date.
  *
  * Pure: it reads no clock, only the instant it is given. It answers "which session's calendar day
- * is this?" and deliberately not "was the market open?" — that would need a holiday calendar, which
- * this product does not have.
+ * is this?" and deliberately not "was the market open?" — that question needs the venue's published
+ * schedule and is answered by `CachedTradingCalendar` in `@intrinsic/stock-data`.
  */
 export function tradingSessionDate(instant: Date): LocalDate {
   const parts = SESSION_DATE_FORMAT.formatToParts(instant);

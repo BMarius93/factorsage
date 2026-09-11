@@ -298,6 +298,33 @@ nothing about whether that day was a session. `security-universe.test.ts` pins t
 against the claim, so admitting a venue on another clock fails a test rather than silently
 mis-dating its observations — at which point the question has to be answered again, deliberately.
 
+## The trading-session boundary
+
+A provisional observation is built only for a day the exchange held a session. Weekends need no
+provider knowledge and are refused in the pure projector; a **fully closed** holiday is refused by
+the cycle, which resolves the venue's schedule first — `CachedTradingCalendar` in
+`@intrinsic/stock-data`, over the provider's holiday schedule. An **early close is a session** and
+is not filtered: the venue opened.
+
+It is deliberately not a trading-calendar subsystem. It answers one question — did this venue open
+at all — for the three exchanges V1 admits, and knows nothing about session times, half-days or
+settlement.
+
+Three properties keep it affordable, and each is required rather than incidental:
+
+- **Per exchange and year**, never per symbol or per Monitor. Every security on a venue shares its
+  calendar, so a cycle over a thousand symbols resolves at most one schedule per exchange. The cycle
+  collects the distinct `(exchange, session)` pairs its quotes named and asks once for each.
+- **Single-flight.** Concurrent callers share one in-flight request, which is what makes the above
+  true under the cycle's bounded symbol concurrency on a cold calendar.
+- **Process memory with a TTL.** A published schedule changes very rarely and is not
+  correctness-critical state that must survive a restart — a cold process fetches it again. Nothing
+  is cached in Redis for it.
+
+A failure to resolve the schedule **fails the cycle**, by the same rule a failed quote read follows:
+the only alternative is assuming the exchange was open, which is exactly the assumption that
+fabricates a bar. A failure is never cached, so the next cycle retries.
+
 **A cycle with no observation advances nothing.** A `NOT_EVALUABLE` caused by missing current data
 carries no observation at all, so it cannot close a Trigger Signal: a weekend, a holiday or an
 unpriced symbol is not a later session, and only a real one ends an event's lifetime.
@@ -310,10 +337,6 @@ Recorded so they are not rediscovered as defects. None can produce a wrong Signa
   resident set is bounded by configuration. A monitored universe larger than that bound re-hydrates
   from durable storage each cycle — a throughput limit, accepted for V1. Do not redesign Redis or add
   a Monitor cache.
-- **No exchange calendar.** The observation date is the provider's own quote date, so a weekend quote
-  carries the previous session's date and supersedes that row rather than opening a new day; a
-  weekend date is refused outright. A market holiday cannot be detected, leaving at most one
-  duplicate-priced observation on such a day.
 - **Per-`(monitor, security, level)` transition writes.** A transition is applied in its own
   transaction. Evaluations that repeat the recorded outcome write nothing at all, so the steady state
   costs no transactions; only genuine transitions do.

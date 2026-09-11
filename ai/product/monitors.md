@@ -125,6 +125,26 @@ Deleting a Strategy or a Stock List that an existing Monitor references is there
 user deletes the Monitor first, explicitly. Deleting the owning user account still removes everything,
 because that is the one case where all of it should go.
 
+## Only a trading session produces an observation
+
+A provisional observation exists only for a day the exchange actually held a session.
+
+- **Weekends** are excluded without asking anyone: they are closed on every venue V1 admits.
+- **Fully closed exchange holidays** are excluded using the venue's published holiday schedule.
+- **Early closes are ordinary sessions.** The venue opened and closed sooner; the day's bar is a
+  normal one and is not filtered.
+
+This is a correctness rule, not tidiness. A bar on a day nothing traded lengthens every rolling
+window by one observation — which can move an average past a price that never moved and read as a
+crossing — and it names a session later than the previous real one, which would end a Trigger
+Signal that fired there. Neither is acceptable, so neither is allowed to happen.
+
+If the schedule needed to answer the question cannot be obtained, the cycle **fails**. Not knowing
+whether the exchange opened is not the same as knowing it did, and only one of those may produce an
+observation. The schedule is resolved per exchange, shared by every symbol listed there, and held in
+process memory; nothing about it is cached in Redis, and it is not a general trading-calendar
+subsystem — it answers one question for the venues V1 admits.
+
 ## Current-data semantics
 
 A Monitor uses current market data, while backtests remain deterministic historical evaluations.
@@ -165,14 +185,6 @@ a wrong Signal.
   shared stock-data cache, whose resident set is bounded. A monitored universe larger than that bound
   re-hydrates symbols from durable storage each cycle. This is a throughput limitation. Do not
   redesign Redis or add a Monitor-specific cache for it.
-- **Exchange holidays.** The product has no exchange trading calendar. The observation date is the
-  trading day the provider's own quote timestamp falls in, resolved in the exchange's timezone — V1
-  admits only NASDAQ, NYSE and AMEX, which share one clock, so that resolution is exact rather than
-  approximate (see `ai/architecture/monitor-engine.md`). A weekend date is refused outright. A
-  market *holiday* cannot be detected. On such a day the residual is a duplicate-priced observation,
-  and because it is dated later than the previous session it also **ends a Trigger Signal that fired
-  on the previous session** and can, by shifting a rolling window by one observation, raise one.
-  Accepted for V1; do not add an exchange-calendar subsystem for it.
 - **A quote is refused rather than trusted** when it is older than the configured maximum age, when
   it is dated in a session later than the cycle's own, or when its timestamp cannot be read. Each of
   those would otherwise fabricate an observation.

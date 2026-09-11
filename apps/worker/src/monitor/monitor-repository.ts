@@ -376,9 +376,9 @@ export class PrismaMonitorRepository implements MonitorRepository {
      *
      * A cycle with no observation observes no session and so closes nothing: a weekend or a
      * provider outage is not a later session, and treating the wall clock as one would end a Friday
-     * crossing that nothing has superseded. A market *holiday* is not distinguishable without a
-     * trading calendar, which V1 does not have — an accepted limitation recorded in
-     * `ai/product/monitors.md`, not a rule enforced here.
+     * crossing that nothing has superseded. A fully closed exchange holiday produces no observation for
+     * the same reason a weekend does — the cycle resolves the venue's schedule before building a
+     * frame — so it does not reach this point either.
      */
     const supersededEventSignalId =
       isEvent &&
