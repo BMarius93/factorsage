@@ -9,6 +9,7 @@ import {
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -26,6 +27,7 @@ import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import {
   StrategiesService,
+  StrategyInUseByMonitorError,
   StrategyNotFoundError,
 } from "./strategies.service";
 import {
@@ -119,6 +121,11 @@ export class StrategiesController {
     } catch (error) {
       if (error instanceof StrategyNotFoundError) {
         throw new NotFoundException(error.message);
+      }
+      // The strategy exists and is the caller's; something still references it. That is a conflict
+      // with the current state, not a malformed request.
+      if (error instanceof StrategyInUseByMonitorError) {
+        throw new ConflictException(error.message);
       }
       if (error instanceof StrategyValidationError) {
         const body: StrategyValidationErrorResponse = {

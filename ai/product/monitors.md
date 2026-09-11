@@ -52,6 +52,73 @@ The Signal is emitted when the canonical trigger transition occurs. Remaining ab
 
 The implementation must preserve enough durable prior-evaluation state to distinguish a genuine transition from a process restart or cache miss.
 
+#### A daily trigger is an event on an observation date
+
+A daily trigger is evaluated **from the previous closed daily observation to the current provisional
+daily observation**. It is not a tick-to-tick intraday trigger.
+
+The `t - 1` half is the last closed trading day and does not move during a session, so for the rest
+of that session the crossing predicate degenerates into the plain relationship it crossed into. It
+follows that:
+
+- a daily trigger emits **at most once per observation date**;
+- a price that crosses, moves back across the boundary and crosses again within the same observation
+  date does **not** produce a second Signal for that date — the canonical daily series has that
+  crossing true on exactly one date, and a backtest over the same closed bar would record one event;
+- for the same reason, an intraday move back across the boundary does not end a trigger Signal. A
+  Trigger is an event, so the condition lifecycle below does not apply to it: its Signal is active
+  for the session it fired in and is closed when a later session is observed.
+
+The `false -> true -> true -> false` state table applies to **condition-only** signals, which
+describe a state that genuinely ends and begins again.
+
+## Monitored universe and BUY eligibility
+
+A Monitor's universe is a Stock List. Membership is the canonical `Security` catalog reference, never
+a free-text symbol.
+
+**BUY eligibility from that list applies to Monitor BUY Signals.** `ai/product/lists.md` defines a
+`CUSTOM` buy window as the dates a member is eligible on, and a Monitor evaluates one date — the
+current observation. A BUY level therefore produces no Signal for a symbol whose current buy window
+does not admit that date. `FULL` admits every date and so never restricts anything.
+
+SELL and FINAL EXIT are **not** restricted by buy windows. A buy window governs entries; an exit rule
+must still be able to report what it sees. This mirrors the backtest engine, which reads the same
+`isBuyWindowEligible` before firing a BUY and nothing before firing a SELL or FINAL EXIT.
+
+## SELL and FINAL EXIT without portfolio state
+
+A Monitor is **not** a portfolio tracker. It holds no position, no average cost and no lifecycle.
+
+A SELL or FINAL EXIT Signal is still meaningful: it reports that the Strategy's exit logic matches
+current data for that symbol. Those levels are therefore evaluated and may produce Signals.
+
+Metrics that require position state — `Gain` and `Loss` — have nothing to be measured against, so
+they are `NOT_EVALUABLE` exactly as `ai/product/strategies.md` already specifies for unavailable
+position state. A Signal whose logic depends on them can never match. This is the existing rule
+applied, not a Monitor-specific exception.
+
+## Strategy mutability
+
+A Monitor references a **Strategy**, not a pinned Strategy version. Monitoring is live: editing the
+Strategy changes what is being watched, immediately and without recreating the Monitor. This is the
+deliberate opposite of a Backtest run, whose immutable snapshot is its reproducibility authority.
+
+Persisted Monitor state is scoped to the **canonical logic of its own level**, not to the Strategy
+version. Editing one level appends a new Strategy version, and that must not reset the state of every
+other, unchanged level — doing so would re-emit a Signal on each of them for a match that never
+stopped. A level whose logic genuinely changed no longer describes what its state latched, so that
+state is reset and any Signal still active under the old logic is closed.
+
+## Deleting a Strategy or Stock List a Monitor uses
+
+A Monitor owns Signal history, which is a record of what was observed. It is **not** a derived view
+of its Strategy and List, so it must not disappear when one of them is deleted.
+
+Deleting a Strategy or a Stock List that an existing Monitor references is therefore **refused**. The
+user deletes the Monitor first, explicitly. Deleting the owning user account still removes everything,
+because that is the one case where all of it should go.
+
 ## Current-data semantics
 
 A Monitor uses current market data, while backtests remain deterministic historical evaluations.
@@ -83,6 +150,24 @@ V1 intentionally avoids user-configurable scan frequency and avoids extra user-f
 
 Do not add new Redis-backed product semantics merely for monitoring. Redis may still be used by existing infrastructure where already justified (for example queueing/coordination), but Monitor product correctness must not depend on an ephemeral cache.
 
+### Accepted V1 limitations
+
+These are known and accepted for V1. They are limitations, not defects, and none of them can produce
+a wrong Signal.
+
+- **Monitored universe versus the resident-stock bound.** Symbol data is read through the existing
+  shared stock-data cache, whose resident set is bounded. A monitored universe larger than that bound
+  re-hydrates symbols from durable storage each cycle. This is a throughput limitation. Do not
+  redesign Redis or add a Monitor-specific cache for it.
+- **Exchange holidays.** The product has no exchange trading calendar. The provider's own quote date
+  is used as the observation date, so an ordinary weekend quote still carries the previous session's
+  date, and a weekend date is refused outright. A market holiday cannot be detected; the residual is
+  one duplicate-priced observation on such a day. Do not add an exchange-calendar subsystem for it.
+- **Current-data failure is all-or-nothing.** If the current-data read for a cycle fails, the cycle
+  fails or is delayed rather than evaluating part of the universe. Correctness comes first: partial
+  cycles are not a V1 concept. Persisted Monitor state and latches are preserved, so a failed cycle
+  changes nothing and the next one continues.
+
 ## Source-of-truth boundaries
 
 - Strategy defines investment/evaluation logic.
@@ -100,6 +185,10 @@ Unless another canonical product document explicitly decides otherwise, do not a
 - separate user-facing names for persistent condition matches versus trigger events;
 - a second Monitor-specific Strategy DSL;
 - a requirement to recompute every available series for every symbol;
-- correctness that depends on Redis surviving a restart.
+- correctness that depends on Redis surviving a restart;
+- a pinned Strategy version or Strategy snapshot for a Monitor;
+- portfolio/position tracking, average cost or a position lifecycle;
+- an exchange trading calendar;
+- partial-cycle semantics for a failed current-data read.
 
 If implementation exposes an unresolved product question outside this document, stop and surface the question rather than silently defining new product behavior.

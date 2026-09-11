@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { StrategyDefinition } from "@intrinsic/contracts";
+import type {
+  StrategyDefinition,
+  StrategySignal,
+} from "@intrinsic/contracts";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
 import type { DailyPrice, Security, SecurityId } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
@@ -169,6 +172,20 @@ function risingHistory(securityId: string): DailyPrice[] {
     const close = 100 + index * 2;
     return { ...price, open: close, high: close, low: close, close };
   });
+}
+
+/** `Price is above SMA20D`, with a caller-supplied condition id: ids are unique document-wide. */
+function priceAboveSmaSignal(conditionId: string): StrategySignal {
+  return {
+    conditions: [
+      {
+        id: conditionId,
+        metric: { kind: "PRICE" },
+        operator: "IS_ABOVE",
+        value: { kind: "SERIES", seriesId: EMA_SERIES },
+      },
+    ],
+  };
 }
 
 function priceAboveSmaDefinition(): StrategyDefinition {
@@ -901,10 +918,11 @@ describe("monitor evaluation cycle", () => {
     expect(signals).toHaveLength(1);
     expect(signals[0]?.resolvedAt).toBeNull();
 
-    // The next session. An event's Signal is active for the session it fired in; a new observation
-    // date closes it rather than leaving every crossing ever fired on the active list.
+    // The next session, with no crossing on it. An event's Signal is active for the session it
+    // fired in, so a new observation date closes it rather than leaving every crossing ever fired
+    // on the active list.
     loader.observationDate = "2026-03-03";
-    loader.currentPrice = 150;
+    loader.currentPrice = 90;
     await cycle.run(nextCycle());
 
     signals = await signalsOf(monitorId);
@@ -1000,6 +1018,220 @@ describe("monitor evaluation cycle", () => {
     expect(completed.aborted).toBe(false);
     expect(await signalsOf(monitorA.monitorId)).toHaveLength(1);
     expect(await signalsOf(monitorB.monitorId)).toHaveLength(1);
+  });
+
+  it("gates only BUY levels by the buy window, never SELL or FINAL EXIT", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`BWS${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: {
+        schemaVersion: 1,
+        buyLevels: [
+          { id: "buy-1", percentage: 100, signal: priceAboveSmaSignal("c-buy") },
+        ],
+        sellLevels: [
+          { id: "sell-1", percentage: 50, signal: priceAboveSmaSignal("c-sell") },
+        ],
+        finalExit: { id: "exit-1", signal: priceAboveSmaSignal("c-exit") },
+      },
+      securities: [security],
+    });
+
+    // The list says this member is only buyable in 2020. BUY eligibility is a *buy* window: it
+    // gates entries, and an exit rule must still be able to tell the user what it sees.
+    const item = await prisma.stockListItem.findFirstOrThrow({
+      where: { securityId: security.id },
+    });
+    await prisma.stockListItem.update({
+      where: { id: item.id },
+      data: {
+        buyWindowMode: "CUSTOM",
+        buyWindows: {
+          create: {
+            startDate: new Date("2020-01-01T00:00:00.000Z"),
+            endDate: new Date("2020-12-31T00:00:00.000Z"),
+          },
+        },
+      },
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+
+    await cycleOf(loader).run(nextCycle());
+
+    const signals = await signalsOf(monitorId);
+    expect(signals.map((signal) => signal.levelKind).sort()).toEqual([
+      "FINAL_EXIT",
+      "SELL",
+    ]);
+  });
+
+  it("signals a position-independent SELL rule, and never one that needs a position", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`POS${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: {
+        schemaVersion: 1,
+        buyLevels: [
+          {
+            id: "buy-1",
+            percentage: 100,
+            signal: {
+              conditions: [],
+              trigger: {
+                id: "t-never",
+                metric: { kind: "PRICE" },
+                operator: "CROSSES_BELOW",
+                value: { kind: "SERIES", seriesId: EMA_SERIES },
+              },
+            },
+          },
+        ],
+        sellLevels: [
+          {
+            // Market-derived: decidable without a portfolio, so it may signal.
+            id: "sell-market",
+            percentage: 50,
+            signal: priceAboveSmaSignal("c-sell-market"),
+          },
+          {
+            // Position-dependent: a Monitor has no average cost, so Gain is NOT_EVALUABLE and this
+            // level can never match. Monitor is not a portfolio tracker.
+            id: "sell-gain",
+            percentage: 25,
+            signal: {
+              conditions: [
+                {
+                  id: "c-gain",
+                  metric: { kind: "GAIN" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "PERCENT", value: 1 },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+
+    await cycleOf(loader).run(nextCycle());
+
+    expect((await signalsOf(monitorId)).map((signal) => signal.levelId)).toEqual(
+      ["sell-market"],
+    );
+  });
+
+  it("still emits a crossing on the session after one it could not evaluate", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`OUT${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceCrossesAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    const cycle = cycleOf(loader);
+
+    // Session one: a genuine crossing.
+    loader.currentPrice = 150;
+    await cycle.run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+
+    // Session two: the provider is down all day, so nothing is decidable. NOT_EVALUABLE must not
+    // move the latch — and must not leave behind a state that swallows the next crossing.
+    loader.observationDate = "2026-03-03";
+    loader.currentDataError = new Error("provider unavailable");
+    await cycle.run(nextCycle());
+
+    // Session three: a genuine, canonical crossing on a new observation date. It must produce a
+    // Signal whatever the outage left behind.
+    loader.observationDate = "2026-03-04";
+    loader.currentDataError = null;
+    loader.currentPrice = 150;
+    await cycle.run(nextCycle());
+
+    const signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.resolvedAt).not.toBeNull();
+    expect(signals[1]?.resolvedAt).toBeNull();
+  });
+
+  it("signals again for a security removed from the list and added back", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`RDD${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    const cycle = cycleOf(loader);
+
+    await cycle.run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
+
+    // Removed while still matching: the sweep closes the Signal and must leave the row coherent.
+    const listId = (
+      await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } })
+    ).stockListId;
+    await prisma.stockListItem.deleteMany({
+      where: { securityId: security.id },
+    });
+    await cycle.run(nextCycle());
+    let signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).not.toBeNull();
+
+    // Added back, still matching. The match is newly observed, so it signals again — a row whose
+    // latch and recorded outcome disagreed would skip the write forever and never emit.
+    await prisma.stockListItem.create({
+      data: { stockListId: listId, securityId: security.id },
+    });
+    await cycle.run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.resolvedAt).toBeNull();
+  });
+
+  it("records the scan without touching the Monitor's user-facing updatedAt", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`UPD${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+    const before = await prisma.monitor.findUniqueOrThrow({
+      where: { id: monitorId },
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 90;
+    await cycleOf(loader).run(nextCycle());
+
+    const after = await prisma.monitor.findUniqueOrThrow({
+      where: { id: monitorId },
+    });
+    // A scan is not a user edit. `updatedAt` orders the user's collection newest-changed-first, so
+    // bumping it every cycle would make every enabled Monitor read "updated just now".
+    expect(after.updatedAt.toISOString()).toBe(before.updatedAt.toISOString());
+    expect(after.lastScanAt).not.toBeNull();
   });
 
   it("does not double-emit when the same transition is applied twice", async () => {

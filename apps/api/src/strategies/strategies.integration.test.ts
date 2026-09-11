@@ -135,6 +135,44 @@ describe("strategies", () => {
     }
   });
 
+  /**
+   * A strategy a Monitor still watches with cannot be deleted.
+   *
+   * `Monitor.strategyId` is `onDelete: Restrict`, so the guard is the constraint rather than a check
+   * that could race a Monitor created a moment later. The rule lives in `ai/product/monitors.md`: a
+   * Monitor owns Signal history, which is a record of what was observed, so deleting a strategy must
+   * not take it — and every Signal it ever produced — with it silently.
+   */
+  it("refuses to delete a strategy a monitor is still using", async () => {
+    const strategy = await createStrategy(owner, {
+      name: "Watched Strategy",
+      definition: definition(),
+    });
+    const ownerId = (
+      await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
+    ).id;
+    const list = await prisma.stockList.create({
+      data: { userId: ownerId, name: `Monitor List ${suffix}` },
+    });
+    const monitor = await prisma.monitor.create({
+      data: {
+        userId: ownerId,
+        name: "Watching",
+        strategyId: strategy.id,
+        stockListId: list.id,
+      },
+    });
+
+    const refusal = await owner.delete(`/strategies/${strategy.id}`).expect(409);
+    expect(String(refusal.body.message)).toContain("monitor");
+    expect(await prisma.strategy.count({ where: { id: strategy.id } })).toBe(1);
+
+    // Once the monitor is gone the strategy deletes normally.
+    await prisma.monitor.delete({ where: { id: monitor.id } });
+    await owner.delete(`/strategies/${strategy.id}`).expect(204);
+    await prisma.stockList.delete({ where: { id: list.id } });
+  });
+
   it("requires authentication on every route", async () => {
     const anonymous = request(app.getHttpServer());
     await anonymous.get("/strategies").expect(401);

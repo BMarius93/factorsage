@@ -801,6 +801,13 @@ export class CanonicalStockDataService implements StockDataService {
     });
   }
 
+  /** Catalog rows for a set of internal ids. One read for a whole Monitor cycle's universe. */
+  async findSecuritiesByIds(
+    securityIds: readonly SecurityId[],
+  ): Promise<Security[]> {
+    return this.store.findSecuritiesByIds(securityIds);
+  }
+
   /**
    * Current market snapshots for many symbols, in as few provider requests as possible.
    *
@@ -808,15 +815,6 @@ export class CanonicalStockDataService implements StockDataService {
    * symbol. Results are keyed by the canonical `Security` id, so a caller never carries a provider
    * symbol across a boundary. A symbol the provider could not price is simply absent.
    */
-  /**
-   * Catalog rows for a set of internal ids. One read for a whole Monitor cycle's universe.
-   */
-  async findSecuritiesByIds(
-    securityIds: readonly SecurityId[],
-  ): Promise<Security[]> {
-    return this.store.findSecuritiesByIds(securityIds);
-  }
-
   async getCurrentObservations(
     securities: readonly Security[],
   ): Promise<Map<SecurityId, CurrentObservation>> {

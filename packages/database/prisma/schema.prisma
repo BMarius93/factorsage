@@ -856,12 +856,20 @@ enum MonitorLevelKind {
 /// One user-owned Monitor: a Strategy evaluated against current market data over a Stock List.
 ///
 /// It references the `Strategy` rather than a pinned `StrategyVersion`, because a Monitor is live:
-/// editing the Strategy must change what is being watched. The version actually evaluated is
-/// recorded on every state and Signal row instead, so state produced by a different definition is
-/// never used to decide a transition (see `MonitorSignalState.strategyVersionId`).
+/// editing the Strategy must change what is being watched. Durable state is scoped to the canonical
+/// logic of its own level instead — see `MonitorSignalState.signalFingerprint` — so an edit resets
+/// only the levels whose semantics actually changed. A `MonitorSignal` records the version it was
+/// decided under, as history.
 ///
 /// `enabled` is the only user control. Monitoring cadence is an application decision and is
 /// deliberately not a column — `ai/product/monitors.md` forbids exposing it.
+///
+/// `strategyId` and `stockListId` are `onDelete: Restrict`. A Monitor is not a derived view of its
+/// Strategy and List: it owns Signal history, which is a record of what was observed and must not
+/// disappear because a referenced row was deleted. Cascading would make deleting a Strategy a
+/// silent, unannounced deletion of every Monitor watching with it and every Signal they ever
+/// produced. The user deletes the Monitor first, explicitly. It cascades from `User` like every
+/// other user-owned row, because deleting the account is the one case where all of it should go.
 model Monitor {
   id          String    @id @default(uuid())
   userId      String
@@ -876,8 +884,8 @@ model Monitor {
   updatedAt   DateTime  @updatedAt
 
   user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  strategy  Strategy             @relation(fields: [strategyId], references: [id], onDelete: Cascade)
-  stockList StockList            @relation(fields: [stockListId], references: [id], onDelete: Cascade)
+  strategy  Strategy             @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  stockList StockList            @relation(fields: [stockListId], references: [id], onDelete: Restrict)
   states    MonitorSignalState[]
   signals   MonitorSignal[]
 
@@ -959,9 +967,14 @@ model MonitorSignalState {
 /// One Signal: a symbol matched one of the Strategy's canonical levels under a Monitor evaluation.
 ///
 /// A Signal is created on the `NOT_MATCHED -> MATCHED` edge and only there, so a condition that
-/// stays true across scans keeps one Signal instead of producing a new one each cycle, and a
-/// trigger that fires once is not repeated while the value remains on the same side.
-/// `resolvedAt` is set when the match stops being active; the row is never deleted.
+/// stays true across scans keeps one Signal instead of producing a new one each cycle.
+///
+/// The two kinds have deliberately different lifetimes, because a condition is a state and a trigger
+/// is an event on a date (`ai/product/monitors.md`). A condition's Signal is resolved when its state
+/// ends. A trigger's is emitted at most once per `observationDate` — the provisional observation
+/// moves during a session while its `t - 1` stays fixed, so a price that crosses, moves back and
+/// crosses again within one date is still one crossing — and it is closed when a later session is
+/// observed rather than by an intraday tick back across the line. The row is never deleted.
 ///
 /// `hasTrigger` is explanation metadata, not a second product concept: `ai/product/monitors.md`
 /// requires condition-only matches and trigger events to remain the same user-facing Signal.

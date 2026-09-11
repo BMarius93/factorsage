@@ -25,6 +25,26 @@ export class StockListNotFoundError extends Error {
   }
 }
 
+/**
+ * Raised when a list cannot be deleted because a Monitor is still watching it.
+ *
+ * Deleting it would take that Monitor and every Signal it ever produced with it, silently. Signal
+ * history is a record of what was observed, so the deletion is refused and the user removes the
+ * Monitor first — see `ai/product/monitors.md`.
+ */
+export class StockListInUseByMonitorError extends Error {
+  constructor(readonly monitorCount: number) {
+    super(
+      // The count is read after the constraint refused, so a Monitor deleted in between would
+      // make it zero. Singular is the fallback rather than a literal "0 monitors".
+      monitorCount > 1
+        ? `This list is used by ${monitorCount} monitors. Delete them first.`
+        : "This list is used by a monitor. Delete the monitor first.",
+    );
+    this.name = "StockListInUseByMonitorError";
+  }
+}
+
 /** Same non-leaking semantics as {@link StockListNotFoundError}, for one membership row. */
 export class StockListItemNotFoundError extends Error {
   constructor() {
@@ -134,6 +154,18 @@ function translateForeignKeyRace(error: unknown): never {
   throw error;
 }
 
+/**
+ * A referencing row blocked this delete. Matched by Prisma's stable error code, never by message.
+ */
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2003"
+  );
+}
+
 @Injectable()
 export class StockListsService {
   constructor(
@@ -238,13 +270,29 @@ export class StockListsService {
     };
   }
 
+  /**
+   * Deletes a list the caller owns, unless a Monitor is still watching it.
+   *
+   * The database refuses that case (`Monitor.stockListId` is `onDelete: Restrict`), so the guard is
+   * the constraint rather than a check that could race a Monitor created a moment later. The count
+   * is read only on the error path, to say how many.
+   */
   async deleteList(userId: string, listId: string): Promise<void> {
-    // Items and buy windows go with the list through the FK cascades.
-    const deleted = await this.prisma.stockList.deleteMany({
-      where: { id: listId, userId },
-    });
-    if (deleted.count === 0) {
-      throw new StockListNotFoundError();
+    try {
+      // Items and buy windows go with the list through the FK cascades.
+      const deleted = await this.prisma.stockList.deleteMany({
+        where: { id: listId, userId },
+      });
+      if (deleted.count === 0) {
+        throw new StockListNotFoundError();
+      }
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new StockListInUseByMonitorError(
+          await this.prisma.monitor.count({ where: { stockListId: listId, userId } }),
+        );
+      }
+      throw error;
     }
     this.logger.info({ event: "stock-list.deleted", listId });
   }

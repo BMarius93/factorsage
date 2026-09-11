@@ -116,10 +116,10 @@ CREATE INDEX "MonitorScanSchedule_dueAt_idx" ON "MonitorScanSchedule"("dueAt");
 ALTER TABLE "Monitor" ADD CONSTRAINT "Monitor_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Monitor" ADD CONSTRAINT "Monitor_strategyId_fkey" FOREIGN KEY ("strategyId") REFERENCES "Strategy"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Monitor" ADD CONSTRAINT "Monitor_strategyId_fkey" FOREIGN KEY ("strategyId") REFERENCES "Strategy"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Monitor" ADD CONSTRAINT "Monitor_stockListId_fkey" FOREIGN KEY ("stockListId") REFERENCES "StockList"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "Monitor" ADD CONSTRAINT "Monitor_stockListId_fkey" FOREIGN KEY ("stockListId") REFERENCES "StockList"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "MonitorSignalState" ADD CONSTRAINT "MonitorSignalState_monitorId_fkey" FOREIGN KEY ("monitorId") REFERENCES "Monitor"("id") ON DELETE CASCADE ON UPDATE CASCADE;

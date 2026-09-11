@@ -33,8 +33,8 @@ useTestDatabase();
  * The Strategy and Stock List fixtures are written straight through Prisma rather than through their
  * own HTTP routes. They are setup, not the behaviour under test, and compiling two more feature
  * modules into this suite would add a third of a Nest application to every parallel test run for
- * nothing — `strategies.integration.test.ts` and `stock-lists.integration.test.ts` already own those
- * routes.
+ * nothing. The delete-protection rule those routes enforce is covered where they live, in
+ * `strategies.integration.test.ts` and `stock-lists.integration.test.ts`.
  */
 describe("monitors", () => {
   const suffix = randomUUID();

@@ -1,6 +1,6 @@
 import {
   MonitorEvaluableResult,
-  type MonitorEvaluationOutcome,
+  MonitorEvaluationOutcome,
   type MonitorLevelKind,
   type Prisma,
   type PrismaClient,
@@ -265,6 +265,14 @@ export class PrismaMonitorRepository implements MonitorRepository {
         data: {
           activeSignalId: null,
           lastEvaluableResult: MonitorEvaluableResult.NOT_MATCHED,
+          // `lastOutcome` moves with the latch. The no-op fast path in `applyTransition` compares
+          // outcomes while the emit decision reads the latch, so leaving the two disagreeing would
+          // wedge the row: a security removed while matching and later re-added would repeat its
+          // recorded outcome forever, skip the write every cycle, and never emit again.
+          lastOutcome: MonitorEvaluationOutcome.NOT_MATCHED,
+          // The fire date goes with the Signal it belongs to; a stale one would suppress a genuine
+          // crossing on the day a member is removed and re-added.
+          lastTriggerSignalDate: null,
           stateVersion: { increment: 1 },
         },
       });
@@ -316,8 +324,9 @@ export class PrismaMonitorRepository implements MonitorRepository {
     //
     // Repeating the outcome is not on its own enough, because an event's Signal is scoped to the
     // session it fired in: a Trigger level carrying a Signal from an earlier observation date has
-    // that Signal to close even though its outcome has not moved.
-    const sessionRolledOverForEvent =
+    // that Signal to close even though its outcome has not moved. Once it is closed the column is
+    // cleared too, so this settles rather than firing on every subsequent cycle.
+    const eventSessionToClose =
       write.hasTrigger &&
       previous?.activeSignalId != null &&
       previous.lastTriggerSignalDate !== write.observationDate;
@@ -325,7 +334,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
       previous &&
       !stale &&
       previous.lastOutcome === write.outcome &&
-      !sessionRolledOverForEvent
+      !eventSessionToClose
     ) {
       return {
         applied: true,
@@ -334,6 +343,19 @@ export class PrismaMonitorRepository implements MonitorRepository {
         resolvedSignalIds: [],
       };
     }
+
+    const isEvent = write.hasTrigger;
+    /** Whether an event has already fired for the session being observed. */
+    const firedThisObservation =
+      latch?.lastTriggerSignalDate === write.observationDate;
+    /**
+     * An event's Signal belongs to the session it fired in, so it is closed as soon as a *different*
+     * session is observed — including one this cycle cannot decide. Tying it to today's outcome
+     * instead would leave a fired crossing open indefinitely through an outage, and would keep
+     * rewriting the row every cycle because the condition that triggers the write never clears.
+     */
+    const supersededEventSignalId =
+      isEvent && !firedThisObservation ? (latch?.activeSignalId ?? null) : null;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -344,17 +366,32 @@ export class PrismaMonitorRepository implements MonitorRepository {
             return NOTHING_WRITTEN;
           }
           if (!stale) {
-            return this.guard(
+            // The latch is deliberately untouched — a cycle that could not decide must not end or
+            // begin a match. An event's Signal from an *earlier* session is still closed here, and
+            // its fire date cleared with it, so a later crossing on this session is not mistaken
+            // for one that already fired.
+            const result = this.guard(
               await tx.monitorSignalState.updateMany({
                 where: { id: previous.id, stateVersion: previous.stateVersion },
                 data: {
                   lastOutcome: write.outcome,
                   lastOutcomeAt: write.now,
                   stateVersion: { increment: 1 },
+                  ...(supersededEventSignalId
+                    ? { activeSignalId: null, lastTriggerSignalDate: null }
+                    : {}),
                 },
               }),
-              { applied: true, emittedSignalId: null, resolvedSignalIds: [] },
+              {
+                applied: true,
+                emittedSignalId: null,
+                resolvedSignalIds: supersededEventSignalId
+                  ? [supersededEventSignalId]
+                  : [],
+              },
             );
+            await resolveSignals(tx, result.resolvedSignalIds, write.now);
+            return result;
           }
           // The definition changed and this cycle could not decide the new one. The row is deleted
           // rather than rewritten: its latch belongs to a definition that no longer exists, and
@@ -385,28 +422,18 @@ export class PrismaMonitorRepository implements MonitorRepository {
         // remembered, because its `t - 1` comes from persisted price history, not from memory.
         // A Trigger is an event on a date; a Condition is a state. `ai/architecture/monitor-engine.md`
         // scopes its `false -> true -> true -> false` table to condition-only signals and gives a
-        // Trigger one rule only: emit once for the canonical crossing. The two therefore get
-        // different lifecycles here, and conflating them is what produces intraday flicker.
+        // Trigger one rule only: emit once per observation date for the canonical crossing.
         //
-        // The provisional observation moves intraday while its `t - 1` stays fixed at the last
-        // closed day, so for the rest of a session a crossing predicate degenerates into the plain
-        // condition it crossed into. Left alone, a price that crosses, ticks back and crosses again
-        // would emit a second Signal for one crossing — and would resolve the first one in between,
-        // making a fired event vanish from the user's list because the price moved a cent.
-        const isEvent = write.hasTrigger;
-        const firedThisObservation =
-          latch?.lastTriggerSignalDate === write.observationDate;
-
+        // The per-date rule is therefore the *only* thing gating an event. Reusing the condition's
+        // `!wasMatched` edge here would be wrong twice over: `NOT_EVALUABLE` never moves the latch,
+        // so a day the provider was down would leave it MATCHED and swallow the next day's genuine
+        // crossing; and a crossing is already an edge by construction — its `t - 1` half comes from
+        // the previous closed day — so it needs no second edge test.
         const emits =
-          matched && !wasMatched && !(isEvent && firedThisObservation);
+          matched && (isEvent ? !firedThisObservation : !wasMatched);
 
-        // An event's Signal is active for the session it fired in, and is closed when a later
-        // session is observed — never by an intraday tick back across the line. A condition's
-        // Signal ends exactly when its state does.
         const supersededSignalId = isEvent
-          ? firedThisObservation
-            ? null
-            : (latch?.activeSignalId ?? null)
+          ? supersededEventSignalId
           : !matched && wasMatched
             ? (latch?.activeSignalId ?? null)
             : null;
@@ -457,9 +484,14 @@ export class PrismaMonitorRepository implements MonitorRepository {
               : matched
                 ? undefined
                 : null,
-          ...(emits && isEvent
-            ? { lastTriggerSignalDate: toDate(write.observationDate) }
-            : {}),
+          // Set when this session fires; cleared whenever the recorded fire date no longer describes
+          // the session being observed, so a stale date can never suppress a later crossing.
+          lastTriggerSignalDate:
+            emits && isEvent
+              ? toDate(write.observationDate)
+              : isEvent && firedThisObservation && !stale
+                ? undefined
+                : null,
         };
 
         if (previous) {
@@ -499,14 +531,24 @@ export class PrismaMonitorRepository implements MonitorRepository {
     }
   }
 
+  /**
+   * Records that these Monitors were evaluated in this cycle.
+   *
+   * Raw SQL because `Monitor.updatedAt` is `@updatedAt`: the query builder bumps it on every write,
+   * and a scan is not a user edit. Through the builder every enabled Monitor would read "updated
+   * just now", the collection's newest-changed-first ordering would collapse to a tie broken by id,
+   * and disabled Monitors would sink to the bottom purely because they are not being scanned.
+   * `lastScanAt` is the column that carries this, and it is the only one that moves.
+   */
   async markScanned(monitorIds: readonly string[], now: Date): Promise<void> {
     if (monitorIds.length === 0) {
       return;
     }
-    await this.prisma.monitor.updateMany({
-      where: { id: { in: [...monitorIds] } },
-      data: { lastScanAt: now },
-    });
+    await this.prisma.$executeRaw`
+      UPDATE "Monitor"
+      SET "lastScanAt" = ${now}
+      WHERE "id" = ANY(${[...monitorIds]}::text[])
+    `;
   }
 
   /** Turns a lost optimistic guard into a rollback, so a created Signal never outlives it. */

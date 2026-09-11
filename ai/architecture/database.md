@@ -172,7 +172,11 @@ and `MonitorLevelKind` enums. See `../product/monitors.md` for the product invar
 
 `Monitor` (cascades from `User`) is a Strategy plus a Stock List plus `enabled`. It references
 `Strategy`, **not** a pinned `StrategyVersion`: a Monitor is live, so editing the Strategy must
-change what is being watched. There is deliberately **no cadence, interval or schedule column** —
+change what is being watched. `strategyId` and `stockListId` are `onDelete: Restrict`, so deleting
+either while a Monitor references it is refused and the API answers `409` — a Monitor owns Signal
+history and is not a derived view of its inputs. Cascading from `User` still removes everything,
+which PostgreSQL resolves correctly: the user-cascade deletes the Monitor rows before the restricted
+references are evaluated. There is deliberately **no cadence, interval or schedule column** —
 `../product/monitors.md` keeps monitoring cadence an application decision, and a column would make
 it a user-configurable one.
 
@@ -183,8 +187,9 @@ survive a restart, and it is not a cache of anything. Three columns carry the de
 `lastEvaluableResult` is the latch and can only ever hold a **decided** value, which is why
 `MonitorEvaluableResult` has two members while `MonitorEvaluationOutcome` has three — a
 `NOT_EVALUABLE` cycle records itself in `lastOutcome` only, so a provider outage can neither end an
-active match nor re-emit it on recovery. `strategyVersionId` scopes the latch to the definition that
-produced it, so state recorded under an edited Strategy never decides a transition. `stateVersion`
+active match nor re-emit it on recovery. `signalFingerprint` scopes the latch to the canonical logic of that
+level — not to the Strategy version, which would reset every level on any edit and re-emit a Signal
+on each unchanged one. `stateVersion`
 is an optimistic guard: the transition is applied with an `updateMany` filtered on the version it was
 read at, so two workers whose leases briefly overlap cannot both emit a Signal for one transition.
 

@@ -137,6 +137,31 @@ requires the previous evaluable relationship/value state and the current one. A 
 
 The exact schema should fit existing database conventions and should be introduced through the repository's normal migration path. Prefer the minimum durable state necessary for deterministic transition handling; do not persist arbitrary caches as domain records.
 
+## Universe, buy windows and exit levels
+
+A cycle evaluates every level of the Strategy — BUY, SELL and FINAL EXIT — for every member of the
+Monitor's Stock List.
+
+A BUY level is gated by that member's buy window at the observation date, through the canonical
+`isBuyWindowEligible`; SELL and FINAL EXIT are not. That is the same rule the backtest day loop
+applies, read from the same function. See `ai/product/lists.md`.
+
+A Monitor holds no position, so `Gain` and `Loss` are `NOT_EVALUABLE` — the existing rule in
+`ai/product/strategies.md` for unavailable position state. `evaluateSignalWithoutPosition` in
+`@intrinsic/strategy` applies it by ANDing that evaluability into the canonical market result. It
+exists because `evaluateMarketSignal` deliberately *skips* position-dependent predicates so the
+backtest can AND them in against live position state afterwards: without supplying the missing
+operand's evaluability, the empty-conjunction rule would make a Gain/Loss-only Signal vacuously TRUE
+and every monitored symbol would match on every scan.
+
+## Strategy identity and state invalidation
+
+A Monitor references the live `Strategy` and resolves its current version each cycle; no version is
+pinned. Durable state is keyed on the **canonical fingerprint of its own level's Signal**
+(`strategySignalFingerprint` in `@intrinsic/contracts`, which shares its serialization with
+`strategyDefinitionFingerprint` so the two cannot disagree), never on the Strategy version. Keying on
+the version would reset every level on any edit and re-emit a Signal on each unchanged one.
+
 ## Condition state versus trigger events
 
 For a condition-only Strategy signal:
@@ -159,6 +184,21 @@ current relationship satisfies the canonical crossing transition
 Remaining on the post-cross side on later scans is not another crossing.
 
 Use existing Strategy evaluation semantics for the exact definition of crossing, equality boundaries, missing values, and evaluability. Do not redefine those rules here.
+
+That table is **condition** semantics. A trigger is an event on an observation date, and the two
+lifecycles are deliberately different:
+
+```text
+condition : a state       -> emitted when it begins, resolved when it ends
+trigger   : an event      -> emitted at most once per observation date,
+                             active for that session, closed when a later session is observed
+```
+
+The provisional observation moves during a session while its `t - 1` stays fixed at the last closed
+day, so a crossing predicate degenerates into the plain relationship it crossed into for the rest of
+that date. Applying condition semantics to it would emit a second Signal for one crossing when the
+price moved back and forth, and would resolve the first one in between — a fired event disappearing
+from the user's list because the price ticked a cent. See `ai/product/monitors.md`.
 
 ## Historical data loading
 
@@ -202,6 +242,15 @@ Use canonical `NOT_EVALUABLE` semantics and existing retry/error reporting patte
 
 Do not fabricate Signals merely so Monitor UI has content.
 
+A current observation is **required**. Without one the symbol is `NOT_EVALUABLE` for that cycle;
+there is deliberately no fallback to evaluating the last closed day. That fallback looks harmless and
+is not: it silently swaps the observation a Monitor is defined to evaluate for a different one, so an
+outage would resolve live matches and re-emit them on recovery. Reporting "not decidable" leaves
+every durable latch untouched, which is what makes an outage invisible rather than destructive.
+
+Current-data failure is all-or-nothing for a cycle. Partial cycles are not a V1 concept: a failed
+read fails or delays the cycle, state is preserved, and the next cycle continues.
+
 ## V1 implementation priorities
 
 Prefer in this order:
@@ -229,6 +278,22 @@ Implementation is incomplete without tests covering at minimum:
 - persistence/migration behavior for any newly introduced durable Monitor state.
 
 Run the repository's canonical validation gate from `ai/workflows/validation.md` and add targeted integration tests against real PostgreSQL/Redis infrastructure where existing project testing conventions require it.
+
+## Accepted V1 limitations
+
+Recorded so they are not rediscovered as defects. None can produce a wrong Signal.
+
+- **Resident-stock bound.** Symbol data is read through the existing shared stock-data cache, whose
+  resident set is bounded by configuration. A monitored universe larger than that bound re-hydrates
+  from durable storage each cycle — a throughput limit, accepted for V1. Do not redesign Redis or add
+  a Monitor cache.
+- **No exchange calendar.** The observation date is the provider's own quote date, so a weekend quote
+  carries the previous session's date and supersedes that row rather than opening a new day; a
+  weekend date is refused outright. A market holiday cannot be detected, leaving at most one
+  duplicate-priced observation on such a day.
+- **Per-`(monitor, security, level)` transition writes.** A transition is applied in its own
+  transaction. Evaluations that repeat the recorded outcome write nothing at all, so the steady state
+  costs no transactions; only genuine transitions do.
 
 ## Non-goals for this branch
 

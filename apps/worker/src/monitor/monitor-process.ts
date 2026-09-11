@@ -65,9 +65,11 @@ function shutdown(signal: string): void {
   }
   stopping = true;
   logger.info({ event: "monitor.child.stopping", signal });
-  // The loop stops claiming immediately. A cycle in flight finishes rather than being abandoned
-  // mid-way: it is bounded by the monitored universe, and a half-applied cycle would leave some
-  // Monitors evaluated against this cycle's observation and some against the next one's.
+  // The loop stops claiming immediately and asks a cycle in flight to stop at its next Monitor
+  // boundary. Stopping there is safe because every transition is decided from durable state and
+  // persisted history, so the next cycle re-evaluates whatever this one did not reach and reaches
+  // the same conclusions — whereas running to completion could outlive the supervisor's kill grace,
+  // which is the one way to actually be cut off mid-write.
   loop.stop();
 }
 

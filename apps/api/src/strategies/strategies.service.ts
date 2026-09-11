@@ -26,6 +26,26 @@ export class StrategyNotFoundError extends Error {
   }
 }
 
+/**
+ * Raised when a strategy cannot be deleted because a Monitor is still watching with it.
+ *
+ * Deleting it would take that Monitor and every Signal it ever produced with it, silently. Signal
+ * history is a record of what was observed, so the deletion is refused and the user removes the
+ * Monitor first — see `ai/product/monitors.md`.
+ */
+export class StrategyInUseByMonitorError extends Error {
+  constructor(readonly monitorCount: number) {
+    super(
+      // The count is read after the constraint refused, so a Monitor deleted in between would
+      // make it zero. Singular is the fallback rather than a literal "0 monitors".
+      monitorCount > 1
+        ? `This strategy is used by ${monitorCount} monitors. Delete them first.`
+        : "This strategy is used by a monitor. Delete the monitor first.",
+    );
+    this.name = "StrategyInUseByMonitorError";
+  }
+}
+
 /** Reads only the current version: the highest `versionNumber` for the strategy. */
 const CURRENT_VERSION = {
   orderBy: { versionNumber: "desc" as const },
@@ -45,6 +65,18 @@ const STRATEGY_ORDER = [
   { updatedAt: "desc" as const },
   { id: "desc" as const },
 ];
+
+/**
+ * A referencing row blocked this delete. Matched by Prisma's stable error code, never by message.
+ */
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2003"
+  );
+}
 
 function definitionHashOf(definition: StrategyDefinition): string {
   return createHash("sha256")
@@ -247,12 +279,28 @@ export class StrategiesService {
     return detailOf(row);
   }
 
+  /**
+   * Deletes a strategy the caller owns, unless a Monitor is still watching with it.
+   *
+   * The database refuses that case (`Monitor.strategyId` is `onDelete: Restrict`), so the guard is
+   * the constraint rather than a check that could race a Monitor created a moment later. The count
+   * is read only on the error path, to say how many.
+   */
   async deleteStrategy(userId: string, strategyId: string): Promise<void> {
-    const deleted = await this.prisma.strategy.deleteMany({
-      where: { id: strategyId, userId },
-    });
-    if (deleted.count === 0) {
-      throw new StrategyNotFoundError();
+    try {
+      const deleted = await this.prisma.strategy.deleteMany({
+        where: { id: strategyId, userId },
+      });
+      if (deleted.count === 0) {
+        throw new StrategyNotFoundError();
+      }
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new StrategyInUseByMonitorError(
+          await this.prisma.monitor.count({ where: { strategyId, userId } }),
+        );
+      }
+      throw error;
     }
     this.logger.info({
       event: "strategy.deleted",

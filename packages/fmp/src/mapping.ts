@@ -94,7 +94,6 @@ export type FmpQuoteDto = {
   open?: unknown;
   dayHigh?: unknown;
   dayLow?: unknown;
-  previousClose?: unknown;
   volume?: unknown;
   /** Seconds since the epoch, as the provider reports it. */
   timestamp?: unknown;
@@ -115,7 +114,6 @@ export type FmpCurrentQuote = {
   open?: number;
   dayHigh?: number;
   dayLow?: number;
-  previousClose?: number;
   volume?: number;
   /** When the provider last updated this quote. Absent when the provider did not report it. */
   quotedAt?: string;
@@ -408,7 +406,6 @@ export function mapFmpQuotes(
       ...optionalField("open", finiteOrUndefined(row.open)),
       ...optionalField("dayHigh", finiteOrUndefined(row.dayHigh)),
       ...optionalField("dayLow", finiteOrUndefined(row.dayLow)),
-      ...optionalField("previousClose", finiteOrUndefined(row.previousClose)),
       ...optionalField("volume", finiteOrUndefined(row.volume)),
       ...optionalField("quotedAt", quoteInstant(row.timestamp)),
     });
