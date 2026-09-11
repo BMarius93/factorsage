@@ -1904,6 +1904,39 @@ export function normalizeStrategyDefinition(
 export function strategyDefinitionFingerprint(
   definition: StrategyDefinition,
 ): string {
+  return JSON.stringify([
+    definition.schemaVersion,
+    definition.buyLevels.map((level) => [
+      level.percentage,
+      signalFingerprintValue(level.signal),
+    ]),
+    definition.sellLevels.map((level) => [
+      level.percentage,
+      signalFingerprintValue(level.signal),
+    ]),
+    definition.finalExit
+      ? signalFingerprintValue(definition.finalExit.signal)
+      : null,
+  ]);
+}
+
+/**
+ * The same canonical serialization for **one** Signal.
+ *
+ * A consumer that tracks per-level state needs to know when *that level's* logic changed, not when
+ * anything in the strategy did. Editing one condition appends a new strategy version, and treating
+ * the version as the identity of every level would discard the state of every other, unchanged
+ * level with it.
+ *
+ * It shares {@link strategyDefinitionFingerprint}'s serialization exactly rather than defining a
+ * second one, so the two can never disagree about which fields carry meaning.
+ */
+export function strategySignalFingerprint(signal: StrategySignal): string {
+  return JSON.stringify(signalFingerprintValue(signal));
+}
+
+/** The canonical id-free value of one Signal. Shared by both fingerprints; never inlined twice. */
+function signalFingerprintValue(signal: StrategySignal): unknown {
   const value = (input: StrategyValue): unknown =>
     input.kind === "SERIES"
       ? [input.kind, input.seriesId]
@@ -1917,22 +1950,10 @@ export function strategyDefinitionFingerprint(
     input.operator,
     value(input.value),
   ];
-  const signalOf = (input: StrategySignal): unknown => [
-    input.conditions.map(predicate),
-    input.trigger ? predicate(input.trigger) : null,
+  return [
+    signal.conditions.map(predicate),
+    signal.trigger ? predicate(signal.trigger) : null,
   ];
-  return JSON.stringify([
-    definition.schemaVersion,
-    definition.buyLevels.map((level) => [
-      level.percentage,
-      signalOf(level.signal),
-    ]),
-    definition.sellLevels.map((level) => [
-      level.percentage,
-      signalOf(level.signal),
-    ]),
-    definition.finalExit ? signalOf(definition.finalExit.signal) : null,
-  ]);
 }
 
 // ---------------------------------------------------------------------------

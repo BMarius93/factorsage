@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   FMP_EOD_MAX_ROWS_PER_RESPONSE,
+  FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST,
   FmpClient,
   FmpProviderError,
   FmpRateLimitError,
@@ -571,5 +572,151 @@ describe("FMP daily price pagination", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE);
+  });
+});
+
+describe("current quotes", () => {
+  /**
+   * One request for many symbols is the whole point: `ai/architecture/monitor-engine.md` requires a
+   * Monitor cycle to fetch current data per symbol, not per Monitor. These tests pin the batching,
+   * the de-duplication and the refusal to invent a price the provider did not give.
+   */
+  const quote = (symbol: string, price: number) => ({
+    symbol,
+    price,
+    open: price,
+    dayHigh: price,
+    dayLow: price,
+    volume: 1_000,
+    timestamp: 1_772_452_800,
+  });
+
+  it("asks for every symbol in one request", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response([quote("AAPL", 100), quote("MSFT", 200)]));
+
+    const quotes = await new FmpClient(config, fetchMock).getCurrentQuotes([
+      "AAPL",
+      "MSFT",
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.pathname).toContain("batch-quote");
+    expect(url.searchParams.get("symbols")).toBe("AAPL,MSFT");
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0]?.price).toBe(100);
+    expect(quotes[0]?.quotedAt).toBe(
+      new Date(1_772_452_800 * 1000).toISOString(),
+    );
+  });
+
+  it("collapses duplicate and blank symbols before asking", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response([quote("AAPL", 100)]));
+
+    // Five Monitors watching AAPL cost one slot, not five.
+    await new FmpClient(config, fetchMock).getCurrentQuotes([
+      "aapl",
+      "AAPL",
+      " AAPL ",
+      "",
+      "  ",
+    ]);
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("symbols")).toBe("AAPL");
+  });
+
+  it("makes no request at all for an empty universe", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    expect(await new FmpClient(config, fetchMock).getCurrentQuotes([])).toEqual(
+      [],
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("chunks a universe larger than the per-request cap", async () => {
+    const symbols = Array.from(
+      { length: FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST + 5 },
+      (_, index) => `SYM${String(index).padStart(3, "0")}`,
+    );
+    // A fresh Response per call: a body stream can only be consumed once.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => response([]));
+
+    await new FmpClient(config, fetchMock).getCurrentQuotes(symbols);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(first.searchParams.get("symbols")?.split(",")).toHaveLength(
+      FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST,
+    );
+    const second = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(second.searchParams.get("symbols")?.split(",")).toHaveLength(5);
+  });
+
+  it("drops a symbol the provider could not price instead of inventing one", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        quote("AAPL", 100),
+        { symbol: "HALTED", price: null },
+        { symbol: "ZERO", price: 0 },
+        { price: 50 },
+      ]),
+    );
+
+    const quotes = await new FmpClient(config, fetchMock).getCurrentQuotes([
+      "AAPL",
+      "HALTED",
+      "ZERO",
+    ]);
+
+    // One delisted or halted symbol must not fail the cycle's current-data read for every other
+    // symbol, and an unpriceable symbol must not arrive as a zero.
+    expect(quotes.map((entry) => entry.providerSymbol)).toEqual(["AAPL"]);
+  });
+
+  it("keeps a symbol whose optional fields are unreadable", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        { symbol: "AAPL", price: 100, volume: null, dayHigh: "n/a" },
+        { symbol: "MSFT", price: 200, open: 195 },
+      ]),
+    );
+
+    const quotes = await new FmpClient(config, fetchMock).getCurrentQuotes([
+      "AAPL",
+      "MSFT",
+    ]);
+
+    // One symbol reporting a null volume must not throw away current data for the whole monitored
+    // universe. The field is simply absent; the price, which is what a Monitor reads, survives.
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0]?.price).toBe(100);
+    expect(quotes[0]?.volume).toBeUndefined();
+    expect(quotes[0]?.dayHigh).toBeUndefined();
+    expect(quotes[1]?.open).toBe(195);
+  });
+
+  it("reports no timestamp rather than a bad one, so staleness fails closed", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        { symbol: "AAPL", price: 100, timestamp: 0 },
+        { symbol: "MSFT", price: 200, timestamp: "not-a-number" },
+      ]),
+    );
+
+    const quotes = await new FmpClient(config, fetchMock).getCurrentQuotes([
+      "AAPL",
+      "MSFT",
+    ]);
+
+    expect(quotes).toHaveLength(2);
+    expect(quotes[0]?.quotedAt).toBeUndefined();
+    expect(quotes[1]?.quotedAt).toBeUndefined();
   });
 });

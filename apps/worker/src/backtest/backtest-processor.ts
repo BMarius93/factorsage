@@ -51,6 +51,7 @@ import {
   type BacktestMilestoneWrite,
   type ClaimedBacktestJob,
 } from "./job-repository.js";
+import { mapWithConcurrency } from "../shared/concurrency.js";
 import { toLiveSnapshotResponse } from "./live-snapshot.js";
 import { parseRunSnapshot, snapshotBuyWindows } from "./run-snapshot.js";
 import type { BacktestSecurityCatalog } from "./securities.js";
@@ -1210,29 +1211,11 @@ export class BacktestProcessor implements BacktestJobProcessor {
     }
   }
 
-  /** Runs `task` over `items` with at most `frameConcurrency` in flight, preserving order. */
+  /** Runs `task` over `items` with at most `frameConcurrency` in flight. */
   private async mapWithConcurrency<T>(
     items: readonly T[],
     task: (item: T, index: number) => Promise<void>,
   ): Promise<void> {
-    const limit = Math.max(
-      1,
-      Math.min(this.options.frameConcurrency, items.length),
-    );
-    let next = 0;
-
-    const workers = Array.from({ length: limit }, async () => {
-      while (true) {
-        const index = next;
-        next += 1;
-        const item = items[index];
-        if (item === undefined) {
-          return;
-        }
-        await task(item, index);
-      }
-    });
-
-    await Promise.all(workers);
+    await mapWithConcurrency(items, this.options.frameConcurrency, task);
   }
 }

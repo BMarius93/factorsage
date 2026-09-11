@@ -344,6 +344,15 @@ class FakeStore implements StockDataStore {
     syncedAt: string;
   }> = [];
 
+  async findSecuritiesByIds(
+    securityIds: readonly string[],
+  ): Promise<Security[]> {
+    return this.currentSecurity &&
+      securityIds.includes(this.currentSecurity.id)
+      ? [this.currentSecurity]
+      : [];
+  }
+
   async findSecurityByProviderSymbol() {
     return this.currentSecurity;
   }

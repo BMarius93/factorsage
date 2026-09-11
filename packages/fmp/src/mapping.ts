@@ -80,6 +80,47 @@ export type FmpDailyPriceDto = {
   vwap?: unknown;
 };
 
+/**
+ * One row of the batch quote endpoint — the provider's current market snapshot for a symbol.
+ *
+ * Only the fields a provisional current-day observation needs are declared. A quote carries a lot
+ * of derived analytics (change percent, averages, market cap, ranges); none of it is mapped,
+ * because every derived series in this product is calculated from canonical bars rather than taken
+ * from the provider.
+ */
+export type FmpQuoteDto = {
+  symbol?: unknown;
+  price?: unknown;
+  open?: unknown;
+  dayHigh?: unknown;
+  dayLow?: unknown;
+  previousClose?: unknown;
+  volume?: unknown;
+  /** Seconds since the epoch, as the provider reports it. */
+  timestamp?: unknown;
+};
+
+/**
+ * A current market observation for one symbol, as the provider reported it.
+ *
+ * It is deliberately **not** a `DailyPrice`: it carries no `securityId`, no trading date and no
+ * claim to be a closed bar. Turning it into a provisional current-day observation is
+ * `@intrinsic/stock-data`'s decision, because only that layer knows the security's persisted
+ * history and can say which trading day the quote belongs to.
+ */
+export type FmpCurrentQuote = {
+  providerSymbol: string;
+  /** Current traded price. */
+  price: number;
+  open?: number;
+  dayHigh?: number;
+  dayLow?: number;
+  previousClose?: number;
+  volume?: number;
+  /** When the provider last updated this quote. Absent when the provider did not report it. */
+  quotedAt?: string;
+};
+
 export type MappedFmpProfile = {
   providerSymbol: string;
   security: Omit<Security, "id">;
@@ -341,6 +382,78 @@ export function mapFmpDailyPrices(
 }
 
 /**
+ * Maps batch quote rows into current observations, dropping rows the provider could not price.
+ *
+ * A quote without a usable price is skipped rather than throwing: one delisted or halted symbol in
+ * a batch must not fail the whole cycle's current-data read for every other symbol. A caller sees
+ * the symbol missing from the result and treats it as having no current observation, which is the
+ * `NOT_EVALUABLE`-honest outcome rather than a fabricated one.
+ *
+ * The provider's `timestamp` is seconds since the epoch. A non-finite or out-of-range value yields
+ * no `quotedAt` at all, so a caller's staleness check fails closed instead of trusting a bad clock.
+ */
+export function mapFmpQuotes(
+  rows: readonly FmpQuoteDto[],
+): FmpCurrentQuote[] {
+  const quotes: FmpCurrentQuote[] = [];
+  for (const row of rows) {
+    const providerSymbol = optionalString(row.symbol)?.toUpperCase();
+    const price = finiteOrUndefined(row.price);
+    if (!providerSymbol || price === undefined || price <= 0) {
+      continue;
+    }
+    quotes.push({
+      providerSymbol,
+      price,
+      ...optionalField("open", finiteOrUndefined(row.open)),
+      ...optionalField("dayHigh", finiteOrUndefined(row.dayHigh)),
+      ...optionalField("dayLow", finiteOrUndefined(row.dayLow)),
+      ...optionalField("previousClose", finiteOrUndefined(row.previousClose)),
+      ...optionalField("volume", finiteOrUndefined(row.volume)),
+      ...optionalField("quotedAt", quoteInstant(row.timestamp)),
+    });
+  }
+  return quotes;
+}
+
+/**
+ * A finite number, or `undefined` for anything else.
+ *
+ * Deliberately non-throwing, unlike the historical-bar helpers. A quote batch carries many symbols
+ * in one response, and this is a *current* market snapshot rather than the point-in-time record:
+ * one symbol reporting a null or a string for `volume` must not throw away the current data for
+ * every other symbol in the monitored universe. A field that cannot be read is simply absent, which
+ * every consumer already treats as "not supplied".
+ */
+function finiteOrUndefined(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function optionalField<K extends string, V>(
+  key: K,
+  value: V | undefined,
+): Record<K, V> | Record<string, never> {
+  return value === undefined ? {} : ({ [key]: value } as Record<K, V>);
+}
+
+/** Epoch seconds as an ISO instant, or undefined when the provider's value is not usable. */
+function quoteInstant(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  const seconds = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return undefined;
+  }
+  const instant = new Date(seconds * 1000);
+  return Number.isNaN(instant.getTime()) ? undefined : instant.toISOString();
+}
+
+/**
  * The same provider bars, stamped with a benchmark identity instead of a security identity.
  *
  * A benchmark is not a `Security`, so its rows never enter `DailyPrice`. What is shared is the
@@ -426,6 +539,18 @@ export type FmpBenchmarkProviderPort = {
     seriesId: string,
     range: DateRange,
   ): Promise<BenchmarkDailyPrice[]>;
+};
+
+/**
+ * Current market data, kept as its own port.
+ *
+ * Monitor evaluation needs only this one call, and it is the only provider read in the product
+ * that is not point-in-time history. Splitting it out keeps a current-data loader — and its fakes —
+ * depending on one method, exactly as the catalog and benchmark ports are split out.
+ */
+export type FmpCurrentQuoteProviderPort = {
+  /** One request for many symbols. Never one request per symbol, and never one per Monitor. */
+  getCurrentQuotes(providerSymbols: readonly string[]): Promise<FmpCurrentQuote[]>;
 };
 
 export type FmpStockProviderPort = {

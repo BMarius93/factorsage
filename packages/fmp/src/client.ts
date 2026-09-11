@@ -11,9 +11,13 @@ import {
   mapFmpFinancialStatements,
   financialStatementPath,
   mapFmpProfile,
+  mapFmpQuotes,
   mapFmpStockUniverse,
+  type FmpCurrentQuote,
+  type FmpCurrentQuoteProviderPort,
   type FmpDailyPriceDto,
   type FmpProfileDto,
+  type FmpQuoteDto,
   type FmpBenchmarkProviderPort,
   type FmpSecurityCatalogPort,
   type FmpStockProviderPort,
@@ -112,11 +116,22 @@ const STOCK_UNIVERSE_REQUEST_LIMIT = 20_000;
  */
 export const FMP_EOD_MAX_ROWS_PER_RESPONSE = 5000;
 
+/**
+ * Symbols per `batch-quote` request.
+ *
+ * The endpoint takes a comma-separated list and the practical bound is URL length rather than a
+ * documented row cap, so this is a deliberately conservative chunk: at a ten-character symbol it
+ * keeps the query string under about a kilobyte. Chunking lives here because it is provider
+ * knowledge — a caller asks for the symbols it needs and is never told to batch them itself.
+ */
+export const FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST = 50;
+
 export class FmpClient
   implements
     FmpStockProviderPort,
     FmpSecurityCatalogPort,
-    FmpBenchmarkProviderPort
+    FmpBenchmarkProviderPort,
+    FmpCurrentQuoteProviderPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -236,6 +251,52 @@ export class FmpClient
       to = next;
     }
     return dedupeByDate(rows);
+  }
+
+  /**
+   * Current market snapshots for many symbols, in as few requests as the provider allows.
+   *
+   * This is the one provider read that is not point-in-time history, and it exists so a Monitor
+   * evaluation cycle makes **one** current-data request per batch of symbols rather than one per
+   * Monitor (`ai/architecture/monitor-engine.md`). Duplicate and blank symbols are collapsed before
+   * chunking, so asking for the same symbol on behalf of five Monitors costs one slot.
+   *
+   * Chunks are requested sequentially. They already pass through the shared provider gate, and
+   * firing them concurrently would only spend a Monitor cycle's rate budget faster than Stock
+   * Details can recover it.
+   *
+   * A symbol the provider cannot price is simply absent from the result; it is never defaulted.
+   */
+  async getCurrentQuotes(
+    providerSymbols: readonly string[],
+  ): Promise<FmpCurrentQuote[]> {
+    const unique = [
+      ...new Set(
+        providerSymbols
+          .map((symbol) => symbol.trim().toUpperCase())
+          .filter((symbol) => symbol.length > 0),
+      ),
+    ].sort();
+    if (unique.length === 0) {
+      return [];
+    }
+
+    const quotes: FmpCurrentQuote[] = [];
+    for (
+      let index = 0;
+      index < unique.length;
+      index += FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST
+    ) {
+      const chunk = unique.slice(
+        index,
+        index + FMP_QUOTE_MAX_SYMBOLS_PER_REQUEST,
+      );
+      const payload = await this.request<FmpQuoteDto[]>("batch-quote", {
+        symbols: chunk.join(","),
+      });
+      quotes.push(...mapFmpQuotes(payload));
+    }
+    return quotes;
   }
 
   async getFinancialStatements(

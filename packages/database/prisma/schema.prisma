@@ -71,6 +71,7 @@ model User {
   stockLists         StockList[]
   strategies         Strategy[]
   backtestRuns       BacktestRun[]
+  monitors           Monitor[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -129,6 +130,8 @@ model Security {
   stockListItems      StockListItem[]
   backtestTrades      BacktestTrade[]
   backtestPositions   BacktestPosition[]
+  monitorSignalStates MonitorSignalState[]
+  monitorSignals      MonitorSignal[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -146,6 +149,7 @@ model StockList {
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   items        StockListItem[]
   backtestRuns BacktestRun[]
+  monitors     Monitor[]
 
   @@index([userId])
 }
@@ -182,6 +186,7 @@ model Strategy {
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   versions     StrategyVersion[]
   backtestRuns BacktestRun[]
+  monitors     Monitor[]
 
   @@index([userId])
   @@index([userId, updatedAt])
@@ -441,24 +446,24 @@ model Benchmark {
 /// from a unique key over the definition, which would make returning to a previous source
 /// impossible — a revert is a new version, and its data is fetched fresh under it.
 model BenchmarkSeries {
-  id                 String                     @id @default(uuid())
-  benchmarkId        String
+  id                    String                     @id @default(uuid())
+  benchmarkId           String
   /// 1-based, ascending. The highest version of a benchmark is its current definition.
-  version            Int
-  sourceKind         BenchmarkSourceKind
+  version               Int
+  sourceKind            BenchmarkSourceKind
   /// Provider identifier for `FMP_SYMBOL` benchmarks, e.g. `SPY`.
-  providerSymbol     String
-  currency           String
+  providerSymbol        String
+  currency              String
   /// Revision of what this series *means*. Bumping it makes a new run incomparable to an older one
   /// on purpose; the run snapshot records the version it executed under.
-  methodologyVersion Int                        @default(1)
-  createdAt          DateTime                   @default(now())
-  benchmark          Benchmark                  @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
-  dailyPrices        BenchmarkDailyPrice[]
-  datasetStates      BenchmarkDatasetState[]
-  datasetCoverage    BenchmarkDatasetCoverage[]
-  comparisonRuns        BacktestRun[]             @relation("BacktestRunComparisonSeries")
-  executionCalendarRuns BacktestRun[]             @relation("BacktestRunExecutionCalendarSeries")
+  methodologyVersion    Int                        @default(1)
+  createdAt             DateTime                   @default(now())
+  benchmark             Benchmark                  @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+  dailyPrices           BenchmarkDailyPrice[]
+  datasetStates         BenchmarkDatasetState[]
+  datasetCoverage       BenchmarkDatasetCoverage[]
+  comparisonRuns        BacktestRun[]              @relation("BacktestRunComparisonSeries")
+  executionCalendarRuns BacktestRun[]              @relation("BacktestRunExecutionCalendarSeries")
 
   @@unique([benchmarkId, version])
 }
@@ -544,66 +549,66 @@ enum BacktestTradeAction {
 /// nullable and `onDelete: SetNull` **on purpose**: deleting a strategy or list must never delete
 /// or reinterpret a completed run, and nothing in the read path depends on those rows.
 model BacktestRun {
-  id                  String                @id @default(uuid())
-  userId              String
-  strategyId          String?
-  strategyVersionId   String?
-  stockListId         String?
-  benchmarkId         String
+  id                        String                 @id @default(uuid())
+  userId                    String
+  strategyId                String?
+  strategyVersionId         String?
+  stockListId               String?
+  benchmarkId               String
   /// The exact immutable series this run compares against. Pinned at submission so a later catalog
   /// change can never reinterpret a queued or completed run.
-  benchmarkSeriesId   String
+  benchmarkSeriesId         String
   /// The immutable series whose trading days are this run's execution calendar. A system input,
   /// never the user's comparison choice — see `EXECUTION_CALENDAR_REFERENCE_CODE`. Required: it
   /// decides which dates are simulated and when contributions land, so a run that could not pin it
   /// is never created and a run that cannot read it fails rather than simulating other dates.
   executionCalendarSeriesId String
-  status              BacktestRunStatus     @default(QUEUED)
+  status                    BacktestRunStatus      @default(QUEUED)
   /// Denormalized configuration. The snapshot remains authoritative; these columns exist so the
   /// collection page can sort and filter without opening a JSON document.
-  startDate           DateTime              @db.Date
-  endDate             DateTime              @db.Date
-  initialCapital      Decimal               @db.Decimal(20, 2)
-  monthlyContribution Decimal               @db.Decimal(20, 2)
-  maximumPositions    Int
-  strategyName        String
-  stockListName       String
-  securityCount       Int
-  snapshot            Json
+  startDate                 DateTime               @db.Date
+  endDate                   DateTime               @db.Date
+  initialCapital            Decimal                @db.Decimal(20, 2)
+  monthlyContribution       Decimal                @db.Decimal(20, 2)
+  maximumPositions          Int
+  strategyName              String
+  stockListName             String
+  securityCount             Int
+  snapshot                  Json
   /// SHA-256 of `canonicalBacktestSnapshotDocument(snapshot)` from `@intrinsic/contracts`: the
   /// document with `submittedAt` removed and object keys sorted. Excluding the timestamp makes the
   /// digest an identity of *inputs* — two runs with the same hash executed the same configuration
   /// under the same methodology versions — and sorting the keys keeps it verifiable against this
   /// `JSONB` column, which does not preserve key order.
-  snapshotHash        String
-  queuedAt            DateTime              @default(now())
-  startedAt           DateTime?
-  completedAt         DateTime?
+  snapshotHash              String
+  queuedAt                  DateTime               @default(now())
+  startedAt                 DateTime?
+  completedAt               DateTime?
   /// Stable machine-readable failure code; `failureMessage` is the sanitized user-facing text.
-  failureCode         String?
-  failureMessage      String?
+  failureCode               String?
+  failureMessage            String?
   /// Which execution phase failed, as a product-safe label. It is the first thing a user needs in
   /// order to act — "preparing data" and "running" mean very different things — so it is a column
   /// rather than a field of `failureDetail`, which never crosses the HTTP boundary.
-  failurePhase        String?
+  failurePhase              String?
   /// Developer diagnostics. Never exposed by any API contract.
-  failureDetail       Json?
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
-  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  strategy            Strategy?             @relation(fields: [strategyId], references: [id], onDelete: SetNull)
-  strategyVersion     StrategyVersion?      @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
-  stockList           StockList?            @relation(fields: [stockListId], references: [id], onDelete: SetNull)
-  benchmark           Benchmark             @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
-  benchmarkSeries         BenchmarkSeries   @relation("BacktestRunComparisonSeries", fields: [benchmarkSeriesId], references: [id], onDelete: Restrict)
-  executionCalendarSeries BenchmarkSeries   @relation("BacktestRunExecutionCalendarSeries", fields: [executionCalendarSeriesId], references: [id], onDelete: Restrict)
-  job                 BacktestJob?
-  progress            BacktestRunProgress?
-  milestones          BacktestRunMilestone[]
-  summary             BacktestRunSummary?
-  trades              BacktestTrade[]
-  equityPoints        BacktestDailyEquity[]
-  positions           BacktestPosition[]
+  failureDetail             Json?
+  createdAt                 DateTime               @default(now())
+  updatedAt                 DateTime               @updatedAt
+  user                      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy                  Strategy?              @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  strategyVersion           StrategyVersion?       @relation(fields: [strategyVersionId], references: [id], onDelete: SetNull)
+  stockList                 StockList?             @relation(fields: [stockListId], references: [id], onDelete: SetNull)
+  benchmark                 Benchmark              @relation(fields: [benchmarkId], references: [id], onDelete: Restrict)
+  benchmarkSeries           BenchmarkSeries        @relation("BacktestRunComparisonSeries", fields: [benchmarkSeriesId], references: [id], onDelete: Restrict)
+  executionCalendarSeries   BenchmarkSeries        @relation("BacktestRunExecutionCalendarSeries", fields: [executionCalendarSeriesId], references: [id], onDelete: Restrict)
+  job                       BacktestJob?
+  progress                  BacktestRunProgress?
+  milestones                BacktestRunMilestone[]
+  summary                   BacktestRunSummary?
+  trades                    BacktestTrade[]
+  equityPoints              BacktestDailyEquity[]
+  positions                 BacktestPosition[]
 
   @@index([userId, queuedAt])
   @@index([userId, status])
@@ -742,24 +747,24 @@ model BacktestTrade {
 /// contribution, and capital that was never invested. See `comparisonScenarios` in the run's
 /// snapshotted methodology.
 model BacktestDailyEquity {
-  runId           String
-  date            DateTime    @db.Date
-  cash            Decimal     @db.Decimal(24, 6)
-  positionsValue  Decimal     @db.Decimal(24, 6)
-  totalValue      Decimal     @db.Decimal(24, 6)
-  investedCapital Decimal     @db.Decimal(24, 6)
-  returnIndex     Decimal     @db.Decimal(20, 10)
-  benchmarkIndex  Decimal?    @db.Decimal(20, 10)
+  runId             String
+  date              DateTime    @db.Date
+  cash              Decimal     @db.Decimal(24, 6)
+  positionsValue    Decimal     @db.Decimal(24, 6)
+  totalValue        Decimal     @db.Decimal(24, 6)
+  investedCapital   Decimal     @db.Decimal(24, 6)
+  returnIndex       Decimal     @db.Decimal(20, 10)
+  benchmarkIndex    Decimal?    @db.Decimal(20, 10)
   /// Absolute value of the funded benchmark scenario. Null on a date the benchmark cannot be
   /// priced, and null for every run completed before the scenario existed — it is not derivable
   /// from `benchmarkIndex` once the run has contributions, so it is never backfilled.
-  benchmarkValue  Decimal?    @db.Decimal(24, 6)
+  benchmarkValue    Decimal?    @db.Decimal(24, 6)
   /// Absolute value of the `Cash` scenario: initial capital plus contributions to date, earning
   /// nothing under `zero-interest@1`. Deliberately not `cash`, which is the Strategy's own
   /// uninvested balance.
-  cashBaselineValue Decimal   @db.Decimal(24, 6)
-  openPositions   Int
-  run             BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  cashBaselineValue Decimal     @db.Decimal(24, 6)
+  openPositions     Int
+  run               BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@id([runId, date])
 }
@@ -814,4 +819,208 @@ model BacktestRunSummary {
   losingTrades                Int
   openPositions               Int
   run                         BacktestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Monitors
+// ---------------------------------------------------------------------------
+
+/// Whether one Monitor evaluation produced a match, a definitive non-match, or could not be
+/// decided. It is the durable projection of `Evaluability` from `@intrinsic/strategy`, named in
+/// product vocabulary because it is what a Signal's history is read as.
+///
+/// `NOT_EVALUABLE` is deliberately a first-class value rather than an absence: a provider failure,
+/// a warm-up gap or a withheld point-in-time input must be recorded as "not decided", never
+/// collapsed into `NOT_MATCHED`, which would look like the match had genuinely ended.
+enum MonitorEvaluationOutcome {
+  MATCHED
+  NOT_MATCHED
+  NOT_EVALUABLE
+}
+
+/// The two outcomes a transition may be decided from. `NOT_EVALUABLE` is absent on purpose: it
+/// never overwrites the last decided state, so the column can only ever hold a decided one.
+enum MonitorEvaluableResult {
+  MATCHED
+  NOT_MATCHED
+}
+
+/// Which Strategy level produced a Signal. Mirrors `StrategyLevelKind` in `@intrinsic/contracts`;
+/// `BacktestTradeAction` is deliberately not reused — that enum describes an executed order.
+enum MonitorLevelKind {
+  BUY
+  SELL
+  FINAL_EXIT
+}
+
+/// One user-owned Monitor: a Strategy evaluated against current market data over a Stock List.
+///
+/// It references the `Strategy` rather than a pinned `StrategyVersion`, because a Monitor is live:
+/// editing the Strategy must change what is being watched. The version actually evaluated is
+/// recorded on every state and Signal row instead, so state produced by a different definition is
+/// never used to decide a transition (see `MonitorSignalState.strategyVersionId`).
+///
+/// `enabled` is the only user control. Monitoring cadence is an application decision and is
+/// deliberately not a column — `ai/product/monitors.md` forbids exposing it.
+model Monitor {
+  id          String    @id @default(uuid())
+  userId      String
+  strategyId  String
+  stockListId String
+  name        String
+  enabled     Boolean   @default(true)
+  /// Last cycle instant this Monitor was actually evaluated in, for observability and the UI's
+  /// "last checked" line. It is never an input to trigger semantics.
+  lastScanAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  strategy  Strategy             @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+  stockList StockList            @relation(fields: [stockListId], references: [id], onDelete: Cascade)
+  states    MonitorSignalState[]
+  signals   MonitorSignal[]
+
+  @@index([userId])
+  @@index([userId, updatedAt])
+  /// The scan cycle's own query: every enabled Monitor, cheaply.
+  @@index([enabled])
+}
+
+/// The durable transition state of one `(Monitor, Security, Strategy level)`.
+///
+/// This is the minimum state that makes trigger and condition semantics survive a process restart
+/// or a cache flush, and it is deliberately not a cache of anything: `ai/architecture/monitor-engine.md`
+/// requires ephemeral memory never to be the sole source of it.
+///
+/// `lastEvaluableResult` is the latch. A `NOT_EVALUABLE` cycle records itself in `lastOutcome` for
+/// observability but leaves the latch alone, so a provider outage can neither end an active match
+/// nor re-emit it on recovery.
+///
+/// `stateVersion` is an optimistic guard. The transition is applied with an `updateMany` filtered
+/// on the version it was read at, so two processes whose leases briefly overlap cannot both emit a
+/// Signal for one transition: the loser matches no row and writes nothing.
+model MonitorSignalState {
+  id                String           @id @default(uuid())
+  monitorId         String
+  securityId        String
+  /// The canonical level id inside the Strategy definition document.
+  levelId           String
+  levelKind         MonitorLevelKind
+  /// Canonical fingerprint of the Signal this state belongs to, from `strategySignalFingerprint`
+  /// in `@intrinsic/contracts`.
+  ///
+  /// The invalidation key is the **level's own logic**, not the Strategy version: editing one
+  /// condition appends a new version, and keying on the version would discard the latched state of
+  /// every other, unchanged level with it — re-emitting a Signal on each of them for a match that
+  /// never stopped. A level whose logic did change no longer describes what this state latched, so
+  /// its state is reset.
+  signalFingerprint String
+
+  lastEvaluableResult MonitorEvaluableResult
+  /// The provisional observation date the latched result was decided on.
+  lastEvaluableDate   DateTime               @db.Date
+  lastEvaluableAt     DateTime
+
+  /// The most recent outcome including `NOT_EVALUABLE`. Observability and UI only.
+  lastOutcome   MonitorEvaluationOutcome
+  lastOutcomeAt DateTime
+
+  /// The Signal currently active for this state, or null when nothing is matched. Unique, so one
+  /// state can never point at two live Signals.
+  activeSignalId String? @unique
+
+  /// Observation date the most recent Signal was emitted on, for a Signal carrying a Trigger.
+  ///
+  /// A Trigger is an *event on a date*: the canonical daily series has `crosses above` TRUE on
+  /// exactly one date, however many times it is evaluated that day. The provisional observation
+  /// moves intraday while its `t - 1` stays fixed at the last closed day, so a price that crosses,
+  /// dips back and crosses again satisfies the predicate twice within one date — and without this
+  /// column each would look like a fresh transition and emit a second Signal for one crossing.
+  /// A Condition has no such column on purpose: it describes a state, and a state that genuinely
+  /// ends and begins again is two matches.
+  lastTriggerSignalDate DateTime? @db.Date
+
+  stateVersion Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  monitor      Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  security     Security       @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  activeSignal MonitorSignal? @relation("MonitorSignalStateActiveSignal", fields: [activeSignalId], references: [id], onDelete: SetNull)
+
+  /// One state per level per security per monitor. Named explicitly: the generated name would
+  /// exceed PostgreSQL's 63-character identifier limit.
+  @@unique([monitorId, securityId, levelId], map: "MonitorSignalState_identity_key")
+  @@index([monitorId])
+  @@index([securityId])
+}
+
+/// One Signal: a symbol matched one of the Strategy's canonical levels under a Monitor evaluation.
+///
+/// A Signal is created on the `NOT_MATCHED -> MATCHED` edge and only there, so a condition that
+/// stays true across scans keeps one Signal instead of producing a new one each cycle, and a
+/// trigger that fires once is not repeated while the value remains on the same side.
+/// `resolvedAt` is set when the match stops being active; the row is never deleted.
+///
+/// `hasTrigger` is explanation metadata, not a second product concept: `ai/product/monitors.md`
+/// requires condition-only matches and trigger events to remain the same user-facing Signal.
+model MonitorSignal {
+  id                String           @id @default(uuid())
+  monitorId         String
+  securityId        String
+  levelId           String
+  levelKind         MonitorLevelKind
+  /// The Strategy version whose definition produced this Signal. A Signal is a historical record,
+  /// so it keeps the version it was decided under even after the Strategy is edited.
+  strategyVersionId String
+  /// Whether the matched Strategy signal carried a Trigger. Both remain Signals.
+  hasTrigger        Boolean
+
+  /// The provisional observation this Signal was decided on: persisted closed history plus the
+  /// current live price. A Monitor evaluation requires one, so there is no second source to record.
+  observationDate  DateTime @db.Date
+  observationPrice Decimal  @db.Decimal(20, 8)
+
+  detectedAt DateTime  @default(now())
+  /// When the matched state stopped being active. Null while the match continues.
+  resolvedAt DateTime?
+
+  monitor   Monitor             @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  security  Security            @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  /// Back-reference of `MonitorSignalState.activeSignalId`; at most one state points here.
+  activeFor MonitorSignalState? @relation("MonitorSignalStateActiveSignal")
+
+  @@index([monitorId, detectedAt])
+  @@index([securityId])
+  /// The "currently active Signals" read: unresolved rows, newest first.
+  @@index([monitorId, resolvedAt, detectedAt])
+}
+
+/// The durable Monitor scan schedule: exactly one row, claimed like a job.
+///
+/// Cadence is an application decision, so nothing user-facing points here. A worker claims the row
+/// with `SELECT ... FOR UPDATE SKIP LOCKED` once `dueAt` has passed, holds a renewable lease while
+/// it runs the cycle, then sets the next `dueAt` and releases. A crashed worker's lease expires and
+/// another process reclaims it, which is what makes scanning self-healing without a queue library
+/// and without Redis — matching `BacktestJob`, whose protocol this follows deliberately.
+model MonitorScanSchedule {
+  /// Always `MONITOR_SCAN_SCHEDULE_ID`. A singleton row is what serializes the cycle.
+  id                  String    @id
+  /// Earliest instant the next cycle may start.
+  dueAt               DateTime  @default(now())
+  claimedBy           String?
+  claimedAt           DateTime?
+  leaseExpiresAt      DateTime?
+  heartbeatAt         DateTime?
+  /// Monotonic cycle counter, so two cycles are distinguishable in logs without comparing clocks.
+  cycleSequence       Int       @default(0)
+  lastStartedAt       DateTime?
+  lastCompletedAt     DateTime?
+  /// Consecutive failed cycles, for backoff and alerting. Reset by a cycle that completes.
+  consecutiveFailures Int       @default(0)
+  lastError           String?
+  updatedAt           DateTime  @updatedAt
+
+  @@index([dueAt])
 }

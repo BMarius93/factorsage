@@ -456,6 +456,61 @@ export function getBacktestWorkerConfig(env: Environment = process.env) {
 }
 
 /**
+ * Upper bound on forked monitor workers.
+ *
+ * A Monitor cycle is claimed as a singleton, so extra processes buy availability — another one
+ * picks the cycle up when a worker dies — never throughput. More than a handful is a typo.
+ */
+const MAX_MONITOR_WORKER_PROCESSES = 8;
+
+/**
+ * The Monitor evaluation worker.
+ *
+ * Cadence is an application decision and deliberately not user-configurable
+ * (`ai/product/monitors.md`), so it lives here beside the other infrastructure knobs.
+ *
+ * `MONITOR_SCAN_INTERVAL_MS` is the gap between the end of one cycle and the earliest start of the
+ * next, not a fixed period: a cycle that takes longer than the interval simply delays the next one
+ * instead of overlapping with it.
+ *
+ * `MONITOR_QUOTE_MAX_AGE_MS` is how stale a provider quote may be and still be used as the
+ * provisional current observation. Beyond it the symbol is `NOT_EVALUABLE` for that cycle: a stale
+ * quote presented as the current observation would be a fabricated bar, and leaving the durable
+ * latch untouched is what keeps an outage from resolving and re-emitting live matches. The default
+ * spans a long weekend plus a public holiday, so an ordinary market closure still evaluates against
+ * the last real quote rather than silently stopping every night.
+ */
+export function getMonitorWorkerConfig(env: Environment = process.env) {
+  const processes = Number(optional(env, "MONITOR_WORKER_PROCESSES") ?? "1");
+  if (
+    !Number.isInteger(processes) ||
+    processes < 0 ||
+    processes > MAX_MONITOR_WORKER_PROCESSES
+  ) {
+    throw new Error(
+      "Invalid application configuration: MONITOR_WORKER_PROCESSES must be between 0 and " +
+        `${MAX_MONITOR_WORKER_PROCESSES}`,
+    );
+  }
+
+  return {
+    /** `0` disables Monitor scanning in this process entirely. */
+    processes,
+    scanIntervalMs: integer(env, ["MONITOR_SCAN_INTERVAL_MS"], 5 * 60_000),
+    pollIntervalMs: integer(env, ["MONITOR_SCAN_POLL_INTERVAL_MS"], 5_000),
+    leaseMs: integer(env, ["MONITOR_SCAN_LEASE_MS"], 120_000),
+    heartbeatIntervalMs: integer(
+      env,
+      ["MONITOR_SCAN_HEARTBEAT_INTERVAL_MS"],
+      30_000,
+    ),
+    retryBackoffMs: integer(env, ["MONITOR_SCAN_RETRY_BACKOFF_MS"], 60_000),
+    symbolConcurrency: integer(env, ["MONITOR_SYMBOL_CONCURRENCY"], 4),
+    quoteMaxAgeMs: integer(env, ["MONITOR_QUOTE_MAX_AGE_MS"], 4 * 24 * 60 * 60_000),
+  } as const;
+}
+
+/**
  * Forensic debug archives — a **developer** capture, off unless explicitly asked for.
  *
  * `full` makes a worker write one self-contained archive per backtest attempt: the immutable

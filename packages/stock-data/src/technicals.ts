@@ -65,6 +65,15 @@ export type DailyTechnicalValues = Partial<
 >;
 
 /**
+ * A subset of the canonical daily moving-average registry.
+ *
+ * Typed as entries *of that registry* rather than as `MaterializedMovingAverage[]`, so passing a
+ * weekly entry is a compile error instead of a value silently written into a daily field.
+ */
+export type DailyMovingAverageSubset =
+  readonly (typeof DAILY_MOVING_AVERAGES)[number][];
+
+/**
  * Calculates the daily technical portion of `DailyDerivedState` for every supplied trading day.
  *
  * Every daily moving average registered in `DAILY_MOVING_AVERAGES` is calculated, so a period
@@ -73,15 +82,24 @@ export type DailyTechnicalValues = Partial<
  *
  * One row per trading day is produced. Warm-up gaps leave individual indicators absent; they are
  * never zeroed. Callers merge these rows with the other derived families before persisting.
+ *
+ * `averages` narrows the calculation to a subset of that same registry. The canonical
+ * materialization path never passes it — one current methodology per trading day means every
+ * registered series is written. It exists for a caller that has already derived which series are
+ * actually required and must not compute the rest: a Monitor evaluation cycle aggregates the
+ * series its active Monitors reference and recalculates only those against the provisional current
+ * observation (`ai/architecture/monitor-engine.md`). The subset changes which fields are produced,
+ * never how any of them is calculated.
  */
 export function calculateDailyTechnicals(
   prices: readonly DailyPrice[],
+  averages: DailyMovingAverageSubset = DAILY_MOVING_AVERAGES,
 ): DailyDerivedState[] {
   const ascending = [...prices].sort((left, right) =>
     left.date.localeCompare(right.date),
   );
   const closes = ascending.map((price) => price.close);
-  const calculated = DAILY_MOVING_AVERAGES.map((average) => ({
+  const calculated = averages.map((average) => ({
     field: average.field,
     values: movingAverage(closes, average.type, average.period),
   }));

@@ -83,6 +83,13 @@ export type DailyOscillatorValues = Partial<
 >;
 
 /**
+ * A subset of the canonical daily oscillator registry, typed as entries *of that registry* for the
+ * same reason {@link DailyMovingAverageSubset} is.
+ */
+export type DailyOscillatorSubset =
+  readonly (typeof DAILY_OSCILLATORS)[number][];
+
+/**
  * Calculates the daily oscillator portion of `DailyDerivedState` for every supplied trading day.
  *
  * Every oscillator registered in `DAILY_OSCILLATORS` is calculated over the same canonical
@@ -92,15 +99,21 @@ export type DailyOscillatorValues = Partial<
  *
  * One row per trading day is produced. Warm-up gaps leave individual oscillators absent; they are
  * never zeroed. Callers merge these rows with the other derived families before persisting.
+ *
+ * `oscillators` narrows the calculation to a subset of that same registry, for the same reason and
+ * with the same rule as `calculateDailyTechnicals`: a caller that has derived which series are
+ * actually required must be able to compute only those. It changes which fields are produced,
+ * never how any of them is calculated.
  */
 export function calculateDailyOscillators(
   prices: readonly DailyPrice[],
+  oscillators: DailyOscillatorSubset = DAILY_OSCILLATORS,
 ): DailyDerivedState[] {
   const ascending = [...prices].sort((left, right) =>
     left.date.localeCompare(right.date),
   );
   const closes = ascending.map((price) => price.close);
-  const calculated = DAILY_OSCILLATORS.map((oscillator) => ({
+  const calculated = oscillators.map((oscillator) => ({
     field: oscillator.field,
     values: calculateWilderRsi(closes, oscillator.period),
   }));
