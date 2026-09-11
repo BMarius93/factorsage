@@ -78,15 +78,18 @@ Verified by direct inspection of the repository, not inferred from documentation
 - no multi-security read port. Every stock-data read is single-security
   (`symbol` or `securityId` + range), as `ai/architecture/calculated-series.md` already records.
 
-**Exists as a foundation only:**
+**Existed as a foundation only when this design was written** — superseded since. `apps/worker`
+is now a supervisor forking backtest children and Monitor children (`backtest-execution.md`,
+`monitor-engine.md`), and `apps/web/src/app/(app)/backtests/page.tsx` renders the real Backtests
+feature. Only `.../monitors/page.tsx` is still a `RoutePlaceholder`: Monitor V1 shipped as API and
+worker, and its web surface is the open slice. The paragraph below is kept as the record of what
+this design started from.
 
-- `apps/worker/src/index.ts` is 34 lines: it loads config, creates a logger, emits
-  `worker.started` ("no job processors are registered yet"), heartbeats on a 60s interval and
-  handles `SIGINT`/`SIGTERM`. `apps/worker/package.json` depends only on `@intrinsic/config` and
-  `@intrinsic/observability` — **not** on `@intrinsic/stock-data`, `@intrinsic/database`,
-  `@intrinsic/domain` or `@intrinsic/contracts`;
-- `apps/web/src/app/(app)/backtests/page.tsx` and `.../monitors/page.tsx` are `RoutePlaceholder`
-  components. The navigation entries already exist.
+- `apps/worker/src/index.ts` was 34 lines: it loaded config, created a logger, emitted
+  `worker.started` ("no job processors are registered yet"), heartbeated on a 60s interval and
+  handled `SIGINT`/`SIGTERM`;
+- `apps/web/src/app/(app)/backtests/page.tsx` and `.../monitors/page.tsx` were `RoutePlaceholder`
+  components. The navigation entries already existed.
 
 **Exists and is production-complete** — the stock-data foundation the whole design rests on. That
 is the subject of the rest of this phase.

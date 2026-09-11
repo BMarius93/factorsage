@@ -20,7 +20,11 @@ Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations
 
 ## Signals
 
-`Signal` is the product term for a Monitor result.
+`Signal` is the product term for a Monitor result. It is deliberately not the Monitor: a Monitor is
+the standing configuration (Strategy + List + enabled), and a Signal is one durable outcome it
+produced, with the observation date and price it was decided on. The word is shared with the
+Strategy language — a *Strategy signal* is the rule inside a level (Conditions plus an optional
+Trigger) that a Monitor evaluates — and the two are never the same object.
 
 A Signal means that a symbol matched one of the Strategy's canonical signals/levels under the current Monitor evaluation context.
 
@@ -103,6 +107,28 @@ Metrics that require position state — `Gain` and `Loss` — have nothing to be
 they are `NOT_EVALUABLE` exactly as `ai/product/strategies.md` already specifies for unavailable
 position state. A Signal whose logic depends on them can never match. This is the existing rule
 applied, not a Monitor-specific exception.
+
+## Lifecycle in one place
+
+- **Create.** A Monitor references a Strategy and a Stock List that both belong to the caller,
+  verified in the transaction that inserts it. It starts `enabled` unless created otherwise.
+- **Evaluate.** Every enabled Monitor is evaluated in every scan cycle. The cycle is a singleton
+  claim across all worker processes, so two cycles never run at once by design; if a lease is lost
+  and one overlaps anyway, the durable transition state's optimistic version guard means at most
+  one of them can emit a given Signal.
+- **Disable.** Stops future evaluations from the next cycle on (a cycle already running finishes
+  with the enabled set it loaded). Persisted transition state and active Signals are left exactly
+  as they were: a disabled Monitor still shows the Signals that were active when it was disabled.
+- **Re-enable.** Resumes from that persisted state. A condition that was already matched is not
+  re-emitted; a trigger keeps the date it last fired on.
+- **Edit the Strategy.** Takes effect from the next cycle. Only levels whose canonical logic
+  changed have their state reset and their active Signal closed; unchanged levels continue.
+- **Edit the List.** Takes effect from the next cycle. A removed member's active Signals are
+  resolved by that cycle; an added member is evaluated as new and may emit immediately.
+- **Delete the Monitor.** Removes its transition state and its Signals with it. The Strategy and
+  List it referenced are untouched.
+- **Delete the Strategy or List.** Refused while any Monitor references it. Delete the Monitor
+  first.
 
 ## Strategy mutability
 
@@ -188,6 +214,15 @@ a wrong Signal.
 - **A quote is refused rather than trusted** when it is older than the configured maximum age, when
   it is dated in a session later than the cycle's own, or when its timestamp cannot be read. Each of
   those would otherwise fabricate an observation.
+- **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
+  100 Signals and nothing pages further back; older rows are durable but not yet addressable
+  through the API. Pagination is a contract addition for the web slice, not a redesign.
+- **The web surface is not built.** Monitor V1 shipped as API and worker; the Monitors route is a
+  placeholder until the web slice lands.
+- **The monitored universe is not capped.** A Stock List has a per-request add limit but no total
+  size, so one very large monitored List sets the cycle's provider, hydration and memory cost.
+  Backtests cap a run at `BACKTEST_MAX_SECURITIES`; Monitors have no equivalent yet, and adding
+  one is a product decision to make deliberately rather than a silent engine limit.
 - **Current-data failure is all-or-nothing.** If the current-data read for a cycle fails, the cycle
   **fails** — it is not absorbed and completed as if it had evaluated something. Partial cycles are
   not a V1 concept. The failure takes the worker's normal failure and retry path, so it is recorded

@@ -39,6 +39,8 @@ Current callers:
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
 - `apps/worker/src/backtest/job-repository.integration.test.ts`
+- `apps/worker/src/monitor/monitor-cycle.integration.test.ts`
+- `apps/worker/src/monitor/scan-repository.integration.test.ts`
 - `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`
 - `packages/stock-data/src/financial-statements.test.ts`

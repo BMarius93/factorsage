@@ -4,7 +4,8 @@
 
 - `apps/web`: presentation and browser interaction.
 - `apps/api`: HTTP API, authentication integration, orchestration, authorization, persistence coordination.
-- `apps/worker`: long-running backtests and monitoring work.
+- `apps/worker`: one supervisor forking backtest children (durable `BacktestJob` claims) and
+  Monitor children (the singleton `MonitorScanSchedule` claim). See `api-worker.md`.
 
 ## Shared packages
 
@@ -30,6 +31,14 @@ Redis may be used for:
 - temporary coordination.
 
 A Redis flush must not destroy completed executions or user-owned data.
+
+Redis is nevertheless **required at runtime**: every stock-data read, the per-security hydration
+lock and the provider-wide request gate go through it, and nothing degrades to a PostgreSQL-only
+path when it is unreachable — a request or cycle fails fast instead. "Disposable" describes its
+contents, not its availability. Keys are namespaced `stock-data:v2:*` (per-security manifests and
+yearly chunks, the resident-stock LRU, the FMP gate), `stock-data:load:*` (the Redlock hydration
+locks, per security or benchmark series) and `benchmark:v1:*` (per-series manifests and chunks);
+there is no user-scoped key anywhere, and Monitor/Signal state is never in Redis. The Monitor's trading-calendar schedule is process memory with a TTL, by design.
 
 Derived backtest-facing data is materialized per trading day into one `DailyDerivedState` row per
 security per trading day, cached as `security:<securityId>:daily-state:<year>` chunks. Calculation

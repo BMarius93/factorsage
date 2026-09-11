@@ -50,6 +50,20 @@ Read `ai/README.md` before substantial work.
     One backtest is never internally parallelized: its simulation stays sequential and
     single-process so it is deterministic. Concurrency comes from independent worker OS processes,
     configured by `BACKTEST_WORKER_PROCESSES`.
+15. A Monitor is a live `Strategy` plus a `StockList` plus `enabled` — no pinned version, no
+    execution parameters, no user-configurable cadence — and it produces Signals, which are
+    append-only durable records distinct from the Monitor itself. `ai/product/product-overview.md`
+    fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
+    `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
+    PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
+    LOCKED` + renewable-lease protocol as `BacktestJob`; that idiom now has two instances, and a
+    third durable claim must match them rather than add a queue, a cron or a Redis lock.
+16. Redis is **required at runtime** — every stock-data read, hydration lock and provider gate goes
+    through it and nothing degrades to PostgreSQL-only when it is down — but its **contents are
+    disposable**: everything in it is a projection of PostgreSQL or transient coordination, keyed
+    by security/series id under `stock-data:v2:*` (cache chunks, manifests, the resident LRU, the
+    FMP gate), `stock-data:load:*` (Redlock hydration locks) and `benchmark:v1:*`, never by user.
+    Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
 
 ## Dependency rules
 
@@ -85,8 +99,8 @@ Forbidden:
 - `strategy -> process.env`
 
 `@intrinsic/strategy` is pure: Strategy evaluation, position state and the backtest day loop, with
-no I/O and no clock. It is what keeps API, worker and a future monitor on one implementation of what
-a Strategy means. `stock-data` depends on it only to project the columnar evaluation frame the
+no I/O and no clock. It is what keeps the API, the backtest worker and the Monitor engine on one
+implementation of what a Strategy means. `stock-data` depends on it only to project the columnar evaluation frame the
 engine consumes — which is also where the intrinsic-value provenance gate is applied, so a pure
 evaluator physically cannot read an ungated value.
 
@@ -158,6 +172,12 @@ evaluator physically cannot read an ungated value.
 - Never commit credentials, session cookies, tokens, or Playwright storage state.
 
 ## Validation
+
+PostgreSQL-backed suites require `TEST_DATABASE_URL` pointing at a dedicated, migrated test database
+(`pnpm db:test:prepare`); they never fall back to `DATABASE_URL`. `apps/api`, `apps/worker` and
+`packages/stock-data` serialize their test files for that reason. `apps/worker` is one supervisor
+with two child kinds — backtest children and Monitor children — so a worker change must be tested
+against the kind it affects. See `ai/workflows/validation.md`.
 
 During implementation, prefer the smallest relevant test/typecheck command. Once the implementation is settled, run the full validation gate once before marking the task complete:
 

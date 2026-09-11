@@ -24,16 +24,16 @@ apps/api
   +----> enqueue durable work
              |
              v
-         apps/worker  (foundation only: no job processors registered yet)
+         apps/worker  (supervisor: backtest children + Monitor scan children)
 
 Redis = disposable cache / locks / coordination.
 PostgreSQL = durable source of truth.
 ```
 
 `@intrinsic/stock-data` hydrates one canonical stock history (up to the configured 30-year
-horizon). `apps/api` is its only caller today; `apps/worker` is a foundation process that
-registers no job processors yet and must consume this same package rather than reimplementing
-loading when backtests land. Requested dates only project reads from yearly Redis chunks.
+horizon). `apps/api` and both kinds of `apps/worker` child consume it — the backtest children
+that claim `BacktestJob` rows and the Monitor children that claim the singleton scan schedule —
+and none of them reimplements loading. Requested dates only project reads from yearly Redis chunks.
 PostgreSQL coverage prevents historical refetches, one stock-level Redlock prevents duplicate
 same-stock hydration, and a separate Redis provider gate coordinates FMP rate/cooldown behavior.
 
