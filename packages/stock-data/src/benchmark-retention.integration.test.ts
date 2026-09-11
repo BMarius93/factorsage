@@ -87,6 +87,26 @@ class RefusingProvider implements FmpBenchmarkProviderPort {
   }
 }
 
+/** Serves the bars it was given, and records what was asked for. */
+class StubProvider implements FmpBenchmarkProviderPort {
+  readonly requests: Required<DateRange>[] = [];
+  constructor(private readonly rows: readonly BenchmarkDailyPrice[]) {}
+  async getBenchmarkDailyPrices(
+    _symbol: string,
+    benchmarkId: string,
+    range: DateRange,
+  ): Promise<BenchmarkDailyPrice[]> {
+    this.requests.push({ from: range.from as string, to: range.to as string });
+    return this.rows
+      .filter(
+        (row) =>
+          (!range.from || row.date >= range.from) &&
+          (!range.to || row.date <= range.to),
+      )
+      .map((row) => ({ ...row, benchmarkId }));
+  }
+}
+
 describeRetention(
   "an immutable period is read exactly, whatever the clock says",
   () => {
@@ -280,6 +300,111 @@ describeRetention(
       expect(rows[0]?.date).toBe(SERIES_FROM);
       expect(provider.requests).toEqual([]);
     }, 60_000);
+
+    /**
+     * A cold series, through the real loader, against real PostgreSQL and Redis.
+     *
+     * This is the scenario the coverage-first ordering broke: nothing is covered yet, so a check
+     * made before hydration reports the whole period missing and the run is refused — for data the
+     * provider had all along. Missing local coverage means "this deployment has not asked", not
+     * "there is nothing there".
+     *
+     * Nothing is stubbed to say "complete": the store starts genuinely empty for this series, the
+     * provider genuinely returns bars, and coverage becomes complete only because the canonical
+     * service hydrated and recorded the range it asked for.
+     */
+    describe("a cold series", () => {
+      const coldSuffix = randomUUID();
+      const coldCode = `COLD${coldSuffix.slice(0, 8).toUpperCase()}`;
+      let cold: BenchmarkWithSeries;
+      let coldBars: BenchmarkDailyPrice[];
+
+      const PERIOD_COLD = { from: "2010-01-04", to: "2010-03-31" } as const;
+
+      beforeAll(async () => {
+        const [persisted] = await store.reconcileBenchmarkCatalog([
+          {
+            code: coldCode,
+            name: "Cold Test Benchmark",
+            providerSymbol: "COLD",
+            currency: "USD",
+            sourceKind: "FMP_SYMBOL",
+            methodologyVersion: 1,
+            isActive: true,
+            displayOrder: 98,
+          },
+        ]);
+        cold = persisted as BenchmarkWithSeries;
+        coldBars = weekdayBars(
+          cold.series.id,
+          PERIOD_COLD.from,
+          PERIOD_COLD.to,
+        );
+      }, 120_000);
+
+      afterAll(async () => {
+        // The whole fixture, not only its bars: every run creates a fresh series so that "cold"
+        // really is cold, and leaving the coverage rows behind would grow the test database a
+        // little on every run. `Benchmark` cascades to its series, bars and coverage.
+        await prisma.benchmark.deleteMany({ where: { id: cold.id } });
+      });
+
+      it("reports the whole period missing before anything has been loaded", async () => {
+        const missing = await serviceAt("2026-08-27").missingBenchmarkCoverage(
+          cold.series,
+          PERIOD_COLD,
+        );
+        expect(missing).toEqual([{ ...PERIOD_COLD }]);
+      }, 60_000);
+
+      it("hydrates from the provider and then covers the period completely", async () => {
+        const provider = new StubProvider(coldBars);
+        const service = new CanonicalBenchmarkDataService(
+          store,
+          provider,
+          cache,
+          new InMemoryLoadCoordinator(),
+          { now: () => new Date("2026-08-27T12:00:00.000Z") },
+        );
+
+        const rows = await service.getBenchmarkDailyPrices(
+          cold.series,
+          PERIOD_COLD,
+        );
+
+        // It really did go to the provider, and it really did return the period asked for.
+        expect(provider.requests.length).toBeGreaterThan(0);
+        expect(rows[0]?.date).toBe(coldBars[0]?.date);
+        expect(rows.at(-1)?.date).toBe(coldBars.at(-1)?.date);
+
+        // And coverage is now complete for the *whole* requested period — the check the worker makes
+        // after loading, which is what turns "hydrated" into "safe to execute".
+        const missing = await service.missingBenchmarkCoverage(
+          cold.series,
+          PERIOD_COLD,
+        );
+        expect(missing).toEqual([]);
+      }, 120_000);
+
+      it("serves the same period again without touching the provider", async () => {
+        const provider = new StubProvider(coldBars);
+        const service = new CanonicalBenchmarkDataService(
+          store,
+          provider,
+          cache,
+          new InMemoryLoadCoordinator(),
+          { now: () => new Date("2026-08-27T12:00:00.000Z") },
+        );
+
+        const rows = await service.getBenchmarkDailyPrices(
+          cold.series,
+          PERIOD_COLD,
+        );
+
+        expect(rows).toHaveLength(coldBars.length);
+        expect(provider.requests).toEqual([]);
+      }, 60_000);
+    });
 
     it("keeps the coverage variant it was recorded under", async () => {
       const coverage = await store.getDatasetCoverage(

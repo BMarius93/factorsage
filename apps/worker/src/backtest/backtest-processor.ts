@@ -743,14 +743,16 @@ export class BacktestProcessor implements BacktestJobProcessor {
         FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
       );
     }
-    // Coverage **before** the load, deliberately. The calendar must span the period the run
-    // recorded, not merely return some dates inside it: quietly simulating a shorter one moves the
-    // first simulated date, and with it the return-index base, the first contribution and every
-    // number chained off them. Asking first also means a period the durable store cannot vouch
-    // for fails without a provider request — reading would try to fill the gap from FMP, which
-    // both re-dates an immutable run and puts live traffic inside a sweep whose whole claim is
-    // that it made none.
-    await this.assertCalendarCoversPeriod(seriesId, referenceCode, period);
+    // The canonical loader runs **first**, because missing local coverage is not evidence that the
+    // provider has nothing — it is evidence that this deployment has not asked yet. A cold
+    // database, a benchmark-data reset, or simply a period nobody has requested before all look
+    // identical to a coverage check, and refusing them would turn every cold start into
+    // `EXECUTION_CALENDAR_UNAVAILABLE` for data that was available all along. Hydration is exactly
+    // what the canonical service is for.
+    //
+    // Keeping a sweep's provider traffic at zero is a property of the *provisioned QA matrix
+    // environment*, enforced by its preflight and its gate. It is not something execution should
+    // buy by declining to hydrate in production.
     const prices = await this.loadSeriesPrices(seriesId, period, {
       role: "execution-calendar",
       code: referenceCode ?? seriesId,
@@ -767,6 +769,12 @@ export class BacktestProcessor implements BacktestJobProcessor {
         FAILURE_MESSAGES.EXECUTION_CALENDAR_UNAVAILABLE,
       );
     }
+    // And coverage is checked **after** it, against the whole period the run recorded. The loader
+    // has now had its chance, so a gap that survives it is canonical data genuinely unavailable
+    // rather than merely unasked-for — and the run says so instead of simulating the part it did
+    // get. Quietly executing a shorter period moves the first simulated date, and with it the
+    // return-index base, the first contribution and every number chained off them.
+    await this.assertCalendarCoversPeriod(seriesId, referenceCode, period);
     this.dependencies.logger.info({
       event: "backtest.execution-calendar.loaded",
       durationMs: Date.now() - startedAt,

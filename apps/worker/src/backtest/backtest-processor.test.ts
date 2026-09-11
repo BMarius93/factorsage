@@ -4,6 +4,7 @@ import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import type {
   BenchmarkDailyPrice,
   BenchmarkSeries,
+  DateRange,
   Security,
 } from "@intrinsic/domain";
 import { createLogger } from "@intrinsic/observability";
@@ -253,6 +254,102 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
   });
 
+  /**
+   * A cold database, a benchmark-data reset, or simply a period nobody has asked for yet.
+   *
+   * Missing local coverage is not evidence that the provider has nothing; it is evidence that this
+   * deployment has not asked yet. The canonical loader exists precisely to close that gap, and
+   * checking coverage before letting it run turns every cold start into
+   * `EXECUTION_CALENDAR_UNAVAILABLE` for data that was available all along.
+   *
+   * The loader below models the causal relationship rather than asserting the conclusion: coverage
+   * reports a gap until the prices are actually loaded, and the load is what fills it — which is
+   * what the real `CanonicalBenchmarkDataService` does when it hydrates from the provider and
+   * records the range it asked for.
+   */
+  class ColdThenHydratedBenchmarks implements BacktestBenchmarkLoader {
+    readonly priceLoads: string[] = [];
+    private hydrated = false;
+
+    constructor(
+      private readonly bars: readonly { date: string; close: number }[],
+      /** What stays missing even after hydration, if anything. */
+      private readonly unfillable: readonly { from: string; to: string }[] = [],
+    ) {}
+
+    async getSeries(seriesId: string): Promise<BenchmarkSeries> {
+      return {
+        id: seriesId,
+        benchmarkId: "benchmark-1",
+        version: 1,
+        sourceKind: "FMP_SYMBOL",
+        providerSymbol: "SPY",
+        currency: "USD",
+        methodologyVersion: 1,
+      };
+    }
+
+    async getBenchmarkDailyPrices(
+      series: BenchmarkSeries,
+    ): Promise<BenchmarkDailyPrice[]> {
+      this.priceLoads.push(series.id);
+      this.hydrated = true;
+      return this.bars.map((bar) => ({
+        seriesId: series.id,
+        date: bar.date,
+        open: bar.close,
+        high: bar.close,
+        low: bar.close,
+        close: bar.close,
+        volume: 0,
+      }));
+    }
+
+    async missingBenchmarkCoverage(): Promise<Required<DateRange>[]> {
+      if (!this.hydrated) {
+        // Cold: nothing has been asked for, so nothing is covered.
+        return [{ from: "2020-01-01", to: "2020-12-31" }];
+      }
+      return [...this.unfillable];
+    }
+  }
+
+  it("hydrates a cold series instead of refusing it", async () => {
+    const benchmarks = new ColdThenHydratedBenchmarks([
+      { date: "2020-01-02", close: 100 },
+      { date: "2020-01-03", close: 101 },
+    ]);
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    // The loader ran for the pinned calendar series, and the run was not refused for the calendar.
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
+    expect(repository.failures.map((failure) => failure.code)).not.toContain(
+      "EXECUTION_CALENDAR_UNAVAILABLE",
+    );
+  });
+
+  it("still fails explicitly when hydration leaves the period incomplete", async () => {
+    // The loader was given its chance and the gap survived it. That is canonical data genuinely
+    // unavailable, and the run says so rather than simulating the part it did get.
+    const benchmarks = new ColdThenHydratedBenchmarks(
+      [
+        { date: "2020-06-01", close: 100 },
+        { date: "2020-06-02", close: 101 },
+      ],
+      [{ from: "2020-01-01", to: "2020-05-29" }],
+    );
+    const { processor, repository } = processorWith(benchmarks);
+
+    await processor.process(claimOf(snapshotDocument()), lease);
+
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
+    expect(repository.failures).toHaveLength(1);
+    expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
+    expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
+  });
+
   it("fails when the retained prefix of the recorded period is no longer covered", async () => {
     // The shape a delayed execution produces: the run recorded a period reaching further back
     // than what is still maintained, and the durable store cannot vouch for the first stretch of
@@ -273,10 +370,11 @@ describe("the pinned execution calendar", () => {
     expect(repository.failures).toHaveLength(1);
     expect(repository.failures[0]?.code).toBe("EXECUTION_CALENDAR_UNAVAILABLE");
     expect(repository.failures[0]?.phase).toBe("PREPARING_DATA");
-    // And it failed *before* reading prices. A read would try to fill the gap from the provider,
-    // which both re-dates an immutable run and puts live traffic inside a sweep whose whole claim
-    // is that it made none.
-    expect(benchmarks.priceLoads).toEqual([]);
+    // The loader was given its chance first — missing coverage is not proof the provider has
+    // nothing — and the gap survived it. Keeping a sweep's provider traffic at zero is the
+    // provisioned matrix environment's job, enforced by its preflight and its gate, not something
+    // execution achieves by refusing to hydrate.
+    expect(benchmarks.priceLoads).toContain(CALENDAR_SERIES);
   });
 
   it("proceeds when the series covers the period, however few sessions it holds", async () => {
