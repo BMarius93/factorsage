@@ -243,6 +243,21 @@ export class StrategiesService {
     const hash = definitionHashOf(definition);
 
     const row = await this.prisma.$transaction(async (tx) => {
+      // Serializes concurrent replacements of one strategy. The next version number is read and
+      // then written, so without a row lock two edits landing together both read the same current
+      // version, both compute the same next number, and the loser surfaces the unique
+      // `(strategyId, versionNumber)` constraint as a failed request instead of appending its own
+      // version behind the winner. Ownership is part of the lock predicate, so a strategy the
+      // caller does not own locks nothing and reads as missing, exactly like the read below.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id"
+        FROM "Strategy"
+        WHERE "id" = ${strategyId} AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new StrategyNotFoundError();
+      }
       const existing = await tx.strategy.findFirst({
         where: { id: strategyId, userId },
         include: STRATEGY_INCLUDE,

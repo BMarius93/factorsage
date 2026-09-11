@@ -362,6 +362,53 @@ describe("strategies", () => {
     await owner.delete(`/strategies/${created.id}`).expect(204);
   });
 
+  it("serializes concurrent definition replacements instead of losing one", async () => {
+    // Two edits of one strategy can land at the same time — two tabs, a retried request. Each
+    // must append its own version: the loser of the race must not surface the unique
+    // `(strategyId, versionNumber)` constraint as a 500 and silently drop the edit.
+    const created = await createStrategy(owner, {
+      name: "Contended",
+      definition: definition(),
+    });
+    const submissions = ["SMA_50D", "SMA_100D", "SMA_200D", "EMA_50D"].map(
+      (seriesId) =>
+        definition({
+          buyLevels: [
+            {
+              id: nextId("buy"),
+              percentage: 25,
+              signal: { conditions: [priceAbove(seriesId)] },
+            },
+          ],
+        }),
+    );
+
+    const responses = await Promise.all(
+      submissions.map((submitted) =>
+        owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: submitted }),
+      ),
+    );
+    expect(responses.map((response) => response.status)).toEqual([
+      200, 200, 200, 200,
+    ]);
+
+    const versions = await prisma.strategyVersion.findMany({
+      where: { strategyId: created.id },
+      orderBy: { versionNumber: "asc" },
+      select: { versionNumber: true, definitionHash: true },
+    });
+    // Version 1 from creation, then exactly one appended version per concurrent edit.
+    expect(versions.map((row) => row.versionNumber)).toEqual([1, 2, 3, 4, 5]);
+    expect(new Set(versions.map((row) => row.definitionHash)).size).toBe(5);
+
+    const fetched = await owner.get(`/strategies/${created.id}`).expect(200);
+    expect((fetched.body as StrategyDetailResponse).versionNumber).toBe(5);
+
+    await owner.delete(`/strategies/${created.id}`).expect(204);
+  });
+
   it("returns path-addressed issues for an invalid definition and persists nothing", async () => {
     const before = await owner.get("/strategies").expect(200);
 
