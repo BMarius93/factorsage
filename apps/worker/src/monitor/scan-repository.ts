@@ -22,6 +22,13 @@ export type ClaimedMonitorScan = {
   /** Monotonic cycle number this claim consumed. */
   cycleSequence: number;
   claimedAt: Date;
+  /**
+   * The worker whose expired lease this claim took over, when the cycle was still marked as held.
+   * A claim that reclaims an expired lease directly is the normal recovery path, and it must be
+   * as visible as the recovery sweep: a cycle that died and was silently re-run is one an operator
+   * cannot tell apart from a healthy one otherwise.
+   */
+  takenOverFrom?: string;
 };
 
 export interface MonitorScanRepository {
@@ -105,8 +112,10 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
     const leaseExpiresAt = new Date(now.getTime() + leaseMs);
 
     return this.prisma.$transaction(async (tx) => {
-      const candidates = await tx.$queryRaw<{ id: string }[]>`
-        SELECT "id"
+      const candidates = await tx.$queryRaw<
+        { id: string; claimedBy: string | null }[]
+      >`
+        SELECT "id", "claimedBy"
         FROM "MonitorScanSchedule"
         WHERE "id" = ${MONITOR_SCAN_SCHEDULE_ID}
           AND "dueAt" <= ${now}
@@ -131,7 +140,15 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
       `;
 
       const row = claimed[0];
-      return row ? { cycleSequence: row.cycleSequence, claimedAt: now } : null;
+      if (!row) {
+        return null;
+      }
+      const previousHolder = candidates[0].claimedBy;
+      return {
+        cycleSequence: row.cycleSequence,
+        claimedAt: now,
+        ...(previousHolder ? { takenOverFrom: previousHolder } : {}),
+      };
     });
   }
 

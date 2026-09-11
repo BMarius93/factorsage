@@ -64,7 +64,9 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
   };
 
   const prisma = new PrismaClient();
-  const redis = createStockDataRedisClient(getRedisConfig().url);
+  const redis = createStockDataRedisClient(getRedisConfig().url, (err) => {
+    logger.warn({ event: "stock-data.redis.error", err });
+  });
 
   const provider = new FmpClient(() => getFmpConfig(), fetch, {
     gate: new RedisFmpRequestGate(redis, {

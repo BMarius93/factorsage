@@ -198,6 +198,11 @@ function sanitizeValue(value: unknown, seen = new WeakSet<object>(), depth = 0):
       name: value.name,
       message: value.message,
       ...(value.stack ? { stack: value.stack } : {}),
+      // A wrapped failure's cause is the diagnosis: "provider temporarily unavailable" caused by
+      // "connect ECONNREFUSED 127.0.0.1:6379" is a Redis outage, not a provider one.
+      ...(value.cause !== undefined && depth < 8
+        ? { cause: sanitizeValue(value.cause, seen, depth + 1) }
+        : {}),
     };
   }
   if (depth >= 8) {

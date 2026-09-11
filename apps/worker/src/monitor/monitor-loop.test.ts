@@ -1,4 +1,4 @@
-import { createLogger } from "@intrinsic/observability";
+import { createLogger, type LogSink } from "@intrinsic/observability";
 import { describe, expect, it } from "vitest";
 import type { AbortSignalCheck, MonitorCycle } from "./monitor-cycle.js";
 import { MonitorWorkerLoop } from "./monitor-loop.js";
@@ -88,7 +88,8 @@ class FakeCycle {
   });
 
   constructor(
-    private readonly behaviour: "complete" | "wait-for-abort" | "throw",
+    private readonly behaviour:
+      "complete" | "slow-complete" | "wait-for-abort" | "throw",
   ) {}
 
   waitUntilStarted(): Promise<void> {
@@ -102,6 +103,10 @@ class FakeCycle {
       throw new Error("provider unavailable");
     }
     if (this.behaviour === "complete") {
+      return;
+    }
+    if (this.behaviour === "slow-complete") {
+      await delay(15);
       return;
     }
     // Bounded so a regression fails the suite instead of hanging it.
@@ -123,10 +128,19 @@ function createLoop(
   repository: MonitorScanRepository,
   cycle: FakeCycle,
   now: () => Date = () => new Date(),
+  options: { scanIntervalMs?: number; sink?: LogSink } = {},
 ): MonitorWorkerLoop {
-  return new MonitorWorkerLoop(repository, cycle.asCycle(), logger, {
+  const loopLogger = options.sink
+    ? createLogger({
+        service: "worker",
+        level: "warn",
+        stdout: options.sink,
+        stderr: options.sink,
+      })
+    : logger;
+  return new MonitorWorkerLoop(repository, cycle.asCycle(), loopLogger, {
     workerId: WORKER_ID,
-    scanIntervalMs: SCAN_INTERVAL_MS,
+    scanIntervalMs: options.scanIntervalMs ?? SCAN_INTERVAL_MS,
     pollIntervalMs: 5_000,
     leaseMs: 60_000,
     heartbeatIntervalMs: 5,
@@ -222,6 +236,46 @@ describe("monitor worker loop", () => {
       },
     ]);
     expect(repository.completed).toEqual([]);
+  });
+
+  it("warns when a completed cycle ran longer than the scan interval", async () => {
+    // A slow cycle never overlaps the next one, so nothing fails; the cadence just silently
+    // becomes "as fast as possible". That is a capacity signal and must be a named log line.
+    const slowLines: string[] = [];
+    const slowLoop = createLoop(
+      new RecordingScanRepository([CLAIM]),
+      new FakeCycle("slow-complete"),
+      undefined,
+      {
+        scanIntervalMs: 1,
+        sink: { write: (chunk) => slowLines.push(String(chunk)) },
+      },
+    );
+    const slowRunning = slowLoop.run();
+    await delay(40);
+    slowLoop.stop();
+    await slowRunning;
+    expect(
+      slowLines.filter((line) => line.includes("monitor.cycle.over-cadence")),
+    ).toHaveLength(1);
+
+    const quickLines: string[] = [];
+    const quickLoop = createLoop(
+      new RecordingScanRepository([CLAIM]),
+      new FakeCycle("slow-complete"),
+      undefined,
+      {
+        scanIntervalMs: SCAN_INTERVAL_MS,
+        sink: { write: (chunk) => quickLines.push(String(chunk)) },
+      },
+    );
+    const quickRunning = quickLoop.run();
+    await delay(40);
+    quickLoop.stop();
+    await quickRunning;
+    expect(quickLines.some((line) => line.includes("over-cadence"))).toBe(
+      false,
+    );
   });
 
   it("stops waiting for a due cycle the moment it is asked to stop", async () => {

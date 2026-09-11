@@ -81,6 +81,23 @@ export type AdminHealthResponse = {
   role: "ADMIN";
 };
 
+/** One readiness probe: a dependency answered inside the timeout, or how it failed. */
+export type ReadinessCheck = {
+  status: "ok" | "failed";
+  latencyMs: number;
+  error?: string;
+};
+
+/**
+ * `GET /health/ready`. `ok` is served with `200`; `unavailable` is served with `503` and the same
+ * body, so the per-dependency detail is visible either way. Only the dependencies every request
+ * needs are probed — PostgreSQL and Redis — never the market-data provider.
+ */
+export type ReadinessResponse = {
+  status: "ok" | "unavailable";
+  checks: { postgres: ReadinessCheck; redis: ReadinessCheck };
+};
+
 export * from "./selectable-series.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";

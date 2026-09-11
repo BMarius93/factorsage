@@ -101,8 +101,11 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     {
       provide: STOCK_DATA_REDIS,
-      useFactory: (): StockDataRedisClient =>
-        createStockDataRedisClient(getRedisConfig().url),
+      inject: [STOCK_DATA_LOGGER],
+      useFactory: (logger: StructuredLogger): StockDataRedisClient =>
+        createStockDataRedisClient(getRedisConfig().url, (err) => {
+          logger.warn({ event: "stock-data.redis.error", err });
+        }),
     },
     {
       provide: STOCK_DATA_CACHE,
@@ -205,6 +208,7 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     },
     StockDataRedisLifecycle,
   ],
-  exports: [STOCK_DATA_SERVICE, SECURITY_CATALOG_SERVICE],
+  // The Redis client is exported for the readiness probe only; no feature module reads it.
+  exports: [STOCK_DATA_SERVICE, SECURITY_CATALOG_SERVICE, STOCK_DATA_REDIS],
 })
 export class StocksModule {}

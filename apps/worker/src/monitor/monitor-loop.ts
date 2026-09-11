@@ -3,7 +3,10 @@ import {
   type StructuredLogger,
 } from "@intrinsic/observability";
 import type { MonitorCycle } from "./monitor-cycle.js";
-import type { MonitorScanRepository } from "./scan-repository.js";
+import type {
+  ClaimedMonitorScan,
+  MonitorScanRepository,
+} from "./scan-repository.js";
 
 export type MonitorWorkerLoopOptions = {
   /** Stable identity of this process, written as `claimedBy` on every cycle it claims. */
@@ -67,7 +70,7 @@ export class MonitorWorkerLoop {
         continue;
       }
 
-      await this.executeCycle(claim.cycleSequence);
+      await this.executeCycle(claim.cycleSequence, claim.takenOverFrom);
     }
   }
 
@@ -88,10 +91,23 @@ export class MonitorWorkerLoop {
     this.wake?.();
   }
 
-  private async executeCycle(cycleSequence: number): Promise<void> {
+  private async executeCycle(
+    cycleSequence: number,
+    takenOverFrom?: string,
+  ): Promise<void> {
     this.leaseLost = false;
     this.startHeartbeat();
     const startedAt = Date.now();
+    if (takenOverFrom) {
+      // The previous holder stopped heartbeating and its lease expired: it crashed, hung, or was
+      // killed mid-cycle. The cycle is re-run from durable state, so nothing is lost — but the
+      // death itself must be named, or a crash loop reads as a healthy cadence.
+      this.logger.warn({
+        event: "monitor.cycle.recovered",
+        cycleSequence,
+        takenOverFrom,
+      });
+    }
     this.logger.info({ event: "monitor.cycle.claimed", cycleSequence });
 
     try {
@@ -113,6 +129,19 @@ export class MonitorWorkerLoop {
         // and stays due, so the next process continues rather than waiting out an interval.
         await this.releaseUnstarted(cycleSequence);
         return;
+      }
+      const durationMs = Date.now() - startedAt;
+      if (durationMs > this.options.scanIntervalMs) {
+        // The interval is measured from the end of a cycle, so a cycle slower than the interval
+        // never overlaps the next one — it silently turns the cadence into "as fast as possible"
+        // instead. That is the one capacity signal an operator cannot derive from a single line,
+        // so it is named here rather than left as arithmetic over `monitor.cycle.completed`.
+        this.logger.warn({
+          event: "monitor.cycle.over-cadence",
+          cycleSequence,
+          durationMs,
+          scanIntervalMs: this.options.scanIntervalMs,
+        });
       }
       await this.release(cycleSequence, this.nowPlus(this.options.scanIntervalMs));
     } catch (err) {
@@ -248,7 +277,7 @@ export class MonitorWorkerLoop {
     }
   }
 
-  private async claimDueScan(): Promise<{ cycleSequence: number } | null> {
+  private async claimDueScan(): Promise<ClaimedMonitorScan | null> {
     try {
       return await this.repository.claimDueScan(
         this.options.workerId,
