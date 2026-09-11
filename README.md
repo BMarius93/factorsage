@@ -195,7 +195,7 @@ Default URLs:
 
 - Web: `http://localhost:3000`
 - API: `http://localhost:3001`
-- API health: `http://localhost:3001/health`
+- API liveness: `http://localhost:3001/health` (static); readiness: `http://localhost:3001/health/ready` (probes PostgreSQL and Redis, `503` when either fails; the provider is never probed)
 - PostgreSQL: `localhost:5432`
 - Redis: `localhost:6379`
 

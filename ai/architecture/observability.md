@@ -130,3 +130,21 @@ Use `debug` for cache hits, row counts, ranges, retry detail, and other high-car
 ## Event evolution
 
 Treat event names and standard field names as operational contracts. Rename them deliberately because dashboards, searches, alerts, tests, and support procedures may rely on them.
+
+## Monitor worker and readiness
+
+The Monitor worker's lifecycle is one event family, `monitor.cycle.*`: `claimed`, `completed`
+(with `durationMs`, `monitors`, `symbols`, `evaluations`, `signalsEmitted`, `signalsResolved`,
+`notEvaluable`, `transitionsUnchanged`, `transitionsContended`), `failed`, `failure-recorded`,
+`recovered`, `lease-lost`, `abandoned`, `released`, and `over-cadence` — a `warn` emitted when a
+completed cycle ran longer than `MONITOR_SCAN_INTERVAL_MS`, which is the one capacity signal an
+operator cannot read off a single line otherwise. Provider trouble in the cycle is
+`monitor.current-data.failed` carrying the FMP error class (`FmpRateLimitError`,
+`FmpTransientError`, `FmpProviderError`); a single security's data failure is
+`monitor.symbol.failed` and does not fail the cycle. The durable `MonitorScanSchedule` row
+(`lastCompletedAt`, `consecutiveFailures`, `lastError`, `dueAt`, `heartbeatAt`) is the source of
+truth for "is scanning alive", independent of any log pipeline.
+
+The API exposes `GET /health` (liveness, static) and `GET /health/ready` (PostgreSQL and Redis
+probes with a bounded timeout, `503` with per-dependency detail when either fails; the provider is
+deliberately never probed). See `production-capacity.md` for what the numbers mean under load.

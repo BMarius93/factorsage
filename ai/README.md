@@ -15,6 +15,9 @@ For substantial work:
 7. `architecture/deep-discovery.md` when the question is "what does the system actually
    guarantee here?" — verified end-to-end behaviour, invariants, open product decisions, and the
    behaviours that look wrong but are deliberate.
+8. `architecture/production-capacity.md` when the question is "what does this cost, where does it
+   stop being cheap, what should an operator watch?" — measured on the production code path, with
+   the benchmark harness and the environment the numbers came from.
 
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
