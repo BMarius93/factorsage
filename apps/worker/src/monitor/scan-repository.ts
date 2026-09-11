@@ -53,11 +53,18 @@ export interface MonitorScanRepository {
     now: Date;
     nextDueAt: Date;
   }): Promise<boolean>;
-  /** Records a failed cycle and schedules a retry after the backoff. */
+  /**
+   * Records a failed cycle and schedules a retry, backing off as failures repeat.
+   *
+   * `backoffMs` is the first retry's delay and `maxBackoffMs` its ceiling, so a transient blip is
+   * retried promptly while a persistent outage settles to the ceiling instead of re-issuing the
+   * whole universe's provider work every minute.
+   */
   failScan(input: {
     workerId: string;
     now: Date;
-    nextDueAt: Date;
+    backoffMs: number;
+    maxBackoffMs: number;
     error: string;
   }): Promise<boolean>;
   /**
@@ -195,25 +202,43 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
     return released.count === 1;
   }
 
+  /**
+   * Records the failure and schedules the retry in one statement.
+   *
+   * The delay doubles per consecutive failure up to the ceiling, computed from the counter as it is
+   * incremented so the two cannot disagree. That counter existed before and nothing read it, which
+   * made every retry equally eager: a provider outage re-issued the entire monitored universe's
+   * quote request on the retry interval — five times more often than the normal scan cadence —
+   * through the request gate a Monitor cycle is explicitly not allowed to exhaust.
+   *
+   * Raw SQL because the delay derives from the pre-update value of a column in the same write.
+   */
   async failScan(input: {
     workerId: string;
     now: Date;
-    nextDueAt: Date;
+    backoffMs: number;
+    maxBackoffMs: number;
     error: string;
   }): Promise<boolean> {
-    const updated = await this.prisma.monitorScanSchedule.updateMany({
-      where: { id: MONITOR_SCAN_SCHEDULE_ID, claimedBy: input.workerId },
-      data: {
-        dueAt: input.nextDueAt,
-        claimedBy: null,
-        claimedAt: null,
-        leaseExpiresAt: null,
-        heartbeatAt: null,
-        consecutiveFailures: { increment: 1 },
-        lastError: input.error,
-      },
-    });
-    return updated.count === 1;
+    const updated = await this.prisma.$executeRaw`
+      UPDATE "MonitorScanSchedule"
+      SET "consecutiveFailures" = "consecutiveFailures" + 1,
+          "dueAt" = ${input.now} + make_interval(secs =>
+            LEAST(
+              ${input.backoffMs}::double precision
+                * POWER(2, LEAST("consecutiveFailures", 16)),
+              ${input.maxBackoffMs}::double precision
+            ) / 1000),
+          "claimedBy" = NULL,
+          "claimedAt" = NULL,
+          "leaseExpiresAt" = NULL,
+          "heartbeatAt" = NULL,
+          "lastError" = ${input.error},
+          "updatedAt" = ${input.now}
+      WHERE "id" = ${MONITOR_SCAN_SCHEDULE_ID}
+        AND "claimedBy" = ${input.workerId}
+    `;
+    return updated === 1;
   }
 
   /**

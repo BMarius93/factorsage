@@ -67,7 +67,13 @@ follows that:
   crossing true on exactly one date, and a backtest over the same closed bar would record one event;
 - for the same reason, an intraday move back across the boundary does not end a trigger Signal. A
   Trigger is an event, so the condition lifecycle below does not apply to it: its Signal is active
-  for the session it fired in and is closed when a later session is observed.
+  for the session it fired in and is closed when a later session is **actually observed**.
+
+**Only a real current observation advances that lifetime.** A cycle that produced no observation —
+a weekend, a holiday, a symbol the provider did not price — has observed no session, so it closes
+nothing. The wall-clock date is not a session: a Friday crossing must still be active on Saturday,
+and is closed by Monday's observation, not by Sunday arriving. A `NOT_EVALUABLE` caused by missing
+current data therefore carries **no** observation date at all rather than a synthetic one.
 
 The `false -> true -> true -> false` state table applies to **condition-only** signals, which
 describe a state that genuinely ends and begins again.
@@ -159,14 +165,22 @@ a wrong Signal.
   shared stock-data cache, whose resident set is bounded. A monitored universe larger than that bound
   re-hydrates symbols from durable storage each cycle. This is a throughput limitation. Do not
   redesign Redis or add a Monitor-specific cache for it.
-- **Exchange holidays.** The product has no exchange trading calendar. The provider's own quote date
-  is used as the observation date, so an ordinary weekend quote still carries the previous session's
-  date, and a weekend date is refused outright. A market holiday cannot be detected; the residual is
-  one duplicate-priced observation on such a day. Do not add an exchange-calendar subsystem for it.
+- **Exchange holidays.** The product has no exchange trading calendar. The observation date is the
+  trading day the provider's own quote timestamp falls in, resolved in the exchange's timezone — V1
+  admits only NASDAQ, NYSE and AMEX, which share one clock, so that resolution is exact rather than
+  approximate (see `ai/architecture/monitor-engine.md`). A weekend date is refused outright. A
+  market *holiday* cannot be detected. On such a day the residual is a duplicate-priced observation,
+  and because it is dated later than the previous session it also **ends a Trigger Signal that fired
+  on the previous session** and can, by shifting a rolling window by one observation, raise one.
+  Accepted for V1; do not add an exchange-calendar subsystem for it.
+- **A quote is refused rather than trusted** when it is older than the configured maximum age, when
+  it is dated in a session later than the cycle's own, or when its timestamp cannot be read. Each of
+  those would otherwise fabricate an observation.
 - **Current-data failure is all-or-nothing.** If the current-data read for a cycle fails, the cycle
-  fails or is delayed rather than evaluating part of the universe. Correctness comes first: partial
-  cycles are not a V1 concept. Persisted Monitor state and latches are preserved, so a failed cycle
-  changes nothing and the next one continues.
+  **fails** — it is not absorbed and completed as if it had evaluated something. Partial cycles are
+  not a V1 concept. The failure takes the worker's normal failure and retry path, so it is recorded
+  as a failure and retried after a backoff rather than counted as a successful scan. Nothing is
+  persisted before that point, so every durable latch is preserved and the next cycle continues.
 
 ## Source-of-truth boundaries
 

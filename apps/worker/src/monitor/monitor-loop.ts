@@ -225,11 +225,19 @@ export class MonitorWorkerLoop {
 
   private async failCycle(cycleSequence: number, err: unknown): Promise<void> {
     try {
-      await this.repository.failScan({
+      const recorded = await this.repository.failScan({
         workerId: this.options.workerId,
         now: this.now(),
-        nextDueAt: this.nowPlus(this.options.retryBackoffMs),
+        backoffMs: this.options.retryBackoffMs,
+        // A persistent outage settles at the normal cadence rather than retrying faster than a
+        // healthy cycle would run.
+        maxBackoffMs: this.options.scanIntervalMs,
         error: err instanceof Error ? err.message : String(err),
+      });
+      this.logger.debug({
+        event: "monitor.cycle.failure-recorded",
+        cycleSequence,
+        recorded,
       });
     } catch (releaseError) {
       this.logger.error({

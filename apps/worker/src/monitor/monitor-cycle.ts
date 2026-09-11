@@ -5,6 +5,7 @@ import {
 } from "@intrinsic/contracts";
 import {
   isBuyWindowEligible,
+  tradingSessionDate,
   type LocalDate,
   type Security,
   type SecurityId,
@@ -25,7 +26,9 @@ import { mapWithConcurrency } from "../shared/concurrency.js";
 import {
   signalStateKey,
   type ActiveMonitor,
+  type MonitorObservation,
   type MonitorRepository,
+  type SignalTransitionWrite,
   type PersistedSignalState,
 } from "./monitor-repository.js";
 
@@ -89,9 +92,11 @@ export type MonitorCycleSummary = {
   notEvaluable: number;
   /** Symbols with no usable current quote. Every Monitor watching one is NOT_EVALUABLE. */
   symbolsWithoutCurrentData: number;
-  /** Symbols with no usable persisted history at all; every predicate is NOT_EVALUABLE. */
+  /**
+   * Symbols the cycle could build no evaluable snapshot for: no persisted history, a weekend-dated
+   * observation, or a price the provider could not give. Every predicate is NOT_EVALUABLE.
+   */
   symbolsWithoutSnapshot: number;
-  currentDataFailed: boolean;
   /** Transitions a concurrent cycle applied first. Persistently non-zero means overlapping cycles. */
   transitionsContended: number;
   /** Evaluations that repeated the recorded outcome and needed no write at all. */
@@ -136,7 +141,6 @@ export class MonitorCycle {
       notEvaluable: 0,
       symbolsWithoutCurrentData: 0,
       symbolsWithoutSnapshot: 0,
-      currentDataFailed: false,
       transitionsContended: 0,
       transitionsUnchanged: 0,
       aborted: false,
@@ -191,20 +195,26 @@ export class MonitorCycle {
     const now = this.now();
     const asOf = toLocalDate(now);
 
-    // One current-data request for the whole cycle. A failure here is not a match and not an error
-    // the cycle dies on: every symbol is left without a current observation and therefore reports
-    // NOT_EVALUABLE, which leaves every durable latch exactly as it was.
-    let observations = new Map<SecurityId, CurrentObservation>();
+    // One current-data request for the whole cycle, and it is all-or-nothing: a failure fails the
+    // cycle rather than being absorbed into it. `ai/product/monitors.md` makes partial cycles a
+    // non-concept for V1, and absorbing the failure would be worse than it looks — it would record
+    // a successful scan, mark every Monitor scanned, reset the schedule's failure counter and wait
+    // a full interval, having evaluated nothing. Failing hands the cycle to the worker's retry
+    // path with the backoff and failure history that exist for exactly this. Nothing has been
+    // persisted at this point, so every durable latch is untouched.
+    let observations: Map<SecurityId, CurrentObservation>;
     try {
       observations = await this.data.getCurrentObservations(securities);
     } catch (err) {
-      summary.currentDataFailed = true;
       this.logger.error({
         event: "monitor.current-data.failed",
         cycleSequence,
         symbols: securities.length,
         err,
       });
+      // Rethrown unchanged: the provider's own error is the diagnosis, and replacing it would
+      // discard the classification the FMP layer already made.
+      throw err;
     }
 
     const snapshots = new Map<SecurityId, SymbolSnapshot>();
@@ -215,11 +225,11 @@ export class MonitorCycle {
         const operands = [
           ...(operandsBySecurity.get(security.id) ?? new Set<OperandKey>()),
         ].sort();
-        const observation = this.usableObservation(
+        const resolved = this.resolveObservation(
           observations.get(security.id),
           now,
         );
-        if (!observation) {
+        if (!resolved) {
           // No current observation means the evaluation a Monitor is defined to make cannot be
           // made. It is reported as NOT_EVALUABLE rather than decided from closed history, so an
           // outage leaves every durable latch exactly as it was.
@@ -230,11 +240,8 @@ export class MonitorCycle {
         const snapshot = await this.loadSymbolSnapshot({
           security,
           operands,
-          observation,
-          // The quote's own trading date, not the cycle's calendar day: the provider is the
-          // authority on which session it is pricing, and using the wall clock would append a
-          // provisional bar on a day the market never opened.
-          observationDate: observationDateOf(observation, asOf),
+          observation: resolved.observation,
+          observationDate: resolved.date,
           asOf,
           cycleSequence,
         });
@@ -366,27 +373,32 @@ export class MonitorCycle {
       for (const level of levels) {
         const previous =
           states.get(signalStateKey(member.securityId, level.id)) ?? null;
-        const outcome = this.evaluateLevel(snapshot, level, member, now);
+        const outcome = this.evaluateLevel(snapshot, level, member);
         if (outcome.result === "NOT_EVALUABLE") {
           summary.notEvaluable += 1;
         }
         summary.evaluations += 1;
 
+        const base = {
+          monitorId: monitor.monitorId,
+          securityId: member.securityId,
+          levelId: level.id,
+          levelKind: level.kind,
+          strategyVersionId: monitor.strategyVersionId,
+          signalFingerprint: strategySignalFingerprint(level.signal),
+          hasTrigger: level.signal.trigger !== undefined,
+          now,
+          previous,
+        };
+        // Split so the type carries the rule: a decided outcome always has its observation, and
+        // only `NOT_EVALUABLE` may have none.
+        const write: SignalTransitionWrite =
+          outcome.result === "NOT_EVALUABLE"
+            ? { ...base, outcome: "NOT_EVALUABLE", observation: outcome.observation }
+            : { ...base, outcome: outcome.result, observation: outcome.observation };
+
         try {
-          const applied = await this.repository.applyTransition({
-            monitorId: monitor.monitorId,
-            securityId: member.securityId,
-            levelId: level.id,
-            levelKind: level.kind,
-            strategyVersionId: monitor.strategyVersionId,
-            signalFingerprint: strategySignalFingerprint(level.signal),
-            hasTrigger: level.signal.trigger !== undefined,
-            outcome: outcome.result,
-            observationDate: outcome.observationDate,
-            observationPrice: outcome.observationPrice,
-            now,
-            previous,
-          });
+          const applied = await this.repository.applyTransition(write);
           if (!applied.applied) {
             // A concurrent cycle moved this state first and nothing was written. Counting it makes
             // overlapping cycles visible instead of silent.
@@ -414,7 +426,7 @@ export class MonitorCycle {
               levelId: level.id,
               levelKind: level.kind,
               hasTrigger: level.signal.trigger !== undefined,
-              observationDate: outcome.observationDate,
+              observationDate: outcome.observation?.date ?? null,
             });
           }
           summary.signalsResolved += applied.resolvedSignalIds.length;
@@ -479,34 +491,34 @@ export class MonitorCycle {
     snapshot: SymbolSnapshot | undefined,
     level: { id: string; kind: string; signal: Parameters<typeof evaluateSignalWithoutPosition>[0] },
     member: { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[] },
-    now: Date,
-  ): {
-    result: "MATCHED" | "NOT_MATCHED" | "NOT_EVALUABLE";
-    observationDate: LocalDate;
-    observationPrice: number;
-  } {
+  ):
+    | { result: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation }
+    // Only an undecidable evaluation may lack an observation: a decided one is decided *from* one.
+    | { result: "NOT_EVALUABLE"; observation: MonitorObservation | null } {
     const frame = snapshot?.frame;
     if (!frame) {
-      return {
-        result: "NOT_EVALUABLE",
-        observationDate: toLocalDate(now),
-        observationPrice: 0,
-      };
+      // Deliberately no observation, rather than the wall-clock day and a zero price.
+      //
+      // A synthetic date is not merely cosmetic here: it is a *session*, and a session is what
+      // advances a Trigger Signal's lifetime. Naming today when the market never opened — a
+      // weekend, a holiday, or simply a cycle with no quote — would close a Friday crossing on
+      // Saturday, having observed nothing at all. Only a real observation may advance it.
+      return { result: "NOT_EVALUABLE", observation: null };
     }
 
-    const context = {
-      observationDate: frame.observationDate,
-      observationPrice: frame.observationPrice,
+    const observation: MonitorObservation = {
+      date: frame.observationDate,
+      price: frame.observationPrice,
     };
 
     if (
       level.kind === "BUY" &&
       !isBuyWindowEligible(
         { mode: member.buyWindowMode, ranges: member.buyWindows },
-        frame.observationDate,
+        observation.date,
       )
     ) {
-      return { result: "NOT_MATCHED", ...context };
+      return { result: "NOT_MATCHED", observation };
     }
 
     const evaluability = evaluateSignalWithoutPosition(
@@ -521,36 +533,48 @@ export class MonitorCycle {
           : evaluability === Evaluability.FALSE
             ? "NOT_MATCHED"
             : "NOT_EVALUABLE",
-      ...context,
+      observation,
     };
   }
 
   /**
-   * A quote is usable only if it is recent enough to be "current".
+   * The observation to evaluate this symbol on, with the trading session it belongs to.
    *
-   * A stale quote is dropped rather than trusted: evaluating yesterday's price as today's
-   * provisional observation would be a fabricated bar, and reporting NOT_EVALUABLE is the honest
-   * alternative. A quote the provider gave no timestamp for is accepted — the provider is
-   * answering now — because failing closed on a missing optional field would stop monitoring for
-   * every symbol whose feed omits it.
+   * Three ways a quote is refused, and none of them fabricate anything:
+   *
+   * - **Too old.** A stale quote presented as the current observation would be a fabricated bar.
+   * - **Dated after the cycle's own session.** A provider clock that is wrong, or a timestamp in
+   *   the wrong unit, would otherwise name a session that has not happened — and a session is what
+   *   advances a Trigger Signal's lifetime. The bound is the session, not the millisecond: a
+   *   timestamp slightly ahead of this process's clock inside the same session is ordinary skew and
+   *   names the right session anyway, so it is accepted.
+   * - **Unreadable.** A timestamp that will not parse gives no session, so there is nothing to
+   *   date the observation with.
+   *
+   * A provider that reports no timestamp at all is taken at its word — it is answering now — and
+   * the cycle's own session is used. Failing closed there would stop monitoring for every symbol
+   * whose feed omits the field.
    */
-  private usableObservation(
+  private resolveObservation(
     observation: CurrentObservation | undefined,
     now: Date,
-  ): CurrentObservation | null {
+  ): { observation: CurrentObservation; date: LocalDate } | null {
     if (!observation) {
       return null;
     }
+    const cycleSession = tradingSessionDate(now);
     if (observation.quotedAt === undefined) {
-      return observation;
+      return { observation, date: cycleSession };
     }
     const quotedAt = Date.parse(observation.quotedAt);
     if (!Number.isFinite(quotedAt)) {
       return null;
     }
-    return now.getTime() - quotedAt <= this.options.quoteMaxAgeMs
-      ? observation
-      : null;
+    if (now.getTime() - quotedAt > this.options.quoteMaxAgeMs) {
+      return null;
+    }
+    const date = tradingSessionDate(new Date(quotedAt));
+    return date > cycleSession ? null : { observation, date };
   }
 }
 
@@ -559,23 +583,4 @@ function toLocalDate(value: Date): LocalDate {
   return value.toISOString().slice(0, 10);
 }
 
-/**
- * The trading date a quote belongs to.
- *
- * The provider's own timestamp is preferred over the cycle's wall clock: on a Saturday the clock
- * says "today" while the quote is still pricing Friday's session, and trusting the clock would
- * append a provisional bar to a day the market never opened. A provider that reports no timestamp
- * falls back to the cycle's day, which is the best available answer.
- */
-function observationDateOf(
-  observation: CurrentObservation,
-  asOf: LocalDate,
-): LocalDate {
-  if (observation.quotedAt === undefined) {
-    return asOf;
-  }
-  const quotedAt = Date.parse(observation.quotedAt);
-  return Number.isFinite(quotedAt)
-    ? new Date(quotedAt).toISOString().slice(0, 10)
-    : asOf;
-}
+

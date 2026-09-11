@@ -51,8 +51,13 @@ export type PersistedSignalState = {
   lastTriggerSignalDate: LocalDate | null;
 };
 
-/** What one evaluation decided, and everything persisting the transition needs. */
-export type SignalTransitionWrite = {
+/** One current observation: the trading session it belongs to and the price it carried. */
+export type MonitorObservation = {
+  date: LocalDate;
+  price: number;
+};
+
+type SignalTransitionBase = {
   monitorId: string;
   securityId: string;
   levelId: string;
@@ -62,13 +67,25 @@ export type SignalTransitionWrite = {
   /** The level's own logic fingerprint: what decides whether the latched state still applies. */
   signalFingerprint: string;
   hasTrigger: boolean;
-  outcome: MonitorEvaluationOutcome;
-  observationDate: LocalDate;
-  observationPrice: number;
   now: Date;
   /** The state this transition was decided against, or null when there was none. */
   previous: PersistedSignalState | null;
 };
+
+/**
+ * What one evaluation decided, and everything persisting the transition needs.
+ *
+ * The observation is optional only for `NOT_EVALUABLE`, and the split is the point: a decided
+ * outcome is decided *from* an observation, so "matched, but we do not know on what" is made
+ * unrepresentable rather than merely avoided. A `NOT_EVALUABLE` with no observation is the honest
+ * shape of "there was nothing to evaluate" — no session, no price, and so nothing that may advance
+ * a Trigger Signal's lifetime.
+ */
+export type SignalTransitionWrite = SignalTransitionBase &
+  (
+    | { outcome: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation }
+    | { outcome: "NOT_EVALUABLE"; observation: MonitorObservation | null }
+  );
 
 export type SignalTransitionResult = {
   /** False when a concurrent cycle moved this state first; nothing was written. */
@@ -329,7 +346,10 @@ export class PrismaMonitorRepository implements MonitorRepository {
     const eventSessionToClose =
       write.hasTrigger &&
       previous?.activeSignalId != null &&
-      previous.lastTriggerSignalDate !== write.observationDate;
+      closesEventSession(
+        previous.lastTriggerSignalDate,
+        write.observation?.date ?? null,
+      );
     if (
       previous &&
       !stale &&
@@ -347,15 +367,27 @@ export class PrismaMonitorRepository implements MonitorRepository {
     const isEvent = write.hasTrigger;
     /** Whether an event has already fired for the session being observed. */
     const firedThisObservation =
-      latch?.lastTriggerSignalDate === write.observationDate;
+      write.observation !== null &&
+      latch?.lastTriggerSignalDate === write.observation.date;
     /**
-     * An event's Signal belongs to the session it fired in, so it is closed as soon as a *different*
-     * session is observed — including one this cycle cannot decide. Tying it to today's outcome
-     * instead would leave a fired crossing open indefinitely through an outage, and would keep
-     * rewriting the row every cycle because the condition that triggers the write never clears.
+     * An event's Signal belongs to the session it fired in, and is closed once a **later** session
+     * is observed — including one whose predicates this cycle cannot decide. Tying it to today's
+     * outcome instead would leave a fired crossing open indefinitely through an outage.
+     *
+     * A cycle with no observation observes no session and so closes nothing: a weekend or a
+     * provider outage is not a later session, and treating the wall clock as one would end a Friday
+     * crossing that nothing has superseded. A market *holiday* is not distinguishable without a
+     * trading calendar, which V1 does not have — an accepted limitation recorded in
+     * `ai/product/monitors.md`, not a rule enforced here.
      */
     const supersededEventSignalId =
-      isEvent && !firedThisObservation ? (latch?.activeSignalId ?? null) : null;
+      isEvent &&
+      closesEventSession(
+        latch?.lastTriggerSignalDate ?? null,
+        write.observation?.date ?? null,
+      )
+        ? (latch?.activeSignalId ?? null)
+        : null;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -414,6 +446,8 @@ export class PrismaMonitorRepository implements MonitorRepository {
           };
         }
 
+        // The union guarantees a decided outcome carries its observation.
+        const observation = write.observation as MonitorObservation;
         const matched = write.outcome === "MATCHED";
         const wasMatched = latch?.lastEvaluableResult === "MATCHED";
         // An unknown previous state counts as not matched. That is what makes the first evaluation
@@ -453,8 +487,8 @@ export class PrismaMonitorRepository implements MonitorRepository {
               levelKind: write.levelKind,
               strategyVersionId: write.strategyVersionId,
               hasTrigger: write.hasTrigger,
-              observationDate: toDate(write.observationDate),
-              observationPrice: write.observationPrice,
+              observationDate: toDate(observation.date),
+              observationPrice: observation.price,
               detectedAt: write.now,
             },
             select: { id: true },
@@ -468,19 +502,22 @@ export class PrismaMonitorRepository implements MonitorRepository {
           lastEvaluableResult: matched
             ? MonitorEvaluableResult.MATCHED
             : MonitorEvaluableResult.NOT_MATCHED,
-          lastEvaluableDate: toDate(write.observationDate),
+          lastEvaluableDate: toDate(observation.date),
           lastEvaluableAt: write.now,
           lastOutcome: write.outcome,
           lastOutcomeAt: write.now,
           // A newly emitted Signal becomes the active one. Otherwise: an event keeps the Signal it
           // fired this session and drops one from an earlier session; a condition keeps its Signal
           // while it stays matched and drops it when it does not.
+          // Cleared only when the Signal it points at is actually resolved. An event observed on an
+          // *earlier* session keeps its pointer: clearing it there would orphan a live Signal that
+          // nothing closed.
           activeSignalId: emits
             ? emittedSignalId
             : isEvent
-              ? firedThisObservation
-                ? undefined
-                : null
+              ? supersededEventSignalId
+                ? null
+                : undefined
               : matched
                 ? undefined
                 : null,
@@ -488,8 +525,8 @@ export class PrismaMonitorRepository implements MonitorRepository {
           // the session being observed, so a stale date can never suppress a later crossing.
           lastTriggerSignalDate:
             emits && isEvent
-              ? toDate(write.observationDate)
-              : isEvent && firedThisObservation && !stale
+              ? toDate(observation.date)
+              : isEvent && !supersededEventSignalId && !stale
                 ? undefined
                 : null,
         };
@@ -558,6 +595,29 @@ export class PrismaMonitorRepository implements MonitorRepository {
     }
     return result;
   }
+}
+
+/**
+ * Whether the session being observed ends an event Signal that fired in `firedSession`.
+ *
+ * **Later, not merely different.** A quote may legitimately name an *earlier* session than the one
+ * already recorded — a thinly traded symbol whose provider timestamp is the previous session's last
+ * trade is inside the staleness window and dates the observation to that session. Comparing with
+ * inequality would close the Signal on that older reading and let the next cycle re-emit the same
+ * crossing as a second Signal, which is exactly what the once-per-session rule exists to prevent.
+ *
+ * No observation means no session was observed, so nothing closes. An active Signal with no fired
+ * session is an inconsistent row — the two always move together — and the next real observation
+ * cleans it up rather than leaving it open forever.
+ */
+function closesEventSession(
+  firedSession: LocalDate | null,
+  observedSession: LocalDate | null,
+): boolean {
+  if (observedSession === null) {
+    return false;
+  }
+  return firedSession === null || observedSession > firedSession;
 }
 
 /** Closes Signals, guarded on still being unresolved so a redelivery cannot move a resolution. */

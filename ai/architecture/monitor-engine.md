@@ -248,8 +248,11 @@ is not: it silently swaps the observation a Monitor is defined to evaluate for a
 outage would resolve live matches and re-emit them on recovery. Reporting "not decidable" leaves
 every durable latch untouched, which is what makes an outage invisible rather than destructive.
 
-Current-data failure is all-or-nothing for a cycle. Partial cycles are not a V1 concept: a failed
-read fails or delays the cycle, state is preserved, and the next cycle continues.
+Current-data failure is all-or-nothing for a cycle. Partial cycles are not a V1 concept: the read
+happens before anything is persisted, and a failure is rethrown so the cycle takes the worker's
+failure and retry path — recorded as a failure, backed off, retried — rather than being absorbed
+into a cycle that then completes normally, marks every Monitor scanned and resets the schedule's
+failure history having evaluated nothing. Every durable latch is preserved.
 
 ## V1 implementation priorities
 
@@ -278,6 +281,26 @@ Implementation is incomplete without tests covering at minimum:
 - persistence/migration behavior for any newly introduced durable Monitor state.
 
 Run the repository's canonical validation gate from `ai/workflows/validation.md` and add targeted integration tests against real PostgreSQL/Redis infrastructure where existing project testing conventions require it.
+
+## Observation dates and the exchange clock
+
+The observation date is the trading day the provider's quote timestamp falls in, resolved through
+`tradingSessionDate` in `@intrinsic/domain` — **not** the UTC day and not the wall clock.
+
+That resolution is exact, not approximate, and the reason is the admission table: V1 admits only
+NASDAQ, NYSE and AMEX (`SUPPORTED_EXCHANGE_CURRENCIES`), all US venues on one clock, whose regular
+and extended sessions run 04:00–20:00 local and never cross local midnight. Deriving the day in UTC
+would be wrong for part of the year — 19:00–20:00 New York time is already past midnight UTC under
+EST, so a Monday-evening quote would name Tuesday, and a Friday-evening one Saturday.
+
+This is a timezone, not a trading calendar: it says which calendar day an instant belongs to and
+nothing about whether that day was a session. `security-universe.test.ts` pins the supported set
+against the claim, so admitting a venue on another clock fails a test rather than silently
+mis-dating its observations — at which point the question has to be answered again, deliberately.
+
+**A cycle with no observation advances nothing.** A `NOT_EVALUABLE` caused by missing current data
+carries no observation at all, so it cannot close a Trigger Signal: a weekend, a holiday or an
+unpriced symbol is not a later session, and only a real one ends an event's lifetime.
 
 ## Accepted V1 limitations
 

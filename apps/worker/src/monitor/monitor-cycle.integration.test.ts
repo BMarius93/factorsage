@@ -63,7 +63,6 @@ class FixtureLoader implements MonitorDataLoader {
   currentPrice: number | null = null;
   currentDataError: Error | null = null;
   quotedAt: string | undefined = undefined;
-  observationDate = "2026-03-02";
 
   prepareCalls: string[] = [];
   frameCalls: string[] = [];
@@ -123,13 +122,16 @@ class FixtureLoader implements MonitorDataLoader {
     this.frameCalls.push(input.security.id);
     this.lastRequestedOperands.set(input.security.id, input.operands);
     const prices = this.prices.get(input.security.id) ?? [];
+    // The date the cycle computed, not one the fixture picks. Substituting here would make the
+    // session-dating half of production unobservable: deriving the observation date in UTC instead
+    // of the exchange's own clock would not fail a single test in this file.
     return projectMonitorEvaluationFrame({
       security: input.security,
       prices,
       derived: [],
       operands: input.operands,
       observation: input.observation,
-      observationDate: this.observationDate,
+      observationDate: input.observationDate,
     });
   }
 
@@ -310,11 +312,30 @@ async function createMonitor(input: {
   return { monitorId: monitor.id, strategyId: strategy.id };
 }
 
-function cycleOf(loader: MonitorDataLoader): MonitorCycle {
+/**
+ * 10:00 New York on Monday 2026-03-02 — a regular session, after the last bar `flatHistory` writes.
+ *
+ * Every cycle runs on an injected clock rather than the wall clock, so a test names a session by
+ * moving time and the cycle derives the observation date exactly as production does. Reading the
+ * real clock instead would make the suite's behaviour depend on the day it is run — and on a
+ * Saturday the weekend guard would refuse every provisional bar.
+ */
+const SESSION_ONE = new Date("2026-03-02T15:00:00.000Z");
+
+function cycleOf(
+  loader: MonitorDataLoader,
+  now: Date = SESSION_ONE,
+): MonitorCycle {
   return new MonitorCycle(repository, loader, logger, {
     symbolConcurrency: 4,
     quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
+    now: () => now,
   });
+}
+
+/** The same clock time on a later day, for driving a session rollover. */
+function sessionOn(date: string): Date {
+  return new Date(`${date}T15:00:00.000Z`);
 }
 
 async function signalsOf(monitorId: string) {
@@ -593,11 +614,16 @@ describe("monitor evaluation cycle", () => {
 
     // A restart: a brand-new repository and cycle, so every byte of process memory the first one
     // held is gone. Only PostgreSQL carries anything forward — which is the point.
+    // Same session, so the only thing that could re-emit is forgotten state — which is the point.
     const restarted = new MonitorCycle(
       new PrismaMonitorRepository(prisma),
       loader,
       logger,
-      { symbolConcurrency: 4, quoteMaxAgeMs: 4 * 24 * 60 * 60_000 },
+      {
+        symbolConcurrency: 4,
+        quoteMaxAgeMs: 4 * 24 * 60 * 60_000,
+        now: () => SESSION_ONE,
+      },
     );
     loader.currentPrice = 160;
     await restarted.run(nextCycle());
@@ -654,7 +680,7 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(1);
   });
 
-  it("treats a provider failure as NOT_EVALUABLE without ending or repeating a match", async () => {
+  it("fails the cycle when the current-data read fails, changing nothing", async () => {
     const userId = await createUser();
     const security = await createSecurity(`FMP${suffix.slice(0, 4)}`);
     const { monitorId } = await createMonitor({
@@ -670,26 +696,26 @@ describe("monitor evaluation cycle", () => {
     loader.currentPrice = 150;
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
+    const scannedAt = (
+      await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } })
+    ).lastScanAt;
 
-    // The provider is down. The cycle has no current observation, so it cannot decide the
-    // evaluation a Monitor is defined to make — and must not decide a different one instead.
+    // A failed current-data read is all-or-nothing: it must reach the worker's failure and retry
+    // path rather than be absorbed into a cycle that then records itself as a successful scan
+    // having evaluated nothing.
     loader.currentDataError = new Error("provider unavailable");
-    const failed = await cycle.run(nextCycle());
-    expect(failed.currentDataFailed).toBe(true);
-    expect(failed.notEvaluable).toBe(1);
+    await expect(cycle.run(nextCycle())).rejects.toThrow(
+      "provider unavailable",
+    );
 
-    // The live match is still active: an outage neither ended it nor re-emitted it on recovery.
-    let signals = await signalsOf(monitorId);
+    // And it changed nothing: the live match is untouched and no scan was recorded.
+    const signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
     expect(signals[0]?.resolvedAt).toBeNull();
-
-    loader.currentDataError = null;
-    loader.currentPrice = 150;
-    await cycle.run(nextCycle());
-
-    signals = await signalsOf(monitorId);
-    expect(signals).toHaveLength(1);
-    expect(signals[0]?.resolvedAt).toBeNull();
+    expect(
+      (await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } }))
+        .lastScanAt?.toISOString(),
+    ).toBe(scannedAt?.toISOString());
   });
 
   it("is NOT_EVALUABLE for a symbol the provider returned no quote for", async () => {
@@ -797,8 +823,9 @@ describe("monitor evaluation cycle", () => {
 
     const [signal] = await signalsOf(monitorId);
     expect(Number(signal?.observationPrice)).toBe(150);
+    // The session the cycle derived from its own clock, in the exchange's timezone.
     expect(signal?.observationDate.toISOString().slice(0, 10)).toBe(
-      loader.observationDate,
+      "2026-03-02",
     );
     // Both remain Signals; `hasTrigger` only explains why this one exists.
     expect(signal?.hasTrigger).toBe(false);
@@ -919,11 +946,10 @@ describe("monitor evaluation cycle", () => {
     expect(signals[0]?.resolvedAt).toBeNull();
 
     // The next session, with no crossing on it. An event's Signal is active for the session it
-    // fired in, so a new observation date closes it rather than leaving every crossing ever fired
+    // fired in, so a later observed session closes it rather than leaving every crossing ever fired
     // on the active list.
-    loader.observationDate = "2026-03-03";
     loader.currentPrice = 90;
-    await cycle.run(nextCycle());
+    await cycleOf(loader, sessionOn("2026-03-03")).run(nextCycle());
 
     signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
@@ -1148,18 +1174,16 @@ describe("monitor evaluation cycle", () => {
     await cycle.run(nextCycle());
     expect(await signalsOf(monitorId)).toHaveLength(1);
 
-    // Session two: the provider is down all day, so nothing is decidable. NOT_EVALUABLE must not
-    // move the latch — and must not leave behind a state that swallows the next crossing.
-    loader.observationDate = "2026-03-03";
-    loader.currentDataError = new Error("provider unavailable");
-    await cycle.run(nextCycle());
+    // Session two: the provider returns no quote for this symbol, so nothing is decidable.
+    // NOT_EVALUABLE must not move the latch — and must not leave behind a state that swallows the
+    // next crossing.
+    loader.currentPrice = null;
+    await cycleOf(loader, sessionOn("2026-03-03")).run(nextCycle());
 
     // Session three: a genuine, canonical crossing on a new observation date. It must produce a
-    // Signal whatever the outage left behind.
-    loader.observationDate = "2026-03-04";
-    loader.currentDataError = null;
+    // Signal whatever the quiet session left behind.
     loader.currentPrice = 150;
-    await cycle.run(nextCycle());
+    await cycleOf(loader, sessionOn("2026-03-04")).run(nextCycle());
 
     const signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(2);
@@ -1234,6 +1258,139 @@ describe("monitor evaluation cycle", () => {
     expect(after.lastScanAt).not.toBeNull();
   });
 
+  it("leaves a Trigger Signal alone on a day no session was observed", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`WKD${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceCrossesAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+
+    // Friday: a crossing fires.
+    loader.currentPrice = 150;
+    await cycleOf(loader, sessionOn("2026-03-06")).run(nextCycle());
+    let signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // Saturday, and again on Sunday: the market never opened, so there is no quote and no session.
+    // A cycle that observed nothing must not end Friday's crossing — the wall clock is not a
+    // session, and treating it as one would close a Signal nothing superseded.
+    loader.currentPrice = null;
+    await cycleOf(loader, sessionOn("2026-03-07")).run(nextCycle());
+    await cycleOf(loader, sessionOn("2026-03-08")).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // Monday: a real later session is observed, and only now is Friday's crossing closed.
+    loader.currentPrice = 90;
+    await cycleOf(loader, sessionOn("2026-03-09")).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).not.toBeNull();
+  });
+
+  it("does not let a quote from a later session than the cycle's own be used", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`FUT${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    // A provider clock that is wrong, or a timestamp in the wrong unit. A negative age passes a
+    // bare `now - quotedAt <= maxAge` test, and the session it names has not happened.
+    loader.quotedAt = sessionOn("2026-04-15").toISOString();
+
+    const summary = await cycleOf(loader).run(nextCycle());
+
+    expect(summary.symbolsWithoutCurrentData).toBe(1);
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+  });
+
+  it("keeps a Trigger Signal when an older session is observed, and does not re-emit it", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`OLD${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceCrossesAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    const prices = flatHistory(security.id, 100);
+    loader.prices.set(security.id, prices);
+    loader.currentPrice = 150;
+
+    // Monday: the provider has no trade for this symbol yet, so no timestamp. The cycle dates the
+    // observation to its own session and the crossing fires.
+    await cycleOf(loader).run(nextCycle());
+    let signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.resolvedAt).toBeNull();
+    const firedId = signals[0]?.id;
+
+    // Minutes later the provider populates the timestamp from the symbol's last trade — the
+    // previous session's close. That is well inside the staleness window, so it is accepted and
+    // dates the observation to the EARLIER session. It is not a later session, so it must neither
+    // close the crossing nor let the next cycle raise it again as a second Signal.
+    const lastClosed = prices[prices.length - 1]!.date;
+    loader.quotedAt = `${lastClosed}T21:00:00.000Z`;
+    await cycleOf(loader).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.id).toBe(firedId);
+    expect(signals[0]?.resolvedAt).toBeNull();
+
+    // And back to no timestamp: still one Signal, still the original.
+    loader.quotedAt = undefined;
+    await cycleOf(loader).run(nextCycle());
+
+    signals = await signalsOf(monitorId);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.id).toBe(firedId);
+    expect(signals[0]?.resolvedAt).toBeNull();
+  });
+
+  it("dates an observation by the exchange session, not the UTC day", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`TZN${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: priceAboveSmaDefinition(),
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    // 19:30 New York on Monday 2026-03-02 — already Tuesday in UTC. The session is Monday's, and
+    // dating the observation in UTC would name a session that has not started.
+    loader.quotedAt = "2026-03-03T00:30:00.000Z";
+    expect(loader.quotedAt.slice(0, 10)).toBe("2026-03-03");
+
+    await cycleOf(loader, new Date("2026-03-03T00:35:00.000Z")).run(
+      nextCycle(),
+    );
+
+    const [signal] = await signalsOf(monitorId);
+    expect(signal?.observationDate.toISOString().slice(0, 10)).toBe(
+      "2026-03-02",
+    );
+  });
+
   it("does not double-emit when the same transition is applied twice", async () => {
     const userId = await createUser();
     const security = await createSecurity(`CNC${suffix.slice(0, 4)}`);
@@ -1252,8 +1409,7 @@ describe("monitor evaluation cycle", () => {
       signalFingerprint: "fingerprint-a",
       hasTrigger: false,
       outcome: "MATCHED" as const,
-      observationDate: "2026-03-02",
-      observationPrice: 150,
+      observation: { date: "2026-03-02", price: 150 },
       now: new Date(),
       previous: null,
     };
@@ -1284,8 +1440,7 @@ describe("monitor evaluation cycle", () => {
       levelId: "buy-1",
       levelKind: "BUY" as const,
       hasTrigger: false,
-      observationDate: "2026-03-02",
-      observationPrice: 150,
+      observation: { date: "2026-03-02", price: 150 },
     };
 
     const first = await repository.applyTransition({
@@ -1338,8 +1493,7 @@ describe("monitor evaluation cycle", () => {
       levelKind: "BUY" as const,
       signalFingerprint: "unchanged-level",
       hasTrigger: false,
-      observationDate: "2026-03-02",
-      observationPrice: 150,
+      observation: { date: "2026-03-02", price: 150 },
     };
 
     const first = await repository.applyTransition({

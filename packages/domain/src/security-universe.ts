@@ -1,4 +1,4 @@
-import type { Security } from "./stock-data.js";
+import type { LocalDate, Security } from "./stock-data.js";
 
 /**
  * The exchanges whose listings this product supports, mapped to the currency they quote in.
@@ -21,6 +21,45 @@ export type SupportedExchangeCode = keyof typeof SUPPORTED_EXCHANGE_CURRENCIES;
 export const SUPPORTED_EXCHANGE_CODES = Object.keys(
   SUPPORTED_EXCHANGE_CURRENCIES,
 ) as readonly SupportedExchangeCode[];
+
+/**
+ * The timezone the supported venues trade in.
+ *
+ * Every exchange in {@link SUPPORTED_EXCHANGE_CURRENCIES} is a US venue on the same clock, so one
+ * timezone names the trading session of any instant: NASDAQ, NYSE and AMEX all run 09:30–16:00
+ * local with extended hours 04:00–20:00, and none of those cross local midnight. **That is what
+ * makes this exact rather than approximate.**
+ *
+ * It is a timezone, not a trading calendar: it says which calendar day an instant belongs to, and
+ * nothing about whether that day is a session. Deriving the day in UTC instead would be wrong for
+ * part of the year — 19:00–20:00 New York time is already past midnight UTC under EST, so a quote
+ * from a Monday evening would name Tuesday.
+ *
+ * `security-universe.test.ts` pins the supported set against this claim, so admitting a venue on
+ * another clock fails a test rather than silently mis-dating its observations.
+ */
+export const SUPPORTED_EXCHANGE_TIMEZONE = "America/New_York" as const;
+
+const SESSION_DATE_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: SUPPORTED_EXCHANGE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/**
+ * The trading day an instant belongs to, as a canonical `YYYY-MM-DD` product date.
+ *
+ * Pure: it reads no clock, only the instant it is given. It answers "which session's calendar day
+ * is this?" and deliberately not "was the market open?" — that would need a holiday calendar, which
+ * this product does not have.
+ */
+export function tradingSessionDate(instant: Date): LocalDate {
+  const parts = SESSION_DATE_FORMAT.formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((candidate) => candidate.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 
 /**
  * A candidate row from a bulk provider universe, before this product decides whether it belongs in
