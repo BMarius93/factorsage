@@ -43,6 +43,21 @@ async function bootstrap() {
   });
 }
 
+/**
+ * A rejection or exception nothing caught is fatal — Node already exits on it — but without these
+ * handlers the only record is an unstructured stack trace on stderr, invisible to a log query. The
+ * failure is logged through the same structured logger as everything else, and the process still
+ * exits so an orchestrator restarts it rather than serving from an unknown state.
+ */
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.fatal({ event: "api.unhandled-rejection", err: reason });
+  process.exit(1);
+});
+process.on("uncaughtException", (err: unknown) => {
+  logger.fatal({ event: "api.uncaught-exception", err });
+  process.exit(1);
+});
+
 void bootstrap().catch((err: unknown) => {
   logger.fatal({ event: "api.bootstrap.failed", err });
   process.exitCode = 1;
