@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { ApiError } from "../../lib/api/client";
 import forms from "./forms.module.css";
 import { Modal } from "./Modal";
 
@@ -14,6 +15,21 @@ type ConfirmDialogProps = {
   readonly onClose: () => void;
 };
 
+/**
+ * A domain refusal is not a transient failure.
+ *
+ * Deleting a strategy or a stock list a monitor still references is refused with 409 and the
+ * product's own explanation — "This strategy is used by a monitor. Delete the monitor first."
+ * Reporting that as a connection problem would send the user to retry something that can never
+ * succeed, so the API's message is shown when it has one.
+ */
+function failureMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 409) {
+    return error.message;
+  }
+  return "That did not work. Check your connection and try again.";
+}
+
 /** Confirmation gate for a destructive action: deleting a list, a strategy, or a member row. */
 export function ConfirmDialog({
   title,
@@ -24,15 +40,15 @@ export function ConfirmDialog({
   onClose,
 }: ConfirmDialogProps) {
   const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
 
   const confirm = async () => {
     setPending(true);
-    setFailed(false);
+    setFailure(null);
     try {
       await onConfirm();
-    } catch {
-      setFailed(true);
+    } catch (caught) {
+      setFailure(failureMessage(caught));
       setPending(false);
     }
   };
@@ -41,9 +57,9 @@ export function ConfirmDialog({
     <Modal title={title} onClose={onClose} testId="confirm-dialog">
       <div className={forms.form}>
         <div>{body}</div>
-        {failed ? (
+        {failure ? (
           <p className={forms.error} role="alert">
-            That did not work. Check your connection and try again.
+            {failure}
           </p>
         ) : null}
         <div className={forms.actions}>

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type {
-  StrategyDefinition,
-  StrategySignal,
+import {
+  normalizeStrategyDefinition,
+  type StrategyDefinition,
+  type StrategySignal,
 } from "@intrinsic/contracts";
 import { PrismaClient, SecurityType } from "@intrinsic/database";
 import type { DailyPrice, Security, SecurityId } from "@intrinsic/domain";
@@ -1689,6 +1690,7 @@ describe("monitor evaluation cycle", () => {
 
     const write = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,
@@ -1712,6 +1714,464 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(1);
   });
 
+  /**
+   * `Gain` and `Loss` are outside Monitor evaluation.
+   *
+   * A Monitor holds no position, no entry price and no cost basis, so those metrics are not part of
+   * what it evaluates — which is a different statement from "a Monitor metric that happens to be
+   * undecidable". A level depending on one is skipped: no Signal, and no transition state written as
+   * though an evaluation had been attempted. The Strategy is never rejected, and its other levels
+   * evaluate normally.
+   *
+   * Where they can appear is already fixed by the canonical grammar: `Gain` and `Loss` are refused
+   * in a BUY level because they depend on an open position, so they reach a Monitor only through
+   * SELL levels and FINAL EXIT. Every one of these fixtures goes through
+   * `normalizeStrategyDefinition`, so none of them can drift from what the product actually accepts.
+   */
+  describe("position-dependent levels", () => {
+    const gainAbove20 = {
+      id: "g1",
+      metric: { kind: "GAIN" as const },
+      operator: "IS_ABOVE" as const,
+      value: { kind: "PERCENT" as const, value: 20 },
+    };
+    const lossAbove10 = {
+      id: "l1",
+      metric: { kind: "LOSS" as const },
+      operator: "IS_ABOVE" as const,
+      value: { kind: "PERCENT" as const, value: 10 },
+    };
+    /** True for the fixtures below: current price 150 against a flat-100 history. */
+    const priceAboveEma = (id: string) => ({
+      id,
+      metric: { kind: "PRICE" as const },
+      operator: "IS_ABOVE" as const,
+      value: { kind: "SERIES" as const, seriesId: EMA_SERIES },
+    });
+    /** False for the same fixtures, so a BUY level can be kept quiet on purpose. */
+    const priceBelowEma = (id: string) => ({
+      id,
+      metric: { kind: "PRICE" as const },
+      operator: "IS_BELOW" as const,
+      value: { kind: "SERIES" as const, seriesId: EMA_SERIES },
+    });
+
+    /**
+     * A Strategy whose BUY level never fires and whose single SELL level is whatever is passed.
+     *
+     * The BUY level exists because the grammar requires one and refuses a position-dependent
+     * condition there; keeping it false leaves exactly one level able to emit, which is what makes
+     * the assertions below unambiguous.
+     */
+    function exitDefinition(
+      conditions: readonly object[],
+    ): StrategyDefinition {
+      return normalizeStrategyDefinition({
+        schemaVersion: 1,
+        buyLevels: [
+          {
+            id: "buy-1",
+            percentage: 100,
+            signal: { conditions: [priceBelowEma("c1")] },
+          },
+        ],
+        sellLevels: [
+          { id: "sell-1", percentage: 25, signal: { conditions: [...conditions] } },
+        ],
+      } as never);
+    }
+
+    /** Edits the live Strategy by appending the next version, as the API does. */
+    async function appendVersion(
+      strategyId: string,
+      definition: StrategyDefinition,
+    ): Promise<void> {
+      const latest = await prisma.strategyVersion.findFirstOrThrow({
+        where: { strategyId },
+        orderBy: { versionNumber: "desc" },
+        select: { versionNumber: true },
+      });
+      await prisma.strategyVersion.create({
+        data: {
+          strategyId,
+          versionNumber: latest.versionNumber + 1,
+          definition: definition as never,
+          definitionHash: randomUUID(),
+        },
+      });
+    }
+
+    /** A loader whose price makes `Price IS_ABOVE EMA` unambiguously true. */
+    function matchingLoader(security: Security): FixtureLoader {
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, flatHistory(security.id, 100));
+      loader.currentPrice = 150;
+      return loader;
+    }
+
+    it("writes neither a Signal nor state for a Gain level", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`GNA${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: exitDefinition([gainAbove20]),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      // Not even a NOT_EVALUABLE row: the level was never attempted.
+      expect(
+        await prisma.monitorSignalState.count({
+          where: { monitorId, levelId: "sell-1" },
+        }),
+      ).toBe(0);
+    });
+
+    it("writes neither a Signal nor state for a Loss level", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`LSA${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: exitDefinition([lossAbove10]),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      expect(
+        await prisma.monitorSignalState.count({
+          where: { monitorId, levelId: "sell-1" },
+        }),
+      ).toBe(0);
+    });
+
+    /**
+     * The whole level is excluded, not just the Gain condition.
+     *
+     * The fixture is chosen so the market half is unambiguously TRUE: if the level were partially
+     * evaluated, this would emit a Signal for `Price IS_ABOVE EMA` — a rule the user never wrote.
+     */
+    it("skips the whole level when Gain is ANDed with a matching price condition", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`MIX${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: exitDefinition([priceAboveEma("c2"), gainAbove20]),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      expect(
+        await prisma.monitorSignalState.count({
+          where: { monitorId, levelId: "sell-1" },
+        }),
+      ).toBe(0);
+    });
+
+    it("skips a level whose Trigger is position-dependent", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`TRG${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: normalizeStrategyDefinition({
+          schemaVersion: 1,
+          buyLevels: [
+            {
+              id: "buy-1",
+              percentage: 100,
+              signal: { conditions: [priceBelowEma("c1")] },
+            },
+          ],
+          sellLevels: [
+            {
+              id: "sell-1",
+              percentage: 25,
+              signal: {
+                conditions: [priceAboveEma("c2")],
+                trigger: {
+                  id: "t1",
+                  metric: { kind: "GAIN" },
+                  operator: "CROSSES_ABOVE",
+                  value: { kind: "PERCENT", value: 20 },
+                },
+              },
+            },
+          ],
+        } as never),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+    });
+
+    it("evaluates the supported level of a mixed Strategy and skips the position one", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`MXD${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: normalizeStrategyDefinition({
+          schemaVersion: 1,
+          buyLevels: [
+            {
+              id: "buy-1",
+              percentage: 100,
+              // True for this fixture, so the supported level does emit.
+              signal: { conditions: [priceAboveEma("c1")] },
+            },
+          ],
+          sellLevels: [
+            { id: "sell-1", percentage: 25, signal: { conditions: [gainAbove20] } },
+          ],
+        } as never),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      // Exactly one Signal, from the level a Monitor can actually decide.
+      const signals = await signalsOf(monitorId);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.levelId).toBe("buy-1");
+      expect(signals[0]?.levelKind).toBe("BUY");
+      // And exactly one state row: the SELL level left none behind.
+      const states = await prisma.monitorSignalState.findMany({
+        where: { monitorId },
+        select: { levelId: true },
+      });
+      expect(states.map((state) => state.levelId)).toEqual(["buy-1"]);
+    });
+
+    it("closes the active Signal when an edit makes a monitored level Gain-dependent", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`GDP${suffix.slice(0, 4)}`);
+      const { monitorId, strategyId } = await createMonitor({
+        userId,
+        definition: exitDefinition([priceAboveEma("c2")]),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+      const emitted = await signalsOf(monitorId);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.levelId).toBe("sell-1");
+      expect(emitted[0]?.resolvedAt).toBeNull();
+
+      // The user replaces that exit rule with a Gain one, keeping the level.
+      await appendVersion(strategyId, exitDefinition([gainAbove20]));
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      // The level is no longer part of what the Monitor walks, so it is reconciled exactly like a
+      // level removed from the Strategy: its Signal is closed rather than left active forever.
+      const afterEdit = await signalsOf(monitorId);
+      expect(afterEdit).toHaveLength(1);
+      expect(afterEdit[0]?.resolvedAt).not.toBeNull();
+      const state = await prisma.monitorSignalState.findFirstOrThrow({
+        where: { monitorId, levelId: "sell-1" },
+      });
+      expect(state.activeSignalId).toBeNull();
+    });
+
+    it("evaluates the level again once the edit is reversed", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RVS${suffix.slice(0, 4)}`);
+      const { monitorId, strategyId } = await createMonitor({
+        userId,
+        definition: exitDefinition([priceAboveEma("c2")]),
+        securities: [security],
+      });
+
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+      await appendVersion(strategyId, exitDefinition([gainAbove20]));
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      // Back to logic a Monitor can decide.
+      await appendVersion(strategyId, exitDefinition([priceAboveEma("c2")]));
+      await cycleOf(matchingLoader(security)).run(nextCycle());
+
+      // The match is live again. It is a second Signal, not the first one reopened: the run of
+      // matched evaluations was genuinely broken when the level stopped being monitored.
+      const signals = await signalsOf(monitorId);
+      expect(signals).toHaveLength(2);
+      expect(
+        signals.filter((signal) => signal.resolvedAt === null),
+      ).toHaveLength(1);
+    });
+  });
+
+  /**
+   * The rebind fence, from the worker's side.
+   *
+   * A cycle reads a Monitor's binding at its start and can commit a transition seconds later. In
+   * between, the user may point the Monitor at a different Strategy or Stock List — which resolves
+   * its active Signals and discards its transition state. Everything below asserts that an
+   * evaluation carrying the replaced binding writes nothing at all, and that the ordinary path
+   * still works when the binding has not moved.
+   */
+  describe("rebind fence", () => {
+    async function rebind(monitorId: string): Promise<void> {
+      // What `MonitorsService.rebindMonitor` does to the binding, without the API in the way.
+      await prisma.monitor.update({
+        where: { id: monitorId },
+        data: { configVersion: { increment: 1 }, lastScanAt: null },
+      });
+    }
+
+    it("discards a transition decided under a replaced binding", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBA${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      const write = {
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      };
+
+      // The user rebinds after the cycle read the Monitor but before it commits.
+      await rebind(monitorId);
+      const result = await repository.applyTransition(write);
+
+      expect(result.applied).toBe(false);
+      expect(result.staleConfiguration).toBe(true);
+      // This is the case `stateVersion` alone cannot catch: there was no state row to contend on,
+      // so without the fence the create path would have inserted one and emitted a Signal.
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      expect(
+        await prisma.monitorSignalState.count({ where: { monitorId } }),
+      ).toBe(0);
+    });
+
+    it("applies the same transition when the binding has not moved", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBB${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      const result = await repository.applyTransition({
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      });
+
+      expect(result.applied).toBe(true);
+      expect(result.staleConfiguration).toBeUndefined();
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+    });
+
+    it("does not stamp lastScanAt for a Monitor rebound mid-cycle", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBC${suffix.slice(0, 4)}`);
+      const stale = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+      const current = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      await rebind(stale.monitorId);
+      const now = new Date();
+      await repository.markScanned(
+        [
+          { monitorId: stale.monitorId, configVersion: 0 },
+          { monitorId: current.monitorId, configVersion: 0 },
+        ],
+        now,
+      );
+
+      // The rebound Monitor keeps the null its rebind set: its new configuration has not been
+      // checked, and the cycle that just finished was not checking it.
+      expect(
+        (
+          await prisma.monitor.findUniqueOrThrow({
+            where: { id: stale.monitorId },
+          })
+        ).lastScanAt,
+      ).toBeNull();
+      // The untouched Monitor in the same batch is stamped normally.
+      expect(
+        (
+          await prisma.monitor.findUniqueOrThrow({
+            where: { id: current.monitorId },
+          })
+        ).lastScanAt,
+      ).not.toBeNull();
+    });
+
+    it("does not sweep unvisited Signals using a replaced binding's universe", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBD${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      // A match exists under the old configuration.
+      await repository.applyTransition({
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      });
+      await rebind(monitorId);
+
+      // The old cycle finishes and reconciles with the universe it loaded. It must not act: the
+      // rebind owns closing those Signals, and it already did.
+      const resolved = await repository.resolveUnvisitedSignals({
+        monitorId,
+        configVersion: 0,
+        securityIds: [],
+        levelIds: [],
+        now: new Date(),
+      });
+      expect(resolved).toBe(0);
+    });
+  });
+
   it("resets state recorded under different level logic", async () => {
     const userId = await createUser();
     const security = await createSecurity(`VER${suffix.slice(0, 4)}`);
@@ -1723,6 +2183,7 @@ describe("monitor evaluation cycle", () => {
 
     const base = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,
@@ -1775,6 +2236,7 @@ describe("monitor evaluation cycle", () => {
 
     const base = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,

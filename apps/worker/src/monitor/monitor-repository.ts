@@ -22,6 +22,13 @@ export type ActiveMonitor = {
   name: string;
   actorUserId: string;
   strategyId: string;
+  /**
+   * The `(strategyId, stockListId)` generation this cycle loaded.
+   *
+   * Every durable write this cycle makes for the Monitor is conditioned on it, so an evaluation of
+   * a configuration the user has since replaced cannot land in the new one.
+   */
+  configVersion: number;
   /** The CURRENT version. A Monitor is live, so an edited Strategy changes what it watches. */
   strategyVersionId: string;
   /** The canonical normalized definition document, still unparsed: the cycle validates it. */
@@ -59,6 +66,8 @@ export type MonitorObservation = {
 
 type SignalTransitionBase = {
   monitorId: string;
+  /** The Monitor binding this evaluation was decided under. Verified before anything is written. */
+  configVersion: number;
   securityId: string;
   levelId: string;
   levelKind: MonitorLevelKind;
@@ -92,6 +101,12 @@ export type SignalTransitionResult = {
   applied: boolean;
   /** True when the evaluation repeated the recorded one and no write was needed. */
   unchanged?: boolean;
+  /**
+   * True when nothing was written because the Monitor was rebound to a different Strategy or Stock
+   * List after this cycle loaded it. The evaluation described a configuration that is no longer the
+   * Monitor's, so discarding it is the correct outcome rather than a failure.
+   */
+  staleConfiguration?: boolean;
   emittedSignalId: string | null;
   resolvedSignalIds: readonly string[];
 };
@@ -117,11 +132,19 @@ export interface MonitorRepository {
    */
   resolveUnvisitedSignals(input: {
     monitorId: string;
+    configVersion: number;
     securityIds: readonly string[];
     levelIds: readonly string[];
     now: Date;
   }): Promise<number>;
-  markScanned(monitorIds: readonly string[], now: Date): Promise<void>;
+  /**
+   * Records that these Monitors were evaluated, skipping any that has been rebound since the cycle
+   * loaded it — its new configuration has not been checked, so it must not be stamped as if it had.
+   */
+  markScanned(
+    monitors: readonly { monitorId: string; configVersion: number }[],
+    now: Date,
+  ): Promise<void>;
 }
 
 /** The key a `(securityId, levelId)` pair is looked up by inside one Monitor's state map. */
@@ -182,6 +205,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
         name: row.name,
         actorUserId: row.userId,
         strategyId: row.strategyId,
+        configVersion: row.configVersion,
         strategyVersionId: version.id,
         definition: version.definition,
         members: row.stockList.items.map((item) => ({
@@ -245,6 +269,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
    */
   async resolveUnvisitedSignals(input: {
     monitorId: string;
+    configVersion: number;
     securityIds: readonly string[];
     levelIds: readonly string[];
     now: Date;
@@ -276,25 +301,38 @@ export class PrismaMonitorRepository implements MonitorRepository {
     const signalIds = orphaned
       .map((row) => row.activeSignalId)
       .filter((id): id is string => id !== null);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.monitorSignalState.updateMany({
-        where: { id: { in: orphaned.map((row) => row.id) } },
-        data: {
-          activeSignalId: null,
-          lastEvaluableResult: MonitorEvaluableResult.NOT_MATCHED,
-          // `lastOutcome` moves with the latch. The no-op fast path in `applyTransition` compares
-          // outcomes while the emit decision reads the latch, so leaving the two disagreeing would
-          // wedge the row: a security removed while matching and later re-added would repeat its
-          // recorded outcome forever, skip the write every cycle, and never emit again.
-          lastOutcome: MonitorEvaluationOutcome.NOT_MATCHED,
-          // The fire date goes with the Signal it belongs to; a stale one would suppress a genuine
-          // crossing on the day a member is removed and re-added.
-          lastTriggerSignalDate: null,
-          stateVersion: { increment: 1 },
-        },
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // The visited set naming what to sweep belongs to the configuration this cycle loaded. If
+        // the Monitor has been rebound since, sweeping by it would resolve Signals against a
+        // Strategy and List that are no longer the Monitor's — and the rebind already resolved
+        // every active Signal itself.
+        await assertBindingCurrent(tx, input.monitorId, input.configVersion);
+        await tx.monitorSignalState.updateMany({
+          where: { id: { in: orphaned.map((row) => row.id) } },
+          data: {
+            activeSignalId: null,
+            lastEvaluableResult: MonitorEvaluableResult.NOT_MATCHED,
+            // `lastOutcome` moves with the latch. The no-op fast path in `applyTransition`
+            // compares outcomes while the emit decision reads the latch, so leaving the two
+            // disagreeing would wedge the row: a security removed while matching and later
+            // re-added would repeat its recorded outcome forever, skip the write every cycle, and
+            // never emit again.
+            lastOutcome: MonitorEvaluationOutcome.NOT_MATCHED,
+            // The fire date goes with the Signal it belongs to; a stale one would suppress a
+            // genuine crossing on the day a member is removed and re-added.
+            lastTriggerSignalDate: null,
+            stateVersion: { increment: 1 },
+          },
+        });
+        await resolveSignals(tx, signalIds, input.now);
       });
-      await resolveSignals(tx, signalIds, input.now);
-    });
+    } catch (error) {
+      if (error instanceof MonitorBindingChangedError) {
+        return 0;
+      }
+      throw error;
+    }
     return signalIds.length;
   }
 
@@ -389,12 +427,25 @@ export class PrismaMonitorRepository implements MonitorRepository {
         ? (latch?.activeSignalId ?? null)
         : null;
 
+    if (write.outcome === "NOT_EVALUABLE" && !previous) {
+      // Never evaluated and still not decidable. There is no latch to preserve and nothing a later
+      // evaluation could not derive, so this deliberately writes no row at all — and therefore
+      // opens no transaction and takes no lock. A Monitor whose symbols have no usable data yet
+      // reaches this for every level of every security, every cycle.
+      return NOTHING_WRITTEN;
+    }
+
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Everything below writes. Take the binding fence first, before any state or Signal row is
+        // touched, so a rebind that landed after this cycle read the Monitor is seen here — and so
+        // the lock order matches `rebindMonitor`, which locks the Monitor row before it touches
+        // state either.
+        await assertBindingCurrent(tx, write.monitorId, write.configVersion);
+
         if (write.outcome === "NOT_EVALUABLE") {
           if (!previous) {
-            // Never evaluated and still not decidable. There is no latch to preserve and nothing a
-            // later evaluation could not derive, so this deliberately writes no row at all.
+            // Already returned above; this narrows the type for the reads that follow.
             return NOTHING_WRITTEN;
           }
           if (!stale) {
@@ -555,6 +606,16 @@ export class PrismaMonitorRepository implements MonitorRepository {
         return { applied: true, emittedSignalId, resolvedSignalIds };
       });
     } catch (error) {
+      if (error instanceof MonitorBindingChangedError) {
+        // The Monitor was rebound while this cycle was evaluating the configuration it replaced.
+        // The transaction rolled back, so nothing this call created survives.
+        return {
+          applied: false,
+          staleConfiguration: true,
+          emittedSignalId: null,
+          resolvedSignalIds: [],
+        };
+      }
       if (
         error instanceof MonitorTransitionConflictError ||
         isBenignWriteRace(error)
@@ -577,14 +638,25 @@ export class PrismaMonitorRepository implements MonitorRepository {
    * and disabled Monitors would sink to the bottom purely because they are not being scanned.
    * `lastScanAt` is the column that carries this, and it is the only one that moves.
    */
-  async markScanned(monitorIds: readonly string[], now: Date): Promise<void> {
-    if (monitorIds.length === 0) {
+  async markScanned(
+    monitors: readonly { monitorId: string; configVersion: number }[],
+    now: Date,
+  ): Promise<void> {
+    if (monitors.length === 0) {
       return;
     }
+    // The binding is part of the predicate, so a Monitor rebound mid-cycle keeps the null
+    // `lastScanAt` its rebind set: the configuration it now names genuinely has not been checked,
+    // and stamping it here would make the detail page claim otherwise. One statement, no lock —
+    // the row either still matches the generation this cycle evaluated or it does not.
     await this.prisma.$executeRaw`
-      UPDATE "Monitor"
+      UPDATE "Monitor" AS m
       SET "lastScanAt" = ${now}
-      WHERE "id" = ANY(${[...monitorIds]}::text[])
+      FROM UNNEST(
+        ${monitors.map((entry) => entry.monitorId)}::text[],
+        ${monitors.map((entry) => entry.configVersion)}::int[]
+      ) AS scanned(id, config_version)
+      WHERE m."id" = scanned.id AND m."configVersion" = scanned.config_version
     `;
   }
 
@@ -633,6 +705,49 @@ async function resolveSignals(
     where: { id: { in: [...signalIds] }, resolvedAt: null },
     data: { resolvedAt: now },
   });
+}
+
+/**
+ * Asserts the Monitor is still on the binding this cycle loaded, and holds it there until the
+ * transaction ends.
+ *
+ * `stateVersion` alone is not enough. It guards a state row the cycle actually read, which covers
+ * an overlapping cycle moving the same row — but a rebind *deletes* those rows, so the very next
+ * evaluation of the replaced configuration finds no previous state, takes the create path, and
+ * would insert old-configuration state and emit an old-configuration Signal with nothing to
+ * contend against. The fence is on the Monitor itself, which is the thing that changed.
+ *
+ * `FOR SHARE` rather than a plain read: a rebind takes `FOR UPDATE` on the same row, so if one is
+ * in flight this waits for it and then sees the incremented generation, and if this gets there
+ * first the rebind waits until the transition has committed or rolled back. Under READ COMMITTED
+ * PostgreSQL re-checks the predicate against the updated row after a concurrent writer commits, so
+ * the losing side reads no row rather than a stale one.
+ */
+async function assertBindingCurrent(
+  tx: Prisma.TransactionClient,
+  monitorId: string,
+  configVersion: number,
+): Promise<void> {
+  const rows = await tx.$queryRaw<{ one: number }[]>`
+    SELECT 1 AS one
+    FROM "Monitor"
+    WHERE "id" = ${monitorId} AND "configVersion" = ${configVersion}
+    FOR SHARE
+  `;
+  if (rows.length !== 1) {
+    throw new MonitorBindingChangedError();
+  }
+}
+
+/**
+ * Raised inside the transaction when the Monitor no longer names the Strategy and Stock List this
+ * evaluation was decided against, so the write rolls back with everything it had created.
+ */
+class MonitorBindingChangedError extends Error {
+  constructor() {
+    super("Monitor was rebound to a different strategy or stock list");
+    this.name = "MonitorBindingChangedError";
+  }
 }
 
 /** Raised inside the transaction so a lost optimistic guard rolls the created Signal back with it. */

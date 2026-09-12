@@ -146,13 +146,28 @@ A BUY level is gated by that member's buy window at the observation date, throug
 `isBuyWindowEligible`; SELL and FINAL EXIT are not. That is the same rule the backtest day loop
 applies, read from the same function. See `ai/product/lists.md`.
 
-A Monitor holds no position, so `Gain` and `Loss` are `NOT_EVALUABLE` — the existing rule in
-`ai/product/strategies.md` for unavailable position state. `evaluateSignalWithoutPosition` in
-`@intrinsic/strategy` applies it by ANDing that evaluability into the canonical market result. It
-exists because `evaluateMarketSignal` deliberately *skips* position-dependent predicates so the
-backtest can AND them in against live position state afterwards: without supplying the missing
-operand's evaluability, the empty-conjunction rule would make a Gain/Loss-only Signal vacuously TRUE
-and every monitored symbol would match on every scan.
+A Monitor holds no position, so `Gain` and `Loss` are **not evaluated at all** — see
+`ai/product/monitors.md`. The exclusion lives in exactly one place: `monitorStrategyLevels` in
+`@intrinsic/strategy` does not return a level whose Signal is position-dependent, decided by
+`signalNeedsPositionState` over `isPositionDependentMetric`. There is no second list of metric names
+anywhere, and the level is dropped whole rather than having its offending predicate stripped.
+
+That one list is also the cycle's **visited set**, which is what makes the lifecycle fall out for
+free: an excluded level is unvisited, so `resolveUnvisitedSignals` closes any Signal it still had and
+resets its latch — the same reconciliation a level removed from the Strategy gets. Editing a level
+into position-dependent logic therefore closes its Signal on the next cycle instead of leaving it
+active forever, and editing it back makes it a level with a reset latch that evaluates normally.
+
+`evaluateSignalWithoutPosition` keeps its `NOT_EVALUABLE` guard for a position-dependent Signal even
+though the canonical path can no longer reach it. `evaluateMarketSignal` deliberately *skips*
+position-dependent predicates so the backtest can AND them in against live position state afterwards,
+so without that guard the empty-conjunction rule would make a Gain/Loss-only Signal vacuously TRUE
+and every monitored symbol would match on every scan. A caller that ever bypassed the filter gets
+`NOT_EVALUABLE` rather than that.
+
+The API applies the same list when it reports per-security status: a state row belonging to a level
+the current Strategy version no longer monitors is not allowed to decide a status, so a level edited
+into `Gain` cannot leave behind something that reads as a decided non-match.
 
 ## Strategy identity and state invalidation
 
@@ -161,6 +176,29 @@ pinned. Durable state is keyed on the **canonical fingerprint of its own level's
 (`strategySignalFingerprint` in `@intrinsic/contracts`, which shares its serialization with
 `strategyDefinitionFingerprint` so the two cannot disagree), never on the Strategy version. Keying on
 the version would reset every level on any edit and re-emit a Signal on each unchanged one.
+
+## Rebinding: the configuration fence
+
+A Monitor's `(strategyId, stockListId)` pair can be changed by its owner. `ai/product/monitors.md`
+owns what that means to the product; the mechanism is one column and one lock.
+
+`Monitor.configVersion` is incremented **only** when one of those two ids actually changes value —
+never by a rename or an enable/disable, neither of which invalidates anything a cycle evaluated. A
+cycle reads it with the rest of the Monitor and carries it into every durable write: the transition
+apply, the unvisited-Signal sweep, and the `lastScanAt` stamp. Each of those asserts the column still
+holds the value the cycle loaded, under `SELECT … FOR SHARE` on the Monitor row; the rebind takes
+`FOR UPDATE` on the same row first, before it touches state, so the two orders agree and cannot
+deadlock. A cycle that lost the race writes nothing and reports it, and the cycle summary counts it
+as `transitionsStaleConfiguration` rather than a contention or a failure.
+
+Why the existing `stateVersion` guard is not enough: it protects a state row the cycle read, which is
+exactly right for two overlapping cycles. A rebind *deletes* those rows, so the next evaluation of
+the replaced configuration finds no previous state and takes the create path — inserting state and
+emitting a Signal with nothing to contend against. The fence has to be on the thing that changed,
+which is the Monitor.
+
+A monotonic counter rather than comparing the two ids: rebinding away and back would otherwise
+present the same pair to an in-flight cycle whose state had already been discarded.
 
 ## Condition state versus trigger events
 

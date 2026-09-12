@@ -103,6 +103,12 @@ export type MonitorCycleSummary = {
   symbolsWithoutSnapshot: number;
   /** Transitions a concurrent cycle applied first. Persistently non-zero means overlapping cycles. */
   transitionsContended: number;
+  /**
+   * Transitions discarded because the user rebound the Monitor to a different Strategy or Stock
+   * List while this cycle was evaluating the configuration it replaced. Not an error: the
+   * evaluation described a configuration the Monitor no longer has.
+   */
+  transitionsStaleConfiguration: number;
   /** Evaluations that repeated the recorded outcome and needed no write at all. */
   transitionsUnchanged: number;
   /** True when the cycle stopped early: the lease was lost, or the process is shutting down. */
@@ -148,6 +154,7 @@ export class MonitorCycle {
       symbolsOutsideTradingSession: 0,
       symbolsWithoutSnapshot: 0,
       transitionsContended: 0,
+      transitionsStaleConfiguration: 0,
       transitionsUnchanged: 0,
       aborted: false,
     };
@@ -298,7 +305,7 @@ export class MonitorCycle {
       },
     );
 
-    const scanned: string[] = [];
+    const scanned: { monitorId: string; configVersion: number }[] = [];
     for (const { monitor, definition } of parsed) {
       if (isAborted()) {
         // Stopping between Monitors is safe: every transition is decided from durable state and
@@ -315,7 +322,10 @@ export class MonitorCycle {
         summary,
         cycleSequence,
       });
-      scanned.push(monitor.monitorId);
+      scanned.push({
+        monitorId: monitor.monitorId,
+        configVersion: monitor.configVersion,
+      });
     }
 
     await this.repository.markScanned(scanned, now);
@@ -427,6 +437,7 @@ export class MonitorCycle {
 
         const base = {
           monitorId: monitor.monitorId,
+          configVersion: monitor.configVersion,
           securityId: member.securityId,
           levelId: level.id,
           levelKind: level.kind,
@@ -446,11 +457,19 @@ export class MonitorCycle {
         try {
           const applied = await this.repository.applyTransition(write);
           if (!applied.applied) {
-            // A concurrent cycle moved this state first and nothing was written. Counting it makes
-            // overlapping cycles visible instead of silent.
-            summary.transitionsContended += 1;
+            // Nothing was written. Either a concurrent cycle moved this state first, or the
+            // Monitor was rebound and this evaluation belongs to the configuration it replaced.
+            // They are counted apart: overlapping cycles are an operational signal, a rebind is
+            // the user editing their Monitor.
+            if (applied.staleConfiguration) {
+              summary.transitionsStaleConfiguration += 1;
+            } else {
+              summary.transitionsContended += 1;
+            }
             this.logger.debug({
-              event: "monitor.transition.contended",
+              event: applied.staleConfiguration
+                ? "monitor.transition.stale-configuration"
+                : "monitor.transition.contended",
               cycleSequence: input.cycleSequence,
               monitorId: monitor.monitorId,
               symbol: member.symbol,
@@ -496,6 +515,7 @@ export class MonitorCycle {
     try {
       const resolved = await this.repository.resolveUnvisitedSignals({
         monitorId: monitor.monitorId,
+        configVersion: monitor.configVersion,
         securityIds: monitor.members.map((member) => member.securityId),
         levelIds: levels.map((level) => level.id),
         now,

@@ -13,12 +13,15 @@ import {
 } from "./monitor.js";
 
 /**
- * Evaluating a Strategy Signal with no position state.
+ * What a Monitor evaluates, and how it evaluates one level of it.
  *
- * The rule under test is `ai/product/strategies.md`'s own: a predicate is NOT_EVALUABLE when the
- * data, the previous trigger value **or the position state** it needs is unavailable. A Monitor has
- * no position, so Gain/Loss can never decide a match — and must never be allowed to vanish into the
- * empty-conjunction rule and report a vacuous TRUE.
+ * Two separate rules are under test. `monitorStrategyLevels` decides *which* levels a Monitor
+ * evaluates at all: `Gain` and `Loss` need position state a Monitor does not have, so a level
+ * depending on either is excluded whole — never partially evaluated, and never attempted and
+ * recorded as undecidable. `evaluateSignalWithoutPosition` then decides one of those levels, where
+ * `NOT_EVALUABLE` keeps its own meaning: a Monitor-supported metric whose input was unavailable.
+ *
+ * Backtests are unaffected; they evaluate Gain and Loss against live position state.
  */
 
 const EMA50 = "EMA_50D";
@@ -71,6 +74,33 @@ const gainAbove25: StrategySignal = {
       value: { kind: "PERCENT", value: 25 },
     },
   ],
+};
+
+const lossAbove10: StrategySignal = {
+  conditions: [
+    {
+      id: "c1",
+      metric: { kind: "LOSS" },
+      operator: "IS_ABOVE",
+      value: { kind: "PERCENT", value: 10 },
+    },
+  ],
+};
+
+/** `Price IS_ABOVE EMA50 AND Gain IS_ABOVE 25%` — the whole-level rule's worked example. */
+const priceAboveEmaAndGain: StrategySignal = {
+  conditions: [...priceAboveEma.conditions, ...gainAbove25.conditions],
+};
+
+/** A market-derived condition gated by a position-dependent Trigger. */
+const priceAboveEmaWithGainTrigger: StrategySignal = {
+  conditions: [...priceAboveEma.conditions],
+  trigger: {
+    id: "t1",
+    metric: { kind: "GAIN" },
+    operator: "CROSSES_ABOVE",
+    value: { kind: "PERCENT", value: 25 },
+  },
 };
 
 describe("signalNeedsPositionState", () => {
@@ -169,12 +199,88 @@ describe("monitorStrategyLevels", () => {
       finalExit: { id: "f1", signal: priceAboveEma },
     };
 
+    // The Gain SELL level is absent: a Monitor holds no position, so it is not part of what a
+    // Monitor evaluates. Everything else keeps the definition's own order.
     expect(monitorStrategyLevels(definition)).toEqual([
       { id: "b1", kind: "BUY", signal: priceAboveEma },
       { id: "b2", kind: "BUY", signal: priceCrossesAboveEma },
-      { id: "s1", kind: "SELL", signal: gainAbove25 },
       { id: "f1", kind: "FINAL_EXIT", signal: priceAboveEma },
     ]);
+  });
+
+  it("excludes a level whose condition is Gain or Loss", () => {
+    expect(
+      monitorStrategyLevels({
+        schemaVersion: 1,
+        buyLevels: [
+          { id: "b1", signal: gainAbove25, percentage: 50 },
+          { id: "b2", signal: lossAbove10, percentage: 50 },
+        ],
+        sellLevels: [],
+      }),
+    ).toEqual([]);
+  });
+
+  /**
+   * The whole level goes, not just the offending condition.
+   *
+   * Evaluating `Price IS_ABOVE EMA50` on its own is a different rule than the user wrote, and would
+   * emit Signals the Strategy never asked for.
+   */
+  it("excludes the whole level when Gain is ANDed with a market condition", () => {
+    const levels = monitorStrategyLevels({
+      schemaVersion: 1,
+      buyLevels: [{ id: "b1", signal: priceAboveEmaAndGain, percentage: 100 }],
+      sellLevels: [],
+    });
+
+    expect(levels).toEqual([]);
+    // Specifically: nothing resembling the market half survived on its own.
+    expect(levels.map((level) => level.signal)).not.toContainEqual(
+      priceAboveEma,
+    );
+  });
+
+  it("excludes a level whose Trigger is position-dependent", () => {
+    expect(
+      monitorStrategyLevels({
+        schemaVersion: 1,
+        buyLevels: [
+          { id: "b1", signal: priceAboveEmaWithGainTrigger, percentage: 100 },
+        ],
+        sellLevels: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("keeps the evaluable levels of a mixed strategy and drops only the rest", () => {
+    expect(
+      monitorStrategyLevels({
+        schemaVersion: 1,
+        buyLevels: [{ id: "b1", signal: priceAboveEma, percentage: 100 }],
+        sellLevels: [{ id: "s1", signal: gainAbove25, percentage: 25 }],
+      }),
+    ).toEqual([{ id: "b1", kind: "BUY", signal: priceAboveEma }]);
+  });
+
+  /**
+   * The degenerate case, for completeness of this function's own contract.
+   *
+   * A *valid* Strategy cannot actually reach it: the canonical grammar refuses `Gain` and `Loss` in
+   * a BUY level because they depend on an open position, and requires at least one BUY level — so
+   * every Strategy the product accepts has at least one Monitor-evaluable level. This asserts that
+   * the function still answers honestly for a document that got here another way, rather than
+   * falling back to returning everything.
+   */
+  it("returns nothing at all when every level is position-dependent", () => {
+    expect(
+      monitorStrategyLevels({
+        schemaVersion: 1,
+        buyLevels: [{ id: "b1", signal: gainAbove25, percentage: 100 }],
+        sellLevels: [{ id: "s1", signal: lossAbove10, percentage: 25 }],
+        finalExit: { id: "f1", signal: lossAbove10 },
+      }),
+    ).toEqual([]);
   });
 
   it("omits FINAL EXIT when the strategy has none", () => {

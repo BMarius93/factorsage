@@ -110,15 +110,51 @@ must still be able to report what it sees. This mirrors the backtest engine, whi
 
 ## SELL and FINAL EXIT without portfolio state
 
-A Monitor is **not** a portfolio tracker. It holds no position, no average cost and no lifecycle.
+A Monitor is **not** a portfolio tracker. It holds no position, no entry price, no average cost, no
+cost basis and no lifecycle.
 
 A SELL or FINAL EXIT Signal is still meaningful: it reports that the Strategy's exit logic matches
 current data for that symbol. Those levels are therefore evaluated and may produce Signals.
 
-Metrics that require position state — `Gain` and `Loss` — have nothing to be measured against, so
-they are `NOT_EVALUABLE` exactly as `ai/product/strategies.md` already specifies for unavailable
-position state. A Signal whose logic depends on them can never match. This is the existing rule
-applied, not a Monitor-specific exception.
+### `Gain` and `Loss` are outside Monitor evaluation
+
+`Gain` and `Loss` measure a position against its cost basis. A Monitor has neither, so they are **not
+Monitor-supported metrics**. This is deliberately *not* the same statement as "they are Monitor
+metrics that happen to return `NOT_EVALUABLE`":
+
+| | Meaning |
+| --- | --- |
+| `NOT_EVALUABLE` | a **Monitor-supported** metric whose market or derived input was unavailable — warm-up, missing history, no current quote |
+| Excluded | `Gain` and `Loss`, which a Monitor does not evaluate at all |
+
+A Strategy using them is **never rejected**, and neither is a Monitor over it. Creating, editing and
+rebinding all succeed, and no validation error is raised. What is narrower is only what the Monitor
+*evaluates*:
+
+- **A level whose logic depends on `Gain` or `Loss` is skipped whole.** It produces no Signal and
+  writes no transition state, because no evaluation of it was attempted.
+- **Never partially evaluated.** `Price < EMA200 AND Gain > 20%` does not become `Price < EMA200`.
+  That is a different rule than the user wrote, and monitoring it would emit Signals the Strategy
+  never asked for. The same holds when `Gain` or `Loss` appears in the level's Trigger.
+- **Every other level continues normally**, and decides the security's status on its own.
+
+Worked example:
+
+```text
+BUY  Price < EMA200      -> evaluated; matches or does not
+SELL Gain > 20%          -> skipped; never produces a Monitor Signal
+```
+
+The skipped level contributes nothing at all, so it cannot turn an otherwise-decided security into
+`NOT_EVALUABLE`.
+
+Where they can appear is already settled by `ai/product/strategies.md`: `Gain` and `Loss` are refused
+in a BUY level because they depend on an open position, and a Strategy must have at least one BUY
+level. **Every Strategy the product accepts therefore has at least one Monitor-evaluable level** — a
+Strategy that a Monitor could make no decision about at all cannot be constructed.
+
+Backtests are unaffected. They hold real simulated position state and continue to evaluate `Gain` and
+`Loss` through it, exactly as before.
 
 ## Lifecycle in one place
 
@@ -137,10 +173,27 @@ applied, not a Monitor-specific exception.
   changed have their state reset and their active Signal closed; unchanged levels continue.
 - **Edit the List.** Takes effect from the next cycle. A removed member's active Signals are
   resolved by that cycle; an added member is evaluated as new and may emit immediately.
+- **Rebind the Strategy or List.** Pointing the Monitor at a *different* Strategy or Stock List is
+  not the same operation as editing the contents of the ones it references. It crosses a
+  configuration boundary: the transition state is discarded, every Signal still active is resolved,
+  `lastScanAt` is cleared, and the new configuration is evaluated from the next cycle. Signal
+  history is kept. See "Rebinding a Monitor" below.
 - **Delete the Monitor.** Removes its transition state and its Signals with it. The Strategy and
   List it referenced are untouched.
 - **Delete the Strategy or List.** Refused while any Monitor references it. Delete the Monitor
   first.
+
+## Two different operations: editing contents, and rebinding
+
+These are deliberately separate, and conflating them is the mistake this section exists to prevent.
+
+| | What changes | What happens to state |
+| --- | --- | --- |
+| **Editing the referenced Strategy or List** | its rules, or its membership | live from the next cycle; only levels whose own logic changed are reset, and removed members' Signals are resolved |
+| **Rebinding the Monitor** | *which* Strategy or List it references | a configuration boundary: all transition state discarded, all active Signals resolved, `lastScanAt` cleared |
+
+The first needs no request against the Monitor at all. The second is `PATCH /monitors/:id` with a
+different `strategyId` or `stockListId`.
 
 ## Strategy mutability
 
@@ -157,6 +210,49 @@ through their net effect on each level's id and logic. Editing one level appends
 other, unchanged level — doing so would re-emit a Signal on each of them for a match that never
 stopped. A level whose logic genuinely changed no longer describes what its state latched, so that
 state is reset and any Signal still active under the old logic is closed.
+
+## Rebinding a Monitor
+
+A user may point an existing Monitor at a different Strategy or a different Stock List. They do not
+have to delete it and start again, and the Signal history it accumulated is not the price of
+changing their mind.
+
+What makes this more than a column update is that the Monitor's durable state is *about* the
+configuration it was evaluating. A `MonitorSignalState` row latches the result of one level of one
+Strategy for one member of one List. Once either reference moves, that row describes something the
+Monitor no longer evaluates. So a rebind:
+
+- **resolves every Signal still active.** They stop being current, which they are not. A Signal that
+  was active under the replaced configuration is closed with the rebind's timestamp.
+- **keeps every Signal row.** A Signal is a record of what was observed, and observations are not
+  invalidated by a later configuration change. Nothing is deleted.
+- **discards the transition state.** No latch from the replaced configuration can decide an edge in
+  the new one, and no fingerprint coincidence between two Strategies can silently carry one across.
+- **clears `lastScanAt`.** The configuration the Monitor now names has not been checked. Reporting
+  the previous one's scan time would be a claim about work that never happened.
+- **evaluates the new configuration from the next cycle.** A match under the new rules is emitted
+  then, as a new Signal, because that is when it was first observed.
+
+Rebinding away and back is two boundaries, not a round trip: the state discarded by the first is not
+restored by the second, and the next cycle re-establishes it from persisted history.
+
+### A scan already running cannot land in the new configuration
+
+A cycle loads a Monitor's binding when it starts and may commit a transition seconds later, so a
+rebind can land in between. Nothing about the ordering is left to timing: the Monitor carries a
+`configVersion` that only a rebind increments, the cycle carries the value it loaded, and every
+durable write the cycle makes for that Monitor is conditioned on the column still holding it.
+
+The write takes the Monitor row's lock before touching state, and a rebind takes it first as well,
+so the two serialize rather than interleave — across worker processes, since the fence is a row in
+PostgreSQL and not process state. A cycle that loses the race writes nothing: no state row, no
+Signal, and no `lastScanAt`. Its evaluation described a configuration the Monitor no longer has, so
+discarding it is the correct outcome and is recorded as such rather than as a failure.
+
+The per-state optimistic `stateVersion` guard is **not** sufficient on its own and is not what does
+this. It protects a row the cycle actually read, which covers two overlapping cycles; a rebind
+deletes those rows, so the next evaluation of the replaced configuration would find no previous
+state, take the create path, and have nothing to contend against.
 
 ## Deleting a Strategy or Stock List a Monitor uses
 
@@ -219,8 +315,9 @@ trading-day axis) are identical. The differences are the observation, not the la
   could differ by design; nothing else can.
 - **Weekly series and intrinsic values are carried forward** from the newest closed derived row —
   neither can change intraday — where a backtest reads each day's own row.
-- **Position-dependent metrics** (`Gain`, `Loss`) are `NOT_EVALUABLE` for a Monitor and live for a
-  backtest.
+- **Position-dependent metrics** (`Gain`, `Loss`) are **excluded** from Monitor evaluation and live
+  for a backtest: a Monitor skips the whole level that uses one, where a backtest decides it against
+  simulated position state.
 - **The last day of a backtest ending today may itself be an in-progress bar**, because the
   provider's EOD feed already lists the current session while it is open (see
   `ai/product/backtests.md`).
@@ -257,8 +354,16 @@ a wrong Signal.
 - **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
   100 Signals and nothing pages further back; older rows are durable but not yet addressable
   through the API. Pagination is a contract addition for the web slice, not a redesign.
-- **The web surface is not built.** Monitor V1 shipped as API and worker; the Monitors route is a
-  placeholder until the web slice lands.
+- **Signal history on the web is the newest 100 and is labelled as such.** The Monitor page lists
+  what `GET /monitors/:id` returns and says so when it is at the cap, rather than implying a
+  lifetime history. Paging further back is the contract addition the previous point describes.
+- **"Not evaluable" and "not checked" are inferred where the state table cannot distinguish them.**
+  A cycle that cannot decide a level it has never decided before deliberately persists no row, so
+  the two look identical in `MonitorSignalState`. The detail response separates them using the two
+  facts that do differ — whether the Monitor has ever completed a cycle, and whether the security
+  joined the List after the last one. A security whose every evaluation has been `NOT_EVALUABLE`
+  since before the last cycle is therefore reported as not evaluable, which is what it is; the
+  inference cannot report either of them as a decided non-match.
 - **The monitored universe is not capped.** A Stock List has a per-request add limit but no total
   size, so one very large monitored List sets the cycle's provider, hydration and memory cost.
   Backtests cap a run at `BACKTEST_MAX_SECURITIES`; Monitors have no equivalent yet, and adding

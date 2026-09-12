@@ -79,8 +79,13 @@ Monitor reuses the canonical Strategy language but evaluates it against current 
 loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
 transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
 Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1. Monitor V1
-shipped as API (`apps/api/src/monitors`) and worker (`apps/worker/src/monitor`); the web route is
-still a placeholder and is the open slice.
+shipped as API (`apps/api/src/monitors`), worker (`apps/worker/src/monitor`) and web
+(`apps/web/src/features/monitors`). The web slice manages monitors and presents one: the collection
+is a summary, and `/monitors/[monitorId]` carries the configuration, the current status of every
+monitored security, and the newest Signals. A Monitor may also be **rebound** to a different
+Strategy or Stock List — a configuration boundary, fenced against an in-flight cycle by
+`Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
+semantics.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.
@@ -146,6 +151,8 @@ Backtest run
 Monitor (user-owned)
   |
   +-- live Strategy reference (no pinned version) + live StockList reference + enabled
+  |   (both references may be rebound; doing so discards transition state, resolves active
+  |    Signals, clears lastScanAt and keeps Signal history)
   +-- cadence, lease and retry are application configuration, never user input
   +-- deleting a referenced Strategy or StockList is refused while the Monitor exists
   +-- evaluates every BUY / SELL / FINAL EXIT level against current data (closed history

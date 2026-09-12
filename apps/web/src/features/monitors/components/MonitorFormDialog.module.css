@@ -1,0 +1,112 @@
+.loading {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.notice {
+  padding: 14px 16px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-surface);
+  background: var(--color-warning-soft);
+}
+
+.noticeTitle {
+  margin: 0 0 6px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.noticeBody {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.noticeLinks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.select {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.select:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+}
+
+.select[aria-invalid="true"] {
+  border-color: var(--color-negative);
+}
+
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-soft);
+}
+
+.checkbox {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.checkLabel {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-body);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.checkHint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+@media (max-width: 599px) {
+  .noticeLinks {
+    flex-direction: column;
+  }
+
+  .noticeLinks > * {
+    width: 100%;
+  }
+}
+
+/* Shown only once the selection has actually moved, so it reads as a consequence rather than a
+   standing warning. */
+.rebindNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  color: var(--color-text-body);
+  background: var(--color-primary-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}

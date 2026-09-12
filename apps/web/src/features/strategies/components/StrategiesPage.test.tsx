@@ -2,6 +2,7 @@ import type { StrategySummaryResponse } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../lib/api/client";
 import {
   deleteStrategy,
   fetchStrategies,
@@ -114,6 +115,36 @@ describe("StrategiesPage", () => {
     await user.click(screen.getByRole("button", { name: "Delete strategy" }));
     await waitFor(() => expect(deleteStrategyMock).toHaveBeenCalledWith("s1"));
     await waitFor(() => expect(screen.queryByText("Doomed")).toBeNull());
+  });
+
+  /**
+   * A strategy a monitor still watches cannot be deleted: `Monitor.strategyId` is `onDelete:
+   * Restrict` and the API answers 409 with what to do about it. Reporting that as a connection
+   * problem would send the user to retry something that can never succeed.
+   */
+  it("shows the domain refusal when a monitor still uses the strategy", async () => {
+    const user = userEvent.setup();
+    fetchStrategiesMock.mockResolvedValue([summary("s1", "Watched")]);
+    deleteStrategyMock.mockRejectedValue(
+      new ApiError(
+        409,
+        "This strategy is used by a monitor. Delete the monitor first.",
+      ),
+    );
+    render(<StrategiesPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: "Delete strategy" }));
+
+    expect(
+      await screen.findByText(
+        "This strategy is used by a monitor. Delete the monitor first.",
+      ),
+    ).toBeDefined();
+    // The refusal held, so the strategy is still in the collection.
+    expect(screen.getByTestId("strategies-grid").textContent).toContain(
+      "Watched",
+    );
   });
 
   it("offers a retry when the collection cannot be loaded", async () => {

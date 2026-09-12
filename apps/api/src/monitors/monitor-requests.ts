@@ -26,7 +26,7 @@ function rejectUnknownKeys(
   for (const key of Object.keys(record)) {
     if (!allowed.includes(key)) {
       throw new BadRequestException(
-        `Invalid request: \`${key}\` is not part of a monitor. A monitor is a strategy, a stock list and whether it is enabled; monitoring cadence is not configurable.`,
+        `Invalid request: \`${key}\` is not part of a monitor. A monitor is a name, a strategy, a stock list and whether it is enabled; monitoring cadence is not configurable.`,
       );
     }
   }
@@ -88,16 +88,27 @@ export function parseCreateMonitorRequest(
 export type ParsedUpdateMonitorRequest = {
   name?: string;
   enabled?: boolean;
+  /** Rebinds the Monitor to a different Strategy. Ownership is checked by the service. */
+  strategyId?: string;
+  /** Rebinds the Monitor to a different Stock List. Ownership is checked by the service. */
+  stockListId?: string;
 };
+
+const UPDATABLE_KEYS = [
+  "name",
+  "enabled",
+  "strategyId",
+  "stockListId",
+] as const;
 
 export function parseUpdateMonitorRequest(
   body: unknown,
 ): ParsedUpdateMonitorRequest {
   const record = asRecord(body);
-  rejectUnknownKeys(record, ["name", "enabled"]);
-  if (record.name === undefined && record.enabled === undefined) {
+  rejectUnknownKeys(record, UPDATABLE_KEYS);
+  if (UPDATABLE_KEYS.every((key) => record[key] === undefined)) {
     throw new BadRequestException(
-      "Invalid request: provide a name or enabled to update",
+      "Invalid request: provide a name, enabled, strategyId or stockListId to update",
     );
   }
   return {
@@ -105,5 +116,11 @@ export function parseUpdateMonitorRequest(
     ...(record.enabled === undefined
       ? {}
       : { enabled: parseEnabled(record.enabled) }),
+    ...(record.strategyId === undefined
+      ? {}
+      : { strategyId: parseId(record.strategyId, "strategyId") }),
+    ...(record.stockListId === undefined
+      ? {}
+      : { stockListId: parseId(record.stockListId, "stockListId") }),
   };
 }
