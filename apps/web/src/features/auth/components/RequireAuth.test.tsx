@@ -63,7 +63,7 @@ describe("RequireAuth", () => {
   it("renders the route for an authenticated user", () => {
     state = {
       status: "authenticated",
-      user: { id: "1", email: "person@example.test", role: "USER" },
+      user: { id: "1", email: "person@example.test", role: "USER", plan: "FREE" },
     };
     renderGate();
 
@@ -73,7 +73,7 @@ describe("RequireAuth", () => {
   it("denies a role-restricted route without redirecting", () => {
     state = {
       status: "authenticated",
-      user: { id: "1", email: "person@example.test", role: "USER" },
+      user: { id: "1", email: "person@example.test", role: "USER", plan: "FREE" },
     };
     renderGate("ADMIN");
 
@@ -85,7 +85,7 @@ describe("RequireAuth", () => {
   it("allows a role-restricted route for the matching role", () => {
     state = {
       status: "authenticated",
-      user: { id: "1", email: "admin@example.test", role: "ADMIN" },
+      user: { id: "1", email: "admin@example.test", role: "ADMIN", plan: "FREE" },
     };
     renderGate("ADMIN");
 

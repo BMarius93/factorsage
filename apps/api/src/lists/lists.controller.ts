@@ -55,7 +55,7 @@ export class ListsController {
   async listOwn(
     @CurrentUser() user: AuthUser,
   ): Promise<StockListSummaryResponse[]> {
-    return this.lists.listForUser(user.id);
+    return this.lists.listForUser(user);
   }
 
   @Post()
@@ -64,7 +64,7 @@ export class ListsController {
     @Body() body: unknown,
   ): Promise<StockListDetailResponse> {
     const input = parseCreateStockListRequest(body);
-    return this.execute(() => this.lists.createList(user.id, input));
+    return this.execute(() => this.lists.createList(user, input));
   }
 
   @Get(":listId")
@@ -72,7 +72,7 @@ export class ListsController {
     @CurrentUser() user: AuthUser,
     @Param("listId") listId: string,
   ): Promise<StockListDetailResponse> {
-    return this.execute(() => this.lists.getList(user.id, listId));
+    return this.execute(() => this.lists.getList(user, listId));
   }
 
   @Patch(":listId")
@@ -82,7 +82,7 @@ export class ListsController {
     @Body() body: unknown,
   ): Promise<StockListSummaryResponse> {
     const patch = parseUpdateStockListRequest(body);
-    return this.execute(() => this.lists.updateList(user.id, listId, patch));
+    return this.execute(() => this.lists.updateList(user, listId, patch));
   }
 
   @Delete(":listId")
@@ -107,7 +107,7 @@ export class ListsController {
   ): Promise<StockListDetailResponse> {
     const input = parseAddStockListItemsRequest(body);
     return this.execute(() =>
-      this.lists.addItems(user.id, listId, input.securityIds),
+      this.lists.addItems(user, listId, input.securityIds),
     );
   }
 

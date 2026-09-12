@@ -56,10 +56,42 @@ group.
 Two persistent accounts exist for browser and live-stack testing. They are referred to by logical
 name, never by address.
 
-| Persona    | Role    | Email variable   | Password variable   | Email state |
-| ---------- | ------- | ---------------- | ------------------- | ----------- |
-| `QA_USER`  | `USER`  | `QA_USER_EMAIL`  | `QA_USER_PASSWORD`  | verified    |
-| `QA_ADMIN` | `ADMIN` | `QA_ADMIN_EMAIL` | `QA_ADMIN_PASSWORD` | verified    |
+| Persona           | Role    | Plan      | Email variable         | Password variable         |
+| ----------------- | ------- | --------- | ---------------------- | ------------------------- |
+| `FREE_USER`       | `USER`  | `FREE`    | `QA_FREE_EMAIL`        | `QA_FREE_PASSWORD`        |
+| `STARTER_USER`    | `USER`  | `STARTER` | `QA_STARTER_EMAIL`     | `QA_STARTER_PASSWORD`     |
+| `PRO_USER`        | `USER`  | `PRO`     | `QA_USER_EMAIL`        | `QA_USER_PASSWORD`        |
+| `ADMIN_USER`      | `ADMIN` | `FREE`    | `QA_ADMIN_EMAIL`       | `QA_ADMIN_PASSWORD`       |
+| `DOWNGRADED_USER` | `USER`  | `FREE`    | `QA_DOWNGRADED_EMAIL`  | `QA_DOWNGRADED_PASSWORD`  |
+
+All are email-verified. `GUEST` is a sixth access state with no row at all: it is derived from the
+absence of a session (`docs/decisions/entitlements-v1.md`), so there is nothing to seed and nothing
+to sign in as.
+
+The registry is `packages/testing/src/personas.ts`, and it is the only place a persona's plan, role
+or storage-state path is written down. The seeders and the Playwright projects both read it, so a
+persona cannot mean `PRO` in one and `STARTER` in the other. `PRO_USER` and `ADMIN_USER` keep the
+historical `QA_USER_*` / `QA_ADMIN_*` variable names, so an existing `.env` and an existing CI
+secret keep working.
+
+**Which persona to use**
+
+- **`PRO_USER` is the account for normal local development and manual testing**, and the one every
+  non-entitlement E2E spec signs in as. It is deliberately a commercial customer and *not* an
+  administrator: developing against an account with entitlement overrides hides every commercial
+  capacity bug until production.
+- **`ADMIN_USER` is for internal and QA scenarios only** — administrative surfaces, and the
+  developer QA validation matrix, which submits at a concurrency no commercial plan sells. It is
+  seeded `plan=FREE`, `role=ADMIN` on purpose: plan and role are orthogonal, and an administrator on
+  the smallest plan is the configuration that proves the capability comes from the role alone. Do
+  not reach for it because something was refused.
+- **`FREE_USER` and `STARTER_USER`** exist for the entitlement boundaries. Their fixtures sit
+  exactly on a limit, so they are the wrong accounts for anything else.
+- **`DOWNGRADED_USER`** holds content created under a higher tier. Nothing else should touch it.
+
+**Never mutate a persona's plan in a test.** Personas are fixed points: a spec signs in as the plan
+it is about. Moving one user between plans makes every test order-dependent and every parallel run
+a race, which is the problem this table exists to remove.
 
 Both passwords must be at least 12 characters, which is also the registration policy
 (`PASSWORD_MIN_LENGTH` in `@intrinsic/contracts`).
@@ -71,11 +103,20 @@ persistent accounts.
 ## 4. Seeding the QA personas
 
 ```bash
-pnpm test:users:seed
+pnpm test:personas:seed     # personas + QA securities + entitlement fixtures, in order
 ```
 
-The command reads the four `QA_*` variables, creates or updates exactly those two accounts, marks
-both email-verified, re-asserts their roles, and removes any leftover verification token. It
+Or the three steps on their own:
+
+```bash
+pnpm test:users:seed          # the five personas
+pnpm test:securities:seed     # the deterministic QA catalog rows
+pnpm test:entitlements:seed   # the entitlement fixtures the entitlement specs run against
+```
+
+`pnpm test:users:seed` walks the registry, creates or updates exactly those accounts, marks them
+email-verified, re-asserts their roles and plans, and removes any leftover verification
+token. It
 touches no other row and is safe to rerun. It targets **`TEST_DATABASE_URL`**, resolved explicitly
 rather than inherited, which is the database the deterministic Playwright stack runs against
 (`pnpm dev:api:e2e` / `pnpm dev:worker:e2e`).
@@ -88,8 +129,10 @@ unaffected.
 
 Implementation: `apps/api/src/seed-qa-users.ts` and `apps/api/src/auth/seed-qa-users.ts`.
 
-`QA_USER` also owns the persistent QA-MATRIX Strategy and Stock List fixtures for the Backtest V1
-validation matrix, seeded separately with `pnpm test:matrix:seed` after this command has run. They
+`QA_ADMIN` owns the persistent QA-MATRIX Strategy and Stock List fixtures for the Backtest V1
+validation matrix, seeded separately with `pnpm test:matrix:seed` after this command has run. The
+administrator persona, because the sweep submits through the product's real entitlement-enforced
+path at a concurrency no commercial plan sells — see `docs/development/qa-matrix-fixtures.md`. They
 live in the reserved `QA-MATRIX-` namespace so they cannot collide with anything a suite creates;
 `../../docs/development/qa-matrix-fixtures.md` documents them.
 
@@ -136,24 +179,53 @@ Never paste a real cookie, token, or password into a document, a commit message,
 
 Everything lives in the web workspace: `apps/web/playwright.config.ts` and `apps/web/e2e/`.
 
-Projects:
+**A spec's filename chooses its persona.** There is one project per persona, each starting from
+that persona's saved storage state, so a spec never signs in and never switches accounts:
 
-| Project | Auth                                  | Spec pattern              |
-| ------- | ------------------------------------- | ------------------------- |
-| `setup` | signs both personas in through the UI | `e2e/setup/auth.setup.ts` |
-| `guest` | none                                  | `*.guest.spec.ts`         |
-| `user`  | `QA_USER` storage state               | `*.user.spec.ts`          |
-| `admin` | `QA_ADMIN` storage state              | `*.admin.spec.ts`         |
+| Project      | Signed in as      | Spec pattern              |
+| ------------ | ----------------- | ------------------------- |
+| `setup`      | signs every persona in through the UI | `e2e/setup/auth.setup.ts` |
+| `guest`      | nobody            | `*.guest.spec.ts`         |
+| `user`       | `PRO_USER`        | `*.user.spec.ts`          |
+| `admin`      | `ADMIN_USER`      | `*.admin.spec.ts`         |
+| `free`       | `FREE_USER`       | `*.free.spec.ts`          |
+| `starter`    | `STARTER_USER`    | `*.starter.spec.ts`       |
+| `pro`        | `PRO_USER`        | `*.pro.spec.ts`           |
+| `downgraded` | `DOWNGRADED_USER` | `*.downgraded.spec.ts`    |
+
+`user` and `pro` are the same account: `user` is the historical project every non-entitlement spec
+uses, `pro` is where the entitlement cases for that plan live. The split is by subject, not by
+identity.
+
+`loginAs(page, "FREE_USER")` exists in `e2e/utils/sign-in.ts` for the two cases a storage state
+cannot cover — switching persona inside a test, and the guest project asserting what signing in
+changes. Most specs never need it.
+
+**Execution is serial** (`workers: 1`). The personas are persistent shared accounts and several
+fixtures are capacity states — a list exactly at its limit, an account already at its active-monitor
+count — so two workers touching one persona would produce entitlement failures that are real
+refusals but not the ones under test. That choice predates entitlements and is load-bearing rather
+than caution.
+
+Within that, specs are independent: none changes a plan, none reads another's state, and every test
+that mutates a fixture puts it back. The one exception is documented in the file that owns it —
+`entitlements.downgraded.spec.ts` is `describe.serial`, because its last case proves an
+over-capacity account may switch a monitor off but not back on, which the product deliberately
+offers no way to undo.
 
 Commands:
 
 ```bash
-pnpm test:e2e            # full suite
-pnpm test:e2e:auth       # the auth suite (e2e/auth)
-pnpm test:e2e:smoke      # @smoke-tagged tests only
-pnpm test:e2e:headed     # headed browser
-pnpm test:e2e:report     # open the last HTML report
+pnpm test:e2e                 # full suite
+pnpm test:e2e:entitlements    # re-seeds the fixtures, then runs the entitlement projects
+pnpm test:e2e:auth            # the auth suite (e2e/auth)
+pnpm test:e2e:smoke           # @smoke-tagged tests only
+pnpm test:e2e:headed          # headed browser
+pnpm test:e2e:report          # open the last HTML report
 ```
+
+Re-seed before running the entitlement projects — `pnpm test:e2e:entitlements` does it for you.
+The fixtures are reconciled rather than merely inserted, so seeding again *is* the reset.
 
 First run on a machine needs browsers:
 

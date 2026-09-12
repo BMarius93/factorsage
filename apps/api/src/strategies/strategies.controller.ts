@@ -62,7 +62,7 @@ export class StrategiesController {
     @Body() body: unknown,
   ): Promise<StrategyDetailResponse> {
     const input = parseCreateStrategyRequest(body);
-    return this.execute(() => this.strategies.createStrategy(user.id, input));
+    return this.execute(() => this.strategies.createStrategy(user, input));
   }
 
   @Get(":strategyId")

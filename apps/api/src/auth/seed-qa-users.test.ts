@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@intrinsic/database";
-import { UserRole } from "@intrinsic/database";
+import { UserPlan, UserRole } from "@intrinsic/database";
 import { afterEach, describe, expect, it } from "vitest";
 import { PasswordService } from "./password.service";
 import {
@@ -15,6 +15,7 @@ const PERSONAS: QaPersonaInput[] = [
     email: "qa-admin@example.test",
     password: "qa-admin-password-value",
     role: UserRole.ADMIN,
+    plan: UserPlan.PRO,
   },
 ];
 

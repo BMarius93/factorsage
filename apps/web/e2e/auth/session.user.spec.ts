@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { qaPersona } from "../utils/env";
 import { openAccountMenu } from "../utils/sign-in";
 
-test.describe("QA_USER session @smoke", () => {
+test.describe("PRO_USER session @smoke", () => {
   test("keeps an authenticated session across navigations", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByTestId("account-menu-trigger")).toBeVisible();
@@ -17,7 +17,7 @@ test.describe("QA_USER session @smoke", () => {
     await openAccountMenu(page);
 
     await expect(page.getByTestId("account-email")).toHaveText(
-      qaPersona("QA_USER").email,
+      qaPersona("PRO_USER").email,
     );
     await expect(page.getByTestId("account-role")).toHaveText("USER");
   });

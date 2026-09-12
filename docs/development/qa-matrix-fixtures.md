@@ -128,8 +128,13 @@ dates no run simulates.
 
 ## What is persistent, and what is a repository fixture
 
-- **Strategies and Stock Lists are persistent database entities**, owned by the existing `QA_USER`
-  persona. `pnpm test:matrix:seed` writes them to the **test** database; `pnpm qa:matrix:provision`
+- **Strategies and Stock Lists are persistent database entities**, owned by the existing
+  `QA_ADMIN` persona. The administrator persona is deliberate: the runner submits through the
+  product's own `BacktestsService.submitRun`, which enforces Entitlements V1, and a thousand-case
+  sweep runs at a concurrency no commercial plan sells. `ADMIN_ENTITLEMENTS` is the decision
+  document's own mechanism for operator capability
+  (`../decisions/entitlements-v1.md`), and using it keeps the runner on the real path instead of
+  behind a bypass flag. `pnpm test:matrix:seed` writes them to the **test** database; `pnpm qa:matrix:provision`
   writes the same fixtures, from the same definitions, to the dedicated **matrix** database the
   thousand-run sweep executes in (see `qa-matrix-runner.md`). They are first-class product records, so a fixture that was only
   a literal in a file could not be selected in a browser, submitted through the API, or snapshotted
@@ -243,7 +248,7 @@ the adjacency rule rather than a hard-coded range count.
 ```bash
 pnpm infra:up
 pnpm db:test:prepare        # once, after a schema change
-pnpm test:users:seed        # the QA_USER persona that owns the fixtures
+pnpm test:users:seed        # the QA_ADMIN persona that owns the fixtures
 pnpm test:matrix:seed       # add QA_MATRIX_AS_OF_DATE=YYYY-MM-DD to pin the clock
 ```
 

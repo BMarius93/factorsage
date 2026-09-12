@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import {
   addStockListItems,
   deleteStockList,
@@ -122,9 +122,10 @@ export function ListDetail({ listId }: ListDetailProps) {
       setPendingAdd([]);
     } catch (error) {
       setAddError(
-        error instanceof ApiError && error.status === 400
-          ? error.message
-          : "The stocks could not be added right now. Try again in a moment.",
+        requestFailureMessage(
+          error,
+          "The stocks could not be added right now. Try again in a moment.",
+        ),
       );
     } finally {
       setAdding(false);
@@ -195,7 +196,11 @@ export function ListDetail({ listId }: ListDetailProps) {
             </button>
           </div>
           {addError ? (
-            <p className={forms.error} role="alert">
+            <p
+              className={forms.error}
+              role="alert"
+              data-testid="list-add-error"
+            >
               {addError}
             </p>
           ) : null}
@@ -211,7 +216,7 @@ export function ListDetail({ listId }: ListDetailProps) {
         ) : (
           <ul className={styles.items} data-testid="list-items">
             {detail.items.map((item) => (
-              <li key={item.id} className={styles.item}>
+              <li key={item.id} className={styles.item} data-testid="list-item">
                 <div className={styles.itemIdentity}>
                   <span className={styles.itemSymbol}>
                     {item.security.symbol}

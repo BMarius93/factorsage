@@ -104,10 +104,13 @@ describe("strategies", () => {
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
+    // Stated rather than defaulted, so the suite's subject is Strategy semantics. Every
+    // authenticated plan may save unlimited Strategies and use every analytical primitive, so the
+    // value does not change what this suite proves.
     await prisma.user.createMany({
       data: [
-        { email: ownerEmail, passwordHash, emailVerifiedAt },
-        { email: otherEmail, passwordHash, emailVerifiedAt },
+        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
+        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
       ],
     });
 

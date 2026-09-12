@@ -1,4 +1,10 @@
 import {
+  resolveEntitlements,
+  resolveMonitorEligibility,
+  type UserPlan,
+  type UserRole,
+} from "@intrinsic/contracts";
+import {
   MonitorEvaluableResult,
   MonitorEvaluationOutcome,
   type MonitorLevelKind,
@@ -162,11 +168,27 @@ export class PrismaMonitorRepository implements MonitorRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
-   * Every enabled Monitor, with its current Strategy definition and resolved universe.
+   * Every Monitor a cycle may actually evaluate, with its current Strategy definition and universe.
    *
    * One query for the whole cycle, not one per Monitor per symbol. The universe is read through
    * `StockList` to `StockListItem` to `Security`, which is the canonical membership path — a
    * Monitor never stores a free-text symbol (`AGENTS.md` invariant 2).
+   *
+   * **`enabled` is not the same question as "may this scan".** It is the user's persisted intent
+   * and survives a plan change untouched. Execution eligibility is derived here, every cycle, from
+   * current entitlements and current resource state:
+   *
+   * - only the first `maxActive` enabled Monitors of each owner, ordered by `(createdAt, id)`, so
+   *   a user left over capacity by a downgrade keeps every Monitor and every `enabled` value while
+   *   exactly the plan's worth of them scans — deterministically, and recomputed the moment they
+   *   disable one or upgrade;
+   * - and, among those, none whose Stock List holds more symbols than the plan allows: a Monitor
+   *   inherits the compliance of the List it watches.
+   *
+   * This is the enforcement point, not a mirror of one. The API's create/enable guard governs
+   * *intent* — what a user may switch on now — and cannot govern a Monitor that was enabled
+   * legitimately and only later exceeded a plan. Nothing but this function decides what a cycle
+   * evaluates, so a Monitor blocked here cannot scan through any other path.
    *
    * A Monitor whose Strategy somehow has no version is skipped rather than failing the cycle:
    * there is nothing to evaluate, and one malformed Monitor must not stop every other one.
@@ -175,6 +197,7 @@ export class PrismaMonitorRepository implements MonitorRepository {
     const rows = await this.prisma.monitor.findMany({
       where: { enabled: true },
       include: {
+        user: { select: { id: true, plan: true, role: true } },
         strategy: {
           include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
         },
@@ -194,8 +217,13 @@ export class PrismaMonitorRepository implements MonitorRepository {
       orderBy: { id: "asc" },
     });
 
+    const eligibleIds = await this.resolveEligibleMonitorIds(rows);
+
     const monitors: ActiveMonitor[] = [];
     for (const row of rows) {
+      if (!eligibleIds.has(row.id)) {
+        continue;
+      }
       const version = row.strategy.versions[0];
       if (!version) {
         continue;
@@ -224,6 +252,64 @@ export class PrismaMonitorRepository implements MonitorRepository {
       });
     }
     return monitors;
+  }
+
+  /**
+   * Which of the enabled Monitors their owners' plans currently allow to scan.
+   *
+   * Grouped by owner because active capacity is per user, and resolved through the same
+   * `resolveMonitorEligibility` the API projects its status from — so what the worker executes and
+   * what the user is shown can never disagree about which Monitors are blocked.
+   *
+   * Only enabled Monitors are passed, which is exactly the set the rule needs: a disabled Monitor
+   * consumes no active slot, so excluding them cannot move the slot boundary.
+   */
+  private async resolveEligibleMonitorIds(
+    rows: readonly {
+      id: string;
+      enabled: boolean;
+      createdAt: Date;
+      user: { id: string; plan: UserPlan; role: UserRole };
+      stockList: { items: readonly unknown[] };
+    }[],
+  ): Promise<Set<string>> {
+    const byOwner = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const bucket = byOwner.get(row.user.id);
+      if (bucket) {
+        (bucket as (typeof rows)[number][]).push(row);
+      } else {
+        byOwner.set(row.user.id, [row]);
+      }
+    }
+
+    const eligible = new Set<string>();
+    for (const owned of byOwner.values()) {
+      const owner = owned[0]?.user;
+      if (!owner) {
+        continue;
+      }
+      const entitlements = resolveEntitlements({
+        kind: "AUTHENTICATED",
+        userId: owner.id,
+        plan: owner.plan,
+        role: owner.role,
+      });
+      for (const decision of resolveMonitorEligibility(
+        entitlements,
+        owned.map((row) => ({
+          monitorId: row.id,
+          enabled: row.enabled,
+          createdAt: row.createdAt,
+          listSymbolCount: row.stockList.items.length,
+        })),
+      )) {
+        if (decision.executionEligible) {
+          eligible.add(decision.monitorId);
+        }
+      }
+    }
+    return eligible;
   }
 
   async loadSignalStates(

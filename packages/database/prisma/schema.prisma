@@ -12,6 +12,21 @@ enum UserRole {
   ADMIN
 }
 
+/// The persisted commercial plan of an authenticated user.
+///
+/// `GUEST` is deliberately absent: `docs/decisions/entitlements-v1.md` derives guest entitlements
+/// from the absence of an authenticated session, so there is no anonymous `User` row to give a
+/// plan to. `ADMIN` is deliberately absent too — it is a role, never a commercial plan, and lives
+/// on `User.role`.
+///
+/// A billing provider may later move a user between these values at the billing boundary, but the
+/// entitlements each value grants live in `@intrinsic/contracts`, never in the biller.
+enum UserPlan {
+  FREE
+  STARTER
+  PRO
+}
+
 enum OAuthProvider {
   GOOGLE
 }
@@ -64,6 +79,11 @@ model User {
   passwordHash       String?
   emailVerifiedAt    DateTime?
   role               UserRole                 @default(USER)
+  /// Commercial plan. Orthogonal to `role`: a user may be `plan=FREE` and `role=ADMIN`.
+  ///
+  /// New accounts start on `FREE`, which is why the column is defaulted rather than nullable —
+  /// "no plan" is not an access state the entitlement resolver has to consider.
+  plan               UserPlan                 @default(FREE)
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
   oauthAccounts      OAuthAccount[]

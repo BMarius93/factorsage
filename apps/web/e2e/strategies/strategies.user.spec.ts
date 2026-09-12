@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Full Strategy Builder journey for QA_USER.
+ * Full Strategy Builder journey for PRO_USER.
  *
  * Precondition beyond the usual stack + `pnpm test:users:seed`: none. A strategy references the
  * static series catalog in `@intrinsic/contracts`, so this suite needs no seeded securities, no
@@ -17,7 +17,7 @@ function card(page: Page, name: string) {
 
 /**
  * Best-effort teardown through the product UI, so a failure partway through cannot leave the
- * shared QA_USER persona accumulating test strategies.
+ * shared PRO_USER persona accumulating test strategies.
  */
 async function deleteStrategyIfPresent(page: Page, name: string) {
   try {

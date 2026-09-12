@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
- * Stock Details price-chart navigation for QA_USER, through the real Next + Nest + PostgreSQL +
+ * Stock Details price-chart navigation for PRO_USER, through the real Next + Nest + PostgreSQL +
  * Redis stack.
  *
  * Preconditions are the same as the other Stock Details journeys: `pnpm test:users:seed` once, and
@@ -112,7 +112,7 @@ async function dragChart(page: Page, dx: number): Promise<void> {
   await page.mouse.up();
 }
 
-test.describe("QA_USER Stock Details price chart navigation", () => {
+test.describe("PRO_USER Stock Details price chart navigation", () => {
   test("pans through history by dragging @smoke", async ({ page }) => {
     await openStock(page);
     const before = await visibleRange(page);

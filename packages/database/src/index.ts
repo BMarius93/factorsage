@@ -14,6 +14,7 @@ export {
   PrismaClient,
   SecurityType,
   StockDataset,
+  UserPlan,
   UserRole,
 } from "@prisma/client";
 export type {
@@ -34,3 +35,4 @@ export type {
   StockListItem,
   User,
 } from "@prisma/client";
+export * from "./entitlement-locks.js";

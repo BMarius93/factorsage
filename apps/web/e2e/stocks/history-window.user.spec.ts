@@ -98,7 +98,7 @@ function watchDetailsResponse(page: Page): Promise<StockDetailsResponse> {
     .then((response) => response.json() as Promise<StockDetailsResponse>);
 }
 
-test.describe("QA_USER Stock Details history window", () => {
+test.describe("PRO_USER Stock Details history window", () => {
   test("opens on a bounded one-year window and loads longer history only on request", async ({
     page,
   }) => {

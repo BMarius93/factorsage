@@ -2,10 +2,16 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 
-export type QaPersonaName = "QA_USER" | "QA_ADMIN";
+import {
+  TEST_PERSONAS,
+  personaCredentialEnvNames,
+  type TestPersona,
+  type TestPersonaName,
+} from "@intrinsic/testing/personas";
 
-export type QaPersonaCredentials = {
-  readonly name: QaPersonaName;
+export type { TestPersonaName };
+
+export type QaPersonaCredentials = TestPersona & {
   readonly email: string;
   readonly password: string;
 };
@@ -49,27 +55,37 @@ export function e2eBaseUrl(): string {
 }
 
 /**
- * Credentials for a persistent QA persona.
+ * Credentials for one persistent test persona.
+ *
+ * The persona set, and each one's plan, role and storage-state path, come from the shared registry
+ * in `@intrinsic/testing/personas` — imported through a dependency-free subpath, so the Playwright
+ * harness reads the same table the seeder writes from without pulling the engine or the database
+ * layer into the web app. Only the secrets come from the environment.
  *
  * Only the variable names ever appear in output: a missing value is reported by name so the
  * failure is actionable without printing anything secret.
  */
-export function qaPersona(name: QaPersonaName): QaPersonaCredentials {
-  const email = read(`${name}_EMAIL`);
-  const password = read(`${name}_PASSWORD`);
+export function qaPersona(name: TestPersonaName): QaPersonaCredentials {
+  const persona = TEST_PERSONAS[name];
+  const names = personaCredentialEnvNames(persona);
+  const email = read(names.email);
+  const password = read(names.password);
 
   if (!email || !password) {
     throw new Error(
-      `Playwright requires ${name}_EMAIL and ${name}_PASSWORD. Set them in the repository ` +
-        "root .env and run `pnpm test:users:seed` before running the suite. See " +
-        "ai/workflows/auth-testing.md.",
+      `Playwright requires ${names.email} and ${names.password} for the ${name} persona. Set ` +
+        "them in the repository root .env and run `pnpm test:personas:seed` before running the " +
+        "suite. See ai/workflows/auth-testing.md.",
     );
   }
 
-  return { name, email, password };
+  return { ...persona, email, password };
 }
 
-export const STORAGE_STATE = {
-  QA_USER: "playwright/.auth/user.json",
-  QA_ADMIN: "playwright/.auth/admin.json",
-} as const satisfies Record<QaPersonaName, string>;
+/** Where each persona's signed-in state is kept. Git-ignored: these hold live session cookies. */
+export const STORAGE_STATE = Object.fromEntries(
+  Object.entries(TEST_PERSONAS).map(([name, persona]) => [
+    name,
+    persona.storageState,
+  ]),
+) as Record<TestPersonaName, string>;

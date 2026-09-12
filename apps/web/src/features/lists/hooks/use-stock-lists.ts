@@ -32,6 +32,10 @@ export function summaryOf(
     itemCount: detail.items.length,
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt,
+    // Carried through from the response the API just produced, never recomputed in the browser:
+    // compliance is a server decision about the caller's plan, and a client copy of that rule
+    // would be a second source of truth that can disagree with the enforcement.
+    compliance: detail.compliance,
   };
 }
 

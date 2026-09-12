@@ -4,12 +4,13 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
+import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { StrategiesController } from "./strategies.controller";
 import { StrategiesService } from "./strategies.service";
 import { STRATEGIES_LOGGER } from "./strategies.tokens";
 
 @Module({
-  imports: [ConfigurationModule, DatabaseModule, AuthModule],
+  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
   controllers: [StrategiesController],
   providers: [
     {

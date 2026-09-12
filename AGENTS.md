@@ -65,6 +65,19 @@ Read `ai/README.md` before substantial work.
     FMP gate), `stock-data:load:*` (Redlock hydration locks) and `benchmark:v1:*`, never by user.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
 
+17. Commercial entitlements are an application-domain concern with one central definition in
+    `@intrinsic/contracts`. `docs/decisions/entitlements-v1.md` is the source of truth for every
+    plan, capability and limit; `ai/architecture/entitlements.md` is how it is implemented. Plan
+    (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal columns on `User`, both
+    resolved server-side from persisted state and never from client input; `GUEST` is derived from
+    the absence of a session and never creates a row. Do not write `plan === "PRO"` in feature
+    code — ask for a named capability or limit and enforce it with a semantic guard at the
+    canonical mutation or execution boundary. A limit that can be raced is decided inside the
+    writing transaction under the shared per-user entitlement lock. A downgrade is never
+    destructive: existing content stays readable and correctable, and compliance is derived rather
+    than persisted. Billing may move the persisted plan and nothing else; it is never an input to
+    entitlement resolution, and request rate is never modelled as an entitlement.
+
 ## Dependency rules
 
 Allowed direction:
@@ -167,8 +180,13 @@ evaluator physically cannot read an ungated value.
 ## Authentication and E2E testing
 
 - For authentication work or browser/E2E testing, read `ai/workflows/auth-testing.md`. It is the
-  operational source of truth for QA personas, seeding, auth test suites, Playwright, storage
+  operational source of truth for test personas, seeding, auth test suites, Playwright, storage
   state, and the Google/email test policies.
+- Test personas are defined once in `packages/testing/src/personas.ts` — one account per commercial
+  plan, plus an administrator on the smallest plan. Do not add a persona email, password, plan or
+  storage-state path anywhere else, and do not change a persona's plan inside a test: sign in as the
+  plan under test. `PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is
+  for internal/QA scenarios that intentionally need entitlement overrides.
 - Never commit credentials, session cookies, tokens, or Playwright storage state.
 
 ## Validation

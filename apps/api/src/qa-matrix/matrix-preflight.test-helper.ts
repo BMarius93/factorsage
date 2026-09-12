@@ -27,6 +27,10 @@ export type StubOptions = {
   calendarDates?: readonly string[];
   /** Omit the QA persona. */
   noOwner?: boolean;
+  /** The owner's persisted commercial plan. Default: `PRO`. */
+  ownerPlan?: "FREE" | "STARTER" | "PRO";
+  /** The owner's persisted role. Default: `ADMIN`, which is what the matrix expects. */
+  ownerRole?: "USER" | "ADMIN";
   /** Drop these strategy fixture ids from the database. */
   missingStrategies?: readonly string[];
   /** Drop these list fixture ids. */
@@ -171,7 +175,14 @@ export function stubPrisma(
       findFirst: async () =>
         options.noOwner
           ? null
-          : { id: "qa-user", email: "qa-user@factorsage.test" },
+          : {
+              id: "qa-user",
+              email: "qa-user@factorsage.test",
+              // The matrix owner is an administrator: the sweep submits through the product's
+              // real entitlement-enforced path at a concurrency no commercial plan sells.
+              plan: options.ownerPlan ?? "PRO",
+              role: options.ownerRole ?? "ADMIN",
+            },
     },
     strategy: { findMany: async () => strategies },
     stockList: { findMany: async () => lists },

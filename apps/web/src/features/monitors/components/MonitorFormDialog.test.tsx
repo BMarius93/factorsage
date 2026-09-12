@@ -49,6 +49,7 @@ function list(id: string, name: string): StockListSummaryResponse {
     id,
     name,
     itemCount: 4,
+    compliance: { symbolCount: 4, symbolLimit: 100, compliant: true },
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
   };
@@ -64,6 +65,7 @@ const SUMMARY: MonitorSummaryResponse = {
   stockListName: "Core universe",
   securityCount: 4,
   activeSignalCount: 0,
+  operationalStatus: "ACTIVE" as const,
   createdAt: "2026-09-12T10:00:00.000Z",
   updatedAt: "2026-09-12T10:00:00.000Z",
 };

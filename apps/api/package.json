@@ -12,6 +12,7 @@
     "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run src/stocks/stocks.live-fmp.integration.test.ts",
     "seed:admin": "tsx src/seed.ts",
     "seed:qa-users": "tsx src/seed-qa-users.ts",
+    "seed:entitlement-fixtures": "tsx src/seed-entitlement-fixtures.ts",
     "reset:benchmark-data": "tsx src/reset-benchmark-data.ts",
     "seed:qa-securities": "tsx src/seed-qa-securities.ts",
     "seed:qa-matrix": "tsx src/seed-qa-matrix.ts",

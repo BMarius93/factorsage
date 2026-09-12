@@ -18,7 +18,15 @@ import {
 } from "@intrinsic/stock-data";
 import { PRICE_OPERAND, seriesOperand, type OperandKey } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
 import { PrismaMonitorRepository } from "./monitor-repository.js";
 
@@ -278,7 +286,9 @@ function priceCrossesAboveSmaDefinition(): StrategyDefinition {
 
 async function createUser(): Promise<string> {
   const user = await prisma.user.create({
-    data: { email: `monitor-${randomUUID()}@example.test` },
+    // PRO so a cycle suite about evaluation semantics is not silently truncated by FREE's
+    // one-active-Monitor capacity. Eligibility itself is proven in `monitor-eligibility`.
+    data: { email: `monitor-${randomUUID()}@example.test`, plan: "PRO" },
   });
   userIds.push(user.id);
   return user.id;
@@ -396,6 +406,35 @@ function nextCycle(): number {
   return cycleSequence;
 }
 
+/**
+ * Enabled Monitors that were already in the test database when this suite started.
+ *
+ * A scan cycle is a **global singleton**: it evaluates every enabled Monitor there is, and the
+ * summary this suite asserts on counts all of them. Its cases are written as absolute numbers —
+ * "one Monitor, three symbols" — which is only true if nothing else is enabled. The deterministic
+ * entitlement fixtures (`pnpm test:entitlements:seed`) put several persona Monitors in the same
+ * database, and a developer's own manual Monitors would do the same.
+ *
+ * So the suite takes the database as it finds it: it switches those Monitors off for its own run
+ * and switches exactly them back on afterwards. Nothing is created or deleted, and the fixture
+ * seeder re-asserts `enabled` anyway, so an interrupted run is recoverable rather than corrupting.
+ */
+const foreignEnabledMonitorIds: string[] = [];
+
+beforeAll(async () => {
+  const foreign = await prisma.monitor.findMany({
+    where: { enabled: true, id: { notIn: createdMonitorIds } },
+    select: { id: true },
+  });
+  foreignEnabledMonitorIds.push(...foreign.map((row) => row.id));
+  if (foreignEnabledMonitorIds.length > 0) {
+    await prisma.monitor.updateMany({
+      where: { id: { in: foreignEnabledMonitorIds } },
+      data: { enabled: false },
+    });
+  }
+});
+
 afterEach(async () => {
   await prisma.monitor.updateMany({
     where: { id: { in: createdMonitorIds } },
@@ -404,6 +443,12 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
+  if (foreignEnabledMonitorIds.length > 0) {
+    await prisma.monitor.updateMany({
+      where: { id: { in: foreignEnabledMonitorIds } },
+      data: { enabled: true },
+    });
+  }
   await prisma.monitorSignalState.deleteMany({
     where: { securityId: { in: securityIds } },
   });

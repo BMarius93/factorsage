@@ -140,7 +140,7 @@ describe("authentication and role authorization", () => {
       .expect(200);
 
     expect(response.body).toMatchObject({ email: adminEmail, role: "ADMIN" });
-    expect(Object.keys(response.body).sort()).toEqual(["email", "id", "role"]);
+    expect(Object.keys(response.body).sort()).toEqual(["email", "id", "plan", "role"]);
     expect(response.headers["set-cookie"]?.[0]).toContain("test_auth=");
     expect(response.headers["set-cookie"]?.[0]).toContain("HttpOnly");
     expect(response.headers["set-cookie"]?.[0]).toContain("SameSite=Lax");
@@ -213,7 +213,7 @@ describe("authentication and role authorization", () => {
 
     const response = await agent.get("/auth/me").expect(200);
     expect(response.body).toMatchObject({ email: userEmail, role: "USER" });
-    expect(Object.keys(response.body).sort()).toEqual(["email", "id", "role"]);
+    expect(Object.keys(response.body).sort()).toEqual(["email", "id", "plan", "role"]);
   });
 
   it("clears the cookie and leaves the browser session unauthenticated on logout", async () => {

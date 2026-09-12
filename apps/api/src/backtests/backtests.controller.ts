@@ -54,7 +54,7 @@ export class BacktestsController {
     @Body() body: unknown,
   ): Promise<BacktestRunDetailResponse> {
     const input = parseCreateBacktestRunRequest(body);
-    return this.execute(() => this.backtests.submitRun(user.id, input));
+    return this.execute(() => this.backtests.submitRun(user, input));
   }
 
   @Get()

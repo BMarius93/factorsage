@@ -1,7 +1,12 @@
-import { getQaPersonaConfig, loadRootEnv } from "@intrinsic/config";
-import { PrismaClient, UserRole } from "@intrinsic/database";
+import { loadRootEnv } from "@intrinsic/config";
+import { PrismaClient } from "@intrinsic/database";
 import { isLocalDate } from "@intrinsic/contracts";
-import { currentAsOfDate, qaMatrixFixtures } from "@intrinsic/testing";
+import {
+  currentAsOfDate,
+  qaMatrixFixtures,
+  resolveAllTestPersonas,
+  resolveTestPersona,
+} from "@intrinsic/testing";
 import { PasswordService } from "./auth/password.service";
 import { seedQaUsers, type QaPersonaInput } from "./auth/seed-qa-users";
 import {
@@ -59,18 +64,26 @@ async function provision(): Promise<void> {
   try {
     await prisma.$connect();
 
-    const personas = getQaPersonaConfig();
     const seededUsers = await seedQaUsers(
       prisma,
       new PasswordService(),
-      [
-        { name: "QA_USER", ...personas.user, role: UserRole.USER },
-        { name: "QA_ADMIN", ...personas.admin, role: UserRole.ADMIN },
-      ] satisfies QaPersonaInput[],
+      resolveAllTestPersonas().map((persona) => ({
+        name: persona.name,
+        email: persona.email,
+        password: persona.password,
+        role: persona.role,
+        plan: persona.plan,
+      })) satisfies QaPersonaInput[],
     );
-    log(`QA personas ready: ${seededUsers.map((p) => p.name).join(", ")}`);
+    log(`Test personas ready: ${seededUsers.map((p) => p.name).join(", ")}`);
 
-    const ownerUserId = await resolveQaMatrixOwner(prisma, personas.user.email);
+    // The administrator persona owns the matrix fixtures, matching what the preflight and the
+    // runner look for. Seeding them under a different account than those two resolve is how a
+    // provisioned environment ends up failing its own preflight.
+    const ownerUserId = await resolveQaMatrixOwner(
+      prisma,
+      resolveTestPersona("ADMIN_USER").email,
+    );
     const executionCalendar = await loadQaMatrixExecutionCalendar(prisma);
     const fixtures = qaMatrixFixtures(resolveAsOfDate(), executionCalendar);
     const seed = await seedQaMatrixFixtures(prisma, ownerUserId, fixtures);

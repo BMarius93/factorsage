@@ -24,7 +24,7 @@ import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AuthModule } from "../auth/auth.module";
 import { PasswordService } from "../auth/password.service";
 import { ConfigurationModule } from "../config/configuration.module";
@@ -165,10 +165,13 @@ describe("backtests", () => {
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
+    // PRO, with every run removed after each test (see the `afterEach`), so this suite exercises
+    // submission, snapshotting and the run lifecycle rather than a plan's symbol, depth or
+    // concurrency limits — those are proven in `entitlements.integration.test.ts`.
     await prisma.user.createMany({
       data: [
-        { email: ownerEmail, passwordHash, emailVerifiedAt },
-        { email: otherEmail, passwordHash, emailVerifiedAt },
+        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
+        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
       ],
     });
     const users = await prisma.user.findMany({
@@ -282,6 +285,18 @@ describe("backtests", () => {
       .post("/auth/login")
       .send({ email: otherEmail, password })
       .expect(200);
+  });
+
+  // No worker runs in this suite, so every submitted run stays `QUEUED` forever and they would
+  // accumulate across thirty tests — past every plan's concurrent-run capacity. Each test submits
+  // what it needs and none reads another's runs, so clearing them between tests keeps the subject
+  // of this suite the submission path rather than the concurrency limit.
+  afterEach(async () => {
+    if (prisma) {
+      await prisma.backtestRun.deleteMany({
+        where: { user: { email: { in: [ownerEmail, otherEmail] } } },
+      });
+    }
   });
 
   afterAll(async () => {

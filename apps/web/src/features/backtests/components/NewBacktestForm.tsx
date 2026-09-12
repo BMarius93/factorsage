@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import forms from "../../../components/ui/forms.module.css";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
 import {
@@ -42,12 +42,14 @@ const EMPTY_VALUES: BacktestFormValues = {
 };
 
 function submissionMessage(error: unknown): string {
-  // The API validates the same document again; when it disagrees its product-vocabulary message is
-  // what the user needs to read, not a generic banner.
-  if (error instanceof ApiError && error.status === 400) {
-    return error.message;
-  }
-  return "The backtest could not be submitted right now. Try again in a moment.";
+  // The API validates the same document again, and separately decides whether the caller's plan
+  // permits this run at all. When it disagrees on either count its product-vocabulary message is
+  // what the user needs to read — a plan limit especially, because "try again in a moment" would
+  // be false: the next attempt fails identically.
+  return requestFailureMessage(
+    error,
+    "The backtest could not be submitted right now. Try again in a moment.",
+  );
 }
 
 /**

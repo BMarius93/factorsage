@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { qaPersona } from "../utils/env";
 import { openAccountMenu } from "../utils/sign-in";
 
-test.describe("QA_ADMIN session @smoke", () => {
+test.describe("ADMIN_USER session @smoke", () => {
   test("reaches the ADMIN-only route", async ({ page }) => {
     await page.goto("/admin");
 
@@ -15,7 +15,7 @@ test.describe("QA_ADMIN session @smoke", () => {
     await openAccountMenu(page);
 
     await expect(page.getByTestId("account-email")).toHaveText(
-      qaPersona("QA_ADMIN").email,
+      qaPersona("ADMIN_USER").email,
     );
     await expect(page.getByTestId("account-role")).toHaveText("ADMIN");
   });

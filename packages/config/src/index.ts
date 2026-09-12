@@ -370,26 +370,31 @@ export function getSmtpConfig(
 }
 
 /**
- * Credentials for the two persistent QA personas used by Playwright and live smoke testing.
+ * Credentials for one persistent test persona, looked up by its environment prefix.
  *
- * Required only while running the QA seed command; the application never reads it.
+ * The prefix is supplied by the caller rather than listed here, because the set of personas is
+ * defined once in `@intrinsic/testing` — and `@intrinsic/testing` already depends on this package,
+ * so the table cannot live in both directions. Required only while running a seed command or
+ * Playwright; the application never reads it.
+ *
+ * The password bound is the product's own registration policy, so a persona can always sign in
+ * through the real form.
  */
-export function getQaPersonaConfig(env: Environment = process.env) {
-  function persona(role: "USER" | "ADMIN") {
-    const emailName = `QA_${role}_EMAIL`;
-    const passwordName = `QA_${role}_PASSWORD`;
-    const password = required(env, passwordName);
+export function getTestPersonaCredentials(
+  envPrefix: string,
+  env: Environment = process.env,
+) {
+  const emailName = `${envPrefix}_EMAIL`;
+  const passwordName = `${envPrefix}_PASSWORD`;
+  const password = required(env, passwordName);
 
-    if (password.length < 12) {
-      throw new Error(
-        `Invalid application configuration: ${passwordName} must be at least 12 characters`,
-      );
-    }
-
-    return { email: required(env, emailName), password, role } as const;
+  if (password.length < 12) {
+    throw new Error(
+      `Invalid application configuration: ${passwordName} must be at least 12 characters`,
+    );
   }
 
-  return { user: persona("USER"), admin: persona("ADMIN") } as const;
+  return { email: required(env, emailName), password } as const;
 }
 
 export function getAdminBootstrapConfig(env: Environment = process.env) {

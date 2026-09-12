@@ -1,4 +1,5 @@
 import type {
+  MonitorEligibility,
   MonitorDetailResponse,
   MonitorMatchedLevelResponse,
   MonitorSecurityEvaluationResponse,
@@ -12,6 +13,7 @@ import { monitorStrategyLevels } from "@intrinsic/strategy";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
 import { MONITORS_LOGGER } from "./monitors.tokens";
 import type { ParsedUpdateMonitorRequest } from "./monitor-requests";
 
@@ -53,7 +55,20 @@ type MonitorRow = Prisma.MonitorGetPayload<{ include: typeof MONITOR_INCLUDE }>;
 /** Monitors render newest-changed first; ids break same-tick ties. */
 const MONITOR_ORDER = [{ updatedAt: "desc" as const }, { id: "desc" as const }];
 
-function summaryOf(row: MonitorRow): MonitorSummaryResponse {
+/**
+ * Projects one Monitor, with its derived operational status attached.
+ *
+ * `eligibility` is resolved over the owner's **complete** Monitor set, because the active-capacity
+ * rule is positional. A Monitor whose eligibility could not be resolved falls back to reporting
+ * its own intent, which is the honest answer when the derivation is unavailable rather than a
+ * claim that it is scanning.
+ */
+function summaryOf(
+  row: MonitorRow,
+  eligibility: MonitorEligibility | undefined,
+): MonitorSummaryResponse {
+  const status =
+    eligibility?.status ?? (row.enabled ? "ACTIVE" : "DISABLED");
   return {
     id: row.id,
     name: row.name,
@@ -69,6 +84,10 @@ function summaryOf(row: MonitorRow): MonitorSummaryResponse {
       : { lastScanAt: row.lastScanAt.toISOString() }),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    operationalStatus: status,
+    ...(eligibility?.blockedReason
+      ? { blockedReason: eligibility.blockedReason }
+      : {}),
   };
 }
 
@@ -113,16 +132,21 @@ function securityStatusOf(input: {
 export class MonitorsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EntitlementsService)
+    private readonly entitlements: EntitlementsService,
     @Inject(MONITORS_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
   async listForUser(userId: string): Promise<MonitorSummaryResponse[]> {
-    const rows = await this.prisma.monitor.findMany({
-      where: { userId },
-      orderBy: MONITOR_ORDER,
-      include: MONITOR_INCLUDE,
-    });
-    return rows.map(summaryOf);
+    const [rows, eligibility] = await Promise.all([
+      this.prisma.monitor.findMany({
+        where: { userId },
+        orderBy: MONITOR_ORDER,
+        include: MONITOR_INCLUDE,
+      }),
+      this.entitlements.getMonitorExecutionEligibility(userId),
+    ]);
+    return rows.map((row) => summaryOf(row, eligibility.get(row.id)));
   }
 
   /**
@@ -131,6 +155,11 @@ export class MonitorsService {
    * Both references are checked against the caller in the same transaction as the insert, so a
    * Monitor can never be created over someone else's strategy or list — a foreign key alone would
    * have accepted any id that exists.
+   *
+   * The active-capacity check happens in that same transaction, and only when the Monitor is being
+   * created **enabled**: creating a disabled Monitor is not an active Monitor, and there is no
+   * quota on how many a user may store. Taking the entitlement lock inside the transaction is what
+   * stops two concurrent creations from each seeing the same active count and both succeeding.
    */
   async createMonitor(
     userId: string,
@@ -142,6 +171,9 @@ export class MonitorsService {
     },
   ): Promise<MonitorDetailResponse> {
     const row = await this.prisma.$transaction(async (tx) => {
+      if (input.enabled) {
+        await this.entitlements.assertCanEnableMonitor(tx, userId);
+      }
       const strategy = await tx.strategy.findFirst({
         where: { id: input.strategyId, userId },
         select: { id: true },
@@ -178,8 +210,11 @@ export class MonitorsService {
     });
     // A new Monitor has produced nothing yet, but its universe is already known: every member
     // reports `NOT_CHECKED` until a cycle reaches it.
+    const eligibility = await this.entitlements.getMonitorExecutionEligibility(
+      userId,
+    );
     return {
-      ...summaryOf(row),
+      ...summaryOf(row, eligibility.get(row.id)),
       securities: await this.listSecurityEvaluations(
         row,
         await this.monitoredLevelIds(input.strategyId),
@@ -202,12 +237,13 @@ export class MonitorsService {
     // Three independent reads, issued together: the levels this Monitor actually evaluates, the
     // monitored universe with its current status, and the newest Signals. None is per security or
     // per Signal.
-    const [monitoredLevelIds, signals] = await Promise.all([
+    const [monitoredLevelIds, signals, eligibility] = await Promise.all([
       this.monitoredLevelIds(row.strategyId),
       this.listSignals(monitorId),
+      this.entitlements.getMonitorExecutionEligibility(userId),
     ]);
     return {
-      ...summaryOf(row),
+      ...summaryOf(row, eligibility.get(row.id)),
       securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
       signals,
     };
@@ -398,26 +434,43 @@ export class MonitorsService {
       return this.rebindMonitor(userId, monitorId, patch);
     }
 
-    // `updateMany` applies the ownership filter and the write in one atomic statement.
-    const updated = await this.prisma.monitor.updateMany({
-      where: { id: monitorId, userId },
-      data: {
-        ...(patch.name === undefined ? {} : { name: patch.name }),
-        ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
-      },
+    // Switching a Monitor on is a capacity decision, so the check and the write share one
+    // transaction. `excludeMonitorId` keeps it idempotent: re-saving a Monitor that is already
+    // enabled must not count it against its own limit and refuse a no-op.
+    //
+    // Switching one *off* is never refused. A user over capacity after a downgrade has to be able
+    // to reduce their active set — refusing the one operation that fixes the situation would be
+    // a trap.
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (patch.enabled === true) {
+        await this.entitlements.assertCanEnableMonitor(tx, userId, {
+          excludeMonitorId: monitorId,
+        });
+      }
+      // `updateMany` applies the ownership filter and the write in one atomic statement.
+      return tx.monitor.updateMany({
+        where: { id: monitorId, userId },
+        data: {
+          ...(patch.name === undefined ? {} : { name: patch.name }),
+          ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+        },
+      });
     });
     if (updated.count === 0) {
       throw new MonitorNotFoundError();
     }
 
-    const row = await this.readOwnMonitor(userId, monitorId);
+    const [row, eligibility] = await Promise.all([
+      this.readOwnMonitor(userId, monitorId),
+      this.entitlements.getMonitorExecutionEligibility(userId),
+    ]);
     this.logger.info({
       event: "monitor.updated",
       actorUserId: userId,
       monitorId,
       enabled: row.enabled,
     });
-    return summaryOf(row);
+    return summaryOf(row, eligibility.get(row.id));
   }
 
   /**
@@ -449,6 +502,14 @@ export class MonitorsService {
   ): Promise<MonitorSummaryResponse> {
     const now = new Date();
     const outcome = await this.prisma.$transaction(async (tx) => {
+      // A rebind may also switch the Monitor on, so it is the same capacity decision — taken
+      // before the Monitor row is locked, so this transaction acquires the per-user entitlement
+      // lock and the Monitor row lock in the one order every writer uses.
+      if (patch.enabled === true) {
+        await this.entitlements.assertCanEnableMonitor(tx, userId, {
+          excludeMonitorId: monitorId,
+        });
+      }
       // The Monitor row is locked first, before anything else in this transaction touches state or
       // Signals. A cycle committing a transition locks the same row (`FOR SHARE`) before its own
       // state writes, so both orders agree and the two cannot deadlock. Ownership is part of the
@@ -548,7 +609,10 @@ export class MonitorsService {
           }
         : {}),
     });
-    return summaryOf(outcome.row);
+    const eligibility = await this.entitlements.getMonitorExecutionEligibility(
+      userId,
+    );
+    return summaryOf(outcome.row, eligibility.get(outcome.row.id));
   }
 
   /** Re-reads the caller's own Monitor, or reports it missing if it vanished underneath. */

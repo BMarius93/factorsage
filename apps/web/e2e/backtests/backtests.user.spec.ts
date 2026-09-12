@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
- * Full backtest journey for QA_USER against an already-running stack.
+ * Full backtest journey for PRO_USER against an already-running stack.
  *
  * Preconditions beyond the usual stack + `pnpm test:users:seed`:
  *
@@ -293,7 +293,7 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
   return seen;
 }
 
-test.describe("QA_USER backtests", () => {
+test.describe("PRO_USER backtests", () => {
   test.beforeEach(async ({ page }) => {
     await deleteStrategyIfPresent(page, STRATEGY_NAME);
     await deleteListIfPresent(page, LIST_NAME);

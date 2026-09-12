@@ -30,6 +30,7 @@ Current callers:
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
+- `apps/api/src/entitlements/entitlements.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
 - `apps/api/src/qa-matrix/matrix-cleanup.integration.test.ts`
@@ -38,8 +39,10 @@ Current callers:
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
+- `apps/worker/src/backtest/claim-entitlements.integration.test.ts`
 - `apps/worker/src/backtest/job-repository.integration.test.ts`
 - `apps/worker/src/monitor/monitor-cycle.integration.test.ts`
+- `apps/worker/src/monitor/monitor-eligibility.integration.test.ts`
 - `apps/worker/src/monitor/scan-repository.integration.test.ts`
 - `packages/stock-data/src/benchmark-data.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`
@@ -319,6 +322,28 @@ It deletes bars, coverage intervals and watermarks — a durable projection of p
 user-owned state — and leaves the `BenchmarkSeries` rows themselves alone, because completed runs
 pin them. Completed runs keep their stored results either way. The next backtest re-hydrates the
 series from FMP.
+
+## Entitlements
+
+Entitlements V1 is enforced at the API mutation boundaries and in both worker kinds, so a change
+to a plan, a limit or an enforcement point has to be tested against all three.
+
+- `packages/contracts/src/entitlements.test.ts` — the commercial matrix number by number, the
+  derived compliance and Monitor-eligibility helpers, and the semantic assertions. Values are
+  written as literals rather than imported, so the suite cannot agree with a wrong implementation.
+  No infrastructure.
+- `packages/contracts/src/entitlements.rate-limiting-boundary.test.ts` — proves entitlements carry
+  no request-rate concept and that the module has no dependency that could reach a request or a
+  counter. `docs/decisions/entitlements-v1.md` section 10 keeps the two mechanisms apart; this is
+  what stops them merging.
+- `apps/api/src/entitlements/entitlements.integration.test.ts` — PostgreSQL-backed. HTTP through to
+  the database for every limit, guest behaviour, role-escalation attempts, the concurrency race and
+  the downgrade rules. Deliberately drives the API directly: UI checks are convenience only, so a
+  suite exercising the browser would prove nothing about the invariant.
+- `apps/worker/src/backtest/claim-entitlements.integration.test.ts` — PostgreSQL-backed. Concurrency
+  at the claim, including a plan that dropped while runs were queued.
+- `apps/worker/src/monitor/monitor-eligibility.integration.test.ts` — PostgreSQL-backed. What a
+  cycle may evaluate, and that `enabled` is never rewritten.
 
 ## Authentication and Playwright
 

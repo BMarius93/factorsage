@@ -45,3 +45,51 @@ export function subtractYears(value: string, years: number): string {
   date.setUTCDate(Math.min(day, lastDayOfMonth));
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * Adds whole years, with the same 29 February clamp as {@link subtractYears}.
+ *
+ * The exact mirror, and shared for the same reason: without the clamp the two bounds of one
+ * thirty-year period disagree every fourth year, so a start date the horizon check accepts is one
+ * the length check rejects.
+ */
+export function addYears(value: string, years: number): string {
+  if (!isLocalDate(value)) {
+    throw new Error(`Invalid local date '${value}'`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCFullYear(date.getUTCFullYear() + years);
+  const lastDayOfMonth = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDayOfMonth));
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * How many whole years of history a `[startDate, endDate]` period requests.
+ *
+ * The smallest `n` for which `endDate <= addYears(startDate, n)` — that is, the number the
+ * existing "a backtest period can cover at most N years" rule is stated in. Defining it once
+ * matters because the same number now answers two questions: the product's absolute retention
+ * horizon, and the plan's backtest depth entitlement. Two implementations of "years of history"
+ * would eventually disagree by a day, and the disagreement would only show up on a leap year.
+ */
+export function backtestPeriodYears(
+  startDate: string,
+  endDate: string,
+): number {
+  let years = Math.max(
+    0,
+    Number(endDate.slice(0, 4)) - Number(startDate.slice(0, 4)),
+  );
+  while (years > 0 && endDate <= addYears(startDate, years - 1)) {
+    years -= 1;
+  }
+  while (endDate > addYears(startDate, years)) {
+    years += 1;
+  }
+  return years;
+}

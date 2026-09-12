@@ -5,6 +5,7 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
+import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { BacktestsController } from "./backtests.controller";
 import { BacktestsService } from "./backtests.service";
 import {
@@ -13,7 +14,7 @@ import {
 } from "./backtests.tokens";
 
 @Module({
-  imports: [ConfigurationModule, DatabaseModule, AuthModule],
+  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
   controllers: [BacktestsController],
   providers: [
     {

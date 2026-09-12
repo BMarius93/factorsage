@@ -1,9 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { getQaPersonaConfig, loadRootEnv } from "@intrinsic/config";
+import { loadRootEnv } from "@intrinsic/config";
 import { isLocalDate } from "@intrinsic/contracts";
 import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
-import { currentAsOfDate, qaMatrixFixtures } from "@intrinsic/testing";
+import {
+  currentAsOfDate,
+  qaMatrixFixtures,
+  resolveTestPersona,
+} from "@intrinsic/testing";
 import { loadQaMatrixExecutionCalendar } from "./qa-matrix/seed-qa-matrix";
 import {
   qaMatrixCases,
@@ -249,7 +253,11 @@ async function main(): Promise<void> {
 
   const context = await createMatrixExecutionContext();
   const prisma = context.prisma;
-  const ownerEmail = getQaPersonaConfig().user.email;
+  // The QA_ADMIN persona owns the matrix fixtures. The matrix submits through the product's real
+  // entitlement-enforced path, and a thousand-case sweep runs at a concurrency no commercial plan
+  // sells — `ADMIN_ENTITLEMENTS` is the decision document's own mechanism for that, and it keeps
+  // the runner on the real path instead of behind a bypass. See `docs/decisions/entitlements-v1.md`.
+  const ownerEmail = resolveTestPersona("ADMIN_USER").email;
 
   const executionId = matrixExecutionId(asOfDate);
   const writer = new MatrixReportWriter(matrixReportRoot(root), executionId);
@@ -290,6 +298,7 @@ async function main(): Promise<void> {
       fixtures,
       asOfDate,
       ownerEmail,
+      concurrency,
       today: currentAsOfDate(),
       repositoryRoot: root,
     });

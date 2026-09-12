@@ -1,14 +1,27 @@
 import type { AuthUser } from "@intrinsic/contracts";
-import { PrismaClient, UserRole } from "@intrinsic/database";
+import { PrismaClient, UserPlan, UserRole } from "@intrinsic/database";
 import { isValidEmail, normalizeEmail } from "./email";
 import { PasswordService } from "./password.service";
 
 export type QaPersonaInput = {
-  /** Logical persona name used in documentation and Playwright projects. */
-  readonly name: "QA_USER" | "QA_ADMIN";
+  /**
+   * The persona's canonical name, from the registry in `@intrinsic/testing`. Typed as a plain
+   * string so this repository layer does not have to import the registry to describe its input;
+   * the callers that build these come from the registry itself.
+   */
+  readonly name: string;
   readonly email: string;
   readonly password: string;
   readonly role: UserRole;
+  /**
+   * The persona's commercial plan, asserted explicitly on every seed.
+   *
+   * Deterministic on purpose: browser journeys and the developer QA matrix would otherwise inherit
+   * whatever the column defaults to, and a plan limit reached by accident looks exactly like a
+   * product bug. It is separate from `role`, which is authorization — both are stated here because
+   * the two are orthogonal and neither implies the other.
+   */
+  readonly plan: UserPlan;
 };
 
 export type SeededQaPersona = AuthUser & { readonly name: string };
@@ -64,9 +77,20 @@ export async function seedQaUsers(
 
     const user = await prisma.user.upsert({
       where: { email },
-      update: { passwordHash, emailVerifiedAt, role: persona.role },
-      create: { email, passwordHash, emailVerifiedAt, role: persona.role },
-      select: { id: true, email: true, role: true },
+      update: {
+        passwordHash,
+        emailVerifiedAt,
+        role: persona.role,
+        plan: persona.plan,
+      },
+      create: {
+        email,
+        passwordHash,
+        emailVerifiedAt,
+        role: persona.role,
+        plan: persona.plan,
+      },
+      select: { id: true, email: true, role: true, plan: true },
     });
 
     // A persona is permanently verified, so any leftover token from earlier manual testing is

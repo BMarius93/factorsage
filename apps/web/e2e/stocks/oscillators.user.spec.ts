@@ -2,7 +2,7 @@ import { OSCILLATOR_SERIES } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
- * Stock Details RSI oscillator journey for QA_USER, through the real Next + Nest + PostgreSQL +
+ * Stock Details RSI oscillator journey for PRO_USER, through the real Next + Nest + PostgreSQL +
  * Redis stack.
  *
  * Preconditions are the same as the indicators journey: `pnpm test:users:seed` once, and
@@ -141,7 +141,7 @@ async function expectPane(page: Page, active: boolean): Promise<void> {
   }
 }
 
-test.describe("QA_USER Stock Details oscillators", () => {
+test.describe("PRO_USER Stock Details oscillators", () => {
   test("drives the shared RSI pane through the full selection lifecycle", async ({
     page,
   }) => {

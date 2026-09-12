@@ -4,6 +4,7 @@ import {
   normalizeStrategyDefinition,
   strategyDefinitionFingerprint,
   type StrategyDefinition,
+  type AuthUser,
   type StrategyDetailResponse,
   type StrategySummaryResponse,
 } from "@intrinsic/contracts";
@@ -11,6 +12,7 @@ import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
 import { STRATEGIES_LOGGER } from "./strategies.tokens";
 import type { ParsedUpdateStrategyRequest } from "./strategy-requests";
 
@@ -124,6 +126,8 @@ function detailOf(row: StrategyRow): StrategyDetailResponse {
 export class StrategiesService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EntitlementsService)
+    private readonly entitlements: EntitlementsService,
     @Inject(STRATEGIES_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
@@ -145,9 +149,16 @@ export class StrategiesService {
    * that fails to normalize on the way back out.
    */
   async createStrategy(
-    userId: string,
+    user: AuthUser,
     input: { name: string; description: string | null; definition?: unknown },
   ): Promise<StrategyDetailResponse> {
+    // The only entitlement question a Strategy has. There is deliberately no quota on how many a
+    // user may save, and deliberately no check on *what the definition contains*: every
+    // authenticated plan has every indicator, condition, trigger, calculated series and
+    // intrinsic-value primitive. Monetization is product capacity, never analytical primitives —
+    // adding a per-primitive check here would be the exact paywall the decision document forbids.
+    this.entitlements.assertCanCreateCustomStrategy(user);
+    const userId = user.id;
     const definition = normalizeStrategyDefinition(
       input.definition ?? emptyStrategyDefinition(),
     );

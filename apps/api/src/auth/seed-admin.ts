@@ -38,10 +38,13 @@ export async function seedInitialAdmin(
       emailVerifiedAt,
       role: UserRole.ADMIN,
     },
+    // The commercial plan is deliberately left alone: `role` is what this seed grants, and the
+    // two are orthogonal. A bootstrap administrator keeps whatever plan the column defaults to.
     select: {
       id: true,
       email: true,
       role: true,
+      plan: true,
     },
   });
 }

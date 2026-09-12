@@ -1,3 +1,7 @@
+import type {
+  MonitorBlockedReason,
+  MonitorOperationalStatus,
+} from "./entitlements.js";
 import type { StrategyLevelKind } from "./strategies.js";
 import type { StockListSecurityResponse } from "./stock-lists.js";
 
@@ -50,6 +54,18 @@ export type MonitorSummaryResponse = {
   lastScanAt?: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * What the system will actually do with `enabled` right now.
+   *
+   * `enabled` is the user's persisted intent and survives everything, including a downgrade.
+   * This is the separate, **derived** concept: an enabled Monitor beyond the plan's active
+   * capacity, or one watching a List that is over the plan's symbol limit, reports
+   * `BLOCKED_BY_ENTITLEMENT` while its `enabled` value stays `true`. Nothing here is persisted,
+   * so an upgrade or a corrective edit resolves it on the next read with no write at all.
+   */
+  operationalStatus: MonitorOperationalStatus;
+  /** Present only when `operationalStatus` is `BLOCKED_BY_ENTITLEMENT`. */
+  blockedReason?: MonitorBlockedReason;
 };
 
 export type MonitorSignalResponse = {

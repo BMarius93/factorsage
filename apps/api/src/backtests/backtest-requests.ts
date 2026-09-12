@@ -1,4 +1,5 @@
 import {
+  addYears,
   BACKTEST_INVALID_CODE,
   BACKTEST_MAX_INITIAL_CAPITAL,
   BACKTEST_MAX_MAXIMUM_POSITIONS,
@@ -104,25 +105,6 @@ function parseAmount(
     );
   }
   return value;
-}
-
-/**
- * The calendar date `years` after `date`, used as the inclusive upper bound of a period.
- *
- * The mirror of `subtractYears`, clamp included: without it 29 February rolls forward to 1 March
- * and the two bounds disagree about the same thirty years every fourth year — so a start date the
- * horizon check accepts could be one the length check rejects.
- */
-function addYears(date: string, years: number): string {
-  const shifted = new Date(`${date}T00:00:00.000Z`);
-  const day = shifted.getUTCDate();
-  shifted.setUTCDate(1);
-  shifted.setUTCFullYear(shifted.getUTCFullYear() + years);
-  const lastDayOfMonth = new Date(
-    Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  shifted.setUTCDate(Math.min(day, lastDayOfMonth));
-  return shifted.toISOString().slice(0, 10);
 }
 
 function todayIsoDate(): string {

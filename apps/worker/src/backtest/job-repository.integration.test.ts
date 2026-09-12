@@ -8,7 +8,7 @@ import {
 } from "@intrinsic/database";
 import type { BacktestResult } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   ABANDONED_FAILURE_MESSAGE,
   PrismaBacktestJobRepository,
@@ -44,7 +44,11 @@ describe("backtest job claiming", () => {
 
   beforeAll(async () => {
     const user = await prisma.user.create({
-      data: { email: `worker-${suffix}@example.test` },
+      // PRO: this suite proves the claim protocol, and two of its cases deliberately claim two
+      // jobs of the same owner at once. FREE would refuse the second on concurrency and the
+      // protocol assertion would fail for an unrelated reason. The concurrency gate itself is
+      // proven in `claim-entitlements.integration.test.ts`.
+      data: { email: `worker-${suffix}@example.test`, plan: "PRO" },
     });
     userId = user.id;
 
@@ -65,6 +69,15 @@ describe("backtest job claiming", () => {
     });
     benchmarkId = benchmark.id;
     benchmarkSeriesId = benchmark.series[0]?.id ?? "";
+  });
+
+  // Claimed jobs would otherwise accumulate across the suite, and the claim now also enforces the
+  // owner's concurrent-run entitlement: after two live claims this one account is at PRO's limit
+  // and every later test would be refused a job for a reason that has nothing to do with the
+  // protocol it is testing. Every test seeds the runs it needs and none reads another's.
+  afterEach(async () => {
+    await prisma.backtestRun.deleteMany({ where: { userId } });
+    runIds.length = 0;
   });
 
   afterAll(async () => {

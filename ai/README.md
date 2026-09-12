@@ -22,6 +22,22 @@ For substantial work:
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
 
+For commercial plans, capacity limits, guest behaviour or downgrade semantics, read
+`../docs/decisions/entitlements-v1.md` — the accepted product decision and the source of truth for
+every value — then `architecture/entitlements.md`, which is how it is implemented: where the one
+resolver lives, the enforcement point behind each canonical boundary, how the raceable limits are
+made atomic, why Monitor intent and execution eligibility are separate, and where the billing
+seam is. Plan (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal columns on `User`;
+`GUEST` is derived from the absence of a session and is never a persisted row. Do not add a plan
+comparison in feature code, and do not model request rate as an entitlement.
+
+Entitlement behaviour is tested through fixed **test personas**, one per plan, defined once in
+`packages/testing/src/personas.ts` and read by the seeders and the Playwright projects alike.
+`PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is `plan=FREE`,
+`role=ADMIN` and is for internal/QA scenarios only. Never change a persona's plan in a test — sign
+in as the plan under test. `ai/workflows/auth-testing.md` is the runbook; seed with
+`pnpm test:personas:seed`.
+
 For strategy work, also read `product/strategies.md`. Two architecture documents sit beside it:
 `architecture/strategy-builder.md` is the implementation plan for the Create/Edit Strategy vertical
 slice — canonical types, the shared compatibility registry, validation, schema, contracts and the

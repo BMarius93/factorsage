@@ -11,6 +11,7 @@
     "e2e": "playwright test",
     "e2e:smoke": "playwright test --grep @smoke",
     "e2e:auth": "playwright test e2e/auth",
+    "e2e:entitlements": "playwright test e2e/entitlements",
     "e2e:headed": "playwright test --headed",
     "e2e:report": "playwright show-report"
   },
@@ -22,6 +23,7 @@
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@intrinsic/testing": "workspace:*",
     "@playwright/test": "^1.56.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",

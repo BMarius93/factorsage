@@ -44,6 +44,10 @@ function RunCard({ run }: { readonly run: BacktestRunSummaryResponse }) {
           <span
             className={styles.statusPill}
             data-tone={statusTone(run.status)}
+            data-testid="backtest-card-status"
+            // The raw status alongside the label: a test reading "Preparing data" would be
+            // asserting on prose, and the prose is allowed to change.
+            data-status={run.status}
           >
             {BACKTEST_RUN_STATUS_LABELS[run.status]}
           </span>
