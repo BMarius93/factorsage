@@ -41,10 +41,17 @@ There is no pointer column and no circular relation: the current version is the 
 
 `definitionHash` is a SHA-256 over `strategyDefinitionFingerprint(definition)` — a canonical
 serialization of the normalized document with the level, condition and trigger **ids stripped**.
-Those ids are client-generated and exist so diagnostics can address a row, so re-keying a row does
-not change what the strategy does and must not churn the history. Genuine reordering does change
-the strategy, which is why the fingerprint preserves order rather than sorting: level order is
-product-meaningful.
+Those ids are client-generated, so re-keying a row does not change what the strategy does and must
+not churn the history. Genuine reordering does change the strategy, which is why the fingerprint
+preserves order rather than sorting: level order is product-meaningful.
+
+Since Monitor V1 a **level id is also durable identity across versions**: `MonitorSignalState` and
+`MonitorSignal` are keyed by `(monitorId, securityId, levelId)`, and a level whose id changes in a
+newly appended version is indistinguishable from one removed and another added — its active
+Signals are resolved and a still-true match is re-emitted. A client editing a Strategy must carry
+existing level ids forward (the web Builder does; `draftFrom` keeps the saved document's ids), and a
+re-keyed submission with unchanged logic returns the persisted document with its **original** ids,
+not the client's. See `ai/architecture/deep-discovery.md`, investigation 1.
 
 The fingerprint lives in `@intrinsic/contracts` beside the model, because knowing which fields
 carry meaning is model knowledge; the hashing itself lives in the API, which has `node:crypto` and

@@ -529,10 +529,12 @@ export class PrismaStockDataStore implements StockDataStore {
     return result.count;
   }
 
-  async updateSecurityCatalogEntry(entry: SecurityCatalogEntry): Promise<void> {
+  async updateSecurityCatalogEntry(
+    entry: SecurityCatalogEntry,
+  ): Promise<Security> {
     // Only the catalog-owned fields are written. CIK, ISIN, CUSIP, IPO date and ADR status come
     // from the per-stock profile, and a bulk universe row has none of them to offer.
-    await this.prisma.security.update({
+    const row = await this.prisma.security.update({
       where: { providerSymbol: entry.providerSymbol },
       data: {
         symbol: entry.security.symbol,
@@ -547,6 +549,7 @@ export class PrismaStockDataStore implements StockDataStore {
         isActivelyTrading: entry.security.isActivelyTrading,
       },
     });
+    return mapSecurity(row);
   }
 
   async saveSecurityProfile(input: {

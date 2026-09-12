@@ -66,6 +66,37 @@ describe("strategy draft reducer", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("keeps existing row ids when other rows change, because a level id is Monitor identity", () => {
+    // A Monitor keys its durable state by level id across Strategy versions. Editing a rule, adding a
+    // level or adding a trigger must therefore never regenerate the ids already saved: a re-keyed
+    // level would look removed-and-added and re-emit a Signal for a match that never stopped.
+    const before = apply(withOneBuyLevel(), {
+      type: "addLevel",
+      levelKind: "SELL",
+    });
+    const buyId = before.definition.buyLevels[0]?.id;
+    const conditionId = firstCondition(before.definition)?.id;
+    const sellId = before.definition.sellLevels[0]?.id;
+    const metric = strategyMetricOptions("BUY").find(
+      (option) =>
+        option.metric.kind !== firstCondition(before.definition)?.metric.kind,
+    )?.metric;
+    expect(metric).toBeDefined();
+
+    const after = apply(
+      before,
+      { type: "setMetric", ref: BUY_ROW, metric: metric as StrategyMetric },
+      { type: "addLevel", levelKind: "BUY" },
+      { type: "addTrigger", ref: { levelKind: "SELL", levelIndex: 0 } },
+      { type: "addLevel", levelKind: "FINAL_EXIT" },
+    );
+
+    expect(after.definition.buyLevels[0]?.id).toBe(buyId);
+    expect(firstCondition(after.definition)?.id).toBe(conditionId);
+    expect(after.definition.sellLevels[0]?.id).toBe(sellId);
+    expect(after.definition.buyLevels[1]?.id).not.toBe(buyId);
+  });
+
   it("replaces an operator the new metric does not support", () => {
     const closeTo = apply(withOneBuyLevel(), {
       type: "setOperator",

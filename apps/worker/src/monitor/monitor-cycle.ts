@@ -199,7 +199,11 @@ export class MonitorCycle {
     // and returning here would leave its Signals active against securities nobody watches.
     const securities = await this.data.findSecurities(securityIds);
     const now = this.now();
-    const asOf = toLocalDate(now);
+    // The cycle's own exchange session, resolved the same way every observation date is. It only
+    // bounds the history read behind the observation, and durable history can never run past the
+    // current session — but deriving it from the UTC day would name tomorrow for part of every
+    // evening, which is exactly the trap `tradingSessionDate` exists to close.
+    const asOf = tradingSessionDate(now);
 
     // One current-data request for the whole cycle, and it is all-or-nothing: a failure fails the
     // cycle rather than being absorbed into it. `ai/product/monitors.md` makes partial cycles a
@@ -671,11 +675,6 @@ export class MonitorCycle {
 /** One exchange's session on one day, as a map key. */
 function sessionKey(exchangeCode: string, date: LocalDate): string {
   return `${exchangeCode.trim().toUpperCase()} ${date}`;
-}
-
-/** The cycle's own UTC calendar day. Product dates carry no timezone (`LocalDate`). */
-function toLocalDate(value: Date): LocalDate {
-  return value.toISOString().slice(0, 10);
 }
 
 

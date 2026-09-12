@@ -12,6 +12,12 @@ For substantial work:
 4. Relevant product/domain document for the task.
 5. `workflows/validation.md`
 6. Relevant ADRs in `../docs/decisions/`.
+7. `architecture/deep-discovery.md` when the question is "what does the system actually
+   guarantee here?" — verified end-to-end behaviour, invariants, open product decisions, and the
+   behaviours that look wrong but are deliberate.
+8. `architecture/production-capacity.md` when the question is "what does this cost, where does it
+   stop being cheap, what should an operator watch?" — measured on the production code path, with
+   the benchmark harness and the environment the numbers came from.
 
 For authentication and role authorization work, also read
 `architecture/authentication.md`, and `workflows/auth-testing.md` for the test/QA-persona runbook.
@@ -67,12 +73,14 @@ forty invariants it validates independently, and which three of those need the d
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
-For Monitor work, read `product/monitors.md` first, then `architecture/monitor-engine.md`,
+For Monitor work, read `product/product-overview.md` (the domain map) and `product/monitors.md` first, then `architecture/monitor-engine.md`, `architecture/deep-discovery.md` (verified end-to-end behaviour, invariants and open product questions, one investigation per entry),
 `product/strategies.md`, `architecture/strategy-evaluation.md`, and `architecture/calculated-series.md`.
 Monitor reuses the canonical Strategy language but evaluates it against current data. The V1 architecture
 loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
 transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
-Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1.
+Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1. Monitor V1
+shipped as API (`apps/api/src/monitors`) and worker (`apps/worker/src/monitor`); the web route is
+still a placeholder and is the open slice.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.
@@ -135,8 +143,23 @@ Backtest run
   +-- durable PostgreSQL job claim, live progress checkpoints
   +-- deterministic results / diagnostics
 
-Monitor = current-data evaluation using the same canonical Strategy logic
+Monitor (user-owned)
+  |
+  +-- live Strategy reference (no pinned version) + live StockList reference + enabled
+  +-- cadence, lease and retry are application configuration, never user input
+  +-- deleting a referenced Strategy or StockList is refused while the Monitor exists
+  +-- evaluates every BUY / SELL / FINAL EXIT level against current data (closed history
+  |   plus the live quote as the provisional observation), BUY gated by the member's buy window
+  |
+  +-- produces Signal (append-only, never deleted; resolved when the match ends)
+       +-- condition-only level = a state: emitted when it begins, resolved when it ends
+       +-- trigger level         = an event on one observation date, at most once per date
+       +-- durable (Monitor, Security, level) transition state keyed to the level's own
+           canonical fingerprint, so a Strategy edit resets only the levels that changed
 ```
+
+`product/product-overview.md` holds the one-page map of how List, Strategy, Backtest, Monitor and
+Signal relate, who owns what, and what each concept is *not*.
 
 Historical market-derived Strategy predicates are conceptually evaluated as date-aligned logical
 series. Missing/warm-up/PIT-unavailable data remains `NOT_EVALUABLE`; it is never replaced by zero

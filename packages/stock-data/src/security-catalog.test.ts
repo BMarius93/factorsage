@@ -99,11 +99,33 @@ class FakeCatalogStore {
     return entries.length;
   }
 
-  async updateSecurityCatalogEntry(entry: SecurityCatalogEntry) {
+  async updateSecurityCatalogEntry(
+    entry: SecurityCatalogEntry,
+  ): Promise<Security> {
     if (this.updateFailures.has(entry.providerSymbol)) {
       throw new Error(`update failed for ${entry.providerSymbol}`);
     }
     this.updated.push(entry);
+    const existing = this.existing.find(
+      (row) => row.providerSymbol === entry.providerSymbol,
+    );
+    return {
+      ...entry.security,
+      id: existing?.security.id ?? `id-${entry.providerSymbol}`,
+    };
+  }
+}
+
+/** Records the identity rows the sync refreshed in the cache. */
+class FakeSecurityCache {
+  readonly refreshed: Security[] = [];
+  failFor = new Set<string>();
+
+  async setSecurity(security: Security): Promise<void> {
+    if (this.failFor.has(security.symbol)) {
+      throw new Error(`cache refresh failed for ${security.symbol}`);
+    }
+    this.refreshed.push(security);
   }
 }
 
@@ -123,18 +145,21 @@ function catalogStore(fake: FakeCatalogStore): StockDataStore {
 
 let store: FakeCatalogStore;
 let provider: FakeCatalogProvider;
+let cache: FakeSecurityCache;
 
 function service(): CanonicalSecurityCatalogService {
   return new CanonicalSecurityCatalogService(
     catalogStore(store),
     provider,
     EXCHANGES,
+    cache,
   );
 }
 
 beforeEach(() => {
   store = new FakeCatalogStore();
   provider = new FakeCatalogProvider();
+  cache = new FakeSecurityCache();
 });
 
 describe("security catalog synchronization", () => {
@@ -218,6 +243,40 @@ describe("security catalog synchronization", () => {
       sector: "Consumer Electronics",
     });
     expect(summary).toMatchObject({ updated: 1, unchanged: 0, created: 0 });
+  });
+
+  it("refreshes the cached identity row of every security it updates", async () => {
+    // Stock Details resolves a symbol through the cached row, which has no TTL. Without the
+    // write-through a rename or deactivation would keep reading as the old row until eviction.
+    provider.byExchange.set("NASDAQ", [
+      listing("AAPL", { name: "Apple Inc." }),
+      listing("MSFT"),
+    ]);
+    store.existing = [persisted("AAPL"), persisted("MSFT")];
+
+    const { summary } = await service().sync();
+
+    expect(summary).toMatchObject({ updated: 1, unchanged: 1, failed: 0 });
+    expect(cache.refreshed).toEqual([
+      expect.objectContaining({
+        id: "id-AAPL",
+        symbol: "AAPL",
+        name: "Apple Inc.",
+      }),
+    ]);
+  });
+
+  it("reports a row whose cache refresh failed instead of calling it updated", async () => {
+    provider.byExchange.set("NASDAQ", [
+      listing("AAPL", { name: "Apple Inc." }),
+    ]);
+    store.existing = [persisted("AAPL")];
+    cache.failFor.add("AAPL");
+
+    const { summary, failures } = await service().sync();
+
+    expect(summary).toMatchObject({ updated: 0, failed: 1 });
+    expect(failures.map((failure) => failure.providerSymbol)).toEqual(["AAPL"]);
   });
 
   it("skips non-equity and unsupported-exchange records", async () => {

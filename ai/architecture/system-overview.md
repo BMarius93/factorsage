@@ -4,7 +4,8 @@
 
 - `apps/web`: presentation and browser interaction.
 - `apps/api`: HTTP API, authentication integration, orchestration, authorization, persistence coordination.
-- `apps/worker`: long-running backtests and monitoring work.
+- `apps/worker`: one supervisor forking backtest children (durable `BacktestJob` claims) and
+  Monitor children (the singleton `MonitorScanSchedule` claim). See `api-worker.md`.
 
 ## Shared packages
 
@@ -30,6 +31,16 @@ Redis may be used for:
 - temporary coordination.
 
 A Redis flush must not destroy completed executions or user-owned data.
+
+Redis is nevertheless **required at runtime**: every stock-data read, the per-security hydration
+lock and the provider-wide request gate go through it, and nothing degrades to a PostgreSQL-only
+path when it is unreachable — a request or cycle fails fast instead. "Disposable" describes its
+contents, not its availability. Keys are namespaced `stock-data:v2:*` (per-security manifests and
+yearly chunks, the resident-stock LRU, the FMP gate), `stock-data:load:*` (the Redlock hydration
+locks, per security or benchmark series) and `benchmark:v1:*` (per-series manifests and chunks);
+there is no user-scoped key anywhere, and Monitor/Signal state is never in Redis. The one
+identity row cached per symbol (`stock-data:v2:symbol:<SYMBOL>:security`) has no TTL and is written
+through by profile hydration and by the catalog sync; nothing else refreshes it before eviction. The Monitor's trading-calendar schedule is process memory with a TTL, by design.
 
 Derived backtest-facing data is materialized per trading day into one `DailyDerivedState` row per
 security per trading day, cached as `security:<securityId>:daily-state:<year>` chunks. Calculation
@@ -58,6 +69,10 @@ One distributed lock coordinates hydration of a complete security across API and
 provider-wide Redis gate separately limits concurrent/rate traffic and shares 429 cooldown state
 across processes. Recent mutable EOD data is refreshed as a bounded tail without rebuilding closed
 historical years.
+That tail includes the **current session while it is open**: the provider's EOD endpoint lists
+today's bar in progress (verified live 2026-09-11), so a refresh during the session persists a
+provisional row and its derived columns, and the next refresh after the close replaces it. A
+persisted row is final only once a later refresh has run after its session closed.
 
 **What a repeated read costs.** PostgreSQL, not Redis, is the authority for coverage: an identical
 second read over an already-materialized range makes **zero** provider requests, and so does the

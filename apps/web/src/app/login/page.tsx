@@ -10,7 +10,7 @@ export default function LoginPage() {
   return (
     <AuthCard
       title="Sign in"
-      subtitle="Valuation, backtesting, and monitoring for your watchlists."
+      subtitle="Valuation, backtesting, and monitoring for your stock lists."
     >
       {/* The panel reads the redirect error from the query string, so it renders client-side. */}
       <Suspense fallback={null}>

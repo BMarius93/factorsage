@@ -647,6 +647,53 @@ describeRedis("real Redis stock-data infrastructure", () => {
     expect(Date.now() - cooldownStartedAt).toBeGreaterThanOrEqual(100);
   });
 
+  it("frees a concurrency slot whose holder crashed once its lease expires", async () => {
+    // A process that dies mid-request never reaches the release, so its token stays in the
+    // concurrent set. The gate must not treat that orphan as a live request forever: the token
+    // carries a lease expiry as its score and the next admission sweeps expired ones first.
+    const leakNamespace = `${namespace}:crashed-gate`;
+    const options = {
+      maxConcurrentRequests: 1,
+      rateLimitPerWindow: 100,
+      rateWindowMs: 1_000,
+      maxQueueDepth: 10,
+      maxQueueWaitMs: 2_000,
+      requestLeaseMs: 100,
+      namespace: leakNamespace,
+      random: () => 0,
+    };
+    try {
+      // The orphan: admitted "now" by a process that then vanished without releasing.
+      const [seconds, microseconds] = await redisA.time();
+      const nowMs =
+        Number(seconds) * 1_000 + Math.floor(Number(microseconds) / 1_000);
+      await redisA.zadd(
+        `${leakNamespace}:concurrent`,
+        nowMs + options.requestLeaseMs,
+        "crashed-holder",
+      );
+      expect(await redisA.zcard(`${leakNamespace}:concurrent`)).toBe(1);
+
+      const gate = new RedisFmpRequestGate(redisB, options);
+      const startedAt = Date.now();
+      // The only slot is held by the orphan, so this waits out its lease rather than failing or
+      // running alongside it — and then runs.
+      expect(await gate.run(async () => "ran")).toBe("ran");
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(
+        options.requestLeaseMs - 25,
+      );
+      expect(Date.now() - startedAt).toBeLessThan(options.maxQueueWaitMs);
+      // The orphan was swept, and the completed request released its own token.
+      expect(await redisA.zcard(`${leakNamespace}:concurrent`)).toBe(0);
+    } finally {
+      await redisA.del(
+        `${leakNamespace}:concurrent`,
+        `${leakNamespace}:rate-window`,
+        `${leakNamespace}:cooldown-until`,
+      );
+    }
+  });
+
   it("admits backlog starts against the rate window in which they actually begin", async () => {
     const backlogNamespace = `${namespace}:backlog-gate`;
     const rateWindowMs = 200;

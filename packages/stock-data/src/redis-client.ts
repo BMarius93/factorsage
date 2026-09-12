@@ -1,11 +1,27 @@
 import { Redis } from "ioredis";
 import type { RedisCacheClient } from "./cache.js";
 
-export function createStockDataRedisClient(url: string): Redis {
-  return new Redis(url, {
+/**
+ * The one Redis client a process uses for the stock-data cache, the hydration lock and the
+ * provider gate.
+ *
+ * `onError` receives every connection-level error the client emits. Without a listener ioredis
+ * prints "[ioredis] Unhandled error event" to stderr on each reconnect attempt — an unstructured
+ * line no log query finds — so every composition root passes its structured logger here and a
+ * Redis outage shows up as `stock-data.redis.error` beside the operation it broke.
+ */
+export function createStockDataRedisClient(
+  url: string,
+  onError?: (error: Error) => void,
+): Redis {
+  const redis = new Redis(url, {
     lazyConnect: true,
     maxRetriesPerRequest: 1,
   });
+  if (onError) {
+    redis.on("error", onError);
+  }
+  return redis;
 }
 
 export class IoredisCacheClient implements RedisCacheClient {

@@ -232,6 +232,21 @@ describe("monitor scan schedule", () => {
     );
   });
 
+  it("names the worker whose expired lease a claim took over", async () => {
+    const first = await repository.claimDueScan(workerA, now, LEASE_MS);
+    expect(first?.takenOverFrom).toBeUndefined();
+
+    // The holder stopped heartbeating: its lease has expired but the row still names it.
+    await prisma.monitorScanSchedule.update({
+      where: { id: MONITOR_SCAN_SCHEDULE_ID },
+      data: { leaseExpiresAt: new Date(now.getTime() - 1) },
+    });
+
+    const second = await repository.claimDueScan(workerB, now, LEASE_MS);
+    expect(second?.takenOverFrom).toBe(workerA);
+    expect((await readSchedule()).claimedBy).toBe(workerB);
+  });
+
   it("recovers a cycle whose holder stopped reporting", async () => {
     await repository.claimDueScan(workerA, now, LEASE_MS);
     const afterLease = new Date(now.getTime() + LEASE_MS + 1_000);

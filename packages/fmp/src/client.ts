@@ -51,8 +51,9 @@ export class FmpProviderError extends Error {
   constructor(
     message = "Stock data provider request failed",
     readonly statusCode?: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "FmpProviderError";
   }
 }
@@ -76,8 +77,12 @@ export class FmpUnauthorizedError extends FmpProviderError {
 export class FmpTransientError extends FmpProviderError {
   override readonly retryable: boolean = true;
 
-  constructor(statusCode?: number) {
-    super("Stock data provider is temporarily unavailable", statusCode);
+  constructor(statusCode?: number, options?: ErrorOptions) {
+    super(
+      "Stock data provider is temporarily unavailable",
+      statusCode,
+      options,
+    );
     this.name = "FmpTransientError";
   }
 }
@@ -395,8 +400,14 @@ export class FmpClient
           return payload as T;
         });
       } catch (caught) {
+        // Anything that is not already a provider error — a Redis failure inside the request gate,
+        // a socket error, a JSON parse failure — is reported as a transient provider error, but it
+        // keeps the original as its cause: an operator reading "provider temporarily unavailable"
+        // must be able to see that the provider was never reached because Redis refused.
         error =
-          caught instanceof FmpProviderError ? caught : new FmpTransientError();
+          caught instanceof FmpProviderError
+            ? caught
+            : new FmpTransientError(undefined, { cause: caught });
       }
 
       const delayMs = error.retryable

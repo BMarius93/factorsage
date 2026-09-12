@@ -29,11 +29,16 @@ services:
       timeout: 3s
       retries: 20
 
+  # The app profile reads the same root `.env` the local processes read (the build context excludes
+  # it), so secrets and NODE_ENV are not baked into images. Values under `environment:` win, which
+  # is how the in-network DATABASE_URL / REDIS_URL / PORT override the localhost ones in `.env`.
   web:
     profiles: ["app"]
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+    env_file:
+      - .env
     environment:
       PORT: 3000
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:3001}
@@ -48,6 +53,8 @@ services:
     build:
       context: .
       dockerfile: docker/api.Dockerfile
+    env_file:
+      - .env
     environment:
       PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER:-intrinsic}:${POSTGRES_PASSWORD:-intrinsic_dev_password}@postgres:5432/${POSTGRES_DB:-intrinsic_value}
@@ -65,6 +72,8 @@ services:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intrinsic}:${POSTGRES_PASSWORD:-intrinsic_dev_password}@postgres:5432/${POSTGRES_DB:-intrinsic_value}
       REDIS_URL: redis://redis:6379

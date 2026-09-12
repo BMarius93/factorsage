@@ -218,6 +218,20 @@ function shutdown(signal: string): void {
   finishWhenAllChildrenExited();
 }
 
+/**
+ * The supervisor holds no claim, so a failure here strands nothing durable — but it would take
+ * every child down with it silently. Log it structured and exit so the deployment restarts the
+ * whole worker rather than running a supervisor that forks nothing.
+ */
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.fatal({ event: "worker.unhandled-rejection", err: reason });
+  process.exit(1);
+});
+process.on("uncaughtException", (err: unknown) => {
+  logger.fatal({ event: "worker.uncaught-exception", err });
+  process.exit(1);
+});
+
 const keepAlive = setInterval(() => {
   logger.debug({ event: "worker.heartbeat", children: children.size });
 }, 60_000);

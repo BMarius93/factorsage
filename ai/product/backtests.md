@@ -201,6 +201,13 @@ its Strategy-evaluation semantics or the way canonical data is interpreted chang
 being queued and a worker claiming it, the run is refused and the user is asked to run it again —
 rather than being handed numbers produced under one set of rules and stamped with another.
 
+**The last day may be provisional.** A period may end today, and the provider's EOD feed lists the
+current session as an in-progress bar while the market is open. A run submitted during the session
+with `endDate` = today therefore simulates today from that bar, and the same configuration
+submitted after the close produces a different final day. The stored result is still immutable.
+Whether `endDate` should instead be bounded to the last closed session is an open product decision
+recorded in `ai/architecture/deep-discovery.md` (investigation 5); do not silently change the bound.
+
 **What reproducibility does not mean here.** V1 does not keep raw provider responses. If the data
 provider later corrects a historical price, a _new_ backtest of the same period can produce a
 different answer; the completed run's stored results never change. The product does not offer

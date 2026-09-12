@@ -38,6 +38,21 @@ const logger = createLogger({
   base: { component: "monitor", workerId },
 });
 
+/**
+ * A rejection or exception nothing caught ends this child — Node exits on it and the supervisor
+ * restarts the child, while the claim it held expires and is recovered. Without these handlers the
+ * only record would be an unstructured stack trace; the supervisor sees an exit code and nothing
+ * else. Logging it here keeps the failure searchable beside the claim it interrupted.
+ */
+process.on("unhandledRejection", (reason: unknown) => {
+  logger.fatal({ event: "monitor.child.unhandled-rejection", err: reason });
+  process.exit(1);
+});
+process.on("uncaughtException", (err: unknown) => {
+  logger.fatal({ event: "monitor.child.uncaught-exception", err });
+  process.exit(1);
+});
+
 const runtime = createMonitorRuntime(logger);
 
 const loop = new MonitorWorkerLoop(
