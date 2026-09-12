@@ -65,6 +65,19 @@ Read `ai/README.md` before substantial work.
     FMP gate), `stock-data:load:*` (Redlock hydration locks) and `benchmark:v1:*`, never by user.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
 
+17. Commercial entitlements are an application-domain concern with one central definition in
+    `@intrinsic/contracts`. `docs/decisions/entitlements-v1.md` is the source of truth for every
+    plan, capability and limit; `ai/architecture/entitlements.md` is how it is implemented. Plan
+    (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal columns on `User`, both
+    resolved server-side from persisted state and never from client input; `GUEST` is derived from
+    the absence of a session and never creates a row. Do not write `plan === "PRO"` in feature
+    code — ask for a named capability or limit and enforce it with a semantic guard at the
+    canonical mutation or execution boundary. A limit that can be raced is decided inside the
+    writing transaction under the shared per-user entitlement lock. A downgrade is never
+    destructive: existing content stays readable and correctable, and compliance is derived rather
+    than persisted. Billing may move the persisted plan and nothing else; it is never an input to
+    entitlement resolution, and request rate is never modelled as an entitlement.
+
 ## Dependency rules
 
 Allowed direction:

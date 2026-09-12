@@ -99,6 +99,11 @@ function detail(
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
     items,
+    compliance: {
+      symbolCount: items.length,
+      symbolLimit: 100,
+      compliant: true,
+    },
     ...overrides,
   };
 }

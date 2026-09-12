@@ -1,3 +1,5 @@
+import type { UserPlan } from "./entitlements.js";
+
 export type HealthResponse = {
   status: "ok";
   service: "api";
@@ -16,6 +18,14 @@ export type AuthUser = {
   id: string;
   email: string;
   role: UserRole;
+  /**
+   * The caller's persisted commercial plan.
+   *
+   * Server-resolved and read-only, exactly like `role`: it is reported so the UI can annotate and
+   * upsell, never so a client can assert it. Every entitlement check reloads plan and role from
+   * PostgreSQL and ignores whatever the request carried.
+   */
+  plan: UserPlan;
 };
 
 /** Local-password policy, shared so the registration UI and the API cannot disagree. */
@@ -98,6 +108,7 @@ export type ReadinessResponse = {
   checks: { postgres: ReadinessCheck; redis: ReadinessCheck };
 };
 
+export * from "./entitlements.js";
 export * from "./selectable-series.js";
 export * from "./stock-data.js";
 export * from "./stock-lists.js";

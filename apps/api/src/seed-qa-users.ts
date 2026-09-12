@@ -1,5 +1,5 @@
 import { getQaPersonaConfig, loadRootEnv } from "@intrinsic/config";
-import { PrismaClient, UserRole } from "@intrinsic/database";
+import { PrismaClient, UserPlan, UserRole } from "@intrinsic/database";
 import { PasswordService } from "./auth/password.service";
 import {
   assertQaSeedingAllowed,
@@ -23,8 +23,16 @@ async function seed(): Promise<void> {
   assertQaSeedingAllowed();
   const config = getQaPersonaConfig();
   const personas: QaPersonaInput[] = [
-    { name: "QA_USER", ...config.user, role: UserRole.USER },
-    { name: "QA_ADMIN", ...config.admin, role: UserRole.ADMIN },
+    // Both personas are seeded on PRO so a browser journey or a developer sweep exercises
+    // the product rather than the smallest plan. Commercial capacity and the ADMIN role are
+    // independent: QA_USER is PRO and not an administrator; QA_ADMIN is both.
+    { name: "QA_USER", ...config.user, role: UserRole.USER, plan: UserPlan.PRO },
+    {
+      name: "QA_ADMIN",
+      ...config.admin,
+      role: UserRole.ADMIN,
+      plan: UserPlan.PRO,
+    },
   ];
   const prisma = new PrismaClient({
     datasources: { db: { url: qaSeedDatabaseUrl() } },
@@ -34,7 +42,7 @@ async function seed(): Promise<void> {
     await prisma.$connect();
     const seeded = await seedQaUsers(prisma, new PasswordService(), personas);
     for (const persona of seeded) {
-      console.log(`${persona.name} ready (role ${persona.role}).`);
+      console.log(`${persona.name} ready (role ${persona.role}, plan ${persona.plan}).`);
     }
   } finally {
     await prisma.$disconnect();

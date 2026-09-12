@@ -37,7 +37,7 @@ vi.mock("../hooks/use-auth-session", () => ({
 function authenticated(role: AuthUser["role"]): AuthState {
   return {
     status: "authenticated",
-    user: { id: "1", email: "person@example.test", role },
+    user: { id: "1", email: "person@example.test", role, plan: "PRO" },
   };
 }
 

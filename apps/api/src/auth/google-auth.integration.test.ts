@@ -359,7 +359,7 @@ describe("Google authentication", () => {
       .expect(200);
 
     expect(me.body).toMatchObject({ email, role: "USER" });
-    expect(Object.keys(me.body).sort()).toEqual(["email", "id", "role"]);
+    expect(Object.keys(me.body).sort()).toEqual(["email", "id", "plan", "role"]);
   });
 
   it("is idempotent for a repeat sign-in with the same Google identity", async () => {

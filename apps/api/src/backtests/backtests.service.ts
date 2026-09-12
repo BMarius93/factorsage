@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  backtestPeriodYears,
   BACKTEST_MAX_SECURITIES,
   BACKTEST_RESULT_MAX_CURVE_POINTS,
   BACKTEST_RESULT_MAX_TRADES,
@@ -24,6 +25,7 @@ import {
   type BacktestRunStrategyResponse,
   type BacktestRunSummaryResponse,
   type BacktestSnapshotSecurity,
+  type AuthUser,
   type BacktestTradeAction,
   type BacktestTradeResponse,
 } from "@intrinsic/contracts";
@@ -41,6 +43,7 @@ import { getBacktestWorkerConfig } from "@intrinsic/config";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
 import {
   BACKTESTS_LOGGER,
   EXECUTION_CALENDAR_REFERENCE,
@@ -639,6 +642,8 @@ function progressOf(row: RunProgressRow): BacktestProgressResponse {
 export class BacktestsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EntitlementsService)
+    private readonly entitlements: EntitlementsService,
     @Inject(BACKTESTS_LOGGER) private readonly logger: StructuredLogger,
     @Inject(EXECUTION_CALENDAR_REFERENCE)
     private readonly executionCalendarReference: string,
@@ -654,10 +659,25 @@ export class BacktestsService {
    * afterwards never changes a running or completed run.
    */
   async submitRun(
-    userId: string,
+    user: AuthUser,
     input: ParsedCreateBacktestRunRequest,
   ): Promise<BacktestRunDetailResponse> {
     const startedAt = Date.now();
+    const userId = user.id;
+
+    // Entitlements first, before a single row is read. A live backtest is the most expensive
+    // operation the product offers, and `docs/decisions/entitlements-v1.md` requires a forbidden
+    // operation to be refused before expensive downstream work rather than after it.
+    //
+    // Depth is checked here too, because it is decidable from the submitted period alone. Note
+    // what it does *not* touch: Stock Details history stays full for every plan, Guests included.
+    // The cap is on what a backtest may simulate, never on what a chart may show.
+    this.entitlements.assertCanRunLiveBacktest(user);
+    this.entitlements.assertBacktestHistoricalDepth(
+      user,
+      backtestPeriodYears(input.startDate, input.endDate),
+    );
+
     const strategy = await this.prisma.strategy.findFirst({
       where: { id: input.strategyId, userId },
       include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
@@ -702,6 +722,11 @@ export class BacktestsService {
         `A backtest can cover at most ${BACKTEST_MAX_SECURITIES} stocks; this list has ${stockList.items.length}`,
       );
     }
+    // The commercial capacity, on top of the absolute engine guard above. It binds first for every
+    // plan — the strictest plan limit is 100 against an engine ceiling of 200 — and it is also
+    // what refuses a List that became oversized through a downgrade: the run is rejected, while
+    // the List itself stays intact and readable.
+    this.entitlements.assertBacktestSymbolLimit(user, stockList.items.length);
 
     const benchmarkCode = input.benchmarkCode ?? DEFAULT_BENCHMARK_CODE;
     const benchmark = await this.prisma.benchmark.findFirst({
@@ -822,10 +847,17 @@ export class BacktestsService {
       .update(canonicalBacktestSnapshotDocument(snapshot))
       .digest("hex");
 
-    // One statement, therefore one transaction: the run, its durable queue row and its progress
-    // row are created together, so the queue and the execution record can never disagree about
-    // what work exists.
-    const run = await this.prisma.backtestRun.create({
+    // One transaction: the concurrency check, the run, its durable queue row and its progress row
+    // commit together.
+    //
+    // The check has to be *inside* it. Counting the caller's runs in flight and then creating one
+    // in a separate statement is the textbook TOCTOU: two submissions landing together both read
+    // the same count, both pass, and a plan that allows one backtest runs two. The assertion takes
+    // the caller's entitlement lock first, so those two submissions serialize and the second one
+    // sees the first one's run.
+    const run = await this.prisma.$transaction(async (tx) => {
+      await this.entitlements.assertBacktestConcurrency(tx, userId);
+      return tx.backtestRun.create({
       data: {
         userId,
         strategyId: strategy.id,
@@ -857,6 +889,7 @@ export class BacktestsService {
         progress: { create: { percent: 0, message: "Queued", sequence: 0 } },
       },
       include: { ...RUN_DETAIL_INCLUDE, job: { select: { id: true } } },
+      });
     });
 
     this.logger.info({

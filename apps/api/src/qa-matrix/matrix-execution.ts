@@ -1,4 +1,4 @@
-import type { BacktestRunSnapshot } from "@intrinsic/contracts";
+import type { AuthUser, BacktestRunSnapshot } from "@intrinsic/contracts";
 import type { Prisma, PrismaClient } from "@intrinsic/database";
 import { Module } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
@@ -37,6 +37,16 @@ import type {
  * the same one `backtests.integration.test.ts` uses — and it skips only the cookie the guard would
  * have read. Authorization is not skipped: `submitRun` scopes every query by the user id it is
  * given, and a strategy or list belonging to someone else is invisible to it.
+ *
+ * **Entitlements are not skipped either.** The principal handed to `submitRun` is built from the
+ * owner's persisted `plan` and `role` — read from the database here exactly as `CookieAuthGuard`
+ * reads them per request — so the sweep is subject to the same symbol, depth and concurrency
+ * limits as any other caller. That is why the fixtures are owned by the **QA_ADMIN** persona:
+ * `ADMIN_ENTITLEMENTS` is the decision document's own mechanism for operator capability, and the
+ * matrix is operator tooling that runs a thousand backtests at a concurrency no commercial plan
+ * sells. The alternative — a bypass flag on the submission service — is exactly the unconditional
+ * bypass the decision document forbids, and it would have made the matrix stop exercising the real
+ * path.
  */
 
 @Module({
@@ -69,6 +79,11 @@ export async function createMatrixExecutionContext(): Promise<MatrixExecutionCon
 /** Persisted identities of the fixtures, resolved once for the whole sweep. */
 export type MatrixFixtureIds = {
   readonly ownerUserId: string;
+  /**
+   * The owner as the entitlement resolver sees them: plan and role straight from PostgreSQL, never
+   * assembled from anything the runner decided.
+   */
+  readonly owner: AuthUser;
   readonly strategyIdByFixtureId: ReadonlyMap<string, string>;
   readonly stockListIdByFixtureId: ReadonlyMap<string, string>;
 };
@@ -83,7 +98,7 @@ export async function resolveMatrixFixtureIds(
 ): Promise<MatrixFixtureIds> {
   const owner = await prisma.user.findFirst({
     where: { email: ownerEmail.trim().toLowerCase() },
-    select: { id: true },
+    select: { id: true, email: true, role: true, plan: true },
   });
   if (!owner) {
     throw new Error(
@@ -119,6 +134,12 @@ export async function resolveMatrixFixtureIds(
   }
   return {
     ownerUserId: owner.id,
+    owner: {
+      id: owner.id,
+      email: owner.email,
+      role: owner.role,
+      plan: owner.plan,
+    },
     strategyIdByFixtureId,
     stockListIdByFixtureId,
   };
@@ -148,7 +169,7 @@ export async function submitMatrixCase(
     stockListId,
     ...matrixCase.combination.config.request,
   });
-  const run = await context.backtests.submitRun(ids.ownerUserId, input);
+  const run = await context.backtests.submitRun(ids.owner, input);
   return run.id;
 }
 

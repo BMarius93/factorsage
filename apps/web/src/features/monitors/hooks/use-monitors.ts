@@ -44,6 +44,13 @@ export function summaryOf(
       : { lastScanAt: detail.lastScanAt }),
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt,
+    // Derived server-side from the owner's entitlements and their whole Monitor set. The browser
+    // cannot recompute it — the active-capacity rule is positional across every Monitor the user
+    // has — so it is carried across like every other field.
+    operationalStatus: detail.operationalStatus,
+    ...(detail.blockedReason === undefined
+      ? {}
+      : { blockedReason: detail.blockedReason }),
   };
 }
 

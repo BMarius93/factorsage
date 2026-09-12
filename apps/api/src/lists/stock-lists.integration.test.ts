@@ -77,10 +77,12 @@ describe("stock lists", () => {
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
+    // PRO so this suite exercises list semantics, not a plan's symbol capacity; the limits
+    // themselves are proven in `entitlements.integration.test.ts`.
     await prisma.user.createMany({
       data: [
-        { email: ownerEmail, passwordHash, emailVerifiedAt },
-        { email: otherEmail, passwordHash, emailVerifiedAt },
+        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
+        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
       ],
     });
     await prisma.security.createMany({

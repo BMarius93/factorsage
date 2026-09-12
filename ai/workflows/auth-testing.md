@@ -56,10 +56,16 @@ group.
 Two persistent accounts exist for browser and live-stack testing. They are referred to by logical
 name, never by address.
 
-| Persona    | Role    | Email variable   | Password variable   | Email state |
-| ---------- | ------- | ---------------- | ------------------- | ----------- |
-| `QA_USER`  | `USER`  | `QA_USER_EMAIL`  | `QA_USER_PASSWORD`  | verified    |
-| `QA_ADMIN` | `ADMIN` | `QA_ADMIN_EMAIL` | `QA_ADMIN_PASSWORD` | verified    |
+| Persona    | Role    | Plan  | Email variable   | Password variable   | Email state |
+| ---------- | ------- | ----- | ---------------- | ------------------- | ----------- |
+| `QA_USER`  | `USER`  | `PRO` | `QA_USER_EMAIL`  | `QA_USER_PASSWORD`  | verified    |
+| `QA_ADMIN` | `ADMIN` | `PRO` | `QA_ADMIN_EMAIL` | `QA_ADMIN_PASSWORD` | verified    |
+
+Role and plan are orthogonal (`docs/decisions/entitlements-v1.md`): `QA_USER` is a `PRO` customer
+and not an administrator, `QA_ADMIN` is both. Both are seeded on `PRO` so a browser journey
+exercises the product rather than the smallest plan's capacity — a fixture left on the default
+`FREE` would make an entitlement refusal look like a product bug. The plan is asserted by the
+seeder, not inherited from the column default.
 
 Both passwords must be at least 12 characters, which is also the registration policy
 (`PASSWORD_MIN_LENGTH` in `@intrinsic/contracts`).
@@ -75,7 +81,8 @@ pnpm test:users:seed
 ```
 
 The command reads the four `QA_*` variables, creates or updates exactly those two accounts, marks
-both email-verified, re-asserts their roles, and removes any leftover verification token. It
+both email-verified, re-asserts their roles and plans, and removes any leftover verification
+token. It
 touches no other row and is safe to rerun. It targets **`TEST_DATABASE_URL`**, resolved explicitly
 rather than inherited, which is the database the deterministic Playwright stack runs against
 (`pnpm dev:api:e2e` / `pnpm dev:worker:e2e`).
@@ -88,8 +95,10 @@ unaffected.
 
 Implementation: `apps/api/src/seed-qa-users.ts` and `apps/api/src/auth/seed-qa-users.ts`.
 
-`QA_USER` also owns the persistent QA-MATRIX Strategy and Stock List fixtures for the Backtest V1
-validation matrix, seeded separately with `pnpm test:matrix:seed` after this command has run. They
+`QA_ADMIN` owns the persistent QA-MATRIX Strategy and Stock List fixtures for the Backtest V1
+validation matrix, seeded separately with `pnpm test:matrix:seed` after this command has run. The
+administrator persona, because the sweep submits through the product's real entitlement-enforced
+path at a concurrency no commercial plan sells — see `docs/development/qa-matrix-fixtures.md`. They
 live in the reserved `QA-MATRIX-` namespace so they cannot collide with anything a suite creates;
 `../../docs/development/qa-matrix-fixtures.md` documents them.
 

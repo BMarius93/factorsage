@@ -49,7 +49,11 @@ async function seed(): Promise<void> {
   loadRootEnv();
   // Refuse before reading a persona address or opening any connection.
   assertQaMatrixSeedingAllowed();
-  const email = getQaPersonaConfig().user.email;
+  // The QA_ADMIN persona owns the matrix fixtures. The matrix submits through the product's real
+  // entitlement-enforced path, and a thousand-case sweep runs at a concurrency no commercial plan
+  // sells — `ADMIN_ENTITLEMENTS` is the decision document's own mechanism for that, and it keeps
+  // the runner on the real path instead of behind a bypass. See `docs/decisions/entitlements-v1.md`.
+  const email = getQaPersonaConfig().admin.email;
   const prisma = new PrismaClient({
     datasources: { db: { url: qaMatrixSeedDatabaseUrl() } },
   });

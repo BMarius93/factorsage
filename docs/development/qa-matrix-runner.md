@@ -100,7 +100,7 @@ is no bypass flag.
 | Database identity         | a connection that landed somewhere other than the configured matrix database           |
 | Environment safety        | production, the development or test database, a shared Redis logical database          |
 | Migrations                | a migration never applied, half-applied, rolled back, or applied but no longer present |
-| QA fixture owner          | a database where the QA persona does not exist                                         |
+| QA fixture owner          | a missing QA persona, or one whose entitlements cannot run the configured concurrency  |
 | QA fixture Strategies     | not exactly ten, or one whose stored definition has drifted from the fixture           |
 | QA fixture Stock Lists    | not exactly ten, or drifted membership or buy windows                                  |
 | Backtest configurations   | not exactly ten, or one the real submission validator would reject                     |

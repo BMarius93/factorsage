@@ -7,12 +7,13 @@ import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
+import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { ListsController } from "./lists.controller";
 import { LISTS_LOGGER } from "./lists.tokens";
 import { StockListsService } from "./stock-lists.service";
 
 @Module({
-  imports: [ConfigurationModule, DatabaseModule, AuthModule],
+  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
   controllers: [ListsController],
   providers: [
     {

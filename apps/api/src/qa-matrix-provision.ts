@@ -1,5 +1,5 @@
 import { getQaPersonaConfig, loadRootEnv } from "@intrinsic/config";
-import { PrismaClient, UserRole } from "@intrinsic/database";
+import { PrismaClient, UserPlan, UserRole } from "@intrinsic/database";
 import { isLocalDate } from "@intrinsic/contracts";
 import { currentAsOfDate, qaMatrixFixtures } from "@intrinsic/testing";
 import { PasswordService } from "./auth/password.service";
@@ -64,8 +64,13 @@ async function provision(): Promise<void> {
       prisma,
       new PasswordService(),
       [
-        { name: "QA_USER", ...personas.user, role: UserRole.USER },
-        { name: "QA_ADMIN", ...personas.admin, role: UserRole.ADMIN },
+        { name: "QA_USER", ...personas.user, role: UserRole.USER, plan: UserPlan.PRO },
+        {
+          name: "QA_ADMIN",
+          ...personas.admin,
+          role: UserRole.ADMIN,
+          plan: UserPlan.PRO,
+        },
       ] satisfies QaPersonaInput[],
     );
     log(`QA personas ready: ${seededUsers.map((p) => p.name).join(", ")}`);

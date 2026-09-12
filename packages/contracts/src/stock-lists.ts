@@ -21,6 +21,23 @@ export type BuyWindowRangeResponse = {
 };
 
 /** Shared input limits so the browser UI and the API cannot disagree. */
+/**
+ * How one List stands against the caller's current entitlements.
+ *
+ * **Derived on every read, never persisted.** A List created under a higher plan keeps every
+ * symbol after a downgrade and stays fully readable; what changes is that `compliant` becomes
+ * false, additions are refused, and a Monitor watching it stops being execution-eligible.
+ * Persisting this as a column would make it a flag that is correct until the plan or the
+ * membership moves and silently wrong afterwards.
+ *
+ * `symbolLimit` is `null` for an unbounded entitlement.
+ */
+export type StockListComplianceResponse = {
+  symbolCount: number;
+  symbolLimit: number | null;
+  compliant: boolean;
+};
+
 export const STOCK_LIST_NAME_MAX_LENGTH = 120;
 export const STOCK_LIST_DESCRIPTION_MAX_LENGTH = 500;
 export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 100;
@@ -34,6 +51,7 @@ export type StockListSummaryResponse = {
   itemCount: number;
   createdAt: string;
   updatedAt: string;
+  compliance: StockListComplianceResponse;
 };
 
 /**
@@ -60,6 +78,7 @@ export type StockListDetailResponse = {
   createdAt: string;
   updatedAt: string;
   items: StockListItemResponse[];
+  compliance: StockListComplianceResponse;
 };
 
 /**

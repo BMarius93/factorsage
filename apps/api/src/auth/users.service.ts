@@ -4,12 +4,24 @@ import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { normalizeEmail } from "./email";
 
-type SafeUser = Pick<User, "id" | "email" | "role">;
+type SafeUser = Pick<User, "id" | "email" | "role" | "plan">;
 type PasswordLoginUser = SafeUser &
   Pick<User, "passwordHash" | "emailVerifiedAt">;
 type IdentityUser = SafeUser & Pick<User, "passwordHash" | "emailVerifiedAt">;
 
-const SAFE_USER_SELECT = { id: true, email: true, role: true } as const;
+/**
+ * What a session may know about its own user.
+ *
+ * `role` and `plan` are both here because both are authorization inputs that must come from
+ * persisted state: the cookie guard reloads this projection on every request, so the entitlement
+ * resolver reads a plan and a role the server wrote, never ones a client asserted.
+ */
+const SAFE_USER_SELECT = {
+  id: true,
+  email: true,
+  role: true,
+  plan: true,
+} as const;
 const IDENTITY_USER_SELECT = {
   ...SAFE_USER_SELECT,
   passwordHash: true,
@@ -143,6 +155,7 @@ export class UsersService {
       id: user.id,
       email: user.email,
       role: user.role,
+      plan: user.plan,
     };
   }
 }

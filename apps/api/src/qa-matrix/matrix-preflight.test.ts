@@ -35,6 +35,7 @@ async function preflight(
     fixtures: FIXTURES,
     asOfDate: AS_OF,
     ownerEmail: "qa-user@factorsage.test",
+    concurrency: 1,
     today: AS_OF,
     repositoryRoot: repositoryRoot(),
   });
@@ -122,6 +123,55 @@ describe("preflight rejection", () => {
     const report = await preflight({ noOwner: true });
     expect(check(report, "qa-owner")?.status).toBe("FAIL");
     expect(report.ok).toBe(false);
+  });
+
+  it("refuses an owner whose plan cannot run the sweep's concurrency", async () => {
+    // The runner submits through the product's real entitlement-enforced path, so the owner's
+    // plan is an input to whether a thousand cases can run at all. Discovering that on case one,
+    // fifteen minutes in, is exactly what the preflight exists to prevent.
+    const report = await runQaMatrixPreflight({
+      prisma: stubPrisma(FIXTURES, {
+        calendarDates: FULL_CALENDAR,
+        ownerPlan: "PRO",
+        ownerRole: "USER",
+      }),
+      environment: MATRIX_ENVIRONMENT,
+      fixtures: FIXTURES,
+      asOfDate: AS_OF,
+      ownerEmail: "qa-user@factorsage.test",
+      concurrency: 4,
+      today: AS_OF,
+      repositoryRoot: repositoryRoot(),
+    });
+
+    const owner = check(report, "qa-owner");
+    expect(owner?.status).toBe("FAIL");
+    expect(owner?.problems?.join(" ")).toContain("2 backtests at once");
+    expect(owner?.problems?.join(" ")).toContain("QA_ADMIN");
+    expect(report.ok).toBe(false);
+  });
+
+  it("passes for the administrator persona the fixtures are meant to be owned by", async () => {
+    const report = await runQaMatrixPreflight({
+      prisma: stubPrisma(FIXTURES, {
+        calendarDates: FULL_CALENDAR,
+        ownerPlan: "FREE",
+        ownerRole: "ADMIN",
+      }),
+      environment: MATRIX_ENVIRONMENT,
+      fixtures: FIXTURES,
+      asOfDate: AS_OF,
+      ownerEmail: "qa-user@factorsage.test",
+      concurrency: 8,
+      today: AS_OF,
+      repositoryRoot: repositoryRoot(),
+    });
+
+    const owner = check(report, "qa-owner");
+    // `ADMIN_ENTITLEMENTS` lifts capacity from the role, never from the plan — which is still FREE.
+    expect(owner?.status).toBe("PASS");
+    expect(owner?.facts?.maxConcurrentRuns).toBeNull();
+    expect(owner?.facts?.plan).toBe("FREE");
   });
 
   it("refuses nine strategies where there should be ten", async () => {
@@ -241,6 +291,7 @@ describe("environment safety, as a reported check", () => {
       fixtures: FIXTURES,
       asOfDate: AS_OF,
       ownerEmail: "qa-user@factorsage.test",
+      concurrency: 1,
       today: AS_OF,
       repositoryRoot: repositoryRoot(),
     });
@@ -300,6 +351,7 @@ describe("a matrix clock that has drifted behind the selectable horizon", () => 
       fixtures: FIXTURES,
       asOfDate: AS_OF,
       ownerEmail: "qa-user@factorsage.test",
+      concurrency: 1,
       // One day later than the pin: the horizon has moved and the pin has not.
       today: "2026-09-10",
       repositoryRoot: repositoryRoot(),
@@ -320,6 +372,7 @@ describe("a matrix clock that has drifted behind the selectable horizon", () => 
       fixtures: FIXTURES,
       asOfDate: AS_OF,
       ownerEmail: "qa-user@factorsage.test",
+      concurrency: 1,
       today: AS_OF,
       repositoryRoot: repositoryRoot(),
     });

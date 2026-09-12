@@ -1,4 +1,6 @@
 import type {
+  AuthUser,
+  StockListComplianceResponse,
   StockListDetailResponse,
   StockListItemResponse,
   StockListSummaryResponse,
@@ -12,6 +14,7 @@ import {
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
+import { EntitlementsService } from "../entitlements/entitlements.service";
 import { LISTS_LOGGER } from "./lists.tokens";
 
 /**
@@ -111,7 +114,10 @@ function itemResponse(item: ItemRow): StockListItemResponse {
   };
 }
 
-function detailResponse(list: ListDetailRow): StockListDetailResponse {
+function detailResponse(
+  list: ListDetailRow,
+  compliance: StockListComplianceResponse,
+): StockListDetailResponse {
   return {
     id: list.id,
     name: list.name,
@@ -119,6 +125,7 @@ function detailResponse(list: ListDetailRow): StockListDetailResponse {
     createdAt: list.createdAt.toISOString(),
     updatedAt: list.updatedAt.toISOString(),
     items: list.items.map(itemResponse),
+    compliance,
   };
 }
 
@@ -170,12 +177,14 @@ function isForeignKeyViolation(error: unknown): boolean {
 export class StockListsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(EntitlementsService)
+    private readonly entitlements: EntitlementsService,
     @Inject(LISTS_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  async listForUser(userId: string): Promise<StockListSummaryResponse[]> {
+  async listForUser(user: AuthUser): Promise<StockListSummaryResponse[]> {
     const lists = await this.prisma.stockList.findMany({
-      where: { userId },
+      where: { userId: user.id },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       include: { _count: { select: { items: true } } },
     });
@@ -186,13 +195,48 @@ export class StockListsService {
       itemCount: list._count.items,
       createdAt: list.createdAt.toISOString(),
       updatedAt: list.updatedAt.toISOString(),
+      compliance: this.complianceOf(user, list._count.items),
     }));
   }
 
+  /**
+   * Current membership against the caller's current entitlements.
+   *
+   * Reading a List is never refused for being over the limit — a downgrade leaves content intact
+   * and readable — so this is reported, not enforced.
+   */
+  private complianceOf(
+    user: AuthUser,
+    symbolCount: number,
+  ): StockListComplianceResponse {
+    const compliance = this.entitlements.getListCompliance(user, symbolCount);
+    return {
+      symbolCount: compliance.usage,
+      symbolLimit: compliance.limit,
+      compliant: compliance.compliant,
+    };
+  }
+
+  /**
+   * Creates a custom List.
+   *
+   * The two entitlement questions are asked before anything is read or written: may this caller
+   * have custom Lists at all, and does the requested membership fit their plan. Neither can race
+   * anything — the List does not exist yet — so both are answered from the request's trusted
+   * principal rather than by opening a transaction.
+   */
   async createList(
-    userId: string,
+    user: AuthUser,
     input: { name: string; description?: string; securityIds: string[] },
   ): Promise<StockListDetailResponse> {
+    const userId = user.id;
+    this.entitlements.assertCanCreateCustomList(user);
+    // Duplicates collapse to one membership row, so they must not count toward the limit either.
+    const requested = [...new Set(input.securityIds)];
+    this.entitlements.assertListSymbolLimit(user, {
+      current: 0,
+      adding: requested.length,
+    });
     await this.assertSecuritiesSupported(this.prisma, input.securityIds);
 
     const list = await this.prisma.stockList
@@ -211,31 +255,47 @@ export class StockListsService {
 
     this.logger.info({
       event: "stock-list.created",
+      actorUserId: userId,
       listId: list.id,
       itemCount: list.items.length,
     });
-    return detailResponse(list);
+    return detailResponse(list, this.complianceOf(user, list.items.length));
   }
 
+  /**
+   * Reads one of the caller's Lists.
+   *
+   * Never refused for exceeding the current plan: grandfathered content stays readable, and the
+   * derived `compliance` is how the caller learns it is over the limit.
+   */
   async getList(
-    userId: string,
+    user: AuthUser,
     listId: string,
   ): Promise<StockListDetailResponse> {
     const list = await this.prisma.stockList.findFirst({
-      where: { id: listId, userId },
+      where: { id: listId, userId: user.id },
       include: { items: { include: ITEM_INCLUDE, orderBy: ITEMS_ORDER } },
     });
     if (!list) {
       throw new StockListNotFoundError();
     }
-    return detailResponse(list);
+    return detailResponse(list, this.complianceOf(user, list.items.length));
   }
 
+  /**
+   * Renames a List or changes its description.
+   *
+   * Deliberately **not** entitlement-gated. `docs/decisions/entitlements-v1.md` lists renaming an
+   * oversized List among the operations that stay allowed after a downgrade: it changes nothing
+   * about capacity, and refusing it would make grandfathered content read-only for no product
+   * reason.
+   */
   async updateList(
-    userId: string,
+    user: AuthUser,
     listId: string,
     patch: UpdateStockListRequest,
   ): Promise<StockListSummaryResponse> {
+    const userId = user.id;
     // `updateMany` applies the ownership filter and the write in one atomic statement.
     const updated = await this.prisma.stockList.updateMany({
       where: { id: listId, userId },
@@ -259,7 +319,7 @@ export class StockListsService {
       throw new StockListNotFoundError();
     }
 
-    this.logger.info({ event: "stock-list.updated", listId });
+    this.logger.info({ event: "stock-list.updated", actorUserId: userId, listId });
     return {
       id: list.id,
       name: list.name,
@@ -267,6 +327,7 @@ export class StockListsService {
       itemCount: list._count.items,
       createdAt: list.createdAt.toISOString(),
       updatedAt: list.updatedAt.toISOString(),
+      compliance: this.complianceOf(user, list._count.items),
     };
   }
 
@@ -297,12 +358,39 @@ export class StockListsService {
     this.logger.info({ event: "stock-list.deleted", listId });
   }
 
+  /**
+   * Adds members, up to the plan's symbol capacity.
+   *
+   * The capacity check counts only memberships this request would genuinely **create**: ids the
+   * List already holds collapse to nothing through `skipDuplicates`, so counting them would refuse
+   * an idempotent re-submission that changes the List's size by zero.
+   *
+   * Everything happens inside one transaction that takes the caller's entitlement lock first.
+   * Without it two concurrent adds would each read the pre-add membership, each conclude there is
+   * room, and together push the List past the limit — the check would be advice rather than
+   * enforcement.
+   *
+   * The lock is taken **before** the List is read, not after. Locking the List row first and
+   * reaching for the entitlement lock second would deadlock against a backtest submission or a
+   * Monitor creation: both hold the entitlement lock and then take the foreign-key share lock that
+   * any insert referencing this List requires. One acquisition order for every writer is what
+   * removes that entirely — and the per-user lock is already the serialization, so no row lock on
+   * the List is needed on top of it.
+   *
+   * This is the enforcement point the downgrade rules turn on: an oversized List rejects additions
+   * here while removals, renames and reads elsewhere stay open.
+   */
   async addItems(
-    userId: string,
+    user: AuthUser,
     listId: string,
     securityIds: string[],
   ): Promise<StockListDetailResponse> {
+    const userId = user.id;
+    const requested = [...new Set(securityIds)];
     const added = await this.prisma.$transaction(async (tx) => {
+      await this.entitlements.lockUserScope(tx, userId);
+      // Ownership only: a List the caller does not own reads as missing, exactly as every other
+      // route answers.
       const list = await tx.stockList.findFirst({
         where: { id: listId, userId },
         select: { id: true },
@@ -311,6 +399,17 @@ export class StockListsService {
         throw new StockListNotFoundError();
       }
       await this.assertSecuritiesSupported(tx, securityIds);
+
+      const [current, alreadyMembers] = await Promise.all([
+        tx.stockListItem.count({ where: { stockListId: listId } }),
+        tx.stockListItem.count({
+          where: { stockListId: listId, securityId: { in: requested } },
+        }),
+      ]);
+      await this.entitlements.assertListSymbolLimitIn(tx, userId, {
+        current,
+        adding: requested.length - alreadyMembers,
+      });
 
       // `skipDuplicates` makes re-submission and concurrent adds converge on one membership row
       // instead of surfacing the unique constraint as an error.
@@ -328,13 +427,20 @@ export class StockListsService {
 
     this.logger.info({
       event: "stock-list.items.added",
+      actorUserId: userId,
       listId,
       requested: securityIds.length,
       added,
     });
-    return this.getList(userId, listId);
+    return this.getList(user, listId);
   }
 
+  /**
+   * Removes one member.
+   *
+   * Deliberately never entitlement-gated. It is the corrective operation an over-limit List needs:
+   * refusing it would strand a downgraded user with a List they can neither use nor fix.
+   */
   async removeItem(
     userId: string,
     listId: string,
@@ -350,6 +456,12 @@ export class StockListsService {
     this.logger.info({ event: "stock-list.item.removed", listId, itemId });
   }
 
+  /**
+   * Replaces one member's buy windows.
+   *
+   * Not entitlement-gated: it changes eligibility dates, never membership size, so it can neither
+   * create nor worsen a capacity violation.
+   */
   async replaceBuyWindows(
     userId: string,
     listId: string,

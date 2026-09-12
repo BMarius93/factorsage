@@ -54,6 +54,7 @@ const LISTS: StockListSummaryResponse[] = [
     id: "list-1",
     name: "Quality compounders",
     itemCount: 12,
+    compliance: { symbolCount: 12, symbolLimit: 100, compliant: true },
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
   },

@@ -278,7 +278,9 @@ function priceCrossesAboveSmaDefinition(): StrategyDefinition {
 
 async function createUser(): Promise<string> {
   const user = await prisma.user.create({
-    data: { email: `monitor-${randomUUID()}@example.test` },
+    // PRO so a cycle suite about evaluation semantics is not silently truncated by FREE's
+    // one-active-Monitor capacity. Eligibility itself is proven in `monitor-eligibility`.
+    data: { email: `monitor-${randomUUID()}@example.test`, plan: "PRO" },
   });
   userIds.push(user.id);
   return user.id;

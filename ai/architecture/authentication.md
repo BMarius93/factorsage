@@ -17,7 +17,14 @@ For running auth tests, seeding QA personas, and Playwright, see
 - nullable `passwordHash`
 - nullable `emailVerifiedAt`
 - `USER` or `ADMIN` role
+- `FREE`, `STARTER` or `PRO` commercial plan
 - creation and update timestamps
+
+Role and plan are orthogonal and both are authorization inputs: a user may be `plan=FREE` and
+`role=ADMIN`. `role` is authorization and is never sold; `plan` is commercial and never grants
+administrative access. Both are projected into `AuthUser` because the cookie guard reloads them on
+every request, which is what lets the entitlement resolver read persisted state rather than
+anything a client asserted. See `entitlements.md`.
 
 Emails are trimmed and lowercased before lookup or storage. PostgreSQL enforces uniqueness.
 Passwords are hashed with Argon2id and plaintext credentials are never persisted or logged.
@@ -149,6 +156,11 @@ for configured origins.
 `CookieAuthGuard` validates the token and reloads the user from PostgreSQL, then exposes the safe
 user context through `CurrentUser`. `Roles` metadata and `RolesGuard` provide the intentionally
 small role layer. API authorization is authoritative; frontend state is only presentation logic.
+
+`OptionalCookieAuthGuard` is its companion for routes whose answer differs for a signed-out
+visitor rather than being refused to one. It resolves the session when there is a usable cookie,
+admits the request either way, and creates nothing — an invalid or expired token is the signed-out
+state, not an error. `GET /entitlements` is the only route using it today.
 
 Forgot/reset password is not implemented.
 

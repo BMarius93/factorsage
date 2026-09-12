@@ -11,7 +11,7 @@ import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AuthModule } from "../auth/auth.module";
 import { PasswordService } from "../auth/password.service";
 import { ConfigurationModule } from "../config/configuration.module";
@@ -163,10 +163,14 @@ describe("monitors", () => {
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
+    // PRO, and cleaned up after every test (see the `afterEach`), so this suite exercises Monitor
+    // semantics rather than a plan's active-Monitor capacity. Entitlement enforcement has its own
+    // suite; a fixture left on the default plan would make a capacity refusal look like a Monitor
+    // bug in thirty unrelated tests.
     await prisma.user.createMany({
       data: [
-        { email: ownerEmail, passwordHash, emailVerifiedAt },
-        { email: otherEmail, passwordHash, emailVerifiedAt },
+        { email: ownerEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
+        { email: otherEmail, passwordHash, emailVerifiedAt, plan: "PRO" },
       ],
     });
 
@@ -217,6 +221,17 @@ describe("monitors", () => {
     }
     if (app) {
       await app.close();
+    }
+  });
+
+  // Monitors accumulate otherwise: nothing in this suite deletes what it created, and thirty-odd
+  // enabled Monitors on one account is past every plan's active capacity. Signals and transition
+  // state cascade with the Monitor row, and no test depends on another test's Monitors.
+  afterEach(async () => {
+    if (prisma) {
+      await prisma.monitor.deleteMany({
+        where: { user: { email: { in: [ownerEmail, otherEmail] } } },
+      });
     }
   });
 
@@ -1072,7 +1087,11 @@ describe("monitors", () => {
       });
       await prisma.monitor.update({
         where: { id: monitor.id },
-        data: { lastScanAt: new Date("2026-09-12T15:00:00.000Z") },
+        // Read from the clock, not pinned to a literal. `securityStatusOf` separates "never
+        // visited" from "visited, undecidable" by comparing `lastScanAt` against each member's
+        // real `createdAt`, and the fixture rows are created now — so a fixed timestamp made this
+        // Monitor look unscanned, and the test fail, for every run after that time of day.
+        data: { lastScanAt: new Date() },
       });
       return monitor;
     }

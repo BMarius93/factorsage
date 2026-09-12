@@ -6,9 +6,16 @@ import type {
 import {
   BacktestJobStatus,
   BacktestRunStatus,
+  ENTITLEMENT_LOCK_NAMESPACE,
   type Prisma,
   type PrismaClient,
 } from "@intrinsic/database";
+import {
+  resolveEntitlements,
+  withinLimit,
+  type UserPlan,
+  type UserRole,
+} from "@intrinsic/contracts";
 import type { LocalDate } from "@intrinsic/domain";
 import type { BacktestResult } from "@intrinsic/strategy";
 
@@ -23,6 +30,13 @@ import type { BacktestResult } from "@intrinsic/strategy";
  * Every write after the claim is ownership-guarded on `claimedBy` and `CLAIMED`. A worker that
  * lost its lease (its job was recovered and is executing elsewhere) therefore cannot overwrite the
  * new owner's progress or results: its writes match no row and report `false`.
+ *
+ * The claim is also an entitlement boundary. `docs/decisions/entitlements-v1.md` requires
+ * concurrency to be enforced on the worker side and not only where a run is submitted, because
+ * submission is not the only way a job becomes claimable: an expired lease requeues one, a
+ * graceful shutdown releases one, and a plan can be downgraded while a user already has runs
+ * queued. Those runs are never deleted — grandfathered work stays — but only as many of them as
+ * the owner's current plan allows may be executing at once.
  */
 
 export type ClaimedBacktestJob = {
@@ -145,6 +159,17 @@ export const ABANDONED_FAILURE_MESSAGE =
 const INSERT_CHUNK_SIZE = 1_000;
 
 /**
+ * How far down the queue a claim looks for a job its owner may currently execute.
+ *
+ * The queue is global FIFO, so without a batch the head of the line would block everyone behind
+ * it whenever its owner is already at their plan's concurrency limit — one user with a queued
+ * backlog would stall every other user's runs. Looking a bounded distance past them restores
+ * fairness without turning the queue into a scheduler; the jobs that are skipped stay `QUEUED` and
+ * are claimed as soon as their owner has room.
+ */
+const CLAIM_CANDIDATE_BATCH = 20;
+
+/**
  * How long the result write may hold its transaction.
  *
  * Prisma's default interactive-transaction timeout is five seconds, which a long run exceeds: a
@@ -163,12 +188,38 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
   /**
-   * Takes exactly one queued job, or nothing.
+   * Takes exactly one queued job the owner's plan currently permits to execute, or nothing.
    *
-   * `FOR UPDATE SKIP LOCKED` is the whole concurrency design: a second worker running this query
-   * in the same millisecond skips the row the first one locked and takes the next job instead of
-   * blocking on it or duplicating it. The claim, the attempt increment and the run's move into
-   * `PREPARING_DATA` commit together, so a queued run is never observable as claimed-but-idle.
+   * `FOR UPDATE SKIP LOCKED` is the whole concurrency design between workers: a second worker
+   * running this in the same millisecond skips the row the first one locked and takes another job
+   * instead of blocking on it or duplicating it. The claim, the attempt increment and the run's
+   * move into `PREPARING_DATA` commit together, so a queued run is never observable as
+   * claimed-but-idle.
+   *
+   * On top of that sits the entitlement gate, and it is a **separate** limit from the queue's own:
+   * how many of *one owner's* runs may execute at once. It cannot be expressed in the candidate
+   * query as a SQL `CASE` over plans, because that would be a second copy of the commercial matrix
+   * living in a string — so the candidate row carries the owner's persisted plan and role, and
+   * `resolveEntitlements` answers in the one place it is defined.
+   *
+   * The order of operations is what makes it sound:
+   *
+   * 1. Peek at a batch of claimable jobs **without** locking them. Locking a batch would make
+   *    every job a worker merely considered unavailable to its peers for the rest of the
+   *    transaction.
+   * 2. For each, take the owner's entitlement lock — waiting for the first owner considered, and
+   *    never waiting for any owner after it. Without the lock two workers evaluating the same
+   *    owner at once would both read the same executing count and both claim. Waiting for the
+   *    first is what keeps capacity usable rather than merely safe; not waiting for the rest is
+   *    what makes holding several owners' locks in one transaction deadlock-free, because no
+   *    transaction ever waits while already holding one.
+   * 3. Count what that owner currently has executing, and stop if the plan has no room.
+   * 4. Re-select that one row `FOR UPDATE SKIP LOCKED` and re-assert it is still claimable, which
+   *    is what closes the window between the unlocked peek and the claim.
+   *
+   * A job whose owner is at capacity is left `QUEUED`, never failed and never deleted: it executes
+   * as soon as a slot frees. That is what makes a downgrade non-destructive for work already in
+   * the queue.
    */
   async claimNextJob(
     workerId: string,
@@ -179,58 +230,132 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
 
     return this.prisma.$transaction(async (tx) => {
       const candidates = await tx.$queryRaw<
-        { id: string; runId: string; attempts: number }[]
+        {
+          id: string;
+          runId: string;
+          attempts: number;
+          userId: string;
+          plan: string;
+          role: string;
+        }[]
       >`
-        SELECT "id", "runId", "attempts"
-        FROM "BacktestJob"
-        WHERE "status" = 'QUEUED'
-          AND "availableAt" <= ${now}
-          AND "attempts" < "maxAttempts"
-        ORDER BY "availableAt" ASC, "createdAt" ASC
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
+        SELECT j."id", j."runId", j."attempts",
+               r."userId", u."plan"::text AS plan, u."role"::text AS role
+        FROM "BacktestJob" j
+        JOIN "BacktestRun" r ON r."id" = j."runId"
+        JOIN "User" u ON u."id" = r."userId"
+        WHERE j."status" = 'QUEUED'
+          AND j."availableAt" <= ${now}
+          AND j."attempts" < j."maxAttempts"
+        ORDER BY j."availableAt" ASC, j."createdAt" ASC
+        LIMIT ${CLAIM_CANDIDATE_BATCH}
       `;
 
-      const candidate = candidates[0];
-      if (!candidate) {
-        return null;
+      const lockedOwners = new Set<string>();
+      for (const candidate of candidates) {
+        const entitlements = resolveEntitlements({
+          kind: "AUTHENTICATED",
+          userId: candidate.userId,
+          plan: candidate.plan as UserPlan,
+          role: candidate.role as UserRole,
+        });
+
+        if (!lockedOwners.has(candidate.userId)) {
+          if (lockedOwners.size === 0) {
+            // The first owner this claim considers is waited for. At this point the transaction
+            // holds no entitlement lock, so a transaction waiting here can never be part of a
+            // deadlock cycle — and waiting is what keeps a plan's capacity usable: two workers
+            // polling in the same millisecond for one owner with room for two runs must end up
+            // claiming both, not have the loser abandon the round.
+            await tx.$executeRaw`
+              SELECT pg_advisory_xact_lock(
+                ${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${candidate.userId})
+              )
+            `;
+          } else {
+            // Every subsequent owner is tried without waiting. That is the rule that makes the
+            // whole loop deadlock-free: no transaction ever blocks while already holding one of
+            // these locks, so no two of them can wait on each other.
+            const [lock] = await tx.$queryRaw<{ locked: boolean }[]>`
+              SELECT pg_try_advisory_xact_lock(
+                ${ENTITLEMENT_LOCK_NAMESPACE}::int4, hashtext(${candidate.userId})
+              ) AS locked
+            `;
+            if (!lock?.locked) {
+              continue;
+            }
+          }
+          lockedOwners.add(candidate.userId);
+        }
+
+        // Only leases that have not expired count as executing. A worker that died holding a job
+        // must not keep its owner at capacity until recovery notices: the stale claim stops
+        // blocking them the moment its lease lapses, which is the same self-healing property the
+        // lease gives the job itself.
+        const [executing] = await tx.$queryRaw<{ running: bigint }[]>`
+          SELECT count(*) AS running
+          FROM "BacktestJob" j
+          JOIN "BacktestRun" r ON r."id" = j."runId"
+          WHERE r."userId" = ${candidate.userId}
+            AND j."status" = 'CLAIMED'
+            AND (j."leaseExpiresAt" IS NULL OR j."leaseExpiresAt" > ${now})
+        `;
+        const running = Number(executing?.running ?? 0);
+        if (!withinLimit(entitlements.backtests.maxConcurrentRuns, running + 1)) {
+          continue;
+        }
+
+        const locked = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id"
+          FROM "BacktestJob"
+          WHERE "id" = ${candidate.id}
+            AND "status" = 'QUEUED'
+            AND "availableAt" <= ${now}
+            AND "attempts" < "maxAttempts"
+          FOR UPDATE SKIP LOCKED
+        `;
+        if (!locked[0]) {
+          continue;
+        }
+
+        await tx.$executeRaw`
+          UPDATE "BacktestJob"
+          SET "status" = 'CLAIMED',
+              "claimedBy" = ${workerId},
+              "claimedAt" = ${now},
+              "heartbeatAt" = ${now},
+              "leaseExpiresAt" = ${leaseExpiresAt},
+              "attempts" = "attempts" + 1,
+              "updatedAt" = ${now}
+          WHERE "id" = ${candidate.id}
+        `;
+
+        // `startedAt` is the first attempt's start: a retry continues one run, it does not begin a
+        // new one, and the collection page reports queue latency from the original start.
+        const runs = await tx.$queryRaw<{ userId: string; snapshot: unknown }[]>`
+          UPDATE "BacktestRun"
+          SET "status" = 'PREPARING_DATA',
+              "startedAt" = COALESCE("startedAt", ${now}),
+              "updatedAt" = ${now}
+          WHERE "id" = ${candidate.runId}
+          RETURNING "userId", "snapshot"
+        `;
+
+        const run = runs[0];
+        if (!run) {
+          return null;
+        }
+
+        return {
+          jobId: candidate.id,
+          runId: candidate.runId,
+          attempt: candidate.attempts + 1,
+          actorUserId: run.userId,
+          snapshot: run.snapshot,
+        };
       }
 
-      await tx.$executeRaw`
-        UPDATE "BacktestJob"
-        SET "status" = 'CLAIMED',
-            "claimedBy" = ${workerId},
-            "claimedAt" = ${now},
-            "heartbeatAt" = ${now},
-            "leaseExpiresAt" = ${leaseExpiresAt},
-            "attempts" = "attempts" + 1,
-            "updatedAt" = ${now}
-        WHERE "id" = ${candidate.id}
-      `;
-
-      // `startedAt` is the first attempt's start: a retry continues one run, it does not begin a
-      // new one, and the collection page reports queue latency from the original start.
-      const runs = await tx.$queryRaw<{ userId: string; snapshot: unknown }[]>`
-        UPDATE "BacktestRun"
-        SET "status" = 'PREPARING_DATA',
-            "startedAt" = COALESCE("startedAt", ${now}),
-            "updatedAt" = ${now}
-        WHERE "id" = ${candidate.runId}
-        RETURNING "userId", "snapshot"
-      `;
-
-      const run = runs[0];
-      if (!run) {
-        return null;
-      }
-
-      return {
-        jobId: candidate.id,
-        runId: candidate.runId,
-        attempt: candidate.attempts + 1,
-        actorUserId: run.userId,
-        snapshot: run.snapshot,
-      };
+      return null;
     });
   }
 

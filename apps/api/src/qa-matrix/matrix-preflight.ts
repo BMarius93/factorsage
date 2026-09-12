@@ -6,8 +6,12 @@ import {
   DEFAULT_BENCHMARK_CODE,
   findSelectableSeries,
   normalizeStrategyDefinition,
+  resolveEntitlements,
   subtractYears,
+  withinLimit,
   type SelectableSeriesId,
+  type UserPlan,
+  type UserRole,
 } from "@intrinsic/contracts";
 import type { PrismaClient } from "@intrinsic/database";
 import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
@@ -127,6 +131,12 @@ export type PreflightInput = {
   readonly fixtures: QaMatrixFixtures;
   readonly asOfDate: string;
   readonly ownerEmail: string;
+  /**
+   * How many cases the sweep will keep in flight. Checked against the owner's own entitlements:
+   * the runner submits through the product's enforced path, so a concurrency the owner's plan
+   * does not permit is a configuration error the preflight can name up front.
+   */
+  readonly concurrency: number;
   /** The real current date, which is what the loader's horizon is measured from. */
   readonly today: string;
   /** Repository root, for reading the migration directory. */
@@ -151,7 +161,7 @@ export async function runQaMatrixPreflight(
 
   const owner = await input.prisma.user.findFirst({
     where: { email: input.ownerEmail.trim().toLowerCase() },
-    select: { id: true, email: true },
+    select: { id: true, email: true, plan: true, role: true },
   });
   checks.push(checkOwner(input, owner));
 
@@ -343,23 +353,70 @@ async function checkMigrations(input: PreflightInput): Promise<PreflightCheck> {
   );
 }
 
+/**
+ * The fixture owner exists, and their entitlements permit the sweep.
+ *
+ * The runner submits through the product's real entitlement-enforced path, so the owner's plan and
+ * role are an input to whether a thousand cases can run at all — and a sweep that discovers that
+ * on case one, fifteen minutes in, is a worse instrument than one that refuses up front. The
+ * fixtures are owned by the QA_ADMIN persona because the matrix runs at a concurrency no
+ * commercial plan sells; see `docs/decisions/entitlements-v1.md` and `matrix-execution.ts`.
+ */
 function checkOwner(
   input: PreflightInput,
-  owner: { id: string; email: string } | null,
+  owner: {
+    id: string;
+    email: string;
+    plan: UserPlan;
+    role: UserRole;
+  } | null,
 ): PreflightCheck {
-  const problems = owner
-    ? []
-    : [
+  if (!owner) {
+    return check(
+      "qa-owner",
+      "QA fixture owner",
+      [
         `The QA persona \`${input.ownerEmail}\` does not exist in this database. The matrix ` +
           "Strategies and Lists are owned by that account; run the QA user seed against the " +
           "matrix database first.",
-      ];
+      ],
+      "",
+      undefined,
+    );
+  }
+
+  const entitlements = resolveEntitlements({
+    kind: "AUTHENTICATED",
+    userId: owner.id,
+    plan: owner.plan,
+    role: owner.role,
+  });
+  const problems: string[] = [];
+  if (!withinLimit(entitlements.backtests.maxConcurrentRuns, input.concurrency)) {
+    problems.push(
+      `\`${owner.email}\` may run ${entitlements.backtests.maxConcurrentRuns} backtests at ` +
+        `once, but the sweep is configured for ${input.concurrency}. Lower --concurrency, or ` +
+        "run the matrix as the QA_ADMIN persona the fixtures are meant to be owned by.",
+    );
+  }
+  if (!withinLimit(entitlements.backtests.maxHistoricalYears, BACKTEST_MAX_PERIOD_YEARS)) {
+    problems.push(
+      `\`${owner.email}\` may request ${entitlements.backtests.maxHistoricalYears} years of ` +
+        `backtest history, and the matrix configurations reach ${BACKTEST_MAX_PERIOD_YEARS}.`,
+    );
+  }
+
   return check(
     "qa-owner",
     "QA fixture owner",
     problems,
-    `\`${owner?.email ?? ""}\` owns the matrix fixtures`,
-    owner ? { ownerUserId: owner.id } : undefined,
+    `\`${owner.email}\` (${owner.role}, plan ${owner.plan}) owns the matrix fixtures`,
+    {
+      ownerUserId: owner.id,
+      plan: owner.plan,
+      role: owner.role,
+      maxConcurrentRuns: entitlements.backtests.maxConcurrentRuns,
+    },
   );
 }
 

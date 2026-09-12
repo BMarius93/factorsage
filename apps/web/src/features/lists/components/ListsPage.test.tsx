@@ -42,6 +42,7 @@ function summary(
     itemCount: 0,
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
+    compliance: { symbolCount: 0, symbolLimit: 100, compliant: true },
     ...overrides,
   };
 }
@@ -53,6 +54,7 @@ function detail(id: string, name: string): StockListDetailResponse {
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-01T10:00:00.000Z",
     items: [],
+    compliance: { symbolCount: 0, symbolLimit: 100, compliant: true },
   };
 }
 
