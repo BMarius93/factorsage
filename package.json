@@ -32,6 +32,8 @@
     "db:studio": "pnpm --filter @intrinsic/database prisma:studio",
     "db:benchmarks:reset": "pnpm build:packages && pnpm --filter @intrinsic/api reset:benchmark-data",
     "db:seed": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/api seed:admin",
+    "billing:reconcile": "pnpm build:packages && pnpm --filter @intrinsic/api billing:reconcile",
+    "billing:verify-catalog": "pnpm build:packages && pnpm --filter @intrinsic/api billing:verify-catalog",
     "test:users:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:qa-users",
     "test:entitlements:seed": "pnpm build:packages && pnpm --filter @intrinsic/api seed:entitlement-fixtures",
     "test:personas:seed": "pnpm test:users:seed && pnpm test:securities:seed && pnpm test:entitlements:seed",
@@ -45,9 +47,11 @@
     "test:e2e": "pnpm --filter @intrinsic/web e2e",
     "test:e2e:auth": "pnpm --filter @intrinsic/web e2e:auth",
     "test:e2e:entitlements": "pnpm test:entitlements:seed && pnpm --filter @intrinsic/web e2e:entitlements",
+    "test:e2e:billing": "pnpm --filter @intrinsic/web e2e:billing",
     "test:e2e:smoke": "pnpm --filter @intrinsic/web e2e:smoke",
     "test:e2e:headed": "pnpm --filter @intrinsic/web e2e:headed",
-    "test:e2e:report": "pnpm --filter @intrinsic/web e2e:report"
+    "test:e2e:report": "pnpm --filter @intrinsic/web e2e:report",
+    "test:billing:sandbox": "pnpm --filter @intrinsic/api test:billing:sandbox"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

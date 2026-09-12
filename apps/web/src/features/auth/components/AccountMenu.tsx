@@ -93,6 +93,21 @@ export function AccountMenu() {
             </span>
           </div>
 
+          {/*
+            Billing lives here rather than in the primary navigation: it is an account setting, not
+            one of the five product destinations, and `PRIMARY_NAV_ITEMS` is the single definition of
+            those. Shown to everyone, because a Free user needs it more than a paying one does.
+          */}
+          <Link
+            className={styles.menuLink}
+            href="/billing"
+            role="menuitem"
+            data-testid="account-billing-link"
+            onClick={() => setOpen(false)}
+          >
+            Plan and billing
+          </Link>
+
           {isAdmin ? (
             <Link
               className={styles.menuLink}

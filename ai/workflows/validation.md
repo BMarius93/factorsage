@@ -30,6 +30,7 @@ Current callers:
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
+- `apps/api/src/billing/billing.integration.test.ts`
 - `apps/api/src/entitlements/entitlements.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
 - `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
@@ -101,6 +102,48 @@ backtests and run in milliseconds inside the normal gate.
 other DB-backed suite.
 
 See `../../docs/development/qa-matrix-runner.md`.
+
+## The Stripe sandbox suite is opt-in
+
+`apps/api/src/billing/billing.integration.test.ts` needs no Stripe at all: it replaces the gateway
+with an in-memory fake and runs inside the normal gate, so every billing rule — the transition
+matrix, the status policy, webhook idempotency, the one-subscription invariant, reconciliation — is
+proven offline.
+
+Only `apps/api/src/billing/billing.sandbox.smoke.test.ts` touches the Stripe network, and three
+things gate it:
+
+- `describe.skipIf(!ENABLED)` on `STRIPE_SANDBOX_SMOKE=true`, so it is inert even when reached
+  directly by path;
+- package scripts also `--exclude` it from `pnpm test`;
+- it **throws** in `beforeAll` if the configured key is not test mode, so it can never run against
+  live billing.
+
+```bash
+STRIPE_SANDBOX_SMOKE=true pnpm test:billing:sandbox
+```
+
+It creates Stripe test-mode Customers, one Checkout Session and one Portal Session, and pays for
+nothing. Hosted Checkout and Portal are browser flows; the manual runbook for them, including Test
+Clocks, is in `../architecture/billing.md`.
+
+Two operator commands are not tests and are never part of the gate:
+
+```bash
+pnpm billing:verify-catalog          # the four prices, against the configured Stripe environment
+pnpm billing:reconcile -- --user x   # rebuild one user's billing state from Stripe
+```
+
+`pnpm billing:verify-catalog` is worth running whenever billing configuration changes: it is the only
+check that would catch a `STRIPE_PRICE_PRO_MONTHLY` pointing at the $9 Starter price, because runtime
+deliberately never reads an amount.
+
+Playwright billing specs (`apps/web/e2e/billing/`) need no Stripe either — they assert FactorSage's own
+surface and skip the checkout-initiation cases when billing is unconfigured:
+
+```bash
+pnpm test:e2e:billing
+```
 
 ## Live FMP suites are opt-in at the suite level
 

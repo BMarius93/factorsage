@@ -412,6 +412,166 @@ export function getAdminBootstrapConfig(env: Environment = process.env) {
   } as const;
 }
 
+/** The four logical price keys, spelled as the environment-variable suffixes they map to. */
+const STRIPE_PRICE_ENV_NAMES = {
+  STARTER_MONTHLY: "STRIPE_PRICE_STARTER_MONTHLY",
+  STARTER_YEARLY: "STRIPE_PRICE_STARTER_YEARLY",
+  PRO_MONTHLY: "STRIPE_PRICE_PRO_MONTHLY",
+  PRO_YEARLY: "STRIPE_PRICE_PRO_YEARLY",
+} as const;
+
+export type StripePriceKeyName = keyof typeof STRIPE_PRICE_ENV_NAMES;
+
+export type StripeBillingConfig = {
+  readonly secretKey: string;
+  readonly webhookSecret: string;
+  /** Logical catalog key -> the Stripe Price ID configured for *this* environment. */
+  readonly priceIds: Readonly<Record<StripePriceKeyName, string>>;
+  /** True when the configured secret key is a test-mode/sandbox key. */
+  readonly testMode: boolean;
+  /** Where Stripe returns the browser after hosted Checkout. Server-configured, never client. */
+  readonly checkoutSuccessUrl: string;
+  readonly checkoutCancelUrl: string;
+  readonly portalReturnUrl: string;
+  /** Network timeout for one Stripe API call, in milliseconds. */
+  readonly timeoutMs: number;
+  /** SDK-level retries for Stripe calls Stripe itself marks safely retryable. */
+  readonly maxNetworkRetries: number;
+};
+
+/**
+ * Whether this looks like a Stripe **test-mode** secret. Sandbox keys are test keys.
+ *
+ * Both shapes Stripe issues are accepted: a standard secret key and a restricted key.
+ */
+function isStripeTestSecret(secretKey: string): boolean {
+  return secretKey.startsWith("sk_test_") || secretKey.startsWith("rk_test_");
+}
+
+function isStripeLiveSecret(secretKey: string): boolean {
+  return secretKey.startsWith("sk_live_") || secretKey.startsWith("rk_live_");
+}
+
+/**
+ * Server-only Stripe billing configuration, or `null` when this deployment has no billing.
+ *
+ * **Optional as a whole, all-or-nothing once touched.** With no `STRIPE_*` variable set this
+ * returns `null`, the billing module registers no Stripe client, and every other suite and package
+ * in the workspace keeps running with no Stripe secret anywhere — which is what stops a payment
+ * integration from becoming a prerequisite for running the tests. Setting any one of them turns
+ * billing on, after which every required value must be present and well-formed: a half-configured
+ * biller fails at a customer's Checkout, which is the worst possible place to discover it.
+ *
+ * **Test and live modes are hard-separated by an assertion, not by discipline.** A live secret key
+ * outside `NODE_ENV=production` is refused, and a test secret key *in* production is refused. That
+ * is the concrete form of the decision document's rule (section 2) that production must never boot
+ * with sandbox material and local development must never be able to charge a real card.
+ *
+ * Never expose the returned object, or any field of it, to browser code.
+ */
+export function getStripeBillingConfig(
+  env: Environment = process.env,
+): StripeBillingConfig | null {
+  const priceEntries = Object.entries(STRIPE_PRICE_ENV_NAMES) as [
+    StripePriceKeyName,
+    string,
+  ][];
+
+  const touched = [
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    ...priceEntries.map(([, name]) => name),
+  ].some((name) => optional(env, name) !== undefined);
+
+  if (!touched) {
+    return null;
+  }
+
+  const environment = runtimeEnvironment(env);
+  const secretKey = required(env, "STRIPE_SECRET_KEY");
+  const testMode = isStripeTestSecret(secretKey);
+
+  if (!testMode && !isStripeLiveSecret(secretKey)) {
+    throw new Error(
+      "Invalid application configuration: STRIPE_SECRET_KEY must be a Stripe secret or " +
+        "restricted key (sk_test_/rk_test_ for sandbox, sk_live_/rk_live_ for live)",
+    );
+  }
+  if (!testMode && environment !== "production") {
+    throw new Error(
+      `Invalid application configuration: STRIPE_SECRET_KEY is a live-mode key and NODE_ENV is ` +
+        `'${environment}'. Development and test environments must use a Stripe sandbox/test key so ` +
+        "no implementation testing can move real money.",
+    );
+  }
+  if (testMode && environment === "production") {
+    throw new Error(
+      "Invalid application configuration: STRIPE_SECRET_KEY is a sandbox/test-mode key and " +
+        "NODE_ENV is 'production'. Production must be configured with live Stripe credentials and " +
+        "live price IDs.",
+    );
+  }
+
+  const webhookSecret = required(env, "STRIPE_WEBHOOK_SECRET");
+  if (!webhookSecret.startsWith("whsec_")) {
+    throw new Error(
+      "Invalid application configuration: STRIPE_WEBHOOK_SECRET must be a Stripe webhook " +
+        "signing secret (whsec_...)",
+    );
+  }
+
+  const priceIds = {} as Record<StripePriceKeyName, string>;
+  const seen = new Map<string, StripePriceKeyName>();
+  for (const [key, name] of priceEntries) {
+    const value = required(env, name);
+    if (!value.startsWith("price_")) {
+      throw new Error(
+        `Invalid application configuration: ${name} must be a Stripe Price ID (price_...)`,
+      );
+    }
+    const duplicate = seen.get(value);
+    if (duplicate) {
+      // Two logical keys pointing at one Stripe price would make plan and interval ambiguous in
+      // exactly the direction that matters: a Pro price resolving to Starter, or a yearly price
+      // billing monthly. It is always a copy-paste error and never a valid configuration.
+      throw new Error(
+        `Invalid application configuration: ${name} and ${STRIPE_PRICE_ENV_NAMES[duplicate]} are ` +
+          "the same Stripe Price ID; each logical price must map to its own Stripe price",
+      );
+    }
+    seen.set(value, key);
+    priceIds[key] = value;
+  }
+
+  const webBaseUrl = getWebBaseUrl(env);
+
+  return {
+    secretKey,
+    webhookSecret,
+    priceIds,
+    testMode,
+    // Defaults land on the web app's own billing page, so a working local setup needs no URL
+    // configuration at all — and an override is still an absolute URL validated like any other.
+    checkoutSuccessUrl: absoluteUrl(
+      env,
+      "STRIPE_CHECKOUT_SUCCESS_URL",
+      `${webBaseUrl}/billing?checkout=success`,
+    ),
+    checkoutCancelUrl: absoluteUrl(
+      env,
+      "STRIPE_CHECKOUT_CANCEL_URL",
+      `${webBaseUrl}/billing?checkout=cancelled`,
+    ),
+    portalReturnUrl: absoluteUrl(
+      env,
+      "STRIPE_PORTAL_RETURN_URL",
+      `${webBaseUrl}/billing`,
+    ),
+    timeoutMs: integer(env, ["STRIPE_TIMEOUT_MS"], 20_000),
+    maxNetworkRetries: integer(env, ["STRIPE_MAX_NETWORK_RETRIES"], 2),
+  } as const;
+}
+
 export function getWorkerConfig(env: Environment = process.env) {
   return {
     ...getAppConfig(env),

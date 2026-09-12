@@ -13,7 +13,8 @@
     "e2e:auth": "playwright test e2e/auth",
     "e2e:entitlements": "playwright test e2e/entitlements",
     "e2e:headed": "playwright test --headed",
-    "e2e:report": "playwright show-report"
+    "e2e:report": "playwright show-report",
+    "e2e:billing": "playwright test e2e/billing"
   },
   "dependencies": {
     "@intrinsic/contracts": "workspace:*",
