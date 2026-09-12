@@ -11,6 +11,12 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./personas": {
+      "types": "./dist/personas.d.ts",
+      "import": "./dist/personas.js",
+      "require": "./dist/personas.js",
+      "default": "./dist/personas.js"
     }
   },
   "scripts": {

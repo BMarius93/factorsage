@@ -119,6 +119,44 @@ or a counter.
   limit, guest behaviour, role escalation attempts, the concurrency race, and the downgrade rules.
 - `apps/worker/src/backtest/claim-entitlements.integration.test.ts` — concurrency at the claim.
 - `apps/worker/src/monitor/monitor-eligibility.integration.test.ts` — what a cycle may evaluate.
+- `apps/web/e2e/entitlements/*.spec.ts` — the browser half: that a refusal reaches the user as
+  something they can act on, and that the UI reflects backend enforcement rather than deciding
+  anything. It deliberately does not re-prove the numeric matrix.
+
+## Test personas
+
+Entitlement behaviour is per-plan, so it is tested by signing in *as* a plan rather than by moving
+one user between plans — which would make every test order-dependent and every parallel run a race.
+
+`packages/testing/src/personas.ts` is the one definition: five accounts (`FREE_USER`,
+`STARTER_USER`, `PRO_USER`, `ADMIN_USER`, `DOWNGRADED_USER`) with their plan, role, credential
+variable prefix and Playwright storage-state path. `GUEST` is not in it, because it is not an
+account. The seeders and the Playwright projects both read that table; the browser harness imports
+it through the dependency-free `@intrinsic/testing/personas` subpath, so no engine or database code
+reaches the web app.
+
+`PRO_USER` is the default development and manual-testing account. `ADMIN_USER` is `plan=FREE`,
+`role=ADMIN` — internal and QA only, never the development default, because developing against
+entitlement overrides hides commercial capacity bugs.
+
+Two seeds, both idempotent, and both reconciling so rerunning one is also the reset:
+
+```bash
+pnpm test:users:seed          # the personas
+pnpm test:entitlements:seed   # the fixtures below
+pnpm test:personas:seed       # all of it, in order
+```
+
+`apps/api/src/entitlements/seed-entitlement-fixtures.ts` declares the fixture state per persona:
+boundary states reachable through the UI (a list exactly at its limit, an account at its monitor
+capacity, a run pinned mid-flight) and **post-downgrade states that are not** — an 83-symbol list on
+FREE, a completed twenty-year backtest, four monitors where one may be active. The second kind is
+the whole reason a fixture exists rather than a click-through: a user reaches it by having been on
+a higher plan. Everything it owns is named `ENT-`, and nothing outside that namespace is touched.
+
+A run is pinned "in flight" by giving its job a `CLAIMED` status and a lease far in the future: the
+real worker will neither claim it (not `QUEUED`) nor recover it (lease live), so "one run already
+running" is a state rather than a race against a worker that might finish first.
 
 ## The QA matrix
 

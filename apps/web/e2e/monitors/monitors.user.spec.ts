@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Full monitor journey for QA_USER against an already-running stack.
+ * Full monitor journey for PRO_USER against an already-running stack.
  *
  * The only precondition beyond the running stack is `pnpm test:users:seed`. Unlike the backtest
  * suite this one needs neither hydrated price history nor a running worker: creating, enabling,
@@ -185,7 +185,7 @@ async function deleteListIfPresent(page: Page, name: string) {
  */
 const SUITE_TIMEOUT_MS = 180_000;
 
-test.describe("QA_USER monitors", () => {
+test.describe("PRO_USER monitors", () => {
   async function cleanUp(page: Page) {
     // Monitors first: a Strategy or List a Monitor still references cannot be deleted.
     await deleteMonitorsIfPresent(page, [MONITOR_NAME, RENAMED_MONITOR]);

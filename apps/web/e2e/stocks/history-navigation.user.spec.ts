@@ -2,7 +2,7 @@ import type { StockDetailsResponse } from "@intrinsic/contracts";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
- * Viewport-driven history loading for QA_USER, through the real Next + Nest + PostgreSQL + Redis
+ * Viewport-driven history loading for PRO_USER, through the real Next + Nest + PostgreSQL + Redis
  * stack.
  *
  * The bug this suite exists for: navigation worked, but nothing loaded. Panning left or zooming
@@ -186,7 +186,7 @@ async function panToBoundary(page: Page, attempts = 25): Promise<boolean> {
   );
 }
 
-test.describe("QA_USER Stock Details viewport-driven history", () => {
+test.describe("PRO_USER Stock Details viewport-driven history", () => {
   test("pans left into unloaded history and keeps the window it moved to @smoke", async ({
     page,
   }) => {

@@ -1,5 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import type { QaPersonaCredentials } from "./env";
+import { qaPersona, type QaPersonaCredentials, type TestPersonaName } from "./env";
 
 /**
  * Signs in through the product's own email/password UI.
@@ -23,4 +23,21 @@ export async function signInThroughUi(
 export async function openAccountMenu(page: Page): Promise<void> {
   await page.getByTestId("account-menu-trigger").click();
   await expect(page.getByTestId("account-menu")).toBeVisible();
+}
+
+/**
+ * Signs in as a named persona, whatever state the page is in.
+ *
+ * The persona projects in `playwright.config.ts` already start signed in, so most specs never call
+ * this. It exists for the two cases a storage state cannot cover: a spec that needs to switch
+ * persona mid-test, and the guest project asserting what signing in changes.
+ *
+ * It never mutates a persona's plan. Personas are fixed points — a spec signs in as the plan it is
+ * about — which is what keeps entitlement specs independent of each other and of their order.
+ */
+export async function loginAs(
+  page: Page,
+  name: TestPersonaName,
+): Promise<void> {
+  await signInThroughUi(page, qaPersona(name));
 }

@@ -9,7 +9,7 @@ import {
   getBacktestWorkerConfig,
   getGoogleOAuthConfig,
   getMonitorWorkerConfig,
-  getQaPersonaConfig,
+  getTestPersonaCredentials,
   getSmtpConfig,
   getWebBaseUrl,
   getWebPublicConfig,
@@ -232,7 +232,7 @@ describe("SMTP configuration", () => {
   });
 });
 
-describe("QA persona configuration", () => {
+describe("test persona credentials", () => {
   const QA_ENV = {
     QA_USER_EMAIL: "qa-user@example.test",
     QA_USER_PASSWORD: "qa-user-password-value",
@@ -240,35 +240,48 @@ describe("QA persona configuration", () => {
     QA_ADMIN_PASSWORD: "qa-admin-password-value",
   };
 
-  it("reads both personas with their roles", () => {
-    const config = getQaPersonaConfig(QA_ENV);
-
-    expect(config.user).toMatchObject({
+  it("reads a persona's credentials from its own prefix", () => {
+    expect(getTestPersonaCredentials("QA_USER", QA_ENV)).toEqual({
       email: "qa-user@example.test",
-      role: "USER",
+      password: "qa-user-password-value",
     });
-    expect(config.admin).toMatchObject({
+    expect(getTestPersonaCredentials("QA_ADMIN", QA_ENV)).toEqual({
       email: "qa-admin@example.test",
-      role: "ADMIN",
+      password: "qa-admin-password-value",
     });
   });
 
-  it("requires every persona variable", () => {
+  it("names the missing variable rather than failing vaguely", () => {
     const withoutAdminEmail: Partial<typeof QA_ENV> = { ...QA_ENV };
     delete withoutAdminEmail.QA_ADMIN_EMAIL;
 
-    expect(() => getQaPersonaConfig(withoutAdminEmail)).toThrow(
-      "QA_ADMIN_EMAIL is required",
-    );
-    expect(() => getQaPersonaConfig({})).toThrow(
+    expect(() =>
+      getTestPersonaCredentials("QA_ADMIN", withoutAdminEmail),
+    ).toThrow("QA_ADMIN_EMAIL is required");
+    expect(() => getTestPersonaCredentials("QA_USER", {})).toThrow(
       "QA_USER_PASSWORD is required",
     );
   });
 
   it("rejects a persona password that is too short", () => {
+    // The same bound as the product's registration policy, so a persona can always sign in
+    // through the real form.
     expect(() =>
-      getQaPersonaConfig({ ...QA_ENV, QA_USER_PASSWORD: "short" }),
+      getTestPersonaCredentials("QA_USER", {
+        ...QA_ENV,
+        QA_USER_PASSWORD: "short",
+      }),
     ).toThrow("QA_USER_PASSWORD must be at least 12 characters");
+  });
+
+  it("works for a persona prefix this package does not know about", () => {
+    // The set of personas lives in `@intrinsic/testing`; this function only resolves a prefix.
+    expect(
+      getTestPersonaCredentials("QA_STARTER", {
+        QA_STARTER_EMAIL: "qa-starter@example.test",
+        QA_STARTER_PASSWORD: "qa-starter-password",
+      }).email,
+    ).toBe("qa-starter@example.test");
   });
 });
 

@@ -96,6 +96,14 @@
   background: var(--color-surface-soft);
 }
 
+/* An enabled monitor that entitlements currently prevent from scanning. Cautionary rather than
+   negative: nothing is broken and nothing was lost — it is waiting for capacity or a smaller
+   list. */
+.statusPill[data-tone="blocked"] {
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
 .facts {
   display: grid;
   gap: 8px;

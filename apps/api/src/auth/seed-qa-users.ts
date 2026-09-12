@@ -4,8 +4,12 @@ import { isValidEmail, normalizeEmail } from "./email";
 import { PasswordService } from "./password.service";
 
 export type QaPersonaInput = {
-  /** Logical persona name used in documentation and Playwright projects. */
-  readonly name: "QA_USER" | "QA_ADMIN";
+  /**
+   * The persona's canonical name, from the registry in `@intrinsic/testing`. Typed as a plain
+   * string so this repository layer does not have to import the registry to describe its input;
+   * the callers that build these come from the registry itself.
+   */
+  readonly name: string;
   readonly email: string;
   readonly password: string;
   readonly role: UserRole;

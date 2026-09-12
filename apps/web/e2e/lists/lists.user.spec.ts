@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * Full lists journey for QA_USER against the deterministic QA catalog rows.
+ * Full lists journey for PRO_USER against the deterministic QA catalog rows.
  *
  * Precondition beyond the usual stack + `pnpm test:users:seed`: the fictional QA securities must
  * exist in the running stack's catalog — seed them once with `pnpm test:securities:seed`. The
@@ -37,7 +37,7 @@ async function searchAndPick(page: Page, symbol: string) {
  * Best-effort teardown through the product UI.
  *
  * The passing journey deletes its own list, so this normally finds nothing. It exists so a failed
- * assertion partway through cannot leave the shared QA_USER persona accumulating test lists.
+ * assertion partway through cannot leave the shared PRO_USER persona accumulating test lists.
  */
 async function deleteListIfPresent(page: Page, listName: string) {
   try {
@@ -62,7 +62,7 @@ async function deleteListIfPresent(page: Page, listName: string) {
   }
 }
 
-test.describe("QA_USER stock lists", () => {
+test.describe("PRO_USER stock lists", () => {
   let listName = "";
 
   test.afterEach(async ({ page }) => {

@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitorOptions } from "../hooks/use-monitor-options";
 import styles from "./MonitorFormDialog.module.css";
@@ -39,14 +39,15 @@ type FieldErrors = {
 };
 
 function requestMessage(error: unknown, mode: "create" | "edit"): string {
-  // The API parses the same request again and re-checks that both references are the caller's.
-  // When it disagrees, its product-vocabulary message is what the user needs to read.
-  if (error instanceof ApiError && error.status === 400) {
-    return error.message;
-  }
-  return mode === "create"
-    ? "The monitor could not be created right now. Try again in a moment."
-    : "The monitor could not be saved right now. Try again in a moment.";
+  // The API parses the same request again, re-checks that both references are the caller's, and
+  // decides whether the plan has room for another active monitor. Its product-vocabulary message
+  // is what the user needs to read in all three cases.
+  return requestFailureMessage(
+    error,
+    mode === "create"
+      ? "The monitor could not be created right now. Try again in a moment."
+      : "The monitor could not be saved right now. Try again in a moment.",
+  );
 }
 
 /**

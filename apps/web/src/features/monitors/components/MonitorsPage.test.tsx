@@ -201,7 +201,12 @@ describe("MonitorsPage", () => {
   });
 
   it("creates a monitor from the dialog and shows it in the collection", async () => {
-    fetchMonitorsMock.mockResolvedValue([]);
+    // Empty first, then holding the new monitor: the page re-reads the collection after a
+    // mutation, because a monitor's operational status depends on the whole set rather than on
+    // its own row.
+    fetchMonitorsMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([summary({ id: "monitor-new", name: "Value entries" })]);
     createMonitorMock.mockResolvedValue(
       detail({ id: "monitor-new", name: "Value entries" }),
     );
@@ -233,17 +238,23 @@ describe("MonitorsPage", () => {
       });
     });
 
-    // The new monitor appears without refetching the collection.
+    // The new monitor appears immediately from the API's own answer, and the collection is then
+    // re-read so every *other* card shows the status the server now holds: creating a monitor can
+    // push a sibling past the plan's active capacity.
     await waitFor(() => {
       expect(screen.getByTestId("monitors-grid")).toBeDefined();
     });
     expect(screen.getByText("Value entries")).toBeDefined();
     expect(screen.queryByTestId("monitor-form-dialog")).toBeNull();
-    expect(fetchMonitorsMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(fetchMonitorsMock).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("disables a monitor and adopts the state the API answered with", async () => {
-    fetchMonitorsMock.mockResolvedValue([summary()]);
+    fetchMonitorsMock
+      .mockResolvedValueOnce([summary()])
+      .mockResolvedValue([summary({ enabled: false })]);
     updateMonitorMock.mockResolvedValue(summary({ enabled: false }));
 
     render(<MonitorsPage />);
@@ -267,7 +278,9 @@ describe("MonitorsPage", () => {
   });
 
   it("re-enables a disabled monitor", async () => {
-    fetchMonitorsMock.mockResolvedValue([summary({ enabled: false })]);
+    fetchMonitorsMock
+      .mockResolvedValueOnce([summary({ enabled: false })])
+      .mockResolvedValue([summary({ enabled: true })]);
     updateMonitorMock.mockResolvedValue(summary({ enabled: true }));
 
     render(<MonitorsPage />);
@@ -316,7 +329,9 @@ describe("MonitorsPage", () => {
   });
 
   it("deletes a monitor only after confirmation", async () => {
-    fetchMonitorsMock.mockResolvedValue([summary({ name: "Doomed" })]);
+    fetchMonitorsMock
+      .mockResolvedValueOnce([summary({ name: "Doomed" })])
+      .mockResolvedValue([]);
     deleteMonitorMock.mockResolvedValue(undefined);
 
     render(<MonitorsPage />);
@@ -357,7 +372,9 @@ describe("MonitorsPage", () => {
   });
 
   it("edits a monitor from the card, prepopulated with what it watches", async () => {
-    fetchMonitorsMock.mockResolvedValue([summary({ name: "Old name" })]);
+    fetchMonitorsMock
+      .mockResolvedValueOnce([summary({ name: "Old name" })])
+      .mockResolvedValue([summary({ name: "New name" })]);
     updateMonitorMock.mockResolvedValue(summary({ name: "New name" }));
 
     render(<MonitorsPage />);
@@ -400,16 +417,17 @@ describe("MonitorsPage", () => {
   });
 
   it("rebinds a monitor to another strategy and list from the collection", async () => {
-    fetchMonitorsMock.mockResolvedValue([summary()]);
-    updateMonitorMock.mockResolvedValue(
-      summary({
-        strategyId: "strategy-2",
-        strategyName: "Momentum exits",
-        stockListId: "list-2",
-        stockListName: "Tech universe",
-        lastScanAt: undefined,
-      }),
-    );
+    const rebound = summary({
+      strategyId: "strategy-2",
+      strategyName: "Momentum exits",
+      stockListId: "list-2",
+      stockListName: "Tech universe",
+      lastScanAt: undefined,
+    });
+    fetchMonitorsMock
+      .mockResolvedValueOnce([summary()])
+      .mockResolvedValue([rebound]);
+    updateMonitorMock.mockResolvedValue(rebound);
 
     render(<MonitorsPage />);
     await waitFor(() => {

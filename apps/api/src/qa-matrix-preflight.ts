@@ -1,7 +1,11 @@
-import { getQaPersonaConfig, loadRootEnv } from "@intrinsic/config";
+import { loadRootEnv } from "@intrinsic/config";
 import { isLocalDate } from "@intrinsic/contracts";
 import { PrismaClient } from "@intrinsic/database";
-import { currentAsOfDate, qaMatrixFixtures } from "@intrinsic/testing";
+import {
+  currentAsOfDate,
+  qaMatrixFixtures,
+  resolveTestPersona,
+} from "@intrinsic/testing";
 import { defaultMatrixConcurrency } from "./qa-matrix/matrix-concurrency";
 import { loadQaMatrixExecutionCalendar } from "./qa-matrix/seed-qa-matrix";
 import { useMatrixDatabase } from "./qa-matrix/matrix-environment";
@@ -48,7 +52,7 @@ async function preflight(): Promise<void> {
       fixtures,
       asOfDate,
       // Owned by QA_ADMIN: see `docs/decisions/entitlements-v1.md` and `matrix-execution.ts`.
-      ownerEmail: getQaPersonaConfig().admin.email,
+      ownerEmail: resolveTestPersona("ADMIN_USER").email,
       // The standalone preflight has no sweep to size, so it checks the owner against the default
       // the runner would pick.
       concurrency: defaultMatrixConcurrency(),

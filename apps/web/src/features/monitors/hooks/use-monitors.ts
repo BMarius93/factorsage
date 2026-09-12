@@ -63,10 +63,14 @@ export function useMonitors(): MonitorsState {
   const [attempt, setAttempt] = useState(0);
   const latestRequestRef = useRef(0);
   const retry = useCallback(() => setAttempt((current) => current + 1), []);
+  const reload = retry;
 
   useEffect(() => {
     const requestId = ++latestRequestRef.current;
-    setStatus("loading");
+    // Only the first load blanks the page. A refresh after a mutation keeps the collection on
+    // screen and swaps it when the answer arrives — otherwise toggling one monitor would flash
+    // every card away, which is worse than the stale status it exists to fix.
+    setStatus((current) => (current === "ready" ? current : "loading"));
     const controller = new AbortController();
 
     fetchMonitors({ signal: controller.signal })
@@ -90,20 +94,46 @@ export function useMonitors(): MonitorsState {
     return () => controller.abort();
   }, [attempt]);
 
-  const applyCreated = useCallback((detail: MonitorDetailResponse) => {
-    // The API orders by `updatedAt` descending, so a new monitor belongs at the front.
-    setMonitors((current) => [summaryOf(detail), ...current]);
-  }, []);
+  /**
+   * Re-reads the whole collection.
+   *
+   * A monitor's `operationalStatus` is **not** a property of that monitor alone: the plan's active
+   * slots go to the first `N` enabled monitors in a fixed order, so enabling, disabling, creating
+   * or deleting one changes whether *others* are scanning. Patching only the row that was mutated
+   * would leave every sibling showing a status the server no longer holds — a monitor reading
+   * "Not scanning" when it had just taken over the freed slot.
+   *
+   * The single mutated row is still applied first, so the control the user touched responds
+   * immediately rather than waiting for the round trip.
+   */
+  const applyCreated = useCallback(
+    (detail: MonitorDetailResponse) => {
+      // The API orders by `updatedAt` descending, so a new monitor belongs at the front.
+      setMonitors((current) => [summaryOf(detail), ...current]);
+      reload();
+    },
+    [reload],
+  );
 
-  const applyUpdated = useCallback((summary: MonitorSummaryResponse) => {
-    setMonitors((current) =>
-      current.map((entry) => (entry.id === summary.id ? summary : entry)),
-    );
-  }, []);
+  const applyUpdated = useCallback(
+    (summary: MonitorSummaryResponse) => {
+      setMonitors((current) =>
+        current.map((entry) => (entry.id === summary.id ? summary : entry)),
+      );
+      reload();
+    },
+    [reload],
+  );
 
-  const applyDeleted = useCallback((monitorId: string) => {
-    setMonitors((current) => current.filter((entry) => entry.id !== monitorId));
-  }, []);
+  const applyDeleted = useCallback(
+    (monitorId: string) => {
+      setMonitors((current) =>
+        current.filter((entry) => entry.id !== monitorId),
+      );
+      reload();
+    },
+    [reload],
+  );
 
   return {
     status,

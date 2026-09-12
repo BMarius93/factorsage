@@ -180,8 +180,13 @@ evaluator physically cannot read an ungated value.
 ## Authentication and E2E testing
 
 - For authentication work or browser/E2E testing, read `ai/workflows/auth-testing.md`. It is the
-  operational source of truth for QA personas, seeding, auth test suites, Playwright, storage
+  operational source of truth for test personas, seeding, auth test suites, Playwright, storage
   state, and the Google/email test policies.
+- Test personas are defined once in `packages/testing/src/personas.ts` — one account per commercial
+  plan, plus an administrator on the smallest plan. Do not add a persona email, password, plan or
+  storage-state path anywhere else, and do not change a persona's plan inside a test: sign in as the
+  plan under test. `PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is
+  for internal/QA scenarios that intentionally need entitlement overrides.
 - Never commit credentials, session cookies, tokens, or Playwright storage state.
 
 ## Validation

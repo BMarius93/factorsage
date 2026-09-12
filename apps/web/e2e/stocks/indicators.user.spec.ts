@@ -5,7 +5,7 @@ import {
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 /**
- * Stock Details `Indicators` catalog journey for QA_USER, through the real application boundary.
+ * Stock Details `Indicators` catalog journey for PRO_USER, through the real application boundary.
  *
  * Preconditions beyond the usual running stack and `pnpm test:users:seed`: the deterministic QA
  * catalog rows and their market data must exist — run `pnpm test:securities:seed` shortly before
@@ -88,7 +88,7 @@ async function openIndicators(page: Page): Promise<void> {
   await expect(panel(page)).toBeVisible();
 }
 
-test.describe("QA_USER Stock Details indicators", () => {
+test.describe("PRO_USER Stock Details indicators", () => {
   test("exposes the whole selectable-series catalog and drives the chart from it", async ({
     page,
   }) => {

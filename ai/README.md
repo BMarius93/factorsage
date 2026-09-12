@@ -31,6 +31,13 @@ seam is. Plan (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal 
 `GUEST` is derived from the absence of a session and is never a persisted row. Do not add a plan
 comparison in feature code, and do not model request rate as an entitlement.
 
+Entitlement behaviour is tested through fixed **test personas**, one per plan, defined once in
+`packages/testing/src/personas.ts` and read by the seeders and the Playwright projects alike.
+`PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is `plan=FREE`,
+`role=ADMIN` and is for internal/QA scenarios only. Never change a persona's plan in a test — sign
+in as the plan under test. `ai/workflows/auth-testing.md` is the runbook; seed with
+`pnpm test:personas:seed`.
+
 For strategy work, also read `product/strategies.md`. Two architecture documents sit beside it:
 `architecture/strategy-builder.md` is the implementation plan for the Create/Edit Strategy vertical
 slice — canonical types, the shared compatibility registry, validation, schema, contracts and the
