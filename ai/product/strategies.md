@@ -30,6 +30,11 @@ references the live Strategy rather than a pinned version. Monitoring must not d
 strategy language, and a level's id is the identity its durable Monitor state is keyed by across
 versions (`../architecture/strategy-builder.md`).
 
+A Monitor holds no position, so it evaluates a narrower *subset* of the same language: a level whose
+logic depends on `Gain` or `Loss` is skipped whole rather than partially evaluated. That never makes
+a Strategy invalid — it stays canonical and a backtest still decides those levels against simulated
+position state. `monitors.md` owns the rule.
+
 ## Strategy shape
 
 A strategy version contains:

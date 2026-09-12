@@ -110,15 +110,51 @@ must still be able to report what it sees. This mirrors the backtest engine, whi
 
 ## SELL and FINAL EXIT without portfolio state
 
-A Monitor is **not** a portfolio tracker. It holds no position, no average cost and no lifecycle.
+A Monitor is **not** a portfolio tracker. It holds no position, no entry price, no average cost, no
+cost basis and no lifecycle.
 
 A SELL or FINAL EXIT Signal is still meaningful: it reports that the Strategy's exit logic matches
 current data for that symbol. Those levels are therefore evaluated and may produce Signals.
 
-Metrics that require position state — `Gain` and `Loss` — have nothing to be measured against, so
-they are `NOT_EVALUABLE` exactly as `ai/product/strategies.md` already specifies for unavailable
-position state. A Signal whose logic depends on them can never match. This is the existing rule
-applied, not a Monitor-specific exception.
+### `Gain` and `Loss` are outside Monitor evaluation
+
+`Gain` and `Loss` measure a position against its cost basis. A Monitor has neither, so they are **not
+Monitor-supported metrics**. This is deliberately *not* the same statement as "they are Monitor
+metrics that happen to return `NOT_EVALUABLE`":
+
+| | Meaning |
+| --- | --- |
+| `NOT_EVALUABLE` | a **Monitor-supported** metric whose market or derived input was unavailable — warm-up, missing history, no current quote |
+| Excluded | `Gain` and `Loss`, which a Monitor does not evaluate at all |
+
+A Strategy using them is **never rejected**, and neither is a Monitor over it. Creating, editing and
+rebinding all succeed, and no validation error is raised. What is narrower is only what the Monitor
+*evaluates*:
+
+- **A level whose logic depends on `Gain` or `Loss` is skipped whole.** It produces no Signal and
+  writes no transition state, because no evaluation of it was attempted.
+- **Never partially evaluated.** `Price < EMA200 AND Gain > 20%` does not become `Price < EMA200`.
+  That is a different rule than the user wrote, and monitoring it would emit Signals the Strategy
+  never asked for. The same holds when `Gain` or `Loss` appears in the level's Trigger.
+- **Every other level continues normally**, and decides the security's status on its own.
+
+Worked example:
+
+```text
+BUY  Price < EMA200      -> evaluated; matches or does not
+SELL Gain > 20%          -> skipped; never produces a Monitor Signal
+```
+
+The skipped level contributes nothing at all, so it cannot turn an otherwise-decided security into
+`NOT_EVALUABLE`.
+
+Where they can appear is already settled by `ai/product/strategies.md`: `Gain` and `Loss` are refused
+in a BUY level because they depend on an open position, and a Strategy must have at least one BUY
+level. **Every Strategy the product accepts therefore has at least one Monitor-evaluable level** — a
+Strategy that a Monitor could make no decision about at all cannot be constructed.
+
+Backtests are unaffected. They hold real simulated position state and continue to evaluate `Gain` and
+`Loss` through it, exactly as before.
 
 ## Lifecycle in one place
 
@@ -279,8 +315,9 @@ trading-day axis) are identical. The differences are the observation, not the la
   could differ by design; nothing else can.
 - **Weekly series and intrinsic values are carried forward** from the newest closed derived row —
   neither can change intraday — where a backtest reads each day's own row.
-- **Position-dependent metrics** (`Gain`, `Loss`) are `NOT_EVALUABLE` for a Monitor and live for a
-  backtest.
+- **Position-dependent metrics** (`Gain`, `Loss`) are **excluded** from Monitor evaluation and live
+  for a backtest: a Monitor skips the whole level that uses one, where a backtest decides it against
+  simulated position state.
 - **The last day of a backtest ending today may itself be an in-progress bar**, because the
   provider's EOD feed already lists the current session while it is open (see
   `ai/product/backtests.md`).

@@ -264,6 +264,12 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
                 changes what is being watched, without any change here.
               </p>
             )}
+            {/* Said once, here, where a strategy is chosen — never per security, Signal or level. */}
+            <p className={forms.hint} data-testid="monitor-position-metric-note">
+              Rules using Gain or Loss are not evaluated by monitors, because
+              those need position and cost-basis data. They still work in
+              backtests.
+            </p>
           </div>
 
           <div className={forms.field}>

@@ -6,7 +6,9 @@ import type {
   MonitorSignalResponse,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
+import { normalizeStrategyDefinition } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
+import { monitorStrategyLevels } from "@intrinsic/strategy";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
@@ -178,7 +180,10 @@ export class MonitorsService {
     // reports `NOT_CHECKED` until a cycle reaches it.
     return {
       ...summaryOf(row),
-      securities: await this.listSecurityEvaluations(row),
+      securities: await this.listSecurityEvaluations(
+        row,
+        await this.monitoredLevelIds(input.strategyId),
+      ),
       signals: [],
     };
   }
@@ -194,13 +199,59 @@ export class MonitorsService {
     if (!row) {
       throw new MonitorNotFoundError();
     }
-    // Two independent reads, issued together: the monitored universe with its current status, and
-    // the newest Signals. Neither is per security or per Signal.
-    const [securities, signals] = await Promise.all([
-      this.listSecurityEvaluations(row),
+    // Three independent reads, issued together: the levels this Monitor actually evaluates, the
+    // monitored universe with its current status, and the newest Signals. None is per security or
+    // per Signal.
+    const [monitoredLevelIds, signals] = await Promise.all([
+      this.monitoredLevelIds(row.strategyId),
       this.listSignals(monitorId),
     ]);
-    return { ...summaryOf(row), securities, signals };
+    return {
+      ...summaryOf(row),
+      securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
+      signals,
+    };
+  }
+
+  /**
+   * The canonical level ids this Monitor's current Strategy version is actually evaluated on.
+   *
+   * Read through `monitorStrategyLevels`, the same function the worker walks, so the API cannot
+   * develop its own opinion about which levels a Monitor supports — levels depending on `Gain` or
+   * `Loss` are excluded there and are therefore excluded here by construction.
+   *
+   * Why the status table needs this at all: a level can stop being evaluated without its state row
+   * disappearing. Removing it from the Strategy, or editing it so it now depends on `Gain`, leaves
+   * the row behind with the latch the unvisited-Signal sweep reset it to. Counting that as "a level
+   * decided a non-match" would report a decision the current configuration never made.
+   *
+   * A definition that cannot be normalized is a should-never-happen — it was normalized on write —
+   * and is not allowed to fail the request: `null` means "unknown", and the caller then filters
+   * nothing rather than blanking the whole table.
+   */
+  private async monitoredLevelIds(
+    strategyId: string,
+  ): Promise<ReadonlySet<string> | null> {
+    const version = await this.prisma.strategyVersion.findFirst({
+      where: { strategyId },
+      orderBy: { versionNumber: "desc" },
+      select: { id: true, definition: true },
+    });
+    if (!version) {
+      return new Set();
+    }
+    try {
+      const definition = normalizeStrategyDefinition(version.definition);
+      return new Set(monitorStrategyLevels(definition).map((level) => level.id));
+    } catch (err) {
+      this.logger.error({
+        event: "monitor.strategy.definition.unreadable",
+        strategyId,
+        strategyVersionId: version.id,
+        err,
+      });
+      return null;
+    }
   }
 
   /**
@@ -212,11 +263,15 @@ export class MonitorsService {
    * Two queries for the whole table — the list's members, and this Monitor's states with whatever
    * Signal each one currently points at.
    */
-  private async listSecurityEvaluations(monitor: {
-    id: string;
-    stockListId: string;
-    lastScanAt: Date | null;
-  }): Promise<MonitorSecurityEvaluationResponse[]> {
+  private async listSecurityEvaluations(
+    monitor: {
+      id: string;
+      stockListId: string;
+      lastScanAt: Date | null;
+    },
+    /** Levels the Monitor evaluates; `null` when the Strategy could not be read. */
+    monitoredLevelIds: ReadonlySet<string> | null,
+  ): Promise<MonitorSecurityEvaluationResponse[]> {
     const [items, states] = await Promise.all([
       this.prisma.stockListItem.findMany({
         where: { stockListId: monitor.stockListId },
@@ -256,6 +311,11 @@ export class MonitorsService {
 
     const bySecurity = new Map<string, typeof states>();
     for (const state of states) {
+      // A row belonging to a level the Monitor no longer evaluates says nothing about the current
+      // configuration, so it does not get to decide a status.
+      if (monitoredLevelIds !== null && !monitoredLevelIds.has(state.levelId)) {
+        continue;
+      }
       const bucket = bySecurity.get(state.securityId);
       if (bucket) {
         bucket.push(state);

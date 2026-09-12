@@ -81,6 +81,7 @@ describe("monitors", () => {
   async function createStrategyRow(
     userId: string,
     name: string,
+    document: StrategyDefinition = definition(),
   ): Promise<string> {
     const row = await prisma.strategy.create({
       data: {
@@ -90,7 +91,7 @@ describe("monitors", () => {
           create: {
             versionNumber: 1,
             definition: normalizeStrategyDefinition(
-              definition(),
+              document,
             ) as unknown as object,
             definitionHash: randomUUID(),
           },
@@ -98,6 +99,38 @@ describe("monitors", () => {
       },
     });
     return row.id;
+  }
+
+  /**
+   * The canonical BUY level plus one exit level built on a position metric.
+   *
+   * `Gain` and `Loss` are refused in a BUY level by the grammar — they depend on an open position —
+   * so an exit level is the only shape they can legally take, which is exactly the shape a Monitor
+   * has to cope with. Everything goes through `normalizeStrategyDefinition`, so the fixture cannot
+   * claim the product accepts something it does not.
+   */
+  function definitionWithPositionExit(
+    metric: "GAIN" | "LOSS",
+  ): StrategyDefinition {
+    return {
+      ...definition(),
+      sellLevels: [
+        {
+          id: "sell-1",
+          percentage: 25,
+          signal: {
+            conditions: [
+              {
+                id: "exit-1",
+                metric: { kind: metric },
+                operator: "IS_ABOVE",
+                value: { kind: "PERCENT", value: 20 },
+              },
+            ],
+          },
+        },
+      ],
+    } as StrategyDefinition;
   }
 
   async function createMonitor(
@@ -942,6 +975,204 @@ describe("monitors", () => {
       await prisma.monitor.delete({ where: { id: created.id } });
       await prisma.stockList.delete({ where: { id: listId } });
       await prisma.security.delete({ where: { id: security.id } });
+    });
+  });
+
+  /**
+   * `Gain` and `Loss` are outside Monitor evaluation, and that costs the user nothing.
+   *
+   * A Strategy using them stays canonical and remains attachable to a Monitor: creation and
+   * rebinding succeed, no validation error is raised, and the levels that do not depend on them
+   * continue to decide the security's status. What changes is only what a Monitor *evaluates* —
+   * proven at the cycle level in `apps/worker/src/monitor/monitor-cycle.integration.test.ts`, and
+   * here at the boundary the browser sees.
+   */
+  describe("strategies using position metrics", () => {
+    let gainStrategyId = "";
+    let lossStrategyId = "";
+    let evaluationListId = "";
+    let evaluationSecurityId = "";
+
+    beforeAll(async () => {
+      const ownerId = (
+        await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
+      ).id;
+      gainStrategyId = await createStrategyRow(
+        ownerId,
+        "Gain Exit Strategy",
+        definitionWithPositionExit("GAIN"),
+      );
+      lossStrategyId = await createStrategyRow(
+        ownerId,
+        "Loss Exit Strategy",
+        definitionWithPositionExit("LOSS"),
+      );
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: `POS.${suffix.slice(0, 8)}`,
+          symbol: `POS${suffix.slice(0, 3).toUpperCase()}`,
+          name: "Position Metric Test",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: "STOCK",
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      evaluationSecurityId = security.id;
+      evaluationListId = (
+        await prisma.stockList.create({
+          data: {
+            userId: ownerId,
+            name: "Position Metric List",
+            items: { create: [{ securityId: security.id }] },
+          },
+        })
+      ).id;
+    });
+
+    afterAll(async () => {
+      if (!prisma) {
+        return;
+      }
+      await prisma.stockList.deleteMany({ where: { id: evaluationListId } });
+      await prisma.security.deleteMany({ where: { id: evaluationSecurityId } });
+    });
+
+    /** Records a decided outcome for one level, as a cycle would. */
+    async function seedLevelState(
+      monitorId: string,
+      levelId: string,
+      outcome: "MATCHED" | "NOT_MATCHED",
+      activeSignalId?: string,
+    ) {
+      const decidedAt = new Date("2026-09-12T15:00:00.000Z");
+      await prisma.monitorSignalState.create({
+        data: {
+          monitorId,
+          securityId: evaluationSecurityId,
+          levelId,
+          levelKind: levelId.startsWith("buy") ? "BUY" : "SELL",
+          signalFingerprint: `fingerprint-${levelId}`,
+          lastEvaluableResult: outcome,
+          lastEvaluableDate: new Date("2026-09-12T00:00:00.000Z"),
+          lastEvaluableAt: decidedAt,
+          lastOutcome: outcome,
+          lastOutcomeAt: decidedAt,
+          ...(activeSignalId === undefined ? {} : { activeSignalId }),
+        },
+      });
+    }
+
+    async function scannedMonitorOn(strategyId: string, name: string) {
+      const monitor = await createMonitor(owner, {
+        name,
+        strategyId,
+        stockListId: evaluationListId,
+      });
+      await prisma.monitor.update({
+        where: { id: monitor.id },
+        data: { lastScanAt: new Date("2026-09-12T15:00:00.000Z") },
+      });
+      return monitor;
+    }
+
+    it("attaches a Strategy using Gain to a monitor", async () => {
+      const monitor = await createMonitor(owner, {
+        name: "Gain Monitor",
+        strategyId: gainStrategyId,
+        stockListId,
+      });
+
+      expect(monitor.strategyId).toBe(gainStrategyId);
+      await owner.get(`/monitors/${monitor.id}`).expect(200);
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+    });
+
+    it("attaches a Strategy using Loss to a monitor", async () => {
+      const monitor = await createMonitor(owner, {
+        name: "Loss Monitor",
+        strategyId: lossStrategyId,
+        stockListId,
+      });
+
+      expect(monitor.strategyId).toBe(lossStrategyId);
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+    });
+
+    it("rebinds onto a Strategy using Gain without complaint", async () => {
+      const monitor = await createMonitor(owner, {
+        name: "Rebind Onto Gain",
+        strategyId,
+        stockListId,
+      });
+
+      const response = await owner
+        .patch(`/monitors/${monitor.id}`)
+        .send({ strategyId: gainStrategyId })
+        .expect(200);
+
+      expect((response.body as MonitorSummaryResponse).strategyId).toBe(
+        gainStrategyId,
+      );
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+    });
+
+    it("reports NO_MATCH from the supported level while the Gain level is skipped", async () => {
+      const monitor = await scannedMonitorOn(gainStrategyId, "Gain Aggregate");
+      // Only the BUY level was evaluated; the Gain exit level was never attempted, so it has no row.
+      await seedLevelState(monitor.id, "buy-1", "NOT_MATCHED");
+
+      const response = await owner.get(`/monitors/${monitor.id}`).expect(200);
+      const entry = (response.body as MonitorDetailResponse).securities[0];
+
+      // A decided non-match from a monitor-supported level. The skipped level does not drag this
+      // into NOT_EVALUABLE.
+      expect(entry?.status).toBe("NO_MATCH");
+      expect(entry?.matchedLevels).toEqual([]);
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+    });
+
+    it("reports MATCHED from the supported level while the Gain level is skipped", async () => {
+      const monitor = await scannedMonitorOn(gainStrategyId, "Gain Matched");
+      const signal = await prisma.monitorSignal.create({
+        data: {
+          monitorId: monitor.id,
+          securityId: evaluationSecurityId,
+          levelId: "buy-1",
+          levelKind: "BUY",
+          strategyVersionId: "version-1",
+          hasTrigger: false,
+          observationDate: new Date("2026-09-12T00:00:00.000Z"),
+          observationPrice: "180.00",
+          detectedAt: new Date("2026-09-12T15:00:00.000Z"),
+        },
+      });
+      await seedLevelState(monitor.id, "buy-1", "MATCHED", signal.id);
+
+      const response = await owner.get(`/monitors/${monitor.id}`).expect(200);
+      const entry = (response.body as MonitorDetailResponse).securities[0];
+
+      expect(entry?.status).toBe("MATCHED");
+      expect(entry?.matchedLevels).toHaveLength(1);
+      expect(entry?.matchedLevels[0]?.levelKind).toBe("BUY");
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+    });
+
+    it("ignores a state row left behind by a level the Strategy no longer monitors", async () => {
+      const monitor = await scannedMonitorOn(gainStrategyId, "Stale Level Row");
+      // What the unvisited-Signal sweep leaves when a level stops being evaluated: a decided-looking
+      // row for a level the current configuration does not evaluate. It must not be read as "a
+      // monitor-supported level decided a non-match".
+      await seedLevelState(monitor.id, "sell-1", "NOT_MATCHED");
+
+      const response = await owner.get(`/monitors/${monitor.id}`).expect(200);
+      const entry = (response.body as MonitorDetailResponse).securities[0];
+
+      // No monitor-supported level has decided anything, so the honest answer is that nothing has
+      // been decided — not a fabricated non-match.
+      expect(entry?.status).toBe("NOT_EVALUABLE");
+      await prisma.monitor.delete({ where: { id: monitor.id } });
     });
   });
 

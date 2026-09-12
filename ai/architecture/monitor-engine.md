@@ -146,13 +146,28 @@ A BUY level is gated by that member's buy window at the observation date, throug
 `isBuyWindowEligible`; SELL and FINAL EXIT are not. That is the same rule the backtest day loop
 applies, read from the same function. See `ai/product/lists.md`.
 
-A Monitor holds no position, so `Gain` and `Loss` are `NOT_EVALUABLE` — the existing rule in
-`ai/product/strategies.md` for unavailable position state. `evaluateSignalWithoutPosition` in
-`@intrinsic/strategy` applies it by ANDing that evaluability into the canonical market result. It
-exists because `evaluateMarketSignal` deliberately *skips* position-dependent predicates so the
-backtest can AND them in against live position state afterwards: without supplying the missing
-operand's evaluability, the empty-conjunction rule would make a Gain/Loss-only Signal vacuously TRUE
-and every monitored symbol would match on every scan.
+A Monitor holds no position, so `Gain` and `Loss` are **not evaluated at all** — see
+`ai/product/monitors.md`. The exclusion lives in exactly one place: `monitorStrategyLevels` in
+`@intrinsic/strategy` does not return a level whose Signal is position-dependent, decided by
+`signalNeedsPositionState` over `isPositionDependentMetric`. There is no second list of metric names
+anywhere, and the level is dropped whole rather than having its offending predicate stripped.
+
+That one list is also the cycle's **visited set**, which is what makes the lifecycle fall out for
+free: an excluded level is unvisited, so `resolveUnvisitedSignals` closes any Signal it still had and
+resets its latch — the same reconciliation a level removed from the Strategy gets. Editing a level
+into position-dependent logic therefore closes its Signal on the next cycle instead of leaving it
+active forever, and editing it back makes it a level with a reset latch that evaluates normally.
+
+`evaluateSignalWithoutPosition` keeps its `NOT_EVALUABLE` guard for a position-dependent Signal even
+though the canonical path can no longer reach it. `evaluateMarketSignal` deliberately *skips*
+position-dependent predicates so the backtest can AND them in against live position state afterwards,
+so without that guard the empty-conjunction rule would make a Gain/Loss-only Signal vacuously TRUE
+and every monitored symbol would match on every scan. A caller that ever bypassed the filter gets
+`NOT_EVALUABLE` rather than that.
+
+The API applies the same list when it reports per-security status: a state row belonging to a level
+the current Strategy version no longer monitors is not allowed to decide a status, so a level edited
+into `Gain` cannot leave behind something that reads as a decided non-match.
 
 ## Strategy identity and state invalidation
 

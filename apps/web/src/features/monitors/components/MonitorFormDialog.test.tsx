@@ -141,6 +141,19 @@ describe("MonitorFormDialog — create", () => {
     ).toEqual(["Select a stock list…", "Core universe", "Tech universe"]);
   });
 
+  it("explains once that Gain and Loss rules are not monitored", async () => {
+    renderCreate();
+    await formReady();
+
+    // One informational line, where the strategy is chosen. Not a blocking warning, and not
+    // repeated per security, Signal or level.
+    const note = screen.getAllByTestId("monitor-position-metric-note");
+    expect(note).toHaveLength(1);
+    expect(note[0]?.textContent).toContain("Gain or Loss");
+    expect(note[0]?.textContent).toContain("backtests");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("creates an enabled monitor from the three chosen fields", async () => {
     createMonitorMock.mockResolvedValue(CREATED);
     renderCreate();
@@ -333,6 +346,15 @@ describe("MonitorFormDialog — create", () => {
 });
 
 describe("MonitorFormDialog — edit", () => {
+  it("shows the same Gain/Loss note when editing", async () => {
+    renderEdit();
+    await formReady();
+
+    expect(
+      screen.getAllByTestId("monitor-position-metric-note"),
+    ).toHaveLength(1);
+  });
+
   it("prepopulates everything the monitor already is", async () => {
     renderEdit({ enabled: false });
     await formReady();
