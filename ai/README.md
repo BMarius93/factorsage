@@ -79,8 +79,10 @@ Monitor reuses the canonical Strategy language but evaluates it against current 
 loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
 transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
 Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1. Monitor V1
-shipped as API (`apps/api/src/monitors`) and worker (`apps/worker/src/monitor`); the web route is
-still a placeholder and is the open slice.
+shipped as API (`apps/api/src/monitors`), worker (`apps/worker/src/monitor`) and web
+(`apps/web/src/features/monitors`). The web slice manages monitors — create, rename, enable,
+disable, delete — and reports each one's active-Signal count; presenting the Signals themselves is
+the open slice.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.

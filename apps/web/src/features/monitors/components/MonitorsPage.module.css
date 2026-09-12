@@ -1,0 +1,292 @@
+.page {
+  display: grid;
+  gap: 20px;
+  padding: 20px 0 32px;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  margin: 6px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+.cardBody {
+  display: grid;
+  flex: 1;
+  gap: 10px;
+  padding: 16px 16px 12px;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cardName {
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.statusPill {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.statusPill[data-tone="positive"] {
+  color: var(--color-positive);
+  background: var(--color-positive-soft);
+}
+
+.statusPill[data-tone="pending"] {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-soft);
+}
+
+.facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+}
+
+.factLabel {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.factValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.factLink {
+  color: var(--color-text-body);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.factLink:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.factCount {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.signalCount {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  font-weight: 700;
+}
+
+/* A monitor that is currently matching something is the one worth looking at. */
+.signalCount[data-tone="active"] {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.cardError {
+  margin: 0;
+  color: var(--color-negative);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.cardAction,
+.cardActionDanger {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cardAction {
+  color: var(--color-text-secondary);
+}
+
+.cardAction:hover:not(:disabled) {
+  color: var(--color-text-primary);
+  background: var(--color-surface-soft);
+}
+
+.cardAction:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.cardActionDanger {
+  color: var(--color-negative);
+}
+
+.cardActionDanger:hover {
+  background: var(--color-negative-soft);
+}
+
+.skeletonCard {
+  height: 186px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: linear-gradient(
+    100deg,
+    var(--color-surface) 40%,
+    var(--color-surface-soft) 50%,
+    var(--color-surface) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard {
+    animation: none;
+  }
+}
+
+.statusPanel {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 28px 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+}
+
+.statusTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.statusBody {
+  margin: 0;
+  max-width: 56ch;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.confirmBody {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (min-width: 600px) {
+  .page {
+    padding-top: 24px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 880px) {
+  .title {
+    font-size: 28px;
+  }
+
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

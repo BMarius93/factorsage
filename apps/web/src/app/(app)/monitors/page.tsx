@@ -1,10 +1,9 @@
-import { RoutePlaceholder } from "../_placeholder/RoutePlaceholder";
+import type { Metadata } from "next";
+import { MonitorsPage } from "../../../features/monitors/components/MonitorsPage";
 
-export default function MonitorsPage() {
-  return (
-    <RoutePlaceholder
-      title="Monitors"
-      description="Current-data strategy evaluation arrives in the Monitors slice."
-    />
-  );
+export const metadata: Metadata = { title: "Monitors · FactorSage" };
+
+/** Thin route boundary; the feature owns loading, empty and error states. */
+export default function MonitorsRoute() {
+  return <MonitorsPage />;
 }

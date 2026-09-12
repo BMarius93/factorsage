@@ -257,8 +257,11 @@ a wrong Signal.
 - **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
   100 Signals and nothing pages further back; older rows are durable but not yet addressable
   through the API. Pagination is a contract addition for the web slice, not a redesign.
-- **The web surface is not built.** Monitor V1 shipped as API and worker; the Monitors route is a
-  placeholder until the web slice lands.
+- **The web surface manages monitors but does not present Signals.** `/monitors` creates, renames,
+  enables, disables and deletes monitors, and each row reports how many Signals are currently
+  active. What those Signals *are* has no surface yet: `GET /monitors/:id` already returns the
+  newest 100, and presenting them — with the paging the previous point describes — is its own
+  slice.
 - **The monitored universe is not capped.** A Stock List has a per-request add limit but no total
   size, so one very large monitored List sets the cycle's provider, hydration and memory cost.
   Backtests cap a run at `BACKTEST_MAX_SECURITIES`; Monitors have no equivalent yet, and adding
