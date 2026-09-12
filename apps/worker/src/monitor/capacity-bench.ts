@@ -663,9 +663,12 @@ class TimedRepository implements MonitorRepository {
     );
   }
 
-  markScanned(monitorIds: readonly string[], now: Date) {
+  markScanned(
+    monitors: readonly { monitorId: string; configVersion: number }[],
+    now: Date,
+  ) {
     return timed(this.phases.markScanned, () =>
-      this.inner.markScanned(monitorIds, now),
+      this.inner.markScanned(monitors, now),
     );
   }
 }

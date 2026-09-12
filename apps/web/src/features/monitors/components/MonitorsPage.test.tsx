@@ -50,6 +50,16 @@ const STRATEGIES: StrategySummaryResponse[] = [
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
+  {
+    id: "strategy-2",
+    name: "Momentum exits",
+    buyLevelCount: 1,
+    sellLevelCount: 2,
+    hasFinalExit: false,
+    versionNumber: 1,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+  },
 ];
 
 const LISTS: StockListSummaryResponse[] = [
@@ -57,6 +67,13 @@ const LISTS: StockListSummaryResponse[] = [
     id: "list-1",
     name: "Quality compounders",
     itemCount: 12,
+    createdAt: "2026-08-01T10:00:00.000Z",
+    updatedAt: "2026-08-20T10:00:00.000Z",
+  },
+  {
+    id: "list-2",
+    name: "Tech universe",
+    itemCount: 5,
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
@@ -84,13 +101,13 @@ function summary(
 function detail(
   overrides: Partial<MonitorSummaryResponse> = {},
 ): MonitorDetailResponse {
-  return { ...summary(overrides), signals: [] };
+  return { ...summary(overrides), securities: [], signals: [] };
 }
 
 async function openCreateDialog() {
   await userEvent.click(await screen.findByTestId("new-monitor-button"));
   await waitFor(() => {
-    expect(screen.getByTestId("create-monitor-form")).toBeDefined();
+    expect(screen.getByTestId("monitor-form")).toBeDefined();
   });
 }
 
@@ -193,7 +210,7 @@ describe("MonitorsPage", () => {
 
     await userEvent.click(screen.getByText("Create your first monitor"));
     await waitFor(() => {
-      expect(screen.getByTestId("create-monitor-form")).toBeDefined();
+      expect(screen.getByTestId("monitor-form")).toBeDefined();
     });
 
     await userEvent.type(screen.getByLabelText("Name"), "Value entries");
@@ -218,7 +235,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByTestId("monitors-grid")).toBeDefined();
     });
     expect(screen.getByText("Value entries")).toBeDefined();
-    expect(screen.queryByTestId("create-monitor-dialog")).toBeNull();
+    expect(screen.queryByTestId("monitor-form-dialog")).toBeNull();
     expect(fetchMonitorsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -321,7 +338,22 @@ describe("MonitorsPage", () => {
     expect(screen.getByTestId("monitors-empty")).toBeDefined();
   });
 
-  it("renames a monitor without touching its strategy or list", async () => {
+  it("opens a monitor's own page from its name", async () => {
+    fetchMonitorsMock.mockResolvedValue([summary()]);
+
+    render(<MonitorsPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("monitors-grid")).toBeDefined();
+    });
+
+    expect(
+      screen
+        .getByRole("link", { name: "Value entries" })
+        .getAttribute("href"),
+    ).toBe("/monitors/monitor-1");
+  });
+
+  it("edits a monitor from the card, prepopulated with what it watches", async () => {
     fetchMonitorsMock.mockResolvedValue([summary({ name: "Old name" })]);
     updateMonitorMock.mockResolvedValue(summary({ name: "New name" }));
 
@@ -330,21 +362,84 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Old name")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Rename"));
+    await userEvent.click(screen.getByText("Edit"));
+    await waitFor(() => {
+      expect(screen.getByTestId("monitor-form")).toBeDefined();
+    });
+    // The form arrives carrying the monitor's current configuration.
+    expect(screen.getByLabelText("Strategy")).toHaveProperty(
+      "value",
+      "strategy-1",
+    );
+    expect(screen.getByLabelText("Stock list")).toHaveProperty(
+      "value",
+      "list-1",
+    );
+
     const nameInput = screen.getByLabelText("Name");
     await userEvent.clear(nameInput);
     await userEvent.type(nameInput, "New name");
     await userEvent.click(screen.getByText("Save changes"));
 
+    // Unchanged references are still submitted; the API compares values, so this is not a rebind.
     await waitFor(() => {
       expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
         name: "New name",
+        strategyId: "strategy-1",
+        stockListId: "list-1",
+        enabled: true,
       });
     });
     await waitFor(() => {
       expect(screen.getByText("New name")).toBeDefined();
     });
     expect(screen.queryByText("Old name")).toBeNull();
+  });
+
+  it("rebinds a monitor to another strategy and list from the collection", async () => {
+    fetchMonitorsMock.mockResolvedValue([summary()]);
+    updateMonitorMock.mockResolvedValue(
+      summary({
+        strategyId: "strategy-2",
+        strategyName: "Momentum exits",
+        stockListId: "list-2",
+        stockListName: "Tech universe",
+        lastScanAt: undefined,
+      }),
+    );
+
+    render(<MonitorsPage />);
+    await waitFor(() => {
+      expect(screen.getByText("Deep value")).toBeDefined();
+    });
+
+    await userEvent.click(screen.getByText("Edit"));
+    await waitFor(() => {
+      expect(screen.getByTestId("monitor-form")).toBeDefined();
+    });
+    await userEvent.selectOptions(
+      screen.getByLabelText("Strategy"),
+      "strategy-2",
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-2");
+    // The consequence is explained only once the selection has actually moved.
+    expect(screen.getByTestId("monitor-rebind-note")).toBeDefined();
+    await userEvent.click(screen.getByText("Save changes"));
+
+    await waitFor(() => {
+      expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
+        name: "Value entries",
+        strategyId: "strategy-2",
+        stockListId: "list-2",
+        enabled: true,
+      });
+    });
+    // The collection reflects the rebind, including the reset last-checked line.
+    await waitFor(() => {
+      expect(screen.getByText("Momentum exits")).toBeDefined();
+    });
+    expect(screen.getByText("Tech universe")).toBeDefined();
+    expect(screen.getByText("Not checked yet")).toBeDefined();
   });
 
   it("hides the collection call to action until there is a collection", async () => {
@@ -358,6 +453,6 @@ describe("MonitorsPage", () => {
     // Exactly one CTA: the header's. The empty state's is gone.
     expect(screen.getAllByTestId("new-monitor-button")).toHaveLength(1);
     await openCreateDialog();
-    expect(screen.getByTestId("create-monitor-dialog")).toBeDefined();
+    expect(screen.getByTestId("monitor-form-dialog")).toBeDefined();
   });
 });

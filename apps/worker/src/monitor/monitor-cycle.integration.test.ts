@@ -1689,6 +1689,7 @@ describe("monitor evaluation cycle", () => {
 
     const write = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,
@@ -1712,6 +1713,173 @@ describe("monitor evaluation cycle", () => {
     expect(await signalsOf(monitorId)).toHaveLength(1);
   });
 
+  /**
+   * The rebind fence, from the worker's side.
+   *
+   * A cycle reads a Monitor's binding at its start and can commit a transition seconds later. In
+   * between, the user may point the Monitor at a different Strategy or Stock List — which resolves
+   * its active Signals and discards its transition state. Everything below asserts that an
+   * evaluation carrying the replaced binding writes nothing at all, and that the ordinary path
+   * still works when the binding has not moved.
+   */
+  describe("rebind fence", () => {
+    async function rebind(monitorId: string): Promise<void> {
+      // What `MonitorsService.rebindMonitor` does to the binding, without the API in the way.
+      await prisma.monitor.update({
+        where: { id: monitorId },
+        data: { configVersion: { increment: 1 }, lastScanAt: null },
+      });
+    }
+
+    it("discards a transition decided under a replaced binding", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBA${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      const write = {
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      };
+
+      // The user rebinds after the cycle read the Monitor but before it commits.
+      await rebind(monitorId);
+      const result = await repository.applyTransition(write);
+
+      expect(result.applied).toBe(false);
+      expect(result.staleConfiguration).toBe(true);
+      // This is the case `stateVersion` alone cannot catch: there was no state row to contend on,
+      // so without the fence the create path would have inserted one and emitted a Signal.
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      expect(
+        await prisma.monitorSignalState.count({ where: { monitorId } }),
+      ).toBe(0);
+    });
+
+    it("applies the same transition when the binding has not moved", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBB${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      const result = await repository.applyTransition({
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      });
+
+      expect(result.applied).toBe(true);
+      expect(result.staleConfiguration).toBeUndefined();
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+    });
+
+    it("does not stamp lastScanAt for a Monitor rebound mid-cycle", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBC${suffix.slice(0, 4)}`);
+      const stale = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+      const current = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      await rebind(stale.monitorId);
+      const now = new Date();
+      await repository.markScanned(
+        [
+          { monitorId: stale.monitorId, configVersion: 0 },
+          { monitorId: current.monitorId, configVersion: 0 },
+        ],
+        now,
+      );
+
+      // The rebound Monitor keeps the null its rebind set: its new configuration has not been
+      // checked, and the cycle that just finished was not checking it.
+      expect(
+        (
+          await prisma.monitor.findUniqueOrThrow({
+            where: { id: stale.monitorId },
+          })
+        ).lastScanAt,
+      ).toBeNull();
+      // The untouched Monitor in the same batch is stamped normally.
+      expect(
+        (
+          await prisma.monitor.findUniqueOrThrow({
+            where: { id: current.monitorId },
+          })
+        ).lastScanAt,
+      ).not.toBeNull();
+    });
+
+    it("does not sweep unvisited Signals using a replaced binding's universe", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RBD${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+
+      // A match exists under the old configuration.
+      await repository.applyTransition({
+        monitorId,
+        configVersion: 0,
+        securityId: security.id,
+        levelId: "buy-1",
+        levelKind: "BUY" as const,
+        strategyVersionId: "version-1",
+        signalFingerprint: "fingerprint-a",
+        hasTrigger: false,
+        outcome: "MATCHED" as const,
+        observation: { date: "2026-03-02", price: 150 },
+        now: new Date(),
+        previous: null,
+      });
+      await rebind(monitorId);
+
+      // The old cycle finishes and reconciles with the universe it loaded. It must not act: the
+      // rebind owns closing those Signals, and it already did.
+      const resolved = await repository.resolveUnvisitedSignals({
+        monitorId,
+        configVersion: 0,
+        securityIds: [],
+        levelIds: [],
+        now: new Date(),
+      });
+      expect(resolved).toBe(0);
+    });
+  });
+
   it("resets state recorded under different level logic", async () => {
     const userId = await createUser();
     const security = await createSecurity(`VER${suffix.slice(0, 4)}`);
@@ -1723,6 +1891,7 @@ describe("monitor evaluation cycle", () => {
 
     const base = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,
@@ -1775,6 +1944,7 @@ describe("monitor evaluation cycle", () => {
 
     const base = {
       monitorId,
+      configVersion: 0,
       securityId: security.id,
       levelId: "buy-1",
       levelKind: "BUY" as const,

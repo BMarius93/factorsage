@@ -10,7 +10,7 @@ IntrinsicValue is a stock research, intrinsic valuation, strategy, backtesting, 
 4. Optionally restrict the BUY period independently for each symbol in a list.
 5. Define reusable BUY, SELL, and FINAL EXIT logic against compatible selectable series.
 6. Run an asynchronous historical backtest with capital, contributions, and maximum positions.
-7. Monitor a list with a strategy, using the same strategy-evaluation rules, and review the Signals it produces (API and worker shipped; the web surface is the open slice).
+7. Monitor a list with a strategy, using the same strategy-evaluation rules, and review the Signals it produces.
 8. Apply plan entitlements consistently.
 
 ## Domain model
@@ -23,7 +23,7 @@ map, not a second definition.
 | **List** (`StockList`) | A user-owned universe: catalog `Security` members, each with a BUY eligibility window (`FULL` or normalized `CUSTOM` ranges). | Investment logic. A List never says *when* or *why* to buy, only *what* may be bought and on which dates. | `lists.md` |
 | **Strategy** | User-owned investment logic: ordered BUY / SELL / optional FINAL EXIT levels, each carrying one Strategy signal (Conditions ANDed with at most one Trigger). Versioned append-only. | A List, capital, contributions, `maximumPositions`, a date range, or any execution assumption. One Strategy is reused against any List. | `strategies.md` |
 | **Backtest** (`BacktestRun`) | Strategy + List + Benchmark + date range + capital + contributions + `maximumPositions` + methodology versions, frozen into an immutable snapshot and executed asynchronously once. | A live view of its inputs. Editing or deleting the Strategy or List afterwards changes nothing about the run. | `backtests.md` |
-| **Monitor** | A live Strategy reference + a live List reference + `enabled`. Evaluates the Strategy against current market data over the List on a platform-owned cadence. | A pinned snapshot, a portfolio, a second Strategy language, or a user-scheduled job. The user can only name, enable, disable and delete it. | `monitors.md` |
+| **Monitor** | A live Strategy reference + a live List reference + `enabled`. Evaluates the Strategy against current market data over the List on a platform-owned cadence. | A pinned snapshot, a portfolio, a second Strategy language, or a user-scheduled job. The user may name it, enable or disable it, rebind it to a different Strategy or List, and delete it — and nothing else. | `monitors.md` |
 | **Signal** (`MonitorSignal`) | The durable, append-only record that one List member matched one Strategy level under one Monitor evaluation, with the observation it was decided on. Resolved when the match ends; never deleted. | The Monitor itself, and not a Strategy signal (the rule). A Signal is an *outcome* of monitoring. | `monitors.md` |
 
 Relationships:
@@ -49,6 +49,10 @@ Ownership boundaries and invariants:
   only the levels whose logic actually changed have their durable state reset. Editing a List
   changes the monitored universe from the next cycle on; a removed member's active Signals are
   resolved by that cycle.
+- Rebinding a Monitor to a *different* Strategy or List is not the same operation as editing the
+  contents of the ones it references: it crosses a configuration boundary, so the transition state is
+  discarded, active Signals are resolved and `lastScanAt` is cleared. Signal history is preserved,
+  and an in-flight cycle carrying the replaced binding cannot commit into the new one.
 - Disabling a Monitor stops future evaluations and leaves its persisted state and active Signals
   exactly as they were, so re-enabling resumes rather than re-emits.
 - Monitoring cadence, lease and retry are application configuration, never user input, and the

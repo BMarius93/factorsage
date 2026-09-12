@@ -98,3 +98,15 @@
     width: 100%;
   }
 }
+
+/* Shown only once the selection has actually moved, so it reads as a consequence rather than a
+   standing warning. */
+.rebindNote {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  color: var(--color-text-body);
+  background: var(--color-primary-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -80,9 +80,12 @@ loads/updates data and computes required series per symbol, evaluates per Monito
 transient per-cycle reuse, and persists correctness-critical transition state durably. Do not add a new
 Redis history/indicator cache or user-configurable scan cadence as part of Monitor V1. Monitor V1
 shipped as API (`apps/api/src/monitors`), worker (`apps/worker/src/monitor`) and web
-(`apps/web/src/features/monitors`). The web slice manages monitors — create, rename, enable,
-disable, delete — and reports each one's active-Signal count; presenting the Signals themselves is
-the open slice.
+(`apps/web/src/features/monitors`). The web slice manages monitors and presents one: the collection
+is a summary, and `/monitors/[monitorId]` carries the configuration, the current status of every
+monitored security, and the newest Signals. A Monitor may also be **rebound** to a different
+Strategy or Stock List — a configuration boundary, fenced against an in-flight cycle by
+`Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
+semantics.
 
 For frontend/UI work, also read
 `architecture/frontend.md`.
@@ -148,6 +151,8 @@ Backtest run
 Monitor (user-owned)
   |
   +-- live Strategy reference (no pinned version) + live StockList reference + enabled
+  |   (both references may be rebound; doing so discards transition state, resolves active
+  |    Signals, clears lastScanAt and keeps Signal history)
   +-- cadence, lease and retry are application configuration, never user input
   +-- deleting a referenced Strategy or StockList is refused while the Monitor exists
   +-- evaluates every BUY / SELL / FINAL EXIT level against current data (closed history

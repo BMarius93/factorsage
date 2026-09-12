@@ -162,6 +162,29 @@ pinned. Durable state is keyed on the **canonical fingerprint of its own level's
 `strategyDefinitionFingerprint` so the two cannot disagree), never on the Strategy version. Keying on
 the version would reset every level on any edit and re-emit a Signal on each unchanged one.
 
+## Rebinding: the configuration fence
+
+A Monitor's `(strategyId, stockListId)` pair can be changed by its owner. `ai/product/monitors.md`
+owns what that means to the product; the mechanism is one column and one lock.
+
+`Monitor.configVersion` is incremented **only** when one of those two ids actually changes value —
+never by a rename or an enable/disable, neither of which invalidates anything a cycle evaluated. A
+cycle reads it with the rest of the Monitor and carries it into every durable write: the transition
+apply, the unvisited-Signal sweep, and the `lastScanAt` stamp. Each of those asserts the column still
+holds the value the cycle loaded, under `SELECT … FOR SHARE` on the Monitor row; the rebind takes
+`FOR UPDATE` on the same row first, before it touches state, so the two orders agree and cannot
+deadlock. A cycle that lost the race writes nothing and reports it, and the cycle summary counts it
+as `transitionsStaleConfiguration` rather than a contention or a failure.
+
+Why the existing `stateVersion` guard is not enough: it protects a state row the cycle read, which is
+exactly right for two overlapping cycles. A rebind *deletes* those rows, so the next evaluation of
+the replaced configuration finds no previous state and takes the create path — inserting state and
+emitting a Signal with nothing to contend against. The fence has to be on the thing that changed,
+which is the Monitor.
+
+A monotonic counter rather than comparing the two ids: rebinding away and back would otherwise
+present the same pair to an in-flight cycle whose state had already been discarded.
+
 ## Condition state versus trigger events
 
 For a condition-only Strategy signal:

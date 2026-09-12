@@ -71,7 +71,11 @@ export class MonitorsController {
     return this.execute(() => this.monitors.getMonitor(user.id, monitorId));
   }
 
-  /** Name and `enabled` are the only user controls. */
+  /**
+   * The user controls: the name, whether it is enabled, and which Strategy and Stock List it
+   * watches. Changing either reference rebinds the Monitor, which the service handles as a
+   * configuration boundary. There is still no cadence to set.
+   */
   @Patch(":monitorId")
   async update(
     @CurrentUser() user: AuthUser,

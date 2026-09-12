@@ -861,8 +861,14 @@ enum MonitorLevelKind {
 /// only the levels whose semantics actually changed. A `MonitorSignal` records the version it was
 /// decided under, as history.
 ///
-/// `enabled` is the only user control. Monitoring cadence is an application decision and is
-/// deliberately not a column — `ai/product/monitors.md` forbids exposing it.
+/// The user controls `name`, `enabled`, and which `strategyId` and `stockListId` are referenced.
+/// Monitoring cadence is an application decision and is deliberately not a column —
+/// `ai/product/monitors.md` forbids exposing it.
+///
+/// Changing `strategyId` or `stockListId` is a **rebind**, not an edit of what they contain: it
+/// crosses a configuration boundary, so `MonitorSignalState` is discarded, active Signals are
+/// resolved, `lastScanAt` is cleared and `configVersion` is incremented. Editing the referenced
+/// Strategy's rules or the List's membership is the live path and touches none of that.
 ///
 /// `strategyId` and `stockListId` are `onDelete: Restrict`. A Monitor is not a derived view of its
 /// Strategy and List: it owns Signal history, which is a record of what was observed and must not
@@ -879,7 +885,21 @@ model Monitor {
   enabled     Boolean   @default(true)
   /// Last cycle instant this Monitor was actually evaluated in, for observability and the UI's
   /// "last checked" line. It is never an input to trigger semantics.
+  ///
+  /// Cleared when the Monitor is rebound to a different Strategy or Stock List: the configuration
+  /// it now names has not been checked, and reporting the previous one's scan time would claim
+  /// otherwise.
   lastScanAt  DateTime?
+  /// Which `(strategyId, stockListId)` binding this Monitor is on. Incremented **only** when one of
+  /// them is rebound — never by a rename or an enable/disable, which change nothing a running cycle
+  /// evaluated.
+  ///
+  /// It is the fence between a cycle and a rebind. A cycle reads the binding it loaded and every
+  /// durable write it makes is conditioned on this still being that value, so an evaluation of the
+  /// replaced configuration cannot land in the new one after the fact. A monotonic counter rather
+  /// than a comparison of the two ids, because rebinding away and back would otherwise present the
+  /// same pair to an in-flight cycle whose state had already been discarded.
+  configVersion Int     @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

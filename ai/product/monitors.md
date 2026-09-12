@@ -137,10 +137,27 @@ applied, not a Monitor-specific exception.
   changed have their state reset and their active Signal closed; unchanged levels continue.
 - **Edit the List.** Takes effect from the next cycle. A removed member's active Signals are
   resolved by that cycle; an added member is evaluated as new and may emit immediately.
+- **Rebind the Strategy or List.** Pointing the Monitor at a *different* Strategy or Stock List is
+  not the same operation as editing the contents of the ones it references. It crosses a
+  configuration boundary: the transition state is discarded, every Signal still active is resolved,
+  `lastScanAt` is cleared, and the new configuration is evaluated from the next cycle. Signal
+  history is kept. See "Rebinding a Monitor" below.
 - **Delete the Monitor.** Removes its transition state and its Signals with it. The Strategy and
   List it referenced are untouched.
 - **Delete the Strategy or List.** Refused while any Monitor references it. Delete the Monitor
   first.
+
+## Two different operations: editing contents, and rebinding
+
+These are deliberately separate, and conflating them is the mistake this section exists to prevent.
+
+| | What changes | What happens to state |
+| --- | --- | --- |
+| **Editing the referenced Strategy or List** | its rules, or its membership | live from the next cycle; only levels whose own logic changed are reset, and removed members' Signals are resolved |
+| **Rebinding the Monitor** | *which* Strategy or List it references | a configuration boundary: all transition state discarded, all active Signals resolved, `lastScanAt` cleared |
+
+The first needs no request against the Monitor at all. The second is `PATCH /monitors/:id` with a
+different `strategyId` or `stockListId`.
 
 ## Strategy mutability
 
@@ -157,6 +174,49 @@ through their net effect on each level's id and logic. Editing one level appends
 other, unchanged level — doing so would re-emit a Signal on each of them for a match that never
 stopped. A level whose logic genuinely changed no longer describes what its state latched, so that
 state is reset and any Signal still active under the old logic is closed.
+
+## Rebinding a Monitor
+
+A user may point an existing Monitor at a different Strategy or a different Stock List. They do not
+have to delete it and start again, and the Signal history it accumulated is not the price of
+changing their mind.
+
+What makes this more than a column update is that the Monitor's durable state is *about* the
+configuration it was evaluating. A `MonitorSignalState` row latches the result of one level of one
+Strategy for one member of one List. Once either reference moves, that row describes something the
+Monitor no longer evaluates. So a rebind:
+
+- **resolves every Signal still active.** They stop being current, which they are not. A Signal that
+  was active under the replaced configuration is closed with the rebind's timestamp.
+- **keeps every Signal row.** A Signal is a record of what was observed, and observations are not
+  invalidated by a later configuration change. Nothing is deleted.
+- **discards the transition state.** No latch from the replaced configuration can decide an edge in
+  the new one, and no fingerprint coincidence between two Strategies can silently carry one across.
+- **clears `lastScanAt`.** The configuration the Monitor now names has not been checked. Reporting
+  the previous one's scan time would be a claim about work that never happened.
+- **evaluates the new configuration from the next cycle.** A match under the new rules is emitted
+  then, as a new Signal, because that is when it was first observed.
+
+Rebinding away and back is two boundaries, not a round trip: the state discarded by the first is not
+restored by the second, and the next cycle re-establishes it from persisted history.
+
+### A scan already running cannot land in the new configuration
+
+A cycle loads a Monitor's binding when it starts and may commit a transition seconds later, so a
+rebind can land in between. Nothing about the ordering is left to timing: the Monitor carries a
+`configVersion` that only a rebind increments, the cycle carries the value it loaded, and every
+durable write the cycle makes for that Monitor is conditioned on the column still holding it.
+
+The write takes the Monitor row's lock before touching state, and a rebind takes it first as well,
+so the two serialize rather than interleave — across worker processes, since the fence is a row in
+PostgreSQL and not process state. A cycle that loses the race writes nothing: no state row, no
+Signal, and no `lastScanAt`. Its evaluation described a configuration the Monitor no longer has, so
+discarding it is the correct outcome and is recorded as such rather than as a failure.
+
+The per-state optimistic `stateVersion` guard is **not** sufficient on its own and is not what does
+this. It protects a row the cycle actually read, which covers two overlapping cycles; a rebind
+deletes those rows, so the next evaluation of the replaced configuration would find no previous
+state, take the create path, and have nothing to contend against.
 
 ## Deleting a Strategy or Stock List a Monitor uses
 
@@ -257,11 +317,16 @@ a wrong Signal.
 - **Signal history is read newest-first and bounded.** The Monitor detail returns the most recent
   100 Signals and nothing pages further back; older rows are durable but not yet addressable
   through the API. Pagination is a contract addition for the web slice, not a redesign.
-- **The web surface manages monitors but does not present Signals.** `/monitors` creates, renames,
-  enables, disables and deletes monitors, and each row reports how many Signals are currently
-  active. What those Signals *are* has no surface yet: `GET /monitors/:id` already returns the
-  newest 100, and presenting them — with the paging the previous point describes — is its own
-  slice.
+- **Signal history on the web is the newest 100 and is labelled as such.** The Monitor page lists
+  what `GET /monitors/:id` returns and says so when it is at the cap, rather than implying a
+  lifetime history. Paging further back is the contract addition the previous point describes.
+- **"Not evaluable" and "not checked" are inferred where the state table cannot distinguish them.**
+  A cycle that cannot decide a level it has never decided before deliberately persists no row, so
+  the two look identical in `MonitorSignalState`. The detail response separates them using the two
+  facts that do differ — whether the Monitor has ever completed a cycle, and whether the security
+  joined the List after the last one. A security whose every evaluation has been `NOT_EVALUABLE`
+  since before the last cycle is therefore reported as not evaluable, which is what it is; the
+  inference cannot report either of them as a decided non-match.
 - **The monitored universe is not capped.** A Stock List has a per-request add limit but no total
   size, so one very large monitored List sets the cycle's provider, hydration and memory cost.
   Backtests cap a run at `BACKTEST_MAX_SECURITIES`; Monitors have no equivalent yet, and adding

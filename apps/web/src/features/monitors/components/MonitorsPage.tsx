@@ -10,20 +10,19 @@ import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitors } from "../hooks/use-monitors";
 import { activeSignalLabel, lastScanLabel } from "../utils/format";
-import { CreateMonitorDialog } from "./CreateMonitorDialog";
-import { MonitorRenameDialog } from "./MonitorRenameDialog";
+import { MonitorFormDialog } from "./MonitorFormDialog";
 import styles from "./MonitorsPage.module.css";
 
 type DialogState =
   | { kind: "closed" }
   | { kind: "create" }
-  | { kind: "rename"; monitor: MonitorSummaryResponse }
+  | { kind: "edit"; monitor: MonitorSummaryResponse }
   | { kind: "delete"; monitor: MonitorSummaryResponse };
 
 type MonitorCardProps = {
   readonly monitor: MonitorSummaryResponse;
   readonly onToggled: (summary: MonitorSummaryResponse) => void;
-  readonly onRename: () => void;
+  readonly onEdit: () => void;
   readonly onDelete: () => void;
 };
 
@@ -36,7 +35,7 @@ type MonitorCardProps = {
 function MonitorCard({
   monitor,
   onToggled,
-  onRename,
+  onEdit,
   onDelete,
 }: MonitorCardProps) {
   const [pending, setPending] = useState(false);
@@ -71,7 +70,9 @@ function MonitorCard({
     <li className={styles.card} data-testid="monitor-card">
       <div className={styles.cardBody}>
         <div className={styles.cardHead}>
-          <span className={styles.cardName}>{monitor.name}</span>
+          <Link className={styles.cardName} href={`/monitors/${monitor.id}`}>
+            {monitor.name}
+          </Link>
           <span
             className={styles.statusPill}
             data-tone={monitor.enabled ? "positive" : "pending"}
@@ -136,8 +137,8 @@ function MonitorCard({
         >
           {toggleLabel}
         </button>
-        <button type="button" className={styles.cardAction} onClick={onRename}>
-          Rename
+        <button type="button" className={styles.cardAction} onClick={onEdit}>
+          Edit
         </button>
         <button
           type="button"
@@ -249,7 +250,7 @@ export function MonitorsPage() {
                 key={monitor.id}
                 monitor={monitor}
                 onToggled={applyUpdated}
-                onRename={() => setDialog({ kind: "rename", monitor })}
+                onEdit={() => setDialog({ kind: "edit", monitor })}
                 onDelete={() => setDialog({ kind: "delete", monitor })}
               />
             ))}
@@ -258,20 +259,22 @@ export function MonitorsPage() {
       </div>
 
       {dialog.kind === "create" ? (
-        <CreateMonitorDialog
+        <MonitorFormDialog
+          mode="create"
           onClose={closeDialog}
-          onCreated={(detail) => {
+          onSaved={(detail) => {
             applyCreated(detail);
             closeDialog();
           }}
         />
       ) : null}
 
-      {dialog.kind === "rename" ? (
-        <MonitorRenameDialog
+      {dialog.kind === "edit" ? (
+        <MonitorFormDialog
+          mode="edit"
           monitor={dialog.monitor}
           onClose={closeDialog}
-          onUpdated={(summary) => {
+          onSaved={(summary) => {
             applyUpdated(summary);
             closeDialog();
           }}

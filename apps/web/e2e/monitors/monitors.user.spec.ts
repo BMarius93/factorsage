@@ -13,8 +13,15 @@ import { expect, test, type Page } from "@playwright/test";
  * each scan, and nothing here depends on a security existing.
  */
 
-const STRATEGY_NAME = "E2E monitor strategy";
-const LIST_NAME = "E2E monitor list";
+const STRATEGY_NAME = "E2E monitor strategy A";
+const STRATEGY_NAME_B = "E2E monitor strategy B";
+const LIST_NAME = "E2E monitor list A";
+const LIST_NAME_B = "E2E monitor list B";
+/** Disjoint from the other two names: cards are located by contained text. */
+const LIST_NAME_SEEDED = "E2E monitor seeded universe";
+
+/** The deterministic QA security. Present only after `pnpm test:securities:seed`. */
+const QA_SYMBOL = "QATEST1";
 /**
  * A monitor card names the monitor, its strategy and its list, and cards are located by contained
  * text — so these four names are kept pairwise non-overlapping. A monitor called "E2E monitor"
@@ -63,15 +70,41 @@ async function createStrategy(page: Page, name: string) {
   });
 }
 
-/** An empty list is enough: this suite exercises monitor configuration, not evaluation. */
-async function createList(page: Page, name: string) {
+/**
+ * Creates a list, optionally holding the deterministic QA security.
+ *
+ * An empty list is enough for the configuration journey — it exercises what a Monitor references,
+ * not what evaluation decides. A member is only needed by the evaluation-table case, which skips
+ * itself when the QA catalog rows are absent rather than failing on an unseeded machine.
+ */
+async function createList(
+  page: Page,
+  name: string,
+  options: { withQaSecurity?: boolean } = {},
+): Promise<boolean> {
   await page.goto("/lists");
   await page.getByTestId("new-list-button").first().click();
   await page.getByLabel("Name").fill(name);
+  let seeded = true;
+  if (options.withQaSecurity) {
+    await page
+      .getByRole("combobox", { name: "Search stocks to add to the new list" })
+      .fill(QA_SYMBOL);
+    const option = page.getByRole("option").filter({ hasText: QA_SYMBOL });
+    seeded = await option
+      .first()
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (seeded) {
+      await option.first().click();
+    }
+  }
   await page.getByRole("button", { name: "Create list" }).click();
   await expect(page.getByTestId("list-detail")).toBeVisible({
     timeout: 20_000,
   });
+  return seeded;
 }
 
 /**
@@ -153,22 +186,31 @@ async function deleteListIfPresent(page: Page, name: string) {
 const SUITE_TIMEOUT_MS = 180_000;
 
 test.describe("QA_USER monitors", () => {
+  async function cleanUp(page: Page) {
+    // Monitors first: a Strategy or List a Monitor still references cannot be deleted.
+    await deleteMonitorsIfPresent(page, [MONITOR_NAME, RENAMED_MONITOR]);
+    for (const name of [STRATEGY_NAME, STRATEGY_NAME_B]) {
+      await deleteStrategyIfPresent(page, name);
+    }
+    for (const name of [LIST_NAME, LIST_NAME_B, LIST_NAME_SEEDED]) {
+      await deleteListIfPresent(page, name);
+    }
+  }
+
   test.beforeEach(async ({ page }) => {
     test.setTimeout(SUITE_TIMEOUT_MS);
-    await deleteMonitorsIfPresent(page, [MONITOR_NAME, RENAMED_MONITOR]);
-    await deleteStrategyIfPresent(page, STRATEGY_NAME);
-    await deleteListIfPresent(page, LIST_NAME);
+    await cleanUp(page);
     await createStrategy(page, STRATEGY_NAME);
+    await createStrategy(page, STRATEGY_NAME_B);
     await createList(page, LIST_NAME);
+    await createList(page, LIST_NAME_B);
   });
 
   test.afterEach(async ({ page }) => {
-    await deleteMonitorsIfPresent(page, [MONITOR_NAME, RENAMED_MONITOR]);
-    await deleteStrategyIfPresent(page, STRATEGY_NAME);
-    await deleteListIfPresent(page, LIST_NAME);
+    await cleanUp(page);
   });
 
-  test("creates a monitor, disables and re-enables it across reloads, renames it, and deletes it", async ({
+  test("creates a monitor, opens it, rebinds it, renames it, toggles it, and deletes it", async ({
     page,
   }) => {
     // 1. Create the monitor from the collection's call to action.
@@ -179,10 +221,10 @@ test.describe("QA_USER monitors", () => {
     });
 
     await page.getByTestId("new-monitor-button").first().click();
-    const dialog = page.getByTestId("create-monitor-dialog");
+    const dialog = page.getByTestId("monitor-form-dialog");
     await expect(dialog).toBeVisible();
     // The pickers appear only once the caller's own strategies and lists have arrived.
-    await expect(page.getByTestId("create-monitor-form")).toBeVisible({
+    await expect(page.getByTestId("monitor-form")).toBeVisible({
       timeout: 20_000,
     });
 
@@ -220,13 +262,112 @@ test.describe("QA_USER monitors", () => {
       timeout: 20_000,
     });
 
-    // 5. The strategy it watches cannot be deleted while it exists — and the refusal says so
-    //    instead of looking like a transient failure.
+    // 5. The name opens the monitor's own page, which reports the same configuration.
+    await card.getByRole("link", { name: MONITOR_NAME }).click();
+    await expect(page).toHaveURL(/\/monitors\/[0-9a-f-]{36}$/);
+    const detail = page.getByTestId("monitor-detail");
+    await expect(detail).toBeVisible({ timeout: 20_000 });
+    const detailUrl = page.url();
+    await expect(detail).toContainText(STRATEGY_NAME);
+    await expect(detail).toContainText(LIST_NAME);
+    // Never scanned by this point, and the page says so rather than borrowing a creation time.
+    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
+      "Not checked yet",
+    );
+
+    // 6. Rebind it to the other strategy and the other list in one edit.
+    await page.getByTestId("edit-monitor").click();
+    await expect(page.getByTestId("monitor-form")).toBeVisible({
+      timeout: 20_000,
+    });
+    // The form arrives carrying what the monitor currently watches.
+    await expect(page.getByTestId("monitor-strategy")).toHaveValue(/.+/);
+    await page
+      .getByTestId("monitor-strategy")
+      .selectOption({ label: STRATEGY_NAME_B });
+    await page.getByTestId("monitor-list").selectOption({ label: LIST_NAME_B });
+    // The consequence is explained only once the selection has actually moved.
+    await expect(page.getByTestId("monitor-rebind-note")).toBeVisible();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByTestId("monitor-form")).toBeHidden();
+
+    // 7. A reload proves the rebind is durable, not local state.
+    await page.reload();
+    await expect(page.getByTestId("monitor-detail")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId("monitor-detail")).toContainText(
+      STRATEGY_NAME_B,
+    );
+    await expect(page.getByTestId("monitor-detail")).toContainText(LIST_NAME_B);
+    await expect(page.getByTestId("monitor-detail")).not.toContainText(
+      STRATEGY_NAME,
+    );
+    // The new configuration has not been checked, and still says so after the rebind.
+    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
+      "Not checked yet",
+    );
+
+    // 8. Rename from the same form, and prove that too survives a reload.
+    await page.getByTestId("edit-monitor").click();
+    await expect(page.getByTestId("monitor-form")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page
+      .getByTestId("monitor-form-dialog")
+      .getByLabel("Name", { exact: true })
+      .fill(RENAMED_MONITOR);
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByTestId("monitor-form")).toBeHidden();
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: RENAMED_MONITOR }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    // 9. Disable and re-enable from the detail page; both survive a reload.
+    await page.getByTestId("toggle-monitor").click();
+    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
+      "Disabled",
+    );
+    await page.reload();
+    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
+      "Disabled",
+      { timeout: 20_000 },
+    );
+    await page.getByTestId("toggle-monitor").click();
+    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText("Enabled");
+    await page.reload();
+    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
+      "Enabled",
+      { timeout: 20_000 },
+    );
+
+    // 10. The detail page is usable on a phone.
+    await expectNoHorizontalScroll(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByTestId("monitor-detail")).toBeVisible();
+    await expectNoHorizontalScroll(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+
+    // 11. The collection reflects every edit.
+    await navLink(page, "Monitors").click();
+    await expect(page.getByTestId("monitors-grid")).toBeVisible({
+      timeout: 20_000,
+    });
+    const reboundCard = monitorCard(page, RENAMED_MONITOR);
+    await expect(reboundCard).toHaveCount(1);
+    await expect(reboundCard).toContainText(STRATEGY_NAME_B);
+    await expect(reboundCard).toContainText(LIST_NAME_B);
+    await expect(reboundCard).toContainText("Not checked yet");
+    await expect(monitorCard(page, MONITOR_NAME)).toHaveCount(0);
+
+    // 12. The strategy it now watches cannot be deleted while it exists — and the refusal says so
+    //     instead of looking like a transient failure.
     await navLink(page, "Strategies").click();
     const strategyCard = page
       .getByTestId("strategies-grid")
       .locator("li")
-      .filter({ hasText: STRATEGY_NAME });
+      .filter({ hasText: STRATEGY_NAME_B });
     await expect(strategyCard).toHaveCount(1);
     await strategyCard.getByRole("button", { name: "Delete" }).click();
     await page.getByRole("button", { name: "Delete strategy" }).click();
@@ -236,34 +377,81 @@ test.describe("QA_USER monitors", () => {
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(strategyCard).toHaveCount(1);
 
-    // 6. Rename the monitor; its strategy and list are unchanged.
-    await navLink(page, "Monitors").click();
-    await expect(page.getByTestId("monitors-grid")).toBeVisible({
+    // 13. Delete it from its own page, after confirmation. That returns to the collection, which
+    //     no longer lists it — and the strategy it held is deletable again in teardown.
+    await page.goto(detailUrl);
+    await expect(page.getByTestId("monitor-detail")).toBeVisible({
       timeout: 20_000,
     });
-    await monitorCard(page, MONITOR_NAME)
-      .getByRole("button", { name: "Rename" })
-      .click();
-    const renameDialog = page.getByTestId("monitor-rename-dialog");
-    await renameDialog.getByLabel("Name", { exact: true }).fill(RENAMED_MONITOR);
-    await page.getByRole("button", { name: "Save changes" }).click();
-    const renamed = monitorCard(page, RENAMED_MONITOR);
-    await expect(renamed).toHaveCount(1);
-    await expect(renamed).toContainText(STRATEGY_NAME);
-    await expect(renamed).toContainText(LIST_NAME);
-    await expect(monitorCard(page, MONITOR_NAME)).toHaveCount(0);
+    await page.getByTestId("delete-monitor").click();
+    await page.getByRole("button", { name: "Delete monitor" }).click();
+    await expect(page).toHaveURL(/\/monitors$/);
+    await expect(monitorCard(page, RENAMED_MONITOR)).toHaveCount(0);
+  });
 
-    // 7. The collection is usable on a phone.
+  test("reports every monitored stock as unchecked before the first scan", async ({
+    page,
+  }) => {
+    // The evaluation table is a projection of durable worker state, so what a suite without a
+    // worker can prove deterministically is the honest pre-scan state: a real member of the list,
+    // reported as not checked rather than as a decided non-match. The other three statuses are
+    // pinned against real persisted rows in `monitors.integration.test.ts`, and against the
+    // contract payloads in `MonitorDetail.test.tsx`.
+    const seeded = await createList(page, LIST_NAME_SEEDED, {
+      withQaSecurity: true,
+    });
+    test.skip(
+      !seeded,
+      `${QA_SYMBOL} is not in the catalog. Run \`pnpm test:securities:seed\` against the stack ` +
+        "this suite drives.",
+    );
+
+    await page.goto("/monitors");
+    await expect(page.getByTestId("monitors-page")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByTestId("new-monitor-button").first().click();
+    const dialog = page.getByTestId("monitor-form-dialog");
+    await expect(page.getByTestId("monitor-form")).toBeVisible({
+      timeout: 20_000,
+    });
+    await dialog.getByLabel("Name", { exact: true }).fill(MONITOR_NAME);
+    await page
+      .getByTestId("monitor-strategy")
+      .selectOption({ label: STRATEGY_NAME });
+    await page
+      .getByTestId("monitor-list")
+      .selectOption({ label: LIST_NAME_SEEDED });
+    await page.getByTestId("submit-monitor").click();
+    await expect(dialog).toBeHidden();
+
+    await monitorCard(page, MONITOR_NAME)
+      .getByRole("link", { name: MONITOR_NAME })
+      .click();
+    await expect(page.getByTestId("monitor-detail")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const row = page.getByTestId("monitor-security-row").filter({
+      hasText: QA_SYMBOL,
+    });
+    await expect(row).toHaveCount(1);
+    // Never evaluated is never "No match".
+    await expect(row.getByTestId("monitor-security-status")).toHaveText(
+      "Not checked yet",
+    );
+    await expect(page.getByTestId("monitor-signals-empty")).toBeVisible();
+    await expect(page.getByTestId("monitor-last-checked")).toHaveText(
+      "Not checked yet",
+    );
+
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(renamed).toBeVisible();
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // 8. Delete it after confirmation; the collection is empty again.
-    await renamed.getByRole("button", { name: "Delete" }).click();
-    await page.getByRole("button", { name: "Delete monitor" }).click();
-    await expect(monitorCard(page, RENAMED_MONITOR)).toHaveCount(0);
+    await deleteMonitorsIfPresent(page, [MONITOR_NAME]);
+    await deleteListIfPresent(page, LIST_NAME_SEEDED);
   });
 
   test("explains what is missing instead of offering an empty picker", async ({
@@ -276,7 +464,7 @@ test.describe("QA_USER monitors", () => {
       timeout: 20_000,
     });
     await page.getByTestId("new-monitor-button").first().click();
-    await expect(page.getByTestId("create-monitor-form")).toBeVisible({
+    await expect(page.getByTestId("monitor-form")).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByTestId("monitor-prerequisites")).toHaveCount(0);
@@ -286,6 +474,6 @@ test.describe("QA_USER monitors", () => {
     await expect(page.getByText("A monitor needs a name.")).toBeVisible();
     await expect(page.getByText("Choose a strategy.")).toBeVisible();
     await expect(page.getByText("Choose a stock list.")).toBeVisible();
-    await expect(page.getByTestId("create-monitor-dialog")).toBeVisible();
+    await expect(page.getByTestId("monitor-form-dialog")).toBeVisible();
   });
 });

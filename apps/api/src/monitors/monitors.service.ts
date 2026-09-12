@@ -1,5 +1,8 @@
 import type {
   MonitorDetailResponse,
+  MonitorMatchedLevelResponse,
+  MonitorSecurityEvaluationResponse,
+  MonitorSecurityStatus,
   MonitorSignalResponse,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
@@ -65,6 +68,43 @@ function summaryOf(row: MonitorRow): MonitorSummaryResponse {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * What one security's persisted state truthfully says, and nothing more.
+ *
+ * The order of the tests is the product rule. An active Signal is the only thing that means
+ * "currently matching". A level that recorded a decided outcome is what makes `NO_MATCH` a
+ * statement about an evaluation rather than about absence. Only when every level this security has
+ * is `NOT_EVALUABLE` is the security itself not evaluable.
+ *
+ * **No recorded state at all is the interesting case.** A cycle that cannot decide a level it has
+ * never decided before deliberately writes no row — `monitor-repository.ts` calls absence the
+ * honest "unknown" — so "never visited" and "visited, never decidable" look identical in the state
+ * table. They are separated here by the two facts that do distinguish them: a Monitor that has
+ * never completed a cycle has checked nothing, and a security added to the List after the last
+ * completed cycle has not been reached by one yet. Anything else was visited, and produced no
+ * decision.
+ */
+function securityStatusOf(input: {
+  rows: readonly { lastOutcome: string }[];
+  matched: boolean;
+  lastScanAt: Date | null;
+  memberSince: Date;
+}): MonitorSecurityStatus {
+  if (input.matched) {
+    return "MATCHED";
+  }
+  if (input.rows.some((row) => row.lastOutcome !== "NOT_EVALUABLE")) {
+    return "NO_MATCH";
+  }
+  if (input.rows.length > 0) {
+    return "NOT_EVALUABLE";
+  }
+  if (input.lastScanAt === null || input.memberSince > input.lastScanAt) {
+    return "NOT_CHECKED";
+  }
+  return "NOT_EVALUABLE";
 }
 
 @Injectable()
@@ -134,7 +174,13 @@ export class MonitorsService {
       stockListId: input.stockListId,
       enabled: input.enabled,
     });
-    return { ...summaryOf(row), signals: [] };
+    // A new Monitor has produced nothing yet, but its universe is already known: every member
+    // reports `NOT_CHECKED` until a cycle reaches it.
+    return {
+      ...summaryOf(row),
+      securities: await this.listSecurityEvaluations(row),
+      signals: [],
+    };
   }
 
   async getMonitor(
@@ -148,22 +194,150 @@ export class MonitorsService {
     if (!row) {
       throw new MonitorNotFoundError();
     }
-    return { ...summaryOf(row), signals: await this.listSignals(monitorId) };
+    // Two independent reads, issued together: the monitored universe with its current status, and
+    // the newest Signals. Neither is per security or per Signal.
+    const [securities, signals] = await Promise.all([
+      this.listSecurityEvaluations(row),
+      this.listSignals(monitorId),
+    ]);
+    return { ...summaryOf(row), securities, signals };
   }
 
   /**
-   * Updates the Monitor's name or whether it is enabled. Those are the only two things a user
-   * controls; there is deliberately no cadence to update.
+   * The Monitor's current universe, each security carrying what durable state says about it.
    *
-   * Disabling stops future evaluations and nothing else. The persisted transition state is
-   * **kept**, so re-enabling resumes with the trigger semantics intact rather than treating every
-   * already-matched condition as newly matched — which `ai/product/monitors.md` requires.
+   * A **projection**, never a re-evaluation: `MonitorSignalState` is what the worker decided, and
+   * the API neither re-runs the evaluator nor infers an outcome the worker did not record.
+   *
+   * Two queries for the whole table — the list's members, and this Monitor's states with whatever
+   * Signal each one currently points at.
+   */
+  private async listSecurityEvaluations(monitor: {
+    id: string;
+    stockListId: string;
+    lastScanAt: Date | null;
+  }): Promise<MonitorSecurityEvaluationResponse[]> {
+    const [items, states] = await Promise.all([
+      this.prisma.stockListItem.findMany({
+        where: { stockListId: monitor.stockListId },
+        select: {
+          createdAt: true,
+          security: {
+            select: {
+              id: true,
+              symbol: true,
+              name: true,
+              exchangeCode: true,
+              exchangeName: true,
+            },
+          },
+        },
+        orderBy: { security: { symbol: "asc" } },
+      }),
+      this.prisma.monitorSignalState.findMany({
+        where: { monitorId: monitor.id },
+        select: {
+          securityId: true,
+          levelId: true,
+          levelKind: true,
+          lastOutcome: true,
+          lastOutcomeAt: true,
+          activeSignal: {
+            select: {
+              id: true,
+              hasTrigger: true,
+              observationPrice: true,
+              detectedAt: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const bySecurity = new Map<string, typeof states>();
+    for (const state of states) {
+      const bucket = bySecurity.get(state.securityId);
+      if (bucket) {
+        bucket.push(state);
+      } else {
+        bySecurity.set(state.securityId, [state]);
+      }
+    }
+
+    return items.map((item) => {
+      const rows = bySecurity.get(item.security.id) ?? [];
+      const matchedLevels: MonitorMatchedLevelResponse[] = rows
+        .filter((row) => row.activeSignal !== null)
+        .map((row) => {
+          const signal = row.activeSignal as NonNullable<
+            typeof row.activeSignal
+          >;
+          return {
+            levelId: row.levelId,
+            levelKind: row.levelKind,
+            kind: signal.hasTrigger ? ("TRIGGER" as const) : ("CONDITION" as const),
+            signalId: signal.id,
+            observationPrice: Number(signal.observationPrice),
+            detectedAt: signal.detectedAt.toISOString(),
+          };
+        });
+      const statusSince = rows.reduce<Date | null>(
+        (newest, row) =>
+          newest === null || row.lastOutcomeAt > newest
+            ? row.lastOutcomeAt
+            : newest,
+        null,
+      );
+      return {
+        security: {
+          id: item.security.id,
+          symbol: item.security.symbol,
+          name: item.security.name,
+          exchangeCode: item.security.exchangeCode,
+          ...(item.security.exchangeName === null
+            ? {}
+            : { exchangeName: item.security.exchangeName }),
+        },
+        status: securityStatusOf({
+          rows,
+          matched: matchedLevels.length > 0,
+          lastScanAt: monitor.lastScanAt,
+          memberSince: item.createdAt,
+        }),
+        matchedLevels,
+        ...(statusSince === null
+          ? {}
+          : { statusSince: statusSince.toISOString() }),
+      };
+    });
+  }
+
+  /**
+   * Updates a Monitor: its name, whether it is enabled, and which Strategy and Stock List it
+   * watches. There is still deliberately no cadence to update.
+   *
+   * Two different operations share this route, and they are kept apart on purpose:
+   *
+   * - **Identity only** — name and `enabled`. Neither invalidates anything: disabling stops future
+   *   evaluations and nothing else, and the persisted transition state is **kept** so re-enabling
+   *   resumes with trigger semantics intact rather than treating every already-matched condition as
+   *   newly matched. One atomic statement, no lock, no reset.
+   * - **A rebind** — a different `strategyId` or `stockListId`. That crosses a configuration
+   *   boundary and is handled by `rebindMonitor`.
+   *
+   * Which one this is is decided by comparing **values**, never by which keys the client sent: an
+   * edit form naturally submits the Strategy and List it was prepopulated with, and resubmitting the
+   * same ones must not reset a thing.
    */
   async updateMonitor(
     userId: string,
     monitorId: string,
     patch: ParsedUpdateMonitorRequest,
   ): Promise<MonitorSummaryResponse> {
+    if (patch.strategyId !== undefined || patch.stockListId !== undefined) {
+      return this.rebindMonitor(userId, monitorId, patch);
+    }
+
     // `updateMany` applies the ownership filter and the write in one atomic statement.
     const updated = await this.prisma.monitor.updateMany({
       where: { id: monitorId, userId },
@@ -176,6 +350,152 @@ export class MonitorsService {
       throw new MonitorNotFoundError();
     }
 
+    const row = await this.readOwnMonitor(userId, monitorId);
+    this.logger.info({
+      event: "monitor.updated",
+      actorUserId: userId,
+      monitorId,
+      enabled: row.enabled,
+    });
+    return summaryOf(row);
+  }
+
+  /**
+   * Points a Monitor at a different Strategy and/or Stock List.
+   *
+   * This is **not** the same thing as editing the Strategy or List it already references. Those are
+   * live: their contents change what is watched on the next cycle with no request at all, and the
+   * level-fingerprint rules in `monitor-repository.ts` decide which latched state survives. A
+   * rebind replaces *which* Strategy or List is watched, and the state left behind describes a
+   * level of a Strategy, or a member of a List, that this Monitor no longer evaluates. So:
+   *
+   * - every Signal still active under the replaced configuration is **resolved** — it stops being
+   *   current, which it no longer is;
+   * - Signal rows are **never deleted**: a Signal records what was observed, and history survives a
+   *   configuration change;
+   * - the transition state is **discarded**, so no latch from the old configuration can decide an
+   *   edge in the new one, and no fingerprint coincidence between two Strategies can carry one over;
+   * - `lastScanAt` is **cleared**, because the configuration now named has not been checked;
+   * - `configVersion` is **incremented**, which is what stops a cycle already evaluating the
+   *   replaced configuration from committing into the new one.
+   *
+   * Ownership of both new references is verified inside the same transaction as the write, exactly
+   * as creation does — a foreign key alone would accept any id that exists.
+   */
+  private async rebindMonitor(
+    userId: string,
+    monitorId: string,
+    patch: ParsedUpdateMonitorRequest,
+  ): Promise<MonitorSummaryResponse> {
+    const now = new Date();
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      // The Monitor row is locked first, before anything else in this transaction touches state or
+      // Signals. A cycle committing a transition locks the same row (`FOR SHARE`) before its own
+      // state writes, so both orders agree and the two cannot deadlock. Ownership is part of the
+      // lock predicate, so a Monitor the caller does not own locks nothing and reads as missing.
+      const locked = await tx.$queryRaw<
+        { strategyId: string; stockListId: string }[]
+      >`
+        SELECT "strategyId", "stockListId"
+        FROM "Monitor"
+        WHERE "id" = ${monitorId} AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      const current = locked[0];
+      if (!current) {
+        throw new MonitorNotFoundError();
+      }
+
+      const nextStrategyId = patch.strategyId ?? current.strategyId;
+      const nextStockListId = patch.stockListId ?? current.stockListId;
+
+      // Only what actually changes is verified. Re-submitting the Monitor's own Strategy costs no
+      // query, and a reference that is already attached cannot become unowned.
+      if (nextStrategyId !== current.strategyId) {
+        const strategy = await tx.strategy.findFirst({
+          where: { id: nextStrategyId, userId },
+          select: { id: true },
+        });
+        if (!strategy) {
+          throw new MonitorReferenceNotFoundError("strategy");
+        }
+      }
+      if (nextStockListId !== current.stockListId) {
+        const stockList = await tx.stockList.findFirst({
+          where: { id: nextStockListId, userId },
+          select: { id: true },
+        });
+        if (!stockList) {
+          throw new MonitorReferenceNotFoundError("stockList");
+        }
+      }
+
+      const rebound =
+        nextStrategyId !== current.strategyId ||
+        nextStockListId !== current.stockListId;
+
+      let resolvedSignals = 0;
+      let clearedStates = 0;
+      if (rebound) {
+        resolvedSignals = (
+          await tx.monitorSignal.updateMany({
+            where: { monitorId, resolvedAt: null },
+            data: { resolvedAt: now },
+          })
+        ).count;
+        clearedStates = (
+          await tx.monitorSignalState.deleteMany({ where: { monitorId } })
+        ).count;
+      }
+
+      const row = await tx.monitor.update({
+        where: { id: monitorId },
+        data: {
+          ...(patch.name === undefined ? {} : { name: patch.name }),
+          ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+          strategyId: nextStrategyId,
+          stockListId: nextStockListId,
+          ...(rebound
+            ? { configVersion: { increment: 1 }, lastScanAt: null }
+            : {}),
+        },
+        include: MONITOR_INCLUDE,
+      });
+      return {
+        row,
+        rebound,
+        resolvedSignals,
+        clearedStates,
+        previousStrategyId: current.strategyId,
+        previousStockListId: current.stockListId,
+      };
+    });
+
+    this.logger.info({
+      event: outcome.rebound ? "monitor.rebound" : "monitor.updated",
+      actorUserId: userId,
+      monitorId,
+      enabled: outcome.row.enabled,
+      ...(outcome.rebound
+        ? {
+            previousStrategyId: outcome.previousStrategyId,
+            strategyId: outcome.row.strategyId,
+            previousStockListId: outcome.previousStockListId,
+            stockListId: outcome.row.stockListId,
+            configVersion: outcome.row.configVersion,
+            resolvedSignals: outcome.resolvedSignals,
+            clearedStates: outcome.clearedStates,
+          }
+        : {}),
+    });
+    return summaryOf(outcome.row);
+  }
+
+  /** Re-reads the caller's own Monitor, or reports it missing if it vanished underneath. */
+  private async readOwnMonitor(
+    userId: string,
+    monitorId: string,
+  ): Promise<MonitorRow> {
     const row = await this.prisma.monitor.findFirst({
       where: { id: monitorId, userId },
       include: MONITOR_INCLUDE,
@@ -184,13 +504,7 @@ export class MonitorsService {
       // Deleted between the update and this read; to the caller it no longer exists.
       throw new MonitorNotFoundError();
     }
-    this.logger.info({
-      event: "monitor.updated",
-      actorUserId: userId,
-      monitorId,
-      enabled: row.enabled,
-    });
-    return summaryOf(row);
+    return row;
   }
 
   async deleteMonitor(userId: string, monitorId: string): Promise<void> {
