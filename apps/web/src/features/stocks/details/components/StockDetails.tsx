@@ -230,7 +230,11 @@ function StockDetailsContent({
   return (
     <PageContainer>
       <div className={styles.page}>
-        <StockHeader security={security} {...(summary ? { summary } : {})} />
+        <StockHeader
+          security={security}
+          {...(summary ? { summary } : {})}
+          {...(profile ? { profile } : {})}
+        />
 
         <section className={styles.chartCard} aria-labelledby="price-history-title">
           <div className={styles.chartHeading}>

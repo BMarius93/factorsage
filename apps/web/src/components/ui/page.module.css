@@ -1,0 +1,20 @@
+/* The vertical rhythm of a product page: one stack of sections under the page header.
+
+   Composed rather than wrapped, because every route already owns a page element that
+   carries its own `data-testid`. Eight features had each picked their own gap and top
+   padding; this is the one of them. */
+
+.stack {
+  display: grid;
+  gap: 16px;
+  /* The container already supplies the horizontal padding and the top offset from the
+     topbar; this only adds room under the last section so a phone's fixed bottom
+     navigation never covers it. */
+  padding: 4px 0 32px;
+}
+
+@media (min-width: 880px) {
+  .stack {
+    gap: 20px;
+  }
+}

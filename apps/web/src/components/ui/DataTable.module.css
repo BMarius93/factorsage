@@ -1,0 +1,270 @@
+/* One collection, two presentations, one DOM.
+   The two layouts are scoped to explicit, non-overlapping breakpoints rather than
+   layered by specificity, so a per-role rule in one layout can never leak into the
+   other. 880px is the shell's desktop breakpoint. */
+
+.scroll {
+  min-width: 0;
+}
+
+/* Safety valve: a table with more columns than the viewport can hold scrolls inside its
+   own surface rather than crushing a column until its content wraps to four lines. The
+   page body itself never scrolls sideways. */
+@media (min-width: 880px) {
+  .scroll {
+    overflow-x: auto;
+  }
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.cardLabel {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: 700;
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+/* ── Phone / small tablet: one purpose-built card per row ─────────────────── */
+@media (max-width: 879px) {
+  /* The header row stays in the accessibility tree so every cell keeps its column
+     name; it is only visually removed. */
+  .head {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .body {
+    display: grid;
+    gap: 10px;
+    padding: 0 var(--page-pad-mobile) 2px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px 12px;
+    padding: 14px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-surface);
+    background: var(--color-surface);
+  }
+
+  .td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+    grid-column: 1 / -1;
+  }
+
+  /* Identity and status share the card's top line; the rest stack beneath it in a
+     fixed order, so a card's hierarchy never depends on column declaration order. */
+  .td[data-card="identity"] {
+    grid-column: 1;
+    order: 1;
+    font-weight: 600;
+  }
+
+  .td[data-card="status"] {
+    grid-column: 2;
+    order: 2;
+    justify-content: flex-end;
+  }
+
+  .td[data-card="fact"] {
+    order: 3;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+  }
+
+  /* Relationship cells become the card's "linked" block: a label column and a chip,
+     grouped under one divider. Only the first of the run draws it — `~` matches the
+     later ones, which are contiguous because the columns are declared together. */
+  .td[data-card="links"] {
+    order: 4;
+    justify-content: flex-start;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .td[data-card="links"] ~ .td[data-card="links"] {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .td[data-card="links"] .cardLabel {
+    width: 5.5rem;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+
+  .td[data-card="actions"] {
+    order: 5;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  /* Desktop-only detail: shown in the table, omitted from the card. */
+  .td[data-card="hidden"] {
+    display: none;
+  }
+
+  .cardValue {
+    min-width: 0;
+    text-align: right;
+  }
+
+  .td[data-card="identity"] .cardValue,
+  .td[data-card="actions"] .cardValue {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+  }
+
+  /* Shares the row with its label, so it takes the remaining width rather than a
+     full one that would push the chip off the card. */
+  .td[data-card="links"] .cardValue {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .td[data-numeric="true"] .cardValue {
+    color: var(--color-text-primary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+}
+
+/* ── Desktop: a dense table inside the section surface ────────────────────── */
+@media (min-width: 880px) {
+  .cardLabel {
+    display: none;
+  }
+
+  .th:first-child,
+  .td:first-child {
+    padding-left: var(--surface-inset, 16px);
+  }
+
+  .th:last-child,
+  .td:last-child {
+    padding-right: var(--surface-inset, 16px);
+  }
+
+  .th {
+    padding: 0 16px 10px;
+    color: var(--color-text-muted);
+    font-size: var(--text-label-size);
+    font-weight: 700;
+    letter-spacing: var(--text-label-tracking);
+    text-transform: uppercase;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .th[data-align="right"] {
+    text-align: right;
+  }
+
+  .row {
+    transition: background-color 120ms ease;
+  }
+
+  .row:not(:first-child) .td {
+    border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .row:hover {
+    background: var(--color-row-hover);
+  }
+
+  .td {
+    padding: 12px 16px;
+    vertical-align: middle;
+    color: var(--color-text-body);
+  }
+
+  .td[data-align="right"] {
+    text-align: right;
+  }
+
+  .td[data-numeric="true"] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .td[data-nowrap="true"] {
+    white-space: nowrap;
+  }
+
+  .td[data-card="actions"] {
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
+
+/* ── Sortable headers ─────────────────────────────────────────────────────── */
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.sortButton:hover,
+.sortButton[data-active="true"] {
+  color: var(--color-primary);
+}
+
+.sortButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sortIcon[data-state="none"] {
+  color: var(--color-border-strong);
+}
+
+/* Pointer affordance only: the identity cell's link is what keyboard users follow. */
+.row[data-clickable="true"] {
+  cursor: pointer;
+}

@@ -8,6 +8,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import {
   addStockListItems,
@@ -66,11 +77,10 @@ export function ListDetail({ listId }: ListDetailProps) {
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page} aria-hidden="true">
-          <div className={styles.skeletonHeader} />
-          <div className={styles.skeletonRow} />
-          <div className={styles.skeletonRow} />
-          <div className={styles.skeletonRow} />
+        <div className={styles.page}>
+          <SectionCard ariaLabel="Loading list">
+            <SkeletonList rows={5} />
+          </SectionCard>
         </div>
       </PageContainer>
     );
@@ -79,14 +89,22 @@ export function ListDetail({ listId }: ListDetailProps) {
   if (status === "not-found") {
     return (
       <PageContainer>
-        <div className={styles.statusPanel} data-testid="list-not-found">
-          <h1 className={styles.statusTitle}>List not found</h1>
-          <p className={styles.statusBody}>
-            This list does not exist or belongs to a different account.
-          </p>
-          <Link className={forms.secondaryButton} href="/lists">
-            Back to Lists
-          </Link>
+        <div className={styles.page}>
+          <EmptyState
+            as="h1"
+            testId="list-not-found"
+            title="List not found"
+            body={
+              <p>
+                This list does not exist or belongs to a different account.
+              </p>
+            }
+            actions={
+              <Link className={forms.secondaryButton} href="/lists">
+                Back to Lists
+              </Link>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -95,14 +113,24 @@ export function ListDetail({ listId }: ListDetailProps) {
   if (status === "error" || !detail) {
     return (
       <PageContainer>
-        <div className={styles.statusPanel} role="alert">
-          <h1 className={styles.statusTitle}>Something went wrong</h1>
-          <p className={styles.statusBody}>
-            The list could not be loaded right now. This is usually temporary.
-          </p>
-          <button type="button" className={forms.secondaryButton} onClick={retry}>
-            Try again
-          </button>
+        <div className={styles.page}>
+          <EmptyState
+            as="h1"
+            variant="error"
+            title="Something went wrong"
+            body={
+              <p>The list could not be loaded right now. This is usually temporary.</p>
+            }
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={retry}
+              >
+                Try again
+              </button>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -132,43 +160,121 @@ export function ListDetail({ listId }: ListDetailProps) {
     }
   };
 
+  const columns: readonly DataTableColumn<StockListItemResponse>[] = [
+    {
+      key: "stock",
+      header: "Stock",
+      cardRole: "identity",
+      render: (item) => (
+        <StockIdentity
+          symbol={item.security.symbol}
+          name={item.security.name}
+          href={`/stocks/${encodeURIComponent(item.security.symbol)}`}
+        />
+      ),
+    },
+    {
+      key: "buy-window",
+      header: "Buy window",
+      cardRole: "status",
+      nowrap: true,
+      render: (item) => (
+        <StatusBadge
+          tone={item.buyWindowMode === "FULL" ? "neutral" : "active"}
+          variant="outline"
+          dataAttributes={{ "data-mode": item.buyWindowMode }}
+        >
+          {buyWindowLabel(item)}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: "exchange",
+      header: "Exchange",
+      nowrap: true,
+      render: (item) =>
+        item.security.exchangeName ?? item.security.exchangeCode,
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      cardRole: "actions",
+      align: "right",
+      nowrap: true,
+      render: (item) => (
+        <span className={actionStyles.group}>
+          <button
+            type="button"
+            className={actionStyles.action}
+            onClick={() => setDialog({ kind: "buy-windows", item })}
+          >
+            Buy windows
+          </button>
+          <button
+            type="button"
+            className={actionStyles.actionDanger}
+            aria-label={`Remove ${item.security.symbol} from list`}
+            onClick={() => setDialog({ kind: "remove-item", item })}
+          >
+            Remove
+          </button>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <PageContainer>
       <div className={styles.page} data-testid="list-detail">
-        <nav className={styles.breadcrumb}>
-          <Link className={styles.backLink} href="/lists">
-            ← Lists
-          </Link>
-        </nav>
+        <PageHeader
+          back={{ href: "/lists", label: "Lists" }}
+          title={detail.name}
+          {...(detail.description ? { lead: detail.description } : {})}
+          badges={
+            <>
+              <StatusBadge tone="neutral">
+                {stockCountLabel(detail.items.length)}
+              </StatusBadge>
+              {detail.compliance.compliant ? null : (
+                <StatusBadge
+                  tone="warning"
+                  title={
+                    detail.compliance.symbolLimit === null
+                      ? "This list exceeds your plan's symbol limit."
+                      : `This list holds ${detail.compliance.symbolCount} stocks; your plan allows ${detail.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
+                  }
+                >
+                  Over plan limit
+                </StatusBadge>
+              )}
+            </>
+          }
+          actions={
+            <>
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={() => setDialog({ kind: "rename" })}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                className={forms.dangerButton}
+                data-testid="delete-list-button"
+                onClick={() => setDialog({ kind: "delete-list" })}
+              >
+                Delete
+              </button>
+            </>
+          }
+        />
 
-        <header className={styles.header}>
-          <div className={styles.identity}>
-            <h1 className={styles.title}>{detail.name}</h1>
-            {detail.description ? (
-              <p className={styles.description}>{detail.description}</p>
-            ) : null}
-            <p className={styles.meta}>{stockCountLabel(detail.items.length)}</p>
-          </div>
-          <div className={styles.headerActions}>
-            <button
-              type="button"
-              className={styles.headerAction}
-              onClick={() => setDialog({ kind: "rename" })}
-            >
-              Edit
-            </button>
-            <button
-              type="button"
-              className={styles.headerActionDanger}
-              data-testid="delete-list-button"
-              onClick={() => setDialog({ kind: "delete-list" })}
-            >
-              Delete
-            </button>
-          </div>
-        </header>
-
-        <section className={styles.addSection} aria-label="Add stocks">
+        <SectionCard
+          id="add-stocks"
+          title="Add stocks"
+          caption="Search the supported catalog and add one or more stocks to this list."
+        >
           <div className={styles.addControl}>
             <div className={styles.addSearch}>
               <SecurityMultiSelect
@@ -197,62 +303,38 @@ export function ListDetail({ listId }: ListDetailProps) {
           </div>
           {addError ? (
             <p
-              className={forms.error}
+              className={`${forms.error} ${styles.addError}`}
               role="alert"
               data-testid="list-add-error"
             >
               {addError}
             </p>
           ) : null}
-        </section>
+        </SectionCard>
 
-        {detail.items.length === 0 ? (
-          <div className={styles.statusPanel} data-testid="list-items-empty">
-            <h2 className={styles.statusTitle}>No stocks yet</h2>
-            <p className={styles.statusBody}>
-              Search above to add supported stocks to this list.
-            </p>
-          </div>
-        ) : (
-          <ul className={styles.items} data-testid="list-items">
-            {detail.items.map((item) => (
-              <li key={item.id} className={styles.item} data-testid="list-item">
-                <div className={styles.itemIdentity}>
-                  <span className={styles.itemSymbol}>
-                    {item.security.symbol}
-                  </span>
-                  <span className={styles.itemName}>{item.security.name}</span>
-                  <span className={styles.itemExchange}>
-                    {item.security.exchangeName ?? item.security.exchangeCode}
-                  </span>
-                </div>
-                <span
-                  className={styles.itemEligibility}
-                  data-mode={item.buyWindowMode}
-                >
-                  {buyWindowLabel(item)}
-                </span>
-                <div className={styles.itemActions}>
-                  <button
-                    type="button"
-                    className={styles.itemAction}
-                    onClick={() => setDialog({ kind: "buy-windows", item })}
-                  >
-                    Buy windows
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.itemActionDanger}
-                    aria-label={`Remove ${item.security.symbol} from list`}
-                    onClick={() => setDialog({ kind: "remove-item", item })}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <SectionCard
+          id="list-members"
+          title="Stocks"
+          caption="Each stock's buy window decides the dates a strategy may open a position in it."
+          flush={detail.items.length > 0}
+        >
+          <DataTable
+            label={`Stocks in ${detail.name}`}
+            testId="list-items"
+            rowTestId="list-item"
+            columns={columns}
+            rows={detail.items}
+            getRowKey={(item) => item.id}
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="list-items-empty"
+                title="No stocks yet"
+                body={<p>Search above to add supported stocks to this list.</p>}
+              />
+            }
+          />
+        </SectionCard>
       </div>
 
       {dialog.kind === "rename" ? (

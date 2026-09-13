@@ -17,6 +17,15 @@
   min-width: 0;
 }
 
+/* The mark sits beside the ticker, never above it: the identity reads as one unit and
+   keeps its height whether or not a logo resolves. */
+.identityRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .title {
   display: flex;
   flex-wrap: wrap;
@@ -30,7 +39,16 @@
 }
 
 @media (min-width: 880px) {
-  .title {
+  /* The mark sits beside the ticker, never above it: the identity reads as one unit and
+   keeps its height whether or not a logo resolves. */
+.identityRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.title {
     font-size: 30px;
   }
 }

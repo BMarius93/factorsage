@@ -20,7 +20,14 @@ Core traits to preserve:
 - Shadows must remain subtle. Do not turn the product into a heavily elevated/card-stacked dashboard.
 - Information density should remain appropriate for financial research: compact enough for tables and metrics, but with clear spacing and hierarchy.
 
-Use the design tokens in `apps/web/src/styles/tokens.css`. Do not scatter new hard-coded brand colors through feature components when an existing semantic token fits.
+Use the design tokens in `apps/web/src/styles/tokens.css`. It is the only file in the web app that
+may hold a hex colour: a feature stylesheet asks for a semantic token, and a genuinely new shared
+value becomes a new token named for what it *means* (`--color-positive`, never `--monitor-green`).
+
+`ui-system.md` is the companion document: the shared component vocabulary that implements this
+direction, what each component represents, and when not to reach for one. Read it before adding a
+component to `components/ui`, and before writing a page header, a section surface, a collection, a
+status pill, an entity reference or a stock identity anywhere.
 
 ## Typography
 
@@ -46,7 +53,12 @@ Legacy behavior worth preserving conceptually:
 - Branding can adapt by viewport: compact mark on small screens, fuller wordmark when space permits.
 - Desktop navigation may expose more persistent navigation; mobile should use a compact navigation treatment and may use a fixed bottom navigation for the primary destinations.
 - Mobile layouts receive dedicated composition where density requires it. Do not force a desktop table into a tiny viewport merely by adding horizontal scrolling.
-- Dense desktop tables may become cards/stacked rows on mobile when that materially improves readability and actions.
+- Dense collections are a **table on desktop and one purpose-built card per row on mobile**. This is
+  not optional polish and not per-feature discretion: it is what `components/ui/DataTable` does, and
+  features get it by using that component rather than by choosing a layout.
+- Both presentations are the **same DOM**, not two copies behind media queries. A record rendered
+  twice doubles every row count, reads every record twice to a screen reader, and duplicates
+  `data-testid`s. Playwright counts collection rows as `tbody tr` for this reason.
 - Charts must resize to the container and remain usable by touch. Tooltips, legends, selectors, and overlays must not assume mouse hover.
 - Page padding should scale progressively with viewport size rather than jumping from cramped mobile to oversized desktop spacing.
 - Fixed mobile UI must respect `env(safe-area-inset-bottom)`.
@@ -108,6 +120,38 @@ never inside a navigation component.
 `AppTopbar` exposes an `actions` slot for account/user controls so authentication
 work can supply them without changing the shell.
 
+### Shared UI vocabulary
+
+`components/ui` holds the cross-feature product concepts: `PageHeader`, `SectionCard`, `DataTable`,
+`FactGrid`, `StatusBadge`, `EntityReferenceChip` / `LinkedEntities`, `StockIdentity` / `StockLogo`,
+`EmptyState`, `Skeleton`, plus the `forms` and `actions` class modules. `ui-system.md` documents
+each one.
+
+The durable rules:
+
+- **The legacy repository is the visual oracle.** A returning FactorSage user should recognise the
+  product; an engineer should recognise a cleaner V2 codebase.
+- **Desktop composes large surfaces.** A page is `PageHeader` plus a stack of `SectionCard`s. Do not
+  nest a section surface inside another, and do not render a desktop grid of one small card per
+  record.
+- **Dense collections are tables inside those surfaces**, and their mobile counterpart is a card per
+  row — from `DataTable`, once.
+- **Geist is canonical**, applied on `body` in `globals.css`; Geist Mono only where alignment of
+  technical or financial values genuinely helps. No feature declares a font family.
+- **Status, relationship, identity, empty, loading and table primitives are not reinvented in a
+  feature.** A feature owns what a status *means* — its label, its tone, its ordering — and the
+  shared component owns how it looks.
+- **Entity relationships are explicit and clickable.** A Monitor shows its Strategy and Stock List;
+  a Backtest shows its Strategy, Stock List and Benchmark; the Dashboard links every reference it
+  names. Use `EntityReferenceChip`, and omit its `href` where the entity has no page or no longer
+  exists rather than rendering a link that 404s.
+- **Stock identity goes through `StockIdentity`.** A logo is decoration: it must degrade to the
+  ticker monogram, must not shift layout when it fails, and must not be announced twice. Never
+  assemble a provider image URL in a component — if a surface lacks a logo, that is a contract gap
+  (see `ui-system.md`, "Known read-model gaps"), not a thing to synthesise client-side.
+- **Page rhythm is defined once.** A route's `.page` composes `stack` from
+  `components/ui/page.module.css`; do not set a page gap or top padding in a feature stylesheet.
+
 ### Styling
 
 Component styles live in colocated CSS Modules (`Component.module.css`) that read
@@ -125,6 +169,12 @@ cannot drift apart.
 - Keep shared HTTP mechanics in `lib/api`; keep stock-specific calls in `features/stocks/api`, etc.
 - UI components should receive view-ready data or use feature hooks; they should not know backend persistence details.
 - Loading, empty, error, stale/unavailable, and partial-data states are part of the feature implementation, not optional polish.
+- **A missing read model is documented, never worked around in the browser.** Do not fan a
+  collection out into one request per row to reconstruct an aggregate the API does not expose, and
+  do not invent or infer a value the backend did not record. Record the gap in `ui-system.md` under
+  "Known read-model gaps" and build what the existing contracts truthfully support. The Dashboard is
+  the worked example: it shows collection-level truth and links into each monitor, because the
+  cross-monitor active-match aggregate does not exist yet.
 
 ## Charts
 

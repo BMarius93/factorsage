@@ -181,13 +181,13 @@
 }
 
 .option {
-  display: grid;
-  grid-template-columns: minmax(56px, auto) minmax(0, 1fr);
-  align-items: baseline;
-  gap: 2px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   min-height: 44px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-chip);
   cursor: pointer;
 }
 
@@ -196,24 +196,14 @@
   background: var(--color-primary-soft);
 }
 
-.symbol {
-  color: var(--color-text-primary);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.name {
-  min-width: 0;
+/* Trailing label: it never wraps to a second line and never competes with the
+   identity for width — the ticker and company name are what the user is scanning. */
+.exchange {
+  flex: none;
+  max-width: 45%;
   overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.exchange {
-  grid-column: 2;
   color: var(--color-text-muted);
   font-size: 11px;
   font-weight: 600;

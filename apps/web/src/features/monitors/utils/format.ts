@@ -3,6 +3,7 @@ import type {
   MonitorSecurityStatus,
   MonitorSignalKind,
 } from "@intrinsic/contracts";
+import type { StatusTone } from "../../../components/ui/StatusBadge";
 
 /**
  * Display formatting for the monitors feature.
@@ -30,16 +31,19 @@ export function formatMonitorTimestamp(iso: string): string {
 export const NEVER_CHECKED_LABEL = "Not checked yet";
 
 /**
- * The "last checked" line.
+ * When a monitor was last checked.
  *
  * `lastScanAt` is observability, never an input to Signal semantics — a monitor that has never been
  * included in a completed cycle says so instead of borrowing its creation time. It is also cleared
  * when the monitor is rebound, because the configuration it now names has not been checked.
+ *
+ * The value carries no "Checked" prefix: every surface that shows it already labels it, on the
+ * collection as a column header and on a phone card as the row's own label.
  */
 export function lastScanLabel(lastScanAt: string | undefined): string {
   return lastScanAt === undefined
     ? NEVER_CHECKED_LABEL
-    : `Checked ${formatMonitorTimestamp(lastScanAt)}`;
+    : formatMonitorTimestamp(lastScanAt);
 }
 
 /**
@@ -55,12 +59,13 @@ export const SECURITY_STATUS_LABELS: Record<MonitorSecurityStatus, string> = {
   NOT_CHECKED: "Not checked yet",
 };
 
-export const SECURITY_STATUS_TONES: Record<MonitorSecurityStatus, string> = {
-  MATCHED: "positive",
-  NO_MATCH: "neutral",
-  NOT_EVALUABLE: "warning",
-  NOT_CHECKED: "pending",
-};
+export const SECURITY_STATUS_TONES: Record<MonitorSecurityStatus, StatusTone> =
+  {
+    MATCHED: "positive",
+    NO_MATCH: "neutral",
+    NOT_EVALUABLE: "warning",
+    NOT_CHECKED: "pending",
+  };
 
 /** `BUY` / `SELL` / `FINAL_EXIT` as the product writes them. */
 export const LEVEL_KIND_LABELS: Record<MonitorLevelKind, string> = {

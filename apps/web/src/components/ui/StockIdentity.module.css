@@ -1,0 +1,116 @@
+/* The box is sized before anything loads, so a logo that arrives late — or never —
+   cannot reflow the row it sits in. */
+.logo {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chip);
+  background: var(--color-surface-soft);
+}
+
+.logo[data-size="sm"] {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+
+.logo[data-size="md"] {
+  width: 32px;
+  height: 32px;
+}
+
+.logo[data-size="lg"] {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+}
+
+.logoImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+}
+
+.monogram::after {
+  content: attr(data-monogram);
+}
+
+.monogram {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.logo[data-size="sm"] .monogram {
+  font-size: 9px;
+}
+
+.logo[data-size="lg"] .monogram {
+  font-size: 16px;
+}
+
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.identity[data-size="sm"] {
+  gap: 8px;
+}
+
+.text {
+  display: grid;
+  min-width: 0;
+}
+
+.symbol {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity[data-size="sm"] .symbol {
+  font-size: 13px;
+}
+
+.identity[data-size="lg"] .symbol {
+  font-size: 20px;
+}
+
+/* Long company names truncate rather than widening the column they sit in. */
+.name {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identity[data-size="lg"] .name {
+  font-size: 14px;
+}
+
+.identity[data-interactive="true"]:hover .symbol {
+  color: var(--color-primary);
+}
+
+.identity[data-interactive="true"]:focus-visible {
+  outline: none;
+  border-radius: var(--radius-control);
+  box-shadow: var(--focus-ring);
+}

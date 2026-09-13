@@ -99,7 +99,7 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
     ).toBeVisible();
     const card = page
       .getByTestId("strategies-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: name });
     if ((await card.count()) === 0) {
       return;
@@ -155,7 +155,7 @@ async function deleteListIfPresent(page: Page, name: string) {
     ).toBeVisible();
     const card = page
       .getByTestId("lists-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: name });
     if ((await card.count()) === 0) {
       return;
@@ -420,7 +420,7 @@ test.describe("PRO_USER backtests", () => {
     await expect(
       page
         .getByTestId("backtests-grid")
-        .locator("li")
+        .locator("tbody tr")
         .filter({ hasText: STRATEGY_NAME })
         .first(),
     ).toBeVisible();

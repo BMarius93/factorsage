@@ -71,6 +71,9 @@
   margin-top: 2px;
 }
 
+/* These classes are worn by both `<button>` and `<a>` — "Back to Lists", "New strategy",
+   "Run a backtest" are navigation that looks like an action — so they must neutralise the
+   anchor defaults rather than leaving a link underlined inside a filled button. */
 .primaryButton,
 .secondaryButton,
 .dangerButton {
@@ -82,7 +85,18 @@
   border-radius: var(--radius-control);
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.dangerButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .primaryButton {
@@ -107,7 +121,7 @@
 
 .dangerButton {
   border: 1px solid var(--color-negative);
-  color: #ffffff;
+  color: var(--color-text-on-primary);
   background: var(--color-negative);
 }
 

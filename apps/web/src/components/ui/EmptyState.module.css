@@ -1,0 +1,77 @@
+.panel {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 40px 24px;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-muted);
+  text-align: center;
+}
+
+/* Inside a section that already has a heading, the panel is only a quiet note. */
+.panel[data-variant="compact"] {
+  padding: 28px 18px;
+  border-radius: var(--radius-surface);
+}
+
+.panel[data-variant="error"] {
+  border-style: solid;
+  border-color: var(--color-negative);
+  background: var(--color-negative-soft);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.panel[data-variant="error"] .title {
+  color: var(--color-negative);
+}
+
+.panel[data-variant="compact"] .title {
+  font-size: 15px;
+}
+
+.body {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.body > p {
+  margin: 0;
+}
+
+.body > p + p {
+  margin-top: 8px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+@media (max-width: 599px) {
+  .panel {
+    padding: 32px 18px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions > * {
+    flex: 1 1 auto;
+  }
+}

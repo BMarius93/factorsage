@@ -14,6 +14,16 @@ import {
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { LinkedEntities } from "../../../components/ui/EntityReference";
+import { FactGrid } from "../../../components/ui/FactGrid";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
+import {
+  StatusBadge,
+  type StatusTone,
+} from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useBacktestRun } from "../hooks/use-backtest-run";
 import {
@@ -53,7 +63,7 @@ type RunSnapshotView = {
   readonly asOf: string;
 };
 
-function statusTone(status: BacktestRunStatus): string {
+function statusTone(status: BacktestRunStatus): StatusTone {
   switch (status) {
     case "COMPLETED":
       return "positive";
@@ -67,50 +77,92 @@ function statusTone(status: BacktestRunStatus): string {
   }
 }
 
-function ConfigurationFacts({
+/**
+ * Where a completed run came from, and what it executed with.
+ *
+ * The Strategy, Stock List and Benchmark are the run's provenance; everything else is the
+ * configuration it froze. Both are read from the immutable submission snapshot, never re-derived
+ * from the current rows — which is also why a reference can be present by name and absent by id:
+ * the entity it named has since been deleted, and the run still describes it truthfully.
+ */
+function RunProvenance({
   configuration,
+  queuedAt,
+  completedAt,
 }: {
   readonly configuration: BacktestRunConfigurationResponse;
+  readonly queuedAt: string;
+  readonly completedAt: string | null;
 }) {
-  const facts: ReadonlyArray<{ label: string; value: string }> = [
-    { label: "Stock list", value: configuration.stockListName },
-    { label: "Stocks", value: formatCount(configuration.securityCount) },
-    {
-      label: "Period",
-      value: formatPeriod(configuration.startDate, configuration.endDate),
-    },
-    { label: "Benchmark", value: configuration.benchmark.name },
-    {
-      label: "Initial capital",
-      value: formatMoney(configuration.initialCapital),
-    },
-    {
-      label: "Monthly contribution",
-      value:
-        configuration.monthlyContribution > 0
-          ? formatMoney(configuration.monthlyContribution)
-          : "None",
-    },
-    {
-      label: "Max positions",
-      value: formatCount(configuration.maximumPositions),
-    },
-    {
-      // Derived from `maximumPositions`, never entered: the run reports the fraction it froze.
-      label: "Full position",
-      value: `${formatDerivedPercent(configuration.fullPositionPercent)}%`,
-    },
-  ];
-
   return (
-    <dl className={styles.facts} data-testid="backtest-configuration">
-      {facts.map((fact) => (
-        <div key={fact.label} className={styles.fact}>
-          <dt className={styles.factLabel}>{fact.label}</dt>
-          <dd className={styles.factValue}>{fact.value}</dd>
-        </div>
-      ))}
-    </dl>
+    // The whole block is the run's configuration: the entities it named and the parameters it
+    // froze. The test id sits here rather than on the facts alone so "what did this run use?"
+    // covers the Strategy, Stock List and Benchmark too.
+    <div className={styles.provenance} data-testid="backtest-configuration">
+      <LinkedEntities
+        entities={[
+          {
+            label: "Strategy",
+            kind: "strategy",
+            name: `${configuration.strategyName} · v${configuration.strategyVersionNumber}`,
+            ...(configuration.strategyId
+              ? { href: `/strategies/${configuration.strategyId}` }
+              : {}),
+          },
+          {
+            label: "Stock list",
+            kind: "list",
+            name: configuration.stockListName,
+            ...(configuration.stockListId
+              ? { href: `/lists/${configuration.stockListId}` }
+              : {}),
+          },
+          {
+            // A Benchmark is system-owned comparison data with no page of its own.
+            label: "Benchmark",
+            kind: "benchmark",
+            name: configuration.benchmark.name,
+          },
+        ]}
+      />
+      <FactGrid
+        facts={[
+          { label: "Stocks", value: formatCount(configuration.securityCount) },
+          {
+            label: "Period",
+            value: formatPeriod(
+              configuration.startDate,
+              configuration.endDate,
+            ),
+          },
+          {
+            label: "Initial capital",
+            value: formatMoney(configuration.initialCapital),
+          },
+          {
+            label: "Monthly contribution",
+            value:
+              configuration.monthlyContribution > 0
+                ? formatMoney(configuration.monthlyContribution)
+                : "None",
+          },
+          {
+            label: "Max positions",
+            value: formatCount(configuration.maximumPositions),
+          },
+          {
+            // Derived from `maximumPositions`, never entered: the run reports the fraction
+            // it froze.
+            label: "Full position",
+            value: `${formatDerivedPercent(configuration.fullPositionPercent)}%`,
+          },
+          { label: "Queued", value: formatTimestamp(queuedAt) },
+          ...(completedAt
+            ? [{ label: "Finished", value: formatTimestamp(completedAt) }]
+            : []),
+        ]}
+      />
+    </div>
   );
 }
 
@@ -227,10 +279,10 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   if (loadStatus === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page} aria-hidden="true">
-          <div className={styles.skeletonHeader} />
-          <div className={styles.skeletonCard} />
-          <div className={styles.skeletonCard} />
+        <div className={styles.page}>
+          <SectionCard ariaLabel="Loading backtest">
+            <SkeletonList rows={5} />
+          </SectionCard>
         </div>
       </PageContainer>
     );
@@ -240,15 +292,19 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.statusPanel} data-testid="backtest-not-found">
-            <h1 className={styles.statusTitle}>This backtest was not found</h1>
-            <p className={styles.statusBody}>
-              It may have been deleted, or it belongs to another account.
-            </p>
-            <Link className={styles.primaryLink} href="/backtests">
-              Back to backtests
-            </Link>
-          </div>
+          <EmptyState
+            as="h1"
+            testId="backtest-not-found"
+            title="This backtest was not found"
+            body={
+              <p>It may have been deleted, or it belongs to another account.</p>
+            }
+            actions={
+              <Link className={forms.secondaryButton} href="/backtests">
+                Back to backtests
+              </Link>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -258,21 +314,21 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.statusPanel} role="alert">
-            <h1 className={styles.statusTitle}>
-              This backtest could not be loaded
-            </h1>
-            <p className={styles.statusBody}>
-              This is usually temporary — try again in a moment.
-            </p>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              onClick={retry}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            as="h1"
+            variant="error"
+            title="This backtest could not be loaded"
+            body={<p>This is usually temporary — try again in a moment.</p>}
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={retry}
+              >
+                Try again
+              </button>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -315,54 +371,44 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         data-testid="backtest-run"
         data-status={status}
       >
-        <div className={styles.breadcrumb}>
-          <Link className={styles.backLink} href="/backtests">
-            ← Backtests
-          </Link>
-        </div>
+        <PageHeader
+          back={{ href: "/backtests", label: "Backtests" }}
+          title={configuration.strategyName}
+          lead={`${configuration.stockListName} · ${formatPeriod(
+            configuration.startDate,
+            configuration.endDate,
+          )} · vs ${configuration.benchmark.name}`}
+          badges={
+            <StatusBadge tone={statusTone(status)} testId="backtest-status">
+              {BACKTEST_RUN_STATUS_LABELS[status]}
+            </StatusBadge>
+          }
+        />
 
-        <header className={styles.header}>
-          <div className={styles.identity}>
-            <h1 className={styles.title}>{configuration.strategyName}</h1>
-            <p className={styles.lead}>
-              {configuration.stockListName} ·{" "}
-              {formatPeriod(configuration.startDate, configuration.endDate)} ·
-              vs {configuration.benchmark.name}
-            </p>
-            <p className={styles.meta}>
-              Queued {formatTimestamp(run.queuedAt)}
-              {run.completedAt
-                ? ` · Finished ${formatTimestamp(run.completedAt)}`
-                : null}
-            </p>
-          </div>
-          <span
-            className={styles.statusPill}
-            data-testid="backtest-status"
-            data-tone={statusTone(status)}
-          >
-            {BACKTEST_RUN_STATUS_LABELS[status]}
-          </span>
-        </header>
-
-        <section className={styles.card} aria-label="Run configuration">
-          <ConfigurationFacts configuration={configuration} />
-        </section>
+        <SectionCard
+          id="run-configuration"
+          title="Run configuration"
+          caption="Read from this run's immutable submission snapshot, not from the strategy or list as they stand today."
+        >
+          <RunProvenance
+            configuration={configuration}
+            queuedAt={run.queuedAt}
+            completedAt={run.completedAt}
+          />
+        </SectionCard>
 
         {terminal && milestones.length > 0 ? (
-          <section
-            className={styles.milestoneCard}
-            data-testid="backtest-milestones-summary"
-            aria-label="Simulated years"
+          <SectionCard
+            testId="backtest-milestones-summary"
+            ariaLabel="Simulated years"
           >
             <BacktestMilestoneTrail milestones={milestones} />
-          </section>
+          </SectionCard>
         ) : null}
         {terminal ? null : (
-          <section
-            className={styles.progressCard}
-            data-testid="backtest-progress"
-            aria-label="Backtest progress"
+          <SectionCard
+            testId="backtest-progress"
+            ariaLabel="Backtest progress"
           >
             <div className={styles.progressHead}>
               <span className={styles.phase}>
@@ -404,7 +450,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               </p>
             ) : null}
             <BacktestMilestoneTrail milestones={milestones} />
-          </section>
+          </SectionCard>
         )}
 
         {status === "FAILED" ? (
@@ -448,23 +494,17 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 </dd>
               </div>
             </dl>
-            <Link className={styles.primaryLink} href="/backtests/new">
+            <Link className={forms.primaryButton} href="/backtests/new">
               Start a new backtest
             </Link>
           </div>
         ) : null}
 
-        <section className={styles.card} aria-labelledby="backtest-chart-title">
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle} id="backtest-chart-title">
-              Portfolio value
-            </h2>
-            <p className={styles.cardCaption}>
-              Strategy, {configuration.benchmark.name} and cash — the same
-              money, invested three ways. Each scenario receives the same
-              initial capital and the same monthly contributions.
-            </p>
-          </div>
+        <SectionCard
+          id="backtest-chart"
+          title="Portfolio value"
+          caption={`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
+        >
           {/* One frame, one height: the placeholder and the chart occupy exactly the same box, so
               the first checkpoint swaps content without moving anything below it. */}
           <div className={styles.chartFrame}>
@@ -489,7 +529,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               </p>
             )}
           </div>
-        </section>
+        </SectionCard>
 
         <BacktestMetricsRow
           metrics={snapshot?.metrics ?? EMPTY_METRICS}

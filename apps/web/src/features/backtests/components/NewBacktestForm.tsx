@@ -13,6 +13,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
 import forms from "../../../components/ui/forms.module.css";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
@@ -141,22 +144,26 @@ export function NewBacktestForm() {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.statusPanel} role="alert">
-            <h1 className={styles.statusTitle}>
-              The submission form could not be loaded
-            </h1>
-            <p className={styles.statusBody}>
-              Your strategies, lists and benchmarks are needed before a backtest
-              can be submitted. This is usually temporary.
-            </p>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              onClick={retry}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            as="h1"
+            variant="error"
+            title="The submission form could not be loaded"
+            body={
+              <p>
+                Your strategies, lists and benchmarks are needed before a
+                backtest can be submitted. This is usually temporary.
+              </p>
+            }
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={retry}
+              >
+                Try again
+              </button>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -169,20 +176,11 @@ export function NewBacktestForm() {
   return (
     <PageContainer>
       <div className={styles.page} data-testid="new-backtest-page">
-        <div className={styles.breadcrumb}>
-          <Link className={styles.backLink} href="/backtests">
-            ← Backtests
-          </Link>
-        </div>
-
-        <header className={styles.header}>
-          <h1 className={styles.title}>New backtest</h1>
-          <p className={styles.lead}>
-            One strategy, one stock list, one historical period. The run
-            executes in the background and its results appear while it
-            progresses.
-          </p>
-        </header>
+        <PageHeader
+          back={{ href: "/backtests", label: "Backtests" }}
+          title="New backtest"
+          lead="One strategy, one stock list, one historical period. The run executes in the background and its results appear while it progresses."
+        />
 
         {missingPrerequisite ? (
           <div className={styles.notice} data-testid="backtest-prerequisites">
@@ -216,8 +214,7 @@ export function NewBacktestForm() {
           noValidate
           data-testid="new-backtest-form"
         >
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>What to run</h2>
+          <SectionCard id="backtest-what" title="What to run">
             <div className={styles.grid}>
               <div className={forms.field}>
                 <label className={forms.label} htmlFor="backtest-strategy">
@@ -308,10 +305,9 @@ export function NewBacktestForm() {
                 )}
               </div>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Period</h2>
+          <SectionCard id="backtest-period" title="Period">
             <div className={styles.grid}>
               <div className={forms.field}>
                 <label className={forms.label} htmlFor="backtest-start">
@@ -370,10 +366,9 @@ export function NewBacktestForm() {
                 ) : null}
               </div>
             </div>
-          </div>
+          </SectionCard>
 
-          <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Capital and allocation</h2>
+          <SectionCard id="backtest-capital" title="Capital and allocation">
             <div className={styles.grid}>
               <div className={forms.field}>
                 <label className={forms.label} htmlFor="backtest-capital">
@@ -463,7 +458,7 @@ export function NewBacktestForm() {
                 </p>
               </div>
             </div>
-          </div>
+          </SectionCard>
 
           {submitError ? (
             <p

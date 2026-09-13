@@ -8,6 +8,17 @@ import Link from "next/link";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { EntityReferenceChip } from "../../../components/ui/EntityReference";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { stockCountLabel } from "../../lists/utils/format";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
@@ -23,19 +34,6 @@ type DialogState =
   | { kind: "edit"; monitor: MonitorSummaryResponse }
   | { kind: "delete"; monitor: MonitorSummaryResponse };
 
-type MonitorCardProps = {
-  readonly monitor: MonitorSummaryResponse;
-  readonly onToggled: (summary: MonitorSummaryResponse) => void;
-  readonly onEdit: () => void;
-  readonly onDelete: () => void;
-};
-
-/**
- * One monitor row.
- *
- * The enable/disable request is owned here rather than by the page so a failure is reported on the
- * monitor it belongs to, and so one in-flight toggle cannot disable the buttons on every other card.
- */
 /**
  * Why an enabled monitor is not scanning, in the user's own terms.
  *
@@ -50,12 +48,23 @@ function blockedExplanation(reason: MonitorBlockedReason | undefined): string {
   return "Your plan allows fewer active monitors than you have enabled, so this one is waiting for a slot.";
 }
 
-function MonitorCard({
+/**
+ * The enable/disable control for one row.
+ *
+ * The request is owned here rather than by the page so a failure is reported on the monitor it
+ * belongs to, and so one in-flight toggle cannot disable the buttons on every other row.
+ */
+function MonitorRowActions({
   monitor,
   onToggled,
   onEdit,
   onDelete,
-}: MonitorCardProps) {
+}: {
+  readonly monitor: MonitorSummaryResponse;
+  readonly onToggled: (summary: MonitorSummaryResponse) => void;
+  readonly onEdit: () => void;
+  readonly onDelete: () => void;
+}) {
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -67,7 +76,7 @@ function MonitorCard({
     setFailure(null);
     try {
       // The row is replaced by the API's own answer, so a refused or partially applied change can
-      // never leave the card claiming a state the server does not hold.
+      // never leave the row claiming a state the server does not hold.
       onToggled(await updateMonitor(monitor.id, { enabled: !monitor.enabled }));
     } catch (error) {
       // Enabling one monitor too many is a plan limit, not a failed save. Saying "that change did
@@ -94,110 +103,38 @@ function MonitorCard({
       : "Enable";
 
   return (
-    <li className={styles.card} data-testid="monitor-card">
-      <div className={styles.cardBody}>
-        <div className={styles.cardHead}>
-          <Link className={styles.cardName} href={`/monitors/${monitor.id}`}>
-            {monitor.name}
-          </Link>
-          {/*
-            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
-            for and never changes on its own; the operational status is what the system will
-            actually do with that intent right now. A monitor left over capacity by a downgrade is
-            still enabled — collapsing the two would either claim it is scanning when it is not, or
-            claim the user turned it off when they did not.
-          */}
-          <span
-            className={styles.statusPill}
-            data-tone={monitor.enabled ? "positive" : "pending"}
-            data-testid="monitor-enabled-pill"
-          >
-            {monitor.enabled ? "Enabled" : "Disabled"}
-          </span>
-          {monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
-            <span
-              className={styles.statusPill}
-              data-tone="blocked"
-              data-testid="monitor-blocked-pill"
-              data-blocked-reason={monitor.blockedReason}
-              title={blockedExplanation(monitor.blockedReason)}
-            >
-              Not scanning
-            </span>
-          ) : null}
-        </div>
-
-        <dl className={styles.facts}>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Strategy</dt>
-            <dd className={styles.factValue}>
-              <Link
-                className={styles.factLink}
-                href={`/strategies/${monitor.strategyId}`}
-              >
-                {monitor.strategyName}
-              </Link>
-            </dd>
-          </div>
-          <div className={styles.fact}>
-            <dt className={styles.factLabel}>Stock list</dt>
-            <dd className={styles.factValue}>
-              <Link
-                className={styles.factLink}
-                href={`/lists/${monitor.stockListId}`}
-              >
-                {monitor.stockListName}
-              </Link>
-              <span className={styles.factCount}>
-                {stockCountLabel(monitor.securityCount)}
-              </span>
-            </dd>
-          </div>
-        </dl>
-
-        <div className={styles.cardMeta}>
-          <span
-            className={styles.signalCount}
-            data-tone={monitor.activeSignalCount > 0 ? "active" : undefined}
-          >
-            {activeSignalLabel(monitor.activeSignalCount)}
-          </span>
-          <span>{lastScanLabel(monitor.lastScanAt)}</span>
-        </div>
-
-        {failure ? (
-          <p
-            className={styles.cardError}
-            role="alert"
-            data-testid="monitor-toggle-error"
-          >
-            {failure}
-          </p>
-        ) : null}
-      </div>
-
-      <div className={styles.cardActions}>
+    <span className={styles.rowActions}>
+      <span className={actionStyles.group}>
         <button
           type="button"
-          className={styles.cardAction}
+          className={actionStyles.action}
           data-testid="toggle-monitor"
           disabled={pending}
           onClick={toggle}
         >
           {toggleLabel}
         </button>
-        <button type="button" className={styles.cardAction} onClick={onEdit}>
+        <button type="button" className={actionStyles.action} onClick={onEdit}>
           Edit
         </button>
         <button
           type="button"
-          className={styles.cardActionDanger}
+          className={actionStyles.actionDanger}
           onClick={onDelete}
         >
           Delete
         </button>
-      </div>
-    </li>
+      </span>
+      {failure ? (
+        <span
+          className={styles.rowError}
+          role="alert"
+          data-testid="monitor-toggle-error"
+        >
+          {failure}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -210,100 +147,218 @@ function MonitorCard({
  * than one per monitor. A monitor's Signals are not presented here; that surface is its own slice.
  */
 export function MonitorsPage() {
-  const {
-    status,
-    monitors,
-    retry,
-    applyCreated,
-    applyUpdated,
-    applyDeleted,
-  } = useMonitors();
+  const { status, monitors, retry, applyCreated, applyUpdated, applyDeleted } =
+    useMonitors();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
+  const columns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
+    {
+      key: "monitor",
+      header: "Monitor",
+      cardRole: "identity",
+      render: (monitor) => (
+        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
+          {monitor.name}
+        </Link>
+      ),
+    },
+    {
+      key: "state",
+      header: "State",
+      cardRole: "status",
+      render: (monitor) => (
+        <span className={styles.stateCell}>
+          {/*
+            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
+            for and never changes on its own; the operational status is what the system will
+            actually do with that intent right now. A monitor left over capacity by a downgrade is
+            still enabled — collapsing the two would either claim it is scanning when it is not, or
+            claim the user turned it off when they did not.
+          */}
+          <StatusBadge
+            tone={monitor.enabled ? "positive" : "pending"}
+            testId="monitor-enabled-pill"
+          >
+            {monitor.enabled ? "Enabled" : "Disabled"}
+          </StatusBadge>
+          {monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
+            <StatusBadge
+              tone="blocked"
+              testId="monitor-blocked-pill"
+              title={blockedExplanation(monitor.blockedReason)}
+              {...(monitor.blockedReason
+                ? {
+                    dataAttributes: {
+                      "data-blocked-reason": monitor.blockedReason,
+                    },
+                  }
+                : {})}
+            >
+              Not scanning
+            </StatusBadge>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: "strategy",
+      header: "Strategy",
+      cardRole: "links",
+      render: (monitor) => (
+        <EntityReferenceChip
+          kind="strategy"
+          name={monitor.strategyName}
+          href={`/strategies/${monitor.strategyId}`}
+        />
+      ),
+    },
+    {
+      key: "list",
+      header: "Stock list",
+      cardRole: "links",
+      // The universe size belongs to the list, so it rides with the reference rather than
+      // taking a column of its own — the row already carries as much as 1200px can hold.
+      render: (monitor) => (
+        <span className={styles.listCell}>
+          <EntityReferenceChip
+            kind="list"
+            name={monitor.stockListName}
+            href={`/lists/${monitor.stockListId}`}
+          />
+          <span className={styles.listCount}>
+            {stockCountLabel(monitor.securityCount)}
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: "signals",
+      header: "Active signals",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (monitor) => (
+        <span
+          className={styles.signalCount}
+          data-tone={monitor.activeSignalCount > 0 ? "active" : undefined}
+        >
+          {activeSignalLabel(monitor.activeSignalCount)}
+        </span>
+      ),
+    },
+    {
+      key: "last-scan",
+      header: "Last checked",
+      nowrap: true,
+      render: (monitor) => lastScanLabel(monitor.lastScanAt),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      cardRole: "actions",
+      align: "right",
+      nowrap: true,
+      render: (monitor) => (
+        <MonitorRowActions
+          monitor={monitor}
+          onToggled={applyUpdated}
+          onEdit={() => setDialog({ kind: "edit", monitor })}
+          onDelete={() => setDialog({ kind: "delete", monitor })}
+        />
+      ),
+    },
+  ];
+
   return (
     <PageContainer>
       <div className={styles.page} data-testid="monitors-page">
-        <header className={styles.header}>
-          <div>
-            <h1 className={styles.title}>Monitors</h1>
-            <p className={styles.lead}>
-              Watch a strategy against current market data and collect the
-              signals it produces.
-            </p>
-          </div>
-          {status === "ready" && monitors.length > 0 ? (
-            <button
-              type="button"
-              className={forms.primaryButton}
-              data-testid="new-monitor-button"
-              onClick={() => setDialog({ kind: "create" })}
-            >
-              New monitor
-            </button>
-          ) : null}
-        </header>
+        <PageHeader
+          title="Monitors"
+          lead="Watch a strategy against current market data and collect the signals it produces."
+          actions={
+            status === "ready" && monitors.length > 0 ? (
+              <button
+                type="button"
+                className={forms.primaryButton}
+                data-testid="new-monitor-button"
+                onClick={() => setDialog({ kind: "create" })}
+              >
+                New monitor
+              </button>
+            ) : null
+          }
+        />
 
         {status === "loading" ? (
-          <div className={styles.grid} aria-hidden="true">
-            {[0, 1, 2].map((index) => (
-              <div key={index} className={styles.skeletonCard} />
-            ))}
-          </div>
+          <SectionCard ariaLabel="Loading monitors">
+            <SkeletonList rows={4} />
+          </SectionCard>
         ) : null}
 
         {status === "error" ? (
-          <div className={styles.statusPanel} role="alert">
-            <h2 className={styles.statusTitle}>
-              Your monitors could not be loaded
-            </h2>
-            <p className={styles.statusBody}>
-              This is usually temporary — try again in a moment.
-            </p>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              onClick={retry}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            variant="error"
+            title="Your monitors could not be loaded"
+            body={<p>This is usually temporary — try again in a moment.</p>}
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={retry}
+              >
+                Try again
+              </button>
+            }
+          />
         ) : null}
 
         {status === "ready" && monitors.length === 0 ? (
-          <div className={styles.statusPanel} data-testid="monitors-empty">
-            <h2 className={styles.statusTitle}>No monitors yet</h2>
-            <p className={styles.statusBody}>
-              A monitor watches one strategy over one stock list using current
-              prices, and records a signal whenever a stock matches one of the
-              strategy&apos;s levels. Scanning runs in the background on a fixed
-              schedule, so there is nothing to time yourself — you choose what
-              is watched and whether it is running.
-            </p>
-            <button
-              type="button"
-              className={forms.primaryButton}
-              data-testid="new-monitor-button"
-              onClick={() => setDialog({ kind: "create" })}
-            >
-              Create your first monitor
-            </button>
-          </div>
+          <EmptyState
+            testId="monitors-empty"
+            title="No monitors yet"
+            body={
+              <p>
+                A monitor watches one strategy over one stock list using current
+                prices, and records a signal whenever a stock matches one of the
+                strategy&apos;s levels. Scanning runs in the background on a
+                fixed schedule, so there is nothing to time yourself — you
+                choose what is watched and whether it is running.
+              </p>
+            }
+            actions={
+              <button
+                type="button"
+                className={forms.primaryButton}
+                data-testid="new-monitor-button"
+                onClick={() => setDialog({ kind: "create" })}
+              >
+                Create your first monitor
+              </button>
+            }
+          />
         ) : null}
 
         {status === "ready" && monitors.length > 0 ? (
-          <ul className={styles.grid} data-testid="monitors-grid">
-            {monitors.map((monitor) => (
-              <MonitorCard
-                key={monitor.id}
-                monitor={monitor}
-                onToggled={applyUpdated}
-                onEdit={() => setDialog({ kind: "edit", monitor })}
-                onDelete={() => setDialog({ kind: "delete", monitor })}
-              />
-            ))}
-          </ul>
+          <SectionCard
+            id="monitors"
+            title="Your monitors"
+            aside={`${monitors.length} ${
+              monitors.length === 1 ? "monitor" : "monitors"
+            }`}
+            flush
+          >
+            <DataTable
+              label="Monitors"
+              testId="monitors-grid"
+              rowTestId="monitor-card"
+              columns={columns}
+              rows={monitors}
+              getRowKey={(monitor) => monitor.id}
+              clickableRows
+            />
+          </SectionCard>
         ) : null}
       </div>
 

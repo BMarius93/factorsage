@@ -1,0 +1,42 @@
+.block {
+  display: block;
+  width: 100%;
+  height: 16px;
+  border-radius: var(--radius-surface);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-soft) 0%,
+    var(--color-primary-soft) 50%,
+    var(--color-surface-soft) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.block[data-radius="control"] {
+  border-radius: var(--radius-control);
+}
+
+.block[data-radius="card"] {
+  border-radius: var(--radius-card);
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block {
+    animation: none;
+  }
+}

@@ -9,6 +9,8 @@ import {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import forms from "../../../components/ui/forms.module.css";
 import { useUnsavedChangesGuard } from "../../../components/layout/unsaved-changes";
 import { ApiError } from "../../../lib/api/client";
 import {
@@ -169,15 +171,11 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
     <PageContainer>
       <div className={styles.builder} data-testid="strategy-builder">
         <div className={styles.editor}>
-          <header className={styles.pageHeader}>
-            <h1 className={styles.pageTitle}>
-              {saved ? "Edit strategy" : "New strategy"}
-            </h1>
-            <p className={styles.pageLead}>
-              Buy, sell and final-exit logic. A backtest decides which stocks
-              and how much capital to run it with — a strategy never does.
-            </p>
-          </header>
+          <PageHeader
+            back={{ href: "/strategies", label: "Strategies" }}
+            title={saved ? "Edit strategy" : "New strategy"}
+            lead="Buy, sell and final-exit logic. A backtest decides which stocks and how much capital to run it with — a strategy never does."
+          />
 
           <StrategyDetailsCard
             name={draft.name}
@@ -292,7 +290,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
           {saved && dirty ? (
             <button
               type="button"
-              className={styles.discardButton}
+              className={forms.secondaryButton}
               onClick={() => applyDraft(draftFrom(saved))}
             >
               Discard changes
@@ -300,7 +298,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
           ) : null}
           <button
             type="button"
-            className={styles.saveButton}
+            className={`${forms.primaryButton} ${styles.saveButton}`}
             data-testid="save-strategy"
             disabled={!canSave}
             onClick={save}

@@ -1,29 +1,37 @@
-/* Shared section-card skin for Stock Details panels; components compose these
-   classes so every section keeps identical surface, title, and caption treatment. */
+/* Stock Details panels compose these classes so every section keeps an identical
+   surface, title and caption treatment.
+
+   The values are deliberately the same as `components/ui/SectionCard` — radius, border,
+   elevation and heading scale — so a Stock Details panel and a Monitor or Backtest
+   section read as the same surface. Stock Details keeps its own file because its panels
+   are composed through CSS `composes:` rather than a wrapper component; if that ever
+   changes, these should be deleted in favour of `SectionCard` rather than re-tuned. */
 
 .card {
-  padding: 20px;
+  padding: 18px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-card);
   background: var(--color-surface);
+  box-shadow: var(--shadow-card);
 }
 
 @media (min-width: 880px) {
   .card {
-    padding: 24px;
+    padding: 22px 24px;
   }
 }
 
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .caption {
   margin: 4px 0 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
