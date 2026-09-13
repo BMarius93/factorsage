@@ -66,11 +66,13 @@ export class PasswordResetService {
    * the single source of truth for whether a reset actually happens.
    *
    * A token found expired is cleared here, which is the one thing that can be decided outside the
-   * transaction: an expired token can never become valid again.
+   * transaction: an expired token can never become valid again. The delete is conditional on the
+   * row still being the one that was read — see `deleteIfStillExpired`.
    */
   async hasRedeemableToken(token: string): Promise<boolean> {
+    const tokenHash = hashPasswordResetToken(token);
     const record = await this.prisma.passwordResetToken.findUnique({
-      where: { tokenHash: hashPasswordResetToken(token) },
+      where: { tokenHash },
       select: { id: true, expiresAt: true },
     });
 
@@ -81,7 +83,10 @@ export class PasswordResetService {
       return true;
     }
 
-    await this.prisma.passwordResetToken.deleteMany({ where: { id: record.id } });
+    await deleteIfStillExpired(this.prisma.passwordResetToken, {
+      id: record.id,
+      tokenHash,
+    });
     return false;
   }
 
@@ -123,7 +128,13 @@ export class PasswordResetService {
       }
 
       if (record.expiresAt.getTime() <= Date.now()) {
-        await tx.passwordResetToken.deleteMany({ where: { id: record.id } });
+        // Conditional for the same reason as the cheap path, and the transaction does not make it
+        // unnecessary: at READ COMMITTED the row this statement writes is re-read at write time,
+        // so an issuance that committed since the SELECT above would be what got deleted.
+        await deleteIfStillExpired(tx.passwordResetToken, {
+          id: record.id,
+          tokenHash,
+        });
         return null;
       }
 
@@ -154,4 +165,33 @@ export class PasswordResetService {
       return record.userId;
     });
   }
+}
+
+/** The two delegate methods `deleteIfStillExpired` needs, on the client or on a transaction. */
+type PasswordResetTokenDeleter = {
+  deleteMany(args: {
+    where: { id: string; tokenHash: string; expiresAt: { lte: Date } };
+  }): Promise<{ count: number }>;
+};
+
+/**
+ * Removes an expired token row, but only if it is still the expired row that was read.
+ *
+ * `issueToken` upserts by `userId`, so a new request **reuses the same row**: same `id`, new
+ * `tokenHash`, new `expiresAt`. Deleting by `id` alone would therefore delete whatever now lives
+ * there, and a cleanup acting on a stale read could throw away a link that had just been mailed —
+ * leaving the user holding an email whose token was already gone. Matching the `tokenHash` and
+ * requiring the row to still be expired makes the delete a no-op in exactly that case, without a
+ * lock and without a second round trip.
+ *
+ * Cleanup is opportunistic anyway: nothing depends on it, because one expired row per user is
+ * bounded, replaced by the next issuance and cascaded with the account.
+ */
+function deleteIfStillExpired(
+  tokens: PasswordResetTokenDeleter,
+  row: { id: string; tokenHash: string },
+): Promise<{ count: number }> {
+  return tokens.deleteMany({
+    where: { ...row, expiresAt: { lte: new Date() } },
+  });
 }

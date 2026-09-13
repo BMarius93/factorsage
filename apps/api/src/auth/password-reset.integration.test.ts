@@ -20,7 +20,10 @@ import { PrismaService } from "../database/prisma.service";
 import { EMAIL_SENDER } from "../email/email-sender";
 import { InMemoryEmailSender } from "../email/in-memory-email-sender";
 import { AUTH_LOGGER } from "./auth.tokens";
-import { hashPasswordResetToken } from "./password-reset.service";
+import {
+  hashPasswordResetToken,
+  PasswordResetService,
+} from "./password-reset.service";
 import { PasswordService } from "./password.service";
 
 // Before PrismaService constructs its client during Nest module compilation.
@@ -70,6 +73,7 @@ describe("password recovery", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let passwords: PasswordService;
+  let resets: PasswordResetService;
   const sender = new InMemoryEmailSender();
   const logs = capturingLogger();
 
@@ -95,6 +99,7 @@ describe("password recovery", () => {
     await app.init();
     prisma = moduleRef.get(PrismaService);
     passwords = moduleRef.get(PasswordService);
+    resets = moduleRef.get(PasswordResetService);
   });
 
   afterEach(() => {
@@ -342,6 +347,182 @@ describe("password recovery", () => {
       200, 401,
     ]);
     await login(user.email, oldPassword).expect(401);
+  });
+
+  type RotationRace = {
+    readonly token: () => string;
+    readonly restore: () => void;
+  };
+
+  function rotationRace(issued: () => string | null, restore: () => void): RotationRace {
+    return {
+      token: () => {
+        const value = issued();
+        expect(value).toBeTruthy();
+        return value ?? "";
+      },
+      restore,
+    };
+  }
+
+  /**
+   * Issues a fresh link for `userId` the first time the stale row is read, and reports its token.
+   *
+   * `issueToken` upserts by `userId`, so this reuses the very row the caller just read as
+   * expired — same `id`, new `tokenHash`, new `expiresAt`. That is the collision the cleanup has
+   * to survive, and it cannot be produced on demand by racing two real requests.
+   *
+   * The seam is the service's own reference to Prisma, swapped for a forwarder. Spying on a
+   * Prisma delegate method would not work here: `findUnique` is resolved through the delegate's
+   * proxy rather than being an own property, so `vi.spyOn` reads `undefined` as the original and
+   * restoring writes that back, breaking the client for every later test in the file.
+   */
+  function rotateOnNextStaleRead(userId: string): RotationRace {
+    let issued: string | null = null;
+    const holder = resets as unknown as { prisma: PrismaService };
+    const real = holder.prisma;
+    const tokens = real.passwordResetToken;
+
+    holder.prisma = {
+      $transaction: real.$transaction.bind(real),
+      passwordResetToken: {
+        upsert: (args: never) => tokens.upsert(args),
+        deleteMany: (args: never) => tokens.deleteMany(args),
+        findUnique: async (args: never) => {
+          const record = await tokens.findUnique(args);
+          if (record && issued === null) {
+            issued = (await resets.issueToken(userId)).token;
+          }
+          return record;
+        },
+      },
+    } as unknown as PrismaService;
+
+    return rotationRace(
+      () => issued,
+      () => {
+        holder.prisma = real;
+      },
+    );
+  }
+
+  type TransactionCallback = (tx: unknown) => Promise<unknown>;
+
+  /**
+   * The same interleave, but inside the redemption transaction.
+   *
+   * The real transaction still runs against PostgreSQL; only the moment between its read of the
+   * expired row and its cleanup is widened, by issuing a new link on the ordinary client — a
+   * separate connection, which commits independently because the transaction holds no lock on
+   * that row.
+   */
+  function rotateStaleReadInsideTheTransaction(userId: string): RotationRace {
+    let issued: string | null = null;
+    const runTransaction = prisma.$transaction.bind(prisma) as (
+      callback: TransactionCallback,
+    ) => Promise<unknown>;
+
+    vi.spyOn(prisma, "$transaction").mockImplementation(((
+      callback: TransactionCallback,
+    ) =>
+      runTransaction(async (tx) => {
+        const scoped = tx as {
+          passwordResetToken: {
+            findUnique: (args: unknown) => Promise<unknown>;
+            deleteMany: (args: unknown) => Promise<unknown>;
+          };
+          user: unknown;
+          emailVerificationToken: unknown;
+        };
+
+        return callback({
+          passwordResetToken: {
+            findUnique: async (args: unknown) => {
+              const record = await scoped.passwordResetToken.findUnique(args);
+              if (record && issued === null) {
+                issued = (await resets.issueToken(userId)).token;
+              }
+              return record;
+            },
+            deleteMany: (args: unknown) =>
+              scoped.passwordResetToken.deleteMany(args),
+          },
+          user: scoped.user,
+          emailVerificationToken: scoped.emailVerificationToken,
+        });
+      })) as never);
+
+    return rotationRace(
+      () => issued,
+      () => {
+        vi.restoreAllMocks();
+      },
+    );
+  }
+
+  it("does not delete a link issued between the stale read and the cheap cleanup", async () => {
+    const user = await localUser("reset-cleanup-race");
+    await forgot(user.email).expect(202);
+    const stale = tokenFromLastEmail(sender);
+    await prisma.passwordResetToken.update({
+      where: { userId: user.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const rotation = rotateOnNextStaleRead(user.id);
+    try {
+      await reset(stale, newPassword).expect(401);
+    } finally {
+      rotation.restore();
+    }
+
+    // The cleanup acted on a row that had already become somebody else's: deleting by id alone
+    // would have thrown away the link the user was just emailed.
+    const survivor = await prisma.passwordResetToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor).not.toBeNull();
+    expect(survivor?.tokenHash).toBe(hashPasswordResetToken(rotation.token()));
+
+    // And the new link is not merely present, it still works.
+    await reset(rotation.token(), newPassword).expect(200);
+    await login(user.email, newPassword).expect(200);
+    await login(user.email, oldPassword).expect(401);
+  });
+
+  it("does not delete a link issued between the stale read and the transactional cleanup", async () => {
+    const user = await localUser("reset-cleanup-race-tx");
+    await forgot(user.email).expect(202);
+    const stale = tokenFromLastEmail(sender);
+
+    // The token is still valid, so the cheap guard admits it; it expires during the hash, which
+    // is the only way the transaction's own expired branch is ever reached.
+    const argon2id = passwords.hash.bind(passwords);
+    vi.spyOn(passwords, "hash").mockImplementation(async (password: string) => {
+      await prisma.passwordResetToken.updateMany({
+        where: { userId: user.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      return argon2id(password);
+    });
+    const rotation = rotateStaleReadInsideTheTransaction(user.id);
+
+    try {
+      await reset(stale, newPassword).expect(401);
+    } finally {
+      rotation.restore();
+    }
+
+    // A transaction is not a lock: at READ COMMITTED the delete would have re-read the row and
+    // removed the freshly issued link.
+    const survivor = await prisma.passwordResetToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor).not.toBeNull();
+    expect(survivor?.tokenHash).toBe(hashPasswordResetToken(rotation.token()));
+
+    await reset(rotation.token(), newPassword).expect(200);
+    await login(user.email, newPassword).expect(200);
   });
 
   it("defers to the transaction when the token is consumed while the hash is in flight", async () => {

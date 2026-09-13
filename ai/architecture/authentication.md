@@ -259,6 +259,13 @@ Redemption runs cheap-first:
 1. SHA-256 the submitted token and look it up on the unique `tokenHash` index.
 2. If no unexpired row matches, reject. An expired row is cleared on the way out — expiry is the
    one verdict that needs no transaction, because an expired token can never become valid again.
+   That cleanup is conditional on the row still carrying the `tokenHash` that was read and still
+   being expired: `issueToken` upserts by `userId`, so a new request reuses the same row, and a
+   delete by `id` alone could throw away a link that had just been mailed. The same condition
+   guards the expired branch inside the transaction, which needs it for the same reason — at
+   READ COMMITTED a statement re-reads the row it writes, so being inside a transaction is not
+   being holder of a lock. Nothing depends on the cleanup: one expired row per user is bounded,
+   replaced by the next issuance and cascaded with the account.
 3. Only then compute the Argon2id hash, which happens outside the transaction because Argon2id is
    deliberately slow and a transaction must not be held open across it.
 4. Redeem inside the transaction, which re-reads the row and re-checks everything step 1 checked.
