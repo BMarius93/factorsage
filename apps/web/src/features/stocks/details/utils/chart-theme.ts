@@ -18,6 +18,16 @@ export const CHART_COLORS = {
    * the reading without competing with the data lines.
    */
   oscillatorReference: "#b9c6e8",
+  /**
+   * The segment that would otherwise bridge a gap in an overlay.
+   *
+   * Lightweight Charts drops whitespace rows before rendering a line, so whitespace alone extends
+   * the time scale but does not break the line — the points on either side of an unavailable
+   * interval are still joined. A data point's own colour styles the segment that *leaves* it, so
+   * painting the last point before a gap in a fully transparent colour is what actually removes
+   * the bridge, and only that one segment.
+   */
+  overlayGap: "rgba(0, 0, 0, 0)",
 } as const;
 
 /**

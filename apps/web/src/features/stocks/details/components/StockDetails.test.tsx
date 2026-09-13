@@ -35,8 +35,20 @@ vi.mock("./StockPriceChart", () => ({
       data-point-count={props.points.length}
       data-first-date={props.points[0]?.date ?? ""}
       data-last-date={props.points.at(-1)?.date ?? ""}
+      // Real observations only. A whitespace point — a trading day the series has no value for —
+      // is counted separately below, because the two mean opposite things: one is data, the other
+      // is the explicit absence that keeps the line broken instead of drawn through.
       data-overlays={props.overlays
-        .map((overlay) => `${overlay.id}:${overlay.points.length}`)
+        .map(
+          (overlay) =>
+            `${overlay.id}:${overlay.points.filter((point) => point.value !== undefined).length}`,
+        )
+        .join(",")}
+      data-overlay-gaps={props.overlays
+        .map(
+          (overlay) =>
+            `${overlay.id}:${overlay.points.filter((point) => point.value === undefined).length}`,
+        )
         .join(",")}
       data-overlay-labels={props.overlays
         .map((overlay) => overlay.label)
@@ -603,6 +615,91 @@ describe("StockDetails", () => {
     await waitFor(() => expect(chart().dataset.pointCount).toBe("7"));
     expect(chart().dataset.firstDate).toBe("2023-09-01");
     expect(chart().dataset.historyExhausted).toBe("false");
+  });
+
+  it("does not accept a window whose overlays failed, and recovers the whole window on retry", async () => {
+    // Regression, and the reason a partial window is now refused outright. The overlay reads used
+    // to degrade to `[]` on failure while the watermark advanced anyway: the interval counted as
+    // loaded, `requestFrom` refused to ask for it again, and every overlay kept a hole there for
+    // the rest of the session. Now that an uncovered interior day is drawn as a *gap*, accepting
+    // half a window would additionally render "the fetch failed" as "the model was not calculable
+    // here" — a false statement about the company, not just a missing line.
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    fetchDailyPriceHistoryMock.mockResolvedValue([
+      bar("2024-09-03", 120),
+      bar("2025-03-03", 130),
+    ]);
+    fetchIntrinsicValueBlendHistoryMock
+      .mockRejectedValueOnce(new Error("intrinsic blends unavailable"))
+      .mockResolvedValue([
+        {
+          valuationDate: "2024-09-03",
+          sourceDataAsOf: "2024-09-02T22:00:00.000Z",
+          blendId: "BALANCED",
+          valuePerShare: 130,
+          currency: "USD",
+        },
+      ]);
+    const user = setupUser();
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+    const before = chart().dataset.pointCount;
+
+    await user.click(screen.getByTestId("pan-past-edge"));
+
+    // Nothing from the failed window was applied — not even the prices, which did arrive.
+    await screen.findByRole("alert");
+    expect(chart().dataset.pointCount).toBe(before);
+
+    const firstAsk = fetchDailyPriceHistoryMock.mock.calls.at(-1)?.[1];
+    await user.click(screen.getByRole("button", { name: /Try again/ }));
+
+    await waitFor(() =>
+      expect(chart().dataset.pointCount).not.toBe(before),
+    );
+    // Retry asked for the identical interval: the watermark never moved past the failure.
+    expect(fetchDailyPriceHistoryMock.mock.calls.at(-1)?.[1]).toEqual(firstAsk);
+    expect(screen.queryByRole("alert")).toBeNull();
+    // The overlay regained the value from the window that had failed — two points before the
+    // pan, three after the retry. Under the old behaviour the failed window was recorded as
+    // loaded, so this point could never arrive at all. (The remaining whitespace is the shared
+    // fixture's own genuine absence on the bars in between, which is exactly what it should be.)
+    expect(chart().dataset.overlays).toContain("BALANCED:3");
+  });
+
+  it("draws a genuinely unavailable interval as a gap instead of joining across it", async () => {
+    // The AMZN report that started this: Balanced was materialized until its DCF component became
+    // unavailable, and the chart drew one straight diagonal from the last value to the next one
+    // years later. The uncovered trading days must reach the chart as whitespace.
+    const details = detailsFixture();
+    fetchStockDetailsMock.mockResolvedValue({
+      ...details,
+      intrinsicValueBlends: [
+        {
+          valuationDate: "2025-09-02",
+          sourceDataAsOf: "2025-09-01T22:00:00.000Z",
+          blendId: "BALANCED",
+          valuePerShare: 240,
+          currency: "USD",
+        },
+        // 2026-03-02, 2026-06-02 and 2026-07-30 are trading days with no Balanced value: the
+        // blend was not calculable there. They must be whitespace, not a joined segment.
+        {
+          valuationDate: "2026-08-27",
+          sourceDataAsOf: "2026-08-26T22:00:00.000Z",
+          blendId: "BALANCED",
+          valuePerShare: 290,
+          currency: "USD",
+        },
+      ],
+    });
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByTestId("price-chart");
+
+    expect(chart().dataset.overlays).toContain("BALANCED:2");
+    expect(chart().dataset.overlayGaps).toContain("BALANCED:3");
   });
 
   it("extends the enabled overlays with the newly loaded history", async () => {

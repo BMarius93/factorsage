@@ -85,8 +85,11 @@ export type StockHistoryState = {
  * response into a fake listing date. An empty window still advances `loadedFrom`, so it is never
  * asked for again; the next gesture asks for the next older window, until the boundary.
  *
- * Prices are required. The technical and intrinsic reads degrade to empty on failure, because a
- * price chart without overlays is still a working chart.
+ * A window is loaded completely or not at all. Prices, technicals, intrinsic models and intrinsic
+ * blends are all required: a window whose overlays did not arrive is not a loaded window, and
+ * recording it as one is what used to turn one failed request into a permanent hole in every
+ * overlay. On failure nothing is merged and the watermark does not move, so `retry` asks for the
+ * identical interval and the chart keeps drawing everything it already had.
  */
 export function useStockHistory(input: {
   readonly symbol: string;
@@ -133,26 +136,27 @@ export function useStockHistory(input: {
         from,
         to: shiftLocalDateDays(loadedFromRef.current, -1),
       };
-      const optional = <T>(request: Promise<T[]>): Promise<T[]> =>
-        request.catch(() => []);
-
+      // Every family of the window is required, and the window is applied all-or-nothing.
+      //
+      // The technical and intrinsic reads used to degrade to `[]` on failure while the watermark
+      // advanced anyway, which made a transient error permanent: the interval counted as loaded,
+      // `requestFrom` refused to ask for it again, and the overlays kept a hole for the rest of
+      // the session. With the chart now drawing an uncovered interior day as a *gap*, applying a
+      // half-loaded window would be worse still — it would render "we failed to fetch this" as
+      // "the model was not calculable here", which is a different and false statement about the
+      // company. So a failed family fails the whole window, nothing is merged, the watermark
+      // stays put, and the existing retry asks for exactly the same interval again.
       Promise.all([
         fetchDailyPriceHistory(symbol, window, { signal: controller.signal }),
-        optional(
-          fetchDailyTechnicalHistory(symbol, window, {
-            signal: controller.signal,
-          }),
-        ),
-        optional(
-          fetchIntrinsicValueBlendHistory(symbol, window, CATALOG_BLEND_IDS, {
-            signal: controller.signal,
-          }),
-        ),
-        optional(
-          fetchIntrinsicValueHistory(symbol, window, CATALOG_MODELS, {
-            signal: controller.signal,
-          }),
-        ),
+        fetchDailyTechnicalHistory(symbol, window, {
+          signal: controller.signal,
+        }),
+        fetchIntrinsicValueBlendHistory(symbol, window, CATALOG_BLEND_IDS, {
+          signal: controller.signal,
+        }),
+        fetchIntrinsicValueHistory(symbol, window, CATALOG_MODELS, {
+          signal: controller.signal,
+        }),
       ])
         .then(([prices, technicals, intrinsicValueBlends, intrinsicValues]) => {
           if (!mountedRef.current || controller.signal.aborted) {

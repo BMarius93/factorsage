@@ -13,6 +13,7 @@ import { priceRetentionYears, subtractYears } from "@intrinsic/stock-data";
 import { describe, expect, it } from "vitest";
 import {
   qaIntrinsicFixture,
+  qaIntrinsicWindows,
   qaTradingDays,
   seedHistoryStart,
 } from "./seed-qa-stock-data";
@@ -35,6 +36,27 @@ describe("QA stock-data seed", () => {
   });
   const rows = buildDailyDerivedState({ prices, weeklyBars });
   const lastRow = rows.at(-1)!;
+
+  it("leaves a genuinely unavailable interval between two calculable stretches", () => {
+    // The browser suite needs an *interior* unavailable window to assert that the chart breaks the
+    // line rather than drawing a straight segment across it. A leading warm-up cannot show that:
+    // nothing is drawn before a series' first value either way. Proven here so the property is not
+    // only a browser run's assumption.
+    const windows = qaIntrinsicWindows(prices);
+    expect(windows.valuationStart < windows.unavailableFrom).toBe(true);
+    expect(windows.unavailableFrom < windows.unavailableUntil).toBe(true);
+    expect(windows.unavailableUntil < prices.at(-1)!.date).toBe(true);
+
+    const calculable = prices.filter(
+      (price) => !windows.notCalculable(price.date),
+    );
+    // Calculable on both sides of the hole, and absent strictly inside it.
+    expect(windows.notCalculable(windows.valuationStart)).toBe(false);
+    expect(windows.notCalculable(windows.unavailableFrom)).toBe(true);
+    expect(windows.notCalculable(windows.unavailableUntil)).toBe(false);
+    expect(calculable.length).toBeGreaterThan(0);
+    expect(calculable.length).toBeLessThan(prices.length);
+  });
 
   it("produces a deterministic Monday-Friday history that reruns identically", () => {
     expect(qaTradingDays(SECURITY_ID, TODAY)).toEqual(prices);

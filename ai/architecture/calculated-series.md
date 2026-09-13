@@ -296,7 +296,39 @@ deferred.
   enter the selection.
 - `utils/chart-theme.ts` — `overlayColorAt` assigns colour by position within the enabled set,
   spanning both panes so simultaneously enabled series stay distinct. Colour is deliberately
-  **not** part of series identity.
+  **not** part of series identity. It also owns `CHART_COLORS.overlayGap`, the fully transparent
+  colour that renders an unavailable interval (below).
+- **Unavailable intervals are rendered as gaps.** `alignToTradingDays` in `utils/series-catalog.ts`
+  aligns every overlay to the close series' trading-day axis, so an interior day the series has no
+  value for becomes a `ChartLinePoint` with no `value`. That is the whole difference between "the
+  model was not calculable here" and "the value did not change": intrinsic models and blends are
+  carried forward onto *every* trading day, so an interior hole is absence, never sparseness.
+
+  Two mechanisms are needed because one is not enough. Lightweight Charts **filters whitespace rows
+  out before rendering a line** (`seriesRows.filter(isSeriesPlotRow)`), so whitespace alone extends
+  the time scale but still leaves the values on either side of a gap joined by one straight
+  segment. What actually removes that segment is the per-point colour: a data point's colour styles
+  the segment *leaving* it, so `StockPriceChart.overlayLineData` paints the last real point before
+  a gap in `CHART_COLORS.overlayGap` and every other segment keeps the overlay's colour. The chart
+  publishes the result as `data-series-gaps` for browser tests, beside the viewport attributes.
+
+  This was the defect behind the original report: `AMZN`'s `Balanced` was drawn as one diagonal
+  across the 442 trading days its DCF component was not calculable, and `AAPL`'s `DDM` as a single
+  straight line across the 1996-2012 dividend suspension — both inventing intrinsic values the
+  backend had deliberately not materialized. Moving averages and oscillators pass through
+  unchanged; they are continuous after warm-up and must never be stepped.
+- **Number formatting belongs to the series, not the chart.** A chart-level
+  `localization.priceFormatter` is applied in preference to every series' own `priceFormat`, which
+  rendered the unitless oscillator pane's axis as currency (`$64.87` for an RSI of 64.9). The price
+  series and the price-scaled overlays each carry a money formatter and the oscillators keep their
+  unitless one, so each pane's axis and crosshair label follow the series drawn in it.
+- **A history window is applied all-or-nothing.** `hooks/use-stock-history.ts` requires prices,
+  technicals, intrinsic models and intrinsic blends together. The overlay reads previously degraded
+  to `[]` on failure while the loaded-from watermark advanced anyway, so one transient error became
+  a permanent hole: the interval counted as loaded and `requestFrom` refused to ask again. Now a
+  failed family fails the window, nothing is merged, the watermark stays put, and `retry` asks for
+  the identical interval — which also keeps a fetch failure from being drawn as an unavailable
+  interval, a different and false statement about the company.
 - `utils/valuation.ts` — the summary derives identities, ordering and labels from
   `INTRINSIC_VALUE_BLEND_OPTIONS` / `INTRINSIC_VALUE_MODEL_OPTIONS`.
 - Price-scaled catalog series are drawn as **overlays on the price chart**. Oscillators are

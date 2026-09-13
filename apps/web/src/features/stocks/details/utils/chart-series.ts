@@ -15,6 +15,20 @@ export type ChartPoint = {
 };
 
 /**
+ * One point of a drawn line, where `value` may be absent.
+ *
+ * An absent value is *whitespace* in Lightweight Charts terms: the date exists on the time scale
+ * but the series has no observation for it, and the line is broken rather than drawn through it.
+ * That distinction is the difference between "this model was not calculable on these days" and
+ * "these days do not exist", and it is what keeps a genuine unavailable interval from being
+ * rendered as an invented straight line between the values on either side of it.
+ */
+export type ChartLinePoint = {
+  date: string;
+  value?: number;
+};
+
+/**
  * Where an enabled series is drawn. Price-scaled series overlay the price pane; a unitless
  * oscillator is never drawn over the price scale and goes to the shared lower oscillator pane.
  */
@@ -32,7 +46,11 @@ export type ChartOverlaySeries = {
    * Absent for price overlays, which share the price scale.
    */
   scale?: { min: number; max: number };
-  points: readonly ChartPoint[];
+  /**
+   * The line, aligned to the chart's trading-day axis. Interior days the series has no value for
+   * are present as whitespace so the gap stays a gap; see `ChartLinePoint`.
+   */
+  points: readonly ChartLinePoint[];
 };
 
 export function closeSeries(
