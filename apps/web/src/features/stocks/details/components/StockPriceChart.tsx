@@ -13,7 +13,11 @@ import {
   type Time,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
-import type { ChartOverlaySeries, ChartPoint } from "../utils/chart-series";
+import type {
+  ChartLinePoint,
+  ChartOverlaySeries,
+  ChartPoint,
+} from "../utils/chart-series";
 import { CHART_COLORS } from "../utils/chart-theme";
 import { formatLocalDate, formatMoney } from "../utils/format";
 import { HISTORY_EDGE_TRIGGER_BARS } from "../utils/history-window";
@@ -40,6 +44,40 @@ const OSCILLATOR_REFERENCE_LEVELS = [
   { price: 50, title: "50" },
   { price: 70, title: "Overbought 70" },
 ] as const;
+
+/**
+ * Series data for one overlay, with its unavailable intervals actually broken.
+ *
+ * Two things happen here, because the library needs both:
+ *
+ * - A day with no value is emitted as **whitespace** (`{ time }` alone). That keeps the date on
+ *   the series' own time scale and is the library's representation of "no observation here".
+ * - The last real point *before* a gap is painted in a fully transparent colour. This is the part
+ *   that removes the line, because Lightweight Charts filters whitespace rows out before
+ *   rendering and would otherwise join the values on either side of the gap with one straight
+ *   segment — the invented diagonal this whole behaviour exists to prevent. A point's colour
+ *   styles the segment leaving it, so exactly the bridging segment disappears and every other
+ *   segment keeps the overlay's own colour.
+ */
+function overlayLineData(points: readonly ChartLinePoint[]) {
+  return points.map((point, index) => {
+    if (point.value === undefined) {
+      return { time: point.date as Time };
+    }
+    // `points[index + 1]?.value === undefined` would be true for the *last* point too, and
+    // colouring that one transparent would erase the final segment of every overlay. The
+    // successor has to exist and be whitespace.
+    const next = points[index + 1];
+    const bridgesAGap = next !== undefined && next.value === undefined;
+    return bridgesAGap
+      ? {
+          time: point.date as Time,
+          value: point.value,
+          color: CHART_COLORS.overlayGap,
+        }
+      : { time: point.date as Time, value: point.value };
+  });
+}
 
 /** An oscillator is unitless: legend and hover values never read as money. */
 function formatOscillatorValue(value: number): string {
@@ -135,6 +173,13 @@ export function StockPriceChart({
   const chartRef = useRef<IChartApi | null>(null);
   const priceSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
   const overlaySeriesRef = useRef(new Map<string, ISeriesApi<"Line">>());
+  /** Overlay ids drawn on the price scale, so a currency change re-formats exactly those. */
+  const priceScaledOverlaysRef = useRef(new Set<string>());
+  const currencyRef = useRef(currency);
+  /** One stable money formatter; it reads the live currency rather than being recreated. */
+  const moneyFormatterRef = useRef((value: number) =>
+    formatMoney(value, currencyRef.current),
+  );
   // The one set of oscillator reference lines, attached to the canonically first oscillator
   // series. Tracking the owner is what keeps repeated toggling from duplicating the levels.
   const oscillatorReferenceRef = useRef<{
@@ -211,6 +256,12 @@ export function StockPriceChart({
       bottomColor: CHART_COLORS.priceAreaBottom,
       lineWidth: 2,
       priceLineVisible: false,
+      // Money formatting belongs to the series, never to the chart. A chart-level
+      // `localization.priceFormatter` wins over every series' own `priceFormat`
+      // unconditionally, which rendered the unitless oscillator pane's axis as currency —
+      // `$64.87` for an RSI reading of 64.9. Each pane's axis now takes its format from the
+      // series drawn in it, so price is money and the oscillator stays unitless.
+      priceFormat: { type: "custom", formatter: moneyFormatterRef.current },
     });
 
     const onCrosshairMove = (param: MouseEventParams<Time>) => {
@@ -301,6 +352,7 @@ export function StockPriceChart({
     chartRef.current = chart;
     priceSeriesRef.current = priceSeries;
     const overlaySeries = overlaySeriesRef.current;
+    const priceScaledOverlays = priceScaledOverlaysRef.current;
 
     return () => {
       // chart.remove() disposes every series, pane, price line and subscription the instance
@@ -313,6 +365,7 @@ export function StockPriceChart({
       chartRef.current = null;
       priceSeriesRef.current = null;
       overlaySeries.clear();
+      priceScaledOverlays.clear();
       oscillatorReferenceRef.current = null;
       // Framing and the oldest drawn bar describe *this* chart instance. A replacement instance
       // has neither, and carrying them over would leave the new chart unframed at whatever bar
@@ -322,12 +375,20 @@ export function StockPriceChart({
     };
   }, []);
 
+  // The money formatter reads the current currency through a ref so the series options hold one
+  // stable function: re-creating it on every render would rewrite every series' price format.
   useEffect(() => {
-    chartRef.current?.applyOptions({
-      localization: {
-        priceFormatter: (value: number) => formatMoney(value, currency),
-      },
-    });
+    currencyRef.current = currency;
+    const priceFormat = {
+      type: "custom" as const,
+      formatter: moneyFormatterRef.current,
+    };
+    priceSeriesRef.current?.applyOptions({ priceFormat });
+    for (const [id, series] of overlaySeriesRef.current) {
+      if (priceScaledOverlaysRef.current.has(id)) {
+        series.applyOptions({ priceFormat });
+      }
+    }
   }, [currency]);
 
   useEffect(() => {
@@ -400,6 +461,7 @@ export function StockPriceChart({
         }
         chart.removeSeries(series);
         existing.delete(id);
+        priceScaledOverlaysRef.current.delete(id);
       }
     }
     for (const overlay of overlays) {
@@ -436,19 +498,21 @@ export function StockPriceChart({
                 lineWidth: 2,
                 priceLineVisible: false,
                 lastValueVisible: false,
+                priceFormat: {
+                  type: "custom",
+                  formatter: moneyFormatterRef.current,
+                },
               });
         existing.set(overlay.id, series);
+        if (overlay.placement !== "OSCILLATOR_PANE") {
+          priceScaledOverlaysRef.current.add(overlay.id);
+        }
       } else {
         // Overlay colour is assigned by position within the enabled set, so a reused series can
         // legitimately change colour when another overlay is added or removed.
         series.applyOptions({ color: overlay.color });
       }
-      series.setData(
-        overlay.points.map((point) => ({
-          time: point.date as Time,
-          value: point.value,
-        })),
-      );
+      series.setData(overlayLineData(overlay.points));
     }
 
     // One set of 30/50/70 reference levels per pane, owned by the canonically first oscillator
@@ -495,6 +559,15 @@ export function StockPriceChart({
   const hasOscillatorPane = overlays.some(
     (overlay) => overlay.placement === "OSCILLATOR_PANE",
   );
+  // Gaps live on the canvas like the viewport does, so they are published the same way: this is
+  // how a browser test tells "the model was unavailable across this interval, and the line is
+  // broken there" from "the line was drawn straight through it".
+  const seriesGaps = overlays
+    .map(
+      (overlay) =>
+        `${overlay.id}:${overlay.points.filter((point) => point.value === undefined).length}`,
+    )
+    .join(",");
 
   return (
     <div
@@ -509,6 +582,7 @@ export function StockPriceChart({
       data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
       // The reference levels are drawn on canvas, so this is the DOM-visible contract the
       // browser tests assert them through.
+      data-series-gaps={overlays.length > 0 ? seriesGaps : undefined}
       data-oscillator-levels={
         hasOscillatorPane
           ? OSCILLATOR_REFERENCE_LEVELS.map((level) => level.price).join(",")

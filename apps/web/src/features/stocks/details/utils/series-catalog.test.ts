@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 import { OVERLAY_PALETTE, overlayColorAt } from "./chart-theme";
 import {
+  alignToTradingDays,
   availableSeriesIds,
   buildOverlays,
   DEFAULT_SELECTED_SERIES,
@@ -40,6 +41,9 @@ const SOURCE: SeriesSource = {
 };
 
 
+/** The chart's trading-day axis for `SOURCE`: the close series' own dates. */
+const TRADING_DAYS = ["2026-08-27", "2026-08-28"];
+
 function series(id: SelectableSeriesId) {
   return SELECTABLE_SERIES_CATALOG.find((entry) => entry.id === id)!;
 }
@@ -67,6 +71,7 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["RSI_7D", "SMA_50D"]),
+      TRADING_DAYS,
     );
     expect(overlays.map((overlay) => [overlay.id, overlay.placement])).toEqual([
       ["SMA_50D", "PRICE_OVERLAY"],
@@ -151,6 +156,7 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       SOURCE,
       new Set<SelectableSeriesId>(["DCF_FCFF", "SMA_20W", "SMA_50D"]),
+      TRADING_DAYS,
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual([
@@ -175,9 +181,137 @@ describe("series catalog projection", () => {
     const overlays = buildOverlays(
       { ...SOURCE, blends: [] },
       new Set<SelectableSeriesId>(["SMA_50D", "BALANCED"]),
+      TRADING_DAYS,
     );
 
     expect(overlays.map((overlay) => overlay.id)).toEqual(["SMA_50D"]);
+  });
+
+  describe("genuine unavailability stays a gap", () => {
+    // Regression: intrinsic models and blends are materialized onto *every* trading day by
+    // carry-forward, so a trading day the response does not cover is the backend stating the
+    // model was not calculable that day. Handing Lightweight Charts only the covered days made it
+    // join them with a straight segment — AMZN's Balanced blend was drawn as one diagonal across
+    // the 442 trading days its DCF component was unavailable, and AAPL's DDM as a fifteen-year
+    // diagonal across the 1996-2012 dividend suspension. Whitespace is what breaks the line.
+    const axis = ["2026-01-02", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"];
+
+    it("marks an interior unavailable day as whitespace rather than joining across it", () => {
+      expect(
+        alignToTradingDays(
+          [
+            { date: "2026-01-02", value: 100 },
+            { date: "2026-01-05", value: 100 },
+            { date: "2026-01-08", value: 60 },
+          ],
+          axis,
+        ),
+      ).toEqual([
+        { date: "2026-01-02", value: 100 },
+        { date: "2026-01-05", value: 100 },
+        { date: "2026-01-06" },
+        { date: "2026-01-07" },
+        { date: "2026-01-08", value: 60 },
+      ]);
+    });
+
+    it("leaves a continuous series untouched, so a moving average never becomes stepped", () => {
+      const continuous = axis.map((date, index) => ({ date, value: 10 + index }));
+      expect(alignToTradingDays(continuous, axis)).toEqual(continuous);
+    });
+
+    it("adds no whitespace for warm-up before the first value or absence after the last", () => {
+      // Leading absence is warm-up or pre-eligibility and trailing absence is a source that has
+      // become unavailable. Neither draws anything, so neither needs a marker — and padding them
+      // would make every series as long as the whole axis for no visual difference.
+      expect(
+        alignToTradingDays(
+          [
+            { date: "2026-01-05", value: 5 },
+            { date: "2026-01-06", value: 6 },
+          ],
+          axis,
+        ),
+      ).toEqual([
+        { date: "2026-01-05", value: 5 },
+        { date: "2026-01-06", value: 6 },
+      ]);
+    });
+
+    it("keeps an observation the price axis does not carry instead of dropping it", () => {
+      expect(
+        alignToTradingDays(
+          [
+            { date: "2026-01-02", value: 1 },
+            { date: "2026-01-03", value: 2 },
+            { date: "2026-01-05", value: 3 },
+          ],
+          axis,
+        ),
+      ).toEqual([
+        { date: "2026-01-02", value: 1 },
+        { date: "2026-01-03", value: 2 },
+        { date: "2026-01-05", value: 3 },
+      ]);
+    });
+
+    it("aligns every catalog family the same way, with no per-family special case", () => {
+      // The whole catalog, enumerated at runtime: a new entry is covered without editing this.
+      const gapped: SeriesSource = {
+        technicals: [
+          { date: "2026-01-02", sma50d: 1, sma20w: 1, rsi7d: 50 },
+          { date: "2026-01-08", sma50d: 2, sma20w: 2, rsi7d: 60 },
+        ],
+        blends: ["BALANCED", "CONSERVATIVE", "DIVIDEND"].flatMap((blendId) =>
+          ["2026-01-02", "2026-01-08"].map((valuationDate) => ({
+            valuationDate,
+            sourceDataAsOf: "2026-01-01T22:00:00.000Z",
+            blendId: blendId as never,
+            valuePerShare: 10,
+            currency: "USD",
+          })),
+        ),
+        intrinsicValues: ["DCF_FCFF", "RESIDUAL_INCOME", "DDM", "GRAHAM"].flatMap(
+          (model) =>
+            ["2026-01-02", "2026-01-08"].map((valuationDate) => ({
+              valuationDate,
+              sourceDataAsOf: "2026-01-01T22:00:00.000Z",
+              model: model as never,
+              valuePerShare: 20,
+              currency: "USD",
+            })),
+        ),
+      };
+      const drawable = SELECTABLE_SERIES_CATALOG.filter(
+        (entry) => seriesPoints(gapped, entry).length > 0,
+      );
+      // Every family of the catalog is represented, so this is not a one-family assertion.
+      expect(
+        new Set(drawable.map((entry) => entry.source.kind)),
+      ).toEqual(
+        new Set([
+          "MOVING_AVERAGE",
+          "OSCILLATOR",
+          "INTRINSIC_VALUE_BLEND",
+          "INTRINSIC_VALUE_MODEL",
+        ]),
+      );
+      const overlays = buildOverlays(
+        gapped,
+        new Set(drawable.map((entry) => entry.id)),
+        axis,
+      );
+      expect(overlays).toHaveLength(drawable.length);
+      for (const overlay of overlays) {
+        expect(
+          overlay.points.filter((point) => point.value === undefined),
+        ).toEqual([
+          { date: "2026-01-05" },
+          { date: "2026-01-06" },
+          { date: "2026-01-07" },
+        ]);
+      }
+    });
   });
 
   it("keeps a full palette of distinct hues for simultaneous overlays", () => {

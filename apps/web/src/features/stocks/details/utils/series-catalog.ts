@@ -12,6 +12,7 @@ import {
   blendSeries,
   intrinsicModelSeries,
   technicalSeries,
+  type ChartLinePoint,
   type ChartOverlaySeries,
   type ChartPoint,
 } from "./chart-series";
@@ -93,6 +94,8 @@ export function availableSeriesIds(
 export function buildOverlays(
   source: SeriesSource,
   selected: ReadonlySet<SelectableSeriesId>,
+  /** The chart's trading-day axis, ascending — the dates of the always-visible close series. */
+  tradingDays: readonly string[],
 ): ChartOverlaySeries[] {
   const enabled = SELECTABLE_SERIES_CATALOG.filter((series) =>
     selected.has(series.id),
@@ -112,8 +115,58 @@ export function buildOverlays(
                   scale: { ...series.source.range },
                 }
               : { placement: "PRICE_OVERLAY" as const }),
-            points,
+            points: alignToTradingDays(points, tradingDays),
           },
         ];
   });
+}
+
+/**
+ * Aligns one series to the chart's trading-day axis, marking the days it has no value for.
+ *
+ * Lightweight Charts joins consecutive data points with a straight segment, so a series that
+ * simply omits the days its source was not calculable is drawn as a diagonal *through* them —
+ * inventing intermediate values the backend deliberately did not materialize. `AAPL`'s dividend
+ * discount model, absent across the 1996-2012 dividend suspension, was drawn as one straight
+ * fifteen-year line between the value before it and the value after.
+ *
+ * A whitespace point — a date with no `value` — is the library's own representation of "no
+ * observation here" and breaks the line instead. Every interior trading day the series does not
+ * cover becomes one, which is exactly the set of days the backend materialized as unavailable:
+ * intrinsic values are carried forward onto every trading day until an information event changes
+ * or invalidates them, so an interior hole is never sparseness, it is absence.
+ *
+ * Only interior days are filled. Absence *before* a series' first value is warm-up or
+ * pre-eligibility and absence *after* its last one is a source that has become unavailable;
+ * neither draws anything, so neither needs a marker.
+ */
+export function alignToTradingDays(
+  points: readonly ChartPoint[],
+  tradingDays: readonly string[],
+): ChartLinePoint[] {
+  if (points.length === 0) {
+    return [];
+  }
+  const byDate = new Map(points.map((point) => [point.date, point.value]));
+  const first = points[0]?.date as string;
+  const last = points[points.length - 1]?.date as string;
+  const aligned: ChartLinePoint[] = [];
+  for (const date of tradingDays) {
+    if (date < first || date > last) {
+      continue;
+    }
+    const value = byDate.get(date);
+    aligned.push(value === undefined ? { date } : { date, value });
+    byDate.delete(date);
+  }
+  // A series point on a day the price axis does not carry would otherwise be dropped. It should
+  // not happen — both come from the same canonical trading calendar — but silently losing an
+  // observation would be worse than drawing it, so anything left over is merged back in.
+  if (byDate.size > 0) {
+    for (const [date, value] of byDate) {
+      aligned.push({ date, value });
+    }
+    aligned.sort((left, right) => left.date.localeCompare(right.date));
+  }
+  return aligned;
 }

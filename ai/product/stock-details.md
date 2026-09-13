@@ -101,8 +101,25 @@ so a long series is already valid on the oldest day the chart can reach. See
   averages, the RSI family and the intrinsic-value lines all arrive materialized for the new
   interval, warmed up by the loader. A day with no value stays absent; warm-up absence never
   becomes a zero.
+- **A history window is loaded completely or not at all.** Prices, technicals, intrinsic models
+  and intrinsic blends are fetched together and applied together. A window whose overlays failed
+  is not recorded as loaded, so the interval is asked for again rather than leaving a permanent
+  hole; the chart keeps everything it already had and offers a retry.
+- **An unavailable interval is drawn as a gap, never as a line across it.** Intrinsic models and
+  blends are materialized onto *every* trading day by carry-forward, so a trading day a series
+  does not cover is the backend stating the model was not calculable that day — a genuinely
+  different fact from "the value has not changed". The chart breaks the line there. It does not
+  interpolate, carry a stale value forward in the client, or join the values on either side.
+  Absence before a series' first value (warm-up or pre-eligibility) and after its last one (a
+  model that has become unavailable) simply draws nothing.
+- Consequently an intrinsic line normally reads as a **step**: flat between information events,
+  changing on the trading day a newly eligible statement revision takes effect, and broken across
+  any interval the model could not be calculated for. Moving averages and oscillators stay
+  continuous lines and are never stepped.
 - The legend identifies every enabled series and uses the same labels as the dropdown. Oscillator
-  readings render unitless; price-scaled series render as money.
+  readings render unitless; price-scaled series render as money. That split holds on the **axes and
+  crosshair labels** too, not only in the legend: number formatting belongs to each series, so the
+  price pane's scale reads as currency and the oscillator pane's scale stays a bare 0-100.
 - Oscillators are never drawn over the price scale. All selected RSI periods share one lower pane
   with a fixed 0-100 axis and one muted set of 30/50/70 reference levels (30 oversold, 70
   overbought). The first selection creates the pane, deselecting one period removes only its line,

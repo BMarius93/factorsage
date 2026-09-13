@@ -48,6 +48,20 @@ const PRICE_SEED = 100;
 /** Intrinsic values become eligible partway through the history, as a real valuation would. */
 const VALUATION_START_WEEK = 40;
 
+/**
+ * A stretch where every intrinsic model is genuinely **not calculable**, and then is again.
+ *
+ * Real securities do this: `AMZN`'s DCF disappears for the quarters its free cash flow is
+ * negative, and `AAPL`'s DDM is absent across the 1996-2012 dividend suspension. It is a
+ * different fact from "the value has not changed", and it must render as a break in the line
+ * rather than a straight segment joining the values on either side — the chart is not allowed to
+ * invent intrinsic values for the days in between. Seeding one here is what gives the browser
+ * suites a genuinely unavailable *interior* interval to assert that against; the pre-eligibility
+ * stretch before `VALUATION_START_WEEK` only ever exercised a leading absence.
+ */
+const UNAVAILABLE_FROM_WEEK = 80;
+const UNAVAILABLE_UNTIL_WEEK = 100;
+
 const INTRINSIC_CURRENCY = "USD";
 
 /**
@@ -62,6 +76,33 @@ const QA_MODEL_VALUES: Partial<Record<IntrinsicValueModel, number>> = {
   RESIDUAL_INCOME: 151.25,
   GRAHAM: 121.75,
 };
+
+/**
+ * When the fictional security's intrinsic models are readable, as dates.
+ *
+ * Exported so the seed's availability shape is provable without a database: the browser suites
+ * assert against exactly these boundaries.
+ */
+export function qaIntrinsicWindows(prices: readonly { date: string }[]): {
+  valuationStart: string;
+  unavailableFrom: string;
+  unavailableUntil: string;
+  /** Absent because it is not calculable yet, or because it is not calculable any more. */
+  notCalculable: (date: string) => boolean;
+} {
+  const fallback = prices.at(-1)?.date ?? "";
+  const valuationStart = prices[VALUATION_START_WEEK * 5]?.date ?? fallback;
+  const unavailableFrom = prices[UNAVAILABLE_FROM_WEEK * 5]?.date ?? fallback;
+  const unavailableUntil = prices[UNAVAILABLE_UNTIL_WEEK * 5]?.date ?? fallback;
+  return {
+    valuationStart,
+    unavailableFrom,
+    unavailableUntil,
+    notCalculable: (date: string) =>
+      date < valuationStart ||
+      (date >= unavailableFrom && date < unavailableUntil),
+  };
+}
 
 /**
  * The intrinsic fixture, blends included, for a given provenance instant.
@@ -211,11 +252,11 @@ export async function seedQaStockData(
     historyStart: retentionStart,
     historyStartOrigin: "HORIZON",
   });
-  const valuationStart = prices[VALUATION_START_WEEK * 5]?.date ?? last.date;
+  const { valuationStart, notCalculable } = qaIntrinsicWindows(prices);
   const sourceDataAsOf = `${valuationStart}T20:00:00.000Z`;
   const intrinsic = qaIntrinsicFixture(sourceDataAsOf);
   const rows = buildDailyDerivedState({ prices, weeklyBars }).map((row) =>
-    row.date < valuationStart
+    notCalculable(row.date)
       ? row
       : {
           ...row,

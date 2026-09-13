@@ -208,6 +208,81 @@ describe("StockPriceChart", () => {
     expect(chart.removeSeries).toHaveBeenCalledWith(overlaySeries?.api);
   });
 
+  it("formats each pane's axis from its own series, so the oscillator axis stays unitless", () => {
+    // Regression: money formatting used to be set chart-wide through
+    // `localization.priceFormatter`, which Lightweight Charts applies in preference to *every*
+    // series' own `priceFormat`. The unitless oscillator pane's axis therefore rendered currency —
+    // an RSI reading of 64.9 appeared on the scale as "$64.87". Formatting belongs to the series.
+    render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[priceOverlay(0), rsiOverlay("RSI_14D", "RSI 14D", 1, 54.32)]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    const chart = lastChart();
+    expect(
+      (chart.options.localization as { priceFormatter?: unknown } | undefined)
+        ?.priceFormatter,
+    ).toBeUndefined();
+
+    const formatterOf = (options: Record<string, unknown>) =>
+      (options.priceFormat as { formatter: (value: number) => string })
+        .formatter;
+    const [price, overlay, oscillator] = chart.addedSeries;
+    expect(formatterOf(price!.options)(232.139)).toBe("$232.14");
+    expect(formatterOf(overlay!.options)(232.139)).toBe("$232.14");
+    // The oscillator reads as a bare number on its own axis, in both panes' crosshair labels.
+    expect(formatterOf(oscillator!.options)(64.87)).toBe("64.9");
+  });
+
+  it("hands an unavailable day to the library as whitespace, never as a joined segment", () => {
+    // Regression: a point with no value must reach Lightweight Charts as `{ time }` alone. That
+    // is the library's whitespace form and is what breaks the line; emitting `{ time, value:
+    // undefined }` — or omitting the day entirely — draws a straight segment across the interval
+    // instead, inventing intrinsic values the backend deliberately did not materialize.
+    const overlay = {
+      id: "BALANCED",
+      label: "Balanced",
+      color: overlayColorAt(0),
+      placement: "PRICE_OVERLAY" as const,
+      points: [
+        { date: "2026-08-27", value: 220 },
+        { date: "2026-08-28" },
+        { date: "2026-08-31", value: 180 },
+      ],
+    };
+    render(
+      <StockPriceChart
+        points={POINTS}
+        overlays={[overlay]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+
+    const written = lastChart().addedSeries[1]?.api.setData.mock
+      .calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(written).toEqual([
+      // Painting the point *before* the gap transparent is what removes the bridging segment:
+      // the library filters whitespace out before rendering, so whitespace alone would still
+      // leave the two values on either side joined by one straight line.
+      { time: "2026-08-27", value: 220, color: CHART_COLORS.overlayGap },
+      { time: "2026-08-28" },
+      { time: "2026-08-31", value: 180 },
+    ]);
+    // Not merely undefined-valued: the key must be absent, which `toEqual` alone would not catch.
+    expect(Object.hasOwn(written[1] as object, "value")).toBe(false);
+    // The overlay's own colour is untouched everywhere else, so only the bridge disappears.
+    expect(written[2]?.color).toBeUndefined();
+  });
+
   it("names the close and every enabled overlay in the legend with catalog labels", () => {
     const overlays = [
       {

@@ -210,9 +210,15 @@ function StockDetailsContent({
     () => closeSeries(loaded.history.prices),
     [loaded.history.prices],
   );
+  // The close series is the chart's trading-day axis: every overlay is aligned to it so a day a
+  // series has no value for stays visibly absent instead of being drawn through.
+  const tradingDays = useMemo(
+    () => chartPoints.map((point) => point.date),
+    [chartPoints],
+  );
   const chartOverlays = useMemo(
-    () => buildOverlays(source, selected),
-    [source, selected],
+    () => buildOverlays(source, selected, tradingDays),
+    [source, selected, tradingDays],
   );
   // The legend and the picker read the same assignment, so a swatch always matches its line.
   const overlayColors = useMemo(
@@ -265,7 +271,7 @@ function StockDetailsContent({
 
           {loaded.status === "error" ? (
             <p className={styles.chartError} role="alert">
-              Older price history could not be loaded.{" "}
+              Older history could not be loaded.{" "}
               <button
                 type="button"
                 className={styles.inlineRetry}
