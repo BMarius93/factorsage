@@ -2,6 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { AUTH_CONFIG, type AuthConfig } from "../config/configuration.module";
 import { PrismaService } from "../database/prisma.service";
+import {
+  consumeRotatingToken,
+  discardExpiredRotatingToken,
+} from "./rotating-token";
 
 /** 256 bits of entropy; the plaintext exists only in the outbound email. */
 const TOKEN_BYTES = 32;
@@ -22,6 +26,9 @@ export function hashVerificationToken(token: string): string {
  * Only the SHA-256 hash is stored, a user holds at most one outstanding token so issuing a new
  * one rotates and invalidates the previous one, and redemption deletes the row in the same
  * transaction that marks the user verified, so a token can never be replayed or wasted.
+ *
+ * `PasswordResetToken` is the same lifecycle and shares this one's concurrency rules; both are
+ * stated once in `rotating-token.ts`.
  */
 @Injectable()
 export class EmailVerificationService {
@@ -49,10 +56,12 @@ export class EmailVerificationService {
   /**
    * Redeems a plaintext token: consumes it and marks its owner verified in one transaction.
    *
-   * Returns the owning user ID, or `null` when the token is unknown, expired, or already used.
-   * Consuming and verifying must not be separable — a failure between them would burn a valid
-   * link without verifying anyone — so both happen inside a single database transaction that
-   * rolls the deletion back if the user update fails.
+   * Returns the owning user ID, or `null` when the token is unknown, expired, already used, or
+   * rotated away by a resend since it was read. Consuming and verifying must not be separable —
+   * a failure between them would burn a valid link without verifying anyone — so both happen
+   * inside a single database transaction that rolls the deletion back if the user update fails.
+   *
+   * The transaction is not what makes the consume safe; `rotating-token.ts` explains what does.
    */
   redeemToken(token: string): Promise<string | null> {
     const tokenHash = hashVerificationToken(token);
@@ -68,16 +77,24 @@ export class EmailVerificationService {
       }
 
       if (record.expiresAt.getTime() <= Date.now()) {
-        await tx.emailVerificationToken.deleteMany({ where: { id: record.id } });
+        await discardExpiredRotatingToken(tx.emailVerificationToken, {
+          id: record.id,
+          tokenHash,
+        });
         return null;
       }
 
-      // Single-use: concurrent redemptions serialize on this row, and only the transaction whose
-      // delete actually removed it observes a count of one.
-      const deleted = await tx.emailVerificationToken.deleteMany({
-        where: { id: record.id },
-      });
-      if (deleted.count !== 1) {
+      // Single-use, and the gate for every other way this row can change underneath the read
+      // above: only the statement that actually removed *this* token proceeds to mark the
+      // address verified. A concurrent redemption, or a resend that rotated this row to a new
+      // link, both land here as a count of zero — and a resend is meant to invalidate the
+      // previous link, so honouring it afterwards would defeat the rotation.
+      if (
+        !(await consumeRotatingToken(tx.emailVerificationToken, {
+          id: record.id,
+          tokenHash,
+        }))
+      ) {
         return null;
       }
 

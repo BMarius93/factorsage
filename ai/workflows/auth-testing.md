@@ -150,13 +150,16 @@ Auth suites:
 - `apps/api/src/auth/auth.integration.test.ts` — login, session cookie, `/auth/me`, logout, role
   authorization, verified/unverified and external-only login behaviour
 - `apps/api/src/auth/registration.integration.test.ts` — registration, token issuing, verification,
-  single use, expiry, resend rotation, login gating
+  single use, expiry, resend rotation, login gating, and the rotation races: a resend that reuses
+  the row between the redemption transaction's read and its write must neither be consumed by the
+  superseded link nor deleted by its cleanup
 - `apps/api/src/auth/password-reset.integration.test.ts` — forgot/reset password: the
   indistinguishable response for unknown, Google-only and real addresses, hash-only storage,
   single use, rotation, expiry, concurrent redemption, the password policy, what a reset does and
   does not change, log-leak assertions, and the cost of redemption — an unknown, expired or
   superseded token must not reach the Argon2id hash, a real one must reach it exactly once, and
-  the cheap pre-check must still lose to the transaction when the token is taken mid-hash
+  the cheap pre-check must still lose to the transaction when the token is taken mid-hash, and the
+  same rotation races the verification suite covers
 - `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, the
   authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under

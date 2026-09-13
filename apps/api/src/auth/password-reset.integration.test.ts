@@ -490,6 +490,37 @@ describe("password recovery", () => {
     await login(user.email, oldPassword).expect(401);
   });
 
+  it("refuses a redemption whose token was rotated between the transactional read and the consume", async () => {
+    const user = await localUser("reset-consume-race");
+    await forgot(user.email).expect(202);
+    const stale = tokenFromLastEmail(sender);
+
+    // The token is valid throughout, so this is the ordinary success path right up to the
+    // consuming delete — the read sees the token it was given, and by the time the delete runs
+    // the row belongs to a link that was mailed afterwards.
+    const rotation = rotateStaleReadInsideTheTransaction(user.id);
+    try {
+      await reset(stale, newPassword).expect(401);
+    } finally {
+      rotation.restore();
+    }
+
+    // Consuming by row id alone would have reported a count of one for somebody else's token and
+    // let this request change the password on the strength of it.
+    await login(user.email, oldPassword).expect(200);
+    await login(user.email, newPassword).expect(401);
+
+    const survivor = await prisma.passwordResetToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor).not.toBeNull();
+    expect(survivor?.tokenHash).toBe(hashPasswordResetToken(rotation.token()));
+
+    // The link that actually won the rotation is untouched and still works.
+    await reset(rotation.token(), newPassword).expect(200);
+    await login(user.email, newPassword).expect(200);
+  });
+
   it("does not delete a link issued between the stale read and the transactional cleanup", async () => {
     const user = await localUser("reset-cleanup-race-tx");
     await forgot(user.email).expect(202);

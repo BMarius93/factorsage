@@ -2,6 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { AUTH_CONFIG, type AuthConfig } from "../config/configuration.module";
 import { PrismaService } from "../database/prisma.service";
+import {
+  consumeRotatingToken,
+  discardExpiredRotatingToken,
+} from "./rotating-token";
 
 /** 256 bits of entropy; the plaintext exists only in the outbound email. */
 const TOKEN_BYTES = 32;
@@ -67,7 +71,7 @@ export class PasswordResetService {
    *
    * A token found expired is cleared here, which is the one thing that can be decided outside the
    * transaction: an expired token can never become valid again. The delete is conditional on the
-   * row still being the one that was read — see `deleteIfStillExpired`.
+   * row still being the one that was read — see `rotating-token.ts`.
    */
   async hasRedeemableToken(token: string): Promise<boolean> {
     const tokenHash = hashPasswordResetToken(token);
@@ -83,7 +87,7 @@ export class PasswordResetService {
       return true;
     }
 
-    await deleteIfStillExpired(this.prisma.passwordResetToken, {
+    await discardExpiredRotatingToken(this.prisma.passwordResetToken, {
       id: record.id,
       tokenHash,
     });
@@ -128,22 +132,23 @@ export class PasswordResetService {
       }
 
       if (record.expiresAt.getTime() <= Date.now()) {
-        // Conditional for the same reason as the cheap path, and the transaction does not make it
-        // unnecessary: at READ COMMITTED the row this statement writes is re-read at write time,
-        // so an issuance that committed since the SELECT above would be what got deleted.
-        await deleteIfStillExpired(tx.passwordResetToken, {
+        await discardExpiredRotatingToken(tx.passwordResetToken, {
           id: record.id,
           tokenHash,
         });
         return null;
       }
 
-      // Single-use: concurrent redemptions serialize on this row, and only the transaction whose
-      // delete actually removed it observes a count of one.
-      const deleted = await tx.passwordResetToken.deleteMany({
-        where: { id: record.id },
-      });
-      if (deleted.count !== 1) {
+      // Single-use, and the gate for every other way this row can change underneath the read
+      // above: only the statement that actually removed *this* token proceeds to write a
+      // password. A concurrent redemption or a rotation to a new link both land here as a
+      // count of zero.
+      if (
+        !(await consumeRotatingToken(tx.passwordResetToken, {
+          id: record.id,
+          tokenHash,
+        }))
+      ) {
         return null;
       }
 
@@ -165,33 +170,4 @@ export class PasswordResetService {
       return record.userId;
     });
   }
-}
-
-/** The two delegate methods `deleteIfStillExpired` needs, on the client or on a transaction. */
-type PasswordResetTokenDeleter = {
-  deleteMany(args: {
-    where: { id: string; tokenHash: string; expiresAt: { lte: Date } };
-  }): Promise<{ count: number }>;
-};
-
-/**
- * Removes an expired token row, but only if it is still the expired row that was read.
- *
- * `issueToken` upserts by `userId`, so a new request **reuses the same row**: same `id`, new
- * `tokenHash`, new `expiresAt`. Deleting by `id` alone would therefore delete whatever now lives
- * there, and a cleanup acting on a stale read could throw away a link that had just been mailed —
- * leaving the user holding an email whose token was already gone. Matching the `tokenHash` and
- * requiring the row to still be expired makes the delete a no-op in exactly that case, without a
- * lock and without a second round trip.
- *
- * Cleanup is opportunistic anyway: nothing depends on it, because one expired row per user is
- * bounded, replaced by the next issuance and cascaded with the account.
- */
-function deleteIfStillExpired(
-  tokens: PasswordResetTokenDeleter,
-  row: { id: string; tokenHash: string },
-): Promise<{ count: number }> {
-  return tokens.deleteMany({
-    where: { ...row, expiresAt: { lte: new Date() } },
-  });
 }

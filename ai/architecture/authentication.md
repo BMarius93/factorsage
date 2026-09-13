@@ -77,8 +77,8 @@ Verification tokens:
 - only the SHA-256 hash is persisted; the plaintext exists solely inside the outbound email
 - expire after `AUTH_EMAIL_VERIFICATION_TTL_SECONDS`
 - single-use: redemption deletes the row and marks the address verified inside one database
-  transaction, so the two effects cannot come apart and only the request that actually removed the
-  row succeeds
+  transaction, so the two effects cannot come apart, and only the request whose delete removed
+  **this exact token** succeeds — see *Rotation and concurrency* below
 - one outstanding token per user, so `POST /auth/resend-verification` rotates and invalidates the
   previous link
 
@@ -187,6 +187,36 @@ The JWT secret comes from centralized configuration and must contain at least 32
 Local web-to-API requests use credentials and the API explicitly enables credentialed CORS only
 for configured origins.
 
+### Rotation and concurrency
+
+`EmailVerificationToken` and `PasswordResetToken` are the same lifecycle — a random plaintext
+token mailed to its owner, only the SHA-256 hash persisted, at most one outstanding token per
+user, issuance rotating the previous one away, an expiry, a single-use redemption — and they share
+one implementation of the concurrency rules, in `apps/api/src/auth/rotating-token.ts`. Keeping
+them in one place is deliberate: two subtly different answers to the same question is how one of
+them ends up wrong.
+
+Issuance upserts by `userId`, so rotating a token **reuses the same row**: same `id`, new
+`tokenHash`, new `expiresAt`. Anything that acts on a row it read earlier is therefore acting on
+an identity that may already belong to a different token, and addressing that row by `id` alone
+would silently hit whatever now lives there. Being inside `$transaction` does not help: at
+PostgreSQL's READ COMMITTED default a statement re-reads the rows it writes, so a `DELETE` issued
+after a concurrent rotation committed finds and deletes the *new* row — and reports a count of one
+for it.
+
+So the rule is: **the earlier `SELECT` is never authoritative, and every state-changing statement
+carries the identity it intends to act on** (`id` + `tokenHash`, plus the expiry predicate that
+belongs there). The consuming delete is the concurrency gate:
+
+- exactly one row deleted — this request consumed *this* token, and may perform the effect the
+  token authorizes: set the password, or mark the address verified;
+- zero rows — the token was already consumed by a concurrent redemption, rotated away by a newer
+  link, or expired since it was read. Reject, and perform no effect.
+
+That last case is what makes rotation mean what it says. A resend or a second forgot-password
+request invalidates the previous link, so honouring the previous link afterwards — because the row
+id still matched — would have defeated the rotation the user asked for.
+
 ### What a session is, and what ends it
 
 A session is exactly the signed cookie. The API keeps no server-side session record: every
@@ -259,16 +289,12 @@ Redemption runs cheap-first:
 1. SHA-256 the submitted token and look it up on the unique `tokenHash` index.
 2. If no unexpired row matches, reject. An expired row is cleared on the way out — expiry is the
    one verdict that needs no transaction, because an expired token can never become valid again.
-   That cleanup is conditional on the row still carrying the `tokenHash` that was read and still
-   being expired: `issueToken` upserts by `userId`, so a new request reuses the same row, and a
-   delete by `id` alone could throw away a link that had just been mailed. The same condition
-   guards the expired branch inside the transaction, which needs it for the same reason — at
-   READ COMMITTED a statement re-reads the row it writes, so being inside a transaction is not
-   being holder of a lock. Nothing depends on the cleanup: one expired row per user is bounded,
-   replaced by the next issuance and cascaded with the account.
+   Nothing depends on that cleanup: one expired row per user is bounded, replaced by the next
+   issuance and cascaded with the account.
 3. Only then compute the Argon2id hash, which happens outside the transaction because Argon2id is
    deliberately slow and a transaction must not be held open across it.
-4. Redeem inside the transaction, which re-reads the row and re-checks everything step 1 checked.
+4. Redeem inside the transaction, which re-reads the row and re-checks everything step 1 checked,
+   and whose consuming delete is the real gate — see *Rotation and concurrency* below.
 
 Step 1 exists because the endpoint is unauthenticated and generic rate limiting is deliberately
 deferred: hashing first would let anyone spend the API's CPU one full Argon2id at a time by posting
