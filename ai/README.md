@@ -113,8 +113,9 @@ Strategy or Stock List — a configuration boundary, fenced against an in-flight
 `Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
 semantics.
 
-For frontend/UI work, also read
-`architecture/frontend.md`.
+For frontend/UI work, also read `architecture/frontend.md`. For the V1 visual-parity pass, read
+`architecture/v1-visual-parity.md` after it; that document defines the target surface hierarchy,
+action placement and responsive acceptance criteria.
 
 For server-side API, worker, stock-data, FMP, database, cache, queue, or integration work, also read
 `architecture/observability.md`.
@@ -192,7 +193,7 @@ Monitor (user-owned)
 ```
 
 `product/product-overview.md` holds the one-page map of how List, Strategy, Backtest, Monitor and
-Signal relate, who owns what, and what each concept is *not*.
+Signal relate, who owns what, and what each concept is _not_.
 
 Historical market-derived Strategy predicates are conceptually evaluated as date-aligned logical
 series. Missing/warm-up/PIT-unavailable data remains `NOT_EVALUABLE`; it is never replaced by zero

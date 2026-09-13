@@ -22,7 +22,7 @@ Core traits to preserve:
 
 Use the design tokens in `apps/web/src/styles/tokens.css`. It is the only file in the web app that
 may hold a hex colour: a feature stylesheet asks for a semantic token, and a genuinely new shared
-value becomes a new token named for what it *means* (`--color-positive`, never `--monitor-green`).
+value becomes a new token named for what it _means_ (`--color-positive`, never `--monitor-green`).
 
 `ui-system.md` is the companion document: the shared component vocabulary that implements this
 direction, what each component represents, and when not to reach for one. Read it before adding a
@@ -66,12 +66,13 @@ Legacy behavior worth preserving conceptually:
 
 As a baseline, consider behavior at roughly phone, tablet/small desktop, and large desktop widths. Use content-driven breakpoints rather than copying legacy breakpoint values mechanically.
 
-The application shell establishes the baseline breakpoints. Reuse them unless a
-feature's own content demands a different switch point:
+The application shell and dense feature content have different constraints. Reuse these baseline
+breakpoints unless a feature's own content demonstrates a different need. The full visual-parity
+composition and acceptance contract is in `v1-visual-parity.md`:
 
 - `600px` — tablet padding and the fuller brand treatment.
-- `880px` — persistent topbar navigation replaces the fixed bottom navigation,
-  and content moves to desktop padding.
+- `768px` — dense collection tables replace their phone-card composition.
+- `1024px` — persistent topbar navigation replaces the fixed bottom navigation.
 - `1280px` — wide desktop padding.
 
 ## Frontend structure
@@ -139,7 +140,7 @@ The durable rules:
 - **Geist is canonical**, applied on `body` in `globals.css`; Geist Mono only where alignment of
   technical or financial values genuinely helps. No feature declares a font family.
 - **Status, relationship, identity, empty, loading and table primitives are not reinvented in a
-  feature.** A feature owns what a status *means* — its label, its tone, its ordering — and the
+  feature.** A feature owns what a status _means_ — its label, its tone, its ordering — and the
   shared component owns how it looks.
 - **Entity relationships are explicit and clickable.** A Monitor shows its Strategy and Stock List;
   a Backtest shows its Strategy, Stock List and Benchmark; the Dashboard links every reference it
