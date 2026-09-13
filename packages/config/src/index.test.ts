@@ -11,6 +11,7 @@ import {
   getMonitorWorkerConfig,
   getTestPersonaCredentials,
   getSmtpConfig,
+  getStripeBillingConfig,
   getWebBaseUrl,
   getWebPublicConfig,
 } from "./index";
@@ -508,6 +509,12 @@ describe(".env.example template", () => {
       "QA_ADMIN_EMAIL",
       "QA_ADMIN_PASSWORD",
       "FMP_API_KEY",
+      "STRIPE_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_PRICE_STARTER_MONTHLY",
+      "STRIPE_PRICE_STARTER_YEARLY",
+      "STRIPE_PRICE_PRO_MONTHLY",
+      "STRIPE_PRICE_PRO_YEARLY",
     ];
 
     for (const name of mustBeEmpty) {
@@ -524,5 +531,134 @@ describe(".env.example template", () => {
     expect(() => getBacktestWorkerConfig(template)).not.toThrow();
     expect(() => getMonitorWorkerConfig(template)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(template).enabled).toBe(false);
+    // Billing must be genuinely off in the template: a placeholder that parsed as "configured"
+    // would make every fresh checkout fail at startup.
+    expect(getStripeBillingConfig(template)).toBeNull();
+  });
+});
+
+/**
+ * Stripe billing configuration.
+ *
+ * `docs/decisions/stripe-billing-v1.md` section 2 makes two demands of this layer that are worth
+ * testing rather than trusting: billing is optional as a whole but all-or-nothing once touched, and
+ * sandbox and live material can never cross into the wrong environment.
+ */
+describe("getStripeBillingConfig", () => {
+  const PRICES = {
+    STRIPE_PRICE_STARTER_MONTHLY: "price_starter_m",
+    STRIPE_PRICE_STARTER_YEARLY: "price_starter_y",
+    STRIPE_PRICE_PRO_MONTHLY: "price_pro_m",
+    STRIPE_PRICE_PRO_YEARLY: "price_pro_y",
+  };
+
+  function sandbox(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+    return {
+      NODE_ENV: "development",
+      STRIPE_SECRET_KEY: "sk_test_abc123",
+      STRIPE_WEBHOOK_SECRET: "whsec_abc123",
+      ...PRICES,
+      ...overrides,
+    };
+  }
+
+  it("is null when nothing is configured", () => {
+    expect(getStripeBillingConfig({ NODE_ENV: "development" })).toBeNull();
+  });
+
+  it("resolves a complete sandbox configuration", () => {
+    const config = getStripeBillingConfig(sandbox());
+    expect(config).not.toBeNull();
+    expect(config?.testMode).toBe(true);
+    expect(config?.priceIds).toEqual({
+      STARTER_MONTHLY: "price_starter_m",
+      STARTER_YEARLY: "price_starter_y",
+      PRO_MONTHLY: "price_pro_m",
+      PRO_YEARLY: "price_pro_y",
+    });
+  });
+
+  it("derives return URLs from WEB_BASE_URL and never from a request", () => {
+    const config = getStripeBillingConfig(
+      sandbox({ WEB_BASE_URL: "https://app.example.test" }),
+    );
+    expect(config?.checkoutSuccessUrl).toBe(
+      "https://app.example.test/billing?checkout=success",
+    );
+    expect(config?.checkoutCancelUrl).toBe(
+      "https://app.example.test/billing?checkout=cancelled",
+    );
+    expect(config?.portalReturnUrl).toBe("https://app.example.test/billing");
+  });
+
+  it("refuses a half-configured biller rather than silently disabling it", () => {
+    // Only the secret key set: partial configuration fails at startup, not at a customer's
+    // Checkout, which is the whole point of the all-or-nothing rule.
+    expect(() =>
+      getStripeBillingConfig({
+        NODE_ENV: "development",
+        STRIPE_SECRET_KEY: "sk_test_abc123",
+      }),
+    ).toThrow(/STRIPE_WEBHOOK_SECRET is required/);
+
+    for (const missing of Object.keys(PRICES)) {
+      const env = sandbox();
+      delete env[missing];
+      expect(() => getStripeBillingConfig(env)).toThrow(
+        new RegExp(`${missing} is required`),
+      );
+    }
+  });
+
+  it("refuses a live key outside production", () => {
+    expect(() =>
+      getStripeBillingConfig(sandbox({ STRIPE_SECRET_KEY: "sk_live_abc123" })),
+    ).toThrow(/live-mode key and NODE_ENV is 'development'/);
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({ NODE_ENV: "test", STRIPE_SECRET_KEY: "rk_live_abc123" }),
+      ),
+    ).toThrow(/live-mode key and NODE_ENV is 'test'/);
+  });
+
+  it("refuses a sandbox key in production", () => {
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({
+          NODE_ENV: "production",
+          AUTH_JWT_SECRET: "x".repeat(32),
+        }),
+      ),
+    ).toThrow(/sandbox\/test-mode key and NODE_ENV is 'production'/);
+  });
+
+  it("accepts a live configuration in production", () => {
+    const config = getStripeBillingConfig(
+      sandbox({ NODE_ENV: "production", STRIPE_SECRET_KEY: "sk_live_abc123" }),
+    );
+    expect(config?.testMode).toBe(false);
+  });
+
+  it("rejects malformed secrets and price IDs", () => {
+    expect(() =>
+      getStripeBillingConfig(sandbox({ STRIPE_SECRET_KEY: "pk_test_abc" })),
+    ).toThrow(/must be a Stripe secret or restricted key/);
+    expect(() =>
+      getStripeBillingConfig(sandbox({ STRIPE_WEBHOOK_SECRET: "secret" })),
+    ).toThrow(/must be a Stripe webhook signing secret/);
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({ STRIPE_PRICE_PRO_MONTHLY: "prod_pro_monthly" }),
+      ),
+    ).toThrow(/STRIPE_PRICE_PRO_MONTHLY must be a Stripe Price ID/);
+  });
+
+  it("rejects two logical prices pointing at one Stripe price", () => {
+    // The copy-paste that would sell Pro at the Starter price, or bill a yearly plan monthly.
+    expect(() =>
+      getStripeBillingConfig(
+        sandbox({ STRIPE_PRICE_PRO_MONTHLY: "price_starter_m" }),
+      ),
+    ).toThrow(/each logical price must map to its own Stripe price/);
   });
 });

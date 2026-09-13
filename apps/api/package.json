@@ -7,7 +7,7 @@
     "build": "nest build",
     "start:prod": "node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run --exclude src/stocks/stocks.live-fmp.integration.test.ts",
+    "test": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run --exclude src/stocks/stocks.live-fmp.integration.test.ts --exclude src/billing/billing.sandbox.smoke.test.ts",
     "test:infrastructure": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run src/stocks/stocks.infrastructure.integration.test.ts",
     "test:live": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/testing build && vitest run src/stocks/stocks.live-fmp.integration.test.ts",
     "seed:admin": "tsx src/seed.ts",
@@ -18,7 +18,10 @@
     "seed:qa-matrix": "tsx src/seed-qa-matrix.ts",
     "qa:matrix:provision": "tsx src/qa-matrix-provision.ts",
     "qa:matrix:preflight": "tsx src/qa-matrix-preflight.ts",
-    "qa:matrix:run": "tsx src/qa-matrix-run.ts"
+    "qa:matrix:run": "tsx src/qa-matrix-run.ts",
+    "billing:reconcile": "tsx src/reconcile-billing.ts",
+    "billing:verify-catalog": "tsx src/verify-stripe-catalog.ts",
+    "test:billing:sandbox": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run src/billing/billing.sandbox.smoke.test.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",
@@ -39,7 +42,8 @@
     "google-auth-library": "^10.9.1",
     "nodemailer": "^7.0.9",
     "reflect-metadata": "^0.2.0",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "stripe": "22.6.2"
   },
   "devDependencies": {
     "@intrinsic/testing": "workspace:*",

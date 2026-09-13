@@ -31,6 +31,16 @@ seam is. Plan (`FREE | STARTER | PRO`) and role (`USER | ADMIN`) are orthogonal 
 `GUEST` is derived from the absence of a session and is never a persisted row. Do not add a plan
 comparison in feature code, and do not model request rate as an entitlement.
 
+For anything to do with Stripe, subscriptions, Checkout, the Customer Portal, webhooks or money,
+read `../docs/decisions/stripe-billing-v1.md` — the accepted product decision and the source of truth
+for the catalog, the transition matrix and the status policy — then `architecture/billing.md`, which is
+how it is implemented: the one plan decision, the one write path, the one Stripe adapter, why the
+Stripe read happens inside the per-user advisory lock, the idempotency-key design, the reconciliation
+CLI, the local `stripe listen` runbook and the Dashboard configuration checklist. The direction is
+one-way — `Stripe billing state -> User.plan -> resolveEntitlements() -> guards` — and it is enforced
+by a test: billing may not hold an entitlement value, and entitlements may not depend on billing. Do
+not ask Stripe a permission question, and do not write `User.plan` anywhere but `changeUserPlan`.
+
 Entitlement behaviour is tested through fixed **test personas**, one per plan, defined once in
 `packages/testing/src/personas.ts` and read by the seeders and the Playwright projects alike.
 `PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is `plan=FREE`,

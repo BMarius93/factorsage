@@ -3,6 +3,7 @@ import { AdminModule } from "./admin/admin.module";
 import { AuthModule } from "./auth/auth.module";
 import { BacktestsModule } from "./backtests/backtests.module";
 import { BenchmarksModule } from "./benchmarks/benchmarks.module";
+import { BillingModule } from "./billing/billing.module";
 import { ConfigurationModule } from "./config/configuration.module";
 import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
@@ -20,6 +21,7 @@ import { StrategiesModule } from "./strategies/strategies.module";
     EntitlementsModule,
     AdminModule,
     BenchmarksModule,
+    BillingModule,
     BacktestsModule,
     ListsModule,
     StocksModule,

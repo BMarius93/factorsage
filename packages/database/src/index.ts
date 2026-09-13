@@ -1,5 +1,7 @@
 export {
   BacktestJobStatus,
+  BillingInterval,
+  BillingSubscriptionStatus,
   BacktestRunStatus,
   BacktestTradeAction,
   BenchmarkDataset,
@@ -20,6 +22,7 @@ export {
 export type {
   Benchmark,
   BenchmarkDailyPrice,
+  BillingSubscription,
   BacktestJob,
   BacktestRun,
   BacktestRunProgress,
@@ -33,6 +36,7 @@ export type {
   StockList,
   StockListBuyWindow,
   StockListItem,
+  StripeWebhookEvent,
   User,
 } from "@prisma/client";
 export * from "./entitlement-locks.js";

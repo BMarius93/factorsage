@@ -95,9 +95,24 @@ cannot disagree.
 ## The billing boundary
 
 `apps/api/src/entitlements/user-plan.ts` is the only writer of `User.plan`, and no route reaches
-it. A future billing adapter maps provider price ids onto `UserPlan` at its own edge and calls
+it. The billing adapter maps provider price ids onto `UserPlan` at its own edge and calls
 `changeUserPlan`; nothing downstream knows a biller exists, which is why entitlements work with no
 billing configured. The role is never touched there.
+
+That adapter is now built — Stripe Billing V1, documented in `billing.md`.
+`BillingReconciliationService` is its single caller. Two of its properties matter from this side.
+
+It takes **this** lock: `lockUserEntitlementScope`, the same per-user key every capacity check takes,
+not a billing-specific one. A plan change and a list add that counts against that plan genuinely must
+serialize, and reusing the key keeps the acquisition order above intact, so reconciliation cannot
+deadlock against a backtest submission. It also means the `User.plan` write and the
+`BillingSubscription` row justifying it commit together: the plan and the evidence for it can never
+disagree.
+
+And it is strictly one-directional. `resolveEntitlements` takes a plan and a role and nothing else —
+no Stripe call, no subscription lookup, no billing state in any authorization answer.
+`packages/contracts/src/billing.entitlements-boundary.test.ts` asserts both halves: that billing holds
+no entitlement value or vocabulary, and that `entitlements.ts` imports nothing from `billing.ts`.
 
 ## Rate limiting is not here
 

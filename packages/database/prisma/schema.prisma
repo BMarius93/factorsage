@@ -27,6 +27,39 @@ enum UserPlan {
   PRO
 }
 
+/// Billing cadence of a paid subscription.
+///
+/// Mirrored from the Stripe price's recurring interval, but spelled in FactorSage's own vocabulary:
+/// nothing downstream of the billing adapter may depend on a Stripe string. V1 sells month and year
+/// only — `docs/decisions/stripe-billing-v1.md` section 1.
+enum BillingInterval {
+  MONTH
+  YEAR
+}
+
+/// Stripe subscription lifecycle status, mirrored.
+///
+/// Every status the pinned Stripe API exposes has a value here, plus `UNKNOWN` for one Stripe may
+/// introduce later. That completeness is a product requirement, not defensiveness:
+/// `docs/decisions/stripe-billing-v1.md` section 10 forbids a permissive default branch, because a
+/// status nobody thought about must resolve to no paid access rather than to whatever the last
+/// `else` happened to do.
+///
+/// This column is billing lifecycle and is never an entitlement input. `User.plan` is the only
+/// thing the entitlement resolver reads, which is why `past_due` lives here and never leaks into
+/// the plan column.
+enum BillingSubscriptionStatus {
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+  UNKNOWN
+}
+
 enum OAuthProvider {
   GOOGLE
 }
@@ -84,6 +117,17 @@ model User {
   /// New accounts start on `FREE`, which is why the column is defaulted rather than nullable —
   /// "no plan" is not an access state the entitlement resolver has to consider.
   plan               UserPlan                 @default(FREE)
+  /// This user's canonical Stripe Customer, created lazily the first time billing is needed.
+  ///
+  /// Server-managed and never accepted from a client. Unique in both directions: one FactorSage
+  /// user has at most one Stripe Customer, and one Stripe Customer belongs to exactly one user —
+  /// which is what lets a webhook resolve an event to a local user by an immutable id instead of by
+  /// email. Email is explicitly *not* an identity key between the two systems
+  /// (`docs/decisions/stripe-billing-v1.md` section 4).
+  ///
+  /// Null for every user who has never reached a billing surface, which is the normal state: this
+  /// migration leaves every existing account FREE with no Stripe object at all.
+  stripeCustomerId   String?                  @unique
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
   oauthAccounts      OAuthAccount[]
@@ -92,6 +136,7 @@ model User {
   strategies         Strategy[]
   backtestRuns       BacktestRun[]
   monitors           Monitor[]
+  billingSubscription BillingSubscription?
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -1076,4 +1121,89 @@ model MonitorScanSchedule {
   updatedAt           DateTime  @updatedAt
 
   @@index([dueAt])
+}
+
+/// The mirrored Stripe subscription of one user. Zero-or-one, enforced by the unique `userId`.
+///
+/// **This is a mirror, not a second source of truth.** Stripe owns billing state; this row exists so
+/// the application can answer "which plan, which cadence, when does it renew, what is scheduled"
+/// without a Stripe round trip on every request, and so reconciliation has something to compare
+/// against. Only state with an authoritative purpose is kept — no invoices, no payment methods, no
+/// copied Stripe objects (`docs/decisions/stripe-billing-v1.md` section 3).
+///
+/// The row is written only by the canonical reconciliation path, in the same transaction as the
+/// `User.plan` change it justifies, under the user's entitlement advisory lock. `User.plan` is
+/// deliberately *not* derivable by reading this row alone at query time: it is persisted, because it
+/// is the hot-path input to every entitlement check and must not depend on a biller being reachable.
+model BillingSubscription {
+  id                       String                    @id @default(uuid())
+  /// One canonical paid subscription per user — the V1 invariant, as a constraint rather than a
+  /// convention (`docs/decisions/stripe-billing-v1.md` section 15).
+  userId                   String                    @unique
+  /// Unique across all users: the same Stripe subscription can never be mirrored onto two accounts.
+  stripeSubscriptionId     String                    @unique
+  /// The price the customer is being billed for **now**. Never a requested-but-unpaid price: that
+  /// distinction is what keeps a failed upgrade from granting the higher tier.
+  stripePriceId            String
+  /// Plan and interval resolved from `stripePriceId` through the configured catalog allowlist.
+  /// Null when the current price is not in the catalog — an archived or foreign price — which is a
+  /// fail-closed state the reconciler records rather than guesses past.
+  plan                     UserPlan?
+  billingInterval          BillingInterval?
+  status                   BillingSubscriptionStatus
+  currentPeriodStart       DateTime?
+  currentPeriodEnd         DateTime?
+  cancelAtPeriodEnd        Boolean                   @default(false)
+  cancelAt                 DateTime?
+  canceledAt               DateTime?
+  /// A scheduled future change, mirrored from the subscription's Stripe schedule for the UI. It is
+  /// never an entitlement: until it becomes effective the user keeps the plan above.
+  pendingPlan              UserPlan?
+  pendingInterval          BillingInterval?
+  pendingPriceId           String?
+  pendingEffectiveAt       DateTime?
+  /// The Stripe Subscription Schedule driving a scheduled change, when one exists.
+  stripeScheduleId         String?
+  /// Stripe's own reason the last reconciliation resolved the plan it did, for support queries.
+  planReason               String
+  /// When this mirror was last rebuilt from authoritative Stripe state.
+  syncedAt                 DateTime
+  /// `created` of the newest Stripe event that reached reconciliation for this subscription.
+  /// Observability only — ordering safety comes from fetching canonical state inside the lock, not
+  /// from comparing timestamps.
+  lastStripeEventCreatedAt DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([stripeScheduleId])
+}
+
+/// Durable record that one Stripe event's side effects have been applied.
+///
+/// Stripe guarantees at-least-once delivery and no ordering, so an event id is the only thing that
+/// makes "process this once" decidable. The row is inserted **in the same transaction** as the state
+/// change it authorizes: a crash mid-processing rolls both back and Stripe's retry is a clean first
+/// attempt, while a duplicate delivery collides on the unique index and is answered as
+/// already-processed (`docs/decisions/stripe-billing-v1.md` section 13).
+///
+/// `userId` is nullable on purpose: an event that resolves to no local user — a Customer created
+/// directly in the Dashboard, an event from a different Stripe environment — is still recorded, so
+/// Stripe stops retrying something this deployment can never act on, and so an operator can see it.
+model StripeWebhookEvent {
+  id             String   @id @default(uuid())
+  stripeEventId  String   @unique
+  type           String
+  /// Stripe's own `created` for the event. Kept for forensics, never used to order side effects.
+  stripeCreatedAt DateTime
+  /// Which local user the event resolved to, when it resolved to one.
+  userId         String?
+  /// What processing did: applied a change, found nothing to change, or deliberately ignored it.
+  outcome        String
+  processedAt    DateTime @default(now())
+
+  @@index([type, processedAt])
+  @@index([userId])
 }

@@ -78,6 +78,22 @@ Read `ai/README.md` before substantial work.
     than persisted. Billing may move the persisted plan and nothing else; it is never an input to
     entitlement resolution, and request rate is never modelled as an entitlement.
 
+18. Stripe is a billing provider and nothing else. `docs/decisions/stripe-billing-v1.md` is the source
+    of truth for the four-price catalog, the transition matrix and the billing-status policy;
+    `ai/architecture/billing.md` is how it is implemented. The direction is one-way — Stripe billing
+    state, then persisted `User.plan`, then the entitlement resolver, then enforcement — and never
+    reversed: no entitlement question is ever answered by consulting Stripe, and no entitlement value
+    lives in billing code. `apps/api/src/entitlements/user-plan.ts` remains the only writer of
+    `User.plan`, reached by exactly one caller, `BillingReconciliationService`, which is also the only
+    thing that writes the `BillingSubscription` mirror — in the same transaction, under the shared
+    per-user entitlement lock, after fetching canonical Stripe state inside it. A plan is never granted
+    from a browser redirect, from an unverified webhook payload, or from a subscription-update request
+    whose payment has not succeeded. `apps/api/src/billing/stripe.gateway.ts` is the only file that may
+    import the Stripe SDK, and no client input may name a Stripe price, customer or subscription: the
+    whole accepted surface is one of four logical price keys. Stripe never touches `User.role`. Do not
+    add credits, top-ups, trials, metered billing, a second paid subscription per user, or
+    hand-written proration arithmetic.
+
 ## Dependency rules
 
 Allowed direction:

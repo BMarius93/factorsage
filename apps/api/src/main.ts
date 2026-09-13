@@ -27,6 +27,13 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, {
     logger: new NestStructuredLogger(logger.child({ component: "nestjs" })),
+    // Keeps the untouched request bytes on `request.rawBody` alongside the parsed body.
+    //
+    // Required by exactly one route: `POST /webhooks/stripe`. A Stripe signature covers the precise
+    // payload Stripe sent, so verifying against a body that has been parsed and re-serialized —
+    // different key order, different number formatting — always fails. Every other route reads the
+    // parsed body as before.
+    rawBody: true,
   });
   installHttpObservability(app, logger.child({ component: "http" }));
   app.enableShutdownHooks();
