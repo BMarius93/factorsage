@@ -1,10 +1,12 @@
 import type {
   AuthProvidersResponse,
   AuthUser,
+  ForgotPasswordResponse,
   LoginRequest,
   RegisterRequest,
   RegisterResponse,
   ResendVerificationResponse,
+  ResetPasswordResponse,
   VerifyEmailResponse,
 } from "@intrinsic/contracts";
 import { API_BASE_URL, ApiError, apiGet, apiPost } from "../../../lib/api/client";
@@ -52,6 +54,27 @@ export async function resendVerification(
     email,
   });
   return { status: "accepted" };
+}
+
+/**
+ * Asks for a password-reset link.
+ *
+ * Always resolves for a well-formed address: the API deliberately answers the same way whether or
+ * not the address has an account, so the UI must not treat success as proof that it does.
+ */
+export async function requestPasswordReset(
+  email: string,
+): Promise<ForgotPasswordResponse> {
+  await apiPost<ForgotPasswordResponse>("/auth/forgot-password", { email });
+  return { status: "accepted" };
+}
+
+export async function resetPassword(request: {
+  token: string;
+  password: string;
+}): Promise<ResetPasswordResponse> {
+  await apiPost<ResetPasswordResponse>("/auth/reset-password", request);
+  return { status: "password_reset" };
 }
 
 export function getAuthProviders(): Promise<AuthProvidersResponse> {

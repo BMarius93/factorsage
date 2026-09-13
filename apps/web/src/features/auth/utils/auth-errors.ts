@@ -44,6 +44,8 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
     "Google could not complete the sign-in. Please try again in a moment.",
   oauth_email_unverified:
     "Google has not verified the email address on that account, so it cannot be used to sign in.",
+  oauth_link_not_allowed:
+    "A FactorSage account already uses that email address. Sign in with your password instead.",
   oauth_unavailable: "Google sign-in is not available for this deployment.",
 };
 

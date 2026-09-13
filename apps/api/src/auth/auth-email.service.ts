@@ -7,8 +7,8 @@ const PRODUCT_NAME = "FactorSage";
 /**
  * Composes FactorSage's account emails and hands them to the transport-agnostic email boundary.
  *
- * The verification link points at the web application, which then completes verification through
- * the API. The token appears only inside the outbound message and is never logged.
+ * Both account links point at the web application, which then completes the action through the
+ * API. A token appears only inside the outbound message and is never logged.
  */
 @Injectable()
 export class AuthEmailService {
@@ -46,10 +46,51 @@ export class AuthEmailService {
     });
   }
 
+  /**
+   * The reset link.
+   *
+   * The message names the product and says plainly that an unrequested link can be ignored,
+   * because this email is the one an attacker probing addresses would cause to be delivered to a
+   * stranger. It carries no account detail — no name, no plan, no sign-in history — and the token
+   * appears only here, never in a log.
+   */
+  async sendPasswordResetEmail(input: {
+    to: string;
+    token: string;
+  }): Promise<void> {
+    const url = this.passwordResetUrl(input.token);
+    const validFor = describeDuration(this.config.passwordResetTtlSeconds);
+
+    await this.sender.send({
+      to: input.to,
+      subject: `Reset your ${PRODUCT_NAME} password`,
+      text: [
+        `A password reset was requested for your ${PRODUCT_NAME} account.`,
+        "",
+        "Choose a new password here:",
+        url,
+        "",
+        `This link is valid for ${validFor} and can be used once.`,
+        "If you did not request it, you can ignore this email and your password stays unchanged.",
+      ].join("\n"),
+      html: [
+        `<p>A password reset was requested for your ${PRODUCT_NAME} account.</p>`,
+        "<p>Choose a new password here:</p>",
+        `<p><a href="${url}">${url}</a></p>`,
+        `<p>This link is valid for ${validFor} and can be used once.</p>`,
+        "<p>If you did not request it, you can ignore this email and your password stays unchanged.</p>",
+      ].join("\n"),
+    });
+  }
+
   private verificationUrl(token: string): string {
     // base64url tokens contain no characters that need escaping, but encoding keeps the link
     // correct if the token alphabet ever changes.
     return `${this.config.webBaseUrl}/verify-email?token=${encodeURIComponent(token)}`;
+  }
+
+  private passwordResetUrl(token: string): string {
+    return `${this.config.webBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
   }
 }
 

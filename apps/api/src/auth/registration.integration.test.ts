@@ -121,6 +121,68 @@ describe("registration and email verification", () => {
       )) as never);
   }
 
+  function verify(token: string) {
+    return request(app.getHttpServer()).post("/auth/verify-email").send({ token });
+  }
+
+  /**
+   * Issues a fresh verification link the first time the redemption transaction reads the row.
+   *
+   * `issueToken` upserts by `userId`, so the resend **reuses the row being read**: same `id`, new
+   * `tokenHash`, new `expiresAt`. That is the collision the redemption has to survive, and two
+   * real requests cannot be made to collide on demand. The real transaction still runs against
+   * PostgreSQL; only the gap between its read and its write is widened, and the resend commits on
+   * the ordinary client because the transaction holds no lock on that row.
+   */
+  function resendOnStaleRead(userId: string): {
+    token: () => string;
+    restore: () => void;
+  } {
+    let issued: string | null = null;
+    const runTransaction = prisma.$transaction.bind(prisma) as (
+      callback: TransactionCallback,
+    ) => Promise<unknown>;
+
+    vi.spyOn(prisma, "$transaction").mockImplementation(((
+      callback: TransactionCallback,
+    ) =>
+      runTransaction(async (tx) => {
+        const scoped = tx as {
+          emailVerificationToken: {
+            findUnique: (args: unknown) => Promise<unknown>;
+            deleteMany: (args: unknown) => Promise<unknown>;
+          };
+          user: unknown;
+        };
+
+        return callback({
+          emailVerificationToken: {
+            findUnique: async (args: unknown) => {
+              const record =
+                await scoped.emailVerificationToken.findUnique(args);
+              if (record && issued === null) {
+                issued = (await verification.issueToken(userId)).token;
+              }
+              return record;
+            },
+            deleteMany: (args: unknown) =>
+              scoped.emailVerificationToken.deleteMany(args),
+          },
+          user: scoped.user,
+        });
+      })) as never);
+
+    return {
+      token: () => {
+        expect(issued).toBeTruthy();
+        return issued ?? "";
+      },
+      restore: () => {
+        vi.restoreAllMocks();
+      },
+    };
+  }
+
   async function register(email: string): Promise<string> {
     await request(app.getHttpServer())
       .post("/auth/register")
@@ -309,6 +371,72 @@ describe("registration and email verification", () => {
       .post("/auth/verify-email")
       .send({ token })
       .expect(200);
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .emailVerifiedAt,
+    ).not.toBeNull();
+  });
+
+  it("refuses a token the resend rotated away between the transactional read and the consume", async () => {
+    const email = uniqueEmail("verify-consume-race");
+    const stale = await register(email);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+    // The link is valid throughout: this is the ordinary success path right up to the consuming
+    // delete, by which point the row belongs to a link that was mailed afterwards.
+    const resend = resendOnStaleRead(user.id);
+    try {
+      await verify(stale).expect(401);
+    } finally {
+      resend.restore();
+    }
+
+    // Consuming by row id alone would have reported a count of one for the *new* token and
+    // verified the address on the strength of a link the resend was supposed to invalidate.
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .emailVerifiedAt,
+    ).toBeNull();
+
+    const survivor = await prisma.emailVerificationToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor).not.toBeNull();
+    expect(survivor?.tokenHash).toBe(hashVerificationToken(resend.token()));
+
+    // The link the resend actually mailed is untouched and still verifies.
+    await verify(resend.token()).expect(200);
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .emailVerifiedAt,
+    ).not.toBeNull();
+  });
+
+  it("does not let stale expired-token cleanup delete a link the resend just issued", async () => {
+    const email = uniqueEmail("verify-cleanup-race");
+    const stale = await register(email);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    await prisma.emailVerificationToken.update({
+      where: { userId: user.id },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+
+    const resend = resendOnStaleRead(user.id);
+    try {
+      await verify(stale).expect(401);
+    } finally {
+      resend.restore();
+    }
+
+    // Cleaning up by row id alone would have thrown away the link the user was just emailed,
+    // leaving them with an address they could no longer verify.
+    const survivor = await prisma.emailVerificationToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor).not.toBeNull();
+    expect(survivor?.tokenHash).toBe(hashVerificationToken(resend.token()));
+
+    await verify(resend.token()).expect(200);
     expect(
       (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
         .emailVerifiedAt,

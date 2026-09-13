@@ -121,6 +121,12 @@ export function LoginForm({ providerError = null }: LoginFormProps) {
       <GoogleSignInButton />
 
       <p className={styles.footerNote}>
+        <Link className={styles.link} href="/forgot-password">
+          Forgot your password?
+        </Link>
+      </p>
+
+      <p className={styles.footerNote}>
         New to FactorSage?{" "}
         <Link className={styles.link} href="/register">
           Create an account

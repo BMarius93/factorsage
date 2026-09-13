@@ -260,6 +260,13 @@ export function getAuthConfig(env: Environment = process.env) {
       ["AUTH_EMAIL_VERIFICATION_TTL_SECONDS"],
       24 * 60 * 60,
     ),
+    // Deliberately much shorter than the verification TTL: a reset link is a live credential for
+    // an account that already exists, while a verification link only activates a new one.
+    passwordResetTtlSeconds: integer(
+      env,
+      ["AUTH_PASSWORD_RESET_TTL_SECONDS"],
+      60 * 60,
+    ),
     cookieName: optional(env, "AUTH_COOKIE_NAME") ?? "intrinsic_auth",
     cookieSecure: environment === "production",
     cookieSameSite: "lax" as const,

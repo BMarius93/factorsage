@@ -140,6 +140,10 @@ export function identityFromVerifiedPayload(
     providerAccountId: payload.sub,
     email: typeof payload.email === "string" ? payload.email : null,
     emailVerified: isAffirmative(payload.email_verified),
+    // Present only for a Workspace/Cloud account, and only ever read from a payload
+    // `verifyIdToken` already validated — an `hd` from an unverified token would be worthless.
+    hostedDomain:
+      typeof payload.hd === "string" && payload.hd.length > 0 ? payload.hd : null,
   };
 }
 

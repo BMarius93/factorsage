@@ -32,6 +32,7 @@ export type {
   MonitorSignal,
   MonitorSignalState,
   OAuthAccount,
+  PasswordResetToken,
   Prisma,
   StockList,
   StockListBuyWindow,

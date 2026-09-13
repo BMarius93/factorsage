@@ -132,6 +132,7 @@ model User {
   updatedAt          DateTime                 @updatedAt
   oauthAccounts      OAuthAccount[]
   verificationTokens EmailVerificationToken[]
+  resetTokens        PasswordResetToken[]
   stockLists         StockList[]
   strategies         Strategy[]
   backtestRuns       BacktestRun[]
@@ -157,6 +158,23 @@ model OAuthAccount {
 /// Single-use email-verification token. Only the hash is stored, and a user has at most one
 /// outstanding token so a resend rotates and invalidates the previous one.
 model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Single-use password-reset token. Deliberately the same shape as `EmailVerificationToken`:
+/// only the SHA-256 hash is stored, a user holds at most one outstanding token so requesting a
+/// new link invalidates the previous one, and redemption deletes the row in the same transaction
+/// that writes the new password hash.
+///
+/// A separate table rather than a `kind` column on the verification token, because the two are
+/// independent lifecycles: a pending reset must not cancel a pending verification, and the rule
+/// "one outstanding token per user" only means something when it holds per purpose.
+model PasswordResetToken {
   id        String   @id @default(uuid())
   userId    String   @unique
   tokenHash String   @unique

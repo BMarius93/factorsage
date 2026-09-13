@@ -1,9 +1,11 @@
 import type {
   AuthProvidersResponse,
   AuthUser,
+  ForgotPasswordResponse,
   OAuthErrorCode,
   RegisterResponse,
   ResendVerificationResponse,
+  ResetPasswordResponse,
   VerifyEmailResponse,
 } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
@@ -29,9 +31,11 @@ import {
   oauthTransactionCookieOptions,
 } from "./auth-cookie";
 import {
+  parseForgotPasswordRequest,
   parseLoginRequest,
   parseRegisterRequest,
   parseResendVerificationRequest,
+  parseResetPasswordRequest,
   parseVerifyEmailRequest,
 } from "./auth-requests";
 import { AuthService } from "./auth.service";
@@ -40,6 +44,7 @@ import { CookieAuthGuard } from "./cookie-auth.guard";
 import { CurrentUser } from "./current-user.decorator";
 import { GoogleAuthService } from "./google/google-auth.service";
 import { GoogleAuthError } from "./google/google-identity";
+import { PasswordRecoveryService } from "./password-recovery.service";
 import {
   codeChallengeFor,
   createOAuthTransaction,
@@ -61,6 +66,8 @@ export class AuthController {
     @Inject(RegistrationService)
     private readonly registration: RegistrationService,
     @Inject(GoogleAuthService) private readonly google: GoogleAuthService,
+    @Inject(PasswordRecoveryService)
+    private readonly recovery: PasswordRecoveryService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
     @Inject(AUTH_LOGGER) private readonly logger: StructuredLogger,
   ) {}
@@ -94,6 +101,28 @@ export class AuthController {
       parseResendVerificationRequest(body),
     );
     return { status: "accepted" };
+  }
+
+  /**
+   * Requests a password-reset link. Always `202`.
+   *
+   * An unknown address, a Google-only account and a real local account are indistinguishable
+   * from here, so the endpoint cannot be used to enumerate accounts or to discover how somebody
+   * signs in.
+   */
+  @Post("forgot-password")
+  @HttpCode(HttpStatus.ACCEPTED)
+  async forgotPassword(@Body() body: unknown): Promise<ForgotPasswordResponse> {
+    await this.recovery.requestReset(parseForgotPasswordRequest(body));
+    return { status: "accepted" };
+  }
+
+  /** Redeems a reset token once and installs the new password. */
+  @Post("reset-password")
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() body: unknown): Promise<ResetPasswordResponse> {
+    await this.recovery.resetPassword(parseResetPasswordRequest(body));
+    return { status: "password_reset" };
   }
 
   @Post("login")

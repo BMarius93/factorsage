@@ -26,6 +26,8 @@ import {
   type GoogleIdentityProvider,
 } from "./google/google-identity";
 import { GoogleOidcIdentityProvider } from "./google/google-oidc-identity-provider";
+import { PasswordRecoveryService } from "./password-recovery.service";
+import { PasswordResetService } from "./password-reset.service";
 import { PasswordService } from "./password.service";
 import { RegistrationService } from "./registration.service";
 import { RolesGuard } from "./roles.guard";
@@ -80,6 +82,8 @@ import { UsersService } from "./users.service";
     CookieAuthGuard,
     EmailVerificationService,
     GoogleAuthService,
+    PasswordRecoveryService,
+    PasswordResetService,
     PasswordService,
     RegistrationService,
     RolesGuard,
@@ -89,6 +93,7 @@ import { UsersService } from "./users.service";
     AuthService,
     CookieAuthGuard,
     EmailVerificationService,
+    PasswordResetService,
     PasswordService,
     RolesGuard,
     UsersService,

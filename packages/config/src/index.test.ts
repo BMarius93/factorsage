@@ -52,6 +52,27 @@ describe("authentication configuration", () => {
     expect(config.webBaseUrl).toBe("https://app.example.test");
   });
 
+  it("defaults the password-reset TTL to an hour and reads a configured one", () => {
+    expect(
+      getAuthConfig({ AUTH_JWT_SECRET: JWT_SECRET }).passwordResetTtlSeconds,
+    ).toBe(60 * 60);
+    expect(
+      getAuthConfig({
+        AUTH_JWT_SECRET: JWT_SECRET,
+        AUTH_PASSWORD_RESET_TTL_SECONDS: "900",
+      }).passwordResetTtlSeconds,
+    ).toBe(900);
+  });
+
+  it("rejects a non-positive password-reset TTL", () => {
+    expect(() =>
+      getAuthConfig({
+        AUTH_JWT_SECRET: JWT_SECRET,
+        AUTH_PASSWORD_RESET_TTL_SECONDS: "0",
+      }),
+    ).toThrow("AUTH_PASSWORD_RESET_TTL_SECONDS must be a positive integer");
+  });
+
   it("rejects a non-positive verification TTL", () => {
     expect(() =>
       getAuthConfig({
