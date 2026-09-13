@@ -77,8 +77,23 @@ export class PasswordRecoveryService {
   }
 
   async resetPassword(request: ResetPasswordRequest): Promise<void> {
+    // Cheap first, expensive second. This endpoint is unauthenticated, so hashing before knowing
+    // whether the token is worth anything would let anybody spend the API's CPU a full Argon2id
+    // at a time by posting invented tokens. A SHA-256 and one indexed read cost nothing.
+    //
+    // Not authoritative, and not treated as such: the token can still expire, be rotated or be
+    // consumed by a concurrent redemption while the hash below is being computed. The transaction
+    // re-checks all of it, and both rejection paths answer identically.
+    if (!(await this.resets.hasRedeemableToken(request.token))) {
+      this.logger.info({
+        event: "auth.password.reset.rejected",
+        reason: "no_redeemable_token",
+      });
+      throw new UnauthorizedException(INVALID_RESET_TOKEN_MESSAGE);
+    }
+
     // Hashing is deliberately slow, so it happens before the transaction rather than inside it.
-    // A hash computed for a token that turns out to be invalid is simply discarded.
+    // A hash computed for a token that is consumed in the meantime is simply discarded.
     const passwordHash = await this.passwords.hash(request.password);
     const userId = await this.resets.redeemToken({
       token: request.token,
@@ -86,7 +101,12 @@ export class PasswordRecoveryService {
     });
 
     if (!userId) {
-      this.logger.info({ event: "auth.password.reset.rejected" });
+      // Lost the race, or the token expired during the hash. Same answer as above: the caller
+      // learns only that this token did not work, which is what the endpoint already tells them.
+      this.logger.info({
+        event: "auth.password.reset.rejected",
+        reason: "token_not_redeemed",
+      });
       throw new UnauthorizedException(INVALID_RESET_TOKEN_MESSAGE);
     }
 

@@ -24,6 +24,10 @@ export function hashPasswordResetToken(token: string): string {
  * previous link, and redemption happens inside the transaction that writes the new password —
  * a reset that consumed the token without changing the password, or changed the password
  * without consuming the token, would both be wrong.
+ *
+ * Reading a token is cheap and redeeming one is not, so the two are separate operations:
+ * `hasRedeemableToken` filters out work nobody should be able to make the API do, and
+ * `redeemToken` decides.
  */
 @Injectable()
 export class PasswordResetService {
@@ -49,11 +53,49 @@ export class PasswordResetService {
   }
 
   /**
+   * Whether a redeemable token exists for this plaintext **right now**.
+   *
+   * A SHA-256 and one lookup on the unique `tokenHash` index, so an unauthenticated caller
+   * submitting invented tokens costs the API almost nothing. Without it, `/auth/reset-password`
+   * would run a full Argon2id hash — deliberately expensive — for every arbitrary string anybody
+   * posted at it, which is a CPU-exhaustion lever that does not need a guessed token to pull.
+   *
+   * **Advisory only.** The answer can be stale the instant it is read: the token may expire, be
+   * rotated by a new request, or be consumed by a concurrent redemption while Argon2id is still
+   * running. `redeemToken` re-reads and re-checks everything inside its transaction and remains
+   * the single source of truth for whether a reset actually happens.
+   *
+   * A token found expired is cleared here, which is the one thing that can be decided outside the
+   * transaction: an expired token can never become valid again.
+   */
+  async hasRedeemableToken(token: string): Promise<boolean> {
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashPasswordResetToken(token) },
+      select: { id: true, expiresAt: true },
+    });
+
+    if (!record) {
+      return false;
+    }
+    if (record.expiresAt.getTime() > Date.now()) {
+      return true;
+    }
+
+    await this.prisma.passwordResetToken.deleteMany({ where: { id: record.id } });
+    return false;
+  }
+
+  /**
    * Redeems a plaintext token: consumes it and installs the already-hashed password atomically.
    *
    * Returns the owning user ID, or `null` when the token is unknown, expired, or already used.
    * The caller hashes the password **before** calling, because Argon2id deliberately takes real
-   * time and a transaction must not be held open across it.
+   * time and a transaction must not be held open across it. It is `hasRedeemableToken`, not the
+   * hash, that keeps that ordering from being a free way to spend the API's CPU.
+   *
+   * Every check `hasRedeemableToken` made is made again here, against the same row, inside the
+   * transaction. That repetition is the point: the cheap pass is a filter, this one is the
+   * decision.
    *
    * Redeeming also marks the address verified and drops any pending verification token: holding
    * this link is proof of control of the inbox, which is exactly what verification asks for.

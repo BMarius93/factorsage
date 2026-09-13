@@ -154,7 +154,9 @@ Auth suites:
 - `apps/api/src/auth/password-reset.integration.test.ts` — forgot/reset password: the
   indistinguishable response for unknown, Google-only and real addresses, hash-only storage,
   single use, rotation, expiry, concurrent redemption, the password policy, what a reset does and
-  does not change, and log-leak assertions
+  does not change, log-leak assertions, and the cost of redemption — an unknown, expired or
+  superseded token must not reach the Argon2id hash, a real one must reach it exactly once, and
+  the cheap pre-check must still lose to the transaction when the token is taken mid-hash
 - `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, the
   authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under

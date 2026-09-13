@@ -6,7 +6,15 @@ import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
 import { EMAIL_SENDER } from "../email/email-sender";
@@ -91,7 +99,19 @@ describe("password recovery", () => {
 
   afterEach(() => {
     sender.reset();
+    vi.restoreAllMocks();
   });
+
+  /**
+   * Counts Argon2id hashes performed by the API while handling one request.
+   *
+   * The spy goes on the container's single `PasswordService`, which is the same instance the
+   * recovery service holds, and is installed only after the fixture user has been built — the
+   * helper that creates one hashes a password too.
+   */
+  function watchPasswordHashing() {
+    return vi.spyOn(passwords, "hash");
+  }
 
   afterAll(async () => {
     if (prisma && emails.length > 0) {
@@ -200,8 +220,11 @@ describe("password recovery", () => {
     await forgot(user.email).expect(202);
     const token = tokenFromLastEmail(sender);
 
+    const hashing = watchPasswordHashing();
     const response = await reset(token, newPassword).expect(200);
     expect(response.body).toEqual({ status: "password_reset" });
+    // The guard is a filter, not a second hash: a real token still costs exactly one.
+    expect(hashing).toHaveBeenCalledTimes(1);
 
     await login(user.email, newPassword).expect(200);
     await login(user.email, oldPassword).expect(401);
@@ -236,16 +259,39 @@ describe("password recovery", () => {
     const second = tokenFromLastEmail(sender);
 
     expect(second).not.toBe(first);
+    const hashing = watchPasswordHashing();
     await reset(first, newPassword).expect(401);
+    // Rotation removed the first link's hash, so the superseded link is refused on the cheap path
+    // like any other unknown token. Rotation itself is unchanged: the second link still works.
+    expect(hashing).not.toHaveBeenCalled();
     await reset(second, newPassword).expect(200);
+    expect(hashing).toHaveBeenCalledTimes(1);
     // One outstanding token per user is a database rule, not a convention.
     expect(
       await prisma.passwordResetToken.count({ where: { userId: user.id } }),
     ).toBe(0);
   });
 
-  it("rejects an unknown token", async () => {
+  it("rejects an unknown token without paying for an Argon2id hash", async () => {
+    const hashing = watchPasswordHashing();
+
     await reset("not-a-real-token", newPassword).expect(401);
+
+    // The endpoint is unauthenticated and generic rate limiting is deliberately deferred, so a
+    // string anybody can invent must not be able to buy a deliberately expensive computation.
+    expect(hashing).not.toHaveBeenCalled();
+  });
+
+  it("costs no Argon2id hash however many invented tokens arrive", async () => {
+    const hashing = watchPasswordHashing();
+
+    await Promise.all(
+      Array.from({ length: 5 }, (_unused, index) =>
+        reset(`invented-token-${index}`, newPassword).expect(401),
+      ),
+    );
+
+    expect(hashing).not.toHaveBeenCalled();
   });
 
   it("rejects an expired token and clears it", async () => {
@@ -258,7 +304,13 @@ describe("password recovery", () => {
       data: { expiresAt: new Date(Date.now() - 1000) },
     });
 
+    const hashing = watchPasswordHashing();
     await reset(token, newPassword).expect(401);
+
+    // A token that has expired is refused before the expensive hash, exactly like an unknown one.
+    expect(hashing).not.toHaveBeenCalled();
+    // Expiry is the one verdict that needs no transaction — an expired token can never become
+    // valid again — so the row is still cleared on the way out.
     expect(
       await prisma.passwordResetToken.findUnique({ where: { userId: user.id } }),
     ).toBeNull();
@@ -290,6 +342,27 @@ describe("password recovery", () => {
       200, 401,
     ]);
     await login(user.email, oldPassword).expect(401);
+  });
+
+  it("defers to the transaction when the token is consumed while the hash is in flight", async () => {
+    const user = await localUser("reset-advisory");
+    await forgot(user.email).expect(202);
+    const token = tokenFromLastEmail(sender);
+
+    const argon2id = passwords.hash.bind(passwords);
+    vi.spyOn(passwords, "hash").mockImplementation(async (password: string) => {
+      // The window the cheap pre-check cannot close: between "a redeemable token exists" and the
+      // transaction, a concurrent redemption takes it. Reproduced deterministically here, because
+      // a real race cannot be asked to happen on demand.
+      await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+      return argon2id(password);
+    });
+
+    await reset(token, newPassword).expect(401);
+
+    // The pre-check's "yes" never became an authorization: nothing was written.
+    await login(user.email, oldPassword).expect(200);
+    await login(user.email, newPassword).expect(401);
   });
 
   it("applies the registration password policy to the new password", async () => {

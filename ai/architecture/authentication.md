@@ -252,9 +252,25 @@ Reset tokens are the verification token's rules, applied to a stronger credentia
 
 `POST /auth/reset-password` applies the same password policy as registration — an old password
 that predates a policy change still authenticates, but a newly chosen one must satisfy today's
-rules — and hashes with the same Argon2id `PasswordService`. Hashing happens *before* the
-transaction, because Argon2id is deliberately slow and a transaction must not be held open across
-it; a hash computed for a token that turns out to be invalid is simply discarded.
+rules — and hashes with the same Argon2id `PasswordService`.
+
+Redemption runs cheap-first:
+
+1. SHA-256 the submitted token and look it up on the unique `tokenHash` index.
+2. If no unexpired row matches, reject. An expired row is cleared on the way out — expiry is the
+   one verdict that needs no transaction, because an expired token can never become valid again.
+3. Only then compute the Argon2id hash, which happens outside the transaction because Argon2id is
+   deliberately slow and a transaction must not be held open across it.
+4. Redeem inside the transaction, which re-reads the row and re-checks everything step 1 checked.
+
+Step 1 exists because the endpoint is unauthenticated and generic rate limiting is deliberately
+deferred: hashing first would let anyone spend the API's CPU one full Argon2id at a time by posting
+invented tokens, without ever having to guess a real one. **It is a filter, never an
+authorization.** Between step 1 and step 4 the token can expire, be rotated by a new request, or be
+consumed by a concurrent redemption, so the transaction repeats every check and remains the single
+source of truth. A hash computed for a token that is taken in the meantime is simply discarded, and
+both rejection paths return the same `401` with the same message — the caller learns only that this
+token did not work, which is what the endpoint tells them anyway.
 
 Redeeming also marks the address verified if it was not already, and drops any pending
 verification token: holding the reset link proves exactly what a verification link proves. Without
