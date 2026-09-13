@@ -1,4 +1,7 @@
-import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
+import {
+  EMAIL_NOT_VERIFIED_CODE,
+  OAUTH_ERROR_CODES,
+} from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import {
@@ -56,7 +59,17 @@ describe("describeOAuthError", () => {
     expect(describeOAuthError("oauth_state")).toContain("expired");
     expect(describeOAuthError("oauth_provider")).toContain("Google");
     expect(describeOAuthError("oauth_email_unverified")).toContain("verified");
+    expect(describeOAuthError("oauth_link_not_allowed")).toContain(
+      "already uses that email address",
+    );
     expect(describeOAuthError("oauth_unavailable")).toContain("not available");
+  });
+
+  it("covers every code the contract defines, so none falls back to a generic message", () => {
+    for (const code of OAUTH_ERROR_CODES) {
+      expect(describeOAuthError(code)).not.toBe(UNEXPECTED_ERROR);
+      expect(describeOAuthError(code)).toBeTruthy();
+    }
   });
 
   it("ignores a missing or unrecognized value rather than inventing an error", () => {

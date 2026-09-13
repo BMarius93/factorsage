@@ -33,6 +33,7 @@ Application:
 - `AUTH_TOKEN_TTL_SECONDS`
 - `AUTH_COOKIE_NAME`
 - `AUTH_EMAIL_VERIFICATION_TTL_SECONDS`
+- `AUTH_PASSWORD_RESET_TTL_SECONDS`
 - `WEB_BASE_URL`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`
@@ -150,9 +151,20 @@ Auth suites:
   authorization, verified/unverified and external-only login behaviour
 - `apps/api/src/auth/registration.integration.test.ts` — registration, token issuing, verification,
   single use, expiry, resend rotation, login gating
-- `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, account
-  linking, OAuth state and PKCE transaction binding, transaction-cookie clearing, provider
-  failures, and log-leak assertions
+- `apps/api/src/auth/password-reset.integration.test.ts` — forgot/reset password: the
+  indistinguishable response for unknown, Google-only and real addresses, hash-only storage,
+  single use, rotation, expiry, concurrent redemption, the password policy, what a reset does and
+  does not change, and log-leak assertions
+- `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, the
+  authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
+  and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under
+  concurrent first sign-in, and log-leak assertions
+- `apps/api/src/auth/google/google-email-authority.test.ts` — the pure authority rule on its own:
+  Google-operated mailboxes, `hd` matching, casing and trailing-dot normalization, malformed
+  addresses, and the refusal to promote an unverified address
+- `apps/api/src/auth/google/google-auth.service.test.ts` — resolution against a scripted identity
+  repository, including the `P2002` retry that a real concurrent run cannot be asked to produce on
+  demand
 - `apps/api/src/auth/google/google-oidc-identity-provider.test.ts` — the real provider: S256 PKCE
   challenge, verifier use at the token exchange, `verifyIdToken` audience, and refusal on
   signature/audience/issuer/expiry validation failures
@@ -252,7 +264,10 @@ seed's own timestamp and the loader treats a price tail older than
 Stock Details suite** rather than relying on a seed from a previous day. Rerunning is safe and
 produces the same data for the same day. `QATEST2` deliberately stays identity-only.
 
-Current coverage: guest reaches sign-in and registration, a product route bounces an anonymous
+Current coverage: guest reaches sign-in, registration and password recovery — including the
+neutral response for an address with no account, and both ways a reset link can be unusable
+(`e2e/auth/password-recovery.guest.spec.ts`; the redeemable half needs the inbox and lives in the
+API integration suite instead) — a product route bounces an anonymous
 browser to `/login`, invalid credentials show the expected failure, `QA_USER` keeps a session
 across navigation and is denied the ADMIN route, `QA_ADMIN` reaches the ADMIN route, and signing
 out ends the session. `e2e/strategies` covers the Strategy Builder journey on desktop — create,
@@ -296,6 +311,9 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
   instead, so ID-token validation is exercised without network access.
 - Never weaken ID-token verification to make a test easier. Identity must always come from
   `verifyIdToken`, never from decoding a token.
+- Account linking depends on the address's **domain**, so the fake identities in the Google suite
+  use `gmail.com`, `workspace.test` and `example.test` deliberately. Changing a test's domain
+  changes which rule it exercises; do not swap one for another to make an assertion pass.
 - Do not automate Google's real login or consent screen in Playwright or CI. It is a third-party
   UI with bot protection and it would require storing real Google credentials.
 - Optional manual smoke (never in CI), when a real Google client is configured:
@@ -309,7 +327,11 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
   5. Expect a redirect to `/dashboard`, an account menu showing that address, and a `User` row with
      a null `passwordHash`, a set `emailVerifiedAt`, and one `OAuthAccount`.
   6. Repeat the sign-in and confirm no second user or second `OAuthAccount` appears.
-  7. Record only the outcome. Never record the account's password, the authorization code, the
+  7. To exercise the linking refusal by hand, register locally with an address that is neither a
+     Gmail address nor in your `hd` domain, then sign in with a Google account that reports that
+     same address: expect `/login?error=oauth_link_not_allowed`, no session cookie, and no new
+     `OAuthAccount` row.
+  8. Record only the outcome. Never record the account's password, the authorization code, the
      PKCE verifier, the ID token, or the session cookie.
 
 ## 11. Email test policy
@@ -320,8 +342,11 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 - Never configure real SMTP credentials for a test run.
 - For manual local testing, point `SMTP_HOST`/`SMTP_PORT` at a local catch-all relay such as
   Mailpit. `SMTP_USER`/`SMTP_PASSWORD` may stay empty for an unauthenticated local relay.
-- Verification tokens are single-use and only their SHA-256 hash is stored. Never log, print, or
-  paste a plaintext token.
+- Verification and password-reset tokens are single-use and only their SHA-256 hash is stored.
+  Never log, print, or paste a plaintext token.
+- Playwright cannot read an inbox, so no browser test redeems a real reset or verification link.
+  Anything that needs the token is an API integration test, which reads it out of the message the
+  in-memory sender captured.
 
 ## 12. Never commit
 

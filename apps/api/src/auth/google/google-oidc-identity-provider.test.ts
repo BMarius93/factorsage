@@ -282,7 +282,48 @@ describe("identityFromVerifiedPayload", () => {
       providerAccountId: "123",
       email: "a@example.test",
       emailVerified: true,
+      hostedDomain: null,
     });
+  });
+
+  it("carries the verified hd claim through, and reports its absence as null", () => {
+    expect(
+      identityFromVerifiedPayload(
+        payload({
+          sub: "123",
+          email: "a@workspace.test",
+          email_verified: true,
+          hd: "workspace.test",
+          nonce: NONCE,
+        }),
+        NONCE,
+      ).hostedDomain,
+    ).toBe("workspace.test");
+
+    // A consumer account has no hosted domain at all, and an empty claim is not one either.
+    expect(
+      identityFromVerifiedPayload(
+        payload({
+          sub: "123",
+          email: "a@gmail.com",
+          email_verified: true,
+          nonce: NONCE,
+        }),
+        NONCE,
+      ).hostedDomain,
+    ).toBeNull();
+    expect(
+      identityFromVerifiedPayload(
+        payload({
+          sub: "123",
+          email: "a@gmail.com",
+          email_verified: true,
+          hd: "",
+          nonce: NONCE,
+        }),
+        NONCE,
+      ).hostedDomain,
+    ).toBeNull();
   });
 
   it("accepts the string form of email_verified that Google also emits", () => {

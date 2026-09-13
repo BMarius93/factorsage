@@ -1,8 +1,10 @@
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
+  type ForgotPasswordRequest,
   type LoginRequest,
   type RegisterRequest,
+  type ResetPasswordRequest,
   type ResendVerificationRequest,
   type VerifyEmailRequest,
 } from "@intrinsic/contracts";
@@ -45,8 +47,8 @@ export function parseLoginRequest(body: unknown): LoginRequest {
   return { email, password };
 }
 
-export function parseRegisterRequest(body: unknown): RegisterRequest {
-  const email = requireEmail(body);
+/** The one place the product's password policy is applied to a password being *set*. */
+function requirePolicyPassword(body: unknown): string {
   const password = stringField(body, "password");
 
   if (password.length < PASSWORD_MIN_LENGTH) {
@@ -60,15 +62,41 @@ export function parseRegisterRequest(body: unknown): RegisterRequest {
     );
   }
 
-  return { email, password };
+  return password;
+}
+
+export function parseRegisterRequest(body: unknown): RegisterRequest {
+  const email = requireEmail(body);
+  return { email, password: requirePolicyPassword(body) };
+}
+
+function requireToken(body: unknown, rejection: string): string {
+  const token = stringField(body, "token").trim();
+  if (token.length === 0 || token.length > MAX_TOKEN_LENGTH) {
+    throw new BadRequestException(rejection);
+  }
+  return token;
 }
 
 export function parseVerifyEmailRequest(body: unknown): VerifyEmailRequest {
-  const token = stringField(body, "token").trim();
-  if (token.length === 0 || token.length > MAX_TOKEN_LENGTH) {
-    throw new BadRequestException("Invalid verification request");
-  }
-  return { token };
+  return { token: requireToken(body, "Invalid verification request") };
+}
+
+export function parseForgotPasswordRequest(
+  body: unknown,
+): ForgotPasswordRequest {
+  return { email: requireEmail(body) };
+}
+
+/**
+ * A reset sets a new password, so the full registration policy applies — an old password that
+ * predates a policy change may still authenticate, but a newly chosen one must satisfy today's.
+ */
+export function parseResetPasswordRequest(body: unknown): ResetPasswordRequest {
+  return {
+    token: requireToken(body, "Invalid password reset request"),
+    password: requirePolicyPassword(body),
+  };
 }
 
 export function parseResendVerificationRequest(

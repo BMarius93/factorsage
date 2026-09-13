@@ -68,6 +68,30 @@ export type ResendVerificationResponse = {
   status: "accepted";
 };
 
+export type ForgotPasswordRequest = {
+  email: string;
+};
+
+/**
+ * Always accepted, and deliberately identical for every address.
+ *
+ * An unknown address, an address whose account signs in with Google and has no local password,
+ * and an address that really was sent a link all produce this one response, so the endpoint
+ * cannot be used to discover who has an account or how they sign in.
+ */
+export type ForgotPasswordResponse = {
+  status: "accepted";
+};
+
+export type ResetPasswordRequest = {
+  token: string;
+  password: string;
+};
+
+export type ResetPasswordResponse = {
+  status: "password_reset";
+};
+
 /** Which external identity providers this deployment actually has configured. */
 export type AuthProvidersResponse = {
   google: boolean;
@@ -81,6 +105,13 @@ export const OAUTH_ERROR_CODES = [
   "oauth_state",
   "oauth_provider",
   "oauth_email_unverified",
+  /**
+   * The provider identity is verified, but the provider is not authoritative for that email
+   * address, and a FactorSage account already holds it. Linking automatically would hand the
+   * existing account to whoever proved control of the address at the provider, which is not the
+   * same as owning it here.
+   */
+  "oauth_link_not_allowed",
   "oauth_unavailable",
 ] as const;
 

@@ -91,8 +91,8 @@ export class UsersService {
   /**
    * Links an external identity to an existing account and marks the address verified.
    *
-   * Callers must already have established that the provider reports this email as verified;
-   * this service does not decide whether linking is safe.
+   * Callers must already have established that the provider is authoritative for the address —
+   * `google-email-authority.ts` for Google. This service does not decide whether linking is safe.
    */
   async linkOAuthAccount(input: {
     userId: string;

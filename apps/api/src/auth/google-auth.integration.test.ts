@@ -29,6 +29,13 @@ useTestDatabase();
 const WEB_BASE_URL = "http://web.example.test";
 const TRANSACTION_COOKIE = "test_auth_oauth_tx";
 
+/** Google operates this mailbox, so a verified address in it is Google's to vouch for. */
+const GOOGLE_MAILBOX_DOMAIN = "gmail.com";
+/** A Workspace domain: authoritative only when the `hd` claim names it. */
+const WORKSPACE_DOMAIN = "workspace.test";
+/** Anybody's domain. Google may have verified delivery to it and still not speak for it. */
+const EXTERNAL_DOMAIN = "example.test";
+
 /**
  * Replaces Google at the external boundary.
  *
@@ -40,6 +47,7 @@ class FakeGoogleIdentityProvider implements GoogleIdentityProvider {
     providerAccountId: "unset",
     email: null,
     emailVerified: false,
+    hostedDomain: null,
   };
   failWith: Error | null = null;
   lastRequest: GoogleAuthorizationRequest | null = null;
@@ -115,8 +123,13 @@ describe("Google authentication", () => {
   const suffix = randomUUID();
   const emails: string[] = [];
 
-  function uniqueEmail(prefix: string): string {
-    const email = `${prefix}-${suffix}-${emails.length}@example.test`;
+  /**
+   * A never-delivered address in one of three domains, because the domain is now part of the
+   * linking rule: Google runs `gmail.com`, an organization can prove it owns `workspace.test`
+   * through `hd`, and `example.test` is somebody else's domain entirely.
+   */
+  function uniqueEmail(prefix: string, domain = EXTERNAL_DOMAIN): string {
+    const email = `${prefix}-${suffix}-${emails.length}@${domain}`;
     emails.push(email);
     return email;
   }
@@ -265,6 +278,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email: uniqueEmail("google-pkce"),
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -291,6 +305,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email: uniqueEmail("google-cleared"),
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -316,7 +331,12 @@ describe("Google authentication", () => {
   it("creates a new verified user without a local password on first sign-in", async () => {
     const email = uniqueEmail("google-new");
     const providerAccountId = `google-${randomUUID()}`;
-    provider.identity = { providerAccountId, email, emailVerified: true };
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
 
     const started = await startAuthorization();
     const response = await completeCallback(started).expect(302);
@@ -347,6 +367,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email,
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -365,7 +386,12 @@ describe("Google authentication", () => {
   it("is idempotent for a repeat sign-in with the same Google identity", async () => {
     const email = uniqueEmail("google-repeat");
     const providerAccountId = `google-${randomUUID()}`;
-    provider.identity = { providerAccountId, email, emailVerified: true };
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const started = await startAuthorization();
@@ -380,8 +406,8 @@ describe("Google authentication", () => {
     ).toBe(1);
   });
 
-  it("links a Google identity to an existing account only when the provider verified the email", async () => {
-    const email = uniqueEmail("google-link");
+  it("links a Gmail identity to the existing account that already holds the address", async () => {
+    const email = uniqueEmail("google-link", GOOGLE_MAILBOX_DOMAIN);
     const existing = await prisma.user.create({
       data: {
         email,
@@ -390,11 +416,17 @@ describe("Google authentication", () => {
       },
     });
     const providerAccountId = `google-${randomUUID()}`;
-    provider.identity = { providerAccountId, email, emailVerified: true };
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
 
     const started = await startAuthorization();
-    await completeCallback(started).expect(302);
+    const response = await completeCallback(started).expect(302);
 
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
     const linked = await prisma.user.findUniqueOrThrow({
       where: { id: existing.id },
       include: { oauthAccounts: true },
@@ -405,8 +437,146 @@ describe("Google authentication", () => {
     expect(await prisma.user.count({ where: { email } })).toBe(1);
   });
 
+  it("links a Workspace identity whose hd claim names the address's own domain", async () => {
+    const email = uniqueEmail("google-link-workspace", WORKSPACE_DOMAIN);
+    const existing = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: "$argon2id$placeholder",
+        emailVerifiedAt: new Date(),
+      },
+    });
+    provider.identity = {
+      providerAccountId: `google-${randomUUID()}`,
+      email,
+      emailVerified: true,
+      hostedDomain: WORKSPACE_DOMAIN,
+    };
+
+    const started = await startAuthorization();
+    const response = await completeCallback(started).expect(302);
+
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(
+      await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
+    ).toBe(1);
+  });
+
+  it("refuses to link an existing account to a verified but non-authoritative email", async () => {
+    const email = uniqueEmail("google-link-external", EXTERNAL_DOMAIN);
+    const existing = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: "$argon2id$placeholder",
+        emailVerifiedAt: new Date(),
+      },
+    });
+    // Exactly the shape of a consumer Google account built around a third-party address:
+    // verified at Google, and Google still does not run the domain.
+    provider.identity = {
+      providerAccountId: `google-${randomUUID()}`,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+
+    const started = await startAuthorization();
+    const response = await completeCallback(started).expect(302);
+
+    expect(response.headers.location).toBe(
+      `${WEB_BASE_URL}/login?error=oauth_link_not_allowed`,
+    );
+    expect(setCookies(response).join(";")).not.toContain("test_auth=");
+    expect(
+      await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
+    ).toBe(0);
+    // The refusal must change nothing about the account it declined to adopt.
+    const untouched = await prisma.user.findUniqueOrThrow({
+      where: { id: existing.id },
+    });
+    expect(untouched.passwordHash).toBe("$argon2id$placeholder");
+    expect(await prisma.user.count({ where: { email } })).toBe(1);
+  });
+
+  it("refuses to link when the hd claim does not match the address's domain", async () => {
+    const email = uniqueEmail("google-link-hd-mismatch", EXTERNAL_DOMAIN);
+    const existing = await prisma.user.create({
+      data: {
+        email,
+        passwordHash: "$argon2id$placeholder",
+        emailVerifiedAt: new Date(),
+      },
+    });
+    // An organization that proved it owns `workspace.test` proved nothing about this address.
+    provider.identity = {
+      providerAccountId: `google-${randomUUID()}`,
+      email,
+      emailVerified: true,
+      hostedDomain: WORKSPACE_DOMAIN,
+    };
+
+    const started = await startAuthorization();
+    const response = await completeCallback(started).expect(302);
+
+    expect(response.headers.location).toBe(
+      `${WEB_BASE_URL}/login?error=oauth_link_not_allowed`,
+    );
+    expect(
+      await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
+    ).toBe(0);
+  });
+
+  it("still creates a new account for a verified non-authoritative email nobody holds", async () => {
+    const email = uniqueEmail("google-new-external", EXTERNAL_DOMAIN);
+    provider.identity = {
+      providerAccountId: `google-${randomUUID()}`,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+
+    const started = await startAuthorization();
+    const response = await completeCallback(started).expect(302);
+
+    // No account holds the address, so there is nothing to take over: the weaker bar is
+    // deliberate, and is the difference between creating and adopting.
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    const created = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(created.passwordHash).toBeNull();
+    expect(created.emailVerifiedAt).not.toBeNull();
+  });
+
+  it("signs an already-linked identity in without re-asking whether its email is authoritative", async () => {
+    const email = uniqueEmail("google-linked-external", EXTERNAL_DOMAIN);
+    const providerAccountId = `google-${randomUUID()}`;
+    const existing = await prisma.user.create({
+      data: {
+        email,
+        emailVerifiedAt: new Date(),
+        oauthAccounts: {
+          create: { provider: OAuthProvider.GOOGLE, providerAccountId },
+        },
+      },
+    });
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+
+    const started = await startAuthorization();
+    const response = await completeCallback(started).expect(302);
+
+    // The subject is the identity. Once it is linked, the email claim decides nothing.
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(
+      await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
+    ).toBe(1);
+  });
+
   it("verifies a previously unverified local account when Google vouches for the address", async () => {
-    const email = uniqueEmail("google-link-unverified");
+    const email = uniqueEmail("google-link-unverified", GOOGLE_MAILBOX_DOMAIN);
     const existing = await prisma.user.create({
       data: {
         email,
@@ -424,6 +594,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email,
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -442,7 +613,7 @@ describe("Google authentication", () => {
   });
 
   it("refuses to link or create an account for an unverified provider email", async () => {
-    const email = uniqueEmail("google-unverified");
+    const email = uniqueEmail("google-unverified", GOOGLE_MAILBOX_DOMAIN);
     const existing = await prisma.user.create({
       data: {
         email,
@@ -450,10 +621,12 @@ describe("Google authentication", () => {
         emailVerifiedAt: new Date(),
       },
     });
+    // Even a Gmail address Google itself operates is worthless while unverified.
     provider.identity = {
       providerAccountId: `google-${randomUUID()}`,
       email,
       emailVerified: false,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -468,11 +641,43 @@ describe("Google authentication", () => {
     ).toBe(0);
   });
 
+  it("lets exactly one of two concurrent first sign-ins create the account", async () => {
+    const email = uniqueEmail("google-race", GOOGLE_MAILBOX_DOMAIN);
+    const providerAccountId = `google-${randomUUID()}`;
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+
+    const first = await startAuthorization();
+    const second = await startAuthorization();
+    const responses = await Promise.all([
+      completeCallback(first),
+      completeCallback(second),
+    ]);
+
+    // The loser of the uniqueness race resolves again and finds the row the winner wrote, so
+    // both browsers end up signed in to the one account PostgreSQL allowed to exist.
+    for (const response of responses) {
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    }
+    expect(await prisma.user.count({ where: { email } })).toBe(1);
+    expect(
+      await prisma.oAuthAccount.count({
+        where: { provider: OAuthProvider.GOOGLE, providerAccountId },
+      }),
+    ).toBe(1);
+  });
+
   it("refuses an identity with no usable email address", async () => {
     provider.identity = {
       providerAccountId: `google-${randomUUID()}`,
       email: null,
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
@@ -488,6 +693,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email: uniqueEmail("google-state"),
       emailVerified: true,
+      hostedDomain: null,
     };
     const started = await startAuthorization();
     const expectedLocation = `${WEB_BASE_URL}/login?error=oauth_state`;
@@ -559,6 +765,7 @@ describe("Google authentication", () => {
       providerAccountId: `google-${randomUUID()}`,
       email: uniqueEmail("google-logs"),
       emailVerified: true,
+      hostedDomain: null,
     };
 
     const started = await startAuthorization();
