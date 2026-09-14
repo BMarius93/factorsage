@@ -43,7 +43,7 @@ PageContainer            # width intent + progressive padding (components/layout
     CollectionFooter     # page size, visible range, page navigation
     FactGrid             # the properties of one entity
     EmptyState           # nothing / not found / could not be loaded
-  WorkflowFooter         # Cancel + primary, for a create/edit route
+  WorkflowFooter         # Cancel + primary, for an ordinary create/edit route
 ```
 
 A **collection** is always exactly this, and never adds a second heading of its own:
@@ -127,10 +127,21 @@ with no maintenance actions renders no trigger: `OverflowMenu` returns `null` fo
 
 ### `WorkflowFooter`
 
-The one create/edit footer. Desktop and tablet: a quiet row at the bottom-right of the form surface,
-in the order Cancel then primary. Phone: the same row becomes a sticky bar above the fixed bottom
-navigation and the safe-area inset, so the action that commits a long form is never a scroll away.
-Its optional `summary` describes the configuration about to be submitted.
+The **default** footer for an ordinary create/edit workflow. Desktop and tablet: a quiet row at the
+bottom-right of the form surface, in the order Cancel then primary. Phone: the same row becomes a
+sticky bar above the fixed bottom navigation and the safe-area inset, so the action that commits a
+long form is never a scroll away. Its optional `summary` describes what is about to be submitted.
+
+It models a workflow that ends in one decision: cancel, or commit. Reach for it whenever that is the
+shape of the screen.
+
+**Strategy Builder is a deliberate exception, and is not to be "cleaned up" into this.** Its
+persistent save bar is not a Cancel/Submit pair — it carries editor state this component does not
+model and should not grow: live save status, dirty state, a count of validation issues that is also
+the control for revealing and focusing the first invalid condition, and Discard changes alongside
+Save. Folding that into `WorkflowFooter` would mean either a generic footer that knows what a
+strategy issue is, or a strategy editor that has lost the affordance. Both are worse than one
+justified local bar, so the exception stays until something else genuinely needs the same behaviour.
 
 ### `DataTable`
 
@@ -261,9 +272,34 @@ One solid-blue action per page, and it is never a link to a form.
 
 ## Tokens
 
-`apps/web/src/styles/tokens.css` is the only file in the web app that may hold a hex colour, a
-radius, an elevation, a type size or a spacing constant. A feature stylesheet asks for a semantic
-token — there are no raw hex values anywhere else in `apps/web/src`, and that is worth keeping true.
+`apps/web/src/styles/tokens.css` holds the product's **shared visual language**, so a screen cannot
+quietly invent a second version of one of its constants.
+
+The rule is a distinction, not a ban on numbers:
+
+**Must be a token.** These make up the design language, and a feature stylesheet asks for them by
+name rather than restating their values:
+
+- every semantic colour — brand, text, border, surface, and the financial/operational states;
+- the radius scale (`--radius-sm|md|lg|hero|pill`) and the elevation scale
+  (`--shadow-surface|hero|menu|dialog`);
+- the type scale and `--weight-emphasis`;
+- the standard control sizes — `--control-height`, `--button-height`, `--action-height`;
+- the page spacing and width system — `--page-pad-*`, `--section-gap`, `--card-pad`,
+  `--surface-inset`, `--content-max-width`, `--reading-max-width`.
+
+**May stay local.** Geometry that belongs to one component's own implementation rather than to the
+product: the gap between its parts, a grid template, a chart's fixed height, a transform, a
+truncation width, the radius of a small ornament it draws — a legend swatch, a logo mark, a close
+button. These are not design language, and pushing them through tokens would grow the file without
+making anything more consistent.
+
+**Never.** Redefining a shared constant locally: a second brand blue, a second card radius, a second
+button height, a second page gap, a second section-heading size. That is the drift this file exists
+to prevent — and it is what to look for in review, rather than the presence of a number.
+
+One part of the rule is absolute and currently holds: **a hex colour lives only in `tokens.css`.**
+There are none anywhere else in `apps/web/src`, and that is worth keeping true.
 
 The system is deliberately small. It is grouped, and the groups are the whole vocabulary:
 

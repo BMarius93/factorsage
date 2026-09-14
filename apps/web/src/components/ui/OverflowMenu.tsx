@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import styles from "./OverflowMenu.module.css";
 
 export type OverflowMenuItem = {
   readonly label: string;
   readonly onSelect: () => void;
-  /** `danger` tints the item once the menu is open. Use it only for destructive work. */
+  /** `danger` tints the action once the popup is open. Use it only for destructive work. */
   readonly tone?: "default" | "danger";
   readonly disabled?: boolean;
   /** Draws a divider above this item, separating maintenance from destruction. */
@@ -26,16 +26,25 @@ type OverflowMenuProps = {
 };
 
 /**
- * The product's one maintenance-action menu: Rename, Edit, Enable/Disable, Delete.
+ * The product's one place for maintenance actions: Rename, Edit, Enable/Disable, Delete.
  *
  * Every collection row and every entity header uses this rather than exposing the same
  * actions as visible buttons. A destructive action is never a visible peer to the record
  * it destroys, and the trigger keeps one icon, one hit area, one accessible-label pattern
  * and one alignment across Lists, Strategies, Monitors and Backtests.
  *
- * Keyboard: the trigger is a normal button; Escape closes and returns focus to it, and a
- * click or focus move outside dismisses. Items are real buttons, so they take tab stops in
- * visible order.
+ * **This is a disclosure, not an ARIA menu.** It is deliberately not `role="menu"`: that
+ * role is a promise of menu keyboard semantics — arrow-key roving focus, Home/End, focus
+ * moving into the menu on open — and this component does none of that. It reveals a small
+ * stack of ordinary buttons, so it is built as the disclosure it actually is: a button that
+ * owns `aria-expanded`, and real `<button>`s that take their natural place in the tab order.
+ * Announcing a menu we do not implement is worse for a screen-reader user than announcing
+ * nothing, because it sets up keys that will not work.
+ *
+ * Keyboard: Enter or Space on the trigger opens; Tab moves to the first enabled action and
+ * on out of the last one, which closes it; Escape closes and returns focus to the trigger;
+ * a pointer or focus move outside dismisses. If this ever needs true menu semantics, adopt
+ * the full pattern — roles *and* key handling — rather than re-adding the roles alone.
  */
 export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
   const [open, setOpen] = useState(false);
@@ -88,7 +97,6 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
         type="button"
         ref={triggerRef}
         className={styles.trigger}
-        aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={`More actions for ${label}`}
@@ -100,15 +108,14 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
         </span>
       </button>
       {open ? (
-        <div className={styles.menu} id={menuId} role="menu">
+        <div className={styles.menu} id={menuId}>
           {items.map((item) => (
-            <div key={item.label} role="none">
+            <Fragment key={item.label}>
               {item.separated ? (
-                <div className={styles.separator} role="none" />
+                <div className={styles.separator} aria-hidden="true" />
               ) : null}
               <button
                 type="button"
-                role="menuitem"
                 className={styles.item}
                 data-tone={item.tone === "danger" ? "danger" : undefined}
                 disabled={item.disabled}
@@ -120,7 +127,7 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
               >
                 {item.label}
               </button>
-            </div>
+            </Fragment>
           ))}
         </div>
       ) : null}

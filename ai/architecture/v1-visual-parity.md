@@ -106,7 +106,9 @@ Rules:
 
 ### Workflow actions
 
-Create/edit workflows use the same footer contract:
+Create/edit workflows use the same footer contract. `WorkflowFooter` implements it and is the
+default; Strategy Builder is an intentional exception, documented under "Workflow footer exceptions"
+below:
 
 - Desktop/tablet: actions appear at the bottom-right of the form surface in the order Cancel,
   primary action.
@@ -116,6 +118,19 @@ Create/edit workflows use the same footer contract:
   obscured.
 - Validation errors focus or scroll to the first invalid field; moving actions into a fixed bar must
   not hide the error state.
+
+#### Workflow footer exceptions
+
+`WorkflowFooter` is the default, not a mandate. A screen may keep its own footer when it carries
+state the generic one does not model — and exactly one does today:
+
+**Strategy Builder** keeps its persistent save bar. It is not a Cancel/Submit pair: it reports live
+save status and dirty state, counts outstanding validation issues and uses that count as the control
+that reveals and focuses the first invalid condition, and offers Discard changes beside Save. Moving
+that into `WorkflowFooter` would either teach a shared component what a strategy issue is, or strip
+the editor of an affordance. Neither is an improvement, so the exception is deliberate — do not
+refactor it away to make the vocabulary look tidier. If a second editor ever needs the same
+behaviour, that is the point to generalise, with the shared thing modelling save state explicitly.
 
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
@@ -388,9 +403,12 @@ positive value, and a separate mobile DOM. V2 keeps its focus ring, its hover st
 
 ## What the parity pass changed
 
-Tokens now carry the whole visual system — `apps/web/src/styles/tokens.css` is the only file in the
-web app holding a colour, a radius, an elevation, a type size or a spacing constant, and there are
-no raw hex values anywhere else. The components that consume them:
+Tokens now carry the product's shared visual language: `apps/web/src/styles/tokens.css` owns the
+semantic palette, the radius and elevation scales, the type scale, the standard control sizes and
+the page spacing and width system, and no feature restates one of those. Geometry local to a single
+component stays with that component; `ai/architecture/ui-system.md` draws the line. One part of the
+rule is absolute and holds: a hex colour appears nowhere else in `apps/web/src`. The components that
+consume the tokens:
 
 - `PageContainer` gained `width="data" | "reading"`.
 - `PageHeader` gained `variant="surface" | "plain" | "hero"` (default `surface`) and an `aside` slot.
@@ -400,7 +418,8 @@ no raw hex values anywhere else. The components that consume them:
 - `CollectionFooter` + `usePagination` are new: page size, visible range and page navigation, applied
   in the browser over rows the page already holds — no contract change and no extra requests.
 - `WorkflowFooter` is new: Cancel then primary at the bottom-right of a form surface, and a sticky
-  bar above the bottom navigation on a phone.
+  bar above the bottom navigation on a phone. New Backtest uses it; Strategy Builder keeps its own
+  save bar, for the reasons under "Workflow footer exceptions".
 - `forms.module.css` gained `tintedButton` and `inputCompact`; `actions.module.css` **lost** its
   danger variant, because a destructive action is never a visible peer to the record it destroys.
 

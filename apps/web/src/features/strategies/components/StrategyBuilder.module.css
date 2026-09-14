@@ -423,7 +423,12 @@
   opacity: 0.45;
 }
 
-/* --- Save bar --- */
+/* --- Save bar ---
+ *
+ * Deliberately not `WorkflowFooter`. This bar is not a Cancel/Submit pair: it reports save
+ * status and dirty state, counts outstanding issues and uses that count as the control that
+ * reveals and focuses the first invalid condition, and offers Discard changes beside Save.
+ * See `ai/architecture/ui-system.md` before replacing it with the shared footer. */
 
 .saveBar {
   position: sticky;

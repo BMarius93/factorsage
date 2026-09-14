@@ -1,7 +1,17 @@
-/* The FactorSage design tokens.
+/* The FactorSage design tokens: the constants that make up the product's shared visual
+ * language, in one place so a screen cannot quietly invent a second version of one.
  *
- * This file is the only place in the web app that may hold a hex colour, a radius, an
- * elevation or a spacing constant. A feature stylesheet asks for a semantic token.
+ * What belongs here: the semantic palette, the radius and elevation scales, the type scale
+ * and emphasis weight, the standard control heights, and the page spacing and width system.
+ * A feature stylesheet asks for those by name and never restates their values.
+ *
+ * What does not: geometry that is genuinely local to one component — the gap between its
+ * own parts, a grid template, a chart's height, the radius of a small ornament it draws.
+ * Those are implementation detail, not design language, and forcing them through a token
+ * would grow this file without making anything more consistent.
+ *
+ * One rule here is absolute: a hex colour lives only in this file. Every other value is
+ * governed by the distinction above — see `ai/architecture/ui-system.md`.
  *
  * The values are calibrated against the deployed V1 product — see
  * `ai/architecture/v1-visual-parity.md` for the measured reference and what V2 keeps,
