@@ -12,7 +12,7 @@
 .label {
   color: var(--color-text-body);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .input {
@@ -20,7 +20,7 @@
   min-height: 46px;
   padding: 10px 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
   outline: none;
@@ -28,7 +28,7 @@
 
 .input:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+  box-shadow: var(--focus-ring-inset);
 }
 
 .input[aria-invalid="true"] {
@@ -46,10 +46,10 @@
   margin-top: 6px;
   padding: 0 16px;
   border: 1px solid var(--color-primary);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-on-primary);
   background: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -66,10 +66,10 @@
   min-height: 46px;
   padding: 0 16px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -87,7 +87,7 @@
   margin: 4px 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--color-negative);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-negative);
   background: var(--color-negative-soft);
   font-size: 14px;
@@ -98,7 +98,7 @@
   margin: 4px 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-body);
   background: var(--color-surface-soft);
   font-size: 14px;
@@ -109,7 +109,7 @@
   margin: 4px 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--color-positive);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-positive);
   background: var(--color-positive-soft);
   font-size: 14px;
@@ -127,7 +127,7 @@
   margin: 18px 0;
   color: var(--color-text-muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -147,7 +147,7 @@
 
 .link {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .linkButton {
@@ -155,7 +155,7 @@
   border: none;
   color: var(--color-primary);
   background: none;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 

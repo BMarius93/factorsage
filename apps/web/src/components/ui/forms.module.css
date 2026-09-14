@@ -10,8 +10,8 @@
 
 .label {
   color: var(--color-text-body);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
 }
 
 .input,
@@ -19,16 +19,24 @@
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-body);
   outline: none;
 }
 
 .input {
-  min-height: 46px;
+  min-height: var(--control-height);
+}
+
+/* A dense editor row — a metric select beside its operator and value — where a full-height
+   field would make one condition as tall as a section. */
+.inputCompact {
+  min-height: var(--control-height-compact);
+  padding: 0 10px;
+  font-size: var(--text-secondary);
 }
 
 .textarea {
@@ -39,7 +47,7 @@
 .input:focus,
 .textarea:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+  box-shadow: var(--focus-ring-inset);
 }
 
 .input[aria-invalid="true"] {
@@ -57,7 +65,7 @@
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--color-negative);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-negative);
   background: var(--color-negative-soft);
   font-size: 14px;
@@ -76,16 +84,17 @@
    anchor defaults rather than leaving a link underlined inside a filled button. */
 .primaryButton,
 .secondaryButton,
+.tintedButton,
 .dangerButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
+  min-height: var(--button-height);
   padding: 0 16px;
-  border-radius: var(--radius-control);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
+  border-radius: var(--radius-md);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
   text-align: center;
   text-decoration: none;
   white-space: nowrap;
@@ -94,6 +103,7 @@
 
 .primaryButton:focus-visible,
 .secondaryButton:focus-visible,
+.tintedButton:focus-visible,
 .dangerButton:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -119,6 +129,19 @@
   background: var(--color-surface-soft);
 }
 
+/* The FactorSage action treatment: brand blue as ink on a tint rather than a slab of
+   saturated colour. This is what `New …` and an entity's `Edit` wear, so the one solid
+   button on a page is always the thing that commits work. */
+.tintedButton {
+  border: 1px solid var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-primary-soft);
+}
+
+.tintedButton:hover:not(:disabled) {
+  background: var(--color-primary-soft-hover);
+}
+
 .dangerButton {
   border: 1px solid var(--color-negative);
   color: var(--color-text-on-primary);
@@ -126,11 +149,12 @@
 }
 
 .dangerButton:hover:not(:disabled) {
-  filter: brightness(0.94);
+  background: var(--color-negative-hover);
 }
 
 .primaryButton:disabled,
 .secondaryButton:disabled,
+.tintedButton:disabled,
 .dangerButton:disabled {
   cursor: wait;
   opacity: 0.62;

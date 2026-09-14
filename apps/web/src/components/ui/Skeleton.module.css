@@ -2,7 +2,7 @@
   display: block;
   width: 100%;
   height: 16px;
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: linear-gradient(
     90deg,
     var(--color-surface-soft) 0%,
@@ -14,11 +14,11 @@
 }
 
 .block[data-radius="control"] {
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
 }
 
 .block[data-radius="card"] {
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
 }
 
 .list {

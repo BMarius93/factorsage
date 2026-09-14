@@ -3,10 +3,10 @@
   max-height: min(85dvh, 720px);
   padding: 0;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-lg);
   color: var(--color-text-primary);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-dialog);
 }
 
 .dialog[data-wide="true"] {
@@ -32,8 +32,8 @@
 
 .title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
 }
 

@@ -1,0 +1,66 @@
+/* The footer bar under a collection: how many rows are shown, which ones, and how to get
+ * to the rest. V1 ends every collection with this, and without it a long collection is a
+ * single unbounded scroll. */
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px var(--surface-inset);
+  border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}
+
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.select {
+  min-height: var(--action-height);
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-body);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+.select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.range {
+  font-variant-numeric: tabular-nums;
+}
+
+.page {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Below the table/card switch the surface has dissolved, so the footer keeps the page
+   gutter rather than the surface inset and gains its own quiet frame. */
+@media (max-width: 879px) {
+  .footer {
+    padding: 12px 0 0;
+  }
+}

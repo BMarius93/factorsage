@@ -56,7 +56,7 @@
   border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -107,14 +107,14 @@
 .plan {
   composes: card from "../../../components/ui/SectionCard.module.css";
   gap: 16px;
-  padding: 18px;
+  padding: var(--card-pad);
 }
 
 /* The current plan reads as chosen without becoming a blue block: a stronger border and the
    softest tint the palette has, and nothing else. */
 .plan[data-current="true"] {
   border-color: var(--color-primary-border);
-  background: var(--color-surface-soft);
+  background: var(--color-surface-selected);
 }
 
 .planHead {
@@ -128,8 +128,8 @@
 .planName {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 17px;
-  font-weight: 700;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
 }
 
@@ -144,7 +144,7 @@
 .priceAmount {
   color: var(--color-text-primary);
   font-size: 30px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.02em;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -153,7 +153,7 @@
 .pricePeriod {
   color: var(--color-text-secondary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .priceNote {
@@ -232,7 +232,7 @@
 .notice {
   margin: 0;
   padding: 10px 12px;
-  border-radius: var(--radius-chip);
+  border-radius: var(--radius-sm);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -270,7 +270,7 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
 }
 
 .linkButton:focus-visible {
@@ -291,7 +291,7 @@
   }
 
   .plan {
-    padding: 22px;
+    padding: var(--card-pad);
   }
 }
 

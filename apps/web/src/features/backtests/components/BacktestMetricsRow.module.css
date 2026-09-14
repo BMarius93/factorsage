@@ -1,7 +1,7 @@
 .card {
   padding: 16px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
 }
 
@@ -16,15 +16,15 @@
 
 .title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
 }
 
 .caption {
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--text-small);
 }
 
 /* Two tiles across on a phone, four on a desktop: eight numbers stay scannable without ever
@@ -35,7 +35,7 @@
   gap: 1px;
   margin: 0;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   background: var(--color-border);
   overflow: hidden;
 }
@@ -51,7 +51,7 @@
 .label {
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   overflow-wrap: anywhere;
@@ -61,7 +61,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: 17px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;

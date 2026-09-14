@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { chooseFromOverflowMenu } from "./overflow-menu";
 import type { Entitlements } from "@intrinsic/contracts";
 
 /**
@@ -26,7 +27,9 @@ export function fixtureName(name: string): string {
  * than the page it just loaded.
  */
 export function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "http://localhost:3001";
+  return (
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || "http://localhost:3001"
+  );
 }
 
 export type EntitlementsPayload = {
@@ -51,12 +54,18 @@ export async function readEntitlements(
 }
 
 /** Opens a seeded fixture list by its reserved name. */
-export async function openFixtureList(
-  page: Page,
-  name: string,
-): Promise<void> {
+export async function openFixtureList(page: Page, name: string): Promise<void> {
   await page.goto("/lists");
   const link = page.getByRole("link", { name: fixtureName(name) }).first();
+  // The collection pages at 25 rows, and a persona carrying entitlement fixtures can hold
+  // more than that. Widening the page is what a user would do to find one by name, so the
+  // helper does the same rather than reaching past the UI.
+  if ((await link.count()) === 0) {
+    await page
+      .getByTestId("lists-footer")
+      .getByLabel("Rows")
+      .selectOption("100");
+  }
   await expect(
     link,
     `The fixture list "${fixtureName(name)}" is missing. Seed it once with: pnpm test:personas:seed`,
@@ -114,7 +123,11 @@ export async function removeStockFromOpenList(
   page: Page,
   symbol: string,
 ): Promise<void> {
-  await page.getByLabel(`Remove ${symbol} from list`).click();
+  await chooseFromOverflowMenu(
+    page,
+    `${symbol} in this list`,
+    "Remove from list",
+  );
   await page.getByRole("button", { name: "Remove stock" }).click();
   await expect(listItem(page, symbol)).toHaveCount(0, { timeout: 20_000 });
 }
@@ -154,7 +167,8 @@ export async function submitBacktest(
   await expect
     .poll(
       async () =>
-        (await error.count()) > 0 || /\/backtests\/[0-9a-f-]{36}$/.test(page.url()),
+        (await error.count()) > 0 ||
+        /\/backtests\/[0-9a-f-]{36}$/.test(page.url()),
       { timeout: 30_000 },
     )
     .toBe(true);

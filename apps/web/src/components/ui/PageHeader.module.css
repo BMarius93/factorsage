@@ -1,6 +1,20 @@
+/* The product's one page-title treatment.
+ *
+ * `surface` is the default because V1 opens every collection and detail page with a white
+ * bordered card holding the title, the lead and the primary action — the page never begins
+ * with unframed text on the canvas, and the action never floats with nothing to sit in. */
+
 .wrapper {
   display: grid;
   gap: 10px;
+}
+
+.wrapper[data-variant="surface"] {
+  padding: var(--card-pad);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
 }
 
 .breadcrumb {
@@ -9,10 +23,10 @@
 
 .backLink {
   color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
 }
 
 .backLink:hover {
@@ -46,16 +60,22 @@
   min-width: 0;
 }
 
-/* One page-title size for the whole product. Long list/strategy/monitor names break
-   rather than widening the page. */
+/* One page-title size for the whole product, driven by a token so a feature cannot set a
+   display heading of its own. Long list/strategy/monitor names break rather than widening
+   the page. */
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 24px;
-  font-weight: 700;
+  font-size: var(--text-page-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.02em;
-  line-height: 1.2;
+  line-height: var(--line-height-tight);
   overflow-wrap: anywhere;
+}
+
+/* The one screen allowed a display title: a result the user opened the page to see. */
+.wrapper[data-variant="hero"] .title {
+  font-size: var(--text-page-title-hero);
 }
 
 .badges {
@@ -69,8 +89,24 @@
   margin: 0;
   max-width: 62ch;
   color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}
+
+.aside {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+@media (min-width: 600px) {
+  .aside {
+    align-items: flex-end;
+    text-align: right;
+  }
 }
 
 .actions {
@@ -80,14 +116,8 @@
   gap: 8px;
 }
 
-@media (min-width: 880px) {
-  .title {
-    font-size: 28px;
-  }
-}
-
-/* Phones: actions own a full row under the title and stretch, so a two-word button
-   never sits in a 40px column beside a wrapped heading. */
+/* Phones: actions own a full row under the title and stretch, so a two-word button never
+   sits in a 40px column beside a wrapped heading. */
 @media (max-width: 599px) {
   .actions {
     width: 100%;

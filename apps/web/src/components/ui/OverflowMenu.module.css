@@ -1,0 +1,108 @@
+/* The one maintenance-action menu in the product.
+ *
+ * V1 ends every collection row with a "…" trigger opening a compact menu, and that is
+ * where Rename, Edit, Enable/Disable and Delete live. Keeping them there is what stops a
+ * destructive action from sitting as a permanently visible peer to the record it deletes —
+ * and stops red, which means a loss in a financial product, from being decoration. */
+
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--action-height);
+  height: var(--action-height);
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.trigger:hover,
+.trigger[aria-expanded="true"] {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-primary-soft);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.glyph {
+  display: block;
+  font-size: 16px;
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.5px;
+  /* The glyph sits optically low without this; the trigger is a 32px square and the dots
+     are bottom-aligned in their em box. */
+  transform: translateY(-3px);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 160px;
+  padding: 4px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-menu);
+  text-align: left;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: 0;
+  color: var(--color-text-body);
+  background: none;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--color-row-hover);
+}
+
+.item:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Destructive items read as destructive only once the menu is open, which is the whole
+   point of putting them here. */
+.item[data-tone="danger"] {
+  color: var(--color-negative);
+}
+
+.item[data-tone="danger"]:hover:not(:disabled) {
+  background: var(--color-negative-soft);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-subtle);
+}

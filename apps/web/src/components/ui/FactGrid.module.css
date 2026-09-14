@@ -14,7 +14,7 @@
 .label {
   color: var(--color-text-muted);
   font-size: var(--text-label-size);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-label-tracking);
   text-transform: uppercase;
 }
@@ -27,6 +27,6 @@
   margin: 0;
   color: var(--color-text-body);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
 }

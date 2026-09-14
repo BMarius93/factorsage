@@ -2,6 +2,7 @@ import type {
   SecurityProfileResponse,
   SecurityResponse,
 } from "@intrinsic/contracts";
+import { PageHeader } from "../../../../components/ui/PageHeader";
 import { StockLogo } from "../../../../components/ui/StockIdentity";
 import {
   formatLocalDate,
@@ -22,41 +23,40 @@ type StockHeaderProps = {
   readonly profile?: SecurityProfileResponse;
 };
 
-const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> = {
-  ETF: "ETF",
-  FUND: "Fund",
-};
+const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> =
+  {
+    ETF: "ETF",
+    FUND: "Fund",
+  };
 
 /**
  * Identity block for the stock: who this is, where it trades, and the latest end-of-day quote.
  * The change is derived from the two most recent EOD closes and is labelled as at-close data —
  * nothing here claims to be live.
  */
-export function StockHeader({
-  security,
-  summary,
-  profile,
-}: StockHeaderProps) {
+export function StockHeader({ security, summary, profile }: StockHeaderProps) {
   const change = summary?.change;
   const direction =
     change === undefined ? undefined : change.absolute >= 0 ? "up" : "down";
   const typeBadge = SECURITY_TYPE_BADGES[security.type];
 
   return (
-    <header className={styles.header}>
-      <div className={styles.identity}>
-        <div className={styles.identityRow}>
+    <PageHeader
+      title={
+        <span className={styles.identityRow}>
           <StockLogo
             symbol={security.symbol}
             name={security.name}
             size="lg"
             {...(profile?.logoUrl ? { logoUrl: profile.logoUrl } : {})}
           />
-          <h1 className={styles.title}>
+          <span className={styles.titleText}>
             <span className={styles.symbol}>{security.symbol}</span>
             <span className={styles.name}>{security.name}</span>
-          </h1>
-        </div>
+          </span>
+        </span>
+      }
+      badges={
         <ul className={styles.badges} aria-label="Listing details">
           <li className={styles.badge}>
             {security.exchangeName ?? security.exchangeCode}
@@ -70,10 +70,9 @@ export function StockHeader({
             </li>
           )}
         </ul>
-      </div>
-
-      <div className={styles.quote}>
-        {summary ? (
+      }
+      aside={
+        summary ? (
           <>
             <p className={styles.price}>
               {formatMoney(summary.latestClose, security.currency)}
@@ -91,8 +90,8 @@ export function StockHeader({
           </>
         ) : (
           <p className={styles.noQuote}>No recent price data</p>
-        )}
-      </div>
-    </header>
+        )
+      }
+    />
   );
 }

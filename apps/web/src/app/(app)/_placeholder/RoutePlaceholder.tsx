@@ -15,7 +15,7 @@ export function RoutePlaceholder({
   description,
 }: RoutePlaceholderProps) {
   return (
-    <PageContainer>
+    <PageContainer width="reading">
       <p className={styles.label}>FactorSage</p>
       <h1 className={styles.title}>{title}</h1>
       <p className={styles.description}>{description}</p>

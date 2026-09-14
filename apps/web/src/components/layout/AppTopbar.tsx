@@ -9,7 +9,7 @@ import { BRAND_NAME, BrandMark } from "./BrandMark";
 import { AccountIcon } from "./nav-icons";
 import {
   APP_HOME_HREF,
-  PRIMARY_NAV_ITEMS,
+  DESKTOP_NAV_ITEMS,
   isNavItemActive,
 } from "./navigation";
 import { guardNavigation } from "./unsaved-changes";
@@ -41,7 +41,7 @@ export function AppTopbar({ actions }: AppTopbarProps) {
 
       <nav className={styles.desktopNav} aria-label="Primary">
         <ul className={styles.navList}>
-          {PRIMARY_NAV_ITEMS.map((item) => {
+          {DESKTOP_NAV_ITEMS.map((item) => {
             const active = isNavItemActive(pathname, item);
 
             return (

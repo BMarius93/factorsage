@@ -18,6 +18,7 @@ import {
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { LinkedEntities } from "../../../components/ui/EntityReference";
 import { FactGrid } from "../../../components/ui/FactGrid";
+import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
@@ -112,7 +113,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             testId="monitor-missing"
             title="This monitor no longer exists"
             body={
-              <p>It may have been deleted. Your other monitors are unaffected.</p>
+              <p>
+                It may have been deleted. Your other monitors are unaffected.
+              </p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/monitors">
@@ -319,35 +322,37 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             <>
               <button
                 type="button"
-                className={forms.primaryButton}
+                className={forms.tintedButton}
                 data-testid="edit-monitor"
                 onClick={() => setDialog({ kind: "edit" })}
               >
                 Edit monitor
               </button>
-              <button
-                type="button"
-                className={forms.secondaryButton}
-                data-testid="toggle-monitor"
-                disabled={togglePending}
-                onClick={toggle}
-              >
-                {view.enabled
-                  ? togglePending
-                    ? "Disabling…"
-                    : "Disable"
-                  : togglePending
-                    ? "Enabling…"
-                    : "Enable"}
-              </button>
-              <button
-                type="button"
-                className={forms.dangerButton}
-                data-testid="delete-monitor"
-                onClick={() => setDialog({ kind: "delete" })}
-              >
-                Delete
-              </button>
+              <OverflowMenu
+                label={view.name}
+                testId="monitor-detail-actions"
+                items={[
+                  {
+                    label: view.enabled
+                      ? togglePending
+                        ? "Disabling…"
+                        : "Disable"
+                      : togglePending
+                        ? "Enabling…"
+                        : "Enable",
+                    disabled: togglePending,
+                    onSelect: toggle,
+                    testId: "toggle-monitor",
+                  },
+                  {
+                    label: "Delete monitor",
+                    tone: "danger",
+                    separated: true,
+                    onSelect: () => setDialog({ kind: "delete" }),
+                    testId: "delete-monitor",
+                  },
+                ]}
+              />
             </>
           }
         />

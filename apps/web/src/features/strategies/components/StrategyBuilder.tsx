@@ -172,6 +172,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
       <div className={styles.builder} data-testid="strategy-builder">
         <div className={styles.editor}>
           <PageHeader
+            variant="plain"
             back={{ href: "/strategies", label: "Strategies" }}
             title={saved ? "Edit strategy" : "New strategy"}
             lead="Buy, sell and final-exit logic. A backtest decides which stocks and how much capital to run it with — a strategy never does."

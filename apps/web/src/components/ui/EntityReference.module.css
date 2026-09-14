@@ -12,7 +12,7 @@
   color: var(--color-text-body);
   background: var(--color-surface);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   line-height: 1.5;
   text-decoration: none;
   transition:
@@ -80,7 +80,7 @@ a.chip[data-kind="list"]:hover {
   margin: 0;
   color: var(--color-text-muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -102,7 +102,7 @@ a.chip[data-kind="list"]:hover {
 .linkedLabel {
   color: var(--color-text-muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }

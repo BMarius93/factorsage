@@ -32,7 +32,7 @@
 
 .inlineLink {
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
 }
 

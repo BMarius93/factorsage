@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 
 /**
  * Full Strategy Builder journey for PRO_USER.
@@ -12,7 +13,10 @@ const STRATEGY_NAME = "E2E deep value";
 const RENAMED = "E2E deep value (edited)";
 
 function card(page: Page, name: string) {
-  return page.getByTestId("strategies-grid").locator("tbody tr").filter({ hasText: name });
+  return page
+    .getByTestId("strategies-grid")
+    .locator("tbody tr")
+    .filter({ hasText: name });
 }
 
 /**
@@ -23,13 +27,15 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
   try {
     await page.goto("/strategies");
     await expect(
-      page.getByTestId("strategies-grid").or(page.getByTestId("strategies-empty")),
+      page
+        .getByTestId("strategies-grid")
+        .or(page.getByTestId("strategies-empty")),
     ).toBeVisible();
     const row = card(page, name);
     if ((await row.count()) === 0) {
       return;
     }
-    await row.first().getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, name, "Delete", row.first());
     await page.getByRole("button", { name: "Delete strategy" }).click();
     await expect(card(page, name)).toHaveCount(0);
   } catch {
@@ -98,13 +104,18 @@ test.describe("strategy builder", () => {
     // Price is above EMA 200D.
     const buyCard = page.getByTestId("level-card-BUY").first();
     await buyCard.getByTestId("metric-select").first().selectOption("PRICE:");
-    await buyCard.getByTestId("operator-select").first().selectOption("IS_ABOVE");
+    await buyCard
+      .getByTestId("operator-select")
+      .first()
+      .selectOption("IS_ABOVE");
     await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
 
     // ... AND Margin of Safety (DCF) is above 25%.
     await buyCard.getByTestId("add-condition").click();
     const second = buyCard.getByTestId("predicate-row").nth(1);
-    await second.getByTestId("metric-select").selectOption("MARGIN_OF_SAFETY:DCF_FCFF");
+    await second
+      .getByTestId("metric-select")
+      .selectOption("MARGIN_OF_SAFETY:DCF_FCFF");
     await second.getByTestId("value-control").fill("25");
 
     // The explanation panel must explain Margin of Safety correctly.
@@ -129,7 +140,10 @@ test.describe("strategy builder", () => {
     await sellCard.getByTestId("metric-select").first().selectOption("GAIN:");
     await sellCard.getByTestId("value-control").first().fill("25");
     await expect(
-      buyCard.getByTestId("metric-select").first().locator("option", { hasText: "Gain" }),
+      buyCard
+        .getByTestId("metric-select")
+        .first()
+        .locator("option", { hasText: "Gain" }),
     ).toHaveCount(0);
 
     await expect(page.getByTestId("logic-preview")).toContainText(
@@ -152,7 +166,11 @@ test.describe("strategy builder", () => {
     );
 
     // Editing an existing strategy: add a trigger and save again.
-    await page.getByTestId("level-card-BUY").first().getByTestId("add-trigger").click();
+    await page
+      .getByTestId("level-card-BUY")
+      .first()
+      .getByTestId("add-trigger")
+      .click();
     await page.getByTestId("save-strategy").click();
     await expect(page.getByText("All changes saved")).toBeVisible();
     await page.reload();
@@ -160,12 +178,17 @@ test.describe("strategy builder", () => {
 
     // Rename from the collection, then delete.
     await page.goto("/strategies");
-    await card(page, STRATEGY_NAME).getByRole("button", { name: "Rename" }).click();
+    await chooseFromOverflowMenu(
+      page,
+      STRATEGY_NAME,
+      "Rename",
+      card(page, STRATEGY_NAME),
+    );
     await page.getByLabel("Name").fill(RENAMED);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(card(page, RENAMED)).toHaveCount(1);
 
-    await card(page, RENAMED).getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, RENAMED, "Delete", card(page, RENAMED));
     await page.getByRole("button", { name: "Delete strategy" }).click();
     await expect(card(page, RENAMED)).toHaveCount(0);
 
@@ -174,7 +197,9 @@ test.describe("strategy builder", () => {
     await expect(page.getByTestId("strategy-not-found")).toBeVisible();
   });
 
-  test("reports an invalid strategy on the rows that caused it", async ({ page }) => {
+  test("reports an invalid strategy on the rows that caused it", async ({
+    page,
+  }) => {
     await page.goto("/strategies/new");
     await page.getByLabel("Name").fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
@@ -188,7 +213,6 @@ test.describe("strategy builder", () => {
     await expect(page.getByTestId("predicate-row")).toHaveCount(2);
   });
 });
-
 
 test.describe("strategy builder unsaved changes", () => {
   test.afterEach(async ({ page }) => {
@@ -260,8 +284,14 @@ test.describe("strategy builder on a phone", () => {
     await page.getByTestId("add-level-BUY").click();
 
     const buyCard = page.getByTestId("level-card-BUY").first();
-    await buyCard.getByTestId("metric-select").first().selectOption("OSCILLATOR:RSI_14D");
-    await buyCard.getByTestId("operator-select").first().selectOption("IS_BELOW");
+    await buyCard
+      .getByTestId("metric-select")
+      .first()
+      .selectOption("OSCILLATOR:RSI_14D");
+    await buyCard
+      .getByTestId("operator-select")
+      .first()
+      .selectOption("IS_BELOW");
     await buyCard.getByTestId("value-control").first().fill("30");
 
     // The percentage is a segmented control, tapped on its label like a real user would.
@@ -275,10 +305,11 @@ test.describe("strategy builder on a phone", () => {
       "Relative Strength Index",
     );
     // Longer help sits behind a tap so it cannot bury the rest of the level on a phone.
-    await page.getByTestId("inline-help").getByText("Formula and examples").click();
-    await expect(page.getByTestId("inline-help")).toContainText(
-      "warming up",
-    );
+    await page
+      .getByTestId("inline-help")
+      .getByText("Formula and examples")
+      .click();
+    await expect(page.getByTestId("inline-help")).toContainText("warming up");
 
     await expectNoHorizontalScroll(page);
 
@@ -286,7 +317,9 @@ test.describe("strategy builder on a phone", () => {
     const save = page.getByTestId("save-strategy");
     await expect(save).toBeEnabled();
     const saveBox = await save.boundingBox();
-    const navBox = await page.getByRole("navigation", { name: "Primary mobile" }).boundingBox();
+    const navBox = await page
+      .getByRole("navigation", { name: "Primary mobile" })
+      .boundingBox();
     if (navBox && saveBox) {
       expect(saveBox.y + saveBox.height).toBeLessThanOrEqual(navBox.y + 1);
     }

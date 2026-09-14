@@ -72,7 +72,7 @@
 
 .legendItem strong {
   color: var(--color-text-primary);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
@@ -80,5 +80,5 @@
   flex: none;
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }

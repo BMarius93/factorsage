@@ -3,38 +3,39 @@
   display: inline-flex;
 }
 
+/* A fixed circular mark, the way V1 identifies the signed-in account. Its width does not
+   depend on how long the address is, so the topbar's right edge never moves. */
 .trigger {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   cursor: pointer;
 }
 
-.trigger:hover {
-  background: var(--color-surface-soft);
+.trigger:hover,
+.trigger[aria-expanded="true"] {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-primary-soft);
 }
 
-.triggerIcon {
-  width: 20px;
-  height: 20px;
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
-.triggerEmail {
-  display: none;
-  max-width: 180px;
-  overflow: hidden;
-  color: var(--color-text-body);
-  font-size: 13px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.monogram {
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
 }
 
 .menu {
@@ -45,9 +46,9 @@
   width: min(260px, calc(100vw - 32px));
   padding: 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-menu);
 }
 
 .identity {
@@ -61,15 +62,15 @@
   overflow-wrap: anywhere;
   color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .roleBadge {
   justify-self: start;
   padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.03em;
 }
 
@@ -90,11 +91,11 @@
   margin-top: 10px;
   padding: 9px 10px;
   border: 1px solid transparent;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-body);
   background: none;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   text-align: left;
   cursor: pointer;
 }
@@ -118,10 +119,4 @@
   color: var(--color-negative);
   font-size: 13px;
   line-height: 1.45;
-}
-
-@media (min-width: 880px) {
-  .triggerEmail {
-    display: block;
-  }
 }

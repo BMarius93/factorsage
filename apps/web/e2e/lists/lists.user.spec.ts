@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 
 /**
  * Full lists journey for PRO_USER against the deterministic QA catalog rows.
@@ -54,7 +55,7 @@ async function deleteListIfPresent(page: Page, listName: string) {
       return;
     }
 
-    await card.getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, listName, "Delete", card);
     await page.getByRole("button", { name: "Delete list" }).click();
     await expect(card).toHaveCount(0);
   } catch {
@@ -132,13 +133,17 @@ test.describe("PRO_USER stock lists", () => {
     await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText("Full history");
 
     // 6. Remove the second stock after confirmation.
-    await page.getByLabel(`Remove ${QA_SYMBOL_TWO} from list`).click();
+    await chooseFromOverflowMenu(
+      page,
+      `${QA_SYMBOL_TWO} in this list`,
+      "Remove from list",
+    );
     await page.getByRole("button", { name: "Remove stock" }).click();
     await expect(itemRow(page, QA_SYMBOL_TWO)).toHaveCount(0);
     await expect(itemRow(page, QA_SYMBOL_ONE)).toBeVisible();
 
     // 7. Delete the list; the collection no longer shows it.
-    await page.getByTestId("delete-list-button").click();
+    await chooseFromOverflowMenu(page, listName, "Delete list");
     await page.getByRole("button", { name: "Delete list" }).click();
     await expect(page).toHaveURL(/\/lists$/);
     await expect(page.getByText(listName)).toHaveCount(0);

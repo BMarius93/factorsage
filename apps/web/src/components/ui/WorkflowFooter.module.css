@@ -1,0 +1,59 @@
+/* The one create/edit footer.
+ *
+ * Desktop and tablet: a quiet row at the bottom-right of the form surface, in the order
+ * Cancel then primary. Phone: the same row becomes a sticky bar parked above the fixed
+ * bottom navigation and the device safe area, so the action that commits a long form is
+ * never a scroll away. */
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 879px) {
+  .footer {
+    position: sticky;
+    /* `bottom` is what sticky resolves against, so a margin alone would leave the bar
+       overlapping the navigation; the margin below is what keeps the last field
+       scrollable clear of it. */
+    bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 8px);
+    z-index: 5;
+    justify-content: space-between;
+    margin-bottom: calc(
+      var(--bottom-nav-height) + var(--safe-area-bottom) + 8px
+    );
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-background-translucent);
+    box-shadow: var(--shadow-menu);
+    backdrop-filter: blur(8px);
+  }
+
+  .actions {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
+  /* Two actions share the bar evenly rather than crowding into its right edge. */
+  .actions > * {
+    flex: 1 1 auto;
+  }
+}

@@ -2,6 +2,7 @@ import type { StrategySummaryResponse } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { ApiError } from "../../../lib/api/client";
 import {
   deleteStrategy,
@@ -88,7 +89,7 @@ describe("StrategiesPage", () => {
     updateStrategyMock.mockResolvedValue(summary("s1", "New name"));
     render(<StrategiesPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    await chooseFromOverflowMenu(user, "Old name", "Rename");
     const input = screen.getByLabelText("Name");
     await user.clear(input);
     await user.type(input, "New name");
@@ -109,7 +110,7 @@ describe("StrategiesPage", () => {
     deleteStrategyMock.mockResolvedValue();
     render(<StrategiesPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await chooseFromOverflowMenu(user, "Doomed", "Delete");
     expect(deleteStrategyMock).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Delete strategy" }));
@@ -133,7 +134,7 @@ describe("StrategiesPage", () => {
     );
     render(<StrategiesPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
+    await chooseFromOverflowMenu(user, "Watched", "Delete");
     await user.click(screen.getByRole("button", { name: "Delete strategy" }));
 
     expect(

@@ -36,12 +36,24 @@ not learn.
 Every product page is the same three layers:
 
 ```text
-PageContainer            # width + progressive padding (components/layout)
-  PageHeader             # the one <h1>, its lead, badges, actions, back link
-  SectionCard            # a large rounded surface per section
+PageContainer            # width intent + progressive padding (components/layout)
+  PageHeader             # the one <h1>, its lead, badges, aside, actions, back link
+  SectionCard            # the page-level surface per section
     DataTable            # a collection inside it
+    CollectionFooter     # page size, visible range, page navigation
     FactGrid             # the properties of one entity
     EmptyState           # nothing / not found / could not be loaded
+  WorkflowFooter         # Cancel + primary, for a create/edit route
+```
+
+A **collection** is always exactly this, and never adds a second heading of its own:
+
+```text
+PageContainer width="data"
+  PageHeader variant="surface"     # title, lead, New … (tinted)
+  SectionCard flush                # untitled surface; dissolves below 880px
+    DataTable                      # one contextual action + OverflowMenu per row
+    CollectionFooter
 ```
 
 A route's own `.page` class composes `stack` from `components/ui/page.module.css`, which is the one
@@ -50,25 +62,75 @@ feature stylesheet.
 
 ## The components
 
+### `PageContainer`
+
+Width is an **intent**, not a number. `width="data"` (the default) lets collections, details, charts
+and results use the screen; `width="reading"` caps editors and prose at a readable measure. No route
+writes a `max-width` of its own.
+
 ### `PageHeader`
 
 The product's only page-title treatment: `<h1>`, optional lead sentence, optional status badges
-beside the title, optional actions, optional back link to the parent collection.
+beside the title, an optional `aside`, optional actions, optional back link to the parent collection.
+
+`variant` is `surface` (the default — the white bordered card every collection and entity detail
+opens with), `plain` (editors, where the form surface below is already the container) or `hero` (a
+result-first screen, where the title is composed into the feature's own hero surface and brings only
+the display type). See `v1-visual-parity.md` for what each one means.
+
+`aside` is a page-level **fact** aligned right of the identity — a stock's quote, a run's progress.
+It sits where actions sit but is something the page reports, not something the user can do; do not
+put a control in it.
 
 Use it on every route that has a title. Do not write a local `header`/`title`/`lead` trio, and do not
 write a bespoke breadcrumb — `back` is the breadcrumb.
 
 ### `SectionCard`
 
-The large rounded white surface the product is composed from — the "card" of the FactorSage card
-feel. Takes a title, an optional caption, an optional right-aligned `aside` (a count, a link), an
-optional `toolbar` (filter pills), and the body.
+The rounded white surface the product is composed from — the "card" of the FactorSage card feel.
+Takes a title, an optional caption, an optional right-aligned `aside` (a count, a link), an optional
+`toolbar` (filter pills), and the body.
+
+It is **flat**: `--radius-lg`, a 1px border, `--shadow-surface` (`none`). Separation comes from the
+border on a near-white canvas. `hero` opts into `--radius-hero` and `--shadow-hero` and is used by
+exactly one screen, the backtest result; do not reach for it to make a section look important.
 
 `flush` removes the body padding so a `DataTable` can run edge to edge; the table's own cells carry
-the inset.
+the inset. Below 880px a `flush` surface **dissolves** — border, background and shadow go — because
+`DataTable` already gives each record its own card there and the wrapper would draw a box around a
+stack of boxes. The heading stays: it is the section's name, not the card's.
 
 **Do not nest a `SectionCard` inside another.** One page-level surface per section is the whole
 point; card-inside-card is the noise this replaced.
+
+### `CollectionFooter` / `usePagination`
+
+Page size, the visible range and page navigation, under every collection. Paging is applied in the
+browser over rows the page already holds — every collection endpoint returns the caller's own records
+in one response — so this is presentation, not a data-loading concern. If a collection ever outgrows
+one response, `usePagination` is the seam to replace.
+
+### `OverflowMenu`
+
+The product's one maintenance-action menu: Rename, Edit, Enable/Disable, Delete. Every collection row
+and every entity header uses it rather than exposing those as visible buttons, so one trigger glyph,
+one hit area, one accessible-label pattern (`More actions for {name}`) and one alignment hold across
+Lists, Strategies, Monitors and Backtests.
+
+**A destructive action is never a visible peer to the record it destroys.** Red means a loss in a
+financial product; spending it on a permanently visible button in every row both raises the accident
+rate and drains the meaning from the negative numbers beside it. `actions.module.css` therefore has
+no danger variant at all, and `forms.dangerButton` is reachable only from `ConfirmDialog`.
+
+Give each row one visible contextual action — `Open`, `View results` — beside the trigger. A record
+with no maintenance actions renders no trigger: `OverflowMenu` returns `null` for an empty list.
+
+### `WorkflowFooter`
+
+The one create/edit footer. Desktop and tablet: a quiet row at the bottom-right of the form surface,
+in the order Cancel then primary. Phone: the same row becomes a sticky bar above the fixed bottom
+navigation and the safe-area inset, so the action that commits a long form is never a scroll away.
+Its optional `summary` describes the configuration about to be submitted.
 
 ### `DataTable`
 
@@ -183,30 +245,60 @@ The one loading language. Always `aria-hidden`: a placeholder is not content.
 ### `actions.module.css`
 
 Row-level actions — the quiet bordered buttons inside a table row, a card or a detail header —
-imported as classes the way `forms.module.css` already is. Page-level primary/secondary/danger
-buttons stay in `forms.module.css`.
+imported as classes the way `forms.module.css` already is. It has **no danger variant**: see
+`OverflowMenu`.
+
+Page-level buttons stay in `forms.module.css`, and there are three:
+
+| Class             | For                                                                          |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `primaryButton`   | the action that commits work — `Run backtest`, `Save`, an empty state's CTA  |
+| `tintedButton`    | `New …` and an entity's `Edit` — brand blue as ink on `--color-primary-soft` |
+| `secondaryButton` | `Cancel` and other quiet page-level actions                                  |
+| `dangerButton`    | **only** inside `ConfirmDialog`                                              |
+
+One solid-blue action per page, and it is never a link to a form.
 
 ## Tokens
 
-`apps/web/src/styles/tokens.css` is the only file in the web app that may hold a hex colour. A
-feature stylesheet that needs a colour asks for a semantic token.
+`apps/web/src/styles/tokens.css` is the only file in the web app that may hold a hex colour, a
+radius, an elevation, a type size or a spacing constant. A feature stylesheet asks for a semantic
+token — there are no raw hex values anywhere else in `apps/web/src`, and that is worth keeping true.
 
-Tokens this pass added, and what each is for:
+The system is deliberately small. It is grouped, and the groups are the whole vocabulary:
 
-| Token                     | Purpose                                                    |
-| ------------------------- | ---------------------------------------------------------- |
-| `--color-border-subtle`   | row dividers inside a surface, lighter than its own border |
-| `--color-row-hover`       | table row / option / menu-item hover                       |
-| `--color-primary-border`  | the resting border of a relationship chip                  |
-| `--color-positive-border` | the resting border of a Stock List reference               |
-| `--focus-ring`            | one focus-visible ring for every interactive element       |
-| `--radius-pill`           | badges, chips, filter pills                                |
-| `--radius-chip`           | logo marks and small nested surfaces                       |
-| `--text-label-size`       | table headers, fact labels, section eyebrows               |
-| `--text-label-tracking`   | the tracking that goes with them                           |
+| Group           | Tokens                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Surfaces**    | `--color-background` `--color-surface` `--color-background-translucent` `--color-surface-muted` `--color-surface-soft` `--color-surface-selected`                                                                              |
+| **Text**        | `--color-text-primary` `--color-text-body` `--color-text-secondary` `--color-text-muted` `--color-text-on-primary`                                                                                                             |
+| **Borders**     | `--color-border` `--color-border-strong` `--color-border-subtle`                                                                                                                                                               |
+| **Brand**       | `--color-primary` `--color-primary-hover` `--color-primary-ink` `--color-primary-soft` `--color-primary-soft-hover` `--color-primary-border`                                                                                   |
+| **State**       | `--color-positive[-soft,-border]` `--color-negative[-soft,-hover]` `--color-warning[-soft]`                                                                                                                                    |
+| **Interaction** | `--color-row-hover` `--focus-ring` `--focus-ring-inset`                                                                                                                                                                        |
+| **Type**        | `--text-page-title` `--text-page-title-hero` `--text-section-title` `--text-body` `--text-secondary` `--text-small` `--text-label-size` `--text-label-tracking` `--weight-emphasis` `--line-height-body` `--line-height-tight` |
+| **Geometry**    | `--radius-sm` `--radius-md` `--radius-lg` `--radius-hero` `--radius-pill`                                                                                                                                                      |
+| **Elevation**   | `--shadow-surface` `--shadow-hero` `--shadow-menu` `--shadow-dialog`                                                                                                                                                           |
+| **Spacing**     | `--page-pad-mobile` `--page-pad-tablet` `--page-pad-wide` `--section-gap` `--card-pad` `--surface-inset`                                                                                                                       |
+| **Controls**    | `--control-height` `--control-height-compact` `--button-height` `--action-height`                                                                                                                                              |
+| **Width**       | `--content-max-width` `--reading-max-width`                                                                                                                                                                                    |
+| **Shell**       | `--topbar-height` `--topbar-height-wide` `--bottom-nav-height` `--safe-area-bottom`                                                                                                                                            |
+
+Several are **responsive**: `--text-page-title`, `--text-page-title-hero`, `--section-gap`,
+`--card-pad`, `--button-height` and `--action-height` all change at 880px, in one place, so a
+component never writes its own media query for a size.
+
+The four that carry the most meaning:
+
+| Token                 | Why it exists                                                                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--weight-emphasis`   | One emphasis weight (600). The product does not use 700 — V1 uses it 33 times in total, and reserving it stops a label competing with its own value. |
+| `--shadow-surface`    | `none`. Ordinary surfaces are flat; a soft blue glow under every panel is what made the product read as a marketing page rather than a tool.         |
+| `--radius-hero`       | The large radius, reserved for one screen. Paired with `--shadow-hero`, and only `<SectionCard hero>` may ask for either.                            |
+| `--color-primary-ink` | Brand blue as **ink** on a tint — the FactorSage action treatment, and why `New …` is not a slab of saturated colour.                                |
 
 Name a token for what it **means**, not for the feature that first needed it: `--color-positive`,
-never `--monitor-green`.
+never `--monitor-green`. Before adding one, check whether an existing token already means it: the
+system is meant to stay small enough to hold in your head.
 
 ## Breakpoints
 

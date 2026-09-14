@@ -5,7 +5,7 @@
 .notice {
   padding: 14px 16px;
   border: 1px solid var(--color-warning);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-warning-soft);
 }
 
@@ -18,7 +18,7 @@
 
 .noticeLink {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
 }
 
@@ -28,7 +28,31 @@
 
 .form {
   display: grid;
-  gap: 14px;
+  gap: var(--section-gap);
+}
+
+/* One workflow surface, internally grouped: three equally elevated page cards made the
+   configuration look like three unrelated decisions. `fieldset` is what actually groups
+   the controls for assistive technology, so the visual grouping and the semantic one are
+   the same element. */
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.group + .group {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.groupTitle {
+  padding: 0 0 12px;
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
 }
 
 /* One column on a phone; the form never asks for sideways scrolling to reach a field. */
@@ -47,10 +71,10 @@
 
 .select {
   width: 100%;
-  min-height: 46px;
+  min-height: var(--control-height);
   padding: 10px 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
   font: inherit;
@@ -60,7 +84,7 @@
 
 .select:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+  box-shadow: var(--focus-ring-inset);
 }
 
 .select[aria-invalid="true"] {
@@ -77,7 +101,7 @@
 .derived {
   margin: 0;
   padding: 8px 10px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-body);
   background: var(--color-primary-soft);
   font-size: 12px;
@@ -117,12 +141,12 @@
   flex: none;
   padding: 0 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-primary);
   background: var(--color-surface);
   font: inherit;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   cursor: pointer;
 }

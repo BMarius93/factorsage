@@ -56,7 +56,7 @@ Read `ai/README.md` before substantial work.
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
-    LOCKED` + renewable-lease protocol as `BacktestJob`; that idiom now has two instances, and a
+LOCKED` + renewable-lease protocol as `BacktestJob`; that idiom now has two instances, and a
     third durable claim must match them rather than add a queue, a cron or a Redis lock.
 16. Redis is **required at runtime** — every stock-data read, hydration lock and provider gate goes
     through it and nothing degrades to PostgreSQL-only when it is down — but its **contents are
@@ -145,7 +145,13 @@ evaluator physically cannot read an ungated value.
 
 - Read `ai/architecture/frontend.md` for substantial frontend/UI work.
 - The old repository is a visual/behavioral oracle only; do not copy its architecture wholesale.
-- Preserve the established FactorSage visual identity where it still fits V2: Geist, light neutral surfaces, blue primary accent, restrained financial state colors, soft cards, and high information clarity.
+- Preserve the established FactorSage visual identity where it still fits V2: a near-white canvas,
+  flat light-bordered surfaces, a restrained blue accent used as ink more often than as fill,
+  restrained financial state colors, and high information clarity. Geist is a **V2 choice, not
+  something inherited from V1** — deployed V1 renders in the OS UI stack (`ui-sans-serif,
+system-ui, …`); V2 keeps Geist because it renders identically on every platform.
+  `ai/architecture/v1-visual-parity.md` holds the measured reference and the token system that
+  encodes it; `apps/web/src/styles/tokens.css` is the only file that may hold a visual constant.
 - Use App Router only in V2; do not introduce Pages Router.
 - Keep route files thin and organize product code by feature.
 - Use `@intrinsic/contracts` as the canonical API shape; do not duplicate response types in the web app.

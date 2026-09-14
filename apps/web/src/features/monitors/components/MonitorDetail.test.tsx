@@ -8,6 +8,7 @@ import type {
 } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { openOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
@@ -163,7 +164,9 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
-    expect(screen.getByRole("heading", { name: "Value entries" })).toBeDefined();
+    expect(
+      screen.getByRole("heading", { name: "Value entries" }),
+    ).toBeDefined();
     expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
       "Enabled",
     );
@@ -171,7 +174,9 @@ describe("MonitorDetail", () => {
     // below it, which is a different, actionable mention of the same thing.
     const facts = screen.getByRole("region", { name: "Configuration" });
     expect(
-      within(facts).getByRole("link", { name: "Deep value" }).getAttribute("href"),
+      within(facts)
+        .getByRole("link", { name: "Deep value" })
+        .getAttribute("href"),
     ).toBe("/strategies/strategy-1");
     expect(
       within(facts)
@@ -181,7 +186,8 @@ describe("MonitorDetail", () => {
     expect(within(facts).getByText("2 stocks")).toBeDefined();
     expect(within(facts).getByText("1 active signal")).toBeDefined();
     // An actual date and time, not a vague relative label.
-    const checked = screen.getByTestId("monitor-last-checked").textContent ?? "";
+    const checked =
+      screen.getByTestId("monitor-last-checked").textContent ?? "";
     expect(checked).toMatch(/Sep 12, 2026/);
     expect(checked).toMatch(/\d{1,2}:\d{2}/);
     expect(fetchMonitorMock).toHaveBeenCalledTimes(1);
@@ -330,7 +336,9 @@ describe("MonitorDetail", () => {
   });
 
   it("says a deleted monitor is gone instead of offering a pointless retry", async () => {
-    fetchMonitorMock.mockRejectedValue(new ApiError(404, "Monitor was not found"));
+    fetchMonitorMock.mockRejectedValue(
+      new ApiError(404, "Monitor was not found"),
+    );
 
     render(<MonitorDetail monitorId="monitor-1" />);
     await waitFor(() => {
@@ -338,7 +346,9 @@ describe("MonitorDetail", () => {
     });
     expect(screen.queryByText("Try again")).toBeNull();
     expect(
-      screen.getByRole("link", { name: "Back to monitors" }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: "Back to monitors" })
+        .getAttribute("href"),
     ).toBe("/monitors");
   });
 
@@ -349,6 +359,7 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
+    await openOverflowMenu(userEvent, "Value entries");
     await userEvent.click(screen.getByTestId("toggle-monitor"));
 
     await waitFor(() => {
@@ -361,6 +372,7 @@ describe("MonitorDetail", () => {
         "Disabled",
       );
     });
+    await openOverflowMenu(userEvent, "Value entries");
     expect(screen.getByTestId("toggle-monitor").textContent).toBe("Enable");
   });
 
@@ -371,36 +383,34 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
+    await openOverflowMenu(userEvent, "Value entries");
     await userEvent.click(screen.getByTestId("toggle-monitor"));
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/That change did not save/),
-      ).toBeDefined();
+      expect(screen.getByText(/That change did not save/)).toBeDefined();
     });
     expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
       "Enabled",
     );
-    expect(
-      screen.getByTestId("toggle-monitor").hasAttribute("disabled"),
-    ).toBe(false);
+    await openOverflowMenu(userEvent, "Value entries");
+    expect(screen.getByTestId("toggle-monitor").hasAttribute("disabled")).toBe(
+      false,
+    );
   });
 
   it("re-reads the monitor after an edit rebinds it", async () => {
-    fetchMonitorMock
-      .mockResolvedValueOnce(detail())
-      .mockResolvedValueOnce(
-        detail({
-          strategyId: "strategy-2",
-          strategyName: "Momentum exits",
-          stockListId: "list-2",
-          stockListName: "Tech universe",
-          lastScanAt: undefined,
-          activeSignalCount: 0,
-          securities: [],
-          signals: [],
-        }),
-      );
+    fetchMonitorMock.mockResolvedValueOnce(detail()).mockResolvedValueOnce(
+      detail({
+        strategyId: "strategy-2",
+        strategyName: "Momentum exits",
+        stockListId: "list-2",
+        stockListName: "Tech universe",
+        lastScanAt: undefined,
+        activeSignalCount: 0,
+        securities: [],
+        signals: [],
+      }),
+    );
     updateMonitorMock.mockResolvedValue({
       ...detail(),
       strategyId: "strategy-2",
@@ -419,7 +429,10 @@ describe("MonitorDetail", () => {
       screen.getByLabelText("Strategy"),
       "strategy-2",
     );
-    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-2");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Stock list"),
+      "list-2",
+    );
     await userEvent.click(screen.getByText("Save changes"));
 
     // A rebind changes the whole evaluation table, so the page re-reads instead of patching.
@@ -430,9 +443,9 @@ describe("MonitorDetail", () => {
       expect(screen.getByText("Momentum exits")).toBeDefined();
     });
     expect(
-      within(
-        screen.getByRole("region", { name: "Configuration" }),
-      ).getByText("Tech universe"),
+      within(screen.getByRole("region", { name: "Configuration" })).getByText(
+        "Tech universe",
+      ),
     ).toBeDefined();
     // The new configuration has not been checked, and the page says exactly that.
     expect(screen.getByTestId("monitor-last-checked").textContent).toBe(
@@ -447,6 +460,7 @@ describe("MonitorDetail", () => {
     render(<MonitorDetail monitorId="monitor-1" />);
     await detailReady();
 
+    await openOverflowMenu(userEvent, "Value entries");
     await userEvent.click(screen.getByTestId("delete-monitor"));
     expect(screen.getByTestId("confirm-dialog")).toBeDefined();
     expect(deleteMonitorMock).not.toHaveBeenCalled();

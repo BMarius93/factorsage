@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  chooseFromOverflowMenu,
+  openOverflowMenu,
+} from "../utils/overflow-menu";
 
 /**
  * Full monitor journey for PRO_USER against an already-running stack.
@@ -124,7 +128,7 @@ async function deleteMonitorsIfPresent(page: Page, names: readonly string[]) {
       if ((await card.count()) === 0) {
         continue;
       }
-      await card.first().getByRole("button", { name: "Delete" }).click();
+      await chooseFromOverflowMenu(page, name, "Delete", card.first());
       await page.getByRole("button", { name: "Delete monitor" }).click();
       await expect(card).toHaveCount(0);
     }
@@ -148,7 +152,7 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
     if ((await card.count()) === 0) {
       return;
     }
-    await card.first().getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, name, "Delete", card.first());
     await page.getByRole("button", { name: "Delete strategy" }).click();
     await expect(card).toHaveCount(0);
   } catch {
@@ -169,7 +173,7 @@ async function deleteListIfPresent(page: Page, name: string) {
     if ((await card.count()) === 0) {
       return;
     }
-    await card.first().getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, name, "Delete", card.first());
     await page.getByRole("button", { name: "Delete list" }).click();
     await expect(card).toHaveCount(0);
   } catch {
@@ -245,17 +249,17 @@ test.describe("PRO_USER monitors", () => {
     await expect(card).toContainText("Not checked yet");
 
     // 3. Disable it, and prove the change is durable rather than local state.
-    await card.getByTestId("toggle-monitor").click();
+    await chooseFromOverflowMenu(page, MONITOR_NAME, "Disable", card);
     await expect(card).toContainText("Disabled");
     await page.reload();
     const afterDisable = monitorCard(page, MONITOR_NAME);
     await expect(afterDisable).toContainText("Disabled", { timeout: 20_000 });
-    await expect(afterDisable.getByTestId("toggle-monitor")).toHaveText(
-      "Enable",
-    );
+    // The menu now offers the opposite transition.
+    await openOverflowMenu(page, MONITOR_NAME, afterDisable);
+    await expect(page.getByTestId("toggle-monitor")).toHaveText("Enable");
 
     // 4. Re-enable it; that too survives a reload.
-    await afterDisable.getByTestId("toggle-monitor").click();
+    await page.getByTestId("toggle-monitor").click();
     await expect(afterDisable).toContainText("Enabled");
     await page.reload();
     await expect(monitorCard(page, MONITOR_NAME)).toContainText("Enabled", {
@@ -325,7 +329,7 @@ test.describe("PRO_USER monitors", () => {
     ).toBeVisible({ timeout: 20_000 });
 
     // 9. Disable and re-enable from the detail page; both survive a reload.
-    await page.getByTestId("toggle-monitor").click();
+    await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Disable");
     await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
       "Disabled",
     );
@@ -334,8 +338,10 @@ test.describe("PRO_USER monitors", () => {
       "Disabled",
       { timeout: 20_000 },
     );
-    await page.getByTestId("toggle-monitor").click();
-    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText("Enabled");
+    await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Enable");
+    await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
+      "Enabled",
+    );
     await page.reload();
     await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
       "Enabled",
@@ -369,7 +375,7 @@ test.describe("PRO_USER monitors", () => {
       .locator("tbody tr")
       .filter({ hasText: STRATEGY_NAME_B });
     await expect(strategyCard).toHaveCount(1);
-    await strategyCard.getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, STRATEGY_NAME_B, "Delete", strategyCard);
     await page.getByRole("button", { name: "Delete strategy" }).click();
     await expect(page.getByTestId("confirm-dialog")).toContainText(
       "Delete the monitor first",
@@ -383,7 +389,7 @@ test.describe("PRO_USER monitors", () => {
     await expect(page.getByTestId("monitor-detail")).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByTestId("delete-monitor").click();
+    await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Delete monitor");
     await page.getByRole("button", { name: "Delete monitor" }).click();
     await expect(page).toHaveURL(/\/monitors$/);
     await expect(monitorCard(page, RENAMED_MONITOR)).toHaveCount(0);

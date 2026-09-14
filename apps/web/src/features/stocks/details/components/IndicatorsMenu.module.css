@@ -9,11 +9,11 @@
   min-height: 36px;
   padding: 0 12px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -40,7 +40,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-on-primary);
   background: var(--color-primary);
   font-size: 11px;
@@ -68,9 +68,9 @@
   overflow-y: auto;
   padding: 12px 14px 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-menu);
 }
 
 /* On phones the popover is anchored to the control's start edge so it cannot run off screen. */
@@ -103,7 +103,7 @@
   padding: 0;
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -121,7 +121,7 @@
   /* Comfortable touch target; the whole row is the label, so tapping anywhere toggles. */
   min-height: 34px;
   padding: 0 6px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-body);
   font-size: 13px;
   cursor: pointer;
@@ -152,7 +152,7 @@
   width: 9px;
   height: 9px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
 }
 
@@ -167,5 +167,5 @@
 .unavailable {
   color: var(--color-text-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }

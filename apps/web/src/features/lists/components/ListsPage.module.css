@@ -15,7 +15,7 @@
 .name {
   color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   overflow-wrap: anywhere;
 }
 
@@ -25,7 +25,7 @@
 
 .nameLink:focus-visible {
   outline: none;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   box-shadow: var(--focus-ring);
 }
 

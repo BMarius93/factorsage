@@ -25,7 +25,7 @@
   height: 40px;
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface);
   cursor: pointer;
@@ -48,7 +48,7 @@
   height: 44px;
   padding: 0 8px 0 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
   transition:
     border-color 140ms ease,
@@ -72,7 +72,7 @@
 
 .field:focus-within {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+  box-shadow: var(--focus-ring-inset);
 }
 
 .fieldIcon {
@@ -106,7 +106,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-muted);
   background: transparent;
   cursor: pointer;
@@ -129,7 +129,7 @@
   color: var(--color-primary);
   background: transparent;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -141,9 +141,9 @@
   z-index: 45;
   padding: 6px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-menu);
 }
 
 .panelHeader {
@@ -158,7 +158,7 @@
 .groupLabel {
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -167,7 +167,7 @@
 .loading {
   width: 44px;
   height: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-primary-soft);
   animation: search-loading 1s ease-in-out infinite;
 }
@@ -187,7 +187,7 @@
   gap: 10px;
   min-height: 44px;
   padding: 8px 10px;
-  border-radius: var(--radius-chip);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -206,7 +206,7 @@
   white-space: nowrap;
   color: var(--color-text-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.02em;
 }
 
@@ -226,7 +226,7 @@
   color: var(--color-primary);
   background: transparent;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -248,11 +248,15 @@
   }
 }
 
-/* Inline field: the topbar has room from the tablet breakpoint upward. */
-@media (min-width: 600px) {
+/* Inline field. V1 keeps a real search box visible at ordinary phone widths and so does
+   this: search is how a user reaches a stock, and an icon that has to be tapped before it
+   will accept a ticker is a step nobody asked for. The icon-only trigger survives only
+   below 380px, where the field genuinely cannot fit beside the brand and the account. */
+@media (min-width: 380px) {
   .search {
     position: relative;
     flex: 1;
+    min-width: 0;
     max-width: 360px;
   }
 
@@ -267,13 +271,19 @@
     position: static;
     display: flex;
     width: 100%;
-    height: 40px;
+    height: var(--control-height-compact);
     transform: none;
   }
 
   .panel {
     right: 0;
     left: 0;
+  }
+}
+
+@media (min-width: 600px) {
+  .search {
+    max-width: 360px;
   }
 }
 

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 import {
   addStockToOpenList,
   fixtureName,
@@ -85,7 +86,10 @@ test.describe.serial("entitlements after a downgrade", () => {
     // list stays comfortably over the limit; `pnpm test:entitlements:seed` restores it exactly.
     const last = await listItems(page).last().innerText();
     const symbol = last.match(/ENTF\d{3}/)?.[0];
-    expect(symbol, "The oversized fixture list should hold ENTF rows").toBeTruthy();
+    expect(
+      symbol,
+      "The oversized fixture list should hold ENTF rows",
+    ).toBeTruthy();
     await removeStockFromOpenList(page, symbol as string);
     await expect(listItems(page)).toHaveCount(before - 1);
   });
@@ -147,10 +151,9 @@ test.describe.serial("entitlements after a downgrade", () => {
     // it is blocked for compliance rather than for capacity.
     const onOversized = monitorCard(page, "Downgraded Monitor 1");
     await expect(onOversized).toContainText("Enabled");
-    await expect(onOversized.getByTestId("monitor-blocked-pill")).toHaveAttribute(
-      "data-blocked-reason",
-      "LIST_OVER_LIMIT",
-    );
+    await expect(
+      onOversized.getByTestId("monitor-blocked-pill"),
+    ).toHaveAttribute("data-blocked-reason", "LIST_OVER_LIMIT");
 
     // The rest are enabled too, and blocked for the other reason.
     for (const name of ["Downgraded Monitor 2", "Downgraded Monitor 3"]) {
@@ -182,7 +185,12 @@ test.describe.serial("entitlements after a downgrade", () => {
     // Disabling is always allowed — it is how a user over capacity reduces their active set — and
     // the slot passes to the next enabled monitor. Nothing was written to that monitor: its status
     // is derived, so it simply resolves differently now.
-    await slotHolder.getByTestId("toggle-monitor").click();
+    await chooseFromOverflowMenu(
+      page,
+      fixtureName("Downgraded Monitor 1"),
+      "Disable",
+      slotHolder,
+    );
     await expect(slotHolder).toContainText("Disabled", { timeout: 20_000 });
     await expect(next.getByTestId("monitor-blocked-pill")).toHaveCount(0);
 
@@ -190,7 +198,12 @@ test.describe.serial("entitlements after a downgrade", () => {
     // Enabling is capacity-gated on *intent*, so a FREE account that already has two monitors
     // switched on cannot switch on a third — the downgrade leaves a one-way ratchet. Existing
     // intent is preserved; new intent is not granted.
-    await slotHolder.getByTestId("toggle-monitor").click();
+    await chooseFromOverflowMenu(
+      page,
+      fixtureName("Downgraded Monitor 1"),
+      "Enable",
+      slotHolder,
+    );
     const refusal = slotHolder.getByTestId("monitor-toggle-error");
     await expect(refusal).toBeVisible({ timeout: 20_000 });
     await expect(refusal).toContainText("1");

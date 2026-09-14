@@ -2,7 +2,7 @@
    `components/ui`. */
 .realized {
   color: var(--color-text-primary);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .realized[data-tone="positive"] {

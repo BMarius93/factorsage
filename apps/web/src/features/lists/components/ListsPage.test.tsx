@@ -4,6 +4,7 @@ import type {
 } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createStockList,
@@ -106,9 +107,7 @@ describe("ListsPage", () => {
     render(<ListsPage />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Your lists could not be loaded"),
-      ).toBeDefined();
+      expect(screen.getByText("Your lists could not be loaded")).toBeDefined();
     });
 
     await userEvent.click(screen.getByText("Try again"));
@@ -163,7 +162,7 @@ describe("ListsPage", () => {
       expect(screen.getByText("Old name")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Rename"));
+    await chooseFromOverflowMenu(userEvent, "Old name", "Rename");
     const nameInput = screen.getByLabelText("Name");
     await userEvent.clear(nameInput);
     await userEvent.type(nameInput, "New name");
@@ -188,7 +187,7 @@ describe("ListsPage", () => {
       expect(screen.getByText("Doomed")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Delete"));
+    await chooseFromOverflowMenu(userEvent, "Doomed", "Delete");
     expect(screen.getByTestId("confirm-dialog")).toBeDefined();
     expect(deleteStockListMock).not.toHaveBeenCalled();
 

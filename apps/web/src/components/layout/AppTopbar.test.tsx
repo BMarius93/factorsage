@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppTopbar } from "./AppTopbar";
-import { PRIMARY_NAV_ITEMS } from "./navigation";
+import { DESKTOP_NAV_ITEMS } from "./navigation";
 import { useUnsavedChangesGuard } from "./unsaved-changes";
 
 /** Destinations a click actually reached, once the guard let it through. */
@@ -74,7 +74,7 @@ describe("AppTopbar", () => {
     expect(screen.getByRole("link", { name: "FactorSage home" })).toBeDefined();
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    for (const item of PRIMARY_NAV_ITEMS) {
+    for (const item of DESKTOP_NAV_ITEMS) {
       expect(nav.querySelector(`a[href="${item.href}"]`)).not.toBeNull();
     }
 
@@ -124,7 +124,7 @@ describe("AppTopbar", () => {
 
     const links = [
       screen.getByRole("link", { name: "FactorSage home" }),
-      ...PRIMARY_NAV_ITEMS.map((item) =>
+      ...DESKTOP_NAV_ITEMS.map((item) =>
         screen.getByRole("link", { name: item.label }),
       ),
     ];

@@ -4,7 +4,7 @@
   gap: 10px;
   padding: 40px 24px;
   border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   background: var(--color-surface-muted);
   text-align: center;
 }
@@ -12,7 +12,7 @@
 /* Inside a section that already has a heading, the panel is only a quiet note. */
 .panel[data-variant="compact"] {
   padding: 28px 18px;
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
 }
 
 .panel[data-variant="error"] {
@@ -24,8 +24,8 @@
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
