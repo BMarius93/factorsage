@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { stockLogoSrc } from "../../lib/stock-logo";
+import { isBrightLogo } from "./logo-brightness";
 import styles from "./StockIdentity.module.css";
 
 /** Initials for the monogram fallback: `AAPL` → `AA`, `Apple Inc.` → `AI`. */
@@ -27,11 +29,20 @@ type StockLogoProps = {
   readonly symbol: string;
   readonly name?: string;
   /**
-   * Optional company logo. Only `StockDetailsResponse.profile` carries one today; every other
-   * surface renders the monogram until the catalog projections expose it.
+   * The mark this security's contract projects, when it has one.
+   *
+   * Not what the browser loads: `stockLogoSrc` turns the security into the product's own
+   * ticker-keyed logo URL, which is what makes the image cacheable across every surface and
+   * samplable on a canvas. See `lib/stock-logo.ts`.
    */
   readonly logoUrl?: string;
   readonly size?: "sm" | "md" | "lg";
+  /**
+   * `lazy` by default, because most marks are rows in a collection that may never be scrolled to.
+   * A prominent above-the-fold mark — the Stock Details identity — passes `eager` so it is not
+   * deferred behind a viewport check it has already satisfied.
+   */
+  readonly loading?: "eager" | "lazy";
 };
 
 /**
@@ -41,30 +52,58 @@ type StockLogoProps = {
  * slow or broken logo cannot shift the row it sits in, and a failed load silently falls back to the
  * monogram rather than leaving a broken-image glyph in a table. Always `aria-hidden` — the symbol
  * and company name sit right beside it, and announcing the logo too would read every row twice.
+ *
+ * Near-white marks — and there are many, because a logo is usually drawn for a dark header — get a
+ * dark plate behind them instead of vanishing into the surface. That is measured from the loaded
+ * pixels rather than guessed per security, which is only possible because the image is same-origin.
  */
-export function StockLogo({ symbol, name, logoUrl, size = "md" }: StockLogoProps) {
+export function StockLogo({
+  symbol,
+  name,
+  logoUrl,
+  size = "md",
+  loading = "lazy",
+}: StockLogoProps) {
   const [failed, setFailed] = useState(false);
+  const [bright, setBright] = useState(false);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const src = stockLogoSrc(symbol, logoUrl);
 
-  // A row recycled onto a different security must not keep the previous one's failure.
   useEffect(() => {
+    // A row recycled onto a different security must not keep the previous one's failure or plate.
     setFailed(false);
-  }, [logoUrl]);
+    setBright(false);
+    // `onLoad` is not enough on its own. A mark already in the HTTP cache can finish decoding
+    // before React's listener is attached, and then no load event is ever delivered — which is
+    // precisely the repeat-navigation case the long `Cache-Control` creates, so without this the
+    // plate would appear on a cold visit and silently vanish on every one after it.
+    const image = imageRef.current;
+    if (image?.complete && image.naturalWidth > 0) {
+      setBright(isBrightLogo(image));
+    }
+  }, [src]);
 
-  const showImage = Boolean(logoUrl) && !failed;
+  const showImage = src !== undefined && !failed;
 
   return (
-    <span className={styles.logo} data-size={size} aria-hidden="true">
+    <span
+      className={styles.logo}
+      data-size={size}
+      data-bright={bright ? "true" : undefined}
+      aria-hidden="true"
+    >
       {showImage ? (
-        // A plain `img`, not `next/image`: optimising it would require every logo host a
-        // provider might return to be allowlisted in `next.config.ts`, which would put a
-        // provider concern in the application's build configuration. A 32px decorative
-        // mark does not earn that.
+        // A plain `img`, not `next/image`: the logo endpoint already serves one cacheable,
+        // correctly typed asset per ticker, and routing it through the image optimizer would
+        // add a second cache and a build-time host allowlist for no gain at 32px.
         <img
+          ref={imageRef}
           className={styles.logoImage}
-          src={logoUrl}
+          src={src}
           alt=""
-          loading="lazy"
+          loading={loading}
           decoding="async"
+          onLoad={(event) => setBright(isBrightLogo(event.currentTarget))}
           onError={() => setFailed(true)}
         />
       ) : (
@@ -89,6 +128,8 @@ type StockIdentityProps = {
   /** Secondary line under the symbol; defaults to the company name. */
   readonly secondary?: string;
   readonly size?: "sm" | "md" | "lg";
+  /** Forwarded to the mark; see `StockLogo`. Collections keep the lazy default. */
+  readonly loading?: "eager" | "lazy";
   readonly testId?: string;
 };
 
@@ -106,6 +147,7 @@ export function StockIdentity({
   href,
   secondary,
   size = "md",
+  loading,
   testId,
 }: StockIdentityProps) {
   const subtitle = secondary ?? name;
@@ -115,6 +157,7 @@ export function StockIdentity({
         symbol={symbol}
         {...(name === undefined ? {} : { name })}
         {...(logoUrl === undefined ? {} : { logoUrl })}
+        {...(loading === undefined ? {} : { loading })}
         size={size}
       />
       <span className={styles.text}>

@@ -1,6 +1,6 @@
 import type {
-  Security,
   SecuritySearchQuery,
+  SecurityWithLogo,
   StockDataService,
 } from "@intrinsic/domain";
 import { StockDataNotFoundError } from "@intrinsic/stock-data";
@@ -22,7 +22,11 @@ import { StocksController } from "./stocks.controller";
  * Redis. Matching and ranking are covered by `@intrinsic/stock-data`'s `security-search` tests.
  */
 
-function security(symbol: string, name: string): Security {
+function security(
+  symbol: string,
+  name: string,
+  logoUrl?: string,
+): SecurityWithLogo {
   return {
     id: `id-${symbol}`,
     symbol,
@@ -33,16 +37,19 @@ function security(symbol: string, name: string): Security {
     type: "STOCK",
     isAdr: false,
     isActivelyTrading: true,
+    ...(logoUrl ? { logoUrl } : {}),
   };
 }
 
 class FakeStockDataService {
   searchCalls: SecuritySearchQuery[] = [];
   detailsCalls: string[] = [];
-  searchResults: Security[] = [];
+  searchResults: SecurityWithLogo[] = [];
   searchError: Error | null = null;
 
-  async searchSecurities(query: SecuritySearchQuery): Promise<Security[]> {
+  async searchSecurities(
+    query: SecuritySearchQuery,
+  ): Promise<SecurityWithLogo[]> {
     this.searchCalls.push(query);
     if (this.searchError) {
       throw this.searchError;
@@ -107,6 +114,29 @@ describe("GET /stocks/search", () => {
         exchangeName: "NASDAQ Global Select",
       },
     ]);
+  });
+
+  it("projects the persisted mark, and nothing at all when there is none", async () => {
+    service.searchResults = [
+      security(
+        "AAPL",
+        "Apple Inc.",
+        "https://images.financialmodelingprep.com/symbol/AAPL.png",
+      ),
+      security("AAP", "Advance Auto Parts"),
+    ];
+
+    const response = await request(app.getHttpServer())
+      .get("/stocks/search")
+      .query({ q: "aap" })
+      .expect(200);
+
+    expect(response.body[0].logoUrl).toBe(
+      "https://images.financialmodelingprep.com/symbol/AAPL.png",
+    );
+    // Absent rather than null: a search row is identity, and an unprofiled security says nothing
+    // about its logo rather than asserting it has none.
+    expect(response.body[1]).not.toHaveProperty("logoUrl");
   });
 
   it("still resolves a real symbol through the :symbol route", async () => {

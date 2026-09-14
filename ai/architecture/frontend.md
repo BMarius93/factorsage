@@ -103,6 +103,7 @@ Preferred direction:
 ```text
 apps/web/src/
   app/                    # routes, layouts, route-level loading/error composition
+    api/logo/[symbol]/    # the one server route the web app owns: the cached logo proxy
   components/
     ui/                   # genuinely reusable primitives
     layout/               # app shell/navigation primitives
@@ -118,6 +119,7 @@ apps/web/src/
     monitors/
   lib/
     api/                   # shared transport/client infrastructure only
+    stock-logo.ts          # where a security's mark comes from (one abstraction)
   styles/
     tokens.css
 ```
@@ -174,9 +176,11 @@ The durable rules:
   names. Use `EntityReferenceChip`, and omit its `href` where the entity has no page or no longer
   exists rather than rendering a link that 404s.
 - **Stock identity goes through `StockIdentity`.** A logo is decoration: it must degrade to the
-  ticker monogram, must not shift layout when it fails, and must not be announced twice. Never
-  assemble a provider image URL in a component — if a surface lacks a logo, that is a contract gap
-  (see `ui-system.md`, "Known read-model gaps"), not a thing to synthesise client-side.
+  ticker monogram, must not shift layout when it fails, must not stretch, and must not be announced
+  twice. Never assemble a provider image URL in a component. Every mark is served from the
+  product's own `/api/logo/{ticker}` endpoint, whose handler is the one file in the web application
+  that knows a provider URL; `lib/stock-logo.ts` is the only thing that builds the same-origin URL,
+  and `ui-system.md` (`StockIdentity` / `StockLogo`) documents why.
 - **Page rhythm is defined once.** A route's `.page` composes `stack` from
   `components/ui/page.module.css`; do not set a page gap or top padding in a feature stylesheet.
 

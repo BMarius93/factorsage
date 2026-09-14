@@ -143,6 +143,36 @@ describe("ListDetail", () => {
     expect(screen.getByText("Custom · 2 windows")).toBeDefined();
   });
 
+  it("renders the member's mark from the catalog projection", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail([
+        item("item-1", "AAPL", {
+          security: {
+            id: "sec-item-1",
+            symbol: "AAPL",
+            name: "Apple Incorporated",
+            exchangeCode: "NASDAQ",
+            logoUrl: "https://images.financialmodelingprep.com/symbol/AAPL.png",
+          },
+        }),
+        item("item-2", "NVDA"),
+      ]),
+    );
+
+    render(<ListDetail listId="list-1" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("list-detail")).toBeDefined();
+    });
+
+    // Both rows load from the product's own endpoint: the one the catalog has profiled and the
+    // one it has not. A member is never condemned to initials by a missing profile row.
+    const sources = [...document.querySelectorAll("img")].map((image) =>
+      image.getAttribute("src"),
+    );
+    expect(sources).toContain("/api/logo/AAPL");
+    expect(sources).toContain("/api/logo/NVDA");
+  });
+
   it("treats a 404 as not-found without an error alarm", async () => {
     fetchStockListMock.mockRejectedValue(
       new ApiError(404, "Stock list was not found"),

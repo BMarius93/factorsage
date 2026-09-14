@@ -8,13 +8,18 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
 
-function result(symbol: string, name: string): StockSearchResultResponse {
+function result(
+  symbol: string,
+  name: string,
+  overrides: Partial<StockSearchResultResponse> = {},
+): StockSearchResultResponse {
   return {
     id: `id-${symbol}`,
     symbol,
     name,
     exchangeCode: "NASDAQ",
     exchangeName: "NASDAQ Global Select",
+    ...overrides,
   };
 }
 
@@ -85,6 +90,37 @@ describe("SecurityMultiSelect", () => {
     expect(screen.getByLabelText("Remove NVDA")).toBeDefined();
     // The query resets so the next search starts clean.
     expect(screen.getByRole("combobox").getAttribute("value")).toBe("");
+  });
+
+  it("identifies a pickable stock with the shared mark, and carries it onto the selection", async () => {
+    const onChangeSpy = vi.fn();
+    respondWith([
+      result("NVDA", "NVIDIA Corporation", {
+        logoUrl: "https://images.financialmodelingprep.com/symbol/NVDA.png",
+      }),
+    ]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<Harness onChangeSpy={onChangeSpy} />);
+    await typeQuery(user, "nv");
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("option").querySelector("img")?.getAttribute("src"),
+    ).toBe("/api/logo/NVDA");
+
+    await user.click(screen.getByText("NVIDIA Corporation"));
+
+    // The picked row keeps its projected mark, so the list this builds renders identically
+    // before and after it is saved and re-read.
+    expect(onChangeSpy).toHaveBeenCalledWith([
+      expect.objectContaining({
+        symbol: "NVDA",
+        logoUrl: "https://images.financialmodelingprep.com/symbol/NVDA.png",
+      }),
+    ]);
   });
 
   it("selects the highlighted result with ArrowDown + Enter", async () => {

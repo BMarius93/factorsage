@@ -61,7 +61,17 @@ export type StockListSummaryResponse = {
 export type StockListSecurityResponse = Pick<
   SecurityResponse,
   "id" | "symbol" | "name" | "exchangeCode" | "exchangeName"
->;
+> & {
+  /**
+   * The company mark persisted on `SecurityProfile`, when the catalog has profiled this security.
+   *
+   * Optional for a reason that is not going away: the bulk universe synchronization writes catalog
+   * identity only, and a `SecurityProfile` row appears when something hydrates that one stock. So
+   * a truthful projection reports the mark it has and stays silent about the rest — the field
+   * never means "this security has no logo".
+   */
+  logoUrl?: string;
+};
 
 export type StockListItemResponse = {
   id: string;

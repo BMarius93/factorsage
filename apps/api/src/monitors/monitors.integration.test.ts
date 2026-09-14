@@ -991,6 +991,73 @@ describe("monitors", () => {
       await prisma.stockList.delete({ where: { id: listId } });
       await prisma.security.delete({ where: { id: security.id } });
     });
+
+    /**
+     * Both security projections a Monitor serves carry the persisted mark.
+     *
+     * They are built separately — one from the Stock List's membership, one from the Signal rows —
+     * and a mark present in one and missing in the other is exactly the inconsistency the shared
+     * identity component would then render as a logo on one table and initials on the other.
+     */
+    it("projects the persisted logo on monitored securities and on signals", async () => {
+      const security = await prisma.security.create({
+        data: {
+          providerSymbol: `LOGO.${suffix.slice(0, 8)}`,
+          symbol: `LGO${suffix.slice(0, 3).toUpperCase()}`,
+          name: "Marked Corp",
+          exchangeCode: "NASDAQ",
+          currency: "USD",
+          type: "STOCK",
+          isAdr: false,
+          isActivelyTrading: true,
+        },
+      });
+      const logoUrl = `https://images.financialmodelingprep.com/symbol/${security.symbol}.png`;
+      await prisma.securityProfile.create({
+        data: { securityId: security.id, logoUrl },
+      });
+      const ownerId = (
+        await prisma.user.findUniqueOrThrow({ where: { email: ownerEmail } })
+      ).id;
+      const listId = (
+        await prisma.stockList.create({
+          data: {
+            userId: ownerId,
+            name: "Marked List",
+            items: { create: [{ securityId: security.id }] },
+          },
+        })
+      ).id;
+      const monitor = await createMonitor(owner, {
+        name: "Marked",
+        strategyId,
+        stockListId: listId,
+      });
+      await prisma.monitorSignal.create({
+        data: {
+          monitorId: monitor.id,
+          securityId: security.id,
+          levelId: "buy-1",
+          levelKind: "BUY",
+          strategyVersionId: "version-1",
+          hasTrigger: false,
+          observationDate: new Date("2026-03-02T00:00:00.000Z"),
+          observationPrice: "150.25",
+          detectedAt: new Date("2026-03-02T15:00:00.000Z"),
+        },
+      });
+
+      const body = (
+        await owner.get(`/monitors/${monitor.id}`).expect(200)
+      ).body as MonitorDetailResponse;
+
+      expect(body.securities[0]?.security.logoUrl).toBe(logoUrl);
+      expect(body.signals[0]?.security.logoUrl).toBe(logoUrl);
+
+      await prisma.monitor.delete({ where: { id: monitor.id } });
+      await prisma.stockList.delete({ where: { id: listId } });
+      await prisma.security.delete({ where: { id: security.id } });
+    });
   });
 
   /**

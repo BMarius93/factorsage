@@ -2,6 +2,7 @@
 
 import type { StockListSecurityResponse } from "@intrinsic/contracts";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { StockLogo } from "../../../components/ui/StockIdentity";
 import { useStockSearch } from "../../stocks/search/hooks/use-stock-search";
 import styles from "./SecurityMultiSelect.module.css";
 
@@ -77,6 +78,9 @@ export function SecurityMultiSelect({
         name: result.name,
         exchangeCode: result.exchangeCode,
         ...(result.exchangeName ? { exchangeName: result.exchangeName } : {}),
+        // Carried onto the selection so a member added in this session renders the same mark the
+        // saved list will, without waiting for a reload to fetch it back.
+        ...(result.logoUrl ? { logoUrl: result.logoUrl } : {}),
       },
     ]);
     // Ready for the next search immediately; the caret stays in the field.
@@ -217,6 +221,15 @@ export function SecurityMultiSelect({
                   data-muted={isExcluded}
                   onClick={() => toggle(result)}
                 >
+                  {/* The shared mark, not a local image: a picker row identifies a stock the
+                      same way a list row does. The dense one-line composition below is the
+                      picker's own — a combobox row is not a `StockIdentity` stack. */}
+                  <StockLogo
+                    symbol={result.symbol}
+                    name={result.name}
+                    {...(result.logoUrl ? { logoUrl: result.logoUrl } : {})}
+                    size="sm"
+                  />
                   <span className={styles.optionSymbol}>{result.symbol}</span>
                   <span className={styles.optionName}>{result.name}</span>
                   {isExcluded ? (

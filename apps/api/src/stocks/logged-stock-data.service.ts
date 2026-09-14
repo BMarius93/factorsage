@@ -9,6 +9,7 @@ import type {
   IntrinsicValueQuery,
   Security,
   SecuritySearchQuery,
+  SecurityWithLogo,
   StockDetails,
   StockDataService,
   DailyPrice,
@@ -32,7 +33,9 @@ export class LoggedStockDataService implements StockDataService {
     );
   }
 
-  async searchSecurities(query: SecuritySearchQuery): Promise<Security[]> {
+  async searchSecurities(
+    query: SecuritySearchQuery,
+  ): Promise<SecurityWithLogo[]> {
     const startedAt = Date.now();
     try {
       return await this.delegate.searchSecurities(query);
