@@ -7,6 +7,7 @@ import type {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageContainer } from "../../../../components/layout/PageContainer";
+import { useRecordSecurityView } from "../../recent/hooks/use-recent-securities";
 import type { StockHistoryWindow } from "../api/stock-details-api";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
 import { useStockDetails } from "../hooks/use-stock-details";
@@ -49,6 +50,14 @@ type StockDetailsProps = {
  */
 export function StockDetails({ symbol }: StockDetailsProps) {
   const state = useStockDetails(symbol);
+
+  // Every route into this page goes through here — search, a list, a monitor, a backtest, a pasted
+  // URL — so this one call is what makes the search dropdown's RECENT SEARCHES mean "recently
+  // viewed" rather than "recently searched for". It is deliberately conditional on a resolved
+  // security: a symbol that 404s or fails to load was never viewed.
+  useRecordSecurityView(
+    state.status === "ready" ? state.details?.security : undefined,
+  );
 
   if (state.status === "loading") {
     return (

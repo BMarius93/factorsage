@@ -138,6 +138,7 @@ model User {
   backtestRuns       BacktestRun[]
   monitors           Monitor[]
   billingSubscription BillingSubscription?
+  recentSecurityViews RecentSecurityView[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -215,9 +216,33 @@ model Security {
   backtestPositions   BacktestPosition[]
   monitorSignalStates MonitorSignalState[]
   monitorSignals      MonitorSignal[]
+  recentViews         RecentSecurityView[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
+}
+
+/// The securities one user opened most recently, backing the global search dropdown's
+/// RECENT SEARCHES section.
+///
+/// Recency, not history: the composite primary key makes one row per (user, security), and viewing
+/// a security again moves `viewedAt` instead of appending. The set is trimmed to
+/// `RECENT_SECURITY_LIMIT` on every write, so this stays a small bounded convenience projection
+/// rather than a browsing log.
+///
+/// `onDelete: Cascade` on both sides is deliberate, and deliberately unlike `StockListItem`'s
+/// `Restrict`: nothing here is user-authored content, so a catalog row that goes away should take
+/// its recent-view rows with it. That is also what implements "a security that no longer exists is
+/// silently omitted" without any application-level staleness check.
+model RecentSecurityView {
+  userId     String
+  securityId String
+  viewedAt   DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  security   Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@id([userId, securityId])
+  @@index([userId, viewedAt(sort: Desc)])
 }
 
 /// User-owned reusable stock universe. Mutable configuration: future backtests must snapshot the

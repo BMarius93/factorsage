@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health.controller";
 import { ListsModule } from "./lists/lists.module";
+import { RecentSearchesModule } from "./recent-searches/recent-searches.module";
 import { StocksModule } from "./stocks/stocks.module";
 import { MonitorsModule } from "./monitors/monitors.module";
 import { StrategiesModule } from "./strategies/strategies.module";
@@ -24,6 +25,7 @@ import { StrategiesModule } from "./strategies/strategies.module";
     BillingModule,
     BacktestsModule,
     ListsModule,
+    RecentSearchesModule,
     StocksModule,
     MonitorsModule,
     StrategiesModule,

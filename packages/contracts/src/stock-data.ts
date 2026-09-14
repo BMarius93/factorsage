@@ -219,6 +219,25 @@ export type StockSearchResultResponse = Pick<
 >;
 
 /**
+ * How many recently viewed securities the product keeps and shows.
+ *
+ * One number for the whole feature: the API trims a user's persisted set to it on every write, the
+ * browser trims a guest's local set to it, and the dropdown renders at most this many rows. Shared
+ * here so the three cannot drift.
+ */
+export const RECENT_SECURITY_LIMIT = 5;
+
+/**
+ * Records that the caller opened one security's Stock Details page.
+ *
+ * The canonical catalog id, never a typed search string: "recent searches" is a recently-viewed
+ * set, and what was typed to reach a stock is not part of it.
+ */
+export type RecordSecurityViewRequest = {
+  securityId: string;
+};
+
+/**
  * Outcome of one admin-triggered synchronization of the supported stock catalog.
  *
  * `deactivated` counts rows inside `updated` that stopped trading upstream; it is not a separate
