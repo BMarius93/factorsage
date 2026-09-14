@@ -35,22 +35,94 @@ test.describe("FREE billing", () => {
     ]);
   });
 
-  test("offers all four upgrade options and no billing management", async ({
+  test("compares three plans, marks Free as current, and offers no billing management", async ({
     page,
   }) => {
     await openBillingPage(page);
 
     await expect(page.getByTestId("billing-plan")).toHaveText("Free");
-    for (const key of [
-      "STARTER_MONTHLY",
-      "STARTER_YEARLY",
-      "PRO_MONTHLY",
-      "PRO_YEARLY",
-    ]) {
-      await expect(page.getByTestId(`plan-option-${key}`)).toBeVisible();
+    for (const plan of ["FREE", "STARTER", "PRO"]) {
+      await expect(page.getByTestId(`plan-card-${plan}`)).toBeVisible();
     }
-    // The catalog is what a Free user needs, and it renders whether or not a biller is reachable.
+    // Three plans, three cards. Monthly and yearly are a property of a plan, not two products.
     await expect(page.getByTestId("billing-catalog")).toBeVisible();
+    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
+
+    await expect(page.getByTestId("plan-card-FREE")).toHaveAttribute(
+      "data-current",
+      "true",
+    );
+    await expect(page.getByTestId("plan-action-FREE")).toBeDisabled();
+    await expect(page.getByTestId("plan-action-STARTER")).toHaveText(
+      "Upgrade to Starter",
+    );
+    await expect(page.getByTestId("plan-action-PRO")).toHaveText("Upgrade to Pro");
+    await expect(page.getByTestId("manage-billing")).toHaveCount(0);
+  });
+
+  test("re-prices the same three cards when the cadence changes", async ({ page }) => {
+    await openBillingPage(page);
+
+    await expect(page.getByTestId("plan-price-STARTER")).toContainText("$9");
+    await expect(page.getByTestId("plan-price-PRO")).toContainText("$29");
+    await expect(page.getByTestId("plan-action-STARTER")).toHaveAttribute(
+      "data-price-key",
+      "STARTER_MONTHLY",
+    );
+
+    await page.getByRole("radio", { name: "Yearly" }).check();
+
+    await expect(page.getByTestId("plan-price-STARTER")).toContainText("$99");
+    await expect(page.getByTestId("plan-price-PRO")).toContainText("$299");
+    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
+    // The displayed cadence and the price the button will send must always agree.
+    await expect(page.getByTestId("plan-action-STARTER")).toHaveAttribute(
+      "data-price-key",
+      "STARTER_YEARLY",
+    );
+    await expect(page.getByTestId("plan-action-PRO")).toHaveAttribute(
+      "data-price-key",
+      "PRO_YEARLY",
+    );
+  });
+
+  test("keeps the cadence control keyboard-operable and semantically selected", async ({
+    page,
+  }) => {
+    await openBillingPage(page);
+
+    const monthly = page.getByRole("radio", { name: "Monthly" });
+    const yearly = page.getByRole("radio", { name: "Yearly" });
+    await expect(monthly).toBeChecked();
+
+    await monthly.focus();
+    await page.keyboard.press("ArrowRight");
+
+    await expect(yearly).toBeChecked();
+    await expect(monthly).not.toBeChecked();
+    await expect(page.getByTestId("plan-price-PRO")).toContainText("$299");
+  });
+
+  test("stacks the plans on a phone without overflowing sideways", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBillingPage(page);
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+
+    // One column: every card starts at the same x, so they stack rather than squeezing side by side.
+    const lefts = await page
+      .locator('[data-testid^="plan-card-"]')
+      .evaluateAll((cards) =>
+        cards.map((card) => Math.round(card.getBoundingClientRect().x)),
+      );
+    expect(lefts).toHaveLength(3);
+    expect(new Set(lefts).size).toBe(1);
+    await expect(page.getByRole("radio", { name: "Yearly" })).toBeVisible();
   });
 
   test("reaches billing from the account menu", async ({ page }) => {
@@ -140,7 +212,7 @@ test.describe("FREE billing", () => {
     );
 
     await openBillingPage(page);
-    await page.getByTestId("choose-STARTER_MONTHLY").click();
+    await page.getByTestId("plan-action-STARTER").click();
 
     await expect
       .poll(() => sentBody, { timeout: 20_000 })

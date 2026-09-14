@@ -1,6 +1,9 @@
 import type { BillingStatusResponse } from "@intrinsic/contracts";
-import { BILLING_CATALOG_ENTRIES } from "@intrinsic/contracts";
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  BILLING_CATALOG_ENTRIES,
+  PLAN_ENTITLEMENTS,
+} from "@intrinsic/contracts";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BillingPage } from "./BillingPage";
@@ -8,9 +11,11 @@ import { BillingPage } from "./BillingPage";
 /**
  * What the billing page renders, and — more importantly — what it refuses to render.
  *
- * The rules worth a unit test are the presentation ones the server cannot enforce for us: that the
- * plan shown is the server's plan, that returning from Checkout with a success parameter grants
- * nothing on its own, and that a pending downgrade reads as *pending* rather than as done.
+ * The rules worth a unit test are the presentation ones the server cannot enforce for us: that
+ * there are three plans rather than four price rows, that the cadence toggle changes both the price
+ * *and* the logical price key the button will send, that the plan shown is the server's plan, that
+ * returning from Checkout with a success parameter grants nothing, and that a pending downgrade
+ * reads as *pending* rather than as done.
  */
 
 const searchParams = { value: new URLSearchParams() };
@@ -48,6 +53,20 @@ function billingStatus(
   };
 }
 
+function paid(
+  overrides: Partial<BillingStatusResponse> = {},
+): BillingStatusResponse {
+  return billingStatus({
+    canStartCheckout: false,
+    canOpenPortal: true,
+    canChangePlan: true,
+    ...overrides,
+  });
+}
+
+const priceOf = (plan: string) =>
+  screen.getByTestId(`plan-price-${plan}`).textContent ?? "";
+
 describe("BillingPage", () => {
   beforeEach(() => {
     searchParams.value = new URLSearchParams();
@@ -59,53 +78,186 @@ describe("BillingPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows a Free user the four catalog options and no management entry", async () => {
+  it("renders exactly three plan cards — Free, Starter and Pro", async () => {
     fetchBillingStatus.mockResolvedValue(billingStatus());
     render(<BillingPage />);
 
-    expect((await screen.findByTestId("billing-plan")).textContent).toContain("Free");
-    for (const entry of BILLING_CATALOG_ENTRIES) {
-      expect(screen.getByTestId(`plan-option-${entry.key}`)).toBeTruthy();
-      expect(screen.getByTestId(`choose-${entry.key}`)).toBeTruthy();
+    const catalog = await screen.findByTestId("billing-catalog");
+    // Direct children only: each card holds its own list of features.
+    expect(catalog.childElementCount).toBe(3);
+    for (const plan of ["FREE", "STARTER", "PRO"]) {
+      expect(screen.getByTestId(`plan-card-${plan}`)).toBeTruthy();
     }
-    expect(screen.queryByTestId("manage-billing")).toBeNull();
   });
 
-  it("prices each option from the shared catalog", async () => {
+  it("has no separate monthly and yearly cards", async () => {
+    // The regression this replaces: four cards, one per catalog price.
     fetchBillingStatus.mockResolvedValue(billingStatus());
     render(<BillingPage />);
     await screen.findByTestId("billing-catalog");
 
-    expect(screen.getByTestId("plan-option-STARTER_MONTHLY").textContent).toContain("$9 / month");
-    expect(screen.getByTestId("plan-option-STARTER_YEARLY").textContent).toContain("$99 / year");
-    expect(screen.getByTestId("plan-option-PRO_MONTHLY").textContent).toContain("$29 / month");
-    expect(screen.getByTestId("plan-option-PRO_YEARLY").textContent).toContain("$299 / year");
+    for (const entry of BILLING_CATALOG_ENTRIES) {
+      expect(screen.queryByTestId(`plan-option-${entry.key}`)).toBeNull();
+    }
+    expect(screen.queryByText("Starter Monthly")).toBeNull();
+    expect(screen.queryByText("Starter Yearly")).toBeNull();
   });
 
-  it("sends a catalog key to checkout and navigates to the returned Stripe URL", async () => {
+  it("changes the prices in place when the cadence toggle moves", async () => {
     fetchBillingStatus.mockResolvedValue(billingStatus());
-    startCheckout.mockResolvedValue({
-      checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123",
-    });
     render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
 
-    await userEvent.click(await screen.findByTestId("choose-PRO_YEARLY"));
+    expect(priceOf("STARTER")).toContain("$9");
+    expect(priceOf("STARTER")).toContain("/ month");
+    expect(priceOf("PRO")).toContain("$29");
 
-    expect(startCheckout).toHaveBeenCalledWith("PRO_YEARLY");
+    await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
+
+    expect(priceOf("STARTER")).toContain("$99");
+    expect(priceOf("STARTER")).toContain("/ year");
+    expect(priceOf("PRO")).toContain("$299");
+    // Still three cards; the cadence is a property of a plan, not another plan.
+    expect(screen.getByTestId("billing-catalog").childElementCount).toBe(3);
+  });
+
+  it("carries the cadence through to the price key its button will send", async () => {
+    // The bug this guards: the page shows Yearly while the request carries the monthly price.
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    startCheckout.mockResolvedValue({ checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test" });
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    expect(
+      screen.getByTestId("plan-action-STARTER").getAttribute("data-price-key"),
+    ).toBe("STARTER_MONTHLY");
+
+    await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
+    expect(
+      screen.getByTestId("plan-action-STARTER").getAttribute("data-price-key"),
+    ).toBe("STARTER_YEARLY");
+
+    await userEvent.click(screen.getByTestId("plan-action-STARTER"));
+    expect(startCheckout).toHaveBeenCalledWith("STARTER_YEARLY");
     await waitFor(() =>
       expect(window.location.assign).toHaveBeenCalledWith(
-        "https://checkout.stripe.com/c/pay/cs_test_123",
+        "https://checkout.stripe.com/c/pay/cs_test",
       ),
     );
   });
 
-  it("shows a paid user their interval, renewal date and management entry", async () => {
+  it("exposes the selected cadence as a radio selection, not a pressed button", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    const group = screen.getByRole("radiogroup", { name: "Billing interval" });
+    const monthly = within(group).getByRole("radio", { name: "Monthly" });
+    const yearly = within(group).getByRole("radio", { name: "Yearly" });
+
+    expect((monthly as HTMLInputElement).checked).toBe(true);
+    expect((yearly as HTMLInputElement).checked).toBe(false);
+
+    await userEvent.click(yearly);
+    expect((yearly as HTMLInputElement).checked).toBe(true);
+    expect((monthly as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("lists each plan's capacities as checked rows quoting the entitlement matrix", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    for (const plan of ["FREE", "STARTER", "PRO"] as const) {
+      const features = screen.getByTestId(`plan-features-${plan}`);
+      const rows = within(features).getAllByRole("listitem");
+      expect(rows.length).toBeGreaterThan(0);
+
+      // The number on the card is the number in the matrix, not a copy of it.
+      expect(features.textContent).toContain(
+        `${PLAN_ENTITLEMENTS[plan].lists.maxSymbols} stocks per list`,
+      );
+      expect(features.textContent).toContain(
+        `${PLAN_ENTITLEMENTS[plan].monitors.maxActive} active monitor`,
+      );
+
+      // One decorative check per row, hidden from assistive technology so a five-item list is
+      // read as five items rather than ten.
+      for (const row of rows) {
+        const check = row.querySelector("svg");
+        expect(check).not.toBeNull();
+        expect(check?.getAttribute("aria-hidden")).toBe("true");
+      }
+    }
+    // And the dot-styled bullets are gone.
+    expect(document.querySelectorAll("li")[0]?.textContent).not.toContain("•");
+  });
+
+  it("marks the Free plan as current for a Free user and disables its action", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus());
+    render(<BillingPage />);
+
+    const free = await screen.findByTestId("plan-card-FREE");
+    expect(free.getAttribute("data-current")).toBe("true");
+    expect(within(free).getByTestId("plan-current-badge").textContent).toBe(
+      "Current plan",
+    );
+
+    const action = screen.getByTestId("plan-action-FREE") as HTMLButtonElement;
+    expect(action.textContent).toBe("Current plan");
+    expect(action.disabled).toBe(true);
+
+    expect(screen.getByTestId("plan-card-STARTER").getAttribute("data-current")).toBeNull();
+    expect(screen.getByTestId("plan-action-STARTER").textContent).toBe(
+      "Upgrade to Starter",
+    );
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe("Upgrade to Pro");
+    expect(screen.queryByTestId("manage-billing")).toBeNull();
+  });
+
+  it("names the plan the server reports beside the page title", async () => {
+    fetchBillingStatus.mockResolvedValue(billingStatus({ plan: "STARTER" }));
+    render(<BillingPage />);
+
+    expect((await screen.findByTestId("billing-plan")).textContent).toContain(
+      "Starter",
+    );
+  });
+
+  it("opens on the cadence a subscriber is already billed for", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "PRO",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
+        subscription: {
+          plan: "PRO",
+          interval: "YEAR",
+          status: "ACTIVE",
+          currentPeriodEnd: "2027-03-14T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    expect(
+      (
+        screen.getByRole("radio", { name: "Yearly" }) as HTMLInputElement
+      ).checked,
+    ).toBe(true);
+    expect(priceOf("PRO")).toContain("$299");
+    expect(
+      (screen.getByTestId("plan-action-PRO") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe("Current plan");
+  });
+
+  it("shows a subscriber their interval, renewal date and management entry", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "PRO",
         subscription: {
           plan: "PRO",
           interval: "YEAR",
@@ -123,16 +275,12 @@ describe("BillingPage", () => {
     expect(screen.getByTestId("billing-interval").textContent).toContain("Yearly");
     expect(screen.getByTestId("billing-period-end")).toBeTruthy();
     expect(screen.getByTestId("manage-billing")).toBeTruthy();
-    expect(screen.getByTestId("plan-option-PRO_YEARLY").getAttribute("data-current")).toBe("true");
   });
 
-  it("labels a downgrade as taking effect at renewal and an upgrade as immediate", async () => {
+  it("labels an upgrade as immediate and a downgrade as at renewal", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "STARTER",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "STARTER",
           interval: "MONTH",
@@ -148,17 +296,88 @@ describe("BillingPage", () => {
     await screen.findByTestId("billing-catalog");
 
     // Same classifier the server uses, so the promise the label makes is the one the API keeps.
-    expect(screen.getByTestId("plan-option-PRO_MONTHLY").textContent).toContain("Takes effect immediately");
-    expect(screen.getByTestId("plan-option-STARTER_YEARLY").textContent).toContain("Takes effect immediately");
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe("Upgrade to Pro");
+    expect(screen.getByTestId("plan-hint-PRO").textContent).toBe(
+      "Takes effect immediately",
+    );
+    expect(screen.getByTestId("plan-action-FREE").textContent).toBe(
+      "Cancel subscription",
+    );
+    expect(screen.getByTestId("plan-hint-FREE").textContent).toBe(
+      "Takes effect at your next renewal",
+    );
+
+    await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
+    expect(screen.getByTestId("plan-action-STARTER").textContent).toBe(
+      "Switch to yearly",
+    );
+  });
+
+  it("asks the API to change plan rather than to buy a second subscription", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "STARTER",
+        subscription: {
+          plan: "STARTER",
+          interval: "MONTH",
+          status: "ACTIVE",
+          currentPeriodEnd: "2026-10-12T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    changeBillingPlan.mockResolvedValue({
+      effect: "IMMEDIATE",
+      kind: "TIER_UPGRADE",
+      effectiveAt: null,
+      plan: "PRO",
+    });
+    render(<BillingPage />);
+
+    await userEvent.click(await screen.findByTestId("plan-action-PRO"));
+
+    expect(changeBillingPlan).toHaveBeenCalledWith("PRO_MONTHLY");
+    expect(startCheckout).not.toHaveBeenCalled();
+  });
+
+  it("sends a subscriber to the Customer Portal to reach Free", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "PRO",
+        subscription: {
+          plan: "PRO",
+          interval: "MONTH",
+          status: "ACTIVE",
+          currentPeriodEnd: "2026-10-12T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    openBillingPortal.mockResolvedValue({
+      portalUrl: "https://billing.stripe.com/p/session_test",
+    });
+    render(<BillingPage />);
+
+    await userEvent.click(await screen.findByTestId("plan-action-FREE"));
+
+    // Free has no Stripe price: the supported route is cancellation, and that lives in Portal.
+    expect(startCheckout).not.toHaveBeenCalled();
+    expect(changeBillingPlan).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(window.location.assign).toHaveBeenCalledWith(
+        "https://billing.stripe.com/p/session_test",
+      ),
+    );
   });
 
   it("presents a scheduled cancellation as still-current access", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "PRO",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "PRO",
           interval: "MONTH",
@@ -177,15 +396,17 @@ describe("BillingPage", () => {
     expect(scheduled.textContent).toContain("You keep Pro until then");
     // The plan badge still says Pro, because the entitlement has not moved.
     expect(screen.getByTestId("billing-plan").textContent).toContain("Pro");
+    expect(screen.getByTestId("plan-card-PRO").getAttribute("data-current")).toBe(
+      "true",
+    );
+    // And Free is not offered again — Stripe already has the request.
+    expect(screen.queryByTestId("plan-action-FREE")).toBeNull();
   });
 
   it("presents a pending downgrade without claiming it has happened", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "PRO",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "PRO",
           interval: "MONTH",
@@ -207,15 +428,15 @@ describe("BillingPage", () => {
     expect(pending.textContent).toContain("Changing to Starter");
     expect(pending.textContent).toContain("Until then you keep Pro");
     expect(screen.getByTestId("billing-plan").textContent).toContain("Pro");
+    expect(screen.getByTestId("plan-card-PRO").getAttribute("data-current")).toBe(
+      "true",
+    );
   });
 
   it("warns about a failed payment while keeping the plan visible", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "PRO",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "PRO",
           interval: "MONTH",
@@ -229,8 +450,79 @@ describe("BillingPage", () => {
     );
     render(<BillingPage />);
 
-    expect((await screen.findByTestId("billing-status-notice")).textContent).toMatch(/did not go through/);
+    expect((await screen.findByTestId("billing-status-notice")).textContent).toMatch(
+      /did not go through/,
+    );
     expect(screen.getByTestId("billing-plan").textContent).toContain("Pro");
+  });
+
+  it("does not claim a subscribed-but-unpaid price as the current plan", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      billingStatus({
+        plan: "FREE",
+        canStartCheckout: false,
+        canChangePlan: true,
+        canOpenPortal: true,
+        subscription: {
+          plan: "STARTER",
+          interval: "MONTH",
+          status: "INCOMPLETE",
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    render(<BillingPage />);
+
+    await screen.findByTestId("billing-catalog");
+    expect(screen.getByTestId("plan-card-FREE").getAttribute("data-current")).toBe(
+      "true",
+    );
+    expect(
+      screen.getByTestId("plan-card-STARTER").getAttribute("data-current"),
+    ).toBeNull();
+    expect(screen.getByTestId("plan-hint-STARTER").textContent).toBe(
+      "Waiting for payment confirmation",
+    );
+  });
+
+  it("does not tell an ended subscription that it renews", async () => {
+    // The mirror keeps the cadence and the period end after cancellation; printing them would
+    // promise a renewal to somebody whose access has already gone.
+    fetchBillingStatus.mockResolvedValue(
+      billingStatus({
+        plan: "FREE",
+        canStartCheckout: true,
+        canOpenPortal: true,
+        canChangePlan: false,
+        subscription: {
+          plan: "PRO",
+          interval: "YEAR",
+          status: "CANCELED",
+          currentPeriodEnd: "2027-09-14T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: "2027-09-14T00:00:00.000Z",
+          pendingChange: null,
+        },
+      }),
+    );
+    render(<BillingPage />);
+
+    expect((await screen.findByTestId("billing-status-notice")).textContent).toMatch(
+      /subscription has ended/,
+    );
+    expect(screen.queryByTestId("billing-period-end")).toBeNull();
+    expect(screen.queryByTestId("billing-interval")).toBeNull();
+    expect(screen.queryByTestId("billing-cancel-scheduled")).toBeNull();
+    // Free is current again, and buying is offered from the Free card's neighbours.
+    expect(screen.getByTestId("plan-card-FREE").getAttribute("data-current")).toBe(
+      "true",
+    );
+    expect(screen.getByTestId("plan-action-STARTER").textContent).toBe(
+      "Upgrade to Starter",
+    );
   });
 
   it("grants nothing from a checkout=success parameter alone", async () => {
@@ -244,17 +536,17 @@ describe("BillingPage", () => {
     expect(await screen.findByTestId("checkout-success-notice")).toBeTruthy();
     await waitFor(() => expect(refreshBillingStatus).toHaveBeenCalled());
     expect(screen.getByTestId("billing-plan").textContent).toContain("Free");
+    expect(screen.getByTestId("plan-card-FREE").getAttribute("data-current")).toBe(
+      "true",
+    );
   });
 
   it("shows the confirmed plan once the server reports it", async () => {
     searchParams.value = new URLSearchParams("checkout=success");
     fetchBillingStatus.mockResolvedValue(billingStatus());
     refreshBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "STARTER",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "STARTER",
           interval: "MONTH",
@@ -271,6 +563,11 @@ describe("BillingPage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("billing-plan").textContent).toContain("Starter"),
     );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("plan-card-STARTER").getAttribute("data-current"),
+      ).toBe("true"),
+    );
   });
 
   it("reports a cancelled checkout as having changed nothing", async () => {
@@ -285,11 +582,8 @@ describe("BillingPage", () => {
 
   it("surfaces the API's own refusal message", async () => {
     fetchBillingStatus.mockResolvedValue(
-      billingStatus({
+      paid({
         plan: "PRO",
-        canStartCheckout: false,
-        canOpenPortal: true,
-        canChangePlan: true,
         subscription: {
           plan: "PRO",
           interval: "MONTH",
@@ -311,13 +605,46 @@ describe("BillingPage", () => {
     );
     render(<BillingPage />);
 
-    await userEvent.click(await screen.findByTestId("choose-STARTER_MONTHLY"));
-    expect((await screen.findByTestId("billing-action-error")).textContent).toMatch(/scheduled to cancel/);
+    await userEvent.click(await screen.findByTestId("plan-action-STARTER"));
+    expect((await screen.findByTestId("billing-action-error")).textContent).toMatch(
+      /scheduled to cancel/,
+    );
   });
 
-  it("still lists prices when billing is not configured, but offers no purchase path", async () => {
-    // The pricing table is information; the buttons are the transaction. A deployment with no
-    // biller shows the former and none of the latter.
+  it("explains a failed portal session instead of leaving the page silent", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      paid({
+        plan: "STARTER",
+        subscription: {
+          plan: "STARTER",
+          interval: "MONTH",
+          status: "ACTIVE",
+          currentPeriodEnd: "2026-10-12T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    const { ApiError } = await import("../../../lib/api/client");
+    openBillingPortal.mockRejectedValue(
+      new ApiError(503, "Billing management is unavailable.", "BILLING_PORTAL_UNAVAILABLE"),
+    );
+    render(<BillingPage />);
+
+    await userEvent.click(await screen.findByTestId("manage-billing"));
+    expect((await screen.findByTestId("billing-action-error")).textContent).toMatch(
+      /unavailable/,
+    );
+    // And the entry point comes back rather than staying stuck on "Opening…".
+    expect(
+      (screen.getByTestId("manage-billing") as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("still compares plans when billing is not configured, but offers no purchase path", async () => {
+    // The comparison is information; the buttons are the transaction. A deployment with no biller
+    // shows the former and none of the latter.
     fetchBillingStatus.mockResolvedValue(
       billingStatus({ billingEnabled: false, canStartCheckout: false }),
     );
@@ -325,9 +652,19 @@ describe("BillingPage", () => {
 
     expect(await screen.findByTestId("billing-unavailable")).toBeTruthy();
     expect(screen.getByTestId("billing-catalog")).toBeTruthy();
-    for (const entry of BILLING_CATALOG_ENTRIES) {
-      expect(screen.getByTestId(`plan-option-${entry.key}`)).toBeTruthy();
-      expect(screen.queryByTestId(`choose-${entry.key}`)).toBeNull();
-    }
+    expect(priceOf("PRO")).toContain("$29");
+    expect(screen.queryByTestId("plan-action-STARTER")).toBeNull();
+    expect(screen.queryByTestId("plan-action-PRO")).toBeNull();
+  });
+
+  it("keeps the page usable when the status request fails", async () => {
+    fetchBillingStatus.mockRejectedValue(new Error("network"));
+    render(<BillingPage />);
+
+    expect(await screen.findByTestId("billing-error")).toBeTruthy();
+    // The title stays, so the page never renders as a bare error string.
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
+      "Billing",
+    );
   });
 });

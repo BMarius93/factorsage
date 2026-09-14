@@ -1,90 +1,225 @@
+/* Billing is a product page, not a landing page.
+
+   Everything structural comes from the shared vocabulary: the page rhythm from
+   `page.module.css`, the title from `PageHeader`, the subscription facts from `SectionCard` +
+   `FactGrid`, and the plan card's surface from `SectionCard`'s own `.card` — composed rather than
+   copied, so a plan card and a section surface can never drift to two slightly different radii.
+   What is local here is what only a pricing comparison needs: the cadence toggle, the three-column
+   plan grid, and the checked feature list. */
+
 .page {
-  display: grid;
-  gap: 20px;
-  padding: 20px 0 32px;
+  composes: stack from "../../../components/ui/page.module.css";
 }
 
-.header {
+/* --- The plans region --- */
+
+.plans {
+  display: grid;
+  gap: 14px;
+}
+
+.plansHead {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.title {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.lead {
-  margin: 6px 0 0;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.sectionTitle {
-  margin: 0 0 12px;
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.current {
-  display: grid;
-  justify-items: start;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
-  background: var(--color-surface);
-}
-
-.currentHead {
-  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
-.currentLabel {
+.plansCaption {
+  margin: 0;
   color: var(--color-text-secondary);
   font-size: 13px;
+  line-height: 1.5;
 }
 
-.planBadge {
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--color-primary-soft);
+/* --- Billing cadence, as a segmented radio group --- */
+
+.segmented {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+
+.segment {
+  /* The positioning context its own transparent radio fills; see `.segmentInput`. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segment:hover {
   color: var(--color-primary);
-  font-size: 14px;
-  font-weight: 650;
 }
 
-.facts {
+.segment[data-selected="true"],
+.segment[data-selected="true"]:hover {
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+/* Transparent and full-size rather than clipped to a pixel: the radio stays the thing that is
+   focused, checked and announced, and it is also the thing a pointer hits. A 1px clipped input
+   sits *under* its own label, so the label swallows the click — which is fine for a mouse and a
+   real problem for anything driving the control by its accessible name. */
+.segmentInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment:has(.segmentInput:focus-visible) {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* --- The three plan cards --- */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The plan card wears the product's page-level surface, composed from the one definition of it. */
+.plan {
+  composes: card from "../../../components/ui/SectionCard.module.css";
+  gap: 16px;
+  padding: 18px;
+}
+
+/* The current plan reads as chosen without becoming a blue block: a stronger border and the
+   softest tint the palette has, and nothing else. */
+.plan[data-current="true"] {
+  border-color: var(--color-primary-border);
+  background: var(--color-surface-soft);
+}
+
+.planHead {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.planName {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 0;
 }
 
-.fact {
-  display: grid;
-  gap: 2px;
+.priceAmount {
+  color: var(--color-text-primary);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
-.fact dt {
+.pricePeriod {
   color: var(--color-text-secondary);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.fact dd {
-  margin: 0;
   font-size: 14px;
   font-weight: 600;
+}
+
+.priceNote {
+  margin: -10px 0 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Takes the slack between cards of different content length, so every button sits on the same
+   baseline however the feature text wraps. */
+.features {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: start;
+  gap: 9px;
+  color: var(--color-text-body);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* The brand accent, not `--color-positive`: green and red carry financial and operational
+   meaning in this product, and a feature list is neither. */
+.check {
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+.cta {
+  display: grid;
+  gap: 6px;
+}
+
+/* Full width inside the card, so the three buttons form one row across the grid. */
+.ctaButton {
+  width: 100%;
+}
+
+/* One line, reserved whether or not there is anything to say, so the three buttons align. */
+.ctaHint {
+  min-height: 17px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* --- Subscription details and notices --- */
+
+.subscriptionNotes {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 .scheduled {
@@ -97,7 +232,7 @@
 .notice {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-chip);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -112,76 +247,19 @@
   color: var(--color-warning);
 }
 
-.plans {
-  display: grid;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+.lead,
+.error {
   margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.plan {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
-  background: var(--color-surface);
-}
-
-.plan[data-current="true"] {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-}
-
-.planHead {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.planName {
-  font-size: 16px;
-  font-weight: 650;
-}
-
-.planCadence {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-
-.planPrice {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.planHint,
-.planCurrent {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
 }
 
-.planCurrent {
-  color: var(--color-primary);
-  font-weight: 600;
+.lead {
+  color: var(--color-text-secondary);
 }
 
 .error {
-  margin: 0;
   color: var(--color-negative);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .linkButton {
@@ -192,14 +270,33 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+  border-radius: var(--radius-control);
 }
 
-@media (max-width: 640px) {
-  .facts {
+.linkButton:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Three abreast once the cards can hold a feature line without wrapping every row. Below that they
+   stack, which is also what keeps the price and the button readable on a phone. */
+@media (min-width: 820px) {
+  .plans {
     gap: 16px;
   }
 
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .plan {
+    padding: 22px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .grid {
+    gap: 20px;
   }
 }

@@ -2,6 +2,7 @@ import type { StripeBillingConfig } from "@intrinsic/config";
 import { BillingError } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
 import Stripe from "stripe";
+import { hasScheduledCancellation } from "./stripe-gateway";
 import type {
   CreateCheckoutSessionInput,
   CreateCustomerInput,
@@ -522,7 +523,10 @@ export function toSubscriptionState(
     itemId: item?.id ?? null,
     currentPeriodStart: secondsToDate(item?.current_period_start),
     currentPeriodEnd: secondsToDate(item?.current_period_end),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    cancelAtPeriodEnd: hasScheduledCancellation({
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      cancelAt: secondsToDate(subscription.cancel_at),
+    }),
     cancelAt: secondsToDate(subscription.cancel_at),
     canceledAt: secondsToDate(subscription.canceled_at),
     created: new Date(subscription.created * 1000),

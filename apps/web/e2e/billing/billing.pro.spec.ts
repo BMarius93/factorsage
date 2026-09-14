@@ -26,14 +26,27 @@ test.describe("PRO billing", () => {
     expect(status.canChangePlan).toBe(false);
   });
 
-  test("shows the current plan and still offers the catalog", async ({
+  test("marks Pro as the current plan and still compares all three", async ({
     page,
   }) => {
     await openBillingPage(page);
 
     await expect(page.getByTestId("billing-plan")).toHaveText("Pro");
     await expect(page.getByTestId("billing-catalog")).toBeVisible();
-    // No subscription means no renewal date and no scheduled state to show.
+    await expect(page.locator('[data-testid^="plan-card-"]')).toHaveCount(3);
+
+    await expect(page.getByTestId("plan-card-PRO")).toHaveAttribute(
+      "data-current",
+      "true",
+    );
+    await expect(page.getByTestId("plan-action-PRO")).toBeDisabled();
+    // Exactly one card claims to be current, whatever the cadence shown.
+    await expect(page.getByTestId("plan-current-badge")).toHaveCount(1);
+    await page.getByRole("radio", { name: "Yearly" }).check();
+    await expect(page.getByTestId("plan-current-badge")).toHaveCount(1);
+
+    // No subscription means no renewal date, no subscription surface and nothing scheduled.
+    await expect(page.getByTestId("billing-subscription")).toHaveCount(0);
     await expect(page.getByTestId("billing-period-end")).toHaveCount(0);
     await expect(page.getByTestId("billing-cancel-scheduled")).toHaveCount(0);
     await expect(page.getByTestId("billing-pending-change")).toHaveCount(0);

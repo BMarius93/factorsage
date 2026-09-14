@@ -1,8 +1,5 @@
 import {
-  BILLING_CATALOG,
-  type BillingCatalogEntry,
   type BillingInterval,
-  type BillingPriceKey,
   type BillingSubscriptionStatus,
   type UserPlan,
 } from "@intrinsic/contracts";
@@ -11,8 +8,8 @@ import { ApiError } from "../../../lib/api/client";
 /**
  * Presentation for the billing surface.
  *
- * Everything here is formatting. No amount is computed, no proration is estimated and no renewal
- * date is derived: the price comes from the shared catalog and the dates come from the API, which
+ * Everything here is formatting. No amount is computed and no renewal date is derived: prices come
+ * from the shared catalog through `plan-presentation.ts`, and the dates come from the API, which
  * mirrors them from Stripe. `docs/decisions/stripe-billing-v1.md` section 19 is explicit that
  * financial previews belong to Stripe's own hosted surfaces, and arithmetic here would be a second
  * opinion about somebody's money.
@@ -28,23 +25,6 @@ export const INTERVAL_LABEL: Readonly<Record<BillingInterval, string>> = {
   MONTH: "Monthly",
   YEAR: "Yearly",
 };
-
-/** `$9 / month`, straight from the catalog the server also resolves prices through. */
-export function priceLabel(entry: BillingCatalogEntry): string {
-  const amount = entry.amountMinorUnits / 100;
-  const formatted = Number.isInteger(amount)
-    ? `$${amount}`
-    : `$${amount.toFixed(2)}`;
-  return `${formatted} / ${entry.interval === "MONTH" ? "month" : "year"}`;
-}
-
-export function planOf(priceKey: BillingPriceKey): UserPlan {
-  return BILLING_CATALOG[priceKey].plan;
-}
-
-export function intervalOf(priceKey: BillingPriceKey): BillingInterval {
-  return BILLING_CATALOG[priceKey].interval;
-}
 
 export function formatBillingDate(iso: string | null): string | null {
   if (!iso) {

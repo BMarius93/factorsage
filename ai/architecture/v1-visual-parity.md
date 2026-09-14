@@ -43,8 +43,12 @@ There are four page types:
 3. **Entity detail** — List, Strategy, Monitor and Stock details.
 4. **Outcome hero** — Backtest results and other future result-first experiences.
 
-Billing is a marketing surface and may use its own hero composition, but it must consume the same
-tokens and action primitives.
+Billing is a **product page of the first type's family**, not a marketing surface. `/billing` is
+reached only from an authenticated session, and a returning customer opens it to see what they are on
+and what it costs — so it uses the ordinary `PageHeader` + section composition, with three plan cards
+(Free, Starter, Pro) and one billing-cadence toggle as its only feature-owned composition. A
+conversion hero belongs to a future _public_ pricing page, if one is ever built; it does not belong
+behind the sign-in.
 
 ### Page header
 
@@ -56,7 +60,7 @@ being reimplemented by features:
 | `surface`   | collections and ordinary entity details                      | white 16px-radius bordered surface; title, lead/badges and actions                |
 | `plain`     | editors where the form surface supplies the visual container | compact title and optional back link; no duplicate section title                  |
 | `hero`      | result-first screens                                         | title/context/actions composed into the feature hero; no separate header above it |
-| `marketing` | Billing and future public conversion pages                   | feature-owned promotional layout using shared tokens                              |
+| `marketing` | future **public** conversion pages only, never `/billing`    | feature-owned promotional layout using shared tokens                              |
 
 For `surface`, use 12px padding on phones and 24px from tablet upward. The title is approximately
 16px on phones and 20px on desktop. Ordinary collection headers must not use a 24-28px display title.
@@ -115,7 +119,7 @@ Ordinary product surfaces use:
 - 12px internal padding on phones and 24px on desktop unless a dense table supplies cell padding.
 
 Large 24-30px radii and blue-tinted elevation are reserved for a true hero, primarily Backtest
-Results and the Billing marketing hero. They are not defaults for every `SectionCard`.
+Results. They are not defaults for every `SectionCard`.
 
 Nested elements use smaller radii than their parent. A nested control, chip or chart frame must not
 look like another page-level card. Do not create equally elevated card-inside-card compositions.
@@ -264,10 +268,21 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 
 ### Billing
 
-- Billing uses a purposeful marketing hero and focused plan cards instead of looking like another
-  collection page.
+- Billing is an authenticated product page and composes like one: `PageHeader` with the plan badge
+  and the single `Manage billing` action, then the plan comparison, then a `SectionCard` carrying the
+  subscription's own facts. No hero, no promotional copy, no giant empty vertical regions.
+- **Three plan cards — Free, Starter, Pro — and never one card per price.** Monthly and yearly are a
+  property of a plan, so a segmented cadence control re-prices the same three cards in place. Free is
+  a first-class card, not an account state.
+- Plan cards wear the product's own page-level surface, composed from `SectionCard`'s `.card` rather
+  than restyled, and their buttons align on one baseline however the feature text wraps.
+- Capacities on the cards are **derived** from `PLAN_ENTITLEMENTS` and amounts from
+  `BILLING_CATALOG`; no limit or price is written down a second time in the web app.
+- The current plan is shown on its own card and as a badge beside the title — never as a standalone
+  strip above the comparison.
 - It must use current V2 tiers, prices and entitlements and must not restore credits.
-- It still consumes global color, typography, control and focus tokens.
+- It still consumes global color, typography, control and focus tokens. Feature checks use the brand
+  accent, not `--color-positive`: green and red mean financial and operational state here.
 
 ## Accessibility and interaction
 

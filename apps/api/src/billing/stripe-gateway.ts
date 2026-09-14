@@ -35,6 +35,10 @@ export type StripeSubscriptionState = {
   readonly itemId: string | null;
   readonly currentPeriodStart: Date | null;
   readonly currentPeriodEnd: Date | null;
+  /**
+   * True when a cancellation is scheduled — **however Stripe chose to express it**. See
+   * {@link hasScheduledCancellation}: this is not a straight copy of `cancel_at_period_end`.
+   */
   readonly cancelAtPeriodEnd: boolean;
   readonly cancelAt: Date | null;
   readonly canceledAt: Date | null;
@@ -257,4 +261,34 @@ export function toMirroredStatus(status: string): BillingSubscriptionStatus {
     default:
       return "UNKNOWN";
   }
+}
+
+/**
+ * Whether Stripe holds a scheduled cancellation for a subscription.
+ *
+ * Stripe has **two** representations of "cancel at the end of the paid period", and the Customer
+ * Portal now produces the second one:
+ *
+ * ```text
+ * older:  cancel_at_period_end = true,  cancel_at = null (or the period end)
+ * newer:  cancel_at_period_end = false, cancel_at = <period end>, canceled_at = <when it was asked for>
+ * ```
+ *
+ * Reading `cancel_at_period_end` alone therefore reports "renews" for a subscription Stripe's own
+ * Portal is showing as "Cancels on …", and it silently disarms the guard that refuses a plan change
+ * on a subscription already on its way out. Sandbox verification is where this surfaced: a Portal
+ * cancellation came back as `cancel_at_period_end: false` with `cancel_at` set.
+ *
+ * A scheduled cancellation is therefore either flag. V1 never sets `cancel_at` for anything else —
+ * there is no "cancel on a chosen date" surface — so a `cancel_at` is always a cancellation.
+ *
+ * This lives here, beside the FactorSage types and away from the Stripe SDK, so the fake gateway can
+ * model the raw fields and reach the same answer through the same function rather than hard-coding
+ * the mapped one, which is exactly why the deterministic suite agreed with the bug.
+ */
+export function hasScheduledCancellation(input: {
+  readonly cancelAtPeriodEnd: boolean;
+  readonly cancelAt: Date | null;
+}): boolean {
+  return input.cancelAtPeriodEnd || input.cancelAt !== null;
 }

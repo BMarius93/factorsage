@@ -250,9 +250,19 @@ first.
 
 ### Cancellation
 
-Through Customer Portal, as `cancel_at_period_end`. The mirror records it and the plan does not move;
+Through Customer Portal, at period end. The mirror records it and the plan does not move;
 `customer.subscription.deleted` at the period boundary is what makes the user `FREE`. Reversing it
 before the boundary is a no-op for entitlements.
+
+**Stripe has two representations of it, and Portal produces the second one.** On the pinned API
+version a Portal cancellation comes back as `cancel_at_period_end: false` with `cancel_at` carrying
+the period end and `canceled_at` carrying the request time; the older shape sets the flag instead.
+`hasScheduledCancellation` (`stripe-gateway.ts`) is therefore what the gateway maps through, and
+`BillingSubscription.cancelAtPeriodEnd` means *a cancellation is scheduled*, not *that one flag was
+true*. Reading the flag alone reported "Renews on …" for a subscription Stripe's own Portal was
+showing as "Cancels on …", and silently disarmed the guard that refuses a plan change on a
+subscription already on its way out. The fake gateway models the raw fields and maps them through the
+same function, so the deterministic suite can no longer agree with that mistake.
 
 ## Webhooks
 
@@ -706,7 +716,27 @@ the argument for keeping this runbook alive:
 | Customer Portal session | created against `billing.stripe.com`; config verified as cancel-at-period-end with `subscription_update` disabled |
 | `GET /billing/status` | carries no `cus_`, `sub_`, `price_`, `sk_test` or `whsec_` |
 
-### The four defects sandbox testing found
+Second pass, after the billing page was rebuilt around three plan cards:
+
+| Scenario | Result |
+| --- | --- |
+| Catalog verification | four prices exact again: $9 / $99 / $29 / $299, active, USD, licensed |
+| `FREE -> STARTER` monthly via hosted Checkout (`4242…`) | body carried `{"priceKey":"STARTER_MONTHLY"}` and nothing else; Stripe's page read **$9.00 per month**; `invoice.paid`, `customer.subscription.created` and `checkout.session.completed` all converged on `STARTER`; entitlements 50 / 15 / 3 |
+| Duplicate delivery (`stripe events resend`) | answered `200`, `StripeWebhookEvent` stayed at three rows, plan and price unchanged |
+| Starter monthly -> Starter yearly | `IMMEDIATE` / `CADENCE_LENGTHENED`; mirror moved to `YEAR` |
+| Starter yearly -> Pro yearly | `IMMEDIATE` / `TIER_UPGRADE`; Stripe invoiced the proration, FactorSage computed none |
+| Pro yearly -> Pro monthly | `SCHEDULED` / `CADENCE_SHORTENED`; `pendingInterval = MONTH`, plan stayed `PRO` |
+| Pro yearly -> Starter yearly | `SCHEDULED` / `TIER_DOWNGRADE`, **replacing** the pending cadence change; tier direction beat the cadence |
+| Schedule released in Stripe | `subscription_schedule.released` cleared `pendingPlan` and `stripeScheduleId` |
+| Customer Portal | opened on `billing.stripe.com` with payment method, invoices and cancel-at-period-end, **no plan-switching surface**, and the configured return URL came back to `/billing` |
+| Cancel through Portal | `cancel_at` set with `cancel_at_period_end` **false** — the defect below; after the fix, mirror `cancelAtPeriodEnd=true`, plan **kept** at `PRO`, page read "Cancels on 14 September 2027" |
+| Reversing the cancellation | mirror back to `false`, plan unchanged — no entitlement transition |
+| Actual cancellation | `customer.subscription.deleted` moved `PRO -> FREE`; entitlements dropped to 10 / 5 / 1 |
+| `FREE -> STARTER` yearly via hosted Checkout | Yearly selected in the UI sent `STARTER_YEARLY`; Stripe's page read **$99.00 per year**; mirror carried the yearly price id |
+| Second Checkout while subscribed | refused `409 BILLING_ALREADY_SUBSCRIBED` |
+| Starter yearly -> Pro monthly | `IMMEDIATE` / `TIER_UPGRADE`; mirror carried the **Pro monthly** price id — all four configured prices have now been billed and read back |
+
+### The defects sandbox testing found
 
 1. **Wrong schedule phase.** `phases.at(-1)` is the current phase only until a change is already
    scheduled; after that it is the *future* phase, and pinning it produced `start_date == end_date`,
@@ -720,6 +750,35 @@ the argument for keeping this runbook alive:
    self-healing through reconciliation.
 4. **CLI argument handling.** pnpm forwards the `--` separator into the script, so the documented
    `pnpm billing:reconcile -- --user x` failed. Both forms now work.
+5. **Portal cancellation read as a renewal.** The gateway copied `cancel_at_period_end`, and Customer
+   Portal on the pinned API version sets `cancel_at` with that flag **false**. The billing page told
+   a cancelling customer their subscription renewed, the `Cancels on <date>` line never appeared, and
+   `POST /billing/change` stopped refusing changes on a cancelling subscription. Fixed by
+   `hasScheduledCancellation`, guarded by `stripe-cancellation.test.ts`, and the fake now models the
+   raw Stripe fields so the offline suite reproduces it. Found in the second sandbox pass; the first
+   pass missed it because it cancelled through the Dashboard rather than through Portal.
+
+## The billing page
+
+`apps/web/src/features/billing`. Three plan cards — Free, Starter, Pro — and a cadence toggle that
+re-prices them in place; never one card per price. `ai/architecture/v1-visual-parity.md` owns the
+composition contract.
+
+The rule that matters here is the same one-source rule the rest of this document is about, applied to
+the browser:
+
+- **`plan-presentation.ts`** derives every feature row from `PLAN_ENTITLEMENTS` and every amount from
+  `BILLING_CATALOG`. No limit and no price is written down a second time, so a matrix change cannot
+  leave the pricing page promising something the guards refuse. The one arithmetic is the annual
+  saving, from the two published list prices — not a proration estimate, which stays Stripe's.
+- **`plan-actions.ts`** decides what each card's button does, labelling it from
+  `classifyBillingTransition` — the same pure function the API classifies the request with — so
+  "Upgrade to Pro" cannot promise something `POST /billing/change` would schedule. It also encodes the
+  three refusals the server already makes: Free is reached through Portal and never bought, a
+  subscribed-but-unpaid price is never shown as the current plan, and no change is offered while a
+  cancellation is scheduled.
+- The card's button carries `data-price-key`, so a test asserts the thing a bug would live in — a card
+  showing "Yearly" while posting the monthly key — rather than the amount rendered beside it.
 
 ## Tests
 
@@ -730,7 +789,10 @@ the argument for keeping this runbook alive:
 | `packages/config/src/index.test.ts` | All-or-nothing configuration, and the sandbox/live guards in both directions. |
 | `apps/api/src/billing/billing.integration.test.ts` | HTTP → Nest → PostgreSQL with Stripe faked at the gateway: the twenty lifecycle acceptance cases, checkout allowlisting, customer reuse under concurrency, the one-subscription invariant, reconciliation/repair, and the webhook robustness list (duplicate, concurrent, stale, crash, unknown customer, unknown price, environment mismatch). |
 | `apps/api/src/billing/billing.sandbox.smoke.test.ts` | The real Stripe contract. Opt-in via `STRIPE_SANDBOX_SMOKE=true`, excluded from `pnpm test`, and refuses to run against a live key. |
-| `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — notably that `?checkout=success` grants nothing. |
+| `apps/api/src/billing/stripe-cancellation.test.ts` | That a scheduled cancellation is recognised in **both** of Stripe's representations. |
+| `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — three plan cards and never one per price, the cadence toggle re-pricing in place and carrying through to the price key the button sends, and that `?checkout=success` grants nothing. |
+| `apps/web/src/features/billing/utils/plan-presentation.test.ts` | That every capacity on a card is read from `PLAN_ENTITLEMENTS` and every amount from `BILLING_CATALOG`, so the pricing page cannot drift from the matrix. |
+| `apps/web/src/features/billing/utils/plan-actions.test.ts` | What each card's button offers per billing state: upgrade/downgrade/switch labels from the shared classifier, Free only ever through Portal, and no action claimed for an unpaid or already-scheduled change. |
 | `apps/web/e2e/billing/*.spec.ts` | The browser half, per persona: FREE sees the catalog, crafted requests are refused, returning from Checkout grants nothing, a paid-tier persona works with no Stripe subscription at all, and a guest is refused everywhere. |
 
 `FakeStripeGateway` (`stripe-gateway.test-helper.ts`) models Stripe's observable behaviour — statuses,

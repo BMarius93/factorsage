@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { BillingError } from "@intrinsic/contracts";
+import { hasScheduledCancellation } from "./stripe-gateway";
 import type {
   CreateCheckoutSessionInput,
   CreateCustomerInput,
@@ -59,6 +60,13 @@ export type FakeSubscription = {
   itemId: string;
   currentPeriodStart: Date;
   currentPeriodEnd: Date;
+  /**
+   * Stripe's **raw** `cancel_at_period_end`, deliberately not the mapped FactorSage flag.
+   *
+   * The fake models what Stripe holds; `hasScheduledCancellation` maps it, exactly as the real
+   * gateway does. Storing the mapped value here is what let the deterministic suite agree with a
+   * mapping bug that real Stripe disproved.
+   */
   cancelAtPeriodEnd: boolean;
   cancelAt: Date | null;
   canceledAt: Date | null;
@@ -196,14 +204,19 @@ export class FakeStripeGateway implements StripeGateway {
         { code: "BILLING_SUBSCRIPTION_UPDATE_FAILED" },
       );
     }
-    subscription.cancelAtPeriodEnd = true;
+    // What Customer Portal actually produces on the pinned API version, verified in the sandbox:
+    // `cancel_at_period_end` stays **false**, `cancel_at` carries the period end, and `canceled_at`
+    // records when it was requested.
+    subscription.cancelAtPeriodEnd = false;
     subscription.cancelAt = subscription.currentPeriodEnd;
+    subscription.canceledAt = new Date();
   }
 
   reverseCancellation(subscriptionId: string): void {
     const subscription = this.require(subscriptionId);
     subscription.cancelAtPeriodEnd = false;
     subscription.cancelAt = null;
+    subscription.canceledAt = null;
   }
 
   /** What Stripe does when the period ends on a subscription set to cancel. */
@@ -282,7 +295,10 @@ export class FakeStripeGateway implements StripeGateway {
         itemId: subscription.itemId,
         currentPeriodStart: subscription.currentPeriodStart,
         currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        cancelAtPeriodEnd: hasScheduledCancellation({
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          cancelAt: subscription.cancelAt,
+        }),
         cancelAt: subscription.cancelAt,
         canceledAt: subscription.canceledAt,
         created: subscription.created,
