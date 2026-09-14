@@ -169,7 +169,7 @@ describe("MonitorDetail", () => {
     );
     // Scoped to the configuration panel: the list is also linked from the empty-state sentence
     // below it, which is a different, actionable mention of the same thing.
-    const facts = screen.getByRole("region", { name: "Monitor configuration" });
+    const facts = screen.getByRole("region", { name: "Configuration" });
     expect(
       within(facts).getByRole("link", { name: "Deep value" }).getAttribute("href"),
     ).toBe("/strategies/strategy-1");
@@ -431,7 +431,7 @@ describe("MonitorDetail", () => {
     });
     expect(
       within(
-        screen.getByRole("region", { name: "Monitor configuration" }),
+        screen.getByRole("region", { name: "Configuration" }),
       ).getByText("Tech universe"),
     ).toBeDefined();
     // The new configuration has not been checked, and the page says exactly that.

@@ -68,7 +68,7 @@ export async function openFixtureList(
 }
 
 export function listItems(page: Page): Locator {
-  return page.getByTestId("list-items").locator("li");
+  return page.getByTestId("list-items").locator("tbody tr");
 }
 
 export function listItem(page: Page, symbol: string): Locator {

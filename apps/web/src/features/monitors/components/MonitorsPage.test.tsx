@@ -161,7 +161,7 @@ describe("MonitorsPage", () => {
     expect(screen.getByText("Quality compounders")).toBeDefined();
     expect(screen.getByText("12 stocks")).toBeDefined();
     expect(screen.getByText("3 active signals")).toBeDefined();
-    expect(screen.getByText(/^Checked /)).toBeDefined();
+    expect(screen.getByText(/^Sep 12, 2026, /)).toBeDefined();
 
     expect(screen.getByText("Enabled")).toBeDefined();
     expect(screen.getByText("Disabled")).toBeDefined();

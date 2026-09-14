@@ -1,4 +1,8 @@
-import type { SecurityResponse } from "@intrinsic/contracts";
+import type {
+  SecurityProfileResponse,
+  SecurityResponse,
+} from "@intrinsic/contracts";
+import { StockLogo } from "../../../../components/ui/StockIdentity";
 import {
   formatLocalDate,
   formatMoney,
@@ -11,6 +15,11 @@ import styles from "./StockHeader.module.css";
 type StockHeaderProps = {
   readonly security: SecurityResponse;
   readonly summary?: PriceSummary;
+  /**
+   * Optional company profile. Its logo is decoration: the header renders identically without
+   * one, and a broken image falls back to the ticker monogram.
+   */
+  readonly profile?: SecurityProfileResponse;
 };
 
 const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> = {
@@ -23,7 +32,11 @@ const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> = 
  * The change is derived from the two most recent EOD closes and is labelled as at-close data —
  * nothing here claims to be live.
  */
-export function StockHeader({ security, summary }: StockHeaderProps) {
+export function StockHeader({
+  security,
+  summary,
+  profile,
+}: StockHeaderProps) {
   const change = summary?.change;
   const direction =
     change === undefined ? undefined : change.absolute >= 0 ? "up" : "down";
@@ -32,10 +45,18 @@ export function StockHeader({ security, summary }: StockHeaderProps) {
   return (
     <header className={styles.header}>
       <div className={styles.identity}>
-        <h1 className={styles.title}>
-          <span className={styles.symbol}>{security.symbol}</span>
-          <span className={styles.name}>{security.name}</span>
-        </h1>
+        <div className={styles.identityRow}>
+          <StockLogo
+            symbol={security.symbol}
+            name={security.name}
+            size="lg"
+            {...(profile?.logoUrl ? { logoUrl: profile.logoUrl } : {})}
+          />
+          <h1 className={styles.title}>
+            <span className={styles.symbol}>{security.symbol}</span>
+            <span className={styles.name}>{security.name}</span>
+          </h1>
+        </div>
         <ul className={styles.badges} aria-label="Listing details">
           <li className={styles.badge}>
             {security.exchangeName ?? security.exchangeCode}

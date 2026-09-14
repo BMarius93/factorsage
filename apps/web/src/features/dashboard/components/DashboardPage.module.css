@@ -1,0 +1,101 @@
+/* Page rhythm, the monitor filter pills, and the two cells that carry dashboard-specific
+   meaning. Surfaces, tables, badges, chips and empty states come from `components/ui`. */
+.page {
+  composes: stack from "../../../components/ui/page.module.css";
+}
+
+.nameLink {
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.nameLink:hover {
+  color: var(--color-primary);
+}
+
+.nameLink:focus-visible {
+  outline: none;
+  border-radius: var(--radius-control);
+  box-shadow: var(--focus-ring);
+}
+
+/* The legacy dashboard's filter row: a pill per view with the count it would show. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.filter:hover {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary);
+}
+
+.filter[data-active="true"] {
+  border-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+}
+
+.filter:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.filterCount {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter[data-active="true"] .filterCount {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.moreLink {
+  color: var(--color-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.moreLink:hover {
+  text-decoration: underline;
+}
+
+/* The list reference and the size of the universe it names, as one cell. */
+.listCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.listCount {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

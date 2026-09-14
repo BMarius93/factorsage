@@ -7,6 +7,7 @@ import { useStockSearch } from "../hooks/use-stock-search";
 import { POPULAR_STOCK_SEARCHES } from "../utils/popular-stocks";
 import { stockDetailsHref } from "../utils/stock-routes";
 import { ClearIcon, SearchIcon } from "./search-icons";
+import { StockIdentity } from "../../../../components/ui/StockIdentity";
 import styles from "./StockSearch.module.css";
 
 type SearchOption = {
@@ -239,8 +240,14 @@ export function StockSearch() {
                 data-highlighted={index === highlighted}
                 onClick={() => select(option)}
               >
-                <span className={styles.symbol}>{option.symbol}</span>
-                <span className={styles.name}>{option.name}</span>
+                {/* The shared identity treatment, so a stock looks the same here as it
+                    does in a list, a monitor or a trade log. The catalog's search
+                    projection carries no logo, so this renders the ticker monogram. */}
+                <StockIdentity
+                  symbol={option.symbol}
+                  name={option.name}
+                  size="sm"
+                />
                 {option.exchange ? (
                   <span className={styles.exchange}>{option.exchange}</span>
                 ) : null}

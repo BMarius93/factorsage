@@ -40,7 +40,7 @@ function navLink(page: Page, label: string) {
 function monitorCard(page: Page, name: string) {
   return page
     .getByTestId("monitors-grid")
-    .locator("li")
+    .locator("tbody tr")
     .filter({ hasText: name });
 }
 
@@ -143,7 +143,7 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
     ).toBeVisible();
     const card = page
       .getByTestId("strategies-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: name });
     if ((await card.count()) === 0) {
       return;
@@ -164,7 +164,7 @@ async function deleteListIfPresent(page: Page, name: string) {
     ).toBeVisible();
     const card = page
       .getByTestId("lists-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: name });
     if ((await card.count()) === 0) {
       return;
@@ -366,7 +366,7 @@ test.describe("PRO_USER monitors", () => {
     await navLink(page, "Strategies").click();
     const strategyCard = page
       .getByTestId("strategies-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: STRATEGY_NAME_B });
     await expect(strategyCard).toHaveCount(1);
     await strategyCard.getByRole("button", { name: "Delete" }).click();

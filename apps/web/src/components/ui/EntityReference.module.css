@@ -1,0 +1,113 @@
+/* One pill shape for every cross-entity reference. The kind changes only the accent,
+   so the product stays calm while the relationship stays recognisable. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  /* Capped so one long strategy or list name cannot widen the column it sits in; the
+     label truncates and the full name stays in the title attribute. */
+  max-width: min(100%, 12rem);
+  padding: 3px 10px;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-body);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-decoration: none;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+a.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* A Stock List reference borrows the positive accent, matching how buy eligibility and
+   list membership already read in the product. */
+.chip[data-kind="list"] {
+  border-color: var(--color-positive-border);
+}
+
+a.chip[data-kind="list"]:hover {
+  border-color: var(--color-positive);
+  color: var(--color-positive);
+  background: var(--color-positive-soft);
+}
+
+/* Benchmarks and completed runs are reference data rather than something the user
+   configures, so they stay neutral. */
+.chip[data-kind="benchmark"],
+.chip[data-kind="backtest"] {
+  border-color: var(--color-border-strong);
+}
+
+/* Not a link: an entity with no page, or one that no longer exists. */
+.chip[data-static="true"] {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    transition: none;
+  }
+}
+
+/* ── Linked block ─────────────────────────────────────────────────────────── */
+.linked {
+  display: grid;
+  gap: 8px;
+}
+
+.linkedHeading {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.linkedRows {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.linkedRow {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.linkedLabel {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.linkedValue {
+  min-width: 0;
+  margin: 0;
+}

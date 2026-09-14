@@ -12,7 +12,7 @@ const STRATEGY_NAME = "E2E deep value";
 const RENAMED = "E2E deep value (edited)";
 
 function card(page: Page, name: string) {
-  return page.getByTestId("strategies-grid").locator("li").filter({ hasText: name });
+  return page.getByTestId("strategies-grid").locator("tbody tr").filter({ hasText: name });
 }
 
 /**

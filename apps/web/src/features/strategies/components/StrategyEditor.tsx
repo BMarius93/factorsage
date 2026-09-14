@@ -2,10 +2,12 @@
 
 import Link from "next/link";
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
 import forms from "../../../components/ui/forms.module.css";
 import { useStrategy } from "../hooks/use-strategy";
 import { StrategyBuilder } from "./StrategyBuilder";
-import styles from "./StrategyBuilder.module.css";
 
 /**
  * Loads one strategy and hands it to the Builder.
@@ -23,7 +25,9 @@ export function StrategyEditor({
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.skeleton} aria-hidden="true" />
+        <SectionCard ariaLabel="Loading strategy">
+          <SkeletonList rows={5} />
+        </SectionCard>
       </PageContainer>
     );
   }
@@ -31,16 +35,22 @@ export function StrategyEditor({
   if (status === "not-found") {
     return (
       <PageContainer>
-        <div className={styles.statusPanel} data-testid="strategy-not-found">
-          <h1 className={styles.statusTitle}>Strategy not found</h1>
-          <p className={styles.statusBody}>
-            It may have been deleted, or the link may point at someone
-            else&apos;s strategy.
-          </p>
-          <Link className={forms.secondaryButton} href="/strategies">
-            Back to strategies
-          </Link>
-        </div>
+        <EmptyState
+          as="h1"
+          testId="strategy-not-found"
+          title="Strategy not found"
+          body={
+            <p>
+              It may have been deleted, or the link may point at someone
+              else&apos;s strategy.
+            </p>
+          }
+          actions={
+            <Link className={forms.secondaryButton} href="/strategies">
+              Back to strategies
+            </Link>
+          }
+        />
       </PageContainer>
     );
   }
@@ -48,21 +58,21 @@ export function StrategyEditor({
   if (status === "error" || !strategy) {
     return (
       <PageContainer>
-        <div className={styles.statusPanel} role="alert">
-          <h1 className={styles.statusTitle}>
-            This strategy could not be loaded
-          </h1>
-          <p className={styles.statusBody}>
-            This is usually temporary — try again in a moment.
-          </p>
-          <button
-            type="button"
-            className={forms.secondaryButton}
-            onClick={retry}
-          >
-            Try again
-          </button>
-        </div>
+        <EmptyState
+          as="h1"
+          variant="error"
+          title="This strategy could not be loaded"
+          body={<p>This is usually temporary — try again in a moment.</p>}
+          actions={
+            <button
+              type="button"
+              className={forms.secondaryButton}
+              onClick={retry}
+            >
+              Try again
+            </button>
+          }
+        />
       </PageContainer>
     );
   }

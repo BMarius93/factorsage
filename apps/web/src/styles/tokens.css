@@ -12,25 +12,40 @@
 
   --color-border: #e6eaf5;
   --color-border-strong: #d5deff;
+  /* Row dividers inside a surface: lighter than the surface's own border so a dense
+     table reads as one block rather than a stack of boxes. */
+  --color-border-subtle: #f0f3fa;
 
   --color-primary: #4882ff;
   --color-primary-hover: #3b73e6;
   --color-primary-soft: #eef3ff;
+  --color-primary-border: #c8d9ff;
   --color-text-on-primary: #ffffff;
 
   --color-positive: #1e9e78;
   --color-positive-soft: #ecfdf3;
+  --color-positive-border: #cfe8d5;
   --color-negative: #d1435b;
   --color-negative-soft: #fff1f2;
   --color-warning: #c26a18;
   --color-warning-soft: #fff7ed;
 
+  /* Interaction feedback shared by table rows, option lists and menu items. */
+  --color-row-hover: #f5f8ff;
+  --focus-ring: 0 0 0 3px rgb(72 130 255 / 0.24);
+
   --radius-control: 12px;
+  --radius-chip: 10px;
   --radius-surface: 16px;
   --radius-card: 28px;
+  --radius-pill: 999px;
 
   --shadow-card: 0 18px 48px rgb(72 130 255 / 0.08);
   --shadow-header: 0 10px 24px rgb(68 57 52 / 0.06);
+
+  /* Label typography shared by table headers, fact labels and section eyebrows. */
+  --text-label-size: 11px;
+  --text-label-tracking: 0.08em;
 
   --page-pad-mobile: 16px;
   --page-pad-tablet: 24px;

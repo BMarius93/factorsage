@@ -3,6 +3,17 @@ import type {
   BacktestTradeResponse,
 } from "@intrinsic/contracts";
 import {
+  DataTable,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import {
+  StatusBadge,
+  type StatusTone,
+} from "../../../components/ui/StatusBadge";
+import { StockIdentity } from "../../../components/ui/StockIdentity";
+import {
   formatDay,
   formatMoney,
   formatShares,
@@ -17,6 +28,12 @@ const ACTION_LABELS = {
   SELL: "Sell",
   FINAL_EXIT: "Final exit",
 } as const satisfies Record<BacktestTradeAction, string>;
+
+const ACTION_TONES = {
+  BUY: "positive",
+  SELL: "negative",
+  FINAL_EXIT: "warning",
+} as const satisfies Record<BacktestTradeAction, StatusTone>;
 
 export type BacktestTradesProps = {
   readonly trades: readonly BacktestTradeResponse[];
@@ -46,72 +63,110 @@ export function BacktestTrades({
       ? truncatedFrom
       : undefined;
 
-  return (
-    <section className={styles.card} aria-labelledby="backtest-trades-title">
-      <div className={styles.head}>
-        <h2 className={styles.title} id="backtest-trades-title">
-          {title}
-        </h2>
-        {truncated === undefined ? (
-          <span className={styles.count}>{trades.length}</span>
+  const columns: readonly DataTableColumn<BacktestTradeResponse>[] = [
+    {
+      key: "stock",
+      header: "Stock",
+      cardRole: "identity",
+      render: (trade) => (
+        <StockIdentity
+          symbol={trade.symbol}
+          size="sm"
+          secondary={formatDay(trade.date)}
+          href={`/stocks/${encodeURIComponent(trade.symbol)}`}
+        />
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      cardRole: "status",
+      nowrap: true,
+      render: (trade) => (
+        <StatusBadge
+          tone={ACTION_TONES[trade.action]}
+          dataAttributes={{ "data-action": trade.action }}
+        >
+          {ACTION_LABELS[trade.action]}
+          {trade.levelPercentage === null ? null : ` ${trade.levelPercentage}%`}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (trade) => formatMoney(trade.amount),
+    },
+    {
+      key: "execution",
+      header: "Shares @ price",
+      cardLabel: "Execution",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (trade) =>
+        `${formatShares(trade.shares)} @ ${formatMoney(trade.price)}`,
+    },
+    {
+      key: "realized",
+      header: "Realized",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (trade) =>
+        // A buy realizes nothing; an empty cell is the truthful answer, not a zero.
+        trade.realizedPnl === null ? (
+          <span className={styles.placeholder}>—</span>
         ) : (
-          <span className={styles.count}>
-            {trades.length} of {truncated}
+          <span
+            className={styles.realized}
+            data-tone={
+              trade.realizedPnl === 0
+                ? undefined
+                : trade.realizedPnl > 0
+                  ? "positive"
+                  : "negative"
+            }
+          >
+            {formatSignedMoney(trade.realizedPnl)}
+            {trade.realizedPnlPercent === null
+              ? null
+              : ` · ${formatSignedPercent(trade.realizedPnlPercent)}`}
           </span>
-        )}
-      </div>
+        ),
+    },
+  ];
 
-      {shown.length === 0 ? (
-        <p className={styles.empty} data-testid="backtest-trades-empty">
-          {emptyMessage}
-        </p>
-      ) : (
-        <ul className={styles.list} data-testid="backtest-trades">
-          {shown.map((trade) => (
-            <li
-              key={trade.sequence}
-              className={styles.item}
-              data-action={trade.action}
-            >
-              <span className={styles.action}>
-                {ACTION_LABELS[trade.action]}
-                {trade.levelPercentage === null
-                  ? null
-                  : ` ${trade.levelPercentage}%`}
-              </span>
-              <div className={styles.identity}>
-                <span className={styles.symbol}>{trade.symbol}</span>
-                <span className={styles.date}>{formatDay(trade.date)}</span>
-              </div>
-              <div className={styles.figures}>
-                <span className={styles.amount}>
-                  {formatMoney(trade.amount)}
-                </span>
-                <span className={styles.detail}>
-                  {formatShares(trade.shares)} @ {formatMoney(trade.price)}
-                </span>
-              </div>
-              {trade.realizedPnl === null ? null : (
-                <span
-                  className={styles.realized}
-                  data-tone={
-                    trade.realizedPnl === 0
-                      ? undefined
-                      : trade.realizedPnl > 0
-                        ? "positive"
-                        : "negative"
-                  }
-                >
-                  {formatSignedMoney(trade.realizedPnl)}
-                  {trade.realizedPnlPercent === null
-                    ? null
-                    : ` · ${formatSignedPercent(trade.realizedPnlPercent)}`}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+  return (
+    <SectionCard
+      id="backtest-trades"
+      title={title}
+      aside={
+        truncated === undefined
+          ? `${trades.length}`
+          : `${trades.length} of ${truncated}`
+      }
+      flush={shown.length > 0}
+    >
+      <DataTable
+        label={title}
+        testId="backtest-trades"
+        rowTestId="backtest-trade-row"
+        columns={columns}
+        rows={shown}
+        getRowKey={(trade) => String(trade.sequence)}
+        emptyState={
+          <EmptyState
+            variant="compact"
+            testId="backtest-trades-empty"
+            title="No trades"
+            body={<p>{emptyMessage}</p>}
+          />
+        }
+      />
+    </SectionCard>
   );
 }

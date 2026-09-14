@@ -17,26 +17,6 @@
   min-width: 0;
 }
 
-.pageHeader {
-  display: grid;
-  gap: 6px;
-}
-
-.pageTitle {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.pageLead {
-  margin: 0;
-  max-width: 64ch;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 /* --- Details card --- */
 
 .card {
@@ -509,77 +489,11 @@
   margin-left: auto;
 }
 
-.saveButton,
-.discardButton {
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: var(--radius-control);
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.saveButton {
-  border: 1px solid var(--color-primary);
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-}
-
-.saveButton:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-}
-
+/* Modifier on the shared primary button. Save is disabled because the strategy is not
+   valid yet, not because a request is in flight, so it must not show a waiting cursor —
+   the issue count beside it is the way forward. */
 .saveButton:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.discardButton {
-  border: 1px solid var(--color-border-strong);
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-}
-
-/* --- Status surfaces --- */
-
-.statusPanel {
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  margin: 24px 0;
-  padding: 28px 24px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
-  background: var(--color-surface);
-}
-
-.statusTitle {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.statusBody {
-  margin: 0;
-  max-width: 52ch;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.skeleton {
-  height: 320px;
-  margin: 24px 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
-  background: linear-gradient(
-    100deg,
-    var(--color-surface) 40%,
-    var(--color-surface-soft) 50%,
-    var(--color-surface) 60%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 @keyframes shimmer {

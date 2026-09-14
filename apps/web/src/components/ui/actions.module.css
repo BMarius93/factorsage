@@ -1,0 +1,73 @@
+/* Row-level actions: the quiet text buttons that live inside a table row, a mobile card
+   or a detail header. Imported as classes the way `forms.module.css` already is, so a
+   feature reaches for them instead of restyling `Rename` / `Delete` for the fourth time. */
+
+.group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* In a desktop table row the actions stay on one line: wrapping them would make one
+   row twice the height of its neighbours and break the scan down the column. The table
+   gives the column the width it needs instead. */
+@media (min-width: 880px) {
+  .group {
+    flex-wrap: nowrap;
+  }
+}
+
+.action,
+.actionDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Comfortably tappable on a phone without making a desktop table row tall. */
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-text-body);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.actionDanger {
+  color: var(--color-negative);
+}
+
+.actionDanger:hover:not(:disabled) {
+  border-color: var(--color-negative);
+  background: var(--color-negative-soft);
+}
+
+.action:focus-visible,
+.actionDanger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.action:disabled,
+.actionDanger:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+@media (max-width: 879px) {
+  .action,
+  .actionDanger {
+    min-height: 38px;
+    padding: 0 14px;
+  }
+}

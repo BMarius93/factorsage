@@ -8,6 +8,16 @@ import Link from "next/link";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { deleteStrategy } from "../api/strategies-api";
 import { useStrategies } from "../hooks/use-strategies";
@@ -45,114 +55,155 @@ export function StrategiesPage() {
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
+  const columns: readonly DataTableColumn<StrategySummaryResponse>[] = [
+    {
+      key: "name",
+      header: "Name",
+      cardRole: "identity",
+      render: (strategy) => (
+        <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
+          <span className={styles.name}>{strategy.name}</span>
+          {strategy.description ? (
+            <span className={styles.description}>{strategy.description}</span>
+          ) : null}
+        </Link>
+      ),
+    },
+    {
+      key: "shape",
+      header: "Levels",
+      cardRole: "status",
+      render: (strategy) => (
+        <StatusBadge tone="neutral" variant="outline">
+          {strategyShapeLabel(strategy)}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: "version",
+      header: "Version",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (strategy) => `v${strategy.versionNumber}`,
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      nowrap: true,
+      render: (strategy) => formatStrategyDate(strategy.updatedAt),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      cardRole: "actions",
+      align: "right",
+      nowrap: true,
+      render: (strategy) => (
+        <span className={actionStyles.group}>
+          <button
+            type="button"
+            className={actionStyles.action}
+            onClick={() => setDialog({ kind: "rename", strategy })}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            className={actionStyles.actionDanger}
+            onClick={() => setDialog({ kind: "delete", strategy })}
+          >
+            Delete
+          </button>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <PageContainer>
       <div className={styles.page} data-testid="strategies-page">
-        <header className={styles.header}>
-          <div>
-            <h1 className={styles.title}>Strategies</h1>
-            <p className={styles.lead}>
-              Reusable buy, sell and final-exit logic for backtests and
-              monitors.
-            </p>
-          </div>
-          {status === "ready" && strategies.length > 0 ? (
-            <Link
-              className={styles.primaryLink}
-              href="/strategies/new"
-              data-testid="new-strategy-button"
-            >
-              New strategy
-            </Link>
-          ) : null}
-        </header>
+        <PageHeader
+          title="Strategies"
+          lead="Reusable buy, sell and final-exit logic for backtests and monitors."
+          actions={
+            status === "ready" && strategies.length > 0 ? (
+              <Link
+                className={forms.primaryButton}
+                href="/strategies/new"
+                data-testid="new-strategy-button"
+              >
+                New strategy
+              </Link>
+            ) : null
+          }
+        />
 
         {status === "loading" ? (
-          <div className={styles.grid} aria-hidden="true">
-            {[0, 1, 2].map((index) => (
-              <div key={index} className={styles.skeletonCard} />
-            ))}
-          </div>
+          <SectionCard ariaLabel="Loading strategies">
+            <SkeletonList rows={4} />
+          </SectionCard>
         ) : null}
 
         {status === "error" ? (
-          <div className={styles.statusPanel} role="alert">
-            <h2 className={styles.statusTitle}>
-              Your strategies could not be loaded
-            </h2>
-            <p className={styles.statusBody}>
-              This is usually temporary — try again in a moment.
-            </p>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              onClick={retry}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            variant="error"
+            title="Your strategies could not be loaded"
+            body={<p>This is usually temporary — try again in a moment.</p>}
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={retry}
+              >
+                Try again
+              </button>
+            }
+          />
         ) : null}
 
         {status === "ready" && strategies.length === 0 ? (
-          <div className={styles.statusPanel} data-testid="strategies-empty">
-            <h2 className={styles.statusTitle}>No strategies yet</h2>
-            <p className={styles.statusBody}>
-              A strategy is the reusable logic that decides when to buy and when
-              to sell — conditions such as <em>{EXAMPLE_CONDITION}</em>, and the
-              event that fires them.
-            </p>
-            <Link
-              className={styles.primaryLink}
-              href="/strategies/new"
-              data-testid="new-strategy-button"
-            >
-              Create your first strategy
-            </Link>
-          </div>
+          <EmptyState
+            testId="strategies-empty"
+            title="No strategies yet"
+            body={
+              <p>
+                A strategy is the reusable logic that decides when to buy and
+                when to sell — conditions such as <em>{EXAMPLE_CONDITION}</em>,
+                and the event that fires them.
+              </p>
+            }
+            actions={
+              <Link
+                className={forms.primaryButton}
+                href="/strategies/new"
+                data-testid="new-strategy-button"
+              >
+                Create your first strategy
+              </Link>
+            }
+          />
         ) : null}
 
         {status === "ready" && strategies.length > 0 ? (
-          <ul className={styles.grid} data-testid="strategies-grid">
-            {strategies.map((strategy) => (
-              <li key={strategy.id} className={styles.card}>
-                <Link
-                  className={styles.cardLink}
-                  href={`/strategies/${strategy.id}`}
-                >
-                  <span className={styles.cardName}>{strategy.name}</span>
-                  {strategy.description ? (
-                    <span className={styles.cardDescription}>
-                      {strategy.description}
-                    </span>
-                  ) : null}
-                  <span className={styles.cardMeta}>
-                    <span className={styles.cardShape}>
-                      {strategyShapeLabel(strategy)}
-                    </span>
-                    <span>
-                      Updated {formatStrategyDate(strategy.updatedAt)}
-                    </span>
-                  </span>
-                </Link>
-                <div className={styles.cardActions}>
-                  <button
-                    type="button"
-                    className={styles.cardAction}
-                    onClick={() => setDialog({ kind: "rename", strategy })}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.cardActionDanger}
-                    onClick={() => setDialog({ kind: "delete", strategy })}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <SectionCard
+            id="strategies"
+            title="Your strategies"
+            aside={`${strategies.length} ${
+              strategies.length === 1 ? "strategy" : "strategies"
+            }`}
+            flush
+          >
+            <DataTable
+              label="Strategies"
+              testId="strategies-grid"
+              rowTestId="strategy-row"
+              columns={columns}
+              rows={strategies}
+              getRowKey={(strategy) => strategy.id}
+              clickableRows
+            />
+          </SectionCard>
         ) : null}
       </div>
 

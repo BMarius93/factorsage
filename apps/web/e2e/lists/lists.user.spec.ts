@@ -14,7 +14,7 @@ const QA_SYMBOL_TWO = "QATEST2";
 function itemRow(page: Page, symbol: string) {
   return page
     .getByTestId("list-items")
-    .locator("li")
+    .locator("tbody tr")
     .filter({ hasText: symbol });
 }
 
@@ -48,7 +48,7 @@ async function deleteListIfPresent(page: Page, listName: string) {
 
     const card = page
       .getByTestId("lists-grid")
-      .locator("li")
+      .locator("tbody tr")
       .filter({ hasText: listName });
     if ((await card.count()) === 0) {
       return;

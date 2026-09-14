@@ -11,6 +11,18 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import {
+  DataTable,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { LinkedEntities } from "../../../components/ui/EntityReference";
+import { FactGrid } from "../../../components/ui/FactGrid";
+import { PageHeader } from "../../../components/ui/PageHeader";
+import { SectionCard } from "../../../components/ui/SectionCard";
+import { SkeletonList } from "../../../components/ui/Skeleton";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
@@ -19,8 +31,8 @@ import {
   activeSignalLabel,
   formatMonitorTimestamp,
   formatObservationPrice,
+  lastScanLabel,
   LEVEL_KIND_LABELS,
-  NEVER_CHECKED_LABEL,
   SECURITY_STATUS_LABELS,
   SECURITY_STATUS_TONES,
   SIGNAL_KIND_LABELS,
@@ -33,98 +45,33 @@ const SIGNAL_WINDOW = 100;
 
 type DialogState = { kind: "closed" } | { kind: "edit" } | { kind: "delete" };
 
-function SecurityRow({
-  entry,
+/** The BUY / SELL / FINAL EXIT tone, shared by the evaluation table and the Signal table. */
+const LEVEL_TONES = {
+  BUY: "positive",
+  SELL: "negative",
+  FINAL_EXIT: "warning",
+} as const;
+
+function LevelChip({
+  levelKind,
+  kind,
 }: {
-  readonly entry: MonitorSecurityEvaluationResponse;
+  readonly levelKind: MonitorSignalResponse["levelKind"];
+  readonly kind: MonitorSignalResponse["kind"];
 }) {
-  // A price exists only where an active Signal recorded the observation it was decided on. There is
-  // no stored price for a security that did not match, and inventing one would be fabrication.
-  const price = entry.matchedLevels[0]?.observationPrice;
   return (
-    <li className={styles.row} data-testid="monitor-security-row">
-      <div className={styles.rowIdentity}>
-        <Link
-          className={styles.symbol}
-          href={`/stocks/${encodeURIComponent(entry.security.symbol)}`}
-        >
-          {entry.security.symbol}
-        </Link>
-        <span className={styles.rowName}>{entry.security.name}</span>
-      </div>
-      <span
-        className={styles.statusPill}
-        data-tone={SECURITY_STATUS_TONES[entry.status]}
-        data-testid="monitor-security-status"
-      >
-        {SECURITY_STATUS_LABELS[entry.status]}
-      </span>
-      <div className={styles.rowLevels}>
-        {entry.matchedLevels.length === 0 ? (
-          <span className={styles.placeholder}>—</span>
-        ) : (
-          entry.matchedLevels.map((level) => (
-            <span
-              key={level.levelId}
-              className={styles.levelChip}
-              data-kind={level.levelKind}
-            >
-              {LEVEL_KIND_LABELS[level.levelKind]} ·{" "}
-              {SIGNAL_KIND_LABELS[level.kind]}
-            </span>
-          ))
-        )}
-      </div>
-      <span className={styles.rowPrice}>
-        {price === undefined ? (
-          <span className={styles.placeholder}>—</span>
-        ) : (
-          formatObservationPrice(price)
-        )}
-      </span>
-      <span className={styles.rowSince}>
-        {entry.statusSince === undefined ? (
-          <span className={styles.placeholder}>—</span>
-        ) : (
-          formatMonitorTimestamp(entry.statusSince)
-        )}
-      </span>
-    </li>
+    <StatusBadge
+      tone={LEVEL_TONES[levelKind]}
+      variant="outline"
+      dataAttributes={{ "data-kind": levelKind }}
+    >
+      {LEVEL_KIND_LABELS[levelKind]} · {SIGNAL_KIND_LABELS[kind]}
+    </StatusBadge>
   );
 }
 
-function SignalRow({ signal }: { readonly signal: MonitorSignalResponse }) {
-  return (
-    <li className={styles.row} data-testid="monitor-signal-row">
-      <div className={styles.rowIdentity}>
-        <Link
-          className={styles.symbol}
-          href={`/stocks/${encodeURIComponent(signal.security.symbol)}`}
-        >
-          {signal.security.symbol}
-        </Link>
-        <span className={styles.rowName}>{signal.security.name}</span>
-      </div>
-      <span className={styles.levelChip} data-kind={signal.levelKind}>
-        {LEVEL_KIND_LABELS[signal.levelKind]} ·{" "}
-        {SIGNAL_KIND_LABELS[signal.kind]}
-      </span>
-      <span className={styles.rowPrice}>
-        {formatObservationPrice(signal.observationPrice)}
-      </span>
-      <span className={styles.rowSince}>
-        {formatMonitorTimestamp(signal.detectedAt)}
-      </span>
-      <span
-        className={styles.statusPill}
-        data-tone={signal.resolvedAt === undefined ? "positive" : "pending"}
-      >
-        {signal.resolvedAt === undefined
-          ? "Active"
-          : `Ended ${formatMonitorTimestamp(signal.resolvedAt)}`}
-      </span>
-    </li>
-  );
+function Placeholder() {
+  return <span className={styles.placeholder}>—</span>;
 }
 
 /**
@@ -148,8 +95,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.skeleton} aria-hidden="true" />
-          <div className={styles.skeletonPanel} aria-hidden="true" />
+          <SectionCard ariaLabel="Loading monitor">
+            <SkeletonList rows={5} />
+          </SectionCard>
         </div>
       </PageContainer>
     );
@@ -159,15 +107,19 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.statusPanel} data-testid="monitor-missing">
-            <h1 className={styles.statusTitle}>This monitor no longer exists</h1>
-            <p className={styles.statusBody}>
-              It may have been deleted. Your other monitors are unaffected.
-            </p>
-            <Link className={styles.primaryLink} href="/monitors">
-              Back to monitors
-            </Link>
-          </div>
+          <EmptyState
+            as="h1"
+            testId="monitor-missing"
+            title="This monitor no longer exists"
+            body={
+              <p>It may have been deleted. Your other monitors are unaffected.</p>
+            }
+            actions={
+              <Link className={forms.secondaryButton} href="/monitors">
+                Back to monitors
+              </Link>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -177,21 +129,21 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     return (
       <PageContainer>
         <div className={styles.page}>
-          <div className={styles.statusPanel} role="alert">
-            <h1 className={styles.statusTitle}>
-              This monitor could not be loaded
-            </h1>
-            <p className={styles.statusBody}>
-              This is usually temporary — try again in a moment.
-            </p>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              onClick={reload}
-            >
-              Try again
-            </button>
-          </div>
+          <EmptyState
+            as="h1"
+            variant="error"
+            title="This monitor could not be loaded"
+            body={<p>This is usually temporary — try again in a moment.</p>}
+            actions={
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={reload}
+              >
+                Try again
+              </button>
+            }
+          />
         </div>
       </PageContainer>
     );
@@ -219,60 +171,186 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
 
   const signalsAtWindow = view.signals.length >= SIGNAL_WINDOW;
 
+  const securityColumns: readonly DataTableColumn<MonitorSecurityEvaluationResponse>[] =
+    [
+      {
+        key: "stock",
+        header: "Stock",
+        cardRole: "identity",
+        render: (entry) => (
+          <StockIdentity
+            symbol={entry.security.symbol}
+            name={entry.security.name}
+            href={`/stocks/${encodeURIComponent(entry.security.symbol)}`}
+          />
+        ),
+      },
+      {
+        key: "status",
+        header: "Status",
+        cardRole: "status",
+        nowrap: true,
+        render: (entry) => (
+          <StatusBadge
+            tone={SECURITY_STATUS_TONES[entry.status]}
+            testId="monitor-security-status"
+          >
+            {SECURITY_STATUS_LABELS[entry.status]}
+          </StatusBadge>
+        ),
+      },
+      {
+        key: "levels",
+        header: "Signal",
+        nowrap: true,
+        render: (entry) =>
+          entry.matchedLevels.length === 0 ? (
+            <Placeholder />
+          ) : (
+            <span className={styles.levels}>
+              {entry.matchedLevels.map((level) => (
+                <LevelChip
+                  key={level.levelId}
+                  levelKind={level.levelKind}
+                  kind={level.kind}
+                />
+              ))}
+            </span>
+          ),
+      },
+      {
+        key: "price",
+        header: "Price",
+        align: "right",
+        numeric: true,
+        nowrap: true,
+        render: (entry) => {
+          // A price exists only where an active Signal recorded the observation it was decided
+          // on. There is no stored price for a security that did not match, and inventing one
+          // would be fabrication.
+          const price = entry.matchedLevels[0]?.observationPrice;
+          return price === undefined ? (
+            <Placeholder />
+          ) : (
+            formatObservationPrice(price)
+          );
+        },
+      },
+      {
+        key: "since",
+        header: "Status since",
+        nowrap: true,
+        render: (entry) =>
+          entry.statusSince === undefined ? (
+            <Placeholder />
+          ) : (
+            formatMonitorTimestamp(entry.statusSince)
+          ),
+      },
+    ];
+
+  const signalColumns: readonly DataTableColumn<MonitorSignalResponse>[] = [
+    {
+      key: "stock",
+      header: "Stock",
+      cardRole: "identity",
+      render: (signal) => (
+        <StockIdentity
+          symbol={signal.security.symbol}
+          name={signal.security.name}
+          href={`/stocks/${encodeURIComponent(signal.security.symbol)}`}
+        />
+      ),
+    },
+    {
+      key: "state",
+      header: "State",
+      cardRole: "status",
+      nowrap: true,
+      render: (signal) => (
+        <StatusBadge
+          tone={signal.resolvedAt === undefined ? "positive" : "pending"}
+        >
+          {signal.resolvedAt === undefined
+            ? "Active"
+            : `Ended ${formatMonitorTimestamp(signal.resolvedAt)}`}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: "level",
+      header: "Level",
+      nowrap: true,
+      render: (signal) => (
+        <LevelChip levelKind={signal.levelKind} kind={signal.kind} />
+      ),
+    },
+    {
+      key: "price",
+      header: "Price",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (signal) => formatObservationPrice(signal.observationPrice),
+    },
+    {
+      key: "detected",
+      header: "Detected",
+      nowrap: true,
+      render: (signal) => formatMonitorTimestamp(signal.detectedAt),
+    },
+  ];
+
   return (
     <PageContainer>
       <div className={styles.page} data-testid="monitor-detail">
-        <div className={styles.breadcrumb}>
-          <Link className={styles.backLink} href="/monitors">
-            ← Monitors
-          </Link>
-        </div>
-
-        <header className={styles.header}>
-          <div className={styles.headerText}>
-            <h1 className={styles.title}>{view.name}</h1>
-            <span
-              className={styles.statusPill}
-              data-tone={view.enabled ? "positive" : "pending"}
-              data-testid="monitor-enabled-pill"
+        <PageHeader
+          back={{ href: "/monitors", label: "Monitors" }}
+          title={view.name}
+          badges={
+            <StatusBadge
+              tone={view.enabled ? "positive" : "pending"}
+              testId="monitor-enabled-pill"
             >
               {view.enabled ? "Enabled" : "Disabled"}
-            </span>
-          </div>
-          <div className={styles.actions}>
-            <button
-              type="button"
-              className={forms.primaryButton}
-              data-testid="edit-monitor"
-              onClick={() => setDialog({ kind: "edit" })}
-            >
-              Edit monitor
-            </button>
-            <button
-              type="button"
-              className={forms.secondaryButton}
-              data-testid="toggle-monitor"
-              disabled={togglePending}
-              onClick={toggle}
-            >
-              {view.enabled
-                ? togglePending
-                  ? "Disabling…"
-                  : "Disable"
-                : togglePending
-                  ? "Enabling…"
-                  : "Enable"}
-            </button>
-            <button
-              type="button"
-              className={forms.dangerButton}
-              data-testid="delete-monitor"
-              onClick={() => setDialog({ kind: "delete" })}
-            >
-              Delete
-            </button>
-          </div>
-        </header>
+            </StatusBadge>
+          }
+          actions={
+            <>
+              <button
+                type="button"
+                className={forms.primaryButton}
+                data-testid="edit-monitor"
+                onClick={() => setDialog({ kind: "edit" })}
+              >
+                Edit monitor
+              </button>
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                data-testid="toggle-monitor"
+                disabled={togglePending}
+                onClick={toggle}
+              >
+                {view.enabled
+                  ? togglePending
+                    ? "Disabling…"
+                    : "Disable"
+                  : togglePending
+                    ? "Enabling…"
+                    : "Enable"}
+              </button>
+              <button
+                type="button"
+                className={forms.dangerButton}
+                data-testid="delete-monitor"
+                onClick={() => setDialog({ kind: "delete" })}
+              >
+                Delete
+              </button>
+            </>
+          }
+        />
 
         {toggleFailed ? (
           <p className={forms.error} role="alert">
@@ -281,122 +359,118 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           </p>
         ) : null}
 
-        <section className={styles.factsCard} aria-label="Monitor configuration">
-          <dl className={styles.facts}>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Strategy</dt>
-              <dd className={styles.factValue}>
-                <Link
-                  className={styles.factLink}
-                  href={`/strategies/${view.strategyId}`}
-                >
-                  {view.strategyName}
-                </Link>
-              </dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Stock list</dt>
-              <dd className={styles.factValue}>
-                <Link
-                  className={styles.factLink}
-                  href={`/lists/${view.stockListId}`}
-                >
-                  {view.stockListName}
-                </Link>
-              </dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Stocks</dt>
-              <dd className={styles.factValue}>
-                {stockCountLabel(view.securityCount)}
-              </dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Active signals</dt>
-              <dd className={styles.factValue}>
-                {activeSignalLabel(view.activeSignalCount)}
-              </dd>
-            </div>
-            <div className={styles.fact}>
-              <dt className={styles.factLabel}>Last checked</dt>
-              <dd className={styles.factValue} data-testid="monitor-last-checked">
-                {view.lastScanAt === undefined
-                  ? NEVER_CHECKED_LABEL
-                  : formatMonitorTimestamp(view.lastScanAt)}
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        <section className={styles.card} aria-labelledby="monitored-stocks-title">
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle} id="monitored-stocks-title">
-              Monitored stocks
-            </h2>
-            <span className={styles.count}>{view.securities.length}</span>
+        <SectionCard
+          id="monitor-configuration"
+          title="Configuration"
+          caption="A monitor is one strategy, watched over one stock list, against current market data."
+        >
+          <div className={styles.configuration}>
+            {/* The two references are what a Monitor *is*; the counts below are what it has
+                done so far. Keeping them apart is what makes the model readable. */}
+            <LinkedEntities
+              entities={[
+                {
+                  label: "Strategy",
+                  kind: "strategy",
+                  name: view.strategyName,
+                  href: `/strategies/${view.strategyId}`,
+                },
+                {
+                  label: "Stock list",
+                  kind: "list",
+                  name: view.stockListName,
+                  href: `/lists/${view.stockListId}`,
+                },
+              ]}
+            />
+            <FactGrid
+              facts={[
+                { label: "Stocks", value: stockCountLabel(view.securityCount) },
+                {
+                  label: "Active signals",
+                  value: activeSignalLabel(view.activeSignalCount),
+                },
+                {
+                  label: "Last checked",
+                  value: lastScanLabel(view.lastScanAt),
+                  testId: "monitor-last-checked",
+                },
+              ]}
+            />
           </div>
-          {view.securities.length === 0 ? (
-            <p className={styles.empty} data-testid="monitor-securities-empty">
-              This monitor&apos;s stock list has no stocks yet. Add some to{" "}
-              <Link className={styles.inlineLink} href={`/lists/${view.stockListId}`}>
-                {view.stockListName}
-              </Link>{" "}
-              and the next scan will evaluate them.
-            </p>
-          ) : (
-            <>
-              <div className={styles.rowHeader} aria-hidden="true">
-                <span>Stock</span>
-                <span>Status</span>
-                <span>Signal</span>
-                <span>Price</span>
-                <span>Status since</span>
-              </div>
-              <ul className={styles.list} data-testid="monitor-securities">
-                {view.securities.map((entry) => (
-                  <SecurityRow key={entry.security.id} entry={entry} />
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
+        </SectionCard>
 
-        <section className={styles.card} aria-labelledby="recent-signals-title">
-          <div className={styles.cardHead}>
-            <h2 className={styles.cardTitle} id="recent-signals-title">
-              Recent signals
-            </h2>
-            <span className={styles.count}>{view.signals.length}</span>
-          </div>
-          {view.signals.length === 0 ? (
-            <p className={styles.empty} data-testid="monitor-signals-empty">
-              No signals yet. One is recorded the moment a stock in this list
-              matches a level of the strategy.
+        <SectionCard
+          id="monitored-stocks"
+          title="Monitored stocks"
+          aside={`${view.securities.length}`}
+          flush={view.securities.length > 0}
+        >
+          <DataTable
+            label="Monitored stocks"
+            testId="monitor-securities"
+            rowTestId="monitor-security-row"
+            columns={securityColumns}
+            rows={view.securities}
+            getRowKey={(entry) => entry.security.id}
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="monitor-securities-empty"
+                title="No stocks to evaluate"
+                body={
+                  <p>
+                    This monitor&apos;s stock list has no stocks yet. Add some
+                    to{" "}
+                    <Link
+                      className={styles.inlineLink}
+                      href={`/lists/${view.stockListId}`}
+                    >
+                      {view.stockListName}
+                    </Link>{" "}
+                    and the next scan will evaluate them.
+                  </p>
+                }
+              />
+            }
+          />
+        </SectionCard>
+
+        <SectionCard
+          id="recent-signals"
+          title="Recent signals"
+          aside={`${view.signals.length}`}
+          flush={view.signals.length > 0}
+        >
+          <DataTable
+            label="Recent signals"
+            testId="monitor-signals"
+            rowTestId="monitor-signal-row"
+            columns={signalColumns}
+            rows={view.signals}
+            getRowKey={(signal) => signal.id}
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="monitor-signals-empty"
+                title="No signals yet"
+                body={
+                  <p>
+                    One is recorded the moment a stock in this list matches a
+                    level of the strategy.
+                  </p>
+                }
+              />
+            }
+          />
+          {/* Honest about the window: the API returns the newest rows, not the lifetime. */}
+          {signalsAtWindow ? (
+            <p className={styles.note} data-testid="monitor-signals-window">
+              Showing the {SIGNAL_WINDOW} most recent signals. Older ones are
+              kept but are not listed here yet.
             </p>
-          ) : (
-            <>
-              <div className={styles.rowHeader} aria-hidden="true">
-                <span>Stock</span>
-                <span>Level</span>
-                <span>Price</span>
-                <span>Detected</span>
-                <span>State</span>
-              </div>
-              <ul className={styles.list} data-testid="monitor-signals">
-                {view.signals.map((signal) => (
-                  <SignalRow key={signal.id} signal={signal} />
-                ))}
-              </ul>
-              {/* Honest about the window: the API returns the newest rows, not the lifetime. */}
-              {signalsAtWindow ? (
-                <p className={styles.note} data-testid="monitor-signals-window">
-                  Showing the {SIGNAL_WINDOW} most recent signals. Older ones are
-                  kept but are not listed here yet.
-                </p>
-              ) : null}
-            </>
-          )}
-        </section>
+          ) : null}
+        </SectionCard>
       </div>
 
       {dialog.kind === "edit" ? (
