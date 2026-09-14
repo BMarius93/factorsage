@@ -33,6 +33,7 @@ Current callers:
 - `apps/api/src/billing/billing.integration.test.ts`
 - `apps/api/src/entitlements/entitlements.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
+- `apps/api/src/recent-searches/recent-searches.integration.test.ts`
 - `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
 - `apps/api/src/qa-matrix/matrix-cleanup.integration.test.ts`
 - `apps/api/src/strategies/strategies.integration.test.ts`

@@ -11,6 +11,19 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
+/**
+ * The recent set is provider state in the real application; the dropdown only reads it, so the
+ * suite drives it directly rather than standing up a session and a provider for every case.
+ */
+let recentSecurities: StockSearchResultResponse[] = [];
+
+vi.mock("../../recent/hooks/use-recent-securities", () => ({
+  useRecentSecurities: () => ({
+    securities: recentSecurities,
+    record: vi.fn(),
+  }),
+}));
+
 function result(
   symbol: string,
   name: string,
@@ -54,6 +67,7 @@ async function typeQuery(
 
 beforeEach(() => {
   push.mockReset();
+  recentSecurities = [];
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
@@ -351,6 +365,142 @@ describe("StockSearch with an unsaved page", () => {
     await user.click(screen.getByRole("option", { name: /AAPL/ }));
 
     expect(confirm).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/stocks/AAPL");
+  });
+});
+
+/**
+ * RECENT SEARCHES is a second shortcut section above POPULAR SEARCHES. It is a reading surface
+ * only: the dropdown never records anything, because what a user typed is not what the feature
+ * remembers — `useRecordSecurityView` on the Stock Details page is.
+ */
+describe("StockSearch recent searches", () => {
+  const AAPL = result("AAPL", "Apple");
+  const NVDA = result("NVDA", "NVIDIA");
+  const MSFT = result("MSFT", "Microsoft");
+
+  function sectionLabels(): string[] {
+    return screen
+      .getAllByText(/Recent Searches|Popular Searches|Results/)
+      .map((element) => element.textContent ?? "");
+  }
+
+  it("shows recents above the popular searches when the query is empty", async () => {
+    recentSecurities = [AAPL, NVDA, MSFT];
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    // Recent rows carry the same ticker/company treatment as the popular rows below them, with no
+    // exchange badge and no extra controls.
+    expect(optionTexts()).toEqual([
+      "AAPLApple",
+      "NVDANVIDIA",
+      "MSFTMicrosoft",
+      "AMZNAmazon",
+      "GOOGLAlphabet",
+      "METAMeta Platforms",
+    ]);
+  });
+
+  it("omits the recent heading entirely when there is nothing to show", async () => {
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    expect(screen.queryByText("Recent Searches")).toBeNull();
+    expect(sectionLabels()).toEqual(["Popular Searches"]);
+  });
+
+  it("never repeats a stock that is already in the recent section", async () => {
+    recentSecurities = [AAPL, NVDA];
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    const symbols = optionTexts();
+    expect(symbols.filter((text) => text.startsWith("AAPL"))).toHaveLength(1);
+    expect(symbols.filter((text) => text.startsWith("NVDA"))).toHaveLength(1);
+    // The popular section backfills rather than shrinking.
+    expect(symbols.slice(2)).toEqual([
+      "MSFTMicrosoft",
+      "AMZNAmazon",
+      "GOOGLAlphabet",
+    ]);
+  });
+
+  it("shows at most five recents", async () => {
+    recentSecurities = ["A", "B", "C", "D", "E"].map((symbol) =>
+      result(symbol, `Company ${symbol}`),
+    );
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    expect(optionTexts().slice(0, 5)).toEqual([
+      "ACompany A",
+      "BCompany B",
+      "CCompany C",
+      "DCompany D",
+      "ECompany E",
+    ]);
+    expect(screen.getByText("Popular Searches")).toBeDefined();
+  });
+
+  it("hides both shortcut sections while a query is being typed, and restores them when it is cleared", async () => {
+    recentSecurities = [AAPL];
+    respondWith([result("MSFT", "Microsoft Corporation")]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await typeQuery(user, "micro");
+    await vi.advanceTimersByTimeAsync(300);
+
+    await waitFor(() =>
+      expect(optionTexts()).toEqual(["MSFTMicrosoft CorporationNASDAQ"]),
+    );
+    expect(screen.queryByText("Recent Searches")).toBeNull();
+    expect(screen.queryByText("Popular Searches")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+
+    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    expect(optionTexts()[0]).toBe("AAPLApple");
+  });
+
+  it("navigates from a recent row exactly like any other stock row", async () => {
+    recentSecurities = [NVDA];
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+    await user.click(screen.getByRole("option", { name: /NVDA/ }));
+
+    expect(push).toHaveBeenCalledWith("/stocks/NVDA");
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("keeps arrow-key navigation running across both sections", async () => {
+    recentSecurities = [NVDA];
+    respondWith();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    // First option is the single recent; the second is the first popular shortcut below it.
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+
     expect(push).toHaveBeenCalledWith("/stocks/AAPL");
   });
 });

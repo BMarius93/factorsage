@@ -15,8 +15,16 @@ import {
   fetchIntrinsicValueHistory,
   fetchStockDetails,
 } from "../api/stock-details-api";
+import type { AuthState } from "../../../auth/hooks/use-auth-session";
+import { RecentSecuritiesProvider } from "../../recent/hooks/use-recent-securities";
 import type { StockPriceChartProps } from "./StockPriceChart";
 import { StockDetails } from "./StockDetails";
+
+let authState: AuthState = { status: "loading" };
+
+vi.mock("../../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: () => ({ state: authState, signOut: vi.fn() }),
+}));
 
 vi.mock("../api/stock-details-api", () => ({
   fetchStockDetails: vi.fn(),
@@ -1047,5 +1055,96 @@ describe("StockDetails", () => {
     expect(chart().dataset.overlays).toBe("");
     expect(screen.queryByText("Sector")).toBeNull();
     expect(screen.getAllByText("NYSE").length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Stock Details is where a "recent search" is actually recorded, and it is the only place.
+ *
+ * That is what makes the feature mean *recently viewed*: reaching this page from a list, a monitor,
+ * a backtest or a pasted URL records the stock exactly like reaching it from the search box, and
+ * typing into search records nothing at all.
+ */
+describe("StockDetails recording a recently viewed security", () => {
+  function renderInShell(symbol: string) {
+    return render(
+      <RecentSecuritiesProvider>
+        <StockDetails symbol={symbol} />
+      </RecentSecuritiesProvider>,
+    );
+  }
+
+  /** Every `/recent-searches` call this render made, in order. */
+  function recentCalls(fetchMock: ReturnType<typeof vi.fn>) {
+    return fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/recent-searches"),
+    );
+  }
+
+  beforeEach(() => {
+    authState = {
+      status: "authenticated",
+      user: { id: "u1", email: "u@example.test", role: "USER", plan: "PRO" },
+    };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("records the canonical security id once the page resolves, whatever route led here", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderInShell("AAPL");
+    await screen.findByRole("heading", { level: 1, name: /AAPL/ });
+
+    await waitFor(() => {
+      const posts = recentCalls(fetchMock).filter(
+        (call) => (call[1] as RequestInit | undefined)?.method === "POST",
+      );
+      expect(posts).toHaveLength(1);
+      expect(JSON.parse(String((posts[0]?.[1] as RequestInit).body))).toEqual({
+        securityId: "sec-1",
+      });
+    });
+  });
+
+  it("records nothing for a symbol that is not in the catalog", async () => {
+    fetchStockDetailsMock.mockRejectedValue(new ApiError(404, "Not found"));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 204, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderInShell("NOPE");
+    await screen.findByText(/is not in the supported stock catalog/);
+
+    expect(
+      recentCalls(fetchMock).filter(
+        (call) => (call[1] as RequestInit | undefined)?.method === "POST",
+      ),
+    ).toHaveLength(0);
+  });
+
+  /** A failed write is invisible: the page it was triggered by must be completely unaffected. */
+  it("renders the whole page normally when recording fails", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+    const fetchMock = vi.fn().mockRejectedValue(new Error("network down"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderInShell("AAPL");
+
+    const heading = await screen.findByRole("heading", {
+      level: 1,
+      name: /AAPL/,
+    });
+    expect(heading.textContent).toContain("Apple Inc.");
+    expect(screen.getByText("$232.00")).toBeDefined();
+    await waitFor(() => expect(recentCalls(fetchMock).length).toBeGreaterThan(0));
+    expect(screen.getByTestId("price-chart")).toBeDefined();
   });
 });

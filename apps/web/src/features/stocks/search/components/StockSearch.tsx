@@ -1,10 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { canNavigate } from "../../../../components/layout/unsaved-changes";
+import { useRecentSecurities } from "../../recent/hooks/use-recent-securities";
 import { useStockSearch } from "../hooks/use-stock-search";
-import { POPULAR_STOCK_SEARCHES } from "../utils/popular-stocks";
+import { popularStockSearches } from "../utils/popular-stocks";
 import { stockDetailsHref } from "../utils/stock-routes";
 import { ClearIcon, SearchIcon } from "./search-icons";
 import { StockIdentity } from "../../../../components/ui/StockIdentity";
@@ -16,13 +25,20 @@ type SearchOption = {
   readonly exchange?: string;
 };
 
+/** One labelled run of options inside the single listbox. */
+type SearchSection = {
+  readonly key: string;
+  readonly label: string;
+  readonly options: readonly SearchOption[];
+};
+
 /**
  * Global stock search for the application topbar.
  *
- * A combobox over one of two option sets: static popular shortcuts while the query is blank, and
- * debounced results from the persisted securities universe once it is not. Both sets share the
- * same row shape and the same selection paths (mouse, touch, keyboard) so switching between them
- * is not a mode change for the user.
+ * A combobox over one of two option sets: shortcuts while the query is blank — the stocks this
+ * user viewed most recently, then the popular ones — and debounced results from the persisted
+ * securities universe once it is not. Every set shares the same row shape and the same selection
+ * paths (mouse, touch, keyboard) so switching between them is not a mode change for the user.
  */
 export function StockSearch() {
   const router = useRouter();
@@ -36,14 +52,50 @@ export function StockSearch() {
   const labelId = `${useId()}-label`;
 
   const { status, results, retry } = useStockSearch(query);
-  const showingPopular = query.trim() === "";
-  const options: readonly SearchOption[] = showingPopular
-    ? POPULAR_STOCK_SEARCHES
-    : results.map((result) => ({
-        symbol: result.symbol,
-        name: result.name,
-        exchange: result.exchangeName ?? result.exchangeCode,
-      }));
+  const { securities: recent } = useRecentSecurities();
+  const showingShortcuts = query.trim() === "";
+
+  const sections: readonly SearchSection[] = useMemo(() => {
+    if (!showingShortcuts) {
+      return [
+        {
+          key: "results",
+          label: "Results",
+          options: results.map((result) => ({
+            symbol: result.symbol,
+            name: result.name,
+            exchange: result.exchangeName ?? result.exchangeCode,
+          })),
+        },
+      ];
+    }
+    // Recents render exactly like the popular shortcuts they sit above — ticker and company name,
+    // no exchange badge — so the only difference between the two sections is the heading.
+    const recentOptions = recent.map((security) => ({
+      symbol: security.symbol,
+      name: security.name,
+    }));
+    const popular = popularStockSearches(
+      recentOptions.map((option) => option.symbol),
+    );
+    return [
+      // An empty recent set contributes no section at all, so a user with no history sees exactly
+      // the dropdown that existed before this feature.
+      ...(recentOptions.length > 0
+        ? [{ key: "recent", label: "Recent Searches", options: recentOptions }]
+        : []),
+      ...(popular.length > 0
+        ? [{ key: "popular", label: "Popular Searches", options: popular }]
+        : []),
+    ];
+  }, [showingShortcuts, results, recent]);
+
+  // Keyboard navigation and `aria-activedescendant` address one flat sequence; the headings are
+  // presentation and never land on the highlight.
+  const options = useMemo(
+    () => sections.flatMap((section) => section.options),
+    [sections],
+  );
 
   // The option list changes underneath the highlight as results arrive, so a stale index must not
   // point past the end of the current list.
@@ -131,7 +183,7 @@ export function StockSearch() {
   };
 
   const statusMessage = (() => {
-    if (showingPopular) {
+    if (showingShortcuts) {
       return null;
     }
     if (status === "error") {
@@ -145,6 +197,16 @@ export function StockSearch() {
     }
     return null;
   })();
+
+  // Where each section starts in the flat option sequence, so a row's id and highlight state can be
+  // derived without threading a mutable counter through the render.
+  const sectionOffsets = sections.reduce<number[]>(
+    (offsets, section) => {
+      const previous = offsets[offsets.length - 1] ?? 0;
+      return [...offsets, previous + section.options.length];
+    },
+    [0],
+  );
 
   return (
     <div className={styles.search} data-expanded={expanded} ref={containerRef}>
@@ -217,7 +279,7 @@ export function StockSearch() {
         >
           <div className={styles.panelHeader}>
             <span className={styles.groupLabel} id={labelId}>
-              {showingPopular ? "Popular Searches" : "Results"}
+              {sections[0]?.label ?? "Results"}
             </span>
             {status === "loading" ? (
               <span className={styles.loading} aria-hidden="true" />
@@ -230,28 +292,42 @@ export function StockSearch() {
             role="listbox"
             aria-labelledby={labelId}
           >
-            {options.map((option, index) => (
-              <li
-                key={option.symbol}
-                id={`${listboxId}-option-${index}`}
-                className={styles.option}
-                role="option"
-                aria-selected={index === highlighted}
-                data-highlighted={index === highlighted}
-                onClick={() => select(option)}
-              >
-                {/* The shared identity treatment, so a stock looks the same here as it
-                    does in a list, a monitor or a trade log. The catalog's search
-                    projection carries no logo, so this renders the ticker monogram. */}
-                <StockIdentity
-                  symbol={option.symbol}
-                  name={option.name}
-                  size="sm"
-                />
-                {option.exchange ? (
-                  <span className={styles.exchange}>{option.exchange}</span>
+            {sections.map((section, sectionIndex) => (
+              <Fragment key={section.key}>
+                {sectionIndex > 0 ? (
+                  <li className={styles.sectionHeader} role="presentation">
+                    <span className={styles.groupLabel}>{section.label}</span>
+                  </li>
                 ) : null}
-              </li>
+                {section.options.map((option, position) => {
+                  const index = (sectionOffsets[sectionIndex] ?? 0) + position;
+                  return (
+                    <li
+                      key={option.symbol}
+                      id={`${listboxId}-option-${index}`}
+                      className={styles.option}
+                      role="option"
+                      aria-selected={index === highlighted}
+                      data-highlighted={index === highlighted}
+                      onClick={() => select(option)}
+                    >
+                      {/* The shared identity treatment, so a stock looks the same here as it
+                          does in a list, a monitor or a trade log. The catalog's search
+                          projection carries no logo, so this renders the ticker monogram. */}
+                      <StockIdentity
+                        symbol={option.symbol}
+                        name={option.name}
+                        size="sm"
+                      />
+                      {option.exchange ? (
+                        <span className={styles.exchange}>
+                          {option.exchange}
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </Fragment>
             ))}
           </ul>
 
