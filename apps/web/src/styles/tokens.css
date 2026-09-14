@@ -1,60 +1,157 @@
+/* The FactorSage design tokens: the constants that make up the product's shared visual
+ * language, in one place so a screen cannot quietly invent a second version of one.
+ *
+ * What belongs here: the semantic palette, the radius and elevation scales, the type scale
+ * and emphasis weight, the standard control heights, and the page spacing and width system.
+ * A feature stylesheet asks for those by name and never restates their values.
+ *
+ * What does not: geometry that is genuinely local to one component — the gap between its
+ * own parts, a grid template, a chart's height, the radius of a small ornament it draws.
+ * Those are implementation detail, not design language, and forcing them through a token
+ * would grow this file without making anything more consistent.
+ *
+ * One rule here is absolute: a hex colour lives only in this file. Every other value is
+ * governed by the distinction above — see `ai/architecture/ui-system.md`.
+ *
+ * The values are calibrated against the deployed V1 product — see
+ * `ai/architecture/v1-visual-parity.md` for the measured reference and what V2 keeps,
+ * improves or deliberately declines to reproduce.
+ */
+
 :root {
+  /* ── Canvas and surfaces ────────────────────────────────────────────────── */
   --color-background: #fcfcfc;
   --color-surface: #ffffff;
   --color-background-translucent: rgb(252 252 252 / 0.94);
-  --color-surface-muted: #fbfcff;
-  --color-surface-soft: #f7faff;
+  /* Quiet fills for nested wells and empty panels. Kept close to neutral: a blue-tinted
+     surface at this frequency is what made every panel read as branded rather than as
+     paper. */
+  --color-surface-muted: #fbfcfd;
+  --color-surface-soft: #f7f8fb;
+  /* The resting fill of a selected row, option or segmented control. Deliberately the
+     brand tint, because selection is the one quiet state that must read as chosen. */
+  --color-surface-selected: #eef3ff;
 
+  /* ── Text ───────────────────────────────────────────────────────────────── */
   --color-text-primary: #222222;
   --color-text-body: #404040;
   --color-text-secondary: #667085;
   --color-text-muted: #7a7f8c;
+  --color-text-on-primary: #ffffff;
 
+  /* ── Borders ────────────────────────────────────────────────────────────── */
   --color-border: #e6eaf5;
-  --color-border-strong: #d5deff;
+  /* Fences a control at rest — inputs, quiet buttons, menus. Neutral rather than
+     lavender so a field reads as a well and not as a branded element. */
+  --color-border-strong: #dce0ec;
   /* Row dividers inside a surface: lighter than the surface's own border so a dense
      table reads as one block rather than a stack of boxes. */
   --color-border-subtle: #f0f3fa;
 
+  /* ── Brand ──────────────────────────────────────────────────────────────── */
   --color-primary: #4882ff;
   --color-primary-hover: #3b73e6;
+  /* The brand blue as *ink* on a tint. This is the FactorSage action treatment: a
+     tinted button with deep blue text, rather than a slab of saturated colour. */
+  --color-primary-ink: #3b5ccc;
   --color-primary-soft: #eef3ff;
+  --color-primary-soft-hover: #e2eaff;
   --color-primary-border: #c8d9ff;
-  --color-text-on-primary: #ffffff;
 
+  /* ── Financial and operational state ────────────────────────────────────── */
   --color-positive: #1e9e78;
   --color-positive-soft: #ecfdf3;
   --color-positive-border: #cfe8d5;
   --color-negative: #d1435b;
   --color-negative-soft: #fff1f2;
+  --color-negative-hover: #bd3b51;
   --color-warning: #c26a18;
   --color-warning-soft: #fff7ed;
 
-  /* Interaction feedback shared by table rows, option lists and menu items. */
+  /* ── Interaction ────────────────────────────────────────────────────────── */
   --color-row-hover: #f5f8ff;
   --focus-ring: 0 0 0 3px rgb(72 130 255 / 0.24);
+  --focus-ring-inset: 0 0 0 3px rgb(72 130 255 / 0.14);
 
-  --radius-control: 12px;
-  --radius-chip: 10px;
-  --radius-surface: 16px;
-  --radius-card: 28px;
-  --radius-pill: 999px;
-
-  --shadow-card: 0 18px 48px rgb(72 130 255 / 0.08);
-  --shadow-header: 0 10px 24px rgb(68 57 52 / 0.06);
-
-  /* Label typography shared by table headers, fact labels and section eyebrows. */
+  /* ── Typography ─────────────────────────────────────────────────────────── */
+  /* Geist is a V2 decision, not something inherited from V1 — V1 renders in the OS UI
+     face. It is kept because it renders identically on every platform. */
+  --text-page-title: 17px;
+  --text-page-title-hero: 24px;
+  --text-section-title: 17px;
+  --text-body: 14px;
+  --text-secondary: 13px;
+  --text-small: 12px;
   --text-label-size: 11px;
   --text-label-tracking: 0.08em;
+  /* One emphasis weight for the product. V1 never uses 700; reserving it keeps labels
+     from competing with the values beside them. */
+  --weight-emphasis: 600;
+  --line-height-body: 1.5;
+  --line-height-tight: 1.2;
 
+  /* ── Geometry ───────────────────────────────────────────────────────────── */
+  /* Menus, chart frames and small nested marks. */
+  --radius-sm: 8px;
+  /* Controls, buttons, inputs and nested panels. */
+  --radius-md: 12px;
+  /* Page-level surfaces and dialogs. */
+  --radius-lg: 16px;
+  /* Reserved for a true outcome hero. Exactly one surface in the product wears this. */
+  --radius-hero: 28px;
+  --radius-pill: 999px;
+
+  /* ── Elevation ──────────────────────────────────────────────────────────── */
+  /* Ordinary surfaces are flat: separation comes from a hairline border on a near-white
+     canvas, which is what keeps the product reading as a tool. */
+  --shadow-surface: none;
+  --shadow-hero: 0 18px 48px rgb(72 130 255 / 0.08);
+  /* Overlays genuinely float above the page and are the one place elevation is real. */
+  --shadow-menu: 0 8px 24px rgb(26 32 48 / 0.12);
+  --shadow-dialog: 0 24px 64px rgb(26 32 48 / 0.18);
+
+  /* ── Spacing ────────────────────────────────────────────────────────────── */
+  /* Three steps, matching V1: comfortable on a phone, generous on a wide desktop. */
   --page-pad-mobile: 16px;
-  --page-pad-tablet: 24px;
-  --page-pad-desktop: 32px;
+  --page-pad-tablet: 32px;
   --page-pad-wide: 40px;
+  /* Between the page header and each section below it. */
+  --section-gap: 24px;
+  /* The internal padding of a page-level surface. */
+  --card-pad: 12px;
+  /* What a flush surface publishes so a table's first and last cells line up with its
+     heading. Set from --card-pad by SectionCard; the fallback is for a bare table. */
+  --surface-inset: var(--card-pad);
 
+  /* ── Control sizing ─────────────────────────────────────────────────────── */
+  --control-height: 44px;
+  --control-height-compact: 38px;
+  --button-height: 44px;
+  --action-height: 38px;
+
+  /* ── Width ──────────────────────────────────────────────────────────────── */
+  /* Data surfaces use the screen. A financial table compressed to a reading column is
+     the difference between a tool and a document. */
+  --content-max-width: 1600px;
+  /* Forms and prose keep a readability cap. */
+  --reading-max-width: 820px;
+
+  /* ── Shell ──────────────────────────────────────────────────────────────── */
   --topbar-height: 56px;
   --topbar-height-wide: 64px;
   --bottom-nav-height: 60px;
-  --content-max-width: 1280px;
   --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (min-width: 880px) {
+  :root {
+    --text-page-title: 20px;
+    --text-page-title-hero: 28px;
+    --section-gap: 32px;
+    --card-pad: 24px;
+    /* A desktop table row does not need a 44px touch target; the compact height is what
+       keeps a dense collection scannable. */
+    --button-height: 36px;
+    --action-height: 32px;
+  }
 }

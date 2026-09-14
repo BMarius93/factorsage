@@ -130,10 +130,7 @@ function RunProvenance({
           { label: "Stocks", value: formatCount(configuration.securityCount) },
           {
             label: "Period",
-            value: formatPeriod(
-              configuration.startDate,
-              configuration.endDate,
-            ),
+            value: formatPeriod(configuration.startDate, configuration.endDate),
           },
           {
             label: "Initial capital",
@@ -371,140 +368,128 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         data-testid="backtest-run"
         data-status={status}
       >
-        <PageHeader
-          back={{ href: "/backtests", label: "Backtests" }}
-          title={configuration.strategyName}
-          lead={`${configuration.stockListName} · ${formatPeriod(
-            configuration.startDate,
-            configuration.endDate,
-          )} · vs ${configuration.benchmark.name}`}
-          badges={
-            <StatusBadge tone={statusTone(status)} testId="backtest-status">
-              {BACKTEST_RUN_STATUS_LABELS[status]}
-            </StatusBadge>
-          }
-        />
-
-        <SectionCard
-          id="run-configuration"
-          title="Run configuration"
-          caption="Read from this run's immutable submission snapshot, not from the strategy or list as they stand today."
-        >
-          <RunProvenance
-            configuration={configuration}
-            queuedAt={run.queuedAt}
-            completedAt={run.completedAt}
-          />
-        </SectionCard>
-
-        {terminal && milestones.length > 0 ? (
-          <SectionCard
-            testId="backtest-milestones-summary"
-            ariaLabel="Simulated years"
-          >
-            <BacktestMilestoneTrail milestones={milestones} />
-          </SectionCard>
-        ) : null}
-        {terminal ? null : (
-          <SectionCard
-            testId="backtest-progress"
-            ariaLabel="Backtest progress"
-          >
-            <div className={styles.progressHead}>
-              <span className={styles.phase}>
+        {/* The outcome hero. A user opens this page to see what the run did, so identity,
+            status, the curve and the headline numbers are one surface above everything
+            else; the configuration that produced them follows, collapsed. */}
+        <SectionCard hero ariaLabel="Backtest result" testId="backtest-hero">
+          <PageHeader
+            variant="hero"
+            back={{ href: "/backtests", label: "Backtests" }}
+            title={configuration.strategyName}
+            lead={`${configuration.stockListName} · ${formatPeriod(
+              configuration.startDate,
+              configuration.endDate,
+            )} · vs ${configuration.benchmark.name}`}
+            badges={
+              <StatusBadge tone={statusTone(status)} testId="backtest-status">
                 {BACKTEST_RUN_STATUS_LABELS[status]}
-              </span>
-              <span
-                className={styles.percent}
-                data-testid="backtest-progress-percent"
-              >
-                {Math.round(percent)}%
-              </span>
-            </div>
-            <div
-              className={styles.track}
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(percent)}
-              aria-valuetext={`${Math.round(percent)}% complete`}
-            >
-              <span
-                className={styles.fill}
-                style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-              />
-            </div>
-            {message ? (
-              <p
-                className={styles.progressMessage}
-                data-testid="backtest-progress-message"
-              >
-                {message}
-              </p>
-            ) : null}
-            {live ? (
-              <p className={styles.progressDetail}>
-                Simulated through {formatDay(live.simulatedThrough)} · day{" "}
-                {formatCount(live.completedDays)} of{" "}
-                {formatCount(live.totalDays)}
-              </p>
-            ) : null}
-            <BacktestMilestoneTrail milestones={milestones} />
-          </SectionCard>
-        )}
+              </StatusBadge>
+            }
+          />
 
-        {status === "FAILED" ? (
-          <div
-            className={styles.failure}
-            role="alert"
-            data-testid="backtest-failure"
-          >
-            <h2 className={styles.failureTitle}>Backtest failed</h2>
-            <p className={styles.failureBody}>
-              {failure?.message ??
-                "The run stopped before it produced a result."}
-            </p>
-            {/* Enough to act on, and enough to report: which phase failed, the stable code, and
+          {terminal && milestones.length > 0 ? (
+            <div
+              data-testid="backtest-milestones-summary"
+              aria-label="Simulated years"
+            >
+              <BacktestMilestoneTrail milestones={milestones} />
+            </div>
+          ) : null}
+          {terminal ? null : (
+            <div data-testid="backtest-progress" aria-label="Backtest progress">
+              <div className={styles.progressHead}>
+                <span className={styles.phase}>
+                  {BACKTEST_RUN_STATUS_LABELS[status]}
+                </span>
+                <span
+                  className={styles.percent}
+                  data-testid="backtest-progress-percent"
+                >
+                  {Math.round(percent)}%
+                </span>
+              </div>
+              <div
+                className={styles.track}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(percent)}
+                aria-valuetext={`${Math.round(percent)}% complete`}
+              >
+                <span
+                  className={styles.fill}
+                  style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
+                />
+              </div>
+              {message ? (
+                <p
+                  className={styles.progressMessage}
+                  data-testid="backtest-progress-message"
+                >
+                  {message}
+                </p>
+              ) : null}
+              {live ? (
+                <p className={styles.progressDetail}>
+                  Simulated through {formatDay(live.simulatedThrough)} · day{" "}
+                  {formatCount(live.completedDays)} of{" "}
+                  {formatCount(live.totalDays)}
+                </p>
+              ) : null}
+              <BacktestMilestoneTrail milestones={milestones} />
+            </div>
+          )}
+
+          {status === "FAILED" ? (
+            <div
+              className={styles.failure}
+              role="alert"
+              data-testid="backtest-failure"
+            >
+              <h2 className={styles.failureTitle}>Backtest failed</h2>
+              <p className={styles.failureBody}>
+                {failure?.message ??
+                  "The run stopped before it produced a result."}
+              </p>
+              {/* Enough to act on, and enough to report: which phase failed, the stable code, and
                 the run's own id. Nothing here is internal — provider detail and stack traces stay
                 on the server. */}
-            <dl
-              className={styles.failureFacts}
-              data-testid="backtest-failure-facts"
-            >
-              {failure?.phase ? (
+              <dl
+                className={styles.failureFacts}
+                data-testid="backtest-failure-facts"
+              >
+                {failure?.phase ? (
+                  <div className={styles.failureFact}>
+                    <dt>Phase</dt>
+                    <dd data-testid="backtest-failure-phase">
+                      {BACKTEST_FAILURE_PHASE_LABELS[failure.phase]}
+                    </dd>
+                  </div>
+                ) : null}
+                {failure?.code ? (
+                  <div className={styles.failureFact}>
+                    <dt>Failure code</dt>
+                    <dd data-testid="backtest-failure-code">
+                      <code>{failure.code}</code>
+                    </dd>
+                  </div>
+                ) : null}
                 <div className={styles.failureFact}>
-                  <dt>Phase</dt>
-                  <dd data-testid="backtest-failure-phase">
-                    {BACKTEST_FAILURE_PHASE_LABELS[failure.phase]}
+                  <dt>Run ID</dt>
+                  <dd>
+                    <RunIdentifier runId={runId} />
                   </dd>
                 </div>
-              ) : null}
-              {failure?.code ? (
-                <div className={styles.failureFact}>
-                  <dt>Failure code</dt>
-                  <dd data-testid="backtest-failure-code">
-                    <code>{failure.code}</code>
-                  </dd>
-                </div>
-              ) : null}
-              <div className={styles.failureFact}>
-                <dt>Run ID</dt>
-                <dd>
-                  <RunIdentifier runId={runId} />
-                </dd>
-              </div>
-            </dl>
-            <Link className={forms.primaryButton} href="/backtests/new">
-              Start a new backtest
-            </Link>
-          </div>
-        ) : null}
+              </dl>
+              <Link className={forms.primaryButton} href="/backtests/new">
+                Start a new backtest
+              </Link>
+            </div>
+          ) : null}
 
-        <SectionCard
-          id="backtest-chart"
-          title="Portfolio value"
-          caption={`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
-        >
+          <p className={styles.chartCaption}>
+            {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
+          </p>
           {/* One frame, one height: the placeholder and the chart occupy exactly the same box, so
               the first checkpoint swaps content without moving anything below it. */}
           <div className={styles.chartFrame}>
@@ -529,13 +514,32 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               </p>
             )}
           </div>
+
+          <BacktestMetricsRow
+            metrics={snapshot?.metrics ?? EMPTY_METRICS}
+            benchmarkName={configuration.benchmark.name}
+            caption={terminal ? undefined : "Updating as the run progresses"}
+          />
         </SectionCard>
 
-        <BacktestMetricsRow
-          metrics={snapshot?.metrics ?? EMPTY_METRICS}
-          benchmarkName={configuration.benchmark.name}
-          caption={terminal ? undefined : "Updating as the run progresses"}
-        />
+        {/* The inputs follow the outcome, and stay out of the way until asked for. */}
+        <details
+          className={styles.configuration}
+          data-testid="run-configuration"
+        >
+          <summary className={styles.configurationSummary}>
+            Run configuration
+          </summary>
+          <p className={styles.configurationCaption}>
+            Read from this run&apos;s immutable submission snapshot, not from
+            the strategy or list as they stand today.
+          </p>
+          <RunProvenance
+            configuration={configuration}
+            queuedAt={run.queuedAt}
+            completedAt={run.completedAt}
+          />
+        </details>
 
         <div className={styles.columns}>
           <BacktestHoldings

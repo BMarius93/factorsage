@@ -16,17 +16,26 @@ type SectionCardProps = {
    * surface — the table owns its own cell padding.
    */
   readonly flush?: boolean;
+  /**
+   * The outcome-hero treatment: the large radius and the one real elevation in the
+   * product. Reserved for a result the user opened the page to see — today only the
+   * backtest result. Do not reach for it to make a section look important.
+   */
+  readonly hero?: boolean;
   readonly id?: string;
   readonly testId?: string;
   readonly ariaLabel?: string;
 };
 
 /**
- * The one large surface the product composes pages from: rounded, softly elevated, white.
+ * The one large surface the product composes pages from: rounded, bordered, flat, white.
  *
  * This is the "card" of FactorSage's card feel — a page-level or section-level surface holding a
  * heading and a dense collection, not one box per record. Do not nest a `SectionCard` inside
  * another; that is what produced the card-in-card stacks this replaced.
+ *
+ * A `flush` surface dissolves below the table/card switch, because `DataTable` already gives each
+ * record its own card there and the wrapper would only draw a box around a stack of boxes.
  */
 export function SectionCard({
   title,
@@ -35,6 +44,7 @@ export function SectionCard({
   toolbar,
   children,
   flush,
+  hero,
   id,
   testId,
   ariaLabel,
@@ -44,6 +54,8 @@ export function SectionCard({
   return (
     <section
       className={styles.card}
+      data-flush={flush ? "true" : undefined}
+      data-hero={hero ? "true" : undefined}
       {...(headingId ? { "aria-labelledby": headingId } : {})}
       {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
       {...(testId ? { "data-testid": testId } : {})}

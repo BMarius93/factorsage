@@ -6,7 +6,7 @@
   margin: 0 0 12px;
   color: var(--color-primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -15,7 +15,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: 32px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
@@ -44,7 +44,7 @@
 .identity dt {
   color: var(--color-text-body);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .identity dd {
@@ -58,11 +58,11 @@
   align-items: center;
   min-height: 26px;
   padding: 3px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-positive);
   background: var(--color-positive-soft);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: var(--weight-emphasis);
 }
 
 @media (max-width: 560px) {

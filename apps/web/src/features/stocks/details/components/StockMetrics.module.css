@@ -14,7 +14,7 @@
   margin: 0 0 4px;
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -61,7 +61,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   text-align: right;
   overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
@@ -69,7 +69,7 @@
 
 .link {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
 }
 

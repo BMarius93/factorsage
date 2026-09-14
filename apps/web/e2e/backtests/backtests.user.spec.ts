@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 
 /**
  * Full backtest journey for PRO_USER against an already-running stack.
@@ -104,7 +105,7 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
     if ((await card.count()) === 0) {
       return;
     }
-    await card.first().getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, name, "Delete", card.first());
     await page.getByRole("button", { name: "Delete strategy" }).click();
     await expect(card).toHaveCount(0);
   } catch {
@@ -160,7 +161,7 @@ async function deleteListIfPresent(page: Page, name: string) {
     if ((await card.count()) === 0) {
       return;
     }
-    await card.first().getByRole("button", { name: "Delete" }).click();
+    await chooseFromOverflowMenu(page, name, "Delete", card.first());
     await page.getByRole("button", { name: "Delete list" }).click();
     await expect(card).toHaveCount(0);
   } catch {

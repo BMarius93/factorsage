@@ -24,7 +24,7 @@
   gap: 14px;
   padding: 16px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
 }
 
@@ -37,7 +37,7 @@
 .fieldLabel {
   color: var(--color-text-body);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .optional {
@@ -50,7 +50,7 @@
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
   font: inherit;
@@ -72,7 +72,7 @@
 .select:focus,
 .numberInput:focus {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgb(72 130 255 / 0.14);
+  box-shadow: var(--focus-ring-inset);
 }
 
 .textInput[aria-invalid="true"],
@@ -110,7 +110,7 @@
 .sectionTitle {
   margin: 0;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -131,7 +131,7 @@
   margin: 0;
   padding: 12px 14px;
   border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-muted);
   font-size: 13px;
   line-height: 1.5;
@@ -153,7 +153,7 @@
   padding: 12px 14px 14px;
   border: 1px solid var(--color-border);
   border-left: 3px solid var(--color-border-strong);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
 }
 
@@ -183,7 +183,7 @@
   color: var(--color-text-primary);
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
   cursor: help;
 }
@@ -204,7 +204,7 @@
   background: none;
   color: var(--color-text-secondary);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -228,7 +228,7 @@
   display: inline-flex;
   padding: 2px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface-soft);
 }
 
@@ -242,10 +242,10 @@
   min-width: 44px;
   min-height: 30px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -286,7 +286,7 @@
 .signalLabel {
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -317,7 +317,7 @@
   min-width: 30px;
   color: var(--color-text-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
 }
 
@@ -333,10 +333,9 @@
   min-height: 38px;
   padding: 0 30px 0 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
-  background:
-    url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7f8c' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E")
+  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7f8c' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E")
     no-repeat right 10px center;
   background-color: var(--color-surface);
   font: inherit;
@@ -357,7 +356,7 @@
   min-height: 38px;
   padding: 0 26px 0 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background: var(--color-surface);
   font: inherit;
@@ -372,7 +371,7 @@
   transform: translateY(-50%);
   color: var(--color-text-muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   pointer-events: none;
 }
 
@@ -383,7 +382,7 @@
   border-radius: 9px;
   background: none;
   color: var(--color-text-muted);
-  font-size: 17px;
+  font-size: var(--text-section-title);
   line-height: 1;
   cursor: pointer;
 }
@@ -403,11 +402,11 @@
   min-height: 34px;
   padding: 0 10px;
   border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   background: none;
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -424,7 +423,12 @@
   opacity: 0.45;
 }
 
-/* --- Save bar --- */
+/* --- Save bar ---
+ *
+ * Deliberately not `WorkflowFooter`. This bar is not a Cancel/Submit pair: it reports save
+ * status and dirty state, counts outstanding issues and uses that count as the control that
+ * reveals and focuses the first invalid condition, and offers Discard changes beside Save.
+ * See `ai/architecture/ui-system.md` before replacing it with the shared footer. */
 
 .saveBar {
   position: sticky;
@@ -440,12 +444,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom) + 16px);
+  margin-bottom: calc(
+    var(--bottom-nav-height) + var(--safe-area-bottom) + 16px
+  );
   padding: 10px 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-background-translucent);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-menu);
   backdrop-filter: blur(8px);
 }
 
@@ -462,7 +468,7 @@
   color: var(--color-negative);
   font: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
@@ -476,7 +482,7 @@
 
 .saveDirty {
   color: var(--color-warning);
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .saveClean {
@@ -514,7 +520,6 @@
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 8px;
   }
-
 }
 
 /* The bottom navigation is gone at this width, so the bar sits on the viewport edge again. */

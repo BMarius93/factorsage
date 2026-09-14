@@ -14,7 +14,10 @@ import {
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { CollectionFooter } from "../../../components/ui/CollectionFooter";
+import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
+import { usePagination } from "../../../components/ui/use-pagination";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
@@ -101,24 +104,33 @@ export function StrategiesPage() {
       nowrap: true,
       render: (strategy) => (
         <span className={actionStyles.group}>
-          <button
-            type="button"
+          <Link
             className={actionStyles.action}
-            onClick={() => setDialog({ kind: "rename", strategy })}
+            href={`/strategies/${strategy.id}`}
           >
-            Rename
-          </button>
-          <button
-            type="button"
-            className={actionStyles.actionDanger}
-            onClick={() => setDialog({ kind: "delete", strategy })}
-          >
-            Delete
-          </button>
+            Open
+          </Link>
+          <OverflowMenu
+            label={strategy.name}
+            testId="strategy-actions"
+            items={[
+              {
+                label: "Rename",
+                onSelect: () => setDialog({ kind: "rename", strategy }),
+              },
+              {
+                label: "Delete",
+                tone: "danger",
+                separated: true,
+                onSelect: () => setDialog({ kind: "delete", strategy }),
+              },
+            ]}
+          />
         </span>
       ),
     },
   ];
+  const paging = usePagination(strategies);
 
   return (
     <PageContainer>
@@ -129,7 +141,7 @@ export function StrategiesPage() {
           actions={
             status === "ready" && strategies.length > 0 ? (
               <Link
-                className={forms.primaryButton}
+                className={forms.tintedButton}
                 href="/strategies/new"
                 data-testid="new-strategy-button"
               >
@@ -186,22 +198,24 @@ export function StrategiesPage() {
         ) : null}
 
         {status === "ready" && strategies.length > 0 ? (
-          <SectionCard
-            id="strategies"
-            title="Your strategies"
-            aside={`${strategies.length} ${
-              strategies.length === 1 ? "strategy" : "strategies"
-            }`}
-            flush
-          >
+          <SectionCard ariaLabel="Strategies" flush>
             <DataTable
               label="Strategies"
               testId="strategies-grid"
               rowTestId="strategy-row"
               columns={columns}
-              rows={strategies}
+              rows={paging.visibleRows}
               getRowKey={(strategy) => strategy.id}
               clickableRows
+            />
+            <CollectionFooter
+              testId="strategies-footer"
+              noun="strategies"
+              total={paging.total}
+              page={paging.page}
+              pageSize={paging.pageSize}
+              onPageChange={paging.setPage}
+              onPageSizeChange={paging.setPageSize}
             />
           </SectionCard>
         ) : null}

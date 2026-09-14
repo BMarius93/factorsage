@@ -17,6 +17,9 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { CollectionFooter } from "../../../components/ui/CollectionFooter";
+import { OverflowMenu } from "../../../components/ui/OverflowMenu";
+import { usePagination } from "../../../components/ui/use-pagination";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
@@ -105,25 +108,28 @@ function MonitorRowActions({
   return (
     <span className={styles.rowActions}>
       <span className={actionStyles.group}>
-        <button
-          type="button"
-          className={actionStyles.action}
-          data-testid="toggle-monitor"
-          disabled={pending}
-          onClick={toggle}
-        >
-          {toggleLabel}
-        </button>
-        <button type="button" className={actionStyles.action} onClick={onEdit}>
-          Edit
-        </button>
-        <button
-          type="button"
-          className={actionStyles.actionDanger}
-          onClick={onDelete}
-        >
-          Delete
-        </button>
+        <Link className={actionStyles.action} href={`/monitors/${monitor.id}`}>
+          Open
+        </Link>
+        <OverflowMenu
+          label={monitor.name}
+          testId="monitor-actions"
+          items={[
+            {
+              label: toggleLabel,
+              disabled: pending,
+              onSelect: toggle,
+              testId: "toggle-monitor",
+            },
+            { label: "Edit", onSelect: onEdit },
+            {
+              label: "Delete",
+              tone: "danger",
+              separated: true,
+              onSelect: onDelete,
+            },
+          ]}
+        />
       </span>
       {failure ? (
         <span
@@ -270,6 +276,7 @@ export function MonitorsPage() {
       ),
     },
   ];
+  const paging = usePagination(monitors);
 
   return (
     <PageContainer>
@@ -281,7 +288,7 @@ export function MonitorsPage() {
             status === "ready" && monitors.length > 0 ? (
               <button
                 type="button"
-                className={forms.primaryButton}
+                className={forms.tintedButton}
                 data-testid="new-monitor-button"
                 onClick={() => setDialog({ kind: "create" })}
               >
@@ -341,22 +348,24 @@ export function MonitorsPage() {
         ) : null}
 
         {status === "ready" && monitors.length > 0 ? (
-          <SectionCard
-            id="monitors"
-            title="Your monitors"
-            aside={`${monitors.length} ${
-              monitors.length === 1 ? "monitor" : "monitors"
-            }`}
-            flush
-          >
+          <SectionCard ariaLabel="Monitors" flush>
             <DataTable
               label="Monitors"
               testId="monitors-grid"
               rowTestId="monitor-card"
               columns={columns}
-              rows={monitors}
+              rows={paging.visibleRows}
               getRowKey={(monitor) => monitor.id}
               clickableRows
+            />
+            <CollectionFooter
+              testId="monitors-footer"
+              noun="monitors"
+              total={paging.total}
+              page={paging.page}
+              pageSize={paging.pageSize}
+              onPageChange={paging.setPage}
+              onPageSizeChange={paging.setPageSize}
             />
           </SectionCard>
         ) : null}

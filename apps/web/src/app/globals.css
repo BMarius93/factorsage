@@ -12,8 +12,12 @@
 
 body {
   /* The Geist font variables are declared on <body>, so the font stack must be
-     applied here rather than on :root. */
+     applied here rather than on :root. Geist is a V2 choice, not something inherited
+     from V1 — see `ai/architecture/frontend.md`. */
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  /* Pinned rather than left at `normal`, which resolves differently per face and left the
+     product's default leading depending on which font actually loaded. */
+  line-height: var(--line-height-body);
   margin: 0;
   min-width: 320px;
   color: var(--color-text-body);

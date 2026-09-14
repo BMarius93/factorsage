@@ -16,6 +16,7 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { WorkflowFooter } from "../../../components/ui/WorkflowFooter";
 import forms from "../../../components/ui/forms.module.css";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
@@ -140,9 +141,20 @@ export function NewBacktestForm() {
       ? fullPositionHelpText(maximumPositions)
       : "A full position is 1 / maximum positions of the portfolio; a strategy's BUY level is a share of that.";
 
+  // What the phone action bar says is about to run. Names the two things the user chose,
+  // because those are what a mis-selection shows up in; never a credit balance.
+  const chosenStrategy = strategies.find(
+    (strategy) => strategy.id === values.strategyId,
+  )?.name;
+  const chosenList = lists.find((list) => list.id === values.stockListId)?.name;
+  const summary =
+    chosenStrategy && chosenList
+      ? `${chosenStrategy} over ${chosenList}`
+      : "Choose a strategy and a stock list";
+
   if (status === "error") {
     return (
-      <PageContainer>
+      <PageContainer width="reading">
         <div className={styles.page}>
           <EmptyState
             as="h1"
@@ -174,9 +186,10 @@ export function NewBacktestForm() {
     status === "ready" && (strategies.length === 0 || lists.length === 0);
 
   return (
-    <PageContainer>
+    <PageContainer width="reading">
       <div className={styles.page} data-testid="new-backtest-page">
         <PageHeader
+          variant="plain"
           back={{ href: "/backtests", label: "Backtests" }}
           title="New backtest"
           lead="One strategy, one stock list, one historical period. The run executes in the background and its results appear while it progresses."
@@ -214,250 +227,271 @@ export function NewBacktestForm() {
           noValidate
           data-testid="new-backtest-form"
         >
-          <SectionCard id="backtest-what" title="What to run">
-            <div className={styles.grid}>
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-strategy">
-                  Strategy
-                </label>
-                <select
-                  id="backtest-strategy"
-                  className={styles.select}
-                  data-testid="backtest-strategy"
-                  value={values.strategyId}
-                  disabled={loading}
-                  aria-invalid={errors.strategyId !== undefined}
-                  onChange={(event) => update("strategyId", event.target.value)}
-                >
-                  <option value="">Select a strategy…</option>
-                  {strategies.map((strategy) => (
-                    <option key={strategy.id} value={strategy.id}>
-                      {strategy.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.strategyId ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.strategyId}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-list">
-                  Stock list
-                </label>
-                <select
-                  id="backtest-list"
-                  className={styles.select}
-                  data-testid="backtest-list"
-                  value={values.stockListId}
-                  disabled={loading}
-                  aria-invalid={errors.stockListId !== undefined}
-                  onChange={(event) =>
-                    update("stockListId", event.target.value)
-                  }
-                >
-                  <option value="">Select a stock list…</option>
-                  {lists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.stockListId ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.stockListId}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-benchmark">
-                  Benchmark
-                </label>
-                <select
-                  id="backtest-benchmark"
-                  className={styles.select}
-                  data-testid="backtest-benchmark"
-                  value={values.benchmarkCode}
-                  disabled={loading}
-                  aria-invalid={errors.benchmarkCode !== undefined}
-                  onChange={(event) =>
-                    update("benchmarkCode", event.target.value)
-                  }
-                >
-                  <option value="">Select a benchmark…</option>
-                  {benchmarks.map((benchmark) => (
-                    <option key={benchmark.code} value={benchmark.code}>
-                      {benchmark.name}
-                    </option>
-                  ))}
-                </select>
-                {errors.benchmarkCode ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.benchmarkCode}
-                  </p>
-                ) : (
-                  <p className={forms.hint}>
-                    What the run&apos;s growth is compared against.
-                  </p>
-                )}
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard id="backtest-period" title="Period">
-            <div className={styles.grid}>
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-start">
-                  Start date
-                </label>
-                <div className={styles.dateRow}>
-                  <input
-                    id="backtest-start"
-                    className={forms.input}
-                    data-testid="backtest-start"
-                    type="date"
-                    value={values.startDate}
-                    aria-invalid={errors.startDate !== undefined}
+          <SectionCard
+            id="backtest-configuration"
+            ariaLabel="Backtest configuration"
+          >
+            <fieldset className={styles.group}>
+              <legend className={styles.groupTitle}>What to run</legend>
+              <div className={styles.grid}>
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-strategy">
+                    Strategy
+                  </label>
+                  <select
+                    id="backtest-strategy"
+                    className={styles.select}
+                    data-testid="backtest-strategy"
+                    value={values.strategyId}
+                    disabled={loading}
+                    aria-invalid={errors.strategyId !== undefined}
                     onChange={(event) =>
-                      update("startDate", event.target.value)
+                      update("strategyId", event.target.value)
+                    }
+                  >
+                    <option value="">Select a strategy…</option>
+                    {strategies.map((strategy) => (
+                      <option key={strategy.id} value={strategy.id}>
+                        {strategy.name}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.strategyId ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.strategyId}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-list">
+                    Stock list
+                  </label>
+                  <select
+                    id="backtest-list"
+                    className={styles.select}
+                    data-testid="backtest-list"
+                    value={values.stockListId}
+                    disabled={loading}
+                    aria-invalid={errors.stockListId !== undefined}
+                    onChange={(event) =>
+                      update("stockListId", event.target.value)
+                    }
+                  >
+                    <option value="">Select a stock list…</option>
+                    {lists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.stockListId ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.stockListId}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-benchmark">
+                    Benchmark
+                  </label>
+                  <select
+                    id="backtest-benchmark"
+                    className={styles.select}
+                    data-testid="backtest-benchmark"
+                    value={values.benchmarkCode}
+                    disabled={loading}
+                    aria-invalid={errors.benchmarkCode !== undefined}
+                    onChange={(event) =>
+                      update("benchmarkCode", event.target.value)
+                    }
+                  >
+                    <option value="">Select a benchmark…</option>
+                    {benchmarks.map((benchmark) => (
+                      <option key={benchmark.code} value={benchmark.code}>
+                        {benchmark.name}
+                      </option>
+                    ))}
+                  </select>
+                  {errors.benchmarkCode ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.benchmarkCode}
+                    </p>
+                  ) : (
+                    <p className={forms.hint}>
+                      What the run&apos;s growth is compared against.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset className={styles.group}>
+              <legend className={styles.groupTitle}>Period</legend>
+              <div className={styles.grid}>
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-start">
+                    Start date
+                  </label>
+                  <div className={styles.dateRow}>
+                    <input
+                      id="backtest-start"
+                      className={forms.input}
+                      data-testid="backtest-start"
+                      type="date"
+                      value={values.startDate}
+                      aria-invalid={errors.startDate !== undefined}
+                      onChange={(event) =>
+                        update("startDate", event.target.value)
+                      }
+                    />
+                    {/* The furthest back a V1 run may reach. It moves only the start: the end date
+                      is the user's, and the ordinary period validation still applies. */}
+                    <button
+                      type="button"
+                      className={styles.maxButton}
+                      data-testid="backtest-start-max"
+                      onClick={() =>
+                        update("startDate", maximumBacktestStart(new Date()))
+                      }
+                      title={`Earliest available start — ${BACKTEST_MAX_PERIOD_YEARS} years back`}
+                    >
+                      MAX
+                    </button>
+                  </div>
+                  {errors.startDate ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.startDate}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-end">
+                    End date
+                  </label>
+                  <input
+                    id="backtest-end"
+                    className={forms.input}
+                    data-testid="backtest-end"
+                    type="date"
+                    value={values.endDate}
+                    aria-invalid={errors.endDate !== undefined}
+                    onChange={(event) => update("endDate", event.target.value)}
+                  />
+                  {errors.endDate ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.endDate}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset className={styles.group}>
+              <legend className={styles.groupTitle}>
+                Capital and allocation
+              </legend>
+              <div className={styles.grid}>
+                <div className={forms.field}>
+                  <label className={forms.label} htmlFor="backtest-capital">
+                    Initial capital
+                  </label>
+                  <input
+                    id="backtest-capital"
+                    className={forms.input}
+                    data-testid="backtest-capital"
+                    type="number"
+                    inputMode="decimal"
+                    min={BACKTEST_MIN_INITIAL_CAPITAL}
+                    max={BACKTEST_MAX_INITIAL_CAPITAL}
+                    step="any"
+                    value={values.initialCapital}
+                    aria-invalid={errors.initialCapital !== undefined}
+                    onChange={(event) =>
+                      update("initialCapital", event.target.value)
                     }
                   />
-                  {/* The furthest back a V1 run may reach. It moves only the start: the end date
-                      is the user's, and the ordinary period validation still applies. */}
-                  <button
-                    type="button"
-                    className={styles.maxButton}
-                    data-testid="backtest-start-max"
-                    onClick={() =>
-                      update("startDate", maximumBacktestStart(new Date()))
-                    }
-                    title={`Earliest available start — ${BACKTEST_MAX_PERIOD_YEARS} years back`}
-                  >
-                    MAX
-                  </button>
+                  {errors.initialCapital ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.initialCapital}
+                    </p>
+                  ) : null}
                 </div>
-                {errors.startDate ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.startDate}
-                  </p>
-                ) : null}
-              </div>
 
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-end">
-                  End date
-                </label>
-                <input
-                  id="backtest-end"
-                  className={forms.input}
-                  data-testid="backtest-end"
-                  type="date"
-                  value={values.endDate}
-                  aria-invalid={errors.endDate !== undefined}
-                  onChange={(event) => update("endDate", event.target.value)}
-                />
-                {errors.endDate ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.endDate}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          </SectionCard>
+                <div className={forms.field}>
+                  <label
+                    className={forms.label}
+                    htmlFor="backtest-contribution"
+                  >
+                    Monthly contribution <span aria-hidden="true">·</span>{" "}
+                    optional
+                  </label>
+                  <input
+                    id="backtest-contribution"
+                    className={forms.input}
+                    data-testid="backtest-contribution"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={BACKTEST_MAX_MONTHLY_CONTRIBUTION}
+                    step="any"
+                    placeholder="0"
+                    value={values.monthlyContribution}
+                    aria-invalid={errors.monthlyContribution !== undefined}
+                    onChange={(event) =>
+                      update("monthlyContribution", event.target.value)
+                    }
+                  />
+                  {errors.monthlyContribution ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.monthlyContribution}
+                    </p>
+                  ) : (
+                    <p className={forms.hint}>
+                      Added to available cash on the first trading day of each
+                      month. Leave empty for none.
+                    </p>
+                  )}
+                </div>
 
-          <SectionCard id="backtest-capital" title="Capital and allocation">
-            <div className={styles.grid}>
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-capital">
-                  Initial capital
-                </label>
-                <input
-                  id="backtest-capital"
-                  className={forms.input}
-                  data-testid="backtest-capital"
-                  type="number"
-                  inputMode="decimal"
-                  min={BACKTEST_MIN_INITIAL_CAPITAL}
-                  max={BACKTEST_MAX_INITIAL_CAPITAL}
-                  step="any"
-                  value={values.initialCapital}
-                  aria-invalid={errors.initialCapital !== undefined}
-                  onChange={(event) =>
-                    update("initialCapital", event.target.value)
-                  }
-                />
-                {errors.initialCapital ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.initialCapital}
+                <div className={forms.field}>
+                  <label
+                    className={forms.label}
+                    htmlFor="backtest-max-positions"
+                  >
+                    Maximum positions
+                  </label>
+                  <input
+                    id="backtest-max-positions"
+                    className={forms.input}
+                    data-testid="backtest-max-positions"
+                    type="number"
+                    inputMode="numeric"
+                    min={BACKTEST_MIN_MAXIMUM_POSITIONS}
+                    max={BACKTEST_MAX_MAXIMUM_POSITIONS}
+                    step="1"
+                    value={values.maximumPositions}
+                    aria-invalid={errors.maximumPositions !== undefined}
+                    onChange={(event) =>
+                      update("maximumPositions", event.target.value)
+                    }
+                  />
+                  {errors.maximumPositions ? (
+                    <p className={forms.hint} role="alert">
+                      {errors.maximumPositions}
+                    </p>
+                  ) : null}
+                  <p
+                    className={styles.derived}
+                    data-testid="full-position-help"
+                  >
+                    {helpText}
                   </p>
-                ) : null}
+                </div>
               </div>
-
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-contribution">
-                  Monthly contribution <span aria-hidden="true">·</span>{" "}
-                  optional
-                </label>
-                <input
-                  id="backtest-contribution"
-                  className={forms.input}
-                  data-testid="backtest-contribution"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={BACKTEST_MAX_MONTHLY_CONTRIBUTION}
-                  step="any"
-                  placeholder="0"
-                  value={values.monthlyContribution}
-                  aria-invalid={errors.monthlyContribution !== undefined}
-                  onChange={(event) =>
-                    update("monthlyContribution", event.target.value)
-                  }
-                />
-                {errors.monthlyContribution ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.monthlyContribution}
-                  </p>
-                ) : (
-                  <p className={forms.hint}>
-                    Added to available cash on the first trading day of each
-                    month. Leave empty for none.
-                  </p>
-                )}
-              </div>
-
-              <div className={forms.field}>
-                <label className={forms.label} htmlFor="backtest-max-positions">
-                  Maximum positions
-                </label>
-                <input
-                  id="backtest-max-positions"
-                  className={forms.input}
-                  data-testid="backtest-max-positions"
-                  type="number"
-                  inputMode="numeric"
-                  min={BACKTEST_MIN_MAXIMUM_POSITIONS}
-                  max={BACKTEST_MAX_MAXIMUM_POSITIONS}
-                  step="1"
-                  value={values.maximumPositions}
-                  aria-invalid={errors.maximumPositions !== undefined}
-                  onChange={(event) =>
-                    update("maximumPositions", event.target.value)
-                  }
-                />
-                {errors.maximumPositions ? (
-                  <p className={forms.hint} role="alert">
-                    {errors.maximumPositions}
-                  </p>
-                ) : null}
-                <p className={styles.derived} data-testid="full-position-help">
-                  {helpText}
-                </p>
-              </div>
-            </div>
+            </fieldset>
           </SectionCard>
 
           {submitError ? (
@@ -470,7 +504,14 @@ export function NewBacktestForm() {
             </p>
           ) : null}
 
-          <div className={forms.actions}>
+          <WorkflowFooter
+            testId="new-backtest-actions"
+            summary={
+              summary ? (
+                <span data-testid="backtest-summary">{summary}</span>
+              ) : null
+            }
+          >
             <Link className={forms.secondaryButton} href="/backtests">
               Cancel
             </Link>
@@ -482,7 +523,7 @@ export function NewBacktestForm() {
             >
               {pending ? "Submitting…" : "Run backtest"}
             </button>
-          </div>
+          </WorkflowFooter>
         </form>
       </div>
     </PageContainer>

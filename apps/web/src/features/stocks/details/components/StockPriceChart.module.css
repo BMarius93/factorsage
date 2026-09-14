@@ -62,14 +62,14 @@
 
 .legendItem strong {
   color: var(--color-text-primary);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
 .legendDot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 /* Both full-bleed states sit over the plot, so they must stay transparent to pointer events:
@@ -84,7 +84,7 @@
   color: var(--color-text-secondary);
   font-size: 14px;
   background: var(--color-surface-muted);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
 }
 
 .loadingOverlay {
@@ -101,7 +101,7 @@
   height: 28px;
   border: 3px solid var(--color-border-strong);
   border-top-color: var(--color-primary);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   animation: chart-spinner 800ms linear infinite;
 }
 

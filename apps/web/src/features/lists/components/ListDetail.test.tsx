@@ -5,6 +5,7 @@ import type {
 } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import {
@@ -143,7 +144,9 @@ describe("ListDetail", () => {
   });
 
   it("treats a 404 as not-found without an error alarm", async () => {
-    fetchStockListMock.mockRejectedValue(new ApiError(404, "Stock list was not found"));
+    fetchStockListMock.mockRejectedValue(
+      new ApiError(404, "Stock list was not found"),
+    );
 
     render(<ListDetail listId="foreign-list" />);
 
@@ -198,7 +201,10 @@ describe("ListDetail", () => {
   it("surfaces a rejected add without losing the page", async () => {
     fetchStockListMock.mockResolvedValue(detail([item("item-1", "AAPL")]));
     addStockListItemsMock.mockRejectedValue(
-      new ApiError(400, "One or more selected securities are not in the supported catalog"),
+      new ApiError(
+        400,
+        "One or more selected securities are not in the supported catalog",
+      ),
     );
 
     render(<ListDetail listId="list-1" />);
@@ -230,7 +236,11 @@ describe("ListDetail", () => {
       expect(screen.getByTestId("list-detail")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByLabelText("Remove AAPL from list"));
+    await chooseFromOverflowMenu(
+      userEvent,
+      "AAPL in this list",
+      "Remove from list",
+    );
     expect(removeStockListItemMock).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Remove stock" }));

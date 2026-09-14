@@ -145,7 +145,16 @@ evaluator physically cannot read an ungated value.
 
 - Read `ai/architecture/frontend.md` for substantial frontend/UI work.
 - The old repository is a visual/behavioral oracle only; do not copy its architecture wholesale.
-- Preserve the established FactorSage visual identity where it still fits V2: Geist, light neutral surfaces, blue primary accent, restrained financial state colors, soft cards, and high information clarity.
+- Preserve the established FactorSage visual identity where it still fits V2: a near-white canvas,
+  flat light-bordered surfaces, a restrained blue accent used as ink more often than as fill,
+  restrained financial state colors, and high information clarity. Geist is a **V2 choice, not
+  something inherited from V1** — deployed V1 renders in the OS UI stack; V2 keeps Geist because it
+  renders identically on every platform.
+- `apps/web/src/styles/tokens.css` holds the product's shared visual language: the semantic palette,
+  the radius and elevation scales, the type scale, the standard control sizes and the page spacing
+  system. Ask for those by name rather than restating their values, and never redefine one locally.
+  Geometry specific to a single component may stay in that component. `ai/architecture/ui-system.md`
+  states the rule; `ai/architecture/v1-visual-parity.md` holds the measured V1 reference behind it.
 - Use App Router only in V2; do not introduce Pages Router.
 - Keep route files thin and organize product code by feature.
 - Use `@intrinsic/contracts` as the canonical API shape; do not duplicate response types in the web app.

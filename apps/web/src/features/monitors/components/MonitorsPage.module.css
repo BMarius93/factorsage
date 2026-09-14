@@ -7,7 +7,7 @@
 .nameLink {
   color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
   overflow-wrap: anywhere;
 }
@@ -18,7 +18,7 @@
 
 .nameLink:focus-visible {
   outline: none;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   box-shadow: var(--focus-ring);
 }
 
@@ -34,7 +34,7 @@
    competing with the rows that matter. */
 .signalCount {
   color: var(--color-text-secondary);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .signalCount[data-tone="active"] {
@@ -51,7 +51,7 @@
   max-width: 22rem;
   color: var(--color-negative);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   line-height: 1.45;
   text-align: right;
   white-space: normal;

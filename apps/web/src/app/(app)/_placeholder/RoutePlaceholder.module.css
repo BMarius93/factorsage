@@ -2,7 +2,7 @@
   margin: 0 0 8px;
   color: var(--color-primary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -11,7 +11,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: 26px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.02em;
   line-height: 1.15;
 }

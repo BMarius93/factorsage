@@ -30,14 +30,14 @@
   gap: 6px;
   padding: 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   background: var(--color-surface-muted);
 }
 
 .blendLabel {
   color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -45,7 +45,7 @@
 .blendValue {
   color: var(--color-text-primary);
   font-size: 22px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
@@ -54,9 +54,9 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -100,7 +100,7 @@
   margin: 0;
   color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
 

@@ -1,5 +1,10 @@
-/* Progressive page padding: never cramped on phones, never oversized on wide
-   desktops. Width is capped so long-form content stays readable. */
+/* Progressive page padding, and one of two width intents.
+ *
+ * `data` lets financial tables, charts and dense collections use the screen — V1 runs
+ * fluid to a 40px gutter, and compressing a backtest table into a reading column is what
+ * made the product read as a document. `reading` keeps the readability cap for forms and
+ * prose, where a 1600px line length would be the opposite mistake. */
+
 .container {
   width: 100%;
   max-width: var(--content-max-width);
@@ -8,15 +13,13 @@
   padding: var(--page-pad-mobile);
 }
 
+.container[data-width="reading"] {
+  max-width: var(--reading-max-width);
+}
+
 @media (min-width: 600px) {
   .container {
     padding: var(--page-pad-tablet);
-  }
-}
-
-@media (min-width: 880px) {
-  .container {
-    padding: var(--page-pad-desktop);
   }
 }
 

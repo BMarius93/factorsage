@@ -6,6 +6,10 @@ import type {
 } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {
+  chooseFromOverflowMenu,
+  openOverflowMenu,
+} from "../../../components/ui/__testing__/overflow-menu";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
 import { fetchStrategies } from "../../strategies/api/strategies-api";
@@ -206,7 +210,9 @@ describe("MonitorsPage", () => {
     // its own row.
     fetchMonitorsMock
       .mockResolvedValueOnce([])
-      .mockResolvedValue([summary({ id: "monitor-new", name: "Value entries" })]);
+      .mockResolvedValue([
+        summary({ id: "monitor-new", name: "Value entries" }),
+      ]);
     createMonitorMock.mockResolvedValue(
       detail({ id: "monitor-new", name: "Value entries" }),
     );
@@ -226,7 +232,10 @@ describe("MonitorsPage", () => {
       screen.getByLabelText("Strategy"),
       "strategy-1",
     );
-    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-1");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Stock list"),
+      "list-1",
+    );
     await userEvent.click(screen.getByTestId("submit-monitor"));
 
     await waitFor(() => {
@@ -262,6 +271,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Enabled")).toBeDefined();
     });
 
+    await openOverflowMenu(userEvent, "Value entries");
     await userEvent.click(screen.getByTestId("toggle-monitor"));
 
     await waitFor(() => {
@@ -274,6 +284,7 @@ describe("MonitorsPage", () => {
     });
     expect(screen.queryByText("Enabled")).toBeNull();
     // The action now offers the opposite transition.
+    await openOverflowMenu(userEvent, "Value entries");
     expect(screen.getByTestId("toggle-monitor").textContent).toBe("Enable");
   });
 
@@ -287,6 +298,7 @@ describe("MonitorsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Disabled")).toBeDefined();
     });
+    await openOverflowMenu(userEvent, "Value entries");
     expect(screen.getByTestId("toggle-monitor").textContent).toBe("Enable");
 
     await userEvent.click(screen.getByTestId("toggle-monitor"));
@@ -310,6 +322,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Enabled")).toBeDefined();
     });
 
+    await openOverflowMenu(userEvent, "Value entries");
     await userEvent.click(screen.getByTestId("toggle-monitor"));
 
     await waitFor(() => {
@@ -321,11 +334,12 @@ describe("MonitorsPage", () => {
     });
     // Nothing was applied optimistically, so the card still shows what the server holds.
     expect(screen.getByText("Enabled")).toBeDefined();
+    await openOverflowMenu(userEvent, "Value entries");
     expect(screen.getByTestId("toggle-monitor").textContent).toBe("Disable");
     // And the action is usable again rather than stuck pending.
-    expect(
-      screen.getByTestId("toggle-monitor").hasAttribute("disabled"),
-    ).toBe(false);
+    expect(screen.getByTestId("toggle-monitor").hasAttribute("disabled")).toBe(
+      false,
+    );
   });
 
   it("deletes a monitor only after confirmation", async () => {
@@ -339,7 +353,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Doomed")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Delete"));
+    await chooseFromOverflowMenu(userEvent, "Doomed", "Delete");
     expect(screen.getByTestId("confirm-dialog")).toBeDefined();
     expect(deleteMonitorMock).not.toHaveBeenCalled();
 
@@ -365,9 +379,7 @@ describe("MonitorsPage", () => {
     });
 
     expect(
-      screen
-        .getByRole("link", { name: "Value entries" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: "Value entries" }).getAttribute("href"),
     ).toBe("/monitors/monitor-1");
   });
 
@@ -382,7 +394,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Old name")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Edit"));
+    await chooseFromOverflowMenu(userEvent, "Old name", "Edit");
     await waitFor(() => {
       expect(screen.getByTestId("monitor-form")).toBeDefined();
     });
@@ -434,7 +446,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByText("Deep value")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Edit"));
+    await chooseFromOverflowMenu(userEvent, "Value entries", "Edit");
     await waitFor(() => {
       expect(screen.getByTestId("monitor-form")).toBeDefined();
     });
@@ -442,7 +454,10 @@ describe("MonitorsPage", () => {
       screen.getByLabelText("Strategy"),
       "strategy-2",
     );
-    await userEvent.selectOptions(screen.getByLabelText("Stock list"), "list-2");
+    await userEvent.selectOptions(
+      screen.getByLabelText("Stock list"),
+      "list-2",
+    );
     // The consequence is explained only once the selection has actually moved.
     expect(screen.getByTestId("monitor-rebind-note")).toBeDefined();
     await userEvent.click(screen.getByText("Save changes"));

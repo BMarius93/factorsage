@@ -10,10 +10,13 @@ import {
   DataTable,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
+import { CollectionFooter } from "../../../components/ui/CollectionFooter";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
+import { usePagination } from "../../../components/ui/use-pagination";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
@@ -102,20 +105,25 @@ export function ListsPage() {
       nowrap: true,
       render: (list) => (
         <span className={actions.group}>
-          <button
-            type="button"
-            className={actions.action}
-            onClick={() => setDialog({ kind: "rename", list })}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            className={actions.actionDanger}
-            onClick={() => setDialog({ kind: "delete", list })}
-          >
-            Delete
-          </button>
+          <Link className={actions.action} href={`/lists/${list.id}`}>
+            Open
+          </Link>
+          <OverflowMenu
+            label={list.name}
+            testId="list-actions"
+            items={[
+              {
+                label: "Rename",
+                onSelect: () => setDialog({ kind: "rename", list }),
+              },
+              {
+                label: "Delete",
+                tone: "danger",
+                separated: true,
+                onSelect: () => setDialog({ kind: "delete", list }),
+              },
+            ]}
+          />
         </span>
       ),
     },
@@ -123,6 +131,7 @@ export function ListsPage() {
   const columns = allColumns.filter(
     (column) => column.key !== "compliance" || anyOverLimit,
   );
+  const paging = usePagination(lists);
 
   return (
     <PageContainer>
@@ -134,7 +143,7 @@ export function ListsPage() {
             status === "ready" && lists.length > 0 ? (
               <button
                 type="button"
-                className={forms.primaryButton}
+                className={forms.tintedButton}
                 data-testid="new-list-button"
                 onClick={() => setDialog({ kind: "create" })}
               >
@@ -191,20 +200,24 @@ export function ListsPage() {
         ) : null}
 
         {status === "ready" && lists.length > 0 ? (
-          <SectionCard
-            id="lists"
-            title="Your lists"
-            aside={`${lists.length} ${lists.length === 1 ? "list" : "lists"}`}
-            flush
-          >
+          <SectionCard ariaLabel="Stock lists" flush>
             <DataTable
               label="Stock lists"
               testId="lists-grid"
               rowTestId="list-row"
               columns={columns}
-              rows={lists}
+              rows={paging.visibleRows}
               getRowKey={(list) => list.id}
               clickableRows
+            />
+            <CollectionFooter
+              testId="lists-footer"
+              noun="lists"
+              total={paging.total}
+              page={paging.page}
+              pageSize={paging.pageSize}
+              onPageChange={paging.setPage}
+              onPageSizeChange={paging.setPageSize}
             />
           </SectionCard>
         ) : null}

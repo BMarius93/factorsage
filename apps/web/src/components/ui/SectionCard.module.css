@@ -1,17 +1,35 @@
 /* The product's page-level surface. Radius, border and elevation are fixed here so no
-   feature can invent a slightly different card. */
+ * feature can invent a slightly different card.
+ *
+ * Ordinary surfaces are flat: a hairline border on a near-white canvas, which is what
+ * separates a tool from a marketing page. Elevation and the large radius belong to a true
+ * outcome hero and nothing else. */
+
 .card {
   /* Published to a flush `DataTable` so its first and last columns line up with this
      surface's heading instead of sitting at the table's own cell padding. */
-  --surface-inset: 18px;
+  --surface-inset: var(--card-pad);
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-surface);
   overflow: hidden;
+}
+
+/* Exactly one surface in the product wears this: the backtest result. */
+.card[data-hero="true"] {
+  border-radius: var(--radius-hero);
+  box-shadow: var(--shadow-hero);
+}
+
+/* A hero composes several parts — identity, progress, chart, headline numbers — so its
+   body is a stack rather than a single block of content. */
+.card[data-hero="true"] > .body {
+  display: grid;
+  gap: 18px;
 }
 
 .head {
@@ -20,7 +38,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 18px 0;
+  padding: var(--card-pad) var(--card-pad) 0;
 }
 
 .heading {
@@ -32,8 +50,8 @@
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
@@ -42,8 +60,8 @@
   margin: 0;
   max-width: 70ch;
   color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
 }
 
 .aside {
@@ -52,24 +70,24 @@
   align-items: center;
   gap: 8px;
   color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 14px 18px 0;
+  padding: 14px var(--card-pad) 0;
 }
 
 .body {
-  padding: 18px;
+  padding: var(--card-pad);
   min-width: 0;
 }
 
-/* A table runs edge to edge: its own cells carry the padding, so a second inset
-   would make every row look indented inside its own surface. */
+/* A table runs edge to edge: its own cells carry the padding, so a second inset would make
+   every row look indented inside its own surface. */
 .body[data-flush="true"] {
   padding: 14px 0 0;
 }
@@ -79,24 +97,25 @@
   padding-top: 14px;
 }
 
-@media (min-width: 880px) {
-  .card {
-    --surface-inset: 24px;
+/* Below the table/card switch a flush surface dissolves: `DataTable` renders each record
+   as its own bordered card there, and keeping the wrapper would draw a box around a stack
+   of boxes. The heading stays — it is the section's name, not the card's. */
+@media (max-width: 879px) {
+  .card[data-flush="true"] {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    overflow: visible;
   }
 
-  .head {
-    padding: 22px 24px 0;
+  .card[data-flush="true"] > .head,
+  .card[data-flush="true"] > .toolbar {
+    padding-left: 0;
+    padding-right: 0;
   }
 
-  .toolbar {
-    padding: 16px 24px 0;
-  }
-
-  .body {
-    padding: 22px 24px;
-  }
-
-  .body[data-flush="true"] {
-    padding: 16px 0 0;
+  .card[data-flush="true"] > .body[data-flush="true"] {
+    padding-top: 12px;
   }
 }

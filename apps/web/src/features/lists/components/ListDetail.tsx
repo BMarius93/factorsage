@@ -14,6 +14,7 @@ import {
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
@@ -95,9 +96,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             testId="list-not-found"
             title="List not found"
             body={
-              <p>
-                This list does not exist or belongs to a different account.
-              </p>
+              <p>This list does not exist or belongs to a different account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/lists">
@@ -119,7 +118,10 @@ export function ListDetail({ listId }: ListDetailProps) {
             variant="error"
             title="Something went wrong"
             body={
-              <p>The list could not be loaded right now. This is usually temporary.</p>
+              <p>
+                The list could not be loaded right now. This is usually
+                temporary.
+              </p>
             }
             actions={
               <button
@@ -210,14 +212,16 @@ export function ListDetail({ listId }: ListDetailProps) {
           >
             Buy windows
           </button>
-          <button
-            type="button"
-            className={actionStyles.actionDanger}
-            aria-label={`Remove ${item.security.symbol} from list`}
-            onClick={() => setDialog({ kind: "remove-item", item })}
-          >
-            Remove
-          </button>
+          <OverflowMenu
+            label={`${item.security.symbol} in this list`}
+            items={[
+              {
+                label: "Remove from list",
+                tone: "danger",
+                onSelect: () => setDialog({ kind: "remove-item", item }),
+              },
+            ]}
+          />
         </span>
       ),
     },
@@ -253,19 +257,22 @@ export function ListDetail({ listId }: ListDetailProps) {
             <>
               <button
                 type="button"
-                className={forms.secondaryButton}
+                className={forms.tintedButton}
                 onClick={() => setDialog({ kind: "rename" })}
               >
                 Edit
               </button>
-              <button
-                type="button"
-                className={forms.dangerButton}
-                data-testid="delete-list-button"
-                onClick={() => setDialog({ kind: "delete-list" })}
-              >
-                Delete
-              </button>
+              <OverflowMenu
+                label={detail.name}
+                testId="list-detail-actions"
+                items={[
+                  {
+                    label: "Delete list",
+                    tone: "danger",
+                    onSelect: () => setDialog({ kind: "delete-list" }),
+                  },
+                ]}
+              />
             </>
           }
         />

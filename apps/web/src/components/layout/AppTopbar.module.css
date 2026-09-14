@@ -9,7 +9,6 @@
   padding: 0 var(--page-pad-mobile);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-background-translucent);
-  box-shadow: var(--shadow-header);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
@@ -20,7 +19,10 @@
   min-width: 0;
   margin-right: auto;
   padding: 4px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
+  /* Without this the anchor inherits the user-agent link blue. The mark's own parts set
+     their colours, so it was invisible — until any bare text lands inside the link. */
+  color: var(--color-text-primary);
   text-decoration: none;
 }
 
@@ -50,10 +52,10 @@
   align-items: center;
   min-height: 40px;
   padding: 0 12px;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   color: var(--color-text-secondary);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
   text-decoration: none;
   transition:
     color 140ms ease,
@@ -76,7 +78,7 @@
   bottom: 2px;
   left: 12px;
   height: 2px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-primary);
 }
 
@@ -91,10 +93,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-secondary);
   background: var(--color-surface);
 }
@@ -104,15 +106,17 @@
   height: 20px;
 }
 
+/* The search field grows into the free space from here up, so the brand no longer needs an
+   auto margin to push navigation and account controls to the right. */
+@media (min-width: 380px) {
+  .brandLink {
+    margin-right: 0;
+  }
+}
+
 @media (min-width: 600px) {
   .topbar {
     padding: 0 var(--page-pad-tablet);
-  }
-
-  /* The search field grows into the free space from here up, so the brand no longer needs an auto
-     margin to push navigation and account controls to the right. */
-  .brandLink {
-    margin-right: 0;
   }
 }
 
@@ -120,7 +124,7 @@
   .topbar {
     min-height: var(--topbar-height-wide);
     gap: 20px;
-    padding: 0 var(--page-pad-desktop);
+    padding: 0 var(--page-pad-tablet);
   }
 
   .desktopNav {

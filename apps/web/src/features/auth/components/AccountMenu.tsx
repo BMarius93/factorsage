@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { AccountIcon } from "../../../components/layout/nav-icons";
 import { useAuthSession } from "../hooks/use-auth-session";
 import styles from "./AccountMenu.module.css";
 
@@ -48,6 +47,9 @@ export function AccountMenu() {
 
   const { user } = state;
   const isAdmin = user.role === "ADMIN";
+  // The chrome carries a mark, not an address: a real customer's email is long enough to
+  // dominate the topbar, and the full address is one click away inside the menu.
+  const monogram = (user.email.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -71,12 +73,13 @@ export function AccountMenu() {
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label="Account"
+        aria-label={`Account: ${user.email}`}
         data-testid="account-menu-trigger"
         onClick={() => setOpen((current) => !current)}
       >
-        <AccountIcon className={styles.triggerIcon} />
-        <span className={styles.triggerEmail}>{user.email}</span>
+        <span className={styles.monogram} aria-hidden="true">
+          {monogram}
+        </span>
       </button>
 
       {open ? (

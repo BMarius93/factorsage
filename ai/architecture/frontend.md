@@ -16,13 +16,20 @@ Core traits to preserve:
 - Dark neutral primary text around `#222222` / `#404040` and muted text around `#667085`.
 - Very light cool borders around `#E6EAF5` and subtle blue-tinted elevation.
 - Green for positive/buy states (`#1E9E78`), red for negative/sell states (`#D1435B`), and restrained orange for warning/final-exit states.
-- Rounded cards and controls, generally softer than default browser UI. Large product cards may use radii around 24-28px; controls and nested surfaces should use smaller radii.
-- Shadows must remain subtle. Do not turn the product into a heavily elevated/card-stacked dashboard.
+- Rounded cards and controls, generally softer than default browser UI. A page-level surface uses
+  `--radius-lg`; controls and nested surfaces use smaller radii. The large `--radius-hero` radius is
+  reserved for a true outcome hero and is not a default for product cards.
+- Ordinary surfaces are flat, and elevation is reserved for overlays and that one hero. Do not turn
+  the product into a heavily elevated/card-stacked dashboard.
 - Information density should remain appropriate for financial research: compact enough for tables and metrics, but with clear spacing and hierarchy.
 
-Use the design tokens in `apps/web/src/styles/tokens.css`. It is the only file in the web app that
-may hold a hex colour: a feature stylesheet asks for a semantic token, and a genuinely new shared
-value becomes a new token named for what it _means_ (`--color-positive`, never `--monitor-green`).
+Use the design tokens in `apps/web/src/styles/tokens.css`. It holds the product's shared visual
+language — the semantic palette, the radius and elevation scales, the type scale, the standard
+control sizes and the page spacing system — and a feature stylesheet asks for those by name instead
+of restating their values. Geometry that is genuinely local to one component stays local; what is
+prohibited is redefining a shared constant. A hex colour lives only in `tokens.css`. A genuinely new
+shared value becomes a new token named for what it _means_ (`--color-positive`, never
+`--monitor-green`). `ui-system.md` states the rule in full.
 
 `ui-system.md` is the companion document: the shared component vocabulary that implements this
 direction, what each component represents, and when not to reach for one. Read it before adding a
@@ -31,13 +38,25 @@ status pill, an entity reference or a stock identity anywhere.
 
 ## Typography
 
-Use Geist as the primary UI font and Geist Mono where monospaced financial/technical content is useful.
+Use Geist as the primary UI font and Geist Mono where monospaced financial/technical content is
+useful.
 
-Typography should remain neutral and functional:
+> Geist is a **V2 decision**, not something carried over from V1. Deployed V1 computes to
+> `ui-sans-serif, system-ui, sans-serif`, so it renders in a different typeface on every operating
+> system. V2 keeps Geist deliberately: it is close enough that a returning user does not register a
+> change, and it is the same everywhere.
 
-- Page titles and section titles: compact, semibold, slightly tight tracking where appropriate.
-- Labels: small, semibold, often uppercase with restrained tracking.
-- Body text: readable at approximately 14-15px for dense product screens.
+Typography should remain neutral and functional. The **shared scale** comes from tokens in
+`styles/tokens.css`, and a feature stylesheet asks for it rather than restating it — a component may
+still size a figure it alone draws, such as a KPI value or a quote:
+
+- Page title: `--text-page-title`, 17px on a phone and 20px from 880px, at `--weight-emphasis`.
+  A 24-28px display title belongs to the outcome hero (`--text-page-title-hero`) and nowhere else.
+- Section title: `--text-section-title`.
+- Labels: `--text-label-size` with `--text-label-tracking`, uppercase, at `--weight-emphasis`.
+- Body text: `--text-body` (14px) for dense product screens, `--text-secondary` (13px) beside it.
+- **One emphasis weight.** `--weight-emphasis` is 600. The product does not use 700: reserving it
+  keeps a label from competing with the value it labels, and matches V1's 400/500/600 ladder.
 - Financial values: use consistent weight and tabular/monospaced presentation when alignment materially improves scanning.
 
 Do not introduce a second decorative display typeface for normal product screens without an explicit design decision.
@@ -138,7 +157,15 @@ The durable rules:
 - **Dense collections are tables inside those surfaces**, and their mobile counterpart is a card per
   row — from `DataTable`, once.
 - **Geist is canonical**, applied on `body` in `globals.css`; Geist Mono only where alignment of
-  technical or financial values genuinely helps. No feature declares a font family.
+  technical or financial values genuinely helps. No feature declares a font family, and the shared
+  scale — page title, section title, body, secondary, label, emphasis weight — comes from tokens. A
+  component may still size something it alone draws, such as a KPI's figure.
+- **Surfaces are flat.** An ordinary surface is `--radius-lg` with a 1px border and no shadow, which
+  is what separates a tool from a marketing page. `--radius-hero` and `--shadow-hero` belong to one
+  screen, the backtest result. Overlays — menus and dialogs — are the only other place elevation is
+  real.
+- **Width is an intent, not a number.** `PageContainer` takes `width="data" | "reading"`: data
+  surfaces use the screen, editors and prose keep a readable measure. No route writes a max-width.
 - **Status, relationship, identity, empty, loading and table primitives are not reinvented in a
   feature.** A feature owns what a status _means_ — its label, its tone, its ordering — and the
   shared component owns how it looks.

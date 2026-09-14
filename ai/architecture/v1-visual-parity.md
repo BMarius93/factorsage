@@ -1,6 +1,8 @@
 # V1 Visual Parity and UI Consistency Specification
 
-Status: normative for the V2 visual-parity pass.
+Status: normative, and **implemented**. The design-system pass that closed this specification is
+described under "What the parity pass changed" below; the measured V1 reference it was calibrated
+against is under "Measured V1 reference".
 
 This document defines how FactorSage V2 should recover the visual character, information density
 and responsive composition of the deployed V1 product while retaining the V2 domain model,
@@ -55,15 +57,20 @@ behind the sign-in.
 `PageHeader` remains the only page-title component and gains explicit visual variants rather than
 being reimplemented by features:
 
-| Variant     | Use                                                          | Composition                                                                       |
-| ----------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `surface`   | collections and ordinary entity details                      | white 16px-radius bordered surface; title, lead/badges and actions                |
-| `plain`     | editors where the form surface supplies the visual container | compact title and optional back link; no duplicate section title                  |
-| `hero`      | result-first screens                                         | title/context/actions composed into the feature hero; no separate header above it |
-| `marketing` | future **public** conversion pages only, never `/billing`    | feature-owned promotional layout using shared tokens                              |
+| Variant   | Use                                                          | Composition                                                                   |
+| --------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `surface` | collections and ordinary entity details (the **default**)    | white `--radius-lg` bordered surface; title, lead/badges, `aside` and actions |
+| `plain`   | editors where the form surface supplies the visual container | compact title and optional back link; no duplicate section title              |
+| `hero`    | result-first screens                                         | title/context composed into the feature hero; no separate frame of its own    |
 
-For `surface`, use 12px padding on phones and 24px from tablet upward. The title is approximately
-16px on phones and 20px on desktop. Ordinary collection headers must not use a 24-28px display title.
+`surface` uses `--card-pad` (12px on phones, 24px from 880px). The title is `--text-page-title`
+(17px on phones, 20px from 880px) at `--weight-emphasis`. Ordinary headers must not use a 24-28px
+display title; that size is `--text-page-title-hero` and belongs to the backtest result.
+
+`PageHeader` also takes an `aside`: a page-level _fact_ aligned to the right of the identity — a
+stock's quote, a run's progress. It sits where actions sit but is something the page reports, not
+something the user can do. A marketing variant is deliberately **not** implemented: no authenticated
+route needs one, and `/billing` is an ordinary product page.
 
 There must be exactly one visible page title and one accessible `<h1>`. Do not follow a collection
 header with a second card titled “Your lists”, “Your strategies”, “Your monitors” or “Run history”.
@@ -84,8 +91,13 @@ The same semantic action must appear in the same location across features:
 Rules:
 
 - The order is always secondary, then primary, with overflow last when displayed in the same row.
-- A page or record has at most one solid-blue action.
-- `New …` is the collection-level primary action; row actions must not compete with it in solid blue.
+- **A page or record has at most one solid-blue action, and it is the one that commits work.**
+  `forms.primaryButton` (solid `--color-primary`) is for `Run backtest`, `Save`, `Create` and the
+  single call to action on an empty state. `forms.tintedButton` — brand blue as _ink_ on
+  `--color-primary-soft` — is what `New …` and an entity's `Edit` wear. This is V1's own treatment,
+  and it is what keeps a page's loudest element from being a link to a form.
+- `New …` is the collection-level action and uses the tinted treatment; row actions must not compete
+  with it.
 - `Edit` is never placed in a different corner merely because a feature owns bespoke markup.
 - `Delete` must not appear as a permanently visible peer to `New`, `Edit`, `Run` or `Save`.
 - The overflow trigger has the same icon, hit area, accessible label pattern and menu alignment across
@@ -94,7 +106,9 @@ Rules:
 
 ### Workflow actions
 
-Create/edit workflows use the same footer contract:
+Create/edit workflows use the same footer contract. `WorkflowFooter` implements it and is the
+default; Strategy Builder is an intentional exception, documented under "Workflow footer exceptions"
+below:
 
 - Desktop/tablet: actions appear at the bottom-right of the form surface in the order Cancel,
   primary action.
@@ -105,6 +119,19 @@ Create/edit workflows use the same footer contract:
 - Validation errors focus or scroll to the first invalid field; moving actions into a fixed bar must
   not hide the error state.
 
+#### Workflow footer exceptions
+
+`WorkflowFooter` is the default, not a mandate. A screen may keep its own footer when it carries
+state the generic one does not model — and exactly one does today:
+
+**Strategy Builder** keeps its persistent save bar. It is not a Cancel/Submit pair: it reports live
+save status and dirty state, counts outstanding validation issues and uses that count as the control
+that reveals and focuses the first invalid condition, and offers Discard changes beside Save. Moving
+that into `WorkflowFooter` would either teach a shared component what a strategy issue is, or strip
+the editor of an affordance. Neither is an improvement, so the exception is deliberate — do not
+refactor it away to make the vocabulary look tidier. If a second editor ever needs the same
+behaviour, that is the point to generalise, with the shared thing modelling save state explicitly.
+
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
 
@@ -112,14 +139,18 @@ or allocation state, never V1 credits.
 
 Ordinary product surfaces use:
 
-- 16px radius;
-- a light cool border;
-- no shadow or only the subtle equivalent of V1 `shadow-sm`;
-- white background;
-- 12px internal padding on phones and 24px on desktop unless a dense table supplies cell padding.
+- `--radius-lg` (16px);
+- a light cool border (`--color-border`);
+- **no shadow** (`--shadow-surface` is `none`) — V1 measures `box-shadow: none` on every ordinary
+  surface, and a soft blue glow under every panel is the single loudest thing that made V2 read as a
+  different product;
+- white background (`--color-surface`);
+- `--card-pad` internal padding, unless a dense table supplies cell padding.
 
-Large 24-30px radii and blue-tinted elevation are reserved for a true hero, primarily Backtest
-Results. They are not defaults for every `SectionCard`.
+`--radius-hero` (28px) and `--shadow-hero` are reserved for a true hero — today only Backtest
+Results, through `<SectionCard hero>`. They are not defaults for every `SectionCard`. Overlays are
+the only other place elevation is real: `--shadow-menu` for menus and dropdowns, `--shadow-dialog`
+for a modal.
 
 Nested elements use smaller radii than their parent. A nested control, chip or chart frame must not
 look like another page-level card. Do not create equally elevated card-inside-card compositions.
@@ -129,10 +160,15 @@ operational state; they are not decorative section colors.
 
 ## Spacing and width
 
-- Page horizontal padding: 16px phone, 24px tablet, 32px small desktop, 40px large desktop.
-- Page section gap: 24px phone and 32px desktop.
-- Product pages use the available desktop width. A maximum width may protect readability on forms
-  and prose, but must not unnecessarily compress financial tables or charts to 1280px.
+- Page horizontal padding: `--page-pad-mobile` 16px, `--page-pad-tablet` 32px from 600px,
+  `--page-pad-wide` 40px from 1280px — V1's three-step ladder.
+- Page section gap: `--section-gap`, 24px phone and 32px desktop. V1 measures a consistent 32px
+  between page sections on desktop.
+- Product pages use the available desktop width. `PageContainer` takes `width="data" | "reading"`:
+  `data` runs to `--content-max-width` (1600px) for collections, details, charts and results;
+  `reading` caps at `--reading-max-width` (820px) for editors and prose. A route never writes its
+  own max-width. V1 is fluid to a 40px gutter — at 1920px its backtests table is 1838px wide — so a
+  financial table must never be compressed into a reading column.
 - Section headings, table first/last cells and flush content align to the same surface inset.
 - Dense tables use compact row heights; 44px minimum targets apply to touch interactions, not to
   adding desktop whitespace around every label.
@@ -332,3 +368,62 @@ For every collection and detail/workflow screen verify:
 Capture desktop and phone screenshots for Dashboard, Lists, Strategies, Monitors, Backtests, New
 Backtest, one Backtest Result, one Monitor Detail and Stock Details. Compare the hierarchy and
 density with deployed V1, while explicitly documenting any intentional V2 semantic difference.
+
+## Measured V1 reference
+
+The tokens were calibrated against the deployed V1 product read through computed CSS at 390 / 834 /
+1440 / 1920px. The values that mattered:
+
+| Property              | V1 measured                                    | V2 token                          |
+| --------------------- | ---------------------------------------------- | --------------------------------- |
+| Page title (desktop)  | 20px / 600, `#111827`                          | `--text-page-title` at 880px      |
+| Page title (phone)    | 16px / 600                                     | `--text-page-title`               |
+| Result hero title     | 32px / 600                                     | `--text-page-title-hero`          |
+| Emphasis weight       | 500 and 600; 700 used 33× in the whole product | `--weight-emphasis: 600`          |
+| Page surface          | `radius 16px`, `1px #E5E7EB`, `shadow: none`   | `--radius-lg`, `--shadow-surface` |
+| Result hero surface   | `radius 30px`, tinted border, gradient         | `--radius-hero`, `--shadow-hero`  |
+| Overflow menu         | `160×74px`, `radius 8px`, `1px #E5E7EB`        | `--radius-sm`, `--shadow-menu`    |
+| Page padding          | 16 / 32 / 40px                                 | `--page-pad-*`                    |
+| Section gap (desktop) | 32px                                           | `--section-gap`                   |
+| Card padding          | 24px (12px phone)                              | `--card-pad`                      |
+| Content width @1920   | table 1838px, fluid, no cap                    | `--content-max-width: 1600px`     |
+| Collection CTA        | `34px`, `#EDF1FF` fill, `#3B5CCC` ink          | `forms.tintedButton`              |
+| Row hover             | `#F5F7FF`                                      | `--color-row-hover` (`#F5F8FF`)   |
+| App background        | `#FCFCFC`                                      | `--color-background`              |
+| Table header          | 11px / 600 uppercase, tracking 0.88px          | `--text-label-size` + tracking    |
+| Table row height      | 63–77px                                        | cell padding, not a fixed height  |
+
+**What V1 does that V2 deliberately does not reproduce.** V1 runs three competing neutral ramps —
+Tailwind cool greys on the collections, a warm taupe layer on the chrome and forms (`#E8DFDA`,
+`#DFD3CE`, `#F7F2EF`), and a newer cool-blue layer on the dashboard and monitor detail. That is
+drift, not identity. V2 keeps one ramp. V1 also ships no custom focus ring (the browser default
+outline and nothing more), no measurable hover on its primary button, three different greens for a
+positive value, and a separate mobile DOM. V2 keeps its focus ring, its hover states, one green and
+`DataTable`'s single accessible tree.
+
+## What the parity pass changed
+
+Tokens now carry the product's shared visual language: `apps/web/src/styles/tokens.css` owns the
+semantic palette, the radius and elevation scales, the type scale, the standard control sizes and
+the page spacing and width system, and no feature restates one of those. Geometry local to a single
+component stays with that component; `ai/architecture/ui-system.md` draws the line. One part of the
+rule is absolute and holds: a hex colour appears nowhere else in `apps/web/src`. The components that
+consume the tokens:
+
+- `PageContainer` gained `width="data" | "reading"`.
+- `PageHeader` gained `variant="surface" | "plain" | "hero"` (default `surface`) and an `aside` slot.
+- `SectionCard` became a flat `--radius-lg` surface, gained `hero`, and a `flush` surface now
+  **dissolves below 880px** so `DataTable`'s record cards sit on the canvas instead of inside a box.
+- `OverflowMenu` is new and is the only home for Rename / Edit / Enable / Disable / Delete.
+- `CollectionFooter` + `usePagination` are new: page size, visible range and page navigation, applied
+  in the browser over rows the page already holds — no contract change and no extra requests.
+- `WorkflowFooter` is new: Cancel then primary at the bottom-right of a form surface, and a sticky
+  bar above the bottom navigation on a phone. New Backtest uses it; Strategy Builder keeps its own
+  save bar, for the reasons under "Workflow footer exceptions".
+- `forms.module.css` gained `tintedButton` and `inputCompact`; `actions.module.css` **lost** its
+  danger variant, because a destructive action is never a visible peer to the record it destroys.
+
+Every collection is now `PageHeader(surface)` → flush `SectionCard` → `DataTable` →
+`CollectionFooter`, with no second heading. The backtest result leads with `<SectionCard hero>`
+holding identity, status, chart and KPIs, and its run configuration follows in a collapsed
+`<details>`.

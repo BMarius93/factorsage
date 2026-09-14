@@ -9,7 +9,7 @@ import styles from "./admin.module.css";
 export default function AdminPage() {
   return (
     <RequireAuth role="ADMIN">
-      <PageContainer>
+      <PageContainer width="reading">
         <AdminOverview />
       </PageContainer>
     </RequireAuth>

@@ -2,6 +2,17 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import styles from "./PageHeader.module.css";
 
+/**
+ * How the header is framed.
+ *
+ * `surface` — the default — is the white bordered card every collection and entity detail
+ * opens with. `plain` is for editors, where the form surface below already supplies the
+ * visual container and a second one would be a box inside a box. `hero` is for a
+ * result-first screen, where the title is composed *into* the feature's own hero surface
+ * and so brings only the display type, not a second frame.
+ */
+export type PageHeaderVariant = "surface" | "plain" | "hero";
+
 type PageHeaderProps = {
   /** The page's one `<h1>`. */
   readonly title: ReactNode;
@@ -9,10 +20,17 @@ type PageHeaderProps = {
   readonly lead?: ReactNode;
   /** Status pills or counts that belong to the title itself, rendered beside it. */
   readonly badges?: ReactNode;
+  /**
+   * A page-level *fact* aligned to the right of the identity — a quote, a progress
+   * readout. Not an action: it sits where actions sit, but it is something the page
+   * reports rather than something the user can do.
+   */
+  readonly aside?: ReactNode;
   /** Primary/secondary actions for the whole page. */
   readonly actions?: ReactNode;
   /** Back link to the parent collection, rendered above the title. */
   readonly back?: { readonly href: string; readonly label: string };
+  readonly variant?: PageHeaderVariant;
   readonly testId?: string;
 };
 
@@ -28,13 +46,16 @@ export function PageHeader({
   title,
   lead,
   badges,
+  aside,
   actions,
   back,
+  variant = "surface",
   testId,
 }: PageHeaderProps) {
   return (
     <div
       className={styles.wrapper}
+      data-variant={variant}
       {...(testId ? { "data-testid": testId } : {})}
     >
       {back ? (
@@ -52,6 +73,7 @@ export function PageHeader({
           </div>
           {lead ? <p className={styles.lead}>{lead}</p> : null}
         </div>
+        {aside ? <div className={styles.aside}>{aside}</div> : null}
         {actions ? <div className={styles.actions}>{actions}</div> : null}
       </header>
     </div>

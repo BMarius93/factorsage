@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_HOME_HREF,
+  DESKTOP_NAV_ITEMS,
+  MOBILE_NAV_ITEMS,
   PRIMARY_NAV_ITEMS,
   isNavItemActive,
   type NavItem,
 } from "./navigation";
 
 function navItem(href: string): NavItem {
-  return { id: "lists", label: "Lists", href };
+  return { id: "lists", label: "Lists", href, desktopOrder: 1, mobileOrder: 1 };
 }
 
 describe("primary navigation configuration", () => {
@@ -16,8 +18,7 @@ describe("primary navigation configuration", () => {
     expect(PRIMARY_NAV_ITEMS.length).toBeLessThanOrEqual(5);
   });
 
-  it("keeps Dashboard first and as the application home", () => {
-    expect(PRIMARY_NAV_ITEMS[0]?.id).toBe("dashboard");
+  it("keeps Dashboard as the application home", () => {
     expect(APP_HOME_HREF).toBe("/dashboard");
   });
 
@@ -47,6 +48,45 @@ describe("primary navigation configuration", () => {
     const hrefs: readonly string[] = PRIMARY_NAV_ITEMS.map((item) => item.href);
 
     expect(hrefs).toContain(APP_HOME_HREF);
+  });
+});
+
+describe("per-surface navigation ordering", () => {
+  it("leads the desktop topbar with the work, not the dashboard", () => {
+    expect(DESKTOP_NAV_ITEMS.map((item) => item.id)).toEqual([
+      "strategies",
+      "monitors",
+      "backtests",
+      "lists",
+    ]);
+  });
+
+  it("omits Dashboard from the topbar, because the brand mark already links there", () => {
+    expect(DESKTOP_NAV_ITEMS.map((item) => item.href)).not.toContain(
+      APP_HOME_HREF,
+    );
+  });
+
+  it("leads the phone's bottom bar with the dashboard", () => {
+    expect(MOBILE_NAV_ITEMS.map((item) => item.id)).toEqual([
+      "dashboard",
+      "lists",
+      "monitors",
+      "strategies",
+      "backtests",
+    ]);
+  });
+
+  it("keeps every destination reachable on a phone", () => {
+    expect(MOBILE_NAV_ITEMS).toHaveLength(PRIMARY_NAV_ITEMS.length);
+  });
+
+  it("gives each surface a unique position per destination", () => {
+    const desktop = DESKTOP_NAV_ITEMS.map((item) => item.desktopOrder);
+    const mobile = MOBILE_NAV_ITEMS.map((item) => item.mobileOrder);
+
+    expect(new Set(desktop).size).toBe(desktop.length);
+    expect(new Set(mobile).size).toBe(mobile.length);
   });
 });
 

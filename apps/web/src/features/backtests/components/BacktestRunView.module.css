@@ -28,19 +28,19 @@
 .phase {
   color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .percent {
   color: var(--color-primary);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
 
 .track {
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface);
   overflow: hidden;
 }
@@ -48,7 +48,7 @@
 .fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-primary);
   transition: width 240ms ease;
 }
@@ -87,7 +87,7 @@
   margin: 0;
   padding: 0 16px;
   border: 1px dashed var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   background: var(--color-surface-muted);
   color: var(--color-text-secondary);
   font-size: 14px;
@@ -100,15 +100,15 @@
   gap: 8px;
   padding: 16px;
   border: 1px solid var(--color-negative);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-md);
   background: var(--color-negative-soft);
 }
 
 .failureTitle {
   margin: 0;
   color: var(--color-negative);
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
 }
 
 .failureBody {
@@ -164,7 +164,7 @@
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .milestoneList {
@@ -182,7 +182,7 @@
   gap: 6px;
   padding: 3px 8px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-surface-soft);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -191,7 +191,7 @@
 
 .milestoneYear {
   color: var(--color-text-secondary);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .milestoneReturn[data-tone="positive"] {
@@ -220,7 +220,7 @@
   min-width: 96px;
   color: var(--color-text-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-emphasis);
 }
 
 .failureFact dd {
@@ -244,16 +244,57 @@
 .copyButton {
   padding: 2px 8px;
   border: 1px solid var(--color-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-text-body);
   background: var(--color-surface);
   font: inherit;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   cursor: pointer;
 }
 
 .copyButton:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+/* --- Hero chart caption --- */
+
+.chartCaption {
+  margin: 0;
+  max-width: 70ch;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+/* --- Run configuration, below the outcome and collapsed --- */
+
+.configuration {
+  padding: var(--card-pad);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.configurationSummary {
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+  cursor: pointer;
+}
+
+.configurationSummary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--focus-ring);
+}
+
+.configurationCaption {
+  margin: 10px 0 0;
+  max-width: 70ch;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
 }

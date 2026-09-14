@@ -16,6 +16,9 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { CollectionFooter } from "../../../components/ui/CollectionFooter";
+import { usePagination } from "../../../components/ui/use-pagination";
+import actionStyles from "../../../components/ui/actions.module.css";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import {
   StatusBadge,
@@ -177,7 +180,24 @@ export function BacktestsPage() {
       nowrap: true,
       render: (run) => formatTimestamp(run.queuedAt),
     },
+    {
+      key: "actions",
+      header: "Actions",
+      cardRole: "actions",
+      align: "right",
+      nowrap: true,
+      // A run has no maintenance actions — there is no rename and no delete in the
+      // contract — so the column carries only the contextual one, and a run still
+      // executing has nothing to show yet.
+      render: (run) =>
+        isTerminalBacktestStatus(run.status) ? (
+          <Link className={actionStyles.action} href={`/backtests/${run.id}`}>
+            View results
+          </Link>
+        ) : null,
+    },
   ];
+  const paging = usePagination(runs);
 
   return (
     <PageContainer>
@@ -188,7 +208,7 @@ export function BacktestsPage() {
           actions={
             status === "ready" && runs.length > 0 ? (
               <Link
-                className={forms.primaryButton}
+                className={forms.tintedButton}
                 href="/backtests/new"
                 data-testid="new-backtest-button"
               >
@@ -245,20 +265,24 @@ export function BacktestsPage() {
         ) : null}
 
         {status === "ready" && runs.length > 0 ? (
-          <SectionCard
-            id="backtests"
-            title="Run history"
-            aside={`${runs.length} ${runs.length === 1 ? "run" : "runs"}`}
-            flush
-          >
+          <SectionCard ariaLabel="Backtest runs" flush>
             <DataTable
               label="Backtest runs"
               testId="backtests-grid"
               rowTestId="backtest-card"
               columns={columns}
-              rows={runs}
+              rows={paging.visibleRows}
               getRowKey={(run) => run.id}
               clickableRows
+            />
+            <CollectionFooter
+              testId="backtests-footer"
+              noun="runs"
+              total={paging.total}
+              page={paging.page}
+              pageSize={paging.pageSize}
+              onPageChange={paging.setPage}
+              onPageSizeChange={paging.setPageSize}
             />
           </SectionCard>
         ) : null}

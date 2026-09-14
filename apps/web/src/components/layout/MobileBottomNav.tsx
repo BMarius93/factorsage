@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import styles from "./MobileBottomNav.module.css";
 import { NAV_ICONS } from "./nav-icons";
-import { PRIMARY_NAV_ITEMS, isNavItemActive } from "./navigation";
+import { MOBILE_NAV_ITEMS, isNavItemActive } from "./navigation";
 import { guardNavigation } from "./unsaved-changes";
 
 /**
@@ -16,7 +16,7 @@ export function MobileBottomNav() {
 
   return (
     <nav className={styles.bottomNav} aria-label="Primary mobile">
-      {PRIMARY_NAV_ITEMS.map((item) => {
+      {MOBILE_NAV_ITEMS.map((item) => {
         const active = isNavItemActive(pathname, item);
         const Icon = NAV_ICONS[item.id];
 
