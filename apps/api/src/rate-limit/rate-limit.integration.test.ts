@@ -261,6 +261,95 @@ describeRedis("API rate limiting over real Redis", () => {
     });
   });
 
+  describe("window semantics", () => {
+    // What the chosen configuration actually implements, pinned rather than asserted in prose.
+    // `RateLimiterRedis` with `points`/`duration` and no `execEvenly` or `blockDuration` is a
+    // **fixed-window counter whose window is anchored to the first request**, not a sliding
+    // window, not a rolling window and not a token bucket. `ai/architecture/rate-limiting.md`
+    // documents it in those words; these are the observations behind them.
+
+    it("starts the window at the first request and sizes its TTL from the policy", async () => {
+      await request(app.getHttpServer())
+        .get("/probe/admin")
+        .set("x-test-user", "window-start")
+        .expect(200);
+
+      const key = `${namespace}:admin-operation:u:window-start`;
+      const ttl = await redis.pttl(key);
+      const duration = RATE_LIMIT_POLICIES["admin-operation"].durationSeconds;
+      // Within a breath of the full duration: the window began now, not on a clock boundary.
+      expect(ttl).toBeGreaterThan(duration * 1000 - 5_000);
+      expect(ttl).toBeLessThanOrEqual(duration * 1000);
+    });
+
+    it("does not extend the window on later requests, including refused ones", async () => {
+      // The property that makes it a fixed window rather than a sliding one: only the request
+      // that creates the key sets its TTL. A caller cannot push their own reset further away by
+      // continuing to hammer — which is also why `Retry-After` stays truthful under a retry loop.
+      const limit = RATE_LIMIT_POLICIES["admin-operation"].points;
+      const key = `${namespace}:admin-operation:u:no-extension`;
+
+      await request(app.getHttpServer())
+        .get("/probe/admin")
+        .set("x-test-user", "no-extension")
+        .expect(200);
+      const first = await redis.pttl(key);
+
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      for (let i = 1; i < limit; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/admin")
+          .set("x-test-user", "no-extension")
+          .expect(200);
+      }
+      // Over the limit as well: an over-consumption must not restart the clock either.
+      await request(app.getHttpServer())
+        .get("/probe/admin")
+        .set("x-test-user", "no-extension")
+        .expect(429);
+
+      const later = await redis.pttl(key);
+      expect(later).toBeLessThan(first);
+    }, 30_000);
+
+    it("admits up to twice the allowance across a window boundary", async () => {
+      // The accepted cost of a fixed window, demonstrated rather than hidden: a caller may spend
+      // the whole allowance just before the window ends and the whole allowance again just after,
+      // so a short interval spanning the boundary can carry 2 x points. For abuse and capacity
+      // protection that is fine — the sustained rate is still bounded by the policy — and it is
+      // documented instead of being papered over with a custom sliding window.
+      const limit = RATE_LIMIT_POLICIES["admin-operation"].points;
+      const actor = "boundary-burst";
+      const key = `${namespace}:admin-operation:u:${actor}`;
+
+      let admitted = 0;
+      for (let i = 0; i < limit; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/admin")
+          .set("x-test-user", actor)
+          .expect(200);
+        admitted += 1;
+      }
+      await request(app.getHttpServer())
+        .get("/probe/admin")
+        .set("x-test-user", actor)
+        .expect(429);
+
+      // End the window the only way it ever ends: the key expires.
+      await redis.pexpire(key, 1);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      for (let i = 0; i < limit; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/admin")
+          .set("x-test-user", actor)
+          .expect(200);
+        admitted += 1;
+      }
+      expect(admitted).toBe(limit * 2);
+    }, 30_000);
+  });
+
   describe("isolation", () => {
     it("does not let one user consume another user's allowance", async () => {
       const limit = RATE_LIMIT_POLICIES["admin-operation"].points;
@@ -356,6 +445,71 @@ describeRedis("API rate limiting over real Redis", () => {
         .expect(429);
     });
 
+    it("never spends the shared bucket on a request the personal bucket already refused", async () => {
+      // The harm this prevents: sixty per hour is about three users' worth, so a caller whose own
+      // allowance is gone could lock their whole office out of an endpoint they never touched,
+      // just by retrying.
+      const policy = RATE_LIMIT_POLICIES["backtest-execution"];
+      const user = "drains-the-nat";
+
+      for (let i = 0; i < policy.points; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/backtest")
+          .set("x-test-user", user)
+          .expect(200);
+      }
+
+      const [sharedKey] = await redis.keys(
+        `${namespace}:backtest-execution:ip:*`,
+      );
+      expect(sharedKey).toBeDefined();
+      const before = Number(await redis.get(sharedKey as string));
+      expect(before).toBe(policy.points);
+
+      for (let i = 0; i < 8; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/backtest")
+          .set("x-test-user", user)
+          .expect(429);
+      }
+
+      expect(
+        Number(await redis.get(sharedKey as string)),
+        "eight doomed retries must cost the shared bucket nothing",
+      ).toBe(before);
+    }, 30_000);
+
+    it("never spends a caller's own bucket on a request the shared bucket refused", async () => {
+      // The mirror case. A caller refused because of their neighbours must not also lose the
+      // allowance they will need once the shared window clears — an automatic retry would
+      // otherwise empty it for them.
+      const policy = RATE_LIMIT_POLICIES["backtest-execution"];
+      const sharedLimit = policy.secondary.points;
+
+      let onShared = 0;
+      for (let filler = 0; onShared < sharedLimit; filler += 1) {
+        for (let i = 0; i < policy.points && onShared < sharedLimit; i += 1) {
+          await request(app.getHttpServer())
+            .get("/probe/backtest")
+            .set("x-test-user", `filler-${filler}`)
+            .expect(200);
+          onShared += 1;
+        }
+      }
+
+      const fresh = "innocent-neighbour";
+      for (let i = 0; i < 5; i += 1) {
+        await request(app.getHttpServer())
+          .get("/probe/backtest")
+          .set("x-test-user", fresh)
+          .expect(429);
+      }
+
+      const own = await redis.get(`${namespace}:backtest-execution:u:${fresh}`);
+      // Either untouched, or created and handed straight back. Never a spent point.
+      expect(own === null || Number(own) === 0).toBe(true);
+    }, 60_000);
+
     it("refuses when either bucket of a combined policy is exhausted", async () => {
       const policy = RATE_LIMIT_POLICIES["backtest-execution"];
       const perUser = policy.points;
@@ -403,6 +557,58 @@ describeRedis("API rate limiting over real Redis", () => {
       expect(allowed).toBe(limit);
       expect(refused).toBe(attempts - limit);
     }, 30_000);
+
+    it("cannot exceed either bucket of a combined policy under concurrency", async () => {
+      // The property compensation must not break: refunds move a counter *down*, so the question
+      // is whether two requests can both be admitted against one remaining point. They cannot —
+      // every consume is still a single atomic script, and a refund only ever follows a refusal.
+      const policy = RATE_LIMIT_POLICIES["backtest-execution"];
+      const perUser = policy.points;
+      const sharedLimit = policy.secondary.points;
+      const users = 6;
+      const attemptsEach = perUser + 10;
+
+      // Attribution comes from the call site rather than from the response, so a caller's
+      // admitted count is never inferred from a parsed header.
+      const attempts = Array.from({ length: users }, (_, user) =>
+        Array.from({ length: attemptsEach }, async () => {
+          const actor = `race-${user}`;
+          const response = await request(app.getHttpServer())
+            .get("/probe/backtest")
+            .set("x-test-user", actor);
+          return { actor, status: response.status };
+        }),
+      ).flat();
+      const responses = await Promise.all(attempts);
+
+      const admitted = responses.filter((r) => r.status === 200);
+      expect(admitted.length).toBeLessThanOrEqual(sharedLimit);
+
+      // And no single caller got more than their own allowance either.
+      const perUserCounts = new Map<string, number>();
+      for (const response of admitted) {
+        perUserCounts.set(
+          response.actor,
+          (perUserCounts.get(response.actor) ?? 0) + 1,
+        );
+      }
+      expect(perUserCounts.size).toBeGreaterThan(1);
+      for (const [actor, count] of perUserCounts) {
+        expect(
+          count,
+          `${actor} exceeded its own allowance`,
+        ).toBeLessThanOrEqual(perUser);
+      }
+
+      // Every admitted request is accounted for in the shared counter; refunds must not have
+      // driven it below what was actually served.
+      const [sharedKey] = await redis.keys(
+        `${namespace}:backtest-execution:ip:*`,
+      );
+      expect(
+        Number(await redis.get(sharedKey as string)),
+      ).toBeGreaterThanOrEqual(admitted.length);
+    }, 60_000);
 
     it("shares one allowance across independent application instances", async () => {
       const second = await createInstance();

@@ -102,61 +102,58 @@ export class RateLimitService {
         : []),
     ];
 
-    const outcomes = await Promise.all(
-      buckets.map((resolved) => this.spend(resolved)),
-    );
+    /**
+     * Buckets are spent **in order, stopping at the first refusal**, and anything already spent is
+     * given back when the request ends up refused anyway. Both halves matter, and they fix
+     * different harms.
+     *
+     * Spending them concurrently — the obvious shape, and what this did first — means a caller who
+     * has already exhausted their personal allowance keeps draining the shared per-IP bucket with
+     * every doomed retry. The shared bucket is only a few users' worth by design, so one person
+     * with a retrying client can lock their whole office out of an endpoint they never touched.
+     * Stopping at the first refusal makes that impossible: nothing downstream of it is consulted.
+     *
+     * The mirror case is milder but just as wrong. When the shared bucket is full, a caller whose
+     * own allowance is untouched is refused — and, spending both, would burn their personal points
+     * on refusals they cannot influence, so an automatic retry loop would leave them with nothing
+     * once the shared window cleared. Handing back what an earlier bucket spent is what stops
+     * that.
+     *
+     * **Every individual consume stays one atomic Redis script.** Nothing here reads a counter to
+     * decide whether to spend it — that would be a check-then-act race across instances, and a
+     * wider limit than the one configured. Ordering and compensation are decisions about *which
+     * atomic operations to issue*, never a substitute for their atomicity. The refund direction is
+     * the safe one: it can only ever cause a request to be refused that might have been allowed
+     * had it arrived a moment later, never the reverse. `rate-limit.integration.test.ts` proves
+     * under real concurrency that neither bucket's limit can be exceeded.
+     */
+    const spent: ResolvedBucket[] = [];
+    const allowed: Array<{ result: RateLimiterRes; bucket: ResolvedBucket }> =
+      [];
 
-    const limited = outcomes.flatMap((outcome, index) =>
-      outcome.kind === "limited"
-        ? [{ outcome, bucket: buckets[index] as ResolvedBucket }]
-        : [],
-    );
-    if (limited.length > 0) {
-      // The longest wait among the exhausted buckets: retrying before that one refills would be
-      // refused again, so a shorter hint would be a lie the client acts on.
-      const retryAfterSeconds = Math.max(
-        ...limited.map(({ outcome }) => seconds(outcome.result.msBeforeNext)),
-      );
-      const worst = limited[0] as {
-        outcome: BucketOutcome & { kind: "limited" };
-        bucket: ResolvedBucket;
-      };
-      this.logger.warn({
-        event: "rate-limit.request.refused",
-        policy,
-        actorUserId: request.authUser?.id ?? null,
-        actorKind: worst.bucket.bucket.actor,
-        operation: `${request.method} ${request.route?.path ?? request.path}`,
-        limit: worst.bucket.bucket.points * this.config.allowanceMultiplier,
-        consumedPoints: worst.outcome.result.consumedPoints,
-        retryAfterSeconds,
-      });
-      throw new RateLimitError(
-        `Too many requests. Retry in ${retryAfterSeconds} second${
-          retryAfterSeconds === 1 ? "" : "s"
-        }.`,
-        {
-          code: RATE_LIMITED_CODE,
-          policy,
-          retryAfterSeconds,
-          limit: worst.bucket.bucket.points * this.config.allowanceMultiplier,
-          remaining: 0,
-        },
-      );
+    for (const bucket of buckets) {
+      const outcome = await this.spend(bucket);
+
+      if (outcome.kind === "allowed") {
+        spent.push(bucket);
+        allowed.push({ result: outcome.result, bucket });
+        continue;
+      }
+
+      if (outcome.kind === "limited") {
+        await this.refund(spent, policy);
+        throw this.refusal(policy, request, bucket, outcome.result);
+      }
+
+      // The store did not answer. Give back whatever an earlier bucket already took — but only
+      // when this policy refuses on a store failure. A fail-open policy serves the request, and a
+      // served request should cost its point like any other.
+      if (definition.onRedisFailure === "deny") {
+        await this.refund(spent, policy);
+      }
+      return this.handleUnavailable(policy, request, outcome.error);
     }
 
-    const unavailable = outcomes.find(
-      (outcome) => outcome.kind === "unavailable",
-    );
-    if (unavailable?.kind === "unavailable") {
-      return this.handleUnavailable(policy, request, unavailable.error);
-    }
-
-    const allowed = outcomes.flatMap((outcome, index) =>
-      outcome.kind === "allowed"
-        ? [{ result: outcome.result, bucket: buckets[index] as ResolvedBucket }]
-        : [],
-    );
     if (allowed.length === 0) {
       return null;
     }
@@ -173,6 +170,74 @@ export class RateLimitService {
       remaining: tightest.result.remainingPoints,
       resetSeconds: seconds(tightest.result.msBeforeNext),
     };
+  }
+
+  /** Builds the `429`, and logs the refusal once with the bucket that actually caused it. */
+  private refusal(
+    policy: RateLimitPolicyName,
+    request: AuthenticatedRequest,
+    bucket: ResolvedBucket,
+    result: RateLimiterRes,
+  ): RateLimitError {
+    const retryAfterSeconds = seconds(result.msBeforeNext);
+    const limit = bucket.bucket.points * this.config.allowanceMultiplier;
+
+    this.logger.warn({
+      event: "rate-limit.request.refused",
+      policy,
+      actorUserId: request.authUser?.id ?? null,
+      actorKind: bucket.bucket.actor,
+      operation: `${request.method} ${request.route?.path ?? request.path}`,
+      limit,
+      consumedPoints: result.consumedPoints,
+      retryAfterSeconds,
+    });
+
+    return new RateLimitError(
+      `Too many requests. Retry in ${retryAfterSeconds} second${
+        retryAfterSeconds === 1 ? "" : "s"
+      }.`,
+      {
+        code: RATE_LIMITED_CODE,
+        policy,
+        retryAfterSeconds,
+        limit,
+        remaining: 0,
+      },
+    );
+  }
+
+  /**
+   * Hands back the points earlier buckets took for a request that is being refused anyway.
+   *
+   * Best-effort by design. A refund that fails leaves one point spent — the behaviour this code
+   * replaced, for one request — whereas letting it throw would turn a `429` into a `500` and lose
+   * the answer the caller actually needs.
+   *
+   * The library's `reward` is one atomic `INCRBY -1` on the same key, under the same script as
+   * `consume`. Its one sharp edge is that the script recreates a key that has expired in between,
+   * leaving `-1` and a fresh window — worth exactly one extra request for that actor, and only if
+   * the window happens to end inside the sub-millisecond gap between the consume and the refund.
+   * That bound is why this uses the library's operation rather than a hand-written script.
+   */
+  private async refund(
+    buckets: readonly ResolvedBucket[],
+    policy: RateLimitPolicyName,
+  ): Promise<void> {
+    await Promise.all(
+      buckets.map(async (bucket) => {
+        try {
+          await this.withTimeout(bucket.limiter.reward(bucket.key, 1));
+        } catch (err) {
+          this.logger.debug({
+            event: "rate-limit.refund.failed",
+            policy,
+            actorKind: bucket.bucket.actor,
+            err,
+          });
+        }
+      }),
+    );
   }
 
   /**
@@ -242,7 +307,9 @@ export class RateLimitService {
    * and leaving its rejection unobserved would crash the process through the `unhandledRejection`
    * handler `main.ts` installs.
    */
-  private withTimeout(promise: Promise<RateLimiterRes>): Promise<RateLimiterRes> {
+  private withTimeout(
+    promise: Promise<RateLimiterRes>,
+  ): Promise<RateLimiterRes> {
     let timer: NodeJS.Timeout | undefined;
     const settled = promise.finally(() => {
       if (timer) {

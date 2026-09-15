@@ -111,6 +111,40 @@ smaller lie. See §6.
 FactorSage-owned code is policy definitions, actor selection, HTTP semantics, observability,
 configuration and tests. No distributed counter algorithm was written.
 
+### The algorithm, named accurately
+
+`points` + `duration`, with `execEvenly` and `blockDuration` both off, is a **fixed-window counter
+anchored to the first request**. It is not a sliding window, not a rolling window and not a token
+bucket, and should not be described as any of them.
+
+One Redis script per consume does the whole thing:
+
+```lua
+redis.call('set', KEYS[1], 0, 'EX', ARGV[2], 'NX')   -- create at 0 *only* if absent
+local consumed = redis.call('incrby', KEYS[1], ARGV[1])
+local ttl = redis.call('pttl', KEYS[1])
+```
+
+Which gives, precisely:
+
+- **The window starts on the first request that finds no key** — not on a wall-clock boundary. Two
+  callers who first appear at different moments have windows offset by exactly that difference.
+- **The TTL is written once, when the key is created.** Later requests never extend it, including
+  requests that are over the limit. A caller cannot push their own reset further away by hammering,
+  which is also what keeps `Retry-After` truthful under a retry loop.
+- **The counter resets by expiry**, exactly `duration` after that first request. There is no decay
+  and no partial refill: the allowance returns all at once.
+- **`msBeforeNext` is the key's remaining PTTL**, so `Retry-After` is a measurement, not an estimate.
+
+**A caller can therefore spend up to twice the allowance across a window boundary** — all of it just
+before the reset and all of it again just after. That is the accepted cost of a fixed window, and it
+is fine here: these policies exist to bound sustained abuse and expensive work, and a brief doubling
+at a boundary does neither. Replacing a mature atomic library with a custom sliding window to smooth
+it would mean owning a distributed algorithm this repository deliberately does not.
+
+`rate-limit.integration.test.ts` pins all four properties, the boundary burst included, so the
+description above is observed behaviour rather than a reading of the source.
+
 ---
 
 ## 4. The policy catalog
@@ -118,19 +152,24 @@ configuration and tests. No distributed counter algorithm was written.
 `apps/api/src/rate-limit/rate-limit-policies.ts` is the one authoritative table. No route carries a
 number; changing a limit is one edit there.
 
-| Policy               | Allowance                          | Actor   | On Redis failure | Applies to                                                                        |
-| -------------------- | ---------------------------------- | ------- | ---------------- | --------------------------------------------------------------------------------- |
-| `auth-sensitive`     | 10 / 5 min                         | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes        |
-| `session-probe`      | 120 / min                          | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`       |
-| `stock-search`       | 60 / min                           | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                      |
-| `stock-read`         | 180 / min                          | user→IP | allow            | the five `/stocks/{symbol}*` reads                                                |
-| `standard-read`      | 240 / min                          | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health` |
-| `progress-poll`      | 300 / min                          | user→IP | allow            | `GET /backtests/{runId}/progress`                                                 |
-| `mutation`           | 60 / min                           | user→IP | allow            | list, strategy and recent-view writes                                             |
-| `monitor-mutation`   | 30 / min                           | user→IP | allow            | monitor create / update / delete                                                  |
-| `backtest-execution` | 20 / hour **+ 60 / hour per IP**   | user→IP | allow            | `POST /backtests`                                                                 |
-| `billing-mutation`   | 20 / 5 min **+ 60 / 5 min per IP** | user→IP | **deny**         | checkout, portal, change, refresh                                                 |
-| `admin-operation`    | 10 / hour                          | user→IP | **deny**         | `POST /admin/securities/sync`                                                     |
+<!-- Pinned to the catalog by `apps/api/src/rate-limit/rate-limit-docs.test.ts`: the policy,
+     actor, failure mode and both allowances in every row are parsed from this table and
+     compared with `rate-limit-policies.ts`. Keep the `<points> / [count] <unit>` cell shape. -->
+
+| Policy               | Per actor  | Shared per-IP bucket | Actor   | On Redis failure | Applies to                                                                        |
+| -------------------- | ---------- | -------------------- | ------- | ---------------- | --------------------------------------------------------------------------------- |
+| `auth-sensitive`     | 20 / 5 min | —                    | IP      | **deny**         | login, register, verify, resend, forgot/reset password, both Google routes        |
+| `session-probe`      | 120 / min  | —                    | user→IP | allow            | `GET /auth/me`, `/auth/providers`, `POST /auth/logout`, `GET /entitlements`       |
+| `stock-search`       | 60 / min   | —                    | user→IP | allow            | `GET /stocks/search`, `GET /recent-searches`                                      |
+| `stock-read`         | 180 / min  | —                    | user→IP | allow            | the five `/stocks/{symbol}*` reads                                                |
+| `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health` |
+| `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                 |
+| `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes                                             |
+| `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                  |
+| `backtest-execution` | 60 / hr    | 180 / hr             | user→IP | allow            | `POST /backtests`                                                                 |
+| `billing-mutation`   | 20 / 5 min | 60 / 5 min           | user→IP | **deny**         | checkout, portal, change                                                          |
+| `billing-refresh`    | 60 / 5 min | 180 / 5 min          | user→IP | **deny**         | `POST /billing/refresh`, which the client polls                                   |
+| `admin-operation`    | 10 / hr    | —                    | user→IP | **deny**         | `POST /admin/securities/sync`                                                     |
 
 Sizing is from how the product's own UI calls each endpoint, plus headroom, so ordinary use never
 reaches one:
@@ -145,8 +184,23 @@ reaches one:
 - **`progress-poll`** — `BACKTEST_RUNNING_POLL_INTERVAL_MS` is one second per open run. Five per
   second leaves room for several concurrent runs plus a reload. This is the one allowance set by a
   machine rather than by a person.
-- **`backtest-execution`** — bounds how fast a queue can be filled with work a worker will execute
-  later. How many may _run_ at once is `backtests.maxConcurrentRuns`, an entitlement, and stays one.
+- **`backtest-execution`** — **not** a bound on the queue: `assertBacktestConcurrency` counts
+  `QUEUED` with the running statuses inside the writing transaction, so the entitlement already caps
+  a caller's in-flight runs at one or two and nobody can queue hundreds however fast they ask. This
+  bounds the cost of _asking_ — an advisory lock, an entitlement resolution, and for an accepted one
+  a snapshot of every security in the list. Sized knowing that a submission the concurrency
+  entitlement refuses still spends a point, because the limiter runs before the handler: a caller
+  with one slot who clicks Run again mid-run pays for the `403`, and the allowance has to absorb
+  that without punishing a normal iteration loop.
+- **`billing-refresh`** — split from `billing-mutation` for the same reason `progress-poll` is split
+  from `standard-read`: the client polls it. Returning from hosted checkout runs a bounded settle
+  loop of six attempts, so three checkout round trips under the money-moving allowance would answer
+  `429` on the billing page immediately after a payment. Its siblings stay tight because they are
+  clicked, not polled.
+
+The two rate-limit policies that touch backtests and billing are deliberately **not** doing the
+entitlement's job. `maxConcurrentRuns` decides how much work may execute; these decide how often an
+endpoint may be asked. Neither is a substitute for the other, and neither varies by plan.
 
 `RATE_LIMIT_ALLOWANCE_MULTIPLIER` scales every policy at once, so a deployment can widen or tighten
 after measuring its own traffic without editing code and without being able to silently disable one
@@ -200,9 +254,35 @@ carrier-grade NAT should raise `RATE_LIMIT_ALLOWANCE_MULTIPLIER` and watch
 class, which is exactly the signal for this.
 
 **Combined protection** exists where one origin creating several accounts is a realistic path:
-`backtest-execution` and `billing-mutation` each consume a per-user bucket _and_ a wider per-IP
+`backtest-execution` and `billing-mutation` each carry a per-user bucket _and_ a wider per-IP
 bucket, and are refused if either is exhausted. The IP bucket is sized several times the per-user
 one so a shared office is never what trips it.
+
+### How a two-bucket policy spends, exactly
+
+**A refused request spends nothing.** Buckets are consumed in order — per-user first, then the
+shared per-IP one — stopping at the first refusal, and anything an earlier bucket already took is
+handed back when the request is refused anyway.
+
+Both halves close a real hole, and the first is the serious one:
+
+| Situation                                            | Before                                                                                                              | Now                                     |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Caller's own allowance gone, they keep retrying      | each doomed retry also spent a shared-bucket point, so one person could lock their whole office out of the endpoint | the shared bucket is never consulted    |
+| Shared bucket full, caller's own allowance untouched | each refusal also spent one of their own points, so a retry loop emptied an allowance they had not used             | their own point is handed straight back |
+
+**This does not weaken distributed correctness.** Every consume is still one atomic Redis script;
+nothing reads a counter to decide whether to spend it, which would be a check-then-act race and a
+wider limit than the one configured. Ordering and compensation decide _which_ atomic operations to
+issue, never how atomic they are. The compensation direction is the safe one: a refund can only
+cause a request to be refused that might have been allowed a moment later — never the reverse — so
+neither bucket's limit can be exceeded. `rate-limit.integration.test.ts` proves that under real
+concurrency across six callers sharing one address.
+
+The one sharp edge, stated rather than hidden: the library's `reward` recreates a key that expired
+in the sub-millisecond gap between the consume and the refund, leaving it at `-1` with a fresh
+window — worth exactly one extra request for that actor. That bound is why the library's own
+operation is used rather than a hand-written script.
 
 ### IP and proxy assumptions
 
@@ -263,7 +343,15 @@ untouched and "slow down" would be a lie they act on.
 The API **starts** with Redis down: the connect failure is logged and survivable, ioredis reconnects
 in the background, and until it does each policy's own decision applies.
 
-`rate-limit.failure.test.ts` covers all of it, including the hanging-store case, and needs no Redis.
+**A store failure part-way through a two-bucket policy** follows the same rule as a refusal: give
+back what an earlier bucket took _when the request is refused_, and keep it when the request is
+served. A fail-closed policy whose shared bucket cannot be reached answers `503` with the caller's
+own allowance untouched; a fail-open policy serves the request and charges it like any other served
+request, because refunding there would let a caller spend an unlimited number of them for the
+duration of the outage.
+
+`rate-limit.failure.test.ts` covers all of it — the hanging store, a partitioned store that answers
+one bucket and not the other, both failure modes — and needs no Redis.
 
 ---
 
@@ -276,7 +364,9 @@ running.
 
 FactorSage already had the right answer and this work did not change it, only proved and documented
 it. `RedisFmpRequestGate` (`packages/stock-data/src/fmp-gate.ts`) is a Redis-backed queue with a
-bounded wait: a concurrency limit, a rolling request window, a shared `Retry-After` cooldown, a
+bounded wait: a concurrency limit held as a sorted set of leases (genuinely rolling — expired leases
+are dropped by score on every acquire), a **fixed** request window built from the same `INCR`
+plus write-TTL-once shape the HTTP limiter uses, a shared `Retry-After` cooldown, a
 bounded queue depth and a bounded queue wait — all in Redis under `stock-data:v2:fmp:*`, so every
 process spends one allowance:
 
@@ -416,12 +506,46 @@ credential is ever logged.
 pnpm openapi:validate        # official 3.1 schema + every $ref resolvable
 ```
 
-It is kept synchronized by `apps/api/src/openapi/openapi.contract.test.ts`, which compiles the real
-application and requires the document to match it operation for operation — including each route's
-`@RateLimit` policy, its `429`, its `503` where the policy fails closed, its cookie authentication
-and its `401`/`403`. **This is the answer to "rate limiting exists in code while the specification
+`apps/api/src/openapi/openapi.contract.test.ts` compiles the real application and checks the
+document against it. **This is the answer to "rate limiting exists in code while the specification
 silently forgets it":** the same route metadata is read twice, once to enforce and once to check the
 document, with no code generation and no framework.
+
+It is worth being exact about how far that reaches, because "cannot drift" is a stronger claim than
+any test here supports.
+
+**Mechanically guaranteed.** A change that breaks one of these fails the build:
+
+| Property                                                                   | How                                                     |
+| -------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Every mounted operation is documented, and none is invented                | route table from `DiscoveryService`, compared both ways |
+| Each operation's `x-rate-limit` names the policy the route declares        | the same `@RateLimit` metadata the interceptor reads    |
+| `429` on every rate-limited operation, and on no exempt one                | route policy vs documented responses                    |
+| `503` on every operation whose policy fails closed                         | catalog `onRedisFailure`                                |
+| `cookieAuth` exactly where `CookieAuthGuard` is applied, and nowhere else  | guard metadata                                          |
+| `401` on every session-required operation, `403` on every role-guarded one | guard metadata                                          |
+| The documented success status is the one the handler will send             | Nest's `@HttpCode` metadata, or its `POST` default      |
+| Exactly one `2xx` per operation                                            | —                                                       |
+| Every documented `4xx`/`5xx` carries a machine-readable body               | —                                                       |
+| Every path parameter in the route template is declared                     | route template vs parameters                            |
+| `info.x-rate-limit-policies` equals the catalog, value for value           | direct comparison                                       |
+| No prose anywhere in the document restates an allowance                    | scan of every `description`/`summary`                   |
+| Valid OpenAPI 3.1, every `$ref` resolvable                                 | official schema + reference resolution                  |
+
+**Hand-maintained, and not checked by anything.** These are as good as the author made them:
+
+- request and response **schemas** — nothing compares them with the hand-written `parse*Request`
+  functions or with what a controller actually returns;
+- **validation constraints** (`maxLength`, `minimum`, enum members) — these were transcribed from
+  the parsers and the contracts package by hand;
+- **examples** — not validated against their own schemas;
+- **prose descriptions** — true when written, and only the allowance scan above is enforced;
+- **status-code completeness** beyond the rows in the first table: an operation that can answer
+  `409` is not required to document it.
+
+Closing the schema half honestly would mean generating the document from the runtime validators,
+and this repository validates with hand-written parsers rather than a schema library — so that is a
+real project, not a test. Until then the boundary is written down instead of implied.
 
 `info.x-rate-limit-policies` mirrors the catalog number for number, and the test compares it with
 the code — so changing a limit without touching the document fails the build.

@@ -110,7 +110,10 @@ Read `ai/README.md` before substantial work.
     `rate-limit-coverage.test.ts` fails the build otherwise. Counters are keyed by user id for
     authenticated traffic and by client IP otherwise — never by plan, and never by a submitted email
     address. `X-Forwarded-For` is trusted only as far as `RATE_LIMIT_TRUSTED_PROXY_HOPS` says a
-    deployment really has proxies. Redis-failure behaviour is a per-policy decision — capacity
+    deployment really has proxies. A policy may carry a second, wider per-IP bucket; buckets are
+    spent in order and **a refused request spends nothing**, so one caller's doomed retries can
+    never drain a shared allowance their colleagues depend on, and every consume stays one atomic
+    Redis script rather than a read-then-write. Redis-failure behaviour is a per-policy decision — capacity
     policies fail open, security and payment policies fail closed with `503` and
     `RATE_LIMIT_UNAVAILABLE` — and there is never a process-local fallback limiter, which would
     report a distributed guarantee the system does not have. Outbound provider throttling is a

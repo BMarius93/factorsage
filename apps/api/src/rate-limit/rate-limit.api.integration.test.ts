@@ -52,6 +52,7 @@ describeRedis("rate limiting on the real API surface", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let redis: Redis;
+  let hashFor: (plain: string) => Promise<string>;
 
   beforeAll(async () => {
     loadRootEnv();
@@ -79,7 +80,9 @@ describeRedis("rate limiting on the real API surface", () => {
 
     prisma = moduleRef.get(PrismaService);
     redis = app.get<Redis>(RATE_LIMIT_REDIS);
-    const passwordHash = await moduleRef.get(PasswordService).hash(password);
+    const passwords = moduleRef.get(PasswordService);
+    hashFor = (plain: string) => passwords.hash(plain);
+    const passwordHash = await hashFor(password);
     await prisma.user.create({
       data: { email, passwordHash, emailVerifiedAt: new Date(), plan: "PRO" },
     });
@@ -194,6 +197,68 @@ describeRedis("rate limiting on the real API surface", () => {
         Number(response.headers[RATE_LIMIT_HEADERS.remaining.toLowerCase()]),
       ).toBeLessThan(RATE_LIMIT_POLICIES["standard-read"].points);
     });
+
+    it("never keys a credential counter by the submitted email address", async () => {
+      // Explicitly forbidden: keying a login limiter by account lets anybody lock a known victim
+      // out by spending the victim's allowance for them. The counter follows the origin instead,
+      // which is what a stuffing run actually has to spend. This asserts the shape of the key, so
+      // the rule cannot be undone by an edit that looks reasonable in isolation.
+      await request(app.getHttpServer())
+        .post("/auth/login")
+        .send({ email, password: "Wrong-password-000" })
+        .expect(401);
+
+      const keys = await redis.keys(`${namespace}:auth-sensitive:*`);
+      expect(keys.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        expect(key, "credential counters are keyed by origin").toContain(
+          ":ip:",
+        );
+        expect(key).not.toContain("@");
+        expect(key.toLowerCase()).not.toContain(email.split("@")[0] as string);
+      }
+    });
+
+    it("keeps two colleagues behind one address off each other's read allowance", async () => {
+      // The shared-NAT case that must not regress: an office presents one IP, and two signed-in
+      // users there must not spend each other's ordinary reads. Both agents here genuinely share
+      // one address — loopback — so this only passes because the counter follows the session.
+      const second = `rate-limit-colleague-${suffix}@example.test`;
+      const passwordHash = await hashFor(password);
+      await prisma.user.create({
+        data: {
+          email: second,
+          passwordHash,
+          emailVerifiedAt: new Date(),
+          plan: "PRO",
+        },
+      });
+      try {
+        const a = request.agent(app.getHttpServer());
+        const b = request.agent(app.getHttpServer());
+        await a.post("/auth/login").send({ email, password }).expect(200);
+        await b
+          .post("/auth/login")
+          .send({ email: second, password })
+          .expect(200);
+
+        // Spend a visible amount of A's allowance, then check B still has a full one.
+        let lastA: request.Response | undefined;
+        for (let i = 0; i < 5; i += 1) {
+          lastA = await a.get("/lists").expect(200);
+        }
+        const firstB = await b.get("/lists").expect(200);
+
+        const remaining = (response: request.Response) =>
+          Number(response.headers[RATE_LIMIT_HEADERS.remaining.toLowerCase()]);
+        const limit = RATE_LIMIT_POLICIES["standard-read"].points;
+
+        expect(remaining(lastA as request.Response)).toBe(limit - 5);
+        expect(remaining(firstB)).toBe(limit - 1);
+      } finally {
+        await prisma.user.deleteMany({ where: { email: second } });
+      }
+    }, 30_000);
 
     it("counts an authenticated caller against their user id, not their address", async () => {
       // Both agents share one loopback address, so if the key were the IP they would share an

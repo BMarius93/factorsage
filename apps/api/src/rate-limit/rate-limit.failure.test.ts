@@ -69,12 +69,60 @@ class OutageController {
     return { ok: true };
   }
 
-  /** `onRedisFailure: "deny"` — reaches the payment provider. */
+  /** `onRedisFailure: "deny"` — reaches the payment provider. Carries a secondary bucket. */
   @RateLimit("billing-mutation")
   @Get("billing")
   billing(): { ok: true } {
     return { ok: true };
   }
+
+  /** `onRedisFailure: "allow"`, and also carries a secondary bucket. */
+  @RateLimit("backtest-execution")
+  @Get("backtest")
+  backtest(): { ok: true } {
+    return { ok: true };
+  }
+}
+
+/**
+ * A store that answers for some keys and fails for others.
+ *
+ * Built to reproduce the one case a whole-store outage cannot: Redis answering the first bucket of
+ * a two-bucket policy and failing the second, mid-request. What happens to the point the first
+ * bucket already took is a real decision, and this is where it is pinned.
+ *
+ * It implements exactly the surface `RateLimiterRedis` uses against an ioredis client — a `status`,
+ * the custom `rlflxIncr` command installed through `defineCommand`, and a counter per key — so
+ * consume and reward both travel the same path they do in production.
+ */
+function partitionedRedis(failWhen: (key: string) => boolean): {
+  client: unknown;
+  counters: Map<string, number>;
+} {
+  const counters = new Map<string, number>();
+  const client: Record<string, unknown> = {
+    status: "ready",
+    defineCommand(name: string) {
+      client[name] = (args: string[]): Promise<[number, number]> => {
+        const key = args[0] as string;
+        const points = Number(args[1]);
+        if (failWhen(key)) {
+          return Promise.reject(new Error("store partition"));
+        }
+        const next = (counters.get(key) ?? 0) + points;
+        counters.set(key, next);
+        return Promise.resolve([next, 60_000]);
+      };
+    },
+    multi: () => ({
+      set: () => ({ pttl: () => ({ exec: async () => [] }) }),
+      incrby: () => ({ pttl: () => ({ exec: async () => [] }) }),
+    }),
+    disconnect: () => {},
+    connect: async () => {},
+    on: () => {},
+  };
+  return { client, counters };
 }
 
 /**
@@ -215,6 +263,52 @@ describe("Redis reachable but not answering", () => {
   it("applies the policy's failure mode to a timeout, not just to a refused connection", async () => {
     app = await createApp(timeoutEnv, hangingRedis());
     await request(app.getHttpServer()).get("/outage/sensitive").expect(503);
+  });
+});
+
+describe("Redis failing for one bucket of a two-bucket policy", () => {
+  const env = { REDIS_URL: "redis://127.0.0.1:6399" };
+  const shared = (key: string) => key.includes(":ip:");
+  const personal = (key: string) => key.includes(":u:");
+
+  it("hands back the first bucket's point when the policy refuses", async () => {
+    const store = partitionedRedis(shared);
+    app = await createApp(env, store.client);
+
+    await request(app.getHttpServer()).get("/outage/billing").expect(503);
+
+    // The caller was refused, so they must not have paid for it. The personal counter is either
+    // absent or back at zero — never holding a point for a request that never happened.
+    const personalKeys = [...store.counters.entries()].filter(([key]) =>
+      personal(key),
+    );
+    expect(personalKeys.length).toBe(1);
+    expect(personalKeys[0]?.[1]).toBe(0);
+  });
+
+  it("keeps the point when the policy serves the request anyway", async () => {
+    const store = partitionedRedis(shared);
+    app = await createApp(env, store.client);
+
+    // Fail-open: the request is served, so it costs its point like any other served request.
+    // Refunding here would let a caller spend an unlimited number of them during an outage.
+    await request(app.getHttpServer()).get("/outage/backtest").expect(200);
+
+    const personalKeys = [...store.counters.entries()].filter(([key]) =>
+      personal(key),
+    );
+    expect(personalKeys.length).toBe(1);
+    expect(personalKeys[0]?.[1]).toBe(1);
+  });
+
+  it("never reaches the second bucket when the first one fails", async () => {
+    const store = partitionedRedis(personal);
+    app = await createApp(env, store.client);
+
+    await request(app.getHttpServer()).get("/outage/billing").expect(503);
+
+    // Nothing downstream of a failure is consulted, so the shared bucket has no key at all.
+    expect([...store.counters.keys()].filter(shared)).toEqual([]);
   });
 });
 

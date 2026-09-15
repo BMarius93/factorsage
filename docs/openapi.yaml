@@ -1,11 +1,16 @@
 # FactorSage HTTP API — OpenAPI 3.1
 #
-# This document describes the API that `apps/api` actually serves. It is hand-authored and kept
-# honest by a test rather than by discipline: `apps/api/src/openapi/openapi.contract.test.ts`
-# compiles the real Nest application, enumerates every mounted route, and fails when this file
-# documents an operation that does not exist, omits one that does, or disagrees with a route's
-# `@RateLimit` declaration or its authentication guard. `pnpm openapi:validate` separately
-# validates it against the official OpenAPI 3.1 schema.
+# This document describes the API that `apps/api` actually serves. It is hand-authored, and a test
+# checks it rather than trusting it: `apps/api/src/openapi/openapi.contract.test.ts` compiles the
+# real Nest application, enumerates every mounted route, and fails when this file documents an
+# operation that does not exist, omits one that does, or disagrees with a route's `@RateLimit`
+# declaration, its authentication guard, its success status or its path parameters.
+# `pnpm openapi:validate` separately validates it against the official OpenAPI 3.1 schema.
+#
+# What that test does NOT check is worth knowing before trusting a field: request and response
+# schemas, validation constraints, examples and prose are hand-maintained and compared with nothing.
+# `ai/architecture/rate-limiting.md` section 13 lists the guaranteed and the hand-maintained
+# properties side by side.
 #
 # Conventions used throughout:
 #
@@ -106,15 +111,15 @@ info:
     backtest-execution:
       description: Backtest submission; queues durable worker execution.
       actor: user
-      points: 20
+      points: 60
       durationSeconds: 3600
       onRedisFailure: allow
       secondary:
         actor: ip
-        points: 60
+        points: 180
         durationSeconds: 3600
     billing-mutation:
-      description: Billing operations that call the payment provider.
+      description: Billing operations that move money through the payment provider.
       actor: user
       points: 20
       durationSeconds: 300
@@ -122,6 +127,16 @@ info:
       secondary:
         actor: ip
         points: 60
+        durationSeconds: 300
+    billing-refresh:
+      description: Polled reconciliation of billing state after a hosted payment round trip.
+      actor: user
+      points: 60
+      durationSeconds: 300
+      onRedisFailure: deny
+      secondary:
+        actor: ip
+        points: 180
         durationSeconds: 300
     admin-operation:
       description: Privileged administrative operations.
@@ -155,9 +170,11 @@ servers:
 tags:
   - name: Authentication
     description: |
-      Sessions, registration, email verification and password recovery. Every route here is
-      `auth-sensitive` — ten attempts per five minutes per client IP, and refused rather than
-      allowed when the limiter's store is unreachable.
+      Sessions, registration, email verification and password recovery. Every route here carries the
+      `auth-sensitive` policy: counted per client IP, and refused rather than allowed when the
+      limiter's store is unreachable. `info.x-rate-limit-policies` holds its exact allowance — the
+      numbers live there once, checked against the server's catalog, and are deliberately not
+      restated in prose.
 
       The counter is keyed by origin, never by the submitted email address: keying it by account
       would let anybody lock a known victim out by spending the victim's allowance for them.
@@ -1154,11 +1171,16 @@ paths:
         re-derived from current rows, so editing or deleting any of them afterwards cannot change or
         invalidate the result.
 
-        This is the most expensive thing a client can ask for, so it carries the tightest capacity
-        policy in the catalog — twenty an hour per user, and sixty an hour per client address, the
-        second bucket being what sees one origin spreading submissions across several accounts.
-        That is separate from `backtests.maxConcurrentRuns`, which is a plan entitlement and bounds
-        how many may execute at once.
+        This is the most expensive thing a client can ask for, so `backtest-execution` is the
+        tightest capacity policy in the catalog. It carries two buckets — one per user and a wider
+        one per client address, the second being what sees one origin spreading submissions across
+        several accounts. See `info.x-rate-limit-policies` for both allowances.
+
+        A request refused by either bucket spends nothing in the other, so retrying after your own
+        allowance is gone cannot drain the shared one for everybody else behind your address.
+
+        All of that is separate from `backtests.maxConcurrentRuns`, which is a plan entitlement and
+        bounds how many may execute at once rather than how fast they may be submitted.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: backtest-execution }
       requestBody:
@@ -1468,10 +1490,16 @@ paths:
         the optimistic one. Its value is latency only; webhooks remain the authority, and a
         reconciliation failure still returns the persisted status rather than failing the page.
       security: [{ cookieAuth: [] }]
-      x-rate-limit: { policy: billing-mutation }
+      x-rate-limit: { policy: billing-refresh }
       responses:
-        "200":
-          description: Billing status after reconciliation.
+        "201":
+          description: |
+            Billing status after reconciliation.
+
+            `201` rather than `200` because the handler declares no explicit status and the
+            framework's default for `POST` applies. It creates nothing at this URL, so read it as
+            "accepted and applied"; the status is recorded here because it is what the endpoint
+            actually sends, and changing it would be a breaking change to a shipped route.
           headers: *rateLimitHeaders
           content:
             application/json:
@@ -1621,10 +1649,10 @@ paths:
         The only path that adds to the catalog. Catalog **identity only**: prices, fundamentals and
         derived state stay lazy and load when a stock is actually opened.
 
-        Expensive, provider-backed and normally run on a schedule, so it carries the tightest policy
-        in the catalog — ten an hour — and is refused rather than allowed when the limiter's store
-        is unreachable. `200`, not `201`: it reconciles an existing catalog rather than creating a
-        resource at this URL.
+        Expensive, provider-backed and normally run on a schedule, so `admin-operation` is the
+        narrowest allowance in the catalog (see `info.x-rate-limit-policies`) and is refused rather
+        than allowed when the limiter's store is unreachable. `200`, not `201`: it reconciles an
+        existing catalog rather than creating a resource at this URL.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: admin-operation }
       responses:
@@ -2039,6 +2067,7 @@ components:
                 - monitor-mutation
                 - backtest-execution
                 - billing-mutation
+                - billing-refresh
                 - admin-operation
             retryAfterSeconds:
               type: integer

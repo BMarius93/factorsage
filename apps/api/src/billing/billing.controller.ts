@@ -67,7 +67,7 @@ export class BillingController {
    * but when it is not, the user should not have to reload for a minute. A reconciliation failure is
    * therefore not fatal here — the persisted status is still returned and the webhook will converge.
    */
-  @RateLimit("billing-mutation")
+  @RateLimit("billing-refresh")
   @Post("refresh")
   async refresh(
     @CurrentUser() user: AuthUser,

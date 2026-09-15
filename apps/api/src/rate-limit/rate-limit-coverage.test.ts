@@ -5,7 +5,11 @@ import { DiscoveryModule } from "@nestjs/core";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
-import { routeInventory, routeKey, type RouteDescriptor } from "../route-inventory";
+import {
+  routeInventory,
+  routeKey,
+  type RouteDescriptor,
+} from "../route-inventory";
 import {
   RATE_LIMIT_POLICIES,
   UNDECLARED_ROUTE_POLICY,
@@ -79,9 +83,10 @@ describe("rate-limit coverage", () => {
     const known = new Set(Object.keys(RATE_LIMIT_POLICIES));
     for (const route of routes) {
       if (route.policy) {
-        expect(known.has(route.policy), `${routeKey(route)} -> ${route.policy}`).toBe(
-          true,
-        );
+        expect(
+          known.has(route.policy),
+          `${routeKey(route)} -> ${route.policy}`,
+        ).toBe(true);
       }
       expect(route.policy).not.toBe(UNDECLARED_ROUTE_POLICY);
     }
@@ -140,7 +145,8 @@ describe("rate-limit coverage", () => {
     expect(guestReachable.length).toBeGreaterThan(0);
 
     for (const route of guestReachable) {
-      const policy = RATE_LIMIT_POLICIES[route.policy as keyof typeof RATE_LIMIT_POLICIES];
+      const policy =
+        RATE_LIMIT_POLICIES[route.policy as keyof typeof RATE_LIMIT_POLICIES];
       // `user` falls back to the client IP when there is no session, so both actor kinds are
       // safe here; what would not be safe is a fixed key, and the type system has none.
       expect(["user", "ip"], routeKey(route)).toContain(policy.actor);
@@ -169,8 +175,9 @@ describe("rate-limit coverage", () => {
       "POST /billing/change",
       "POST /billing/checkout",
       "POST /billing/portal",
-      "POST /billing/refresh",
     ]);
+    // Split out on purpose: the client polls this one, its siblings are clicked.
+    expect(byPolicy.get("billing-refresh")).toEqual(["POST /billing/refresh"]);
     expect(byPolicy.get("stock-read")?.length).toBe(5);
   });
 });

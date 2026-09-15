@@ -2,6 +2,7 @@ import type { INestApplication, Type } from "@nestjs/common";
 import { RequestMethod } from "@nestjs/common";
 import {
   GUARDS_METADATA,
+  HTTP_CODE_METADATA,
   METHOD_METADATA,
   PATH_METADATA,
 } from "@nestjs/common/constants";
@@ -40,6 +41,15 @@ export type RouteDescriptor = {
   readonly exemptReason?: string;
   /** Names of the guards applied at controller or method level, in Nest's order. */
   readonly guards: readonly string[];
+  /**
+   * The status a successful call answers with: the explicit `@HttpCode(...)`, or Nest's default of
+   * `201` for `POST` and `200` for everything else.
+   *
+   * Carried so the OpenAPI document's success status can be compared with the one the application
+   * will actually send, rather than with the one whoever wrote the document assumed. A handler that
+   * takes over the response object — the OAuth redirects — is the one case this cannot see.
+   */
+  readonly successStatus: number;
 };
 
 const METHOD_NAMES: Readonly<Record<number, string>> = {
@@ -106,14 +116,21 @@ export function routeInventory(app: INestApplication): RouteDescriptor[] {
         [handler, controller],
       );
 
+      const method = METHOD_NAMES[verb] ?? String(verb);
+      const explicitStatus = Reflect.getMetadata(
+        HTTP_CODE_METADATA,
+        handler,
+      ) as number | undefined;
+
       routes.push({
-        method: METHOD_NAMES[verb] ?? String(verb),
+        method,
         path: join(basePath, normalize(routePath)),
         controller: controller.name,
         handler: handlerName,
         ...(policy && policy !== UNDECLARED_ROUTE_POLICY ? { policy } : {}),
         ...(exemptReason ? { exemptReason } : {}),
         guards: guardNames(controller, handler),
+        successStatus: explicitStatus ?? (method === "POST" ? 201 : 200),
       });
     }
   }

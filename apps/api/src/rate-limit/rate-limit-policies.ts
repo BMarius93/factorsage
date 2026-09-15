@@ -226,34 +226,72 @@ export const RATE_LIMIT_POLICIES = {
   /**
    * Backtest submission — durable work a worker process will execute for minutes.
    *
-   * Concurrency is already an entitlement (`backtests.maxConcurrentRuns`), so this is not about
-   * how many may run: it bounds how fast a queue can be filled with work that will run later. The
-   * per-IP bucket is what sees one origin doing it across several free accounts.
+   * **It does not bound the queue; the entitlement already does.**
+   * `EntitlementsService.assertBacktestConcurrency` counts `QUEUED` alongside the running statuses,
+   * inside the writing transaction under the per-user lock, so a caller physically cannot have
+   * more runs in flight than `backtests.maxConcurrentRuns` — one or two. Nobody can queue hundreds
+   * of backtests no matter how fast they ask.
+   *
+   * What this bounds is the cost of *asking*: every attempt takes an advisory lock, resolves
+   * entitlements and counts runs, and an accepted one writes an immutable snapshot of every
+   * security in the list with its buy windows.
+   *
+   * Sized from that, and from one thing easy to miss: a submission refused by the concurrency
+   * entitlement still spends a point here, because the limiter runs before the handler. A caller
+   * with one slot who clicks Run again while their backtest is going therefore pays for the `403`.
+   * One submission a minute sustained is far above any real iteration loop, misclicks included,
+   * while still bounding the snapshot work. The per-IP bucket is what sees one origin doing it
+   * across several free accounts.
    */
   "backtest-execution": {
     description: "Backtest submission; queues durable worker execution.",
     actor: "user",
-    points: 20,
+    points: 60,
     durationSeconds: 3600,
     onRedisFailure: "allow",
-    secondary: { actor: "ip", points: 60, durationSeconds: 3600 },
+    secondary: { actor: "ip", points: 180, durationSeconds: 3600 },
   },
 
   /**
-   * Everything that reaches Stripe. Each call costs a network round trip to a third party under an
-   * idempotency key, and the product's own surfaces need only a handful.
+   * The billing operations that move money: starting checkout, opening the portal, changing a
+   * subscription. Each is a deliberate click, each costs a round trip to the payment provider under
+   * an idempotency key, and the product's own surfaces need only a handful.
    *
    * Fail-closed: refusing a checkout during a Redis outage is recoverable, and the readiness probe
    * is already reporting the instance unfit, while an unbounded retry storm against a payment
    * provider is not something to discover afterwards.
    */
   "billing-mutation": {
-    description: "Billing operations that call the payment provider.",
+    description:
+      "Billing operations that move money through the payment provider.",
     actor: "user",
     points: 20,
     durationSeconds: 300,
     onRedisFailure: "deny",
     secondary: { actor: "ip", points: 60, durationSeconds: 300 },
+  },
+
+  /**
+   * `POST /billing/refresh` alone, because the client polls it and its siblings are clicked.
+   *
+   * Returning from hosted checkout runs a bounded settle loop — six attempts a second and a half
+   * apart — which is six points for one purchase. Under the money-moving allowance, three checkout
+   * round trips inside five minutes would exhaust it and answer `429` on the billing page
+   * immediately after a payment: the worst place in the product to be throttled, and reachable by
+   * anyone whose card keeps failing.
+   *
+   * So it gets its own allowance, sized for roughly ten of those settle cycles. It still reaches
+   * the provider, so it still fails closed; it is idempotent and grants nothing, so a wider
+   * allowance costs only provider round trips.
+   */
+  "billing-refresh": {
+    description:
+      "Polled reconciliation of billing state after a hosted payment round trip.",
+    actor: "user",
+    points: 60,
+    durationSeconds: 300,
+    onRedisFailure: "deny",
+    secondary: { actor: "ip", points: 180, durationSeconds: 300 },
   },
 
   /**

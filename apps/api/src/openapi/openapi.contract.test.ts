@@ -97,21 +97,101 @@ describe("OpenAPI document describes the API that exists", () => {
       const invented = [...operations.keys()]
         .filter((key) => !mounted.has(key))
         .sort();
-      expect(invented, "documented operations with no route behind them").toEqual(
-        [],
-      );
+      expect(
+        invented,
+        "documented operations with no route behind them",
+      ).toEqual([]);
     });
 
     it("gives every operation a unique operationId and a summary", () => {
       const ids = new Set<string>();
       for (const [key, operation] of operations) {
-        expect(operation.operationId, `${key} needs an operationId`).toBeTruthy();
-        expect(ids.has(operation.operationId as string), `duplicate operationId on ${key}`).toBe(
-          false,
-        );
+        expect(
+          operation.operationId,
+          `${key} needs an operationId`,
+        ).toBeTruthy();
+        expect(
+          ids.has(operation.operationId as string),
+          `duplicate operationId on ${key}`,
+        ).toBe(false);
         ids.add(operation.operationId as string);
         expect(operation.summary, `${key} needs a summary`).toBeTruthy();
       }
+    });
+  });
+
+  describe("success responses", () => {
+    /**
+     * Two handlers take over the response object and redirect, so Nest's declared status is `200`
+     * while the wire carries `302`. Listed explicitly rather than pattern-matched: an exemption
+     * from a correctness check should cost somebody an edit.
+     */
+    const REDIRECTS = new Set([
+      "GET /auth/google",
+      "GET /auth/google/callback",
+    ]);
+
+    it("documents the status the handler will actually answer with", () => {
+      // The cheapest high-value check available here, and one a hand-written document gets wrong
+      // easily: `POST` defaults to `201`, `@HttpCode(202)` on submission, `204` on deletes. Reading
+      // it from the same metadata Nest routes with means the document cannot claim `200` for a
+      // route that answers `202`.
+      const wrong: string[] = [];
+      for (const route of routes) {
+        const key = routeKey(route);
+        if (REDIRECTS.has(key)) {
+          continue;
+        }
+        const documented = Object.keys(
+          operations.get(key)?.responses ?? {},
+        ).filter((status) => status.startsWith("2"));
+        if (!documented.includes(String(route.successStatus))) {
+          wrong.push(
+            `${key}: answers ${route.successStatus}, documents ${documented.join(", ") || "no 2xx"}`,
+          );
+        }
+      }
+      expect(wrong).toEqual([]);
+    });
+
+    it("documents exactly one success status per operation", () => {
+      // More than one 2xx on a route that can only answer one is a copy-paste, and it makes the
+      // document unusable for generating a client.
+      for (const route of routes) {
+        if (REDIRECTS.has(routeKey(route))) {
+          continue;
+        }
+        const documented = Object.keys(
+          operations.get(routeKey(route))?.responses ?? {},
+        ).filter((status) => status.startsWith("2"));
+        expect(documented.length, routeKey(route)).toBe(1);
+      }
+    });
+
+    it("gives every documented error response a machine-readable body", () => {
+      // A 4xx or 5xx documented as bare prose leaves a client with nothing to branch on, which is
+      // the whole point of the shared error shape.
+      const bare: string[] = [];
+      for (const [key, operation] of operations) {
+        for (const [status, response] of Object.entries(
+          operation.responses ?? {},
+        )) {
+          if (!/^[45]/.test(status)) {
+            continue;
+          }
+          const body = response as {
+            $ref?: string;
+            content?: Record<string, { schema?: unknown }>;
+          };
+          if (body.$ref) {
+            continue; // A shared component; its own body is defined once.
+          }
+          if (!body.content?.["application/json"]?.schema) {
+            bare.push(`${key} -> ${status}`);
+          }
+        }
+      }
+      expect(bare).toEqual([]);
     });
   });
 
@@ -121,7 +201,10 @@ describe("OpenAPI document describes the API that exists", () => {
         const operation = operations.get(routeKey(route));
         expect(operation, routeKey(route)).toBeDefined();
         const documented = operation?.["x-rate-limit"];
-        expect(documented, `${routeKey(route)} has no x-rate-limit`).toBeDefined();
+        expect(
+          documented,
+          `${routeKey(route)} has no x-rate-limit`,
+        ).toBeDefined();
 
         if (route.policy) {
           expect(documented?.policy, routeKey(route)).toBe(route.policy);
@@ -203,6 +286,47 @@ describe("OpenAPI document describes the API that exists", () => {
             : undefined,
         );
       }
+    });
+
+    it("never restates an allowance in prose", () => {
+      // The drift this prevents actually happened: the catalog moved from ten attempts per five
+      // minutes to twenty, the machine-checked `x-rate-limit-policies` block moved with it, and a
+      // tag description a few lines above kept saying ten. Nothing read that sentence.
+      //
+      // So the numbers live in exactly two verified places — the catalog, and the block below it
+      // that this suite compares with the catalog — and prose says what a policy is *for*. This
+      // scans every human-readable string in the document for "some quantity per some time" and
+      // fails on it.
+      const offenders: string[] = [];
+      const claim =
+        /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|ninety|hundred|\d{1,6})\b[^.]{0,40}?\b(?:per|an|each|a)\s+(?:(?:\d+|two|three|four|five|ten|fifteen|twenty|thirty|sixty)\s+)?(?:seconds?|minutes?|hours?|days?)\b/i;
+
+      const walk = (node: unknown, path: string): void => {
+        if (typeof node === "string") {
+          if (
+            (path.endsWith(".description") || path.endsWith(".summary")) &&
+            claim.test(node)
+          ) {
+            offenders.push(`${path}: ${claim.exec(node)?.[0] ?? node}`);
+          }
+          return;
+        }
+        if (Array.isArray(node)) {
+          node.forEach((entry, index) => walk(entry, `${path}[${index}]`));
+          return;
+        }
+        if (node && typeof node === "object") {
+          for (const [key, value] of Object.entries(node)) {
+            walk(value, `${path}.${key}`);
+          }
+        }
+      };
+      walk(document, "$");
+
+      expect(
+        offenders,
+        "state allowances only in info.x-rate-limit-policies, which is checked against the catalog",
+      ).toEqual([]);
     });
 
     it("lists every catalog policy in the error schema clients branch on", () => {
@@ -287,9 +411,11 @@ describe("OpenAPI document describes the API that exists", () => {
         }
         const openApiPath = toOpenApiPath(route.path);
         const item = document.paths[openApiPath] as
-          | Record<string, unknown>
-          | undefined;
-        expect(item, `${openApiPath} is missing from the document`).toBeDefined();
+          Record<string, unknown> | undefined;
+        expect(
+          item,
+          `${openApiPath} is missing from the document`,
+        ).toBeDefined();
 
         // Parameters may sit on the path item or on the operation; both count.
         const serialized = JSON.stringify([

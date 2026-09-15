@@ -41,7 +41,7 @@ export function useIsolatedRateLimits(
 
 /**
  * Wide enough that no suite in this repository approaches a policy, narrow enough that a runaway
- * loop still stops. The tightest policy is ten per five minutes; at this multiplier that is a
- * thousand, and the busiest auth suite issues a few dozen.
+ * loop still stops. Even the narrowest allowance in the catalog becomes four figures at this
+ * multiplier, while the busiest auth suite issues a few dozen requests.
  */
 const DEFAULT_TEST_ALLOWANCE_MULTIPLIER = 100;
