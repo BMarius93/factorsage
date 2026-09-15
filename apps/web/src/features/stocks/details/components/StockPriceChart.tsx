@@ -8,11 +8,12 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
-  type LogicalRange,
   type MouseEventParams,
   type Time,
 } from "lightweight-charts";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import type { LogicalRange, TimeDomain } from "../../../../components/charts/time-domain";
+import { useBoundedTimeScale } from "../../../../components/charts/use-bounded-time-scale";
 import type {
   ChartLinePoint,
   ChartOverlaySeries,
@@ -104,6 +105,13 @@ export type StockPriceChartProps = {
   /** Last date the `fitKey` window should show. */
   readonly frameTo: string;
   /**
+   * Oldest date this security may ever be navigated to: the 30-year product horizon narrowed by
+   * the deployment's retention and the security's listing date, exactly as the API reports it.
+   * It bounds the viewport, not just the fetching — no gesture may open more empty space to its
+   * left than there is history still to arrive.
+   */
+  readonly historyStart: string;
+  /**
    * No older history can arrive. The time scale is pinned to the oldest bar, so the user cannot
    * drag on into blank space beyond the 30-year boundary or the security's first trading day.
    */
@@ -163,6 +171,7 @@ export function StockPriceChart({
   fitKey,
   frameFrom,
   frameTo,
+  historyStart,
   historyExhausted,
   onReachHistoryEdge,
   ariaLabel,
@@ -205,6 +214,63 @@ export function StockPriceChart({
   const givenOldestRef = useRef<string | undefined>(undefined);
   givenOldestRef.current = points[0]?.date;
 
+  const oldestBar = points[0]?.date;
+  const newestBar = points[points.length - 1]?.date;
+  // The domain this chart may be navigated inside: from the boundary the API reports back to, to
+  // the latest bar there is. Both are dates the product owns — the 30-year horizon narrowed by
+  // listing and retention, and the newest trading day — rather than anything derived from the
+  // window that happens to be loaded.
+  const domain = useMemo<TimeDomain>(
+    () => ({
+      minTime: historyStart,
+      maxTime: newestBar ?? frameTo,
+      oldestBar,
+      domainComplete: historyExhausted,
+      // Stock Details is always explorable; only the reach of the exploration is constrained.
+      interaction: "BOUNDED",
+    }),
+    [historyStart, newestBar, frameTo, oldestBar, historyExhausted],
+  );
+
+  // The viewport, after the shared domain has had its say. Everything below reads an already
+  // legal range, which is why reaching the history edge can be reported straight from it.
+  const onVisibleRangeChange = (range: LogicalRange | null) => {
+    const wrapper = wrapperRef.current;
+    const chart = chartRef.current;
+    if (!wrapper || !chart) {
+      return;
+    }
+    if (range === null) {
+      delete wrapper.dataset.visibleRange;
+      delete wrapper.dataset.visibleLogical;
+      return;
+    }
+    wrapper.dataset.visibleLogical = `${range.from.toFixed(2)}|${range.to.toFixed(2)}`;
+    const dates = chart.timeScale().getVisibleRange();
+    if (dates) {
+      wrapper.dataset.visibleRange = `${String(dates.from)}|${String(dates.to)}`;
+    }
+    // Empty space to the left of the oldest bar: the user has navigated, by dragging or by
+    // zooming out, into history that is not loaded yet. How much empty space there is decides
+    // how much history to ask for, so it is reported rather than a bare event.
+    // Only while the series on screen *is* the data this component was last given. Between a
+    // load resolving and the effect that draws it, the chart still holds the shorter series and
+    // the pre-shift window: reading that as navigation would size the next request against a
+    // window the user has already been moved out of, and every pan would fetch twice.
+    if (
+      drawnOldestRef.current === givenOldestRef.current &&
+      range.from < -HISTORY_EDGE_TRIGGER_BARS
+    ) {
+      historyEdgeRef.current?.(Math.ceil(-range.from));
+    }
+  };
+  const { attachChart, applyFrame } = useBoundedTimeScale({
+    domain,
+    barCount: points.length,
+    frame: { from: frameFrom, to: frameTo },
+    onVisibleRangeChange,
+  });
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -234,21 +300,9 @@ export function StockPriceChart({
         horzLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
         vertLine: { color: CHART_COLORS.crosshair, labelBackgroundColor: CHART_COLORS.text },
       },
-      // Standard Lightweight Charts navigation: drag the plot to pan through history, wheel or
-      // pinch to zoom the time scale. `vertTouchDrag` stays off so a vertical swipe on a phone
-      // keeps scrolling the page instead of being captured by the chart.
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        mouseWheel: true,
-        pinch: true,
-        axisPressedMouseMove: { time: true, price: false },
-        axisDoubleClickReset: { time: true, price: true },
-      },
+      // Navigation — pan, wheel, pinch, and how far any of them may reach — belongs to the shared
+      // bounded time scale attached below, so this chart has exactly one answer to "where may the
+      // viewport go" rather than a set of options here and a boundary somewhere else.
     });
     const priceSeries = chart.addSeries(AreaSeries, {
       lineColor: CHART_COLORS.price,
@@ -308,59 +362,20 @@ export function StockPriceChart({
     };
     chart.subscribeCrosshairMove(onCrosshairMove);
 
-    // The visible window lives on the canvas, so the wrapper carries it as the DOM-visible
-    // contract browser tests assert pan and zoom through — the same approach the oscillator
-    // reference levels use. Written imperatively: a viewport change must never cost a render.
-    //
-    // Two forms, because they answer different questions. `data-visible-range` is the window in
-    // dates, which is what "the user is looking at older history now" means and is stable when a
-    // load prepends bars in front of it. `data-visible-logical` is the raw bar-index range, which
-    // is what measures a zoom and how far into empty space a drag has gone.
-    const onVisibleLogicalRangeChange = (range: LogicalRange | null) => {
-      const wrapper = wrapperRef.current;
-      if (!wrapper) {
-        return;
-      }
-      if (!range) {
-        delete wrapper.dataset.visibleRange;
-        delete wrapper.dataset.visibleLogical;
-        return;
-      }
-      wrapper.dataset.visibleLogical = `${range.from.toFixed(2)}|${range.to.toFixed(2)}`;
-      const dates = chart.timeScale().getVisibleRange();
-      if (dates) {
-        wrapper.dataset.visibleRange = `${String(dates.from)}|${String(dates.to)}`;
-      }
-      // Empty space to the left of the oldest bar: the user has navigated, by dragging or by
-      // zooming out, into history that is not loaded yet. How much empty space there is decides
-      // how much history to ask for, so it is reported rather than a bare event.
-      // Only while the series on screen *is* the data this component was last given. Between a
-      // load resolving and the effect that draws it, the chart still holds the shorter series and
-      // the pre-shift window: reading that as navigation would size the next request against a
-      // window the user has already been moved out of, and every pan would fetch twice.
-      if (
-        drawnOldestRef.current === givenOldestRef.current &&
-        range.from < -HISTORY_EDGE_TRIGGER_BARS
-      ) {
-        historyEdgeRef.current?.(Math.ceil(-range.from));
-      }
-    };
-    chart
-      .timeScale()
-      .subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
-
     chartRef.current = chart;
     priceSeriesRef.current = priceSeries;
     const overlaySeries = overlaySeriesRef.current;
     const priceScaledOverlays = priceScaledOverlaysRef.current;
+    // Binds the domain: the edge pins, the gesture options, and the one subscription that reports
+    // the viewport. Its callback is where this component publishes the window and asks for older
+    // history, and it only ever sees a range the domain already allowed.
+    const detachTimeScale = attachChart(chart);
 
     return () => {
       // chart.remove() disposes every series, pane, price line and subscription the instance
       // owns; the refs are cleared so a later effect run cannot touch disposed handles.
+      detachTimeScale();
       chart.unsubscribeCrosshairMove(onCrosshairMove);
-      chart
-        .timeScale()
-        .unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange);
       chart.remove();
       chartRef.current = null;
       priceSeriesRef.current = null;
@@ -373,7 +388,7 @@ export function StockPriceChart({
       framedRef.current = null;
       drawnOldestRef.current = undefined;
     };
-  }, []);
+  }, [attachChart]);
 
   // The money formatter reads the current currency through a ref so the series options hold one
   // stable function: re-creating it on every render would rewrite every series' price format.
@@ -430,20 +445,10 @@ export function StockPriceChart({
       return;
     }
     framedRef.current = fitKey;
-    if (frameFrom <= oldest) {
-      // The window reaches at or past the oldest bar: everything loaded is what it asks for.
-      timeScale.fitContent();
-      return;
-    }
-    timeScale.setVisibleRange({ from: frameFrom as Time, to: frameTo as Time });
-  }, [points, fitKey, frameFrom, frameTo]);
-
-  // Pinning the left edge is what stops a drag at the boundary. It is only correct once nothing
-  // older can arrive: before that the empty space to the left of the oldest bar is exactly how the
-  // user asks for the next window of history.
-  useEffect(() => {
-    chartRef.current?.timeScale().applyOptions({ fixLeftEdge: historyExhausted });
-  }, [historyExhausted]);
+    // Through the bounded scale rather than the time scale directly, so framing is the same
+    // bounded code path as a reset and cannot put the viewport somewhere a gesture could not.
+    applyFrame(frameFrom, frameTo);
+  }, [points, fitKey, frameFrom, frameTo, applyFrame]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -579,6 +584,13 @@ export function StockPriceChart({
       // "the history grew" from "the viewport moved".
       data-loaded-from={points[0]?.date}
       data-history-exhausted={historyExhausted ? "true" : undefined}
+      // The navigable domain itself, so a browser test can assert "the viewport stayed inside the
+      // permitted thirty years" against the same bound the page navigates by.
+      data-domain-from={historyStart}
+      data-domain-to={domain.maxTime}
+      // Bars on the scale, so a browser test can say "the viewport never ran past the newest bar"
+      // in the logical terms the right-hand bound is expressed in.
+      data-bar-count={points.length}
       data-oscillator-pane={hasOscillatorPane ? "true" : undefined}
       // The reference levels are drawn on canvas, so this is the DOM-visible contract the
       // browser tests assert them through.

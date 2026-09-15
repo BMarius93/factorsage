@@ -80,6 +80,15 @@ so a long series is already valid on the oldest day the chart can reach. See
   a fast drag past the edge collapses into a single widest request rather than one per frame.
 - The chart uses standard Lightweight Charts navigation: drag to pan through history, wheel or
   pinch to zoom the time scale. A vertical touch drag scrolls the page rather than the chart.
+- **Navigation is bounded by the domain, not corrected after the fact.** The navigable domain is
+  `[history.start, the newest trading day]`: no gesture may open blank space after the newest bar,
+  and none may reach before the boundary the API reported — 30 years, or the nearer
+  `LISTING`/`PROVIDER` date. Wheel, pinch, drag, a resize, a picked range and every programmatic
+  move are bounded by the one definition. The right edge and, once history is exhausted, the left
+  edge are pinned by the library itself, which also caps how far a zoom-out can go; the only case
+  it cannot express — the space left of the oldest *loaded* bar, which is how more history is
+  requested — is bounded to the history that can still arrive. `data-domain-from`/`data-domain-to`
+  publish the domain for browser tests.
 - The chart frames itself when a range is picked, and once more when the history that range asked
   for has arrived. Nothing else moves the window: newly loaded history is shifted into place by
   exactly the bars that appeared in front of it, so the user keeps looking at the days they

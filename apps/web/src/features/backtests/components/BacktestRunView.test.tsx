@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchBacktestProgress, fetchBacktestRun } from "../api/backtests-api";
 import {
   TEST_BENCHMARK_NAME,
+  TEST_PERIOD_END,
+  TEST_PERIOD_START,
   testCurve,
   testDetail,
   testLive,
@@ -15,7 +17,7 @@ import {
   testProgress,
   testResult,
 } from "../utils/backtest.test-helper";
-import { BacktestRunView, CHART_PLACEHOLDER_TEXT } from "./BacktestRunView";
+import { BacktestRunView } from "./BacktestRunView";
 
 vi.mock("../api/backtests-api", () => ({
   fetchBacktestRun: vi.fn(),
@@ -31,7 +33,15 @@ vi.mock("lightweight-charts", () => ({
       applyOptions: vi.fn(),
       createPriceLine: vi.fn(),
     })),
-    timeScale: vi.fn(() => ({ fitContent: vi.fn(), setVisibleRange: vi.fn() })),
+    timeScale: vi.fn(() => ({
+      fitContent: vi.fn(),
+      setVisibleRange: vi.fn(),
+      applyOptions: vi.fn(),
+      getVisibleLogicalRange: vi.fn(() => null),
+      setVisibleLogicalRange: vi.fn(),
+      subscribeVisibleLogicalRangeChange: vi.fn(),
+      unsubscribeVisibleLogicalRangeChange: vi.fn(),
+    })),
     applyOptions: vi.fn(),
     subscribeCrosshairMove: vi.fn(),
     unsubscribeCrosshairMove: vi.fn(),
@@ -93,10 +103,15 @@ describe("BacktestRunView", () => {
     expect(
       screen.getByTestId("backtest-progress-message").textContent,
     ).toContain("Loading price history");
-    expect(screen.getByTestId("backtest-chart-placeholder").textContent).toBe(
-      CHART_PLACEHOLDER_TEXT,
-    );
-    expect(screen.queryByTestId("backtest-chart")).toBeNull();
+    // The horizontal domain is known before the first day is simulated, so the chart is already
+    // there with the whole configured period on its axis and no curve on it yet.
+    expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
+    const chart = screen.getByTestId("backtest-chart");
+    expect(chart.dataset.periodStart).toBe(TEST_PERIOD_START);
+    expect(chart.dataset.periodEnd).toBe(TEST_PERIOD_END);
+    expect(chart.dataset.strategyPoints).toBe("0");
+    // Nothing is inspectable about a run that has not produced anything.
+    expect(chart.dataset.interaction).toBe("locked");
 
     // Nothing has been measured yet, so no tile may invent a zero.
     expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
@@ -126,12 +141,16 @@ describe("BacktestRunView", () => {
 
     render(<BacktestRunView runId="run-1" />);
     await flush();
-    expect(screen.getByTestId("backtest-chart-placeholder")).toBeTruthy();
+    // The axis exists from the first render; only the curve is still empty.
+    const chart = screen.getByTestId("backtest-chart");
+    expect(chart.dataset.strategyPoints).toBe("0");
+    expect(chart.dataset.periodStart).toBe(TEST_PERIOD_START);
 
     await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
 
-    const chart = screen.getByTestId("backtest-chart");
     expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
+    // The same element, extended in place: the first chunk does not remount the chart.
+    expect(screen.getByTestId("backtest-chart")).toBe(chart);
     expect(chart.dataset.strategyPoints).toBe("4");
     expect(chart.dataset.cashPoints).toBe("4");
     // All three scenarios are present, and the null benchmark points are gaps rather than zeros.
@@ -152,6 +171,10 @@ describe("BacktestRunView", () => {
     // The same chart element grew; it was not remounted.
     expect(screen.getByTestId("backtest-chart")).toBe(chart);
     expect(chart.dataset.strategyPoints).toBe("9");
+    // The domain did not move with it, and interaction stayed refused while it was arriving.
+    expect(chart.dataset.periodStart).toBe(TEST_PERIOD_START);
+    expect(chart.dataset.periodEnd).toBe(TEST_PERIOD_END);
+    expect(chart.dataset.interaction).toBe("locked");
   });
 
   it("transitions to the completed view in place, without a reload", async () => {
@@ -189,6 +212,10 @@ describe("BacktestRunView", () => {
     expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
     expect(screen.getByTestId("backtest-chart")).toBe(chart);
     expect(chart.dataset.strategyPoints).toBe("8");
+    // A finished run is a result: the same bounded domain, now explorable.
+    expect(chart.dataset.interaction).toBe("bounded");
+    expect(chart.dataset.periodStart).toBe(TEST_PERIOD_START);
+    expect(chart.dataset.periodEnd).toBe(TEST_PERIOD_END);
     expect(screen.getByTestId("metric-portfolio-return").textContent).toContain(
       "+36.00%",
     );
@@ -242,6 +269,53 @@ describe("BacktestRunView", () => {
       "This run produced no comparison curve.",
     );
     expect(screen.queryByTestId("backtest-progress")).toBeNull();
+  });
+
+  it("drops a dead attempt's partial curve when the run fails", async () => {
+    // The prefix a failed attempt happened to reach is not that run's result, which is why the
+    // payload drops its live snapshot. Keeping the chart, KPIs and holdings on screen beside the
+    // failure would present a dead attempt as an outcome.
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
+    fetchProgressMock
+      .mockResolvedValueOnce(
+        testProgress("RUNNING", 1, {
+          percent: 40,
+          live: testLive({ curve: testCurve(6) }),
+        }),
+      )
+      .mockResolvedValue(
+        testProgress("FAILED", 2, {
+          percent: 40,
+          failure: {
+            code: "DATA_UNAVAILABLE",
+            phase: "RUNNING",
+            message: "The run stopped before it produced a result.",
+          },
+        }),
+      );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    expect(screen.getByTestId("backtest-chart").dataset.strategyPoints).toBe(
+      "6",
+    );
+
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
+    await flush();
+
+    expect(screen.getByTestId("backtest-status").textContent).toContain(
+      "Failed",
+    );
+    expect(screen.queryByTestId("backtest-chart")).toBeNull();
+    expect(screen.getByTestId("backtest-chart-placeholder").textContent).toBe(
+      "This run produced no comparison curve.",
+    );
+    // Nothing else may carry the dead attempt's numbers either.
+    expect(screen.getByTestId("metric-portfolio-value").textContent).toContain(
+      "—",
+    );
+    expect(screen.getByText("This run made no trades.")).toBeTruthy();
   });
 
   it("omits the phase row when the failure has no user-facing phase", async () => {

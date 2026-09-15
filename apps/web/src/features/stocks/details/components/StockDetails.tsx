@@ -277,6 +277,9 @@ function StockDetailsContent({
             fitKey={`${range}|${frameLoaded}`}
             frameFrom={frameFrom}
             frameTo={latestDate}
+            // The bound the API reports, passed through untouched: it bounds the viewport for the
+            // same reason it bounds the requests, and recomputing it here would be a second answer.
+            historyStart={loaded.historyStart}
             historyExhausted={loaded.exhausted}
             onReachHistoryEdge={onReachHistoryEdge}
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}

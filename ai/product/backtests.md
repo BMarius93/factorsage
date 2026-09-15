@@ -232,6 +232,18 @@ horizontal axis is the **requested period**, fixed from the first render: the no
 of a run is empty rather than the chart reframing itself around whatever has been computed. 100%
 means successfully completed and nothing else.
 
+Three things make that true rather than merely intended. The period is **materialized** as one
+empty slot per calendar day — a Lightweight Charts time scale is ordinal, so a pair of endpoints
+would reserve two bars rather than thirty years, and the computed prefix would spread across the
+whole width. While the run is still producing data the chart **refuses every gesture**: a
+half-computed backtest is not a result to inspect, and the viewport stays on the whole period
+rather than being re-derived from whatever has landed. And the value axis is a **floor that only
+grows** — it starts at the span the `Cash` scenario is already known to cover and widens when a
+year genuinely exceeds it, so no value is ever clipped and no chunk rescales or recentres the
+chart. When the run finishes, navigation and ordinary autoscaling are handed back, bounded to the
+run's own period: zoom and pan inside it, never a date outside it, and reset restores the whole
+period exactly.
+
 **A long run fills the chart in year by year.** Execution consumes one calendar year at a time, and
 finishing a year publishes that year's computed curve, so a thirty-year run extends the chart
 roughly thirty times rather than showing nothing until the end. The simulation itself is still
