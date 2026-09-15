@@ -18,6 +18,10 @@ import type {
  */
 export const TEST_BENCHMARK_NAME = "Total Market Index";
 
+/** The configured period every fixture run is submitted with — the chart's whole X domain. */
+export const TEST_PERIOD_START = "2021-01-04";
+export const TEST_PERIOD_END = "2026-01-02";
+
 export function testConfiguration(
   overrides: Partial<BacktestRunConfigurationResponse> = {},
 ): BacktestRunConfigurationResponse {
@@ -28,8 +32,8 @@ export function testConfiguration(
     stockListId: "list-1",
     stockListName: "Quality compounders",
     securityCount: 12,
-    startDate: "2021-01-04",
-    endDate: "2026-01-02",
+    startDate: TEST_PERIOD_START,
+    endDate: TEST_PERIOD_END,
     initialCapital: 10_000,
     monthlyContribution: 250,
     maximumPositions: 10,

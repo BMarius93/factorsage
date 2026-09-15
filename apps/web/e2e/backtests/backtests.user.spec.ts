@@ -556,4 +556,183 @@ test.describe("PRO_USER backtests", () => {
       ).toBeGreaterThan(0);
     }
   });
+
+  test("fixes the axis before the first result and refuses navigation until the run is over", async ({
+    page,
+  }) => {
+    test.setTimeout(RUN_TIMEOUT_MS + 120_000);
+
+    const startDate = seededPeriodStart();
+    await submitBacktest(page, { startDate });
+
+    const run = page.getByTestId("backtest-run");
+    const chart = page.getByTestId("backtest-chart");
+    await expect(run).toBeVisible();
+
+    // The horizontal domain exists before any result does: the configured period is known at
+    // submission, so the axis a user watches fill in is the axis the finished run will have.
+    await expect(chart).toBeVisible({ timeout: 30_000 });
+    await expect(chart).toHaveAttribute("data-period-start", startDate);
+    const periodEnd = await chart.getAttribute("data-period-end");
+    expect(periodEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // Samples taken while the run is still producing data: the domain never moves with the curve,
+    // and the chart refuses to be navigated. A half-computed backtest is not a result to inspect.
+    const samples: Array<{
+      status: string;
+      periodStart: string | null;
+      periodEnd: string | null;
+      interaction: string | null;
+      points: number;
+    }> = [];
+    const deadline = Date.now() + RUN_TIMEOUT_MS;
+    let sawPopulating = false;
+    while (Date.now() < deadline) {
+      const sample = await page.evaluate(() => {
+        const node = document.querySelector('[data-testid="backtest-chart"]');
+        return {
+          status:
+            document
+              .querySelector('[data-testid="backtest-run"]')
+              ?.getAttribute("data-status") ?? "",
+          periodStart: node?.getAttribute("data-period-start") ?? null,
+          periodEnd: node?.getAttribute("data-period-end") ?? null,
+          interaction: node?.getAttribute("data-interaction") ?? null,
+          points: Number(node?.getAttribute("data-strategy-points") ?? "0"),
+        };
+      });
+      if (sample.status === "COMPLETED" || sample.status === "FAILED") {
+        break;
+      }
+      if (sample.periodStart !== null) {
+        samples.push(sample);
+        sawPopulating = true;
+        // Wheeling and dragging over a locked chart: every gesture is refused, so the next
+        // sample must still report the whole configured period.
+        await scrubChart(page);
+      }
+      await page.waitForTimeout(120);
+    }
+
+    const terminalStatus = await run.getAttribute("data-status");
+    test.skip(
+      terminalStatus === "FAILED",
+      "The run failed; this suite needs hydrated history for its list and benchmark.",
+    );
+
+    for (const sample of samples) {
+      expect(sample.periodStart).toBe(startDate);
+      expect(sample.periodEnd).toBe(periodEnd);
+      expect(
+        sample.interaction,
+        "The chart was navigable while the backtest was still producing data",
+      ).toBe("locked");
+    }
+    if (!sawPopulating) {
+      test.info().annotations.push({
+        type: "environment",
+        description:
+          "The simulation finished before a populating sample could be taken, so the locked " +
+          "viewport was not observed here. BacktestComparisonChart.test.tsx proves it against " +
+          "the same props.",
+      });
+    }
+
+    // Completed: the same domain, now explorable. Zooming and panning are allowed inside it and
+    // refused outside it, and the period is exactly what it was before the first result arrived.
+    await expect(chart).toHaveAttribute("data-interaction", "bounded");
+    await expect(chart).toHaveAttribute("data-period-start", startDate);
+    await expect(chart).toHaveAttribute("data-period-end", periodEnd ?? "");
+
+    const plot = page.getByRole("img", { name: /Strategy portfolio value/ });
+    const box = await plot.boundingBox();
+    expect(box).not.toBeNull();
+    const visibleRange = async () => {
+      await settleAnimationFrames(page);
+      const raw = await chart.getAttribute("data-visible-range");
+      expect(raw, "The chart published no visible range").not.toBeNull();
+      const [from, to] = raw!.split("|");
+      return { from: from!, to: to! };
+    };
+
+    // Fully zoomed out, the window is the period — the whole of it and nothing beyond it.
+    const full = await visibleRange();
+    expect(full.from >= startDate).toBe(true);
+    expect(full.to <= (periodEnd ?? "")).toBe(true);
+
+    // Zoom in, then try to walk out of the period in both directions.
+    await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
+    for (let tick = 0; tick < 8; tick += 1) {
+      await page.mouse.wheel(0, -120);
+    }
+    const zoomed = await visibleRange();
+    expect(zoomed.from >= startDate).toBe(true);
+    expect(zoomed.to <= (periodEnd ?? "")).toBe(true);
+
+    for (const dx of [900, 900, 900]) {
+      await dragAcross(page, box!, dx);
+      const panned = await visibleRange();
+      // Dragging back past the run's own start cannot open a single blank date before it.
+      expect(panned.from >= startDate).toBe(true);
+    }
+    for (const dx of [-900, -900, -900, -900, -900, -900]) {
+      await dragAcross(page, box!, dx);
+      const panned = await visibleRange();
+      // Nor past its end: a completed run has no dates after the day it was configured to.
+      expect(panned.to <= (periodEnd ?? "")).toBe(true);
+    }
+
+    // The domain is still exactly the run's own period: no gesture created blank dates on either
+    // side of it, and nothing reframed the chart to the part of it that happened to be on screen.
+    await expect(chart).toHaveAttribute("data-period-start", startDate);
+    await expect(chart).toHaveAttribute("data-period-end", periodEnd ?? "");
+
+    // Reset restores the whole run, exactly. The library's own double-click reset asks for a bar
+    // spacing smaller than the one that fits every point, and with both edges pinned that request
+    // is clamped up to the full-period fit rather than landing on an arbitrary window.
+    await page.mouse.dblclick(
+      box!.x + box!.width * 0.5,
+      box!.y + box!.height - 6,
+    );
+    const reset = await visibleRange();
+    expect(reset.from).toBe(full.from);
+    expect(reset.to).toBe(full.to);
+  });
 });
+
+/** A wheel and a drag over the plot: the two gestures a locked chart has to refuse. */
+async function scrubChart(page: Page): Promise<void> {
+  const box = await page
+    .getByRole("img", { name: /Strategy portfolio value/ })
+    .boundingBox();
+  if (!box) {
+    return;
+  }
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+  await page.mouse.wheel(0, 120);
+  await dragAcross(page, box, 300);
+}
+
+async function dragAcross(
+  page: Page,
+  box: { x: number; y: number; width: number; height: number },
+  dx: number,
+): Promise<void> {
+  const y = box.y + box.height * 0.45;
+  const startX = box.x + box.width * 0.5;
+  await page.mouse.move(startX, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 6; step += 1) {
+    await page.mouse.move(startX + (dx * step) / 6, y);
+  }
+  await page.mouse.up();
+}
+
+async function settleAnimationFrames(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))),
+      ),
+  );
+}

@@ -82,3 +82,12 @@
   height: 8px;
   border-radius: var(--radius-pill);
 }
+
+/* How far the curves have been drawn, in the row that already names the scenarios. It reuses that
+   row's own type and colour rather than introducing a second status treatment; the progress the
+   user reads is the lines extending, and this only says where they currently end. */
+.seriesProgress {
+  margin-right: auto;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}

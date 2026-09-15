@@ -21,6 +21,8 @@ type FakePane = { setStretchFactor: Mock };
  */
 type FakeTimeScale = {
   logical: { from: number; to: number } | null;
+  /** Time points any series has put on the scale. Zero means an empty scale. */
+  points: number;
   fitContent: Mock;
   getVisibleLogicalRange: Mock;
   setVisibleLogicalRange: Mock;
@@ -64,8 +66,14 @@ vi.mock("lightweight-charts", () => {
     const unsubscribeVisibleLogicalRangeChange = vi.fn();
     const scale: FakeTimeScale = {
       logical: null,
+      points: 0,
       fitContent,
-      getVisibleLogicalRange: vi.fn(() => scale.logical),
+      // The real library resolves a range against the points on the scale and answers `null` when
+      // there are none, which is what tells a caller there is nothing to position yet. A mock that
+      // always answered would hide the chart's first render, before any data is drawn.
+      getVisibleLogicalRange: vi.fn(() =>
+        scale.logical ?? (scale.points === 0 ? null : { from: 0, to: scale.points }),
+      ),
       setVisibleLogicalRange: vi.fn((range: { from: number; to: number }) => {
         scale.logical = range;
       }),
@@ -89,7 +97,9 @@ vi.mock("lightweight-charts", () => {
           paneIndex?: number,
         ) => {
           const api: FakeSeries = {
-            setData: vi.fn(),
+            setData: vi.fn((rows: unknown[]) => {
+              scale.points = Math.max(scale.points, rows.length);
+            }),
             applyOptions: vi.fn(),
             // Returns the options so a line stays identifiable: the reference-line assertions
             // track which specific lines are still attached to which series.
@@ -134,6 +144,39 @@ const POINTS = [
 ];
 
 /**
+ * `count` consecutive daily bars ending on `2026-08-28`.
+ *
+ * The viewport assertions need a realistic bar count: a logical range is measured in bar indices,
+ * and the chart now refuses one that reaches outside the domain, so a window spanning hundreds of
+ * bars is only meaningful against a series that has them.
+ */
+function dailySeries(count: number): Array<{ date: string; value: number }> {
+  const end = Date.parse("2026-08-28T00:00:00Z");
+  return Array.from({ length: count }, (_unused, index) => ({
+    date: new Date(end - (count - 1 - index) * 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+    value: 100 + index,
+  }));
+}
+
+/**
+ * Bars of empty space the chart allows to the left of `oldest`: the unloaded part of the permitted
+ * domain, in trading days. Past it the viewport would be reaching before the reported boundary,
+ * which is the thirty-year bound this chart exists to enforce.
+ */
+function leadBarsFor(oldest: string): number {
+  return Math.ceil(
+    Math.round(
+      (Date.parse(`${oldest}T00:00:00Z`) -
+        Date.parse(`${FRAME.historyStart}T00:00:00Z`)) /
+        86_400_000,
+    ) /
+      (365 / 252),
+  );
+}
+
+/**
  * The window a selected range asks the chart to show. The default asks for exactly what `POINTS`
  * holds, which is the ordinary case: the range fits inside the loaded history, so framing it is
  * `fitContent()`.
@@ -141,6 +184,9 @@ const POINTS = [
 const FRAME = {
   frameFrom: "2026-08-27",
   frameTo: "2026-08-28",
+  // Thirty years before the loaded window: the navigable boundary the API reports, which is what
+  // the chart bounds the viewport by rather than recomputing.
+  historyStart: "1996-08-28",
   historyExhausted: false,
 } as const;
 
@@ -434,14 +480,23 @@ describe("StockPriceChart", () => {
     );
 
     const chart = lastChart();
+    // Navigation is written by the shared bounded time scale rather than at creation, so that one
+    // place owns both which gestures exist and how far they may reach.
+    const applied = Object.assign(
+      {},
+      ...chart.applyOptions.mock.calls.map((call) => call[0] as object),
+    ) as {
+      handleScroll?: Record<string, boolean>;
+      handleScale?: Record<string, unknown>;
+    };
     // Dragging the plot pans through history; wheel and pinch zoom the time scale.
-    expect(chart.options.handleScroll).toMatchObject({
+    expect(applied.handleScroll).toMatchObject({
       pressedMouseMove: true,
       horzTouchDrag: true,
       // A vertical swipe belongs to the page on a phone, not to the chart.
       vertTouchDrag: false,
     });
-    expect(chart.options.handleScale).toMatchObject({
+    expect(applied.handleScale).toMatchObject({
       mouseWheel: true,
       pinch: true,
     });
@@ -539,6 +594,7 @@ describe("StockPriceChart", () => {
         fitKey="3M"
         frameFrom="2026-08-28"
         frameTo="2026-08-28"
+        historyStart="1996-08-28"
         historyExhausted={false}
         ariaLabel="AAPL chart"
       />,
@@ -568,6 +624,7 @@ describe("StockPriceChart", () => {
     const fiveYear = {
       frameFrom: "2021-08-28",
       frameTo: "2026-08-28",
+      historyStart: "1996-08-28",
       historyExhausted: false,
     } as const;
 
@@ -688,7 +745,7 @@ describe("StockPriceChart", () => {
     const onReachHistoryEdge = vi.fn();
     render(
       <StockPriceChart
-        points={POINTS}
+        points={dailySeries(260)}
         overlays={[]}
         currency="USD"
         fitKey="1Y"
@@ -720,6 +777,74 @@ describe("StockPriceChart", () => {
     expect(onReachHistoryEdge).toHaveBeenCalledWith(4800);
   });
 
+  it("refuses a viewport reaching past the permitted history, and reports only what it allowed", () => {
+    const onReachHistoryEdge = vi.fn();
+    const points = dailySeries(260);
+    const lead = leadBarsFor(points[0]!.date);
+    render(
+      <StockPriceChart
+        points={points}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        onReachHistoryEdge={onReachHistoryEdge}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+
+    // A drag that has walked three thousand bars past the oldest date this security may ever be
+    // navigated to. The zoom the user chose is kept; only the position is corrected.
+    onRangeChange({ from: -lead - 3_000, to: -lead - 2_500 });
+    expect(chart.scale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
+      from: -lead,
+      to: -lead + 500,
+    });
+    // ...and the history request is sized from what was allowed, never from what was attempted,
+    // so a refused gesture cannot ask the API for history before the boundary.
+    expect(onReachHistoryEdge).toHaveBeenLastCalledWith(lead);
+
+    // A zoom-out wider than the whole domain cannot keep its span: it becomes the domain.
+    onRangeChange({ from: -lead - 5_000, to: 900 });
+    expect(chart.scale.setVisibleLogicalRange).toHaveBeenLastCalledWith({
+      from: -lead,
+      to: points.length,
+    });
+  });
+
+  it("never opens empty space to the right of the newest bar", () => {
+    render(
+      <StockPriceChart
+        points={dailySeries(260)}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+
+    // The library's own refusal: with the right edge pinned there is no offset past the last bar
+    // for a drag, a wheel or a pinch to reach, in any direction and at any zoom.
+    const timeScaleOptions = chart.applyOptions.mock.calls
+      .map((call) => (call[0] as { timeScale?: { fixRightEdge?: boolean } }).timeScale)
+      .filter((options) => options !== undefined);
+    expect(timeScaleOptions.at(-1)?.fixRightEdge).toBe(true);
+
+    // A viewport that has somehow run past the newest bar is pulled back to it.
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+    onRangeChange({ from: 300, to: 420 });
+    expect(chart.scale.setVisibleLogicalRange).toHaveBeenCalledWith({
+      from: 140,
+      to: 260,
+    });
+  });
+
   it("ignores a viewport report describing data it has not drawn yet", () => {
     // The time scale reports a range while the series is being rewritten — the old, still-negative
     // window against data that is about to grow — and a load resolving re-renders this component
@@ -734,7 +859,8 @@ describe("StockPriceChart", () => {
       onReachHistoryEdge,
       ariaLabel: "AAPL chart",
     } as const;
-    const { rerender } = render(<StockPriceChart points={POINTS} {...props} />);
+    const loaded = dailySeries(260);
+    const { rerender } = render(<StockPriceChart points={loaded} {...props} />);
     const chart = lastChart();
     const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
       .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
@@ -744,7 +870,7 @@ describe("StockPriceChart", () => {
     chart.addedSeries[0]!.api.setData.mockImplementationOnce(() =>
       onRangeChange({ from: -60, to: 100 }),
     );
-    const older = [{ date: "2026-08-20", value: 170 }, ...POINTS];
+    const older = [{ date: "2000-01-03", value: 170 }, ...loaded];
     rerender(<StockPriceChart points={older} {...props} />);
 
     expect(onReachHistoryEdge).not.toHaveBeenCalled();
@@ -766,8 +892,17 @@ describe("StockPriceChart", () => {
       />,
     );
     const chart = lastChart();
+    const lastTimeScaleOptions = () =>
+      chart.applyOptions.mock.calls
+        .map(
+          (call) =>
+            (call[0] as { timeScale?: { fixLeftEdge?: boolean } }).timeScale,
+        )
+        .filter((options) => options !== undefined)
+        .at(-1);
+
     // While history can still be loaded, the empty space to the left is how the user asks for it.
-    expect(chart.scale.applyOptions).toHaveBeenCalledWith({ fixLeftEdge: false });
+    expect(lastTimeScaleOptions()?.fixLeftEdge).toBe(false);
 
     rerender(
       <StockPriceChart
@@ -780,16 +915,58 @@ describe("StockPriceChart", () => {
         ariaLabel="AAPL chart"
       />,
     );
-    // At the boundary there is nothing left to fetch, so dragging on into blank space is stopped.
-    expect(chart.scale.applyOptions).toHaveBeenLastCalledWith({
+    // At the boundary there is nothing left to fetch, so dragging on into blank space is stopped
+    // by the library itself — and the right edge stays pinned throughout.
+    expect(lastTimeScaleOptions()).toMatchObject({
       fixLeftEdge: true,
+      fixRightEdge: true,
+    });
+  });
+
+  it("keeps its bounds when the selected series change", () => {
+    const points = dailySeries(260);
+    const { rerender } = render(
+      <StockPriceChart
+        points={points}
+        overlays={[]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    const chart = lastChart();
+    chart.scale.setVisibleLogicalRange.mockClear();
+
+    // Enabling an overlay adds a series and rewrites data; it must not re-create the chart, and
+    // it must not hand back an unbounded time scale with it.
+    rerender(
+      <StockPriceChart
+        points={points}
+        overlays={[priceOverlay(0)]}
+        currency="USD"
+        fitKey="1Y"
+        {...FRAME}
+        ariaLabel="AAPL chart"
+      />,
+    );
+    expect(lastChart()).toBe(chart);
+
+    const lead = leadBarsFor(points[0]!.date);
+    const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
+      .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
+    onRangeChange({ from: -lead - 500, to: -lead - 400 });
+    expect(chart.scale.setVisibleLogicalRange).toHaveBeenCalledWith({
+      from: -lead,
+      to: -lead + 100,
     });
   });
 
   it("publishes the visible window and the loaded history so both are observable from the DOM", () => {
+    const points = dailySeries(260);
     const { container, rerender } = render(
       <StockPriceChart
-        points={POINTS}
+        points={points}
         overlays={[]}
         currency="USD"
         fitKey="1Y"
@@ -800,8 +977,12 @@ describe("StockPriceChart", () => {
     const chart = lastChart();
     const wrapper = container.firstElementChild as HTMLElement;
 
-    expect(wrapper.dataset.loadedFrom).toBe("2026-08-27");
+    expect(wrapper.dataset.loadedFrom).toBe(points[0]?.date);
     expect(wrapper.dataset.historyExhausted).toBeUndefined();
+    // The navigable domain itself, so a browser test can assert a viewport against the bound the
+    // page navigates by rather than against a number it recomputed.
+    expect(wrapper.dataset.domainFrom).toBe("1996-08-28");
+    expect(wrapper.dataset.domainTo).toBe("2026-08-28");
 
     const onRangeChange = chart.subscribeVisibleLogicalRangeChange.mock
       .calls[0]?.[0] as (range: { from: number; to: number } | null) => void;
@@ -822,7 +1003,7 @@ describe("StockPriceChart", () => {
 
     rerender(
       <StockPriceChart
-        points={POINTS}
+        points={points}
         overlays={[]}
         currency="USD"
         fitKey="1Y"

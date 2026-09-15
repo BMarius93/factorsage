@@ -47,10 +47,6 @@ import { BacktestMetricsRow } from "./BacktestMetricsRow";
 import { BacktestTrades } from "./BacktestTrades";
 import styles from "./BacktestRunView.module.css";
 
-/** The exact copy the chart card shows until the first checkpoint carries a curve. */
-export const CHART_PLACEHOLDER_TEXT =
-  "Your results will appear here as the backtest progresses.";
-
 /** Everything the result surfaces render, from the live snapshot or the durable result alike. */
 type RunSnapshotView = {
   readonly curve: readonly BacktestCurvePointResponse[];
@@ -335,6 +331,11 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   const result = run.result;
   const terminal = isTerminalBacktestStatus(status);
   const completed = status === "COMPLETED";
+  const failed = status === "FAILED";
+  // Everything the chart is still producing data for. A locked viewport, a value axis that only
+  // grows and a refused gesture all follow from this one question, and it is the run's lifecycle
+  // that answers it — not whether a curve happens to have arrived yet.
+  const populating = !terminal;
 
   const arrived: RunSnapshotView | null = result
     ? {
@@ -358,7 +359,13 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   if (arrived) {
     lastSnapshotRef.current = arrived;
   }
-  const snapshot = arrived ?? lastSnapshotRef.current;
+  // A failed run has no partial result, and the prefix a dead attempt reached is not one. The
+  // payload drops its live snapshot for exactly that reason, so the retained one is dropped with
+  // it: keeping the curve, KPIs and holdings on screen beside a failure would read as an outcome.
+  if (failed) {
+    lastSnapshotRef.current = null;
+  }
+  const snapshot = failed ? null : (arrived ?? lastSnapshotRef.current);
   const curve = snapshot?.curve ?? [];
 
   return (
@@ -490,28 +497,31 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           <p className={styles.chartCaption}>
             {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
           </p>
-          {/* One frame, one height: the placeholder and the chart occupy exactly the same box, so
-              the first checkpoint swaps content without moving anything below it. */}
+          {/* One frame, one height. The chart is mounted as soon as the run exists, curve or not:
+              its horizontal domain is the configured period, which is known before the first day
+              is simulated, so the axis a user watches fill in is the axis the finished run will
+              have. Only a run that ended with nothing to draw falls back to a message. */}
           <div className={styles.chartFrame}>
-            {curve.length > 0 ? (
-              <BacktestComparisonChart
-                points={curve}
-                benchmarkName={configuration.benchmark.name}
-                ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
-                periodStart={configuration.startDate}
-                periodEnd={configuration.endDate}
-              />
-            ) : (
+            {terminal && curve.length === 0 ? (
               <p
                 className={styles.chartPlaceholder}
                 data-testid="backtest-chart-placeholder"
               >
                 {/* A run that ended without a curve has nothing still to come, so promising
                     progress would be false. */}
-                {terminal
-                  ? "This run produced no comparison curve."
-                  : CHART_PLACEHOLDER_TEXT}
+                This run produced no comparison curve.
               </p>
+            ) : (
+              <BacktestComparisonChart
+                points={curve}
+                benchmarkName={configuration.benchmark.name}
+                ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
+                periodStart={configuration.startDate}
+                periodEnd={configuration.endDate}
+                populating={populating}
+                initialCapital={configuration.initialCapital}
+                monthlyContribution={configuration.monthlyContribution}
+              />
             )}
           </div>
 

@@ -9,8 +9,12 @@ import {
   type MouseEventParams,
   type Time,
 } from "lightweight-charts";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useBoundedTimeScale } from "../../../components/charts/use-bounded-time-scale";
+import { useValueDomainFloor } from "../../../components/charts/use-value-domain-floor";
+import type { TimeDomain } from "../../../components/charts/time-domain";
 import { BACKTEST_CHART_COLORS } from "../utils/chart-theme";
+import { cashScenarioSpan, periodCalendarDays } from "../utils/chart-domain";
 import { formatCompactMoney, formatDay, formatMoney } from "../utils/format";
 import styles from "./BacktestComparisonChart.module.css";
 
@@ -25,11 +29,21 @@ export type BacktestComparisonChartProps = {
   readonly benchmarkName: string;
   readonly ariaLabel: string;
   /**
-   * The configured period. It fixes the horizontal axis for the whole run, so the not-yet-simulated
-   * part stays empty instead of the chart reframing itself around whatever has been computed.
+   * The configured period. It is the whole horizontal domain, known before the first day is
+   * simulated and never widened, narrowed or re-derived from what has been computed.
    */
   readonly periodStart: string;
   readonly periodEnd: string;
+  /**
+   * The run is still producing data. The viewport is locked to the full period and every gesture
+   * is refused, because a half-computed backtest is not something to inspect as if it were a
+   * result; the value axis is held to a floor so arriving chunks extend the lines instead of
+   * rescaling them.
+   */
+  readonly populating: boolean;
+  /** The run's own capital plan, which is what the value axis can be sized from in advance. */
+  readonly initialCapital: number;
+  readonly monthlyContribution: number;
 };
 
 function legendRow(label: string, value: string, color?: string): HTMLElement {
@@ -67,15 +81,20 @@ function legendRow(label: string, value: string, color?: string): HTMLElement {
  * benchmark scenario existed — such a run keeps its Strategy and Cash lines and simply has no
  * benchmark line, because that value is not derivable from what it stored.
  *
- * The chart instance is created once and mutated through `setData`, so a completed calendar year
- * extends the curve without remounting anything and without a layout jump.
+ * **The horizontal domain is the configured period, whole, from the first render.** A whitespace
+ * anchor puts a time point at each end, and the shared bounded time scale pins both edges to them,
+ * so the axis spans 2000..2025 before a single day of 2000 has been computed and the lines fill in
+ * from the left underneath it. Nothing here is ever fitted to what has been simulated: an axis that
+ * tracked the computed prefix would race ahead of its own curve and rescale on every checkpoint.
  *
- * The horizontal axis is the **configured period**, fixed for the whole run. A running backtest
- * that reframed itself to whatever it had computed so far would rescale every time a year landed,
- * and the curve would appear to stand still while the axis raced ahead of it. Anchoring the scale
- * to `periodStart`..`periodEnd` instead means the not-yet-simulated part of the run is simply empty
- * and the lines fill in from the left. The anchors are whitespace points — a time with no value —
- * so nothing is added to any scenario.
+ * **The vertical domain is a floor, not a fixed range.** It starts at the span the Cash scenario is
+ * already known to cover and only ever widens, so a year landing above everything drawn so far
+ * widens the axis once and keeps it, while a year landing inside changes nothing. No value is ever
+ * clipped and no value is ever invented: the not-yet-simulated part of the period is empty, the
+ * crosshair reports nothing there, and the lines simply stop at the last observation that exists.
+ *
+ * The chart instance is created once and mutated through `setData`, so a completed calendar year
+ * extends the curves without remounting anything and without a layout jump.
  */
 export function BacktestComparisonChart({
   points,
@@ -83,18 +102,92 @@ export function BacktestComparisonChart({
   ariaLabel,
   periodStart,
   periodEnd,
+  populating,
+  initialCapital,
+  monthlyContribution,
 }: BacktestComparisonChartProps) {
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const legendRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const strategyRef = useRef<ISeriesApi<"Line"> | null>(null);
   const benchmarkRef = useRef<ISeriesApi<"Line"> | null>(null);
   const cashRef = useRef<ISeriesApi<"Line"> | null>(null);
-  // Whitespace-only series whose two points pin the time scale to the configured period.
+  // Whitespace-only series carrying one slot per calendar day of the configured period. The slots
+  // carry no value, so they add nothing to any scenario and nothing to the value axis; what they
+  // give the chart is a horizontal domain that exists, at its true width, before any result does.
   const anchorRef = useRef<ISeriesApi<"Line"> | null>(null);
   // The crosshair handler is subscribed once; a ref keeps it reading the current benchmark name.
   const benchmarkNameRef = useRef(benchmarkName);
   benchmarkNameRef.current = benchmarkName;
+  // The last date drawn, so a run that restarts — a requeued attempt re-simulates from day one —
+  // is recognised as a regression rather than merged with what the dead attempt had reached.
+  const drawnThroughRef = useRef<string | undefined>(undefined);
+
+  const domain = useMemo<TimeDomain>(
+    () => ({
+      minTime: periodStart,
+      maxTime: periodEnd,
+      // The anchor is a real time point at the period's start, so the drawn domain is the whole
+      // domain from the first render and the library's own edge pins are exact.
+      oldestBar: periodStart,
+      domainComplete: true,
+      interaction: populating ? "LOCKED" : "BOUNDED",
+    }),
+    [periodStart, periodEnd, populating],
+  );
+
+  const valueFloor = useValueDomainFloor({
+    // The Cash scenario's own span. It is the one part of a backtest whose shape is known before
+    // it runs, it is guaranteed to be drawn, and it is never shown as a number — purely the
+    // starting extent of the axis, which real data then widens.
+    seed: useMemo(
+      () =>
+        cashScenarioSpan({
+          initialCapital,
+          monthlyContribution,
+          periodStart,
+          periodEnd,
+        }),
+      [initialCapital, monthlyContribution, periodStart, periodEnd],
+    ),
+    enforced: populating,
+    resetKey: `${periodStart}|${periodEnd}`,
+  });
+
+  // The domain, materialized. A Lightweight Charts time scale is ordinal — bars sit one index
+  // apart whatever the dates on them — so the period has to exist as slots before the curve can
+  // occupy the fraction of it that has been computed.
+  const domainDays = useMemo(
+    () => periodCalendarDays(periodStart, periodEnd),
+    [periodStart, periodEnd],
+  );
+  // The curve's days are days of the period, so the union of the two is the grid.
+  const barCount = Math.max(domainDays.length, points.length);
+  const timeScale = useBoundedTimeScale({
+    domain,
+    barCount,
+    frame: { from: periodStart, to: periodEnd },
+    // The viewport lives on the canvas, so the frame carries it as the DOM-visible contract
+    // browser tests assert the bounds through — "a gesture never produced a date outside the
+    // run's own period" is only answerable against the window the chart actually settled on.
+    // Written imperatively: a viewport change must never cost a render.
+    onVisibleRangeChange: () => {
+      const frame = frameRef.current;
+      const chart = chartRef.current;
+      if (!frame || !chart) {
+        return;
+      }
+      const dates = chart.timeScale().getVisibleRange();
+      if (dates) {
+        frame.dataset.visibleRange = `${String(dates.from)}|${String(dates.to)}`;
+      } else {
+        delete frame.dataset.visibleRange;
+      }
+    },
+  });
+  const { attachChart, showRange, syncAfterData } = timeScale;
+  const { autoscaleInfoProvider, reset: resetValueFloor } = valueFloor;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -117,8 +210,11 @@ export function BacktestComparisonChart({
       timeScale: {
         borderColor: BACKTEST_CHART_COLORS.axisBorder,
         timeVisible: false,
-        // The default 0.5px minimum bar spacing caps the visible window at roughly two thousand
-        // daily bars, which would silently truncate a thirty-year run.
+        // Both edges of this chart are pinned, which makes the library's own minimum bar spacing
+        // "whatever fits every point". Asking for less than that is how the default double-click
+        // reset lands on exactly the configured period instead of an arbitrary 6px-per-bar window:
+        // the request is clamped up to the full-period fit.
+        barSpacing: 0.01,
         minBarSpacing: 0.01,
       },
       crosshair: {
@@ -134,38 +230,25 @@ export function BacktestComparisonChart({
       // The axis is currency, and a thirty-year run's axis has to fit six-figure values without
       // wrapping, so the axis is compact while the hover readout carries the exact amount.
       localization: { priceFormatter: formatCompactMoney },
-      // A vertical swipe on a phone keeps scrolling the page instead of being captured here.
-      handleScroll: {
-        mouseWheel: true,
-        pressedMouseMove: true,
-        horzTouchDrag: true,
-        vertTouchDrag: false,
-      },
-      handleScale: {
-        mouseWheel: true,
-        pinch: true,
-        axisPressedMouseMove: { time: true, price: false },
-        axisDoubleClickReset: { time: true, price: true },
-      },
     });
 
-    const strategy = chart.addSeries(LineSeries, {
-      color: BACKTEST_CHART_COLORS.strategy,
-      lineWidth: 2,
+    const scenarioOptions = {
+      lineWidth: 2 as const,
       priceLineVisible: false,
       lastValueVisible: false,
+      autoscaleInfoProvider,
+    };
+    const strategy = chart.addSeries(LineSeries, {
+      color: BACKTEST_CHART_COLORS.strategy,
+      ...scenarioOptions,
     });
     const benchmark = chart.addSeries(LineSeries, {
       color: BACKTEST_CHART_COLORS.benchmark,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
+      ...scenarioOptions,
     });
     const cash = chart.addSeries(LineSeries, {
       color: BACKTEST_CHART_COLORS.cash,
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: false,
+      ...scenarioOptions,
     });
     const anchor = chart.addSeries(LineSeries, {
       color: "rgba(0,0,0,0)",
@@ -183,6 +266,8 @@ export function BacktestComparisonChart({
       const valueOn = (series: ISeriesApi<"Line">): number | undefined =>
         (param.seriesData.get(series) as { value?: number } | undefined)?.value;
       const strategyValue = valueOn(strategy);
+      // Nothing is reported on a date the run has not reached: the anchor and the empty part of
+      // the period carry no observation, and a readout there would imply one exists.
       if (param.time === undefined || strategyValue === undefined) {
         legend.hidden = true;
         return;
@@ -221,10 +306,12 @@ export function BacktestComparisonChart({
     benchmarkRef.current = benchmark;
     cashRef.current = cash;
     anchorRef.current = anchor;
+    const detachTimeScale = attachChart(chart);
 
     return () => {
       // chart.remove() disposes every series, price line and subscription the instance owns; the
       // refs are cleared so a later effect run cannot touch disposed handles.
+      detachTimeScale();
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
       chartRef.current = null;
@@ -232,17 +319,29 @@ export function BacktestComparisonChart({
       benchmarkRef.current = null;
       cashRef.current = null;
       anchorRef.current = null;
+      drawnThroughRef.current = undefined;
     };
-  }, []);
+  }, [attachChart, autoscaleInfoProvider]);
 
   useEffect(() => {
-    const chart = chartRef.current;
     const strategy = strategyRef.current;
     const benchmark = benchmarkRef.current;
     const cash = cashRef.current;
-    if (!chart || !strategy || !benchmark || !cash) {
+    if (!strategy || !benchmark || !cash) {
       return;
     }
+
+    // A requeued attempt re-simulates from the first day, so its curve is shorter than what the
+    // dead attempt had already drawn. `setData` replaces rather than merges, so the stale points
+    // are gone either way; what has to go with them is the value axis the dead attempt widened.
+    const through = points.at(-1)?.date;
+    const regressed =
+      drawnThroughRef.current !== undefined &&
+      (through === undefined || through < drawnThroughRef.current);
+    if (regressed) {
+      resetValueFloor();
+    }
+    drawnThroughRef.current = through;
 
     strategy.setData(
       points.map((point) => ({
@@ -265,45 +364,53 @@ export function BacktestComparisonChart({
         value: point.cashBaselineValue,
       })),
     );
-  }, [points]);
 
-  // The configured period owns the axis. The anchor series carries only whitespace — the two
-  // endpoints of the run, and nothing else — so the time scale spans the whole period from the
-  // first render, before a single day has been simulated, and stops moving as years complete.
+    // Lightweight Charts keeps the visible *logical* range across a data write, so a curve growing
+    // from a hundred points to three hundred would leave the same window covering a third of the
+    // period. Re-asserting the domain is what keeps the axis still while the lines fill in; it is
+    // a no-op once the run is finished and the viewport belongs to the user.
+    syncAfterData();
+  }, [points, syncAfterData, resetValueFloor]);
+
+  // The anchor, and the one framing of the period. Both depend only on the configured period, so a
+  // year completing never touches either.
+  //
+  // Declared *after* the effect that draws the curves on purpose. React runs effects in order, and
+  // a visible range is resolved against the time points that exist when it is written: framing
+  // before the curves are drawn would name the period over a two-point scale, and the data write
+  // that followed would leave that same two-bar logical window covering the first week of a
+  // thirty-year run.
   useEffect(() => {
-    const chart = chartRef.current;
     const anchor = anchorRef.current;
-    if (!chart || !anchor || !periodStart || !periodEnd) {
+    if (!anchor || !periodStart || !periodEnd) {
       return;
     }
-    anchor.setData([
-      { time: periodStart as Time },
-      { time: periodEnd as Time },
-    ]);
-    chart
-      .timeScale()
-      .setVisibleRange({ from: periodStart as Time, to: periodEnd as Time });
-  }, [periodStart, periodEnd]);
+    anchor.setData(domainDays.map((day) => ({ time: day as Time })));
+    showRange(periodStart, periodEnd);
+  }, [domainDays, periodStart, periodEnd, showRange]);
 
   const benchmarkPoints = points.reduce(
     (total, point) => (point.benchmarkValue === null ? total : total + 1),
     0,
   );
+  const simulatedThrough = points.at(-1)?.date;
 
   return (
     <div
+      ref={frameRef}
       className={styles.frame}
       data-testid="backtest-chart"
       // The curves live on a canvas, so the wrapper carries them as the DOM-visible contract
-      // browser tests assert growth and series presence through.
+      // browser tests assert growth, bounds and interaction through.
       data-series-count={benchmarkPoints > 0 ? 3 : 2}
       data-strategy-points={points.length}
       data-benchmark-points={benchmarkPoints}
       data-cash-points={points.length}
       data-curve-from={points[0]?.date}
-      data-curve-through={points.at(-1)?.date}
+      data-curve-through={simulatedThrough}
       data-period-start={periodStart}
       data-period-end={periodEnd}
+      data-interaction={populating ? "locked" : "bounded"}
     >
       <div className={styles.wrapper}>
         <div
@@ -321,6 +428,17 @@ export function BacktestComparisonChart({
         />
       </div>
       <div className={styles.series} data-testid="backtest-chart-series">
+        {/* How far the lines have actually been drawn, in the caption row that already names the
+            scenarios. The progress itself is the lines extending; this only says where they end,
+            so a user reading a half-drawn chart knows it is half-drawn. */}
+        {populating && simulatedThrough ? (
+          <span
+            className={styles.seriesProgress}
+            data-testid="backtest-chart-progress"
+          >
+            Running · through {formatDay(simulatedThrough)}
+          </span>
+        ) : null}
         <span className={styles.seriesItem}>
           <span
             className={styles.legendDot}
