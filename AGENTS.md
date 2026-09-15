@@ -64,6 +64,11 @@ Read `ai/README.md` before substantial work.
     by security/series id under `stock-data:v2:*` (cache chunks, manifests, the resident LRU, the
     FMP gate), `stock-data:load:*` (Redlock hydration locks) and `benchmark:v1:*`, never by user.
     Do not add a user-scoped key, a second namespace convention, or Monitor/Signal state to it.
+    `rate-limit:v1:*` is the one further namespace, and it is deliberately outside that rule: it
+    holds HTTP rate-limit counters, which are neither a projection of PostgreSQL nor user-owned
+    state — losing one grants allowance rather than destroying anything — so it is keyed by actor,
+    including by user id. It shares the same Redis instance on its own connection and never a
+    second provider. See `ai/architecture/rate-limiting.md`.
 
 17. Commercial entitlements are an application-domain concern with one central definition in
     `@intrinsic/contracts`. `docs/decisions/entitlements-v1.md` is the source of truth for every
@@ -93,6 +98,36 @@ Read `ai/README.md` before substantial work.
     whole accepted surface is one of four logical price keys. Stripe never touches `User.role`. Do not
     add credits, top-ups, trials, metered billing, a second paid subscription per user, or
     hand-written proration arithmetic.
+
+19. API rate limiting is abuse and capacity protection, never a commercial entitlement
+    (`docs/decisions/entitlements-v1.md` section 10, enforced by
+    `packages/contracts/src/entitlements.rate-limiting-boundary.test.ts`). Every allowance lives in
+    one catalog, `apps/api/src/rate-limit/rate-limit-policies.ts`; a route names a policy with
+    `@RateLimit("…")` and never carries a number, a Redis call or a limiter. Enforcement is the one
+    global `RateLimitInterceptor` — an interceptor rather than a guard because Nest runs global
+    enhancers before controller guards, so a guard could not see the session it keys by. Every
+    mounted route must declare a policy or an explicit `@RateLimitExempt(reason)`;
+    `rate-limit-coverage.test.ts` fails the build otherwise. Counters are keyed by user id for
+    authenticated traffic and by client IP otherwise — never by plan, and never by a submitted email
+    address. `X-Forwarded-For` is trusted only as far as `RATE_LIMIT_TRUSTED_PROXY_HOPS` says a
+    deployment really has proxies. A policy may carry a second, wider per-IP bucket; buckets are
+    spent in order, stopping at the first refusal, and anything an earlier bucket took is handed
+    back — so **a refused request never consumes usable allowance from another bucket** and one
+    caller's doomed retries cannot drain a shared allowance their colleagues depend on. Every
+    consume stays one atomic Redis script rather than a read-then-write. Redis-failure behaviour is a per-policy decision — capacity
+    policies fail open, security and payment policies fail closed with `503` and
+    `RATE_LIMIT_UNAVAILABLE` — and there is never a process-local fallback limiter, which would
+    report a distributed guarantee the system does not have. Outbound provider throttling is a
+    different mechanism with different semantics (wait, not reject) and stays
+    `RedisFmpRequestGate`. `ai/architecture/rate-limiting.md` is how it is implemented.
+
+20. `docs/openapi.yaml` is the HTTP API's specification and describes the API that exists.
+    `apps/api/src/openapi/openapi.contract.test.ts` compiles the real application and requires the
+    document to match it operation for operation — each route's rate-limit policy, its `429`, its
+    `503` where the policy fails closed, its cookie authentication and its `401`/`403` — so a new
+    or renamed route cannot land undocumented. `pnpm openapi:validate` separately validates the
+    document against the official OpenAPI 3.1 schema. Do not document an endpoint that does not
+    exist, and do not add a route without documenting it.
 
 ## Dependency rules
 
@@ -229,6 +264,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm openapi:validate
 ```
 
 When E2E exists for the changed flow, run it as well.

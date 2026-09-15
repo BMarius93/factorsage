@@ -37,6 +37,7 @@ import {
   Query,
   ServiceUnavailableException,
 } from "@nestjs/common";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   STOCK_DATA_SERVICE,
   STOCK_DETAILS_RETENTION_YEARS,
@@ -278,6 +279,7 @@ export class StocksController {
    * handler below the parameterised routes would make `/stocks/search` resolve as a symbol lookup
    * for a security named "search". `stocks.search.integration.test.ts` locks that ordering in.
    */
+  @RateLimit("stock-search")
   @Get("search")
   async searchStocks(
     @Query("q") q?: string,
@@ -291,6 +293,7 @@ export class StocksController {
     );
   }
 
+  @RateLimit("stock-read")
   @Get(":symbol")
   async getStockDetails(
     @Param("symbol") symbol: string,
@@ -320,6 +323,7 @@ export class StocksController {
     });
   }
 
+  @RateLimit("stock-read")
   @Get(":symbol/prices")
   async getDailyPrices(
     @Param("symbol") symbol: string,
@@ -337,6 +341,7 @@ export class StocksController {
    * trading day. `series` optionally narrows the response to catalog moving-average identities;
    * omitting it keeps the pre-existing full projection.
    */
+  @RateLimit("stock-read")
   @Get(":symbol/technicals/daily")
   async getDailyTechnicals(
     @Param("symbol") symbol: string,
@@ -353,6 +358,7 @@ export class StocksController {
     );
   }
 
+  @RateLimit("stock-read")
   @Get(":symbol/intrinsic-values")
   async getIntrinsicValues(
     @Param("symbol") symbol: string,
@@ -379,6 +385,7 @@ export class StocksController {
     );
   }
 
+  @RateLimit("stock-read")
   @Get(":symbol/intrinsic-value-blends")
   async getIntrinsicValueBlends(
     @Param("symbol") symbol: string,

@@ -19,6 +19,7 @@ import { getLogContext } from "@intrinsic/observability";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import type { AuthenticatedRequest } from "../auth/authenticated-request";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { parseBillingTargetRequest } from "./billing-requests";
 import { BillingReconciliationService } from "./billing-reconciliation.service";
 import { BillingService } from "./billing.service";
@@ -47,6 +48,7 @@ export class BillingController {
     private readonly reconciliation: BillingReconciliationService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get("status")
   async status(@CurrentUser() user: AuthUser): Promise<BillingStatusResponse> {
     return this.billing.readStatus(user);
@@ -65,6 +67,7 @@ export class BillingController {
    * but when it is not, the user should not have to reload for a minute. A reconciliation failure is
    * therefore not fatal here — the persisted status is still returned and the webhook will converge.
    */
+  @RateLimit("billing-refresh")
   @Post("refresh")
   async refresh(
     @CurrentUser() user: AuthUser,
@@ -89,6 +92,7 @@ export class BillingController {
    * Returns the URL rather than issuing a redirect, so the browser controls navigation and the
    * response stays a normal JSON error when the request is refused.
    */
+  @RateLimit("billing-mutation")
   @Post("checkout")
   async checkout(
     @CurrentUser() user: AuthUser,
@@ -103,6 +107,7 @@ export class BillingController {
     });
   }
 
+  @RateLimit("billing-mutation")
   @Post("portal")
   async portal(
     @CurrentUser() user: AuthUser,
@@ -120,6 +125,7 @@ export class BillingController {
    * Exists because Customer Portal configuration cannot express immediate-for-upgrades *and*
    * period-end-for-downgrades at once; `BillingService.changePlan` documents that in full.
    */
+  @RateLimit("billing-mutation")
   @Post("change")
   async change(
     @CurrentUser() user: AuthUser,

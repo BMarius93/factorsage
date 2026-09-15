@@ -14,6 +14,7 @@ import {
   BillingReconciliationService,
   type WebhookEventRecord,
 } from "./billing-reconciliation.service";
+import { RateLimitExempt } from "../rate-limit/rate-limit.decorator";
 import { BILLING_LOGGER, STRIPE_GATEWAY } from "./billing.tokens";
 import type { StripeGateway, StripeWebhookEnvelope } from "./stripe-gateway";
 
@@ -73,6 +74,13 @@ const HANDLED_EVENT_TYPES: ReadonlySet<string> = new Set([
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @Controller("webhooks")
+@RateLimitExempt(
+  "The caller is Stripe, not a user. Authentication here is a signature over the raw body, and " +
+    "delivery volume is Stripe's retry schedule rather than anybody's behaviour — a 429 would " +
+    "simply be retried for days while the billing change it carries stays unapplied. Abuse " +
+    "protection is the signature check, which rejects an unsigned payload before any database " +
+    "write, plus the event-id idempotency record.",
+)
 export class StripeWebhookController {
   constructor(
     @Inject(BILLING_LOGGER) private readonly logger: StructuredLogger,

@@ -113,6 +113,18 @@ Strategy or Stock List — a configuration boundary, fenced against an in-flight
 `Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
 semantics.
 
+For anything to do with HTTP rate limiting, `429` responses, client-IP or proxy assumptions, the
+Redis-failure policy, or outbound FMP provider throttling, read `architecture/rate-limiting.md`. It
+owns the policy catalog's location and initial values, why enforcement is a global interceptor
+rather than a guard, the actor/key rules, the `rate-limit:v1:*` namespace, the per-policy
+fail-open/fail-closed decision, and how the OpenAPI document is kept in step with the `@RateLimit`
+declarations. Rate limiting is never an entitlement: `../docs/decisions/entitlements-v1.md` section
+10 keeps them apart and a test enforces it.
+
+The HTTP API itself is specified in `../docs/openapi.yaml` (OpenAPI 3.1). Validate it with
+`pnpm openapi:validate`; `apps/api/src/openapi/openapi.contract.test.ts` is what stops it drifting
+from the routes that actually exist.
+
 For frontend/UI work, also read `architecture/frontend.md`. For the V1 visual-parity pass, read
 `architecture/v1-visual-parity.md` after it; that document defines the target surface hierarchy,
 action placement and responsive acceptance criteria.

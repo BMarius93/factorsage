@@ -53,6 +53,7 @@ import {
   oauthSecretsMatch,
   type OAuthTransaction,
 } from "./google/oauth-transaction";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { RegistrationService } from "./registration.service";
 
 /** Where the web app takes over after a successful external sign-in. */
@@ -73,11 +74,13 @@ export class AuthController {
   ) {}
 
   /** Non-secret capability probe so the UI only offers providers this deployment configured. */
+  @RateLimit("session-probe")
   @Get("providers")
   providers(): AuthProvidersResponse {
     return { google: this.google.isEnabled };
   }
 
+  @RateLimit("auth-sensitive")
   @Post("register")
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() body: unknown): Promise<RegisterResponse> {
@@ -85,6 +88,7 @@ export class AuthController {
     return { status: "verification_sent" };
   }
 
+  @RateLimit("auth-sensitive")
   @Post("verify-email")
   @HttpCode(HttpStatus.OK)
   async verifyEmail(@Body() body: unknown): Promise<VerifyEmailResponse> {
@@ -92,6 +96,7 @@ export class AuthController {
     return { status: "verified" };
   }
 
+  @RateLimit("auth-sensitive")
   @Post("resend-verification")
   @HttpCode(HttpStatus.ACCEPTED)
   async resendVerification(
@@ -110,6 +115,7 @@ export class AuthController {
    * from here, so the endpoint cannot be used to enumerate accounts or to discover how somebody
    * signs in.
    */
+  @RateLimit("auth-sensitive")
   @Post("forgot-password")
   @HttpCode(HttpStatus.ACCEPTED)
   async forgotPassword(@Body() body: unknown): Promise<ForgotPasswordResponse> {
@@ -118,6 +124,7 @@ export class AuthController {
   }
 
   /** Redeems a reset token once and installs the new password. */
+  @RateLimit("auth-sensitive")
   @Post("reset-password")
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() body: unknown): Promise<ResetPasswordResponse> {
@@ -125,6 +132,7 @@ export class AuthController {
     return { status: "password_reset" };
   }
 
+  @RateLimit("auth-sensitive")
   @Post("login")
   @HttpCode(HttpStatus.OK)
   async login(
@@ -140,12 +148,14 @@ export class AuthController {
     return result.user;
   }
 
+  @RateLimit("session-probe")
   @Get("me")
   @UseGuards(CookieAuthGuard)
   me(@CurrentUser() user: AuthUser): AuthUser {
     return user;
   }
 
+  @RateLimit("session-probe")
   @Post("logout")
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@Res({ passthrough: true }) response: Response): void {
@@ -155,6 +165,7 @@ export class AuthController {
     );
   }
 
+  @RateLimit("auth-sensitive")
   @Get("google")
   googleAuthorize(@Res() response: Response): void {
     if (!this.google.isEnabled) {
@@ -180,6 +191,7 @@ export class AuthController {
     );
   }
 
+  @RateLimit("auth-sensitive")
   @Get("google/callback")
   async googleCallback(
     @Query("code") code: unknown,

@@ -45,6 +45,7 @@ import {
 import {
   assertLiveFmpCredentials,
   liveFmpTestsEnabled,
+  useIsolatedRateLimits,
   useTestDatabase,
 } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -181,6 +182,10 @@ describeLive("live FMP stock API smoke", () => {
     // Inside beforeAll, not at module scope: this suite must still skip cleanly when the
     // RUN_LIVE_FMP_TESTS gate is off, whatever the local database configuration is.
     useTestDatabase();
+    // Same reason as every other AppModule suite: one loopback caller, a burst far denser
+    // than a person's. Called here rather than at module scope because this suite is opt-in
+    // and must stay inert without `RUN_LIVE_FMP_TESTS`.
+    useIsolatedRateLimits();
     const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();
     if (!redisUrl) {
       throw new Error("The live FMP suite requires TEST_REDIS_URL or REDIS_URL.");

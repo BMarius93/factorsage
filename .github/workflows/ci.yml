@@ -62,4 +62,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @intrinsic/stock-data test:redis
+      - run: pnpm openapi:validate
       - run: pnpm build

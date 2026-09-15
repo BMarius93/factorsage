@@ -7,6 +7,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm openapi:validate
 ```
 
 Do not suppress failing type checks.
@@ -366,6 +367,41 @@ It deletes bars, coverage intervals and watermarks — a durable projection of p
 user-owned state — and leaves the `BenchmarkSeries` rows themselves alone, because completed runs
 pin them. Completed runs keep their stored results either way. The next backtest re-hydrates the
 series from FMP.
+
+## Rate limiting and the OpenAPI document
+
+Rate limiting is proven by five suites inside the normal gate, and they are deliberately split by
+what they need, so a developer without infrastructure still runs most of them:
+
+- `apps/api/src/rate-limit/rate-limit.integration.test.ts` — **needs Redis.** The distributed
+  guarantees: the boundary, the `429`, `Retry-After`, refill when the window ends, isolation between
+  users, between unauthenticated addresses and between policies, that concurrent requests cannot
+  exceed the allowance, and that two separately compiled applications share one counter. It resolves
+  `TEST_REDIS_URL` then `REDIS_URL`, skips locally when neither is set, and **hard-fails in CI**, for
+  the same reason the stock-data Redis suite does — a silent skip there would leave the only
+  distributed coverage untested.
+- `apps/api/src/rate-limit/rate-limit.api.integration.test.ts` — **needs PostgreSQL and Redis.** The
+  limiter on real routes: `POST /auth/login` answers `429` after its allowance, and sign-in, lists
+  and entitlements behave exactly as before.
+- `apps/api/src/rate-limit/rate-limit-coverage.test.ts` — **needs PostgreSQL** (it compiles
+  `AppModule`). Every mounted route declares a policy or a written exemption. This is the suite that
+  fails when somebody adds a controller and forgets `@RateLimit`.
+- `apps/api/src/rate-limit/rate-limit.failure.test.ts` and `client-ip.test.ts` and
+  `rate-limit.ordering.test.ts` — **need nothing.** Fail-open/fail-closed, timeout bounding, the
+  proxy-hop and IPv6 rules, and the Nest enhancer ordering the design depends on.
+
+`packages/stock-data/src/fmp-gate-coverage.test.ts` needs nothing and proves every production
+`FmpClient` is constructed with the shared Redis provider gate — the invariant that keeps separate
+processes from each consuming the whole FMP allowance.
+
+`apps/api/src/openapi/openapi.contract.test.ts` needs PostgreSQL. It compiles the real application
+and requires `docs/openapi.yaml` to describe exactly the routes that exist, with each one's
+rate-limit policy, `429`, fail-closed `503`, cookie authentication and `401`/`403`. A new or renamed
+route that is not documented fails here.
+
+`pnpm openapi:validate` is a separate, infrastructure-free check that the document is valid
+OpenAPI 3.1 with every `$ref` resolvable. Run it after editing `docs/openapi.yaml`; it is part of
+the completion gate.
 
 ## Entitlements
 

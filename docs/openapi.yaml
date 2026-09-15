@@ -1,0 +1,3845 @@
+# FactorSage HTTP API — OpenAPI 3.1
+#
+# This document describes the API that `apps/api` actually serves. It is hand-authored, and a test
+# checks it rather than trusting it: `apps/api/src/openapi/openapi.contract.test.ts` compiles the
+# real Nest application, enumerates every mounted route, and fails when this file documents an
+# operation that does not exist, omits one that does, or disagrees with a route's `@RateLimit`
+# declaration, its authentication guard, its success status or its path parameters.
+# `pnpm openapi:validate` separately validates it against the official OpenAPI 3.1 schema.
+#
+# What that test does NOT check is worth knowing before trusting a field: request and response
+# schemas, validation constraints, examples and prose are hand-maintained and compared with nothing.
+# `ai/architecture/rate-limiting.md` section 13 lists the guaranteed and the hand-maintained
+# properties side by side.
+#
+# Conventions used throughout:
+#
+#   * `x-rate-limit` on an operation names the policy from the rate-limit catalog
+#     (`apps/api/src/rate-limit/rate-limit-policies.ts`). `info.x-rate-limit-policies` below
+#     carries the catalog itself, and the contract test pins both against the code.
+#   * Every rate-limited operation documents `429`, and every response carries the `RateLimit-*`
+#     headers. They are written by one interceptor, never per endpoint.
+#   * `401` is documented wherever a session is required; `403` wherever an entitlement or a role
+#     can refuse an authenticated caller.
+#
+# Not described here: `apps/web`'s own `/api/logo/{symbol}` route. It belongs to the Next.js
+# application, serves image bytes rather than JSON, and is not part of this API.
+
+openapi: 3.1.0
+
+info:
+  title: FactorSage API
+  version: "1.0.0"
+  summary: Stock research, strategy design, backtesting and monitoring.
+  description: |
+    The HTTP API behind FactorSage.
+
+    **Authentication** is a session cookie issued by `POST /auth/login` or by the Google OAuth
+    callback. It is `HttpOnly`, so browser clients send it automatically and never read it; a
+    non-browser client must store and resend it. There is no bearer token and no API key.
+
+    **Authorization** has two independent axes, both resolved server-side from persisted state and
+    never from anything the client sends: a role (`USER` / `ADMIN`) and a commercial plan
+    (`FREE` / `STARTER` / `PRO`). A plan limit is refused with `403` and a stable
+    `ENTITLEMENT_*` code. Ownership is not a separate axis — every user-owned collection is scoped
+    to the caller, and somebody else's resource answers exactly like one that does not exist.
+
+    **Rate limiting** is applied per endpoint class from a central policy catalog, keyed by user id
+    for authenticated traffic and by client IP otherwise. Exceeding a policy answers `429` with
+    `Retry-After`. See `info.x-rate-limit-policies`.
+
+    **Errors** share one machine-readable shape: an HTTP `statusCode`, a human `message`, and — for
+    every refusal a client may reasonably branch on — a stable `code`. Clients should branch on
+    `code`, never on `message`.
+  contact:
+    name: FactorSage engineering
+  license:
+    name: UNLICENSED
+
+  # The rate-limit policy catalog, mirrored from `apps/api/src/rate-limit/rate-limit-policies.ts`.
+  # The contract test asserts these numbers equal the code's, so a limit change that forgets this
+  # document fails the build.
+  x-rate-limit-policies:
+    auth-sensitive:
+      description: Credential, registration, verification and account-recovery endpoints.
+      actor: ip
+      points: 20
+      durationSeconds: 300
+      onRedisFailure: deny
+    session-probe:
+      description: Session, provider-capability and entitlement probes.
+      actor: user
+      points: 120
+      durationSeconds: 60
+      onRedisFailure: allow
+    stock-search:
+      description: Global stock search and recently-viewed resolution.
+      actor: user
+      points: 60
+      durationSeconds: 60
+      onRedisFailure: allow
+    stock-read:
+      description: Stock Details and daily history series; may hydrate from the market-data provider.
+      actor: user
+      points: 180
+      durationSeconds: 60
+      onRedisFailure: allow
+    standard-read:
+      description: Reads of the caller's own resources and system catalogs.
+      actor: user
+      points: 240
+      durationSeconds: 60
+      onRedisFailure: allow
+    progress-poll:
+      description: Endpoints the client polls on a fixed interval.
+      actor: user
+      points: 300
+      durationSeconds: 60
+      onRedisFailure: allow
+    mutation:
+      description: Writes to the caller's own resources.
+      actor: user
+      points: 60
+      durationSeconds: 60
+      onRedisFailure: allow
+    monitor-mutation:
+      description: Monitor creation, rebinding and deletion.
+      actor: user
+      points: 30
+      durationSeconds: 60
+      onRedisFailure: allow
+    backtest-execution:
+      description: Backtest submission; queues durable worker execution.
+      actor: user
+      points: 60
+      durationSeconds: 3600
+      onRedisFailure: allow
+      secondary:
+        actor: ip
+        points: 180
+        durationSeconds: 3600
+    billing-mutation:
+      description: Billing operations that move money through the payment provider.
+      actor: user
+      points: 20
+      durationSeconds: 300
+      onRedisFailure: deny
+      secondary:
+        actor: ip
+        points: 60
+        durationSeconds: 300
+    billing-refresh:
+      description: Polled reconciliation of billing state after a hosted payment round trip.
+      actor: user
+      points: 60
+      durationSeconds: 300
+      onRedisFailure: deny
+      secondary:
+        actor: ip
+        points: 180
+        durationSeconds: 300
+    admin-operation:
+      description: Privileged administrative operations.
+      actor: user
+      points: 10
+      durationSeconds: 3600
+      onRedisFailure: deny
+
+# The four `RateLimit-*` headers every rate-limited response carries. Defined once as a YAML anchor
+# and aliased at each response below: OpenAPI's `headers` is a map of header name to Header Object,
+# so there is no `$ref` that can stand in for a *set* of them. The alias is resolved at parse time,
+# so every consumer sees the four headers written out.
+x-rate-limit-response-headers: &rateLimitHeaders
+  RateLimit-Policy: { $ref: "#/components/headers/RateLimitPolicy" }
+  RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+  RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+  RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+
+servers:
+  - url: http://localhost:3001
+    description: Local development (`pnpm dev:api`).
+  - url: "{scheme}://{host}"
+    description: Any deployment. The API is served at the root; there is no path prefix.
+    variables:
+      scheme:
+        default: https
+        enum: [https, http]
+      host:
+        default: api.factorsage.example
+
+tags:
+  - name: Authentication
+    description: |
+      Sessions, registration, email verification and password recovery. Every route here carries the
+      `auth-sensitive` policy: counted per client IP, and refused rather than allowed when the
+      limiter's store is unreachable. `info.x-rate-limit-policies` holds its exact allowance — the
+      numbers live there once, checked against the server's catalog, and are deliberately not
+      restated in prose.
+
+      The counter is keyed by origin, never by the submitted email address: keying it by account
+      would let anybody lock a known victim out by spending the victim's allowance for them.
+  - name: Session
+    description: Cheap probes the client issues on navigation — who am I, what may I do.
+  - name: Stocks
+    description: |
+      The supported securities catalog and its market data. Readable without a session.
+      These are the only public routes that can reach the market-data provider; provider traffic is
+      throttled separately by a shared Redis gate that every API and worker process passes through.
+  - name: Stock lists
+    description: User-owned universes of catalog securities, each with its buy-eligibility windows.
+  - name: Strategies
+    description: User-owned strategy definitions — ordered BUY/SELL levels and an optional final exit.
+  - name: Backtests
+    description: |
+      Asynchronous historical execution. Submission answers `202` with a queued run; a worker
+      process executes it and the client polls `/backtests/{runId}/progress`.
+  - name: Monitors
+    description: |
+      Live evaluation of a strategy against a stock list. Cadence is an application decision and is
+      not configurable, so there is deliberately no "scan now" route.
+  - name: Benchmarks
+    description: The system-owned benchmark catalog a backtest may compare against.
+  - name: Entitlements
+    description: What the current caller's plan allows. Advisory — every limit is enforced again server-side.
+  - name: Billing
+    description: Subscription status and the hosted payment surfaces.
+  - name: Admin
+    description: Operator routes. `ADMIN` role required; there is no plan that grants them.
+  - name: Operations
+    description: Probes and integration endpoints that are not called by a user.
+
+paths:
+  # ---------------------------------------------------------------------------------------------
+  # Authentication
+  # ---------------------------------------------------------------------------------------------
+  /auth/register:
+    post:
+      tags: [Authentication]
+      operationId: register
+      summary: Create an account and send a verification email.
+      description: |
+        Always answers `201` when the request is well-formed, whether or not the address was already
+        registered. The account cannot sign in until the emailed link is redeemed.
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+            examples:
+              default:
+                value:
+                  {
+                    email: "trader@example.com",
+                    password: "correct-horse-battery",
+                  }
+      responses:
+        "201":
+          description: Registration accepted; a verification email has been sent.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegisterResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/verify-email:
+    post:
+      tags: [Authentication]
+      operationId: verifyEmail
+      summary: Redeem an email-verification token.
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VerifyEmailRequest" }
+      responses:
+        "200":
+          description: The address is verified and the account may sign in.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VerifyEmailResponse" }
+        "400":
+          description: The token is malformed, expired, or already redeemed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/resend-verification:
+    post:
+      tags: [Authentication]
+      operationId: resendVerification
+      summary: Send another verification email.
+      description: |
+        Always `202`, for any address. An unknown address, an already-verified account and a real
+        pending one are indistinguishable from the response, so this cannot be used to enumerate
+        accounts.
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailOnlyRequest" }
+      responses:
+        "202":
+          description: Accepted. Nothing is revealed about whether an email was actually sent.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AcceptedStatusResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      operationId: forgotPassword
+      summary: Request a password-reset link.
+      description: |
+        Always `202`. An unknown address, a Google-only account with no local password and a real
+        local account all answer identically, so the endpoint reveals neither who has an account nor
+        how they sign in.
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmailOnlyRequest" }
+      responses:
+        "202":
+          description: Accepted.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AcceptedStatusResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      operationId: resetPassword
+      summary: Redeem a reset token and set a new password.
+      description: The token is single-use. The new password must satisfy the current registration policy.
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordRequest" }
+      responses:
+        "200":
+          description: The password was replaced.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetPasswordResponse" }
+        "400":
+          description: The token is invalid or expired, or the password fails the policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Sign in and receive the session cookie.
+      description: |
+        On success the response carries `Set-Cookie` with the session. The cookie is `HttpOnly` and
+        `SameSite=Lax`, and `Secure` in production.
+
+        A `429` here refuses the attempt whether or not the credentials were correct, so a client
+        must present it as throttling and never as "wrong password".
+      x-rate-limit: { policy: auth-sensitive }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: The session cookie. Its name is deployment configuration; the default is `intrinsic_auth`.
+              schema: { type: string }
+            RateLimit-Policy: { $ref: "#/components/headers/RateLimitPolicy" }
+            RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+            RateLimit-Remaining:
+              { $ref: "#/components/headers/RateLimitRemaining" }
+            RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthUser" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: |
+            The credentials were rejected, or the local address is not verified yet — the latter
+            carries `code: EMAIL_NOT_VERIFIED`, which is the only case a client can act on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                unverified:
+                  value:
+                    statusCode: 401
+                    message: "Verify your email address before signing in."
+                    code: EMAIL_NOT_VERIFIED
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/logout:
+    post:
+      tags: [Session]
+      operationId: logout
+      summary: Clear the session cookie.
+      description: Succeeds whether or not a session existed; there is nothing to discover from it.
+      x-rate-limit: { policy: session-probe }
+      responses:
+        "204":
+          description: The cookie has been cleared.
+          headers: *rateLimitHeaders
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/me:
+    get:
+      tags: [Session]
+      operationId: getCurrentUser
+      summary: The signed-in user.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: session-probe }
+      responses:
+        "200":
+          description: The caller's identity, role and persisted plan.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthUser" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/providers:
+    get:
+      tags: [Session]
+      operationId: getAuthProviders
+      summary: Which external sign-in providers this deployment has configured.
+      description: Non-secret capability probe, so the sign-in UI only offers what will work.
+      x-rate-limit: { policy: session-probe }
+      responses:
+        "200":
+          description: Provider availability.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProvidersResponse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/google:
+    get:
+      tags: [Authentication]
+      operationId: startGoogleSignIn
+      summary: Begin Google sign-in.
+      description: |
+        Browser redirect, not a JSON endpoint. Mints a state/PKCE/nonce transaction bound to one
+        short-lived `HttpOnly` cookie and redirects to Google. When Google sign-in is not configured
+        it redirects back to the web app's login page with `error=oauth_unavailable`.
+      x-rate-limit: { policy: auth-sensitive }
+      responses:
+        "302":
+          description: Redirect to Google, or back to the login page when the provider is unavailable.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+            Set-Cookie:
+              description: The single-use OAuth transaction cookie.
+              schema: { type: string }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /auth/google/callback:
+    get:
+      tags: [Authentication]
+      operationId: completeGoogleSignIn
+      summary: Google's redirect back from the authorization page.
+      description: |
+        Browser redirect, not a JSON endpoint, and not called directly by any client. Always
+        redirects: to the dashboard on success with the session cookie set, or to the login page
+        with a stable `error` code. Failure detail from the provider never reaches the browser.
+      x-rate-limit: { policy: auth-sensitive }
+      parameters:
+        - name: code
+          in: query
+          description: Google's authorization code.
+          schema: { type: string }
+        - name: state
+          in: query
+          description: Must match the value bound to the transaction cookie.
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the web app, signed in or carrying an `error` code.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+            Set-Cookie:
+              description: The session cookie on success; the cleared transaction cookie either way.
+              schema: { type: string }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Entitlements
+  # ---------------------------------------------------------------------------------------------
+  /entitlements:
+    get:
+      tags: [Entitlements]
+      operationId: getEntitlements
+      summary: What the current caller is allowed to do.
+      description: |
+        Readable without a session: a guest is an access state rather than an account, and asking
+        this creates nothing.
+
+        The response is **advisory**. Every limit in it is enforced again server-side from the
+        persisted plan and role, so a client that ignores it — or forges a better-looking copy —
+        still cannot exceed anything.
+      x-rate-limit: { policy: session-probe }
+      responses:
+        "200":
+          description: The resolved entitlements for the caller, guest or authenticated.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EntitlementsResponse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Stocks
+  # ---------------------------------------------------------------------------------------------
+  /stocks/search:
+    get:
+      tags: [Stocks]
+      operationId: searchStocks
+      summary: Search the supported securities catalog.
+      description: |
+        Matches symbol and name against the locally persisted catalog. No session required; a guest
+        is counted against their client IP.
+      x-rate-limit: { policy: stock-search }
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search term. Must be non-blank after trimming.
+          schema: { type: string, minLength: 1 }
+          example: AAPL
+      responses:
+        "200":
+          description: Matching securities, best match first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockSearchResult" }
+        "400":
+          description: "`q` was missing or blank."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  /stocks/{symbol}:
+    get:
+      tags: [Stocks]
+      operationId: getStockDetails
+      summary: The composite Stock Details payload for one security.
+      description: |
+        Identity, profile, and one bounded window of prices, technicals, intrinsic values and
+        blends. The requested range is clamped to the product history horizon before any security is
+        resolved, so an unbounded `from` cannot turn into an unbounded backend read. Omitting the
+        range returns the surface's default window.
+
+        A cold security is hydrated from the market-data provider on demand, which is why this class
+        of route carries a tighter policy than a read of the caller's own rows.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+      responses:
+        "200":
+          description: The security, its profile when one has been hydrated, and the bounded series.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  /stocks/{symbol}/prices:
+    get:
+      tags: [Stocks]
+      operationId: getDailyPrices
+      summary: Daily OHLCV history.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/FromRequired" }
+        - { $ref: "#/components/parameters/ToRequired" }
+      responses:
+        "200":
+          description: One row per trading day in the clamped range, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DailyPrice" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  /stocks/{symbol}/technicals/daily:
+    get:
+      tags: [Stocks]
+      operationId: getDailyTechnicals
+      summary: Daily technical series — moving averages and oscillators.
+      description: |
+        Weekly moving averages are carried forward onto each trading day. A value that does not
+        exist for a day — warm-up, or data the point-in-time rules make unavailable — is **omitted**
+        rather than zeroed.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/FromRequired" }
+        - { $ref: "#/components/parameters/ToRequired" }
+        - name: series
+          in: query
+          description: |
+            Narrows the response to these catalog series. Repeat the parameter or comma-separate the
+            values. Omitting it returns every technical series. An identifier that is not a
+            moving average or an oscillator is rejected rather than ignored.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/TechnicalSeriesField" }
+          style: form
+          explode: true
+          example: [sma50d, rsi14d]
+      responses:
+        "200":
+          description: One row per trading day, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DailyTechnical" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  /stocks/{symbol}/intrinsic-values:
+    get:
+      tags: [Stocks]
+      operationId: getIntrinsicValues
+      summary: Modelled intrinsic value per share, by valuation date.
+      description: |
+        Point-in-time correct: every value is derived only from data that was available on its
+        `sourceDataAsOf`, never from later filings.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/AsOf" }
+        - name: models
+          in: query
+          description: Restricts the response to these valuation models. Repeat or comma-separate.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/IntrinsicValueModel" }
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: Valuation points, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IntrinsicValue" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  /stocks/{symbol}/intrinsic-value-blends:
+    get:
+      tags: [Stocks]
+      operationId: getIntrinsicValueBlends
+      summary: Blended intrinsic value per share, by valuation date.
+      x-rate-limit: { policy: stock-read }
+      parameters:
+        - { $ref: "#/components/parameters/Symbol" }
+        - { $ref: "#/components/parameters/From" }
+        - { $ref: "#/components/parameters/To" }
+        - { $ref: "#/components/parameters/AsOf" }
+        - name: blendIds
+          in: query
+          description: Restricts the response to these blends. Repeat or comma-separate.
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/IntrinsicValueBlendId" }
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: Blend points, oldest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/IntrinsicValueBlend" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/SymbolNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/StockDataUnavailable" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Recently viewed
+  # ---------------------------------------------------------------------------------------------
+  /recent-searches:
+    get:
+      tags: [Stocks]
+      operationId: listRecentSearches
+      summary: The securities the caller viewed most recently.
+      description: |
+        Readable without a session. A guest keeps its own recents in the browser and sends them as
+        `ids` for resolution against the live catalog; for an authenticated caller the set comes
+        from the database and `ids` is ignored entirely, so nothing a client sends can add to or
+        reorder it.
+      x-rate-limit: { policy: stock-search }
+      parameters:
+        - name: ids
+          in: query
+          description: Guest-supplied catalog security ids to resolve. Ignored when a session is present.
+          schema:
+            type: array
+            items: { type: string, format: uuid }
+          style: form
+          explode: true
+      responses:
+        "200":
+          description: At most five securities, newest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 5
+                items: { $ref: "#/components/schemas/StockSearchResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Stocks]
+      operationId: recordSecurityView
+      summary: Record that the caller opened one security's details.
+      description: |
+        Authenticated only. A guest's recents never reach the server, so a silent `204` for one
+        would be a write that pretends to have happened; guests get `401`, which clients treat like
+        any other failure of this call — nothing on the page depends on it.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordSecurityViewRequest" }
+      responses:
+        "204":
+          description: Recorded.
+          headers: *rateLimitHeaders
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such security in the supported catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Stock lists
+  # ---------------------------------------------------------------------------------------------
+  /lists:
+    get:
+      tags: [Stock lists]
+      operationId: listStockLists
+      summary: The caller's stock lists.
+      description: |
+        Scoped to the caller. Each summary carries a `compliance` block reporting the list against
+        the plan's symbol limit — a list that grew under a higher plan stays readable and is
+        reported as non-compliant rather than truncated.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The caller's lists.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StockListSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Stock lists]
+      operationId: createStockList
+      summary: Create a stock list.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateStockListRequest" }
+            examples:
+              withMembers:
+                value:
+                  name: "Dividend watchlist"
+                  description: "Large-cap payers"
+                  securityIds: ["6f1b0a1e-8a6c-4c1a-9f0e-2b6c4d8e1a33"]
+      responses:
+        "201":
+          description: The created list.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /lists/{listId}:
+    parameters:
+      - { $ref: "#/components/parameters/ListId" }
+    get:
+      tags: [Stock lists]
+      operationId: getStockList
+      summary: One stock list with its members and buy windows.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The list.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    patch:
+      tags: [Stock lists]
+      operationId: updateStockList
+      summary: Rename a list or change its description.
+      description: "At least one of `name` or `description` must be present. `description: null` clears it."
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateStockListRequest" }
+      responses:
+        "200":
+          description: The updated summary.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    delete:
+      tags: [Stock lists]
+      operationId: deleteStockList
+      summary: Delete a list.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Deleted.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: A monitor still references this list. Delete or rebind the monitor first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /lists/{listId}/items:
+    parameters:
+      - { $ref: "#/components/parameters/ListId" }
+    post:
+      tags: [Stock lists]
+      operationId: addStockListItems
+      summary: Add securities to a list.
+      description: |
+        Idempotent and therefore `200`, not `201`: already-member securities are skipped and the
+        whole updated list is returned. At most 100 ids per request, deduplicated.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddStockListItemsRequest" }
+      responses:
+        "200":
+          description: The updated list.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListDetail" }
+        "400":
+          description: Malformed ids, too many in one request, or a security outside the supported catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /lists/{listId}/items/{itemId}:
+    parameters:
+      - { $ref: "#/components/parameters/ListId" }
+      - { $ref: "#/components/parameters/ItemId" }
+    delete:
+      tags: [Stock lists]
+      operationId: removeStockListItem
+      summary: Remove one security from a list.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Removed.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /lists/{listId}/items/{itemId}/buy-windows:
+    parameters:
+      - { $ref: "#/components/parameters/ListId" }
+      - { $ref: "#/components/parameters/ItemId" }
+    put:
+      tags: [Stock lists]
+      operationId: replaceBuyWindows
+      summary: Replace a member's complete buy-eligibility configuration.
+      description: |
+        A whole-configuration replace, never a merge. `FULL` persists no ranges. `CUSTOM` is stored
+        in canonical normalized form — sorted, non-overlapping, non-adjacent, at most one
+        open-ended — so the response may legitimately contain fewer ranges than the request.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplaceBuyWindowsRequest" }
+            examples:
+              custom:
+                value:
+                  mode: CUSTOM
+                  ranges:
+                    - { startDate: "2020-01-01", endDate: "2021-12-31" }
+                    - { startDate: "2023-06-01", endDate: null }
+      responses:
+        "200":
+          description: The member, with its canonical normalized windows.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListItem" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Strategies
+  # ---------------------------------------------------------------------------------------------
+  /strategies:
+    get:
+      tags: [Strategies]
+      operationId: listStrategies
+      summary: The caller's strategies.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: Summaries, without the definitions.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StrategySummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Strategies]
+      operationId: createStrategy
+      summary: Create a strategy.
+      description: |
+        The definition is validated by the same canonical validator the Strategy Builder runs, so a
+        rejection carries path-addressed `issues` the UI attaches to the exact row that produced
+        them rather than showing a banner.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateStrategyRequest" }
+      responses:
+        "201":
+          description: The created strategy, with its canonical normalized definition.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyDetail" }
+        "400": { $ref: "#/components/responses/StrategyInvalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /strategies/{strategyId}:
+    parameters:
+      - { $ref: "#/components/parameters/StrategyId" }
+    get:
+      tags: [Strategies]
+      operationId: getStrategy
+      summary: One strategy with its full definition.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The strategy.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    patch:
+      tags: [Strategies]
+      operationId: updateStrategy
+      summary: Rename a strategy or change its description.
+      description: Metadata only. The definition is replaced through its own endpoint.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateStrategyRequest" }
+      responses:
+        "200":
+          description: The updated summary.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategySummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    delete:
+      tags: [Strategies]
+      operationId: deleteStrategy
+      summary: Delete a strategy.
+      description: |
+        Completed backtest runs are unaffected: a run holds an immutable snapshot of the strategy it
+        executed, so deleting the live strategy never deletes or reinterprets a result.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Deleted.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: A monitor still references this strategy. Delete or rebind the monitor first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /strategies/{strategyId}/definition:
+    parameters:
+      - { $ref: "#/components/parameters/StrategyId" }
+    put:
+      tags: [Strategies]
+      operationId: replaceStrategyDefinition
+      summary: Replace the complete strategy definition.
+      description: |
+        Atomic whole-document replace; it creates a new strategy version. Partial edits are not
+        supported — send the entire definition.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              { $ref: "#/components/schemas/ReplaceStrategyDefinitionRequest" }
+      responses:
+        "200":
+          description: The strategy with its new canonical definition and incremented version.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyDetail" }
+        "400": { $ref: "#/components/responses/StrategyInvalid" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Backtests
+  # ---------------------------------------------------------------------------------------------
+  /backtests:
+    get:
+      tags: [Backtests]
+      operationId: listBacktestRuns
+      summary: The caller's backtest runs.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: Run summaries, newest first.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BacktestRunSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Backtests]
+      operationId: submitBacktestRun
+      summary: Submit a backtest for asynchronous execution.
+      description: |
+        Answers `202` with a queued run rather than blocking: a backtest is durable work a separate
+        worker process executes, sometimes for minutes. Poll `/backtests/{runId}/progress`.
+
+        Submission takes an immutable snapshot of the strategy, the list, the securities and their
+        buy windows, the benchmark and the engine methodology. Nothing in a submitted run is ever
+        re-derived from current rows, so editing or deleting any of them afterwards cannot change or
+        invalidate the result.
+
+        This is the most expensive thing a client can ask for, so `backtest-execution` is the
+        tightest capacity policy in the catalog. It carries two buckets — one per user and a wider
+        one per client address, the second being what sees one origin spreading submissions across
+        several accounts. See `info.x-rate-limit-policies` for both allowances.
+
+        A request refused by either bucket does not consume usable allowance from the other, so
+        retrying after your own allowance is gone cannot drain the shared one for everybody else
+        behind your address.
+
+        All of that is separate from `backtests.maxConcurrentRuns`, which is a plan entitlement and
+        bounds how many may execute at once rather than how fast they may be submitted.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: backtest-execution }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBacktestRunRequest" }
+            examples:
+              default:
+                value:
+                  strategyId: "1f2e3d4c-5b6a-4790-8123-456789abcdef"
+                  stockListId: "9a8b7c6d-5e4f-4321-8fed-cba987654321"
+                  benchmarkCode: "SP500"
+                  startDate: "2015-01-01"
+                  endDate: "2024-12-31"
+                  initialCapital: 100000
+                  monthlyContribution: 1000
+                  maximumPositions: 10
+      responses:
+        "202":
+          description: The run was queued. Its status is `QUEUED` and no result exists yet.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRunDetail" }
+        "400":
+          description: |
+            The configuration cannot be executed — an unknown or unowned strategy or list, an empty
+            list, an out-of-range period, or a capital/allocation value outside its bounds. Carries
+            `code: BACKTEST_INVALID`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                invalid:
+                  value:
+                    statusCode: 400
+                    message: "The selected stock list has no securities."
+                    code: BACKTEST_INVALID
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: |
+            The run cannot be created under the methodology it would have to record — for example
+            the execution calendar is unavailable. Not the caller's fault, and the same request will
+            work later.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /backtests/{runId}:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: getBacktestRun
+      summary: One run — its immutable configuration snapshot, progress and result.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: |
+            The run. `result` is populated only for `COMPLETED`; `failure` only for `FAILED`;
+            `live` only while a simulation is in flight.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRunDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /backtests/{runId}/progress:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: getBacktestProgress
+      summary: Live progress for one run.
+      description: |
+        Designed to be polled: about once a second while a run is `RUNNING` or `FINALIZING`, and
+        every two and a half seconds otherwise. `sequence` is monotonic per run, so a client can
+        drop a response that lost a race, and a terminal run never reopens.
+
+        This is the only polled endpoint in the API and it has a policy of its own sized for that
+        cadence. A client that receives `429` here should honour `Retry-After` rather than keep its
+        timer — the page it is drawing does not need to blank out, and retrying inside the window
+        cannot succeed.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: progress-poll }
+      responses:
+        "200":
+          description: The newest checkpoint.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestProgress" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /backtests/{runId}/strategy:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: getBacktestRunStrategy
+      summary: The exact strategy definition this run executed.
+      description: |
+        Read from the run's immutable snapshot, never from the live strategy. It stays correct after
+        the strategy has been edited or deleted, which is what makes a result reproducible.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The snapshotted strategy name, version number and definition.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestRunStrategy" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Benchmarks
+  # ---------------------------------------------------------------------------------------------
+  /benchmarks:
+    get:
+      tags: [Benchmarks]
+      operationId: listBenchmarks
+      summary: The selectable benchmark catalog.
+      description: |
+        System-owned and read-only. A benchmark is passive comparison data, never a tradable
+        security: it is never bought, consumes no cash or position slot, and carries no derived
+        series. The provider symbol behind one never crosses this contract.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: Every benchmark this deployment offers.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Benchmark" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Monitors
+  # ---------------------------------------------------------------------------------------------
+  /monitors:
+    get:
+      tags: [Monitors]
+      operationId: listMonitors
+      summary: The caller's monitors.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: Monitor summaries.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MonitorSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    post:
+      tags: [Monitors]
+      operationId: createMonitor
+      summary: Create a monitor.
+      description: |
+        A monitor is a live strategy reference plus a live stock list reference plus `enabled`, and
+        nothing else. There is no pinned version, no execution parameter and no cadence: scan
+        frequency is an application decision. Unknown fields are **rejected** rather than ignored,
+        so an attempt to set a cadence fails loudly instead of appearing to work.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: monitor-mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMonitorRequest" }
+      responses:
+        "201":
+          description: The created monitor, with the current status of every monitored security.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitorDetail" }
+        "400":
+          description: Malformed body, an unknown field, or a strategy or list the caller does not own.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /monitors/{monitorId}:
+    parameters:
+      - { $ref: "#/components/parameters/MonitorId" }
+    get:
+      tags: [Monitors]
+      operationId: getMonitor
+      summary: One monitor, its monitored securities and its newest signals.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The monitor.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitorDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    patch:
+      tags: [Monitors]
+      operationId: updateMonitor
+      summary: Rename, enable/disable, or rebind a monitor.
+      description: |
+        Changing `strategyId` or `stockListId` **rebinds** the monitor. That is a configuration
+        boundary, not an edit: transition state is discarded, active signals are resolved and
+        `lastScanAt` is cleared, while signal history is kept. An in-flight scan cycle is fenced off
+        so it cannot write state belonging to the old configuration.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: monitor-mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateMonitorRequest" }
+      responses:
+        "200":
+          description: The updated summary.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonitorSummary" }
+        "400":
+          description: Malformed body, an unknown field, or a strategy or list the caller does not own.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+    delete:
+      tags: [Monitors]
+      operationId: deleteMonitor
+      summary: Delete a monitor.
+      description: Signals it produced are append-only durable records and are never deleted with it.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: monitor-mutation }
+      responses:
+        "204":
+          description: Deleted.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Billing
+  # ---------------------------------------------------------------------------------------------
+  /billing/status:
+    get:
+      tags: [Billing]
+      operationId: getBillingStatus
+      summary: The caller's subscription state and the price catalog.
+      description: |
+        `plan` is the **persisted** plan — the same column every entitlement check reads — and is
+        deliberately not recomputed from the payment provider for this response. Showing something
+        the guards would refuse is exactly the optimistic display the billing decision forbids.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: Billing status. `subscription` is null when there is none.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /billing/refresh:
+    post:
+      tags: [Billing]
+      operationId: refreshBillingStatus
+      summary: Reconcile from the payment provider, then return status.
+      description: |
+        What the billing page calls after returning from a hosted provider surface. It is a read of
+        authoritative provider state run through the same reconciliation a webhook runs — not a
+        grant — so a cancelled subscription or a failed card produces the honest answer rather than
+        the optimistic one. Its value is latency only; webhooks remain the authority, and a
+        reconciliation failure still returns the persisted status rather than failing the page.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: billing-refresh }
+      responses:
+        "201":
+          description: |
+            Billing status after reconciliation.
+
+            `201` rather than `200` because the handler declares no explicit status and the
+            framework's default for `POST` applies. It creates nothing at this URL, so read it as
+            "accepted and applied"; the status is recorded here because it is what the endpoint
+            actually sends, and changing it would be a breaking change to a shipped route.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /billing/checkout:
+    post:
+      tags: [Billing]
+      operationId: startCheckout
+      summary: Start hosted checkout for one catalog price.
+      description: |
+        Accepts one of four **logical** price keys and nothing else. No provider price, customer or
+        subscription identifier is accepted from a client, anywhere in this API.
+
+        Returns the URL rather than redirecting, so the browser controls navigation and a refusal
+        stays a normal JSON error.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: billing-mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingTargetRequest" }
+      responses:
+        "201":
+          description: A hosted checkout session URL.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingCheckoutResponse" }
+        "400":
+          description: "Not a known price key. `code: BILLING_INVALID_PRICE_KEY`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: "Already subscribed. `code: BILLING_ALREADY_SUBSCRIBED`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/BillingUnavailable" }
+
+  /billing/portal:
+    post:
+      tags: [Billing]
+      operationId: openBillingPortal
+      summary: Open the hosted customer portal.
+      description: |
+        Bound to the session's user; there is no parameter naming a customer, which is what makes
+        "one user cannot open another's portal" a property of the shape rather than of a check.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: billing-mutation }
+      responses:
+        "201":
+          description: A hosted portal session URL.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingPortalResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: "No subscription to manage. `code: BILLING_NO_SUBSCRIPTION`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/BillingUnavailable" }
+
+  /billing/change:
+    post:
+      tags: [Billing]
+      operationId: changeSubscription
+      summary: Move an existing subscription to another catalog price.
+      description: |
+        Exists because the hosted portal cannot express immediate-for-upgrades and
+        period-end-for-downgrades at the same time. The response says which effect was applied and
+        when it takes hold. An upgrade whose payment has not succeeded never grants a plan.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: billing-mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BillingTargetRequest" }
+      responses:
+        "201":
+          description: The transition that was applied or scheduled.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingChangeResponse" }
+        "400":
+          description: "Not a known price key. `code: BILLING_INVALID_PRICE_KEY`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402":
+          description: "Payment is required before the change can apply. `code: BILLING_PAYMENT_REQUIRED`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "409":
+          description: |
+            The transition is not allowed, there is nothing to change, or no subscription exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/BillingUnavailable" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Admin
+  # ---------------------------------------------------------------------------------------------
+  /admin/health:
+    get:
+      tags: [Admin]
+      operationId: getAdminHealth
+      summary: Confirms the caller holds the `ADMIN` role.
+      description: |
+        Not a dependency probe — `/health/ready` is that. This exists so an operator surface can
+        verify its own access without attempting a privileged operation.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The caller is an administrator.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminHealthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/RoleForbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /admin/securities/sync:
+    post:
+      tags: [Admin]
+      operationId: syncSecurityCatalog
+      summary: Reconcile the supported securities catalog against the provider universe.
+      description: |
+        The only path that adds to the catalog. Catalog **identity only**: prices, fundamentals and
+        derived state stay lazy and load when a stock is actually opened.
+
+        Expensive, provider-backed and normally run on a schedule, so `admin-operation` is the
+        narrowest allowance in the catalog (see `info.x-rate-limit-policies`) and is refused rather
+        than allowed when the limiter's store is unreachable. `200`, not `201`: it reconciles an
+        existing catalog rather than creating a resource at this URL.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: admin-operation }
+      responses:
+        "200":
+          description: What the synchronization did.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/SecurityCatalogSyncResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/RoleForbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503":
+          description: The provider-backed synchronization could not complete. Retryable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Operations — not called by a user, and deliberately not rate limited
+  # ---------------------------------------------------------------------------------------------
+  /health:
+    get:
+      tags: [Operations]
+      operationId: getLiveness
+      summary: Liveness. Is the process up?
+      description: |
+        Answers only whether the process is running, so an orchestrator restarts a hung process and
+        never a healthy one whose dependency is down.
+      x-rate-limit:
+        exempt: true
+        reason: >-
+          Orchestrator probe. A throttled probe reads as a failed one, so limiting it would take a
+          healthy instance out of rotation — the opposite of what the endpoint is for.
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+
+  /health/ready:
+    get:
+      tags: [Operations]
+      operationId: getReadiness
+      summary: Readiness. Can this instance serve the product?
+      description: |
+        Probes the two dependencies every request path needs — PostgreSQL and Redis — each bounded
+        by a timeout so a hung dependency reports as failed rather than hanging the probe. The
+        market-data provider is deliberately **not** probed: a provider outage or rate limit is
+        absorbed by the shared provider gate and must never take an instance out of rotation.
+      x-rate-limit:
+        exempt: true
+        reason: >-
+          Orchestrator probe, as for `/health`. Bounded work, and throttling it would cause the
+          failure it is meant to detect.
+      responses:
+        "200":
+          description: Every dependency answered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessResponse" }
+        "503":
+          description: A dependency failed. The body is the same readiness document, naming which.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadinessResponse" }
+
+  /webhooks/stripe:
+    post:
+      tags: [Operations]
+      operationId: receiveStripeWebhook
+      summary: Payment-provider event delivery.
+      description: |
+        Called by the payment provider, never by a client of this API. Documented because the route
+        exists and is publicly reachable, not because anything should call it.
+
+        No session and no CSRF token: the only thing that authenticates the caller is a signature
+        over the **raw** body, computed with this endpoint's signing secret. A payload that has been
+        parsed and re-serialized cannot verify. Unsigned JSON is never accepted, and nothing —
+        including any database write — runs before the signature check passes.
+
+        The status code is a control channel. `200` means "durably handled, do not send again", and
+        is also returned for an event this deployment does not act on. `400` is an invalid
+        signature, which the provider does not retry. `500` means "try again" and is returned for a
+        transient failure, because the provider's retry is the recovery mechanism.
+      security: [{ stripeSignature: [] }]
+      x-rate-limit:
+        exempt: true
+        reason: >-
+          The caller is the payment provider, not a user. Delivery volume is its retry schedule, and
+          a 429 would simply be retried for days while the billing change it carries stays
+          unapplied. Abuse protection is the signature check plus event-id idempotency.
+      requestBody:
+        required: true
+        description: A provider event envelope. The raw bytes are what the signature covers.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Durably handled, or acknowledged as an event this deployment ignores.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received, outcome]
+                properties:
+                  received: { type: boolean, const: true }
+                  outcome:
+                    type: string
+                    description: What was done with the event.
+                    examples: [handled, ignored, duplicate]
+        "400":
+          description: "Missing or invalid signature. Not retried by the provider."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+        "500":
+          description: Transient failure. The provider should retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: "Billing is not configured in this deployment. `code: BILLING_NOT_CONFIGURED`."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillingError" }
+
+# =================================================================================================
+# Components
+# =================================================================================================
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: intrinsic_auth
+      description: |
+        The session cookie issued by `POST /auth/login` or by the Google callback. `HttpOnly`,
+        `SameSite=Lax`, and `Secure` in production. Its name is deployment configuration
+        (`AUTH_COOKIE_NAME`); `intrinsic_auth` is the default. A browser sends it automatically —
+        cross-origin callers must send credentials explicitly, and the deployment's CORS allowlist
+        must contain their origin.
+    stripeSignature:
+      type: apiKey
+      in: header
+      name: Stripe-Signature
+      description: |
+        Signature over the raw request body, verified with the webhook signing secret. The only
+        authentication the webhook endpoint has, and the only one it needs.
+
+  headers:
+    RateLimitPolicy:
+      description: The rate-limit policy that produced the numbers in the other headers.
+      schema: { type: string }
+      example: standard-read
+    RateLimitLimit:
+      description: The policy's allowance for the current window.
+      schema: { type: integer, minimum: 1 }
+      example: 240
+    RateLimitRemaining:
+      description: Allowance left after this request.
+      schema: { type: integer, minimum: 0 }
+      example: 239
+    RateLimitReset:
+      description: Whole seconds until the allowance refills.
+      schema: { type: integer, minimum: 1 }
+      example: 57
+    RetryAfter:
+      description: |
+        Whole seconds to wait before retrying. Always at least 1 — a `Retry-After: 0` would invite
+        the immediate retry that caused the refusal. On `429` it is measured from the counter's own
+        remaining window, so waiting exactly this long is sufficient.
+      schema: { type: integer, minimum: 1 }
+      example: 42
+
+  parameters:
+    Symbol:
+      name: symbol
+      in: path
+      required: true
+      description: Ticker symbol as it appears in the supported catalog. Case-insensitive.
+      schema: { type: string, minLength: 1, maxLength: 32 }
+      example: AAPL
+    From:
+      name: from
+      in: query
+      description: |
+        Inclusive start, `YYYY-MM-DD`. Clamped to the product history horizon (30 years) and to the
+        security's own listing date. Optional; omitting it uses the surface's default window.
+      schema: { type: string, format: date }
+      example: "2023-01-01"
+    To:
+      name: to
+      in: query
+      description: Inclusive end, `YYYY-MM-DD`. Must not precede `from`.
+      schema: { type: string, format: date }
+      example: "2024-12-31"
+    FromRequired:
+      name: from
+      in: query
+      required: true
+      description: Inclusive start, `YYYY-MM-DD`. Clamped to the product history horizon.
+      schema: { type: string, format: date }
+    ToRequired:
+      name: to
+      in: query
+      required: true
+      description: Inclusive end, `YYYY-MM-DD`. Must not precede `from`.
+      schema: { type: string, format: date }
+    AsOf:
+      name: asOf
+      in: query
+      description: |
+        Point-in-time cutoff, `YYYY-MM-DD`. Values are computed only from data available on or
+        before this date, which is what makes a historical valuation free of look-ahead.
+      schema: { type: string, format: date }
+    ListId:
+      name: listId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ItemId:
+      name: itemId
+      in: path
+      required: true
+      description: A stock-list membership id — not a security id.
+      schema: { type: string, format: uuid }
+    StrategyId:
+      name: strategyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MonitorId:
+      name: monitorId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: The request was malformed or failed validation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: No session, or a session that is expired, forged or otherwise unusable.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RoleForbidden:
+      description: Authenticated, but the caller does not hold the required role.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    EntitlementDenied:
+      description: |
+        The caller's plan does not allow this. The body carries a stable `ENTITLEMENT_*` code plus
+        the numbers behind it, so a client can say "your plan allows 10, this change would make 11"
+        without parsing the message.
+
+        This is a **product limit**, not a rate limit: retrying identically will fail identically,
+        and the remedy is a different plan or a smaller request — never waiting.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/EntitlementError" }
+    OwnedResourceNotFound:
+      description: |
+        No such resource for this caller. A resource that exists but belongs to somebody else
+        answers exactly like one that does not exist, so this response reveals nothing about another
+        user's data.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    SymbolNotFound:
+      description: The symbol is not in the supported securities catalog.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    StrategyInvalid:
+      description: |
+        The strategy definition was rejected. Carries `code: STRATEGY_INVALID` and path-addressed
+        `issues`, each naming the level, condition and field that produced it.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/StrategyValidationError" }
+    StockDataUnavailable:
+      description: |
+        Stock data is temporarily unavailable — the cache, the store or the market-data provider
+        could not answer. Retryable, and not the caller's fault.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BillingUnavailable:
+      description: |
+        The payment provider or this deployment's billing configuration is the problem, not the
+        caller. Deliberately not a `500`: the request was fine and a retry after an operator fixes
+        configuration will work.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/BillingError" }
+    TooManyRequests:
+      description: |
+        The caller exceeded this endpoint's rate-limit policy. `Retry-After` is the measured time
+        until the allowance refills; waiting exactly that long is sufficient, and retrying sooner is
+        refused again without consuming anything further.
+
+        A client should surface this as throttling with the wait, never as a generic failure — and
+        on `POST /auth/login` in particular it must not be shown as "wrong credentials", because the
+        attempt is refused whether or not the password was correct.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+        RateLimit-Policy: { $ref: "#/components/headers/RateLimitPolicy" }
+        RateLimit-Limit: { $ref: "#/components/headers/RateLimitLimit" }
+        RateLimit-Remaining: { $ref: "#/components/headers/RateLimitRemaining" }
+        RateLimit-Reset: { $ref: "#/components/headers/RateLimitReset" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/RateLimitError" }
+          examples:
+            search:
+              value:
+                statusCode: 429
+                message: "Too many requests. Retry in 42 seconds."
+                code: RATE_LIMITED
+                policy: stock-search
+                retryAfterSeconds: 42
+    ThrottlingUnavailable:
+      description: |
+        The rate-limit store could not be reached and this endpoint's policy is fail-closed, so the
+        request was refused rather than served unmetered. Documented only on the security- and
+        payment-sensitive endpoints, because every other policy fails open.
+
+        The caller's allowance is untouched. A client must not present this as "you are going too
+        fast"; it carries its own code for exactly that reason.
+      headers:
+        Retry-After: { $ref: "#/components/headers/RetryAfter" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/RateLimitError" }
+          examples:
+            unavailable:
+              value:
+                statusCode: 503
+                message: "Request throttling is temporarily unavailable. Please retry shortly."
+                code: RATE_LIMIT_UNAVAILABLE
+                policy: auth-sensitive
+                retryAfterSeconds: 5
+
+  schemas:
+    # -------------------------------------------------------------------------------------------
+    # Errors — one shape, one place to branch
+    # -------------------------------------------------------------------------------------------
+    Error:
+      type: object
+      description: |
+        The API's error shape. `code` is present on every refusal a client can reasonably branch on
+        and absent on generic framework errors; branch on it, never on `message`.
+      required: [statusCode, message]
+      properties:
+        statusCode: { type: integer, description: Repeats the HTTP status. }
+        message:
+          {
+            type: string,
+            description: Human-readable. Never parsed by a client.,
+          }
+        code:
+          {
+            type: string,
+            description: Stable machine-readable reason,
+            when there is one.,
+          }
+      examples:
+        - { statusCode: 404, message: "Stock symbol was not found" }
+
+    RateLimitError:
+      allOf:
+        - { $ref: "#/components/schemas/Error" }
+        - type: object
+          required: [code, policy, retryAfterSeconds]
+          properties:
+            code:
+              type: string
+              enum: [RATE_LIMITED, RATE_LIMIT_UNAVAILABLE]
+              description: |
+                `RATE_LIMITED` — the caller exceeded an allowance (`429`).
+                `RATE_LIMIT_UNAVAILABLE` — the limiter could not answer and this endpoint's policy
+                is fail-closed (`503`). The caller's allowance is untouched.
+            policy:
+              type: string
+              description: |
+                Which class of endpoint refused, so a client can tell "your typing is too fast" from
+                "you have submitted too many backtests" without matching on the path. Stable
+                identifier; the numbers behind it are operational configuration.
+              enum:
+                - auth-sensitive
+                - session-probe
+                - stock-search
+                - stock-read
+                - standard-read
+                - progress-poll
+                - mutation
+                - monitor-mutation
+                - backtest-execution
+                - billing-mutation
+                - billing-refresh
+                - admin-operation
+            retryAfterSeconds:
+              type: integer
+              minimum: 1
+              description: Mirrors `Retry-After`. Whole seconds, rounded up, never zero.
+
+    EntitlementError:
+      allOf:
+        - { $ref: "#/components/schemas/Error" }
+        - type: object
+          required: [code, tier]
+          properties:
+            code:
+              type: string
+              enum:
+                - ENTITLEMENT_AUTH_REQUIRED
+                - ENTITLEMENT_FEATURE_UNAVAILABLE
+                - ENTITLEMENT_LIST_SYMBOL_LIMIT
+                - ENTITLEMENT_BACKTEST_SYMBOL_LIMIT
+                - ENTITLEMENT_BACKTEST_HISTORY_LIMIT
+                - ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT
+                - ENTITLEMENT_MONITOR_LIMIT
+                - ENTITLEMENT_RESOURCE_OVER_LIMIT
+            tier: { $ref: "#/components/schemas/EntitlementTier" }
+            limit:
+              { type: integer, description: What the caller's plan allows. }
+            current: { type: integer, description: What they already have. }
+            requested:
+              { type: integer, description: What the request would make it. }
+
+    BillingError:
+      allOf:
+        - { $ref: "#/components/schemas/Error" }
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              description: |
+                Stable billing reason. Carries nothing about the payment provider — no provider
+                error object, request id, customer or subscription identifier — because the original
+                failure is logged server-side before translation.
+              enum:
+                - BILLING_AUTH_REQUIRED
+                - BILLING_INVALID_PRICE_KEY
+                - BILLING_PAYMENT_REQUIRED
+                - BILLING_ALREADY_SUBSCRIBED
+                - BILLING_NO_SUBSCRIPTION
+                - BILLING_CHANGE_NOT_ALLOWED
+                - BILLING_CUSTOMER_CONFLICT
+                - BILLING_SUBSCRIPTION_CONFLICT
+                - BILLING_WEBHOOK_INVALID_SIGNATURE
+                - BILLING_WEBHOOK_UNSUPPORTED_STATE
+                - BILLING_NOT_CONFIGURED
+                - BILLING_CATALOG_MISCONFIGURED
+                - BILLING_STRIPE_UNAVAILABLE
+                - BILLING_PORTAL_UNAVAILABLE
+                - BILLING_CHECKOUT_FAILED
+                - BILLING_SUBSCRIPTION_UPDATE_FAILED
+            priceKey: { $ref: "#/components/schemas/BillingPriceKey" }
+            plan: { $ref: "#/components/schemas/UserPlan" }
+
+    StrategyValidationError:
+      type: object
+      required: [message, code, issues]
+      properties:
+        message: { type: string }
+        code: { type: string, const: STRATEGY_INVALID }
+        issues:
+          type: array
+          items: { $ref: "#/components/schemas/StrategyValidationIssue" }
+
+    StrategyValidationIssue:
+      type: object
+      required: [code, path, message]
+      properties:
+        code:
+          type: string
+          enum:
+            [
+              SHAPE_INVALID,
+              UNKNOWN_FIELD,
+              NAME_REQUIRED,
+              NAME_TOO_LONG,
+              DESCRIPTION_TOO_LONG,
+              BUY_LEVEL_REQUIRED,
+              TOO_MANY_LEVELS,
+              TOO_MANY_CONDITIONS,
+              SIGNAL_EMPTY,
+              PERCENTAGE_INVALID,
+              METRIC_NOT_ALLOWED_IN_LEVEL,
+              METRIC_SERIES_UNSUPPORTED,
+              OPERATOR_NOT_SUPPORTED,
+              VALUE_KIND_MISMATCH,
+              VALUE_OUT_OF_DOMAIN,
+              SERIES_UNKNOWN,
+              SERIES_NOT_COMPARABLE,
+              DUPLICATE_CONDITION,
+              DUPLICATE_ID,
+            ]
+        message: { type: string }
+        path:
+          type: object
+          description: Addresses the exact element that failed, so a builder can attach the issue to it.
+          required: [part]
+          properties:
+            levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+            levelIndex: { type: integer, minimum: 0 }
+            part:
+              type: string
+              enum:
+                [
+                  STRATEGY,
+                  NAME,
+                  DESCRIPTION,
+                  LEVEL,
+                  PERCENTAGE,
+                  CONDITION,
+                  TRIGGER,
+                ]
+            conditionIndex: { type: integer, minimum: 0 }
+            field: { type: string, enum: [METRIC, OPERATOR, VALUE] }
+
+    # -------------------------------------------------------------------------------------------
+    # Identity and access
+    # -------------------------------------------------------------------------------------------
+    UserPlan:
+      type: string
+      enum: [FREE, STARTER, PRO]
+      description: The persisted commercial plan. Server-resolved and read-only to a client.
+    UserRole:
+      type: string
+      enum: [USER, ADMIN]
+      description: |
+        Orthogonal to the plan: an administrator may be on any plan, and no plan grants the role.
+    EntitlementTier:
+      type: string
+      enum: [GUEST, FREE, STARTER, PRO, ADMIN]
+      description: Which entitlement set was applied. Diagnostics and UI only.
+
+    AuthUser:
+      type: object
+      required: [id, email, role, plan]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/UserRole" }
+        plan: { $ref: "#/components/schemas/UserPlan" }
+
+    AuthProvidersResponse:
+      type: object
+      required: [google]
+      properties:
+        google:
+          {
+            type: boolean,
+            description: Whether Google sign-in is configured here.,
+          }
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+          description: The product's registration policy. Applied whenever a password is *set*.
+    RegisterResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: verification_sent }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: |
+            Only bounded here, not policy-checked: a password set before a policy change must still
+            authenticate.
+    EmailOnlyRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    AcceptedStatusResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: accepted }
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 512 }
+    VerifyEmailResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: verified }
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token: { type: string, minLength: 1, maxLength: 512 }
+        password: { type: string, minLength: 12, maxLength: 1024 }
+    ResetPasswordResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: password_reset }
+
+    EntitlementLimit:
+      description: A numeric cap, or `null` meaning unlimited.
+      oneOf:
+        - { type: integer, minimum: 0 }
+        - { type: "null" }
+
+    EntitlementsResponse:
+      type: object
+      required: [principal, entitlements]
+      properties:
+        principal: { type: string, enum: [GUEST, AUTHENTICATED] }
+        plan: { $ref: "#/components/schemas/UserPlan" }
+        role: { $ref: "#/components/schemas/UserRole" }
+        entitlements: { $ref: "#/components/schemas/Entitlements" }
+
+    Entitlements:
+      type: object
+      description: |
+        Product capacity and feature availability. Deliberately carries **no** request-rate concept:
+        rate limiting and entitlements are separate mechanisms, and a plan never buys request rate.
+      required:
+        [
+          tier,
+          authenticated,
+          stocks,
+          builtInContent,
+          lists,
+          strategies,
+          backtests,
+          monitors,
+          admin,
+        ]
+      properties:
+        tier: { $ref: "#/components/schemas/EntitlementTier" }
+        authenticated: { type: boolean }
+        stocks:
+          type: object
+          required: [canSearch, canViewDetails, maxHistoricalYears]
+          properties:
+            canSearch: { type: boolean }
+            canViewDetails: { type: boolean }
+            maxHistoricalYears:
+              { $ref: "#/components/schemas/EntitlementLimit" }
+        builtInContent:
+          type: object
+          required: [canViewLists, canViewStrategies]
+          properties:
+            canViewLists: { type: boolean }
+            canViewStrategies: { type: boolean }
+        lists:
+          type: object
+          required: [canCreateCustom, maxSaved, maxSymbols]
+          properties:
+            canCreateCustom: { type: boolean }
+            maxSaved: { $ref: "#/components/schemas/EntitlementLimit" }
+            maxSymbols: { $ref: "#/components/schemas/EntitlementLimit" }
+        strategies:
+          type: object
+          required: [canCreateCustom, maxSaved, analyticalPrimitives]
+          properties:
+            canCreateCustom: { type: boolean }
+            maxSaved: { $ref: "#/components/schemas/EntitlementLimit" }
+            analyticalPrimitives: { type: string, enum: [BUILT_IN_ONLY, ALL] }
+        backtests:
+          type: object
+          required:
+            [
+              canRunLive,
+              canViewDemo,
+              maxSymbols,
+              maxHistoricalYears,
+              maxConcurrentRuns,
+            ]
+          properties:
+            canRunLive: { type: boolean }
+            canViewDemo: { type: boolean }
+            maxSymbols: { $ref: "#/components/schemas/EntitlementLimit" }
+            maxHistoricalYears:
+              { $ref: "#/components/schemas/EntitlementLimit" }
+            maxConcurrentRuns: { $ref: "#/components/schemas/EntitlementLimit" }
+        monitors:
+          type: object
+          required: [maxActive]
+          properties:
+            maxActive: { $ref: "#/components/schemas/EntitlementLimit" }
+        admin:
+          type: object
+          required: [canAccessAdminSurfaces]
+          properties:
+            canAccessAdminSurfaces: { type: boolean }
+
+    # -------------------------------------------------------------------------------------------
+    # Securities and market data
+    # -------------------------------------------------------------------------------------------
+    Security:
+      type: object
+      required:
+        [
+          id,
+          symbol,
+          name,
+          exchangeCode,
+          currency,
+          type,
+          isAdr,
+          isActivelyTrading,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        symbol: { type: string }
+        name: { type: string }
+        exchangeCode: { type: string }
+        exchangeName: { type: string }
+        currency: { type: string, description: "ISO 4217." }
+        cik: { type: string }
+        isin: { type: string }
+        cusip: { type: string }
+        country: { type: string }
+        sector: { type: string }
+        industry: { type: string }
+        ipoDate: { type: string, format: date }
+        type: { type: string, enum: [STOCK, ETF, FUND] }
+        isAdr: { type: boolean }
+        isActivelyTrading: { type: boolean }
+
+    StockSearchResult:
+      type: object
+      description: |
+        The one row shape the global search dropdown renders, shared by search and by recents.
+      required: [id, symbol, name, exchangeCode]
+      properties:
+        id: { type: string, format: uuid }
+        symbol: { type: string }
+        name: { type: string }
+        exchangeCode: { type: string }
+        exchangeName: { type: string }
+        logoUrl:
+          type: string
+          format: uri
+          description: |
+            Present only when this security has been profiled. Its absence never means "this
+            security has no logo" — bulk catalog synchronization writes identity only, and a profile
+            appears when a stock is first opened.
+
+    SecurityProfile:
+      type: object
+      properties:
+        description: { type: string }
+        website: { type: string, format: uri }
+        logoUrl: { type: string, format: uri }
+        ceo: { type: string }
+        employees: { type: integer, minimum: 0 }
+
+    StockHistoryBounds:
+      type: object
+      description: |
+        The window this surface may explore for this security, reported by the canonical loader
+        rather than inferred from the rows returned — an empty range is never evidence of where
+        history begins.
+      required: [start, end, startOrigin]
+      properties:
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        startOrigin:
+          type: string
+          enum: [HORIZON, LISTING, PROVIDER]
+          description: |
+            Why history starts there: the 30-year product horizon, the security's listing date, or
+            the provider's first day proven by complete coverage.
+
+    DailyPrice:
+      type: object
+      required: [date, open, high, low, close, volume]
+      properties:
+        date: { type: string, format: date }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: number }
+        vwap: { type: number }
+
+    TechnicalSeriesField:
+      type: string
+      description: A catalog moving-average or oscillator identifier.
+      enum:
+        [
+          sma20d,
+          sma50d,
+          sma100d,
+          sma200d,
+          ema20d,
+          ema50d,
+          ema200d,
+          sma20w,
+          sma50w,
+          sma100w,
+          sma200w,
+          ema20w,
+          ema50w,
+          ema200w,
+          rsi7d,
+          rsi14d,
+          rsi21d,
+        ]
+
+    DailyTechnical:
+      type: object
+      description: |
+        One trading day. Every series is optional: a value that does not exist for a day — warm-up,
+        or unavailable under the point-in-time rules — is omitted rather than zeroed.
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        sma20d: { type: number }
+        sma50d: { type: number }
+        sma100d: { type: number }
+        sma200d: { type: number }
+        ema20d: { type: number }
+        ema50d: { type: number }
+        ema200d: { type: number }
+        sma20w: { type: number }
+        sma50w: { type: number }
+        sma100w: { type: number }
+        sma200w: { type: number }
+        ema20w: { type: number }
+        ema50w: { type: number }
+        ema200w: { type: number }
+        rsi7d: { type: number, minimum: 0, maximum: 100 }
+        rsi14d: { type: number, minimum: 0, maximum: 100 }
+        rsi21d: { type: number, minimum: 0, maximum: 100 }
+
+    IntrinsicValueModel:
+      type: string
+      enum: [DCF_FCFF, RESIDUAL_INCOME, DDM, GRAHAM]
+    IntrinsicValueBlendId:
+      type: string
+      enum: [BALANCED, CONSERVATIVE, DIVIDEND]
+
+    IntrinsicValue:
+      type: object
+      required: [valuationDate, sourceDataAsOf, model, valuePerShare, currency]
+      properties:
+        valuationDate: { type: string, format: date }
+        sourceDataAsOf:
+          type: string
+          format: date
+          description: |
+            The latest date of the fundamental data this value was computed from. Never later than
+            `valuationDate` — that is the no-look-ahead guarantee, expressed in the payload.
+        model: { $ref: "#/components/schemas/IntrinsicValueModel" }
+        valuePerShare: { type: number }
+        currency: { type: string }
+
+    IntrinsicValueBlend:
+      type: object
+      required:
+        [valuationDate, sourceDataAsOf, blendId, valuePerShare, currency]
+      properties:
+        valuationDate: { type: string, format: date }
+        sourceDataAsOf: { type: string, format: date }
+        blendId: { $ref: "#/components/schemas/IntrinsicValueBlendId" }
+        valuePerShare: { type: number }
+        currency: { type: string }
+
+    StockDetails:
+      type: object
+      required:
+        [
+          security,
+          history,
+          prices,
+          technicals,
+          intrinsicValues,
+          intrinsicValueBlends,
+        ]
+      properties:
+        security: { $ref: "#/components/schemas/Security" }
+        profile: { $ref: "#/components/schemas/SecurityProfile" }
+        history: { $ref: "#/components/schemas/StockHistoryBounds" }
+        prices:
+          type: array
+          items: { $ref: "#/components/schemas/DailyPrice" }
+        technicals:
+          type: array
+          items: { $ref: "#/components/schemas/DailyTechnical" }
+        intrinsicValues:
+          type: array
+          items: { $ref: "#/components/schemas/IntrinsicValue" }
+        intrinsicValueBlends:
+          type: array
+          items: { $ref: "#/components/schemas/IntrinsicValueBlend" }
+
+    RecordSecurityViewRequest:
+      type: object
+      required: [securityId]
+      properties:
+        securityId: { type: string, format: uuid }
+
+    SecurityCatalogSyncResponse:
+      type: object
+      required:
+        [
+          received,
+          created,
+          updated,
+          unchanged,
+          deactivated,
+          skipped,
+          failed,
+          durationMs,
+        ]
+      properties:
+        received: { type: integer, minimum: 0 }
+        created: { type: integer, minimum: 0 }
+        updated: { type: integer, minimum: 0 }
+        unchanged: { type: integer, minimum: 0 }
+        deactivated: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+        failed: { type: integer, minimum: 0 }
+        durationMs: { type: integer, minimum: 0 }
+
+    # -------------------------------------------------------------------------------------------
+    # Stock lists
+    # -------------------------------------------------------------------------------------------
+    BuyWindowMode:
+      type: string
+      enum: [FULL, CUSTOM]
+      description: |
+        `FULL` — eligible for the whole period, and no ranges are persisted.
+        `CUSTOM` — eligible only inside the listed ranges.
+    BuyWindowRange:
+      type: object
+      required: [startDate, endDate]
+      properties:
+        startDate: { type: string, format: date }
+        endDate:
+          description: "`null` means open-ended. At most one range may be open-ended."
+          oneOf:
+            - { type: string, format: date }
+            - { type: "null" }
+
+    StockListCompliance:
+      type: object
+      description: |
+        The list measured against the caller's current plan. A list that grew under a higher plan
+        stays readable and correctable and is reported here as non-compliant — a downgrade is never
+        destructive.
+      required: [symbolCount, symbolLimit, compliant]
+      properties:
+        symbolCount: { type: integer, minimum: 0 }
+        symbolLimit: { $ref: "#/components/schemas/EntitlementLimit" }
+        compliant: { type: boolean }
+
+    StockListSummary:
+      type: object
+      required: [id, name, itemCount, createdAt, updatedAt, compliance]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        itemCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        compliance: { $ref: "#/components/schemas/StockListCompliance" }
+
+    StockListItem:
+      type: object
+      required: [id, security, buyWindowMode, buyWindows]
+      properties:
+        id:
+          {
+            type: string,
+            format: uuid,
+            description: The membership id,
+            not the security id.,
+          }
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        buyWindowMode: { $ref: "#/components/schemas/BuyWindowMode" }
+        buyWindows:
+          type: array
+          description: Canonical normalized form — sorted, non-overlapping, non-adjacent. Empty for `FULL`.
+          items: { $ref: "#/components/schemas/BuyWindowRange" }
+
+    StockListDetail:
+      type: object
+      required: [id, name, createdAt, updatedAt, items, compliance]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/StockListItem" }
+        compliance: { $ref: "#/components/schemas/StockListCompliance" }
+
+    CreateStockListRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description:
+          maxLength: 500
+          oneOf:
+            - { type: string }
+            - { type: "null" }
+        securityIds:
+          type: array
+          maxItems: 100
+          description: Optional initial membership. Deduplicated; each must be a catalog security id.
+          items: { type: string, format: uuid }
+
+    UpdateStockListRequest:
+      type: object
+      minProperties: 1
+      description: At least one property must be present.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description:
+          description: "`null` clears the description."
+          oneOf:
+            - { type: string, maxLength: 500 }
+            - { type: "null" }
+
+    AddStockListItemsRequest:
+      type: object
+      required: [securityIds]
+      properties:
+        securityIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { type: string, format: uuid }
+
+    ReplaceBuyWindowsRequest:
+      type: object
+      required: [mode, ranges]
+      properties:
+        mode: { $ref: "#/components/schemas/BuyWindowMode" }
+        ranges:
+          type: array
+          maxItems: 100
+          description: Must be empty for `FULL`. Normalized on write, so the response may be shorter.
+          items: { $ref: "#/components/schemas/BuyWindowRange" }
+
+    # -------------------------------------------------------------------------------------------
+    # Strategies
+    # -------------------------------------------------------------------------------------------
+    StrategyLevelKind:
+      type: string
+      enum: [BUY, SELL, FINAL_EXIT]
+
+    SelectableSeriesId:
+      type: string
+      description: |
+        An identifier from the canonical selectable-series catalog — a moving average, an oscillator,
+        an intrinsic-value model or a blend. One catalog serves Stock Details and strategy
+        conditions alike, so there is no second list of options anywhere.
+      examples: [sma50d, rsi14d, iv-blend-balanced]
+
+    StrategyMetric:
+      description: The left-hand side of a condition or a trigger.
+      oneOf:
+        - type: object
+          required: [kind]
+          properties: { kind: { type: string, const: PRICE } }
+        - type: object
+          required: [kind, seriesId]
+          properties:
+            kind: { type: string, const: MOVING_AVERAGE }
+            seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+        - type: object
+          required: [kind, seriesId]
+          properties:
+            kind: { type: string, const: OSCILLATOR }
+            seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+        - type: object
+          required: [kind, sourceId]
+          description: Margin of safety against one intrinsic-value series. Percent domain, at most 100.
+          properties:
+            kind: { type: string, const: MARGIN_OF_SAFETY }
+            sourceId: { $ref: "#/components/schemas/SelectableSeriesId" }
+        - type: object
+          description: |
+            Position-dependent, so it is only meaningful where simulated position state exists;
+            allowed in SELL and FINAL_EXIT levels, never in BUY.
+          required: [kind]
+          properties: { kind: { type: string, const: GAIN } }
+        - type: object
+          required: [kind]
+          properties: { kind: { type: string, const: LOSS } }
+
+    StrategyValue:
+      description: |
+        The right-hand side. Domains are metric-specific: margin of safety is at most 100, gain is
+        at least -100, loss is 0..100, and a series value must be comparable with its metric — same
+        timeframe, and never the metric's own series.
+      oneOf:
+        - type: object
+          required: [kind, seriesId]
+          properties:
+            kind: { type: string, const: SERIES }
+            seriesId: { $ref: "#/components/schemas/SelectableSeriesId" }
+        - type: object
+          required: [kind, value]
+          properties:
+            kind: { type: string, const: NUMBER }
+            value: { type: number }
+        - type: object
+          required: [kind, value]
+          properties:
+            kind: { type: string, const: PERCENT }
+            value: { type: number }
+
+    StrategyCondition:
+      type: object
+      required: [id, metric, operator, value]
+      properties:
+        id: { type: string }
+        metric: { $ref: "#/components/schemas/StrategyMetric" }
+        operator: { type: string, enum: [IS_ABOVE, IS_BELOW, IS_CLOSE_TO] }
+        value: { $ref: "#/components/schemas/StrategyValue" }
+
+    StrategyTrigger:
+      type: object
+      description: |
+        An event on one observation date rather than a state, which is what makes a trigger level
+        fire at most once per date.
+      required: [id, metric, operator, value]
+      properties:
+        id: { type: string }
+        metric: { $ref: "#/components/schemas/StrategyMetric" }
+        operator: { type: string, enum: [CROSSES_ABOVE, CROSSES_BELOW] }
+        value: { $ref: "#/components/schemas/StrategyValue" }
+
+    StrategySignal:
+      type: object
+      description: |
+        Zero or more conditions, ANDed, plus at most one optional trigger which is ANDed with them
+        for the same date. A signal with neither is empty and is rejected.
+      required: [conditions]
+      properties:
+        conditions:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/StrategyCondition" }
+        trigger: { $ref: "#/components/schemas/StrategyTrigger" }
+
+    StrategyDefinition:
+      type: object
+      description: |
+        The complete strategy. At least one BUY level is required. A level owns exactly one signal
+        and one percentage; there is no stock list, no valuation source and no execution parameter
+        here — capital, contributions, period and `maximumPositions` all belong to a backtest.
+      required: [schemaVersion, buyLevels, sellLevels]
+      properties:
+        schemaVersion:
+          { type: integer, description: Definition schema version. }
+        buyLevels:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [id, signal, percentage]
+            properties:
+              id: { type: string }
+              signal: { $ref: "#/components/schemas/StrategySignal" }
+              percentage:
+                type: integer
+                enum: [25, 50, 75, 100]
+                description: Fraction of a full position this level buys.
+        sellLevels:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            required: [id, signal, percentage]
+            properties:
+              id: { type: string }
+              signal: { $ref: "#/components/schemas/StrategySignal" }
+              percentage: { type: integer, enum: [25, 50, 75] }
+        finalExit:
+          type: object
+          description: Closes the whole remaining position when its signal matches.
+          required: [id, signal]
+          properties:
+            id: { type: string }
+            signal: { $ref: "#/components/schemas/StrategySignal" }
+
+    StrategySummary:
+      type: object
+      required:
+        [
+          id,
+          name,
+          buyLevelCount,
+          sellLevelCount,
+          hasFinalExit,
+          versionNumber,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        buyLevelCount: { type: integer, minimum: 0 }
+        sellLevelCount: { type: integer, minimum: 0 }
+        hasFinalExit: { type: boolean }
+        versionNumber:
+          {
+            type: integer,
+            minimum: 1,
+            description: Incremented by every definition replace.,
+          }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    StrategyDetail:
+      allOf:
+        - { $ref: "#/components/schemas/StrategySummary" }
+        - type: object
+          required: [definition]
+          properties:
+            definition: { $ref: "#/components/schemas/StrategyDefinition" }
+
+    CreateStrategyRequest:
+      type: object
+      required: [name, definition]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 500 }
+        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+
+    UpdateStrategyRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description:
+          oneOf:
+            - { type: string, maxLength: 500 }
+            - { type: "null" }
+
+    ReplaceStrategyDefinitionRequest:
+      type: object
+      required: [definition]
+      properties:
+        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+
+    # -------------------------------------------------------------------------------------------
+    # Benchmarks
+    # -------------------------------------------------------------------------------------------
+    Benchmark:
+      type: object
+      required: [id, code, name, currency]
+      properties:
+        id: { type: string, format: uuid }
+        code:
+          {
+            type: string,
+            description: The stable identifier a backtest request names.,
+            examples: [SP500],
+          }
+        name: { type: string }
+        description: { type: string }
+        currency: { type: string }
+
+    # -------------------------------------------------------------------------------------------
+    # Backtests
+    # -------------------------------------------------------------------------------------------
+    BacktestRunStatus:
+      type: string
+      enum: [QUEUED, PREPARING_DATA, RUNNING, FINALIZING, COMPLETED, FAILED]
+
+    CreateBacktestRunRequest:
+      type: object
+      required:
+        [
+          strategyId,
+          stockListId,
+          startDate,
+          endDate,
+          initialCapital,
+          maximumPositions,
+        ]
+      properties:
+        strategyId:
+          {
+            type: string,
+            format: uuid,
+            description: Must be owned by the caller.,
+          }
+        stockListId:
+          {
+            type: string,
+            format: uuid,
+            description: Must be owned by the caller and non-empty.,
+          }
+        benchmarkCode:
+          type: string
+          description: A catalog benchmark code. Omitting it uses this deployment's default.
+          examples: [SP500]
+        startDate: { type: string, format: date }
+        endDate:
+          type: string
+          format: date
+          description: |
+            Must not precede `startDate`. The period may not exceed 30 years, and a plan may bound
+            it further (`backtests.maxHistoricalYears`), which is a `403` rather than a `400`.
+        initialCapital: { type: number, minimum: 1, maximum: 1000000000 }
+        monthlyContribution:
+          type: number
+          minimum: 0
+          maximum: 10000000
+          description: Defaults to 0.
+        maximumPositions:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: |
+            A full position is `1 / maximumPositions` of the portfolio. There is deliberately no
+            user-entered maximum-allocation percentage; this is the one input.
+
+    BacktestBenchmarkSnapshot:
+      type: object
+      required: [benchmarkId, code, name, sourceKind, methodologyVersion]
+      properties:
+        benchmarkId: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        sourceKind: { type: string, enum: [FMP_SYMBOL] }
+        methodologyVersion: { type: integer }
+
+    BacktestMethodology:
+      type: object
+      description: |
+        The versioned engine methodology this run recorded. Execution behaviour the product leaves
+        open — candidate ordering, level firing, exits before entries, contribution timing, fees —
+        is fixed here at submission, so a result stays reproducible across engine changes.
+      required:
+        [
+          calendar,
+          executionCalendar,
+          candidateOrdering,
+          execution,
+          executionCosts,
+          cashYield,
+          strategyEvaluation,
+          contribution,
+          returns,
+          comparisonScenarios,
+          costBasis,
+        ]
+      properties:
+        calendar: { type: string }
+        executionCalendar: { type: string }
+        candidateOrdering: { type: string }
+        execution: { type: string }
+        executionCosts: { type: string }
+        cashYield: { type: string }
+        strategyEvaluation: { type: string }
+        contribution: { type: string }
+        returns: { type: string }
+        comparisonScenarios: { type: string }
+        costBasis: { type: string }
+
+    BacktestRunConfiguration:
+      type: object
+      description: |
+        The immutable snapshot the run executed. `strategyId` and `stockListId` are nullable because
+        the live rows may have been deleted since — the snapshot survives them, which is what makes
+        deleting a strategy safe.
+      required:
+        [
+          strategyName,
+          strategyVersionNumber,
+          stockListName,
+          securityCount,
+          startDate,
+          endDate,
+          initialCapital,
+          monthlyContribution,
+          maximumPositions,
+          fullPositionPercent,
+          benchmark,
+          methodology,
+        ]
+      properties:
+        strategyId:
+          oneOf: [{ type: string, format: uuid }, { type: "null" }]
+        strategyName: { type: string }
+        strategyVersionNumber: { type: integer }
+        stockListId:
+          oneOf: [{ type: string, format: uuid }, { type: "null" }]
+        stockListName: { type: string }
+        securityCount: { type: integer, minimum: 0 }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        initialCapital: { type: number }
+        monthlyContribution: { type: number }
+        maximumPositions: { type: integer }
+        fullPositionPercent:
+          { type: number, description: "Derived: 100 / maximumPositions." }
+        benchmark: { $ref: "#/components/schemas/BacktestBenchmarkSnapshot" }
+        methodology: { $ref: "#/components/schemas/BacktestMethodology" }
+
+    NullableNumber:
+      oneOf: [{ type: number }, { type: "null" }]
+    NullableDate:
+      oneOf: [{ type: string, format: date }, { type: "null" }]
+    NullableDateTime:
+      oneOf: [{ type: string, format: date-time }, { type: "null" }]
+    NullableString:
+      oneOf: [{ type: string }, { type: "null" }]
+
+    BacktestRunSummary:
+      type: object
+      required:
+        [
+          id,
+          status,
+          strategyName,
+          stockListName,
+          benchmarkCode,
+          benchmarkName,
+          startDate,
+          endDate,
+          initialCapital,
+          maximumPositions,
+          queuedAt,
+          startedAt,
+          completedAt,
+          progressPercent,
+          progressMessage,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          alphaPercent,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/BacktestRunStatus" }
+        strategyName: { type: string }
+        stockListName: { type: string }
+        benchmarkCode: { type: string }
+        benchmarkName: { type: string }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date }
+        initialCapital: { type: number }
+        maximumPositions: { type: integer }
+        queuedAt: { type: string, format: date-time }
+        startedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        completedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        progressPercent: { type: number, minimum: 0, maximum: 100 }
+        progressMessage: { $ref: "#/components/schemas/NullableString" }
+        portfolioReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+
+    BacktestCurvePoint:
+      type: object
+      required:
+        [
+          date,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          strategyValue,
+          benchmarkValue,
+          cashBaselineValue,
+        ]
+      properties:
+        date: { type: string, format: date }
+        portfolioReturnPercent: { type: number }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        strategyValue: { type: number }
+        benchmarkValue: { $ref: "#/components/schemas/NullableNumber" }
+        cashBaselineValue:
+          type: number
+          description: The uninvested-cash comparison scenario, contributions included.
+
+    BacktestTrade:
+      type: object
+      required:
+        [
+          sequence,
+          date,
+          symbol,
+          name,
+          action,
+          levelPercentage,
+          shares,
+          price,
+          amount,
+          realizedPnl,
+          realizedPnlPercent,
+        ]
+      properties:
+        sequence: { type: integer, minimum: 0 }
+        date: { type: string, format: date }
+        symbol: { type: string }
+        name: { type: string }
+        action: { type: string, enum: [BUY, SELL, FINAL_EXIT] }
+        levelPercentage:
+          description: The strategy level that fired. Null for a final exit.
+          oneOf: [{ type: integer }, { type: "null" }]
+        shares: { type: number }
+        price: { type: number }
+        amount: { type: number }
+        realizedPnl: { $ref: "#/components/schemas/NullableNumber" }
+        realizedPnlPercent: { $ref: "#/components/schemas/NullableNumber" }
+
+    BacktestHolding:
+      type: object
+      required:
+        [
+          symbol,
+          name,
+          shares,
+          averageCost,
+          lastPrice,
+          lastPriceDate,
+          marketValue,
+          unrealizedPnlPercent,
+          allocationPercent,
+        ]
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        shares: { type: number }
+        averageCost: { type: number }
+        lastPrice: { type: number }
+        lastPriceDate: { type: string, format: date }
+        marketValue: { type: number }
+        unrealizedPnlPercent: { type: number }
+        allocationPercent: { type: number }
+
+    BacktestLiveSnapshot:
+      type: object
+      description: |
+        The simulation as of the newest checkpoint. Observation only — nothing here is ever read
+        back into simulated state, so the checkpoint cadence cannot change a result.
+      required:
+        [
+          simulatedThrough,
+          completedDays,
+          totalDays,
+          cash,
+          positionsValue,
+          totalValue,
+          investedCapital,
+          netProfit,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          alphaPercent,
+          maxDrawdownPercent,
+          benchmarkValue,
+          cashBaselineValue,
+          tradeCount,
+          openPositions,
+          curve,
+          holdings,
+          recentTrades,
+        ]
+      properties:
+        simulatedThrough: { type: string, format: date }
+        completedDays: { type: integer, minimum: 0 }
+        totalDays: { type: integer, minimum: 0 }
+        cash: { type: number }
+        positionsValue: { type: number }
+        totalValue: { type: number }
+        investedCapital: { type: number }
+        netProfit: { type: number }
+        portfolioReturnPercent: { type: number }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        maxDrawdownPercent: { type: number }
+        benchmarkValue: { $ref: "#/components/schemas/NullableNumber" }
+        cashBaselineValue: { type: number }
+        tradeCount: { type: integer, minimum: 0 }
+        openPositions: { type: integer, minimum: 0 }
+        curve:
+          type: array
+          maxItems: 1500
+          items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestHolding" }
+        recentTrades:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestTrade" }
+
+    BacktestMilestone:
+      type: object
+      description: One completed calendar year of simulation, carrying the prefix computed so far.
+      required:
+        [
+          sequence,
+          year,
+          simulatedThrough,
+          percent,
+          completedDays,
+          totalDays,
+          cash,
+          totalValue,
+          investedCapital,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          alphaPercent,
+          maxDrawdownPercent,
+          tradeCount,
+          openPositions,
+        ]
+      properties:
+        sequence: { type: integer, minimum: 0 }
+        year: { type: string }
+        simulatedThrough: { type: string, format: date }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        completedDays: { type: integer, minimum: 0 }
+        totalDays: { type: integer, minimum: 0 }
+        cash: { type: number }
+        totalValue: { type: number }
+        investedCapital: { type: number }
+        portfolioReturnPercent: { type: number }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        maxDrawdownPercent: { type: number }
+        tradeCount: { type: integer, minimum: 0 }
+        openPositions: { type: integer, minimum: 0 }
+
+    BacktestFailure:
+      type: object
+      required: [code, message, phase]
+      properties:
+        code:
+          type: string
+          enum:
+            [
+              DATA_UNAVAILABLE,
+              EXECUTION_CALENDAR_UNAVAILABLE,
+              ENGINE_VERSION_MISMATCH,
+              NO_TRADING_DAYS,
+              EXECUTION_FAILED,
+              ABANDONED,
+            ]
+        message: { type: string }
+        phase:
+          oneOf:
+            - { type: string, enum: [PREPARING_DATA, RUNNING, FINALIZING] }
+            - { type: "null" }
+
+    BacktestProgress:
+      type: object
+      required:
+        [
+          runId,
+          status,
+          percent,
+          message,
+          simulatedThrough,
+          sequence,
+          updatedAt,
+          startedAt,
+          completedAt,
+          live,
+          milestones,
+          failure,
+        ]
+      properties:
+        runId: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/BacktestRunStatus" }
+        percent: { type: number, minimum: 0, maximum: 100 }
+        message: { $ref: "#/components/schemas/NullableString" }
+        simulatedThrough: { $ref: "#/components/schemas/NullableDate" }
+        sequence:
+          type: integer
+          description: |
+            Monotonic per run. A client may safely drop a response whose `sequence` is lower than
+            one it has already applied — that is how out-of-order polling responses are handled.
+        updatedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        startedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        completedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        live:
+          description: Present while a simulation is in flight; null otherwise.
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestLiveSnapshot" }
+            - { type: "null" }
+        milestones:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestMilestone" }
+        failure:
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestFailure" }
+            - { type: "null" }
+
+    BacktestResultSummary:
+      type: object
+      required:
+        [
+          firstSimulatedDate,
+          lastSimulatedDate,
+          tradingDays,
+          investedCapital,
+          finalCash,
+          finalPositionsValue,
+          finalValue,
+          netProfit,
+          portfolioReturnPercent,
+          benchmarkReturnPercent,
+          alphaPercent,
+          portfolioCagrPercent,
+          maxDrawdownPercent,
+          benchmarkMaxDrawdownPercent,
+          realizedPnl,
+          unrealizedPnl,
+          totalTrades,
+          buyTrades,
+          sellTrades,
+          finalExitTrades,
+          winningTrades,
+          losingTrades,
+          openPositions,
+        ]
+      properties:
+        firstSimulatedDate: { type: string, format: date }
+        lastSimulatedDate: { type: string, format: date }
+        tradingDays: { type: integer, minimum: 0 }
+        investedCapital: { type: number }
+        finalCash: { type: number }
+        finalPositionsValue: { type: number }
+        finalValue: { type: number }
+        netProfit: { type: number }
+        portfolioReturnPercent: { type: number }
+        benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
+        alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        portfolioCagrPercent: { $ref: "#/components/schemas/NullableNumber" }
+        maxDrawdownPercent: { type: number }
+        benchmarkMaxDrawdownPercent:
+          { $ref: "#/components/schemas/NullableNumber" }
+        realizedPnl: { type: number }
+        unrealizedPnl: { type: number }
+        totalTrades: { type: integer, minimum: 0 }
+        buyTrades: { type: integer, minimum: 0 }
+        sellTrades: { type: integer, minimum: 0 }
+        finalExitTrades: { type: integer, minimum: 0 }
+        winningTrades: { type: integer, minimum: 0 }
+        losingTrades: { type: integer, minimum: 0 }
+        openPositions: { type: integer, minimum: 0 }
+
+    BacktestResult:
+      type: object
+      required: [summary, curve, trades, holdings]
+      properties:
+        summary: { $ref: "#/components/schemas/BacktestResultSummary" }
+        curve:
+          type: array
+          maxItems: 1500
+          description: Downsampled to a bounded number of points for rendering.
+          items: { $ref: "#/components/schemas/BacktestCurvePoint" }
+        trades:
+          type: array
+          maxItems: 500
+          description: Bounded; `summary.totalTrades` is the true count.
+          items: { $ref: "#/components/schemas/BacktestTrade" }
+        holdings:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestHolding" }
+
+    BacktestRunDetail:
+      type: object
+      required:
+        [
+          id,
+          status,
+          configuration,
+          queuedAt,
+          startedAt,
+          completedAt,
+          progress,
+          live,
+          milestones,
+          result,
+          failure,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/BacktestRunStatus" }
+        configuration: { $ref: "#/components/schemas/BacktestRunConfiguration" }
+        queuedAt: { type: string, format: date-time }
+        startedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        completedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        progress:
+          type: object
+          description: The last persisted checkpoint, so a page reloaded mid-run resumes from it.
+          required: [percent, message, simulatedThrough, sequence, updatedAt]
+          properties:
+            percent: { type: number, minimum: 0, maximum: 100 }
+            message: { $ref: "#/components/schemas/NullableString" }
+            simulatedThrough: { $ref: "#/components/schemas/NullableDate" }
+            sequence: { type: integer }
+            updatedAt: { $ref: "#/components/schemas/NullableDateTime" }
+        live:
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestLiveSnapshot" }
+            - { type: "null" }
+        milestones:
+          type: array
+          items: { $ref: "#/components/schemas/BacktestMilestone" }
+        result:
+          description: Present only for `COMPLETED`.
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestResult" }
+            - { type: "null" }
+        failure:
+          description: Present only for `FAILED`.
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestFailure" }
+            - { type: "null" }
+
+    BacktestRunStrategy:
+      type: object
+      required: [strategyName, versionNumber, definition]
+      properties:
+        strategyName: { type: string }
+        versionNumber: { type: integer }
+        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+
+    # -------------------------------------------------------------------------------------------
+    # Monitors
+    # -------------------------------------------------------------------------------------------
+    MonitorOperationalStatus:
+      type: string
+      enum: [ACTIVE, PAUSED, BLOCKED]
+      description: |
+        Derived, never persisted as user intent. `enabled` is what the user set; a monitor may still
+        be `BLOCKED` because the caller's plan no longer covers it, and re-subscribing unblocks it
+        without the user having to re-enable anything.
+    MonitorBlockedReason:
+      type: string
+      enum: [PLAN_MONITOR_LIMIT, PLAN_LIST_SYMBOL_LIMIT]
+
+    MonitorSignalKind:
+      type: string
+      enum: [STATE, EVENT]
+      description: |
+        A condition-only level produces a `STATE` — emitted when the match begins and resolved when
+        it ends. A level with a trigger produces an `EVENT` on one observation date, at most once
+        per date.
+    MonitorSecurityStatus:
+      type: string
+      enum: [MATCHED, NOT_MATCHED, NOT_EVALUABLE]
+      description: |
+        `NOT_EVALUABLE` is a real answer, not an error: missing, warm-up or point-in-time
+        unavailable data is never replaced by zero or by future data.
+
+    MonitorMatchedLevel:
+      type: object
+      required:
+        [levelId, levelKind, kind, signalId, observationPrice, detectedAt]
+      properties:
+        levelId: { type: string }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        kind: { $ref: "#/components/schemas/MonitorSignalKind" }
+        signalId: { type: string, format: uuid }
+        observationPrice: { type: number }
+        detectedAt: { type: string, format: date-time }
+
+    MonitorSecurityEvaluation:
+      type: object
+      required: [security, status, matchedLevels]
+      properties:
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        status: { $ref: "#/components/schemas/MonitorSecurityStatus" }
+        matchedLevels:
+          type: array
+          items: { $ref: "#/components/schemas/MonitorMatchedLevel" }
+        statusSince: { type: string, format: date-time }
+
+    MonitorSignal:
+      type: object
+      description: Append-only and never deleted, including when its monitor is deleted.
+      required:
+        [
+          id,
+          security,
+          levelKind,
+          levelId,
+          kind,
+          observationDate,
+          observationPrice,
+          detectedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        levelId: { type: string }
+        kind: { $ref: "#/components/schemas/MonitorSignalKind" }
+        observationDate: { type: string, format: date }
+        observationPrice: { type: number }
+        detectedAt: { type: string, format: date-time }
+        resolvedAt:
+          type: string
+          format: date-time
+          description: Set when a `STATE` signal's match ended. Absent while it is still active.
+
+    MonitorSummary:
+      type: object
+      required:
+        [
+          id,
+          name,
+          enabled,
+          strategyId,
+          strategyName,
+          stockListId,
+          stockListName,
+          securityCount,
+          activeSignalCount,
+          createdAt,
+          updatedAt,
+          operationalStatus,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        enabled:
+          {
+            type: boolean,
+            description: The user's intent. Never rewritten by the server.,
+          }
+        strategyId: { type: string, format: uuid }
+        strategyName: { type: string }
+        stockListId: { type: string, format: uuid }
+        stockListName: { type: string }
+        securityCount: { type: integer, minimum: 0 }
+        activeSignalCount: { type: integer, minimum: 0 }
+        lastScanAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        operationalStatus:
+          { $ref: "#/components/schemas/MonitorOperationalStatus" }
+        blockedReason: { $ref: "#/components/schemas/MonitorBlockedReason" }
+
+    MonitorDetail:
+      allOf:
+        - { $ref: "#/components/schemas/MonitorSummary" }
+        - type: object
+          required: [securities, signals]
+          properties:
+            securities:
+              type: array
+              description: Every security in the current list with its status, ordered by symbol.
+              items: { $ref: "#/components/schemas/MonitorSecurityEvaluation" }
+            signals:
+              type: array
+              description: The newest signals, newest first.
+              items: { $ref: "#/components/schemas/MonitorSignal" }
+
+    CreateMonitorRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        Unknown properties are rejected rather than ignored — that is what stops an `interval`,
+        `cadence` or `schedule` field from ever looking like it was accepted.
+      required: [name, strategyId, stockListId]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        strategyId: { type: string, format: uuid }
+        stockListId: { type: string, format: uuid }
+        enabled: { type: boolean, default: true }
+
+    UpdateMonitorRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      description: At least one property; unknown properties are rejected.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        enabled: { type: boolean }
+        strategyId:
+          { type: string, format: uuid, description: Rebinds the monitor. }
+        stockListId:
+          { type: string, format: uuid, description: Rebinds the monitor. }
+
+    # -------------------------------------------------------------------------------------------
+    # Billing
+    # -------------------------------------------------------------------------------------------
+    BillingPriceKey:
+      type: string
+      enum: [STARTER_MONTHLY, STARTER_YEARLY, PRO_MONTHLY, PRO_YEARLY]
+      description: |
+        The complete accepted surface for naming a price. A provider price identifier is never
+        accepted from a client.
+    BillingInterval: { type: string, enum: [MONTH, YEAR] }
+    BillingSubscriptionStatus:
+      type: string
+      enum:
+        [
+          ACTIVE,
+          TRIALING,
+          PAST_DUE,
+          UNPAID,
+          CANCELED,
+          INCOMPLETE,
+          INCOMPLETE_EXPIRED,
+          PAUSED,
+        ]
+
+    BillingCatalogEntry:
+      type: object
+      required: [key, plan, interval, amountMinorUnits, currency, lookupKey]
+      properties:
+        key: { $ref: "#/components/schemas/BillingPriceKey" }
+        plan: { type: string, enum: [STARTER, PRO] }
+        interval: { $ref: "#/components/schemas/BillingInterval" }
+        amountMinorUnits: { type: integer, minimum: 0 }
+        currency: { type: string, const: usd }
+        lookupKey: { type: string }
+
+    BillingPendingChange:
+      type: object
+      required: [plan, interval, effectiveAt]
+      properties:
+        plan: { type: string, enum: [STARTER, PRO] }
+        interval: { $ref: "#/components/schemas/BillingInterval" }
+        effectiveAt: { $ref: "#/components/schemas/NullableDateTime" }
+
+    BillingSubscriptionView:
+      type: object
+      required:
+        [
+          plan,
+          interval,
+          status,
+          currentPeriodEnd,
+          cancelAtPeriodEnd,
+          cancelAt,
+          pendingChange,
+        ]
+      properties:
+        plan:
+          oneOf: [{ type: string, enum: [STARTER, PRO] }, { type: "null" }]
+        interval:
+          oneOf:
+            [{ $ref: "#/components/schemas/BillingInterval" }, { type: "null" }]
+        status: { $ref: "#/components/schemas/BillingSubscriptionStatus" }
+        currentPeriodEnd: { $ref: "#/components/schemas/NullableDateTime" }
+        cancelAtPeriodEnd: { type: boolean }
+        cancelAt: { $ref: "#/components/schemas/NullableDateTime" }
+        pendingChange:
+          description: A scheduled downgrade or interval change that has not taken effect yet.
+          oneOf:
+            - { $ref: "#/components/schemas/BillingPendingChange" }
+            - { type: "null" }
+
+    BillingStatus:
+      type: object
+      required:
+        [
+          plan,
+          billingEnabled,
+          subscription,
+          canStartCheckout,
+          canOpenPortal,
+          canChangePlan,
+          catalog,
+        ]
+      properties:
+        plan: { $ref: "#/components/schemas/UserPlan" }
+        billingEnabled:
+          {
+            type: boolean,
+            description: Whether this deployment has billing configured at all.,
+          }
+        subscription:
+          oneOf:
+            - { $ref: "#/components/schemas/BillingSubscriptionView" }
+            - { type: "null" }
+        canStartCheckout: { type: boolean }
+        canOpenPortal: { type: boolean }
+        canChangePlan: { type: boolean }
+        catalog:
+          type: array
+          items: { $ref: "#/components/schemas/BillingCatalogEntry" }
+
+    BillingTargetRequest:
+      type: object
+      required: [priceKey]
+      properties:
+        priceKey: { $ref: "#/components/schemas/BillingPriceKey" }
+
+    BillingCheckoutResponse:
+      type: object
+      required: [checkoutUrl]
+      properties:
+        checkoutUrl: { type: string, format: uri }
+
+    BillingPortalResponse:
+      type: object
+      required: [portalUrl]
+      properties:
+        portalUrl: { type: string, format: uri }
+
+    BillingChangeResponse:
+      type: object
+      required: [effect, kind, effectiveAt, plan]
+      properties:
+        effect:
+          type: string
+          enum: [IMMEDIATE, PERIOD_END]
+          description: Upgrades apply immediately; downgrades apply at the period end.
+        kind: { type: string, enum: [UPGRADE, DOWNGRADE, INTERVAL_CHANGE] }
+        effectiveAt: { $ref: "#/components/schemas/NullableDateTime" }
+        plan: { $ref: "#/components/schemas/UserPlan" }
+
+    # -------------------------------------------------------------------------------------------
+    # Operations
+    # -------------------------------------------------------------------------------------------
+    AdminHealthResponse:
+      type: object
+      required: [status, role]
+      properties:
+        status: { type: string, const: ok }
+        role: { type: string, const: ADMIN }
+
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status: { type: string, const: ok }
+        service: { type: string, const: api }
+
+    ReadinessCheck:
+      type: object
+      required: [status, latencyMs]
+      properties:
+        status: { type: string, enum: [ok, failed] }
+        latencyMs: { type: integer, minimum: 0 }
+        error:
+          { type: string, description: Present only when the probe failed. }
+
+    ReadinessResponse:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: object
+          required: [postgres, redis]
+          properties:
+            postgres: { $ref: "#/components/schemas/ReadinessCheck" }
+            redis: { $ref: "#/components/schemas/ReadinessCheck" }

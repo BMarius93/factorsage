@@ -16,6 +16,7 @@ import {
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { Roles } from "../auth/roles.decorator";
 import { RolesGuard } from "../auth/roles.guard";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { SECURITY_CATALOG_SERVICE } from "../stocks/stock-data.tokens";
 
 @Controller("admin")
@@ -27,6 +28,7 @@ export class AdminController {
     private readonly securityCatalog: SecurityCatalogService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get("health")
   health(): AdminHealthResponse {
     return {
@@ -42,6 +44,7 @@ export class AdminController {
    * Catalog identity only: prices, fundamentals, derived state and intrinsic values stay lazy and
    * load when a stock is actually opened.
    */
+  @RateLimit("admin-operation")
   @Post("securities/sync")
   // Synchronization reconciles an existing catalog rather than creating a resource at this URL.
   @HttpCode(HttpStatus.OK)

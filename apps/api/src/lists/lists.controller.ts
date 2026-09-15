@@ -24,6 +24,7 @@ import {
 import type { AuthUser } from "@intrinsic/contracts";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseAddStockListItemsRequest,
   parseCreateStockListRequest,
@@ -51,6 +52,7 @@ export class ListsController {
     @Inject(StockListsService) private readonly lists: StockListsService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get()
   async listOwn(
     @CurrentUser() user: AuthUser,
@@ -58,6 +60,7 @@ export class ListsController {
     return this.lists.listForUser(user);
   }
 
+  @RateLimit("mutation")
   @Post()
   async create(
     @CurrentUser() user: AuthUser,
@@ -67,6 +70,7 @@ export class ListsController {
     return this.execute(() => this.lists.createList(user, input));
   }
 
+  @RateLimit("standard-read")
   @Get(":listId")
   async getOne(
     @CurrentUser() user: AuthUser,
@@ -75,6 +79,7 @@ export class ListsController {
     return this.execute(() => this.lists.getList(user, listId));
   }
 
+  @RateLimit("mutation")
   @Patch(":listId")
   async update(
     @CurrentUser() user: AuthUser,
@@ -85,6 +90,7 @@ export class ListsController {
     return this.execute(() => this.lists.updateList(user, listId, patch));
   }
 
+  @RateLimit("mutation")
   @Delete(":listId")
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
@@ -98,6 +104,7 @@ export class ListsController {
    * Batch membership add. Idempotent — already-member securities are skipped, so the handler
    * reconciles state rather than creating a resource, and answers 200 with the updated list.
    */
+  @RateLimit("mutation")
   @Post(":listId/items")
   @HttpCode(HttpStatus.OK)
   async addItems(
@@ -111,6 +118,7 @@ export class ListsController {
     );
   }
 
+  @RateLimit("mutation")
   @Delete(":listId/items/:itemId")
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeItem(
@@ -122,6 +130,7 @@ export class ListsController {
   }
 
   /** Replaces the item's complete buy-window configuration and returns the canonical result. */
+  @RateLimit("mutation")
   @Put(":listId/items/:itemId/buy-windows")
   async replaceBuyWindows(
     @CurrentUser() user: AuthUser,

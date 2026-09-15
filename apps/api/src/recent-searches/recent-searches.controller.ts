@@ -16,6 +16,7 @@ import type { AuthenticatedRequest } from "../auth/authenticated-request";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseRecentSecurityIds,
   parseRecordSecurityViewRequest,
@@ -53,6 +54,7 @@ export class RecentSearchesController {
    * this resolves them against the live catalog; an authenticated caller's set comes from the
    * database and `ids` is ignored entirely, so nothing a client sends can add to or reorder it.
    */
+  @RateLimit("stock-search")
   @Get()
   @UseGuards(OptionalCookieAuthGuard)
   async list(
@@ -74,6 +76,7 @@ export class RecentSearchesController {
    * the client treats the same way it treats every other failure of this call — it is convenience
    * UI, and nothing about the page depends on it succeeding.
    */
+  @RateLimit("mutation")
   @Post()
   @UseGuards(CookieAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)

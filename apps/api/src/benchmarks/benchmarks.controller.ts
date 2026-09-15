@@ -1,6 +1,7 @@
 import type { BenchmarkResponse } from "@intrinsic/contracts";
 import { Controller, Get, Inject, UseGuards } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { BenchmarksService } from "./benchmarks.service";
 
 /**
@@ -18,6 +19,7 @@ export class BenchmarksController {
     @Inject(BenchmarksService) private readonly benchmarks: BenchmarksService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get()
   async listAll(): Promise<BenchmarkResponse[]> {
     return this.benchmarks.listBenchmarks();

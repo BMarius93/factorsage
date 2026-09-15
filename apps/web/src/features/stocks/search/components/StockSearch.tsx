@@ -12,7 +12,7 @@ import {
 } from "react";
 import { canNavigate } from "../../../../components/layout/unsaved-changes";
 import { useRecentSecurities } from "../../recent/hooks/use-recent-securities";
-import { useStockSearch } from "../hooks/use-stock-search";
+import { SEARCH_UNAVAILABLE, useStockSearch } from "../hooks/use-stock-search";
 import { popularStockSearches } from "../utils/popular-stocks";
 import { stockDetailsHref } from "../utils/stock-routes";
 import { ClearIcon, SearchIcon } from "./search-icons";
@@ -53,7 +53,7 @@ export function StockSearch() {
   const listboxId = `${useId()}-listbox`;
   const labelId = `${useId()}-label`;
 
-  const { status, results, retry } = useStockSearch(query);
+  const { status, results, errorMessage, retry } = useStockSearch(query);
   const { securities: recent } = useRecentSecurities();
   const showingShortcuts = query.trim() === "";
 
@@ -191,7 +191,7 @@ export function StockSearch() {
       return null;
     }
     if (status === "error") {
-      return "Search is unavailable right now.";
+      return errorMessage ?? SEARCH_UNAVAILABLE;
     }
     if (status === "loading" && results.length === 0) {
       return "Searching…";

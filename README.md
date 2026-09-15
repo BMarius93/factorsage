@@ -71,6 +71,9 @@ docker/         Container definitions
 - Historical index-membership PIT is not part of V2.
 - Fundamentals/intrinsic historical calculations must preserve no-look-ahead correctness.
 - Lists are static and each symbol can have `FULL` or `CUSTOM` buy window semantics.
+- Every API route declares a rate-limit policy (`@RateLimit("…")`) or an explicit exemption; no
+  route contains a limit, a counter or a Redis call. Rate limits are never commercial entitlements.
+- `docs/openapi.yaml` describes the API that exists; a route cannot land undocumented.
 - No TypeScript build-error suppression.
 
 ## Prerequisites
@@ -274,6 +277,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm openapi:validate
 ```
 
 Start infrastructure (`pnpm infra:up`) and apply migrations before running the gate locally:
@@ -315,6 +319,24 @@ the keys it created, and never flushes.
   `pnpm test:users:seed`. See `ai/workflows/auth-testing.md`.
 
 `ai/workflows/validation.md` holds the detailed testing workflow.
+
+## API documentation
+
+`docs/openapi.yaml` is the OpenAPI 3.1 specification for the HTTP API — every endpoint, its
+authentication, its request and response schemas, its error codes, and the rate-limit policy that
+protects it.
+
+```bash
+pnpm openapi:validate                          # schema + $ref validation
+npx @redocly/cli preview-docs docs/openapi.yaml # read it in a browser
+```
+
+It is hand-authored and kept honest by `apps/api/src/openapi/openapi.contract.test.ts`, which
+compiles the real application and fails when the document and the mounted routes disagree. There is
+no Swagger UI endpoint on the API by design — see `ai/architecture/rate-limiting.md` §13.
+
+Rate limiting itself is documented in `ai/architecture/rate-limiting.md`: the policy catalog, how to
+protect a new endpoint, the actor and proxy rules, and what happens when Redis is down.
 
 ## Rewrite order
 
