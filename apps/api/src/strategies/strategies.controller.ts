@@ -25,6 +25,7 @@ import {
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   StrategiesService,
   StrategyInUseByMonitorError,
@@ -49,6 +50,7 @@ export class StrategiesController {
     @Inject(StrategiesService) private readonly strategies: StrategiesService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get()
   async listOwn(
     @CurrentUser() user: AuthUser,
@@ -56,6 +58,7 @@ export class StrategiesController {
     return this.strategies.listForUser(user.id);
   }
 
+  @RateLimit("mutation")
   @Post()
   async create(
     @CurrentUser() user: AuthUser,
@@ -65,6 +68,7 @@ export class StrategiesController {
     return this.execute(() => this.strategies.createStrategy(user, input));
   }
 
+  @RateLimit("standard-read")
   @Get(":strategyId")
   async getOne(
     @CurrentUser() user: AuthUser,
@@ -73,6 +77,7 @@ export class StrategiesController {
     return this.execute(() => this.strategies.getStrategy(user.id, strategyId));
   }
 
+  @RateLimit("mutation")
   @Patch(":strategyId")
   async update(
     @CurrentUser() user: AuthUser,
@@ -86,6 +91,7 @@ export class StrategiesController {
   }
 
   /** Replaces the COMPLETE definition atomically and returns the canonical normalized result. */
+  @RateLimit("mutation")
   @Put(":strategyId/definition")
   async replaceDefinition(
     @CurrentUser() user: AuthUser,
@@ -98,6 +104,7 @@ export class StrategiesController {
     );
   }
 
+  @RateLimit("mutation")
   @Delete(":strategyId")
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(

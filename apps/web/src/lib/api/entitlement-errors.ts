@@ -3,6 +3,7 @@ import {
   type EntitlementReasonCode,
 } from "@intrinsic/contracts";
 import { ApiError } from "./client";
+import { rateLimitMessage } from "./rate-limit-errors";
 
 /**
  * Recognising an entitlement refusal in the browser.
@@ -35,14 +36,20 @@ export function isEntitlementError(error: unknown): boolean {
 /**
  * The message to show for a failed request, preferring the API's own words.
  *
+ * `429` and its `503` sibling come first, because they are the two failures where a generic
+ * "something went wrong" is actively harmful: it invites the immediate retry that caused them.
  * `403` with an entitlement code is a plan limit; `400` is the API disagreeing with a document the
- * client also validated. Both are worth reading verbatim. Anything else is genuinely unknown, and
- * `fallback` says so.
+ * client also validated. All of those are worth reading verbatim. Anything else is genuinely
+ * unknown, and `fallback` says so.
  */
 export function requestFailureMessage(
   error: unknown,
   fallback: string,
 ): string {
+  const throttled = rateLimitMessage(error);
+  if (throttled) {
+    return throttled;
+  }
   if (isEntitlementError(error)) {
     return (error as ApiError).message;
   }

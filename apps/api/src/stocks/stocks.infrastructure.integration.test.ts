@@ -52,7 +52,7 @@ import {
   subtractYears,
   type StockManifest,
 } from "@intrinsic/stock-data";
-import { useTestDatabase } from "@intrinsic/testing";
+import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -356,6 +356,11 @@ function expectedBlendValue(
 
 // Before PrismaService constructs its client during Nest module compilation.
 const databaseUrl = useTestDatabase();
+
+// Compiling `AppModule` installs the real rate limiter. Loopback makes every request in this
+// file one caller, so its counters get their own namespace and a burst-sized allowance;
+// enforcement itself stays on.
+useIsolatedRateLimits();
 
 describe("stock API infrastructure (HTTP + real PostgreSQL + real Redis)", () => {
   const redisUrl = process.env.TEST_REDIS_URL?.trim() || process.env.REDIS_URL?.trim();

@@ -360,3 +360,22 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 - `playwright-report/`, `test-results/`, traces, videos, or screenshots containing a session
 - Real emails, passwords, cookies, JWTs, OAuth tokens, authorization codes, or SMTP credentials in
   source, tests, fixtures, Markdown, or commit messages
+
+## Rate limiting and the E2E stack
+
+The API rate-limits credential endpoints at 20 attempts per five minutes **per client IP**
+(`ai/architecture/rate-limiting.md`). Playwright drives everything from one loopback address and
+signs in far more often than a person does — the auth setup alone authenticates every persona — so
+the running API needs headroom or the suite fails on `429` in a way that looks like a broken login.
+
+`pnpm dev:api:e2e` therefore starts the API with its own counter namespace and a wide allowance
+multiplier, exactly as it already selects the test database:
+
+```bash
+RATE_LIMIT_KEY_NAMESPACE=rate-limit:e2e RATE_LIMIT_ALLOWANCE_MULTIPLIER=100
+```
+
+Enforcement stays **on**, which is deliberate: an endpoint that accidentally became unusable should
+still fail the suite. If you start the API by another route and see `429` from `/auth/login`, that
+is this — not a credential problem. Vitest suites handle the same thing themselves through
+`useIsolatedRateLimits()` from `@intrinsic/testing`.

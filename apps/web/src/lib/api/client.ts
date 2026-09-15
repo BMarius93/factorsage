@@ -23,6 +23,14 @@ export class ApiError extends Error {
      * `unknown[]` here because this module owns HTTP mechanics, not any feature's shapes.
      */
     readonly issues?: readonly unknown[],
+    /**
+     * Whole seconds the caller was told to wait, for a throttled or temporarily-unavailable
+     * response.
+     *
+     * Carried on `ApiError` rather than read at each call site because it arrives two ways — in
+     * the body and in the `Retry-After` header — and a feature should never have to know that.
+     */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -39,12 +47,14 @@ async function toApiError(response: Response, path: string): Promise<ApiError> {
   let message: string | undefined;
   let code: string | undefined;
   let issues: unknown[] | undefined;
+  let retryAfterSeconds: number | undefined;
 
   try {
     const body = (await response.json()) as {
       message?: unknown;
       code?: unknown;
       issues?: unknown;
+      retryAfterSeconds?: unknown;
     };
     if (typeof body.message === "string") {
       message = body.message;
@@ -55,16 +65,34 @@ async function toApiError(response: Response, path: string): Promise<ApiError> {
     if (Array.isArray(body.issues)) {
       issues = body.issues;
     }
+    if (typeof body.retryAfterSeconds === "number") {
+      retryAfterSeconds = body.retryAfterSeconds;
+    }
   } catch {
     // Fall through to the status-only error.
   }
+
+  // The header is the fallback, not the preference: the body's number is the one the API computed,
+  // and the header is only readable at all because the API exposes it through CORS. Either way a
+  // caller gets one number and never has to look for it.
+  retryAfterSeconds ??= retryAfterHeaderSeconds(response);
 
   return new ApiError(
     response.status,
     message ?? `Request to ${path} failed`,
     code,
     issues,
+    retryAfterSeconds,
   );
+}
+
+function retryAfterHeaderSeconds(response: Response): number | undefined {
+  const raw = response.headers.get("Retry-After");
+  if (raw === null) {
+    return undefined;
+  }
+  const value = Number(raw.trim());
+  return Number.isFinite(value) && value > 0 ? Math.ceil(value) : undefined;
 }
 
 export type ApiRequestOptions = {

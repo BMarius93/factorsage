@@ -57,6 +57,20 @@ function pollIntervalFor(status: BacktestRunStatus): number {
 }
 
 /**
+ * How long to wait after a failed poll: the server's own `Retry-After` when it sent one, and the
+ * ordinary cadence otherwise. Capped so a long window cannot leave a page that never polls again.
+ */
+function retryDelayMs(error: unknown): number | undefined {
+  if (!(error instanceof ApiError) || error.retryAfterSeconds === undefined) {
+    return undefined;
+  }
+  return Math.min(error.retryAfterSeconds * 1000, MAX_POLL_BACKOFF_MS);
+}
+
+/** One minute: long enough to clear any read window, short enough to recover without a reload. */
+const MAX_POLL_BACKOFF_MS = 60_000;
+
+/**
  * Follows one backtest run: the configuration once, then live checkpoints until it is terminal.
  *
  * Plain polling by product decision — no WebSocket, no SSE. Three properties make that safe:
@@ -96,13 +110,13 @@ export function useBacktestRun(runId: string): BacktestRunState {
     const superseded = () =>
       requestId !== latestRequestRef.current || controller.signal.aborted;
 
-    const schedule = () => {
+    const schedule = (delayMs = pollIntervalFor(appliedStatus)) => {
       if (superseded() || terminal) {
         return;
       }
       timer = setTimeout(() => {
         void poll();
-      }, pollIntervalFor(appliedStatus));
+      }, delayMs);
     };
 
     /**
@@ -131,9 +145,13 @@ export function useBacktestRun(runId: string): BacktestRunState {
         payload = await fetchBacktestProgress(runId, {
           signal: controller.signal,
         });
-      } catch {
+      } catch (error: unknown) {
         if (!superseded()) {
-          schedule();
+          // A throttled poll is the one failure where retrying on the normal cadence is actively
+          // wrong: every retry inside the window is refused and spends nothing but the server's
+          // time. The API already said how long to wait, so wait that long. Everything else keeps
+          // the existing behaviour — the page holds what it has and the next tick retries.
+          schedule(retryDelayMs(error));
         }
         return;
       }

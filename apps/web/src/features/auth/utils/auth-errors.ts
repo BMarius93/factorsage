@@ -1,5 +1,6 @@
 import { EMAIL_NOT_VERIFIED_CODE, OAUTH_ERROR_CODES } from "@intrinsic/contracts";
 import { ApiError } from "../../../lib/api/client";
+import { rateLimitMessage } from "../../../lib/api/rate-limit-errors";
 
 /** Shown whenever the API declines to say more; it must never hint at which part was wrong. */
 export const GENERIC_SIGN_IN_ERROR = "Unable to sign in with those credentials.";
@@ -16,6 +17,14 @@ export function describeLoginFailure(error: unknown): LoginFailure {
     return { kind: "email_not_verified" };
   }
 
+  // Checked before the generic credential message, which would otherwise be a lie with real
+  // consequences: a throttled sign-in is refused whether or not the password was right, and
+  // telling the user their credentials are wrong sends them to reset a password that works.
+  const throttled = rateLimitMessage(error);
+  if (throttled) {
+    return { kind: "message", message: throttled };
+  }
+
   if (error instanceof ApiError) {
     // 4xx responses are safe to surface verbatim; a 5xx message is server detail the user
     // cannot act on.
@@ -29,8 +38,17 @@ export function describeLoginFailure(error: unknown): LoginFailure {
   return { kind: "message", message: UNEXPECTED_ERROR };
 }
 
-/** Surfaces the API's own 4xx message (duplicate email, weak password) when there is one. */
+/**
+ * Surfaces the API's own 4xx message (duplicate email, weak password) when there is one.
+ *
+ * Registration and recovery are `auth-sensitive`, so they can be throttled too; that message is
+ * preferred because it names the wait, while the API's own 429 text does not have to.
+ */
 export function describeRequestError(error: unknown): string {
+  const throttled = rateLimitMessage(error);
+  if (throttled) {
+    return throttled;
+  }
   if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
     return error.message;
   }

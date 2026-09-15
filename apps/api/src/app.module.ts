@@ -9,6 +9,7 @@ import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health.controller";
 import { ListsModule } from "./lists/lists.module";
+import { RateLimitModule } from "./rate-limit/rate-limit.module";
 import { RecentSearchesModule } from "./recent-searches/recent-searches.module";
 import { StocksModule } from "./stocks/stocks.module";
 import { MonitorsModule } from "./monitors/monitors.module";
@@ -17,6 +18,9 @@ import { StrategiesModule } from "./strategies/strategies.module";
 @Module({
   imports: [
     ConfigurationModule,
+    // Installs the global rate-limit interceptor and filter. Listed before the feature modules
+    // so the protection every route declares is part of the application, not of any one feature.
+    RateLimitModule,
     DatabaseModule,
     AuthModule,
     EntitlementsModule,

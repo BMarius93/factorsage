@@ -20,6 +20,7 @@ import {
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   backtestInvalid,
   parseCreateBacktestRunRequest,
@@ -47,6 +48,7 @@ export class BacktestsController {
     @Inject(BacktestsService) private readonly backtests: BacktestsService,
   ) {}
 
+  @RateLimit("backtest-execution")
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
   async submit(
@@ -57,6 +59,7 @@ export class BacktestsController {
     return this.execute(() => this.backtests.submitRun(user, input));
   }
 
+  @RateLimit("standard-read")
   @Get()
   async listOwn(
     @CurrentUser() user: AuthUser,
@@ -64,6 +67,7 @@ export class BacktestsController {
     return this.backtests.listForUser(user.id);
   }
 
+  @RateLimit("standard-read")
   @Get(":runId")
   async getOne(
     @CurrentUser() user: AuthUser,
@@ -72,6 +76,7 @@ export class BacktestsController {
     return this.execute(() => this.backtests.getRun(user.id, runId));
   }
 
+  @RateLimit("progress-poll")
   @Get(":runId/progress")
   async getProgress(
     @CurrentUser() user: AuthUser,
@@ -80,6 +85,7 @@ export class BacktestsController {
     return this.execute(() => this.backtests.getProgress(user.id, runId));
   }
 
+  @RateLimit("standard-read")
   @Get(":runId/strategy")
   async getStrategy(
     @CurrentUser() user: AuthUser,

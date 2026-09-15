@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { PrismaService } from "./database/prisma.service";
+import { RateLimitExempt } from "./rate-limit/rate-limit.decorator";
 import { STOCK_DATA_REDIS } from "./stocks/stock-data.tokens";
 
 /** The only capability the probe needs from the Redis client the stock slice exports. */
@@ -36,6 +37,12 @@ const DEFAULT_CHECK_TIMEOUT_MS = 2_000;
  * the probe itself — a readiness endpoint that can hang is one an orchestrator times out on.
  */
 @Controller("health")
+@RateLimitExempt(
+  "Orchestrator liveness and readiness probes. A throttled probe reads as a failed one, so a " +
+    "burst of health checks would take a healthy instance out of rotation or restart it — the " +
+    "exact opposite of what the endpoint exists for. Both handlers are constant-time and reach " +
+    "only a bounded dependency probe.",
+)
 export class HealthController {
   private readonly timeoutMs: number;
 

@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { RATE_LIMIT_HEADER_NAMES } from "@intrinsic/contracts";
 import { getApiConfig, loadRootEnv } from "@intrinsic/config";
 import {
   createLogger,
@@ -40,6 +41,11 @@ async function bootstrap() {
   app.enableCors({
     origin: config.corsOrigins,
     credentials: true,
+    // The web app is a different origin, so a browser can read only the headers listed here. The
+    // rate-limit family has to be on it or `Retry-After` is invisible to the client that needs it
+    // most — the one being throttled. The list comes from the contract, so adding a header there
+    // exposes it here without a second edit.
+    exposedHeaders: [...RATE_LIMIT_HEADER_NAMES, "x-request-id"],
   });
 
   await app.listen(config.port);

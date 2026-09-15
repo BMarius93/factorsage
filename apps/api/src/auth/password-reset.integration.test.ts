@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import { OAuthProvider } from "@intrinsic/database";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
-import { useTestDatabase } from "@intrinsic/testing";
+import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -28,6 +28,10 @@ import { PasswordService } from "./password.service";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
+// Compiling `AppModule` installs the real rate limiter. Loopback makes every request in this
+// file one caller, so its counters get their own namespace and a burst-sized allowance;
+// enforcement itself stays on.
+useIsolatedRateLimits();
 
 const WEB_BASE_URL = "http://web.example.test";
 const RESET_TTL_SECONDS = 3600;

@@ -20,6 +20,7 @@ import {
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseCreateMonitorRequest,
   parseUpdateMonitorRequest,
@@ -47,6 +48,7 @@ export class MonitorsController {
     @Inject(MonitorsService) private readonly monitors: MonitorsService,
   ) {}
 
+  @RateLimit("standard-read")
   @Get()
   async listOwn(
     @CurrentUser() user: AuthUser,
@@ -54,6 +56,7 @@ export class MonitorsController {
     return this.monitors.listForUser(user.id);
   }
 
+  @RateLimit("monitor-mutation")
   @Post()
   async create(
     @CurrentUser() user: AuthUser,
@@ -63,6 +66,7 @@ export class MonitorsController {
     return this.execute(() => this.monitors.createMonitor(user.id, input));
   }
 
+  @RateLimit("standard-read")
   @Get(":monitorId")
   async getOne(
     @CurrentUser() user: AuthUser,
@@ -76,6 +80,7 @@ export class MonitorsController {
    * watches. Changing either reference rebinds the Monitor, which the service handles as a
    * configuration boundary. There is still no cadence to set.
    */
+  @RateLimit("monitor-mutation")
   @Patch(":monitorId")
   async update(
     @CurrentUser() user: AuthUser,
@@ -88,6 +93,7 @@ export class MonitorsController {
     );
   }
 
+  @RateLimit("monitor-mutation")
   @Delete(":monitorId")
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(

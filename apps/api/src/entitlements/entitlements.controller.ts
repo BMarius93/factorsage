@@ -2,6 +2,7 @@ import type { AuthUser, EntitlementsResponse } from "@intrinsic/contracts";
 import { Controller, Get, Inject, Req, UseGuards } from "@nestjs/common";
 import type { AuthenticatedRequest } from "../auth/authenticated-request";
 import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
+import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { EntitlementsService } from "./entitlements.service";
 
 /**
@@ -24,6 +25,7 @@ export class EntitlementsController {
     private readonly entitlements: EntitlementsService,
   ) {}
 
+  @RateLimit("session-probe")
   @Get()
   read(@Req() request: AuthenticatedRequest): EntitlementsResponse {
     const user: AuthUser | undefined = request.authUser;

@@ -749,6 +749,74 @@ export function getRedisConfig(env: Environment = process.env) {
   } as const;
 }
 
+/**
+ * Non-negative integer configuration. Distinct from `integer` above, which rejects zero because
+ * every value it reads is a size, an interval or a count that must be positive. `0` is meaningful
+ * here: it is how a deployment says "trust no proxy".
+ */
+function nonNegativeInteger(
+  env: Environment,
+  name: string,
+  fallback: number,
+): number {
+  const raw = optional(env, name);
+  if (raw === undefined) {
+    return fallback;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(
+      `Invalid application configuration: ${name} must be a non-negative integer`,
+    );
+  }
+  return value;
+}
+
+/**
+ * HTTP rate limiting. Operational configuration, never a commercial entitlement
+ * (`docs/decisions/entitlements-v1.md` section 10).
+ *
+ * **`RATE_LIMIT_TRUSTED_PROXY_HOPS` is a security control, not a convenience.** The limiter keys
+ * unauthenticated traffic by client IP, and `X-Forwarded-For` is caller-supplied text that anyone
+ * may prepend to. The default `0` therefore trusts nothing and uses the TCP peer address, which is
+ * correct for this repository's own deployment: `docker-compose.yml` publishes the API port
+ * directly and nothing terminates in front of it. A deployment that really does run the API behind
+ * N trusted proxies sets this to N, and the derivation then skips exactly N entries from the right
+ * of the header — the only part of it those proxies actually control. Setting it higher than the
+ * real hop count hands every caller a free identity, so it is never inferred and never defaulted
+ * to "on".
+ *
+ * `RATE_LIMIT_REDIS_TIMEOUT_MS` bounds one limiter round trip. A rate limiter that can hang is
+ * worse than no rate limiter: it converts a Redis stall into an API-wide stall. It is deliberately
+ * short — the limiter does one `EVAL` against a local-network Redis — and a breach is treated as
+ * the policy's configured Redis-failure behaviour rather than as an error.
+ *
+ * `RATE_LIMIT_ENABLED=false` turns enforcement off for a deployment that fronts the API with its
+ * own limiter. It stays `true` by default and is not a test convenience: the suites exercise the
+ * real thing.
+ */
+export function getRateLimitConfig(env: Environment = process.env) {
+  return {
+    enabled: boolean(env, "RATE_LIMIT_ENABLED", true),
+    /** Shares the application Redis instance; never a second provider. */
+    redisUrl: required(env, "REDIS_URL"),
+    redisTimeoutMs: integer(env, ["RATE_LIMIT_REDIS_TIMEOUT_MS"], 250),
+    trustedProxyHops: nonNegativeInteger(
+      env,
+      "RATE_LIMIT_TRUSTED_PROXY_HOPS",
+      0,
+    ),
+    /**
+     * Multiplies every policy's allowance. `1` is the catalog as written; a deployment that has
+     * measured its own traffic may widen or tighten every policy at once without editing code, and
+     * without being able to silently disable one endpoint's protection.
+     */
+    allowanceMultiplier: integer(env, ["RATE_LIMIT_ALLOWANCE_MULTIPLIER"], 1),
+    /** Redis key namespace for every rate-limit counter. Versioned like the other namespaces. */
+    keyNamespace: optional(env, "RATE_LIMIT_KEY_NAMESPACE") ?? "rate-limit:v1",
+  } as const;
+}
+
 export function getFmpTrafficConfig(env: Environment = process.env) {
   return {
     timeoutMs: integer(env, ["FMP_TIMEOUT_MS"], 15_000),

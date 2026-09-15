@@ -2,6 +2,7 @@
 
 import type { StockSearchResultResponse } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { requestFailureMessage } from "../../../../lib/api/entitlement-errors";
 import { searchStocks } from "../api/stock-search-api";
 
 /** Long enough that a normal typist issues one request per word, short enough to feel live. */
@@ -13,6 +14,14 @@ export type StockSearchState = {
   /** `idle` means the query is blank and no request has been or will be issued. */
   readonly status: StockSearchStatus;
   readonly results: readonly StockSearchResultResponse[];
+  /**
+   * What to tell the user when `status` is `error`.
+   *
+   * Carried rather than hard-coded in the dropdown because the failures are not interchangeable:
+   * a throttled search has to say so and name the wait, or the user retries immediately and is
+   * refused again. Everything else keeps the generic copy.
+   */
+  readonly errorMessage?: string;
   /** Re-issues the current query; the error state is only useful if the user can act on it. */
   readonly retry: () => void;
 };
@@ -20,6 +29,9 @@ export type StockSearchState = {
 type SearchResultState = Omit<StockSearchState, "retry">;
 
 const IDLE: SearchResultState = { status: "idle", results: [] };
+
+/** Shown for any failure the API did not explain. */
+export const SEARCH_UNAVAILABLE = "Search is unavailable right now.";
 
 /**
  * Debounced stock search for the global search surface.
@@ -61,11 +73,15 @@ export function useStockSearch(
           }
           setState({ status: "ready", results });
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (requestId !== latestRequestRef.current) {
             return;
           }
-          setState({ status: "error", results: [] });
+          setState({
+            status: "error",
+            results: [],
+            errorMessage: requestFailureMessage(error, SEARCH_UNAVAILABLE),
+          });
         });
     }, debounceMs);
 
