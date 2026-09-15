@@ -73,28 +73,32 @@ class HeaderIdentityGuard implements CanActivate {
 @Controller("probe")
 @UseGuards(HeaderIdentityGuard)
 class ProbeController {
-  /** 10 points / 300 s, IP-keyed, fail-closed. The cheapest real policy to exhaust. */
+  /**
+   * IP-keyed and fail-closed. Chosen for the basic-limiting cases because it is the narrowest
+   * allowance in the catalog and so the cheapest to exhaust; every case below reads the number it
+   * needs from `RATE_LIMIT_POLICIES` rather than assuming one.
+   */
   @RateLimit("auth-sensitive")
   @Get("sensitive")
   sensitive(): { ok: true } {
     return { ok: true };
   }
 
-  /** 10 points / 3600 s, user-keyed. Used for the actor-isolation cases. */
+  /** User-keyed, single bucket. Used for the actor-isolation and window-semantics cases. */
   @RateLimit("admin-operation")
   @Get("admin")
   admin(): { ok: true } {
     return { ok: true };
   }
 
-  /** 20 points / 3600 s plus a 60-point per-IP bucket. The combined-protection case. */
+  /** The combined-protection case: a per-user bucket plus a wider shared per-IP one. */
   @RateLimit("backtest-execution")
   @Get("backtest")
   backtest(): { ok: true } {
     return { ok: true };
   }
 
-  /** 30 points / 60 s, user-keyed. A different counter from `admin`, same actor. */
+  /** User-keyed like `admin`, but a different policy — so a different counter. */
   @RateLimit("monitor-mutation")
   @Get("monitor")
   monitor(): { ok: true } {
@@ -446,9 +450,9 @@ describeRedis("API rate limiting over real Redis", () => {
     });
 
     it("never spends the shared bucket on a request the personal bucket already refused", async () => {
-      // The harm this prevents: sixty per hour is about three users' worth, so a caller whose own
-      // allowance is gone could lock their whole office out of an endpoint they never touched,
-      // just by retrying.
+      // The harm this prevents: the shared bucket is only a few users' worth by design, so a
+      // caller whose own allowance is gone could lock their whole office out of an endpoint they
+      // never touched, just by retrying.
       const policy = RATE_LIMIT_POLICIES["backtest-execution"];
       const user = "drains-the-nat";
 

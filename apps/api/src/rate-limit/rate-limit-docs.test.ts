@@ -47,7 +47,11 @@ const UNIT_SECONDS: Readonly<Record<string, number>> = {
 
 type ParsedBucket = { points: number; durationSeconds: number };
 
-/** `20 / 5 min` -> 20 points over 300 s. `120 / min` -> 120 over 60 s. `—` -> no bucket. */
+/**
+ * Parses an allowance cell. `7 / 2 min` -> 7 points over 120 s; `9 / min` -> 9 over 60 s; `—` -> no
+ * bucket. The examples are deliberately not real policy values, so nothing here reads as a claim
+ * about the catalog.
+ */
 function parseAllowance(cell: string): ParsedBucket | null {
   const text = cell.trim();
   if (text === "—" || text === "-" || text === "") {
@@ -118,6 +122,55 @@ function documentedRows(): DocumentedRow[] {
 function documentedActor(policy: RateLimitPolicy): string {
   return policy.actor === "ip" ? "IP" : "user→IP";
 }
+
+/**
+ * Files whose prose describes the multi-bucket semantics, and must not overstate them.
+ *
+ * Scoped to the rate-limit surface rather than the whole repository: a broad scan would be a
+ * documentation parser, and the sentence this guards against only ever appears here.
+ */
+const SEMANTICS_PROSE = [
+  "AGENTS.md",
+  "ai/architecture/rate-limiting.md",
+  "docs/openapi.yaml",
+  "apps/api/src/rate-limit/rate-limit.service.ts",
+  "apps/api/src/rate-limit/rate-limit.integration.test.ts",
+];
+
+/**
+ * Claims that read as stronger than the implementation delivers.
+ *
+ * "A refused request spends nothing" was the actual wording here, and it is not true: the bucket
+ * that produces the refusal still increments its own counter past `points`, and the hand-back to
+ * earlier buckets is best-effort. What holds is the narrower statement — no *other* bucket's usable
+ * allowance is spent — and the difference is exactly the kind of thing that gets rounded off when
+ * somebody rewrites a sentence for flow.
+ */
+const OVERCLAIMS = [
+  /refused request spends nothing/i,
+  /spends nothing at all/i,
+  /neither bucket'?s limit can(?:not)? be exceeded/i,
+  /no request ever consumes a point/i,
+];
+
+describe("multi-bucket prose does not overstate the implementation", () => {
+  it("avoids claims the implementation does not make", () => {
+    const offenders: string[] = [];
+    for (const file of SEMANTICS_PROSE) {
+      const source = readFileSync(join(workspaceRoot(), file), "utf8");
+      for (const pattern of OVERCLAIMS) {
+        const match = pattern.exec(source);
+        if (match) {
+          offenders.push(`${file}: "${match[0]}"`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      "say that a refused request consumes no *other* bucket's usable allowance, not that it spends nothing",
+    ).toEqual([]);
+  });
+});
 
 describe("the documented policy table matches the catalog", () => {
   const rows = documentedRows();

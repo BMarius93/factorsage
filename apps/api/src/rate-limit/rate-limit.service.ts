@@ -122,10 +122,19 @@ export class RateLimitService {
      * **Every individual consume stays one atomic Redis script.** Nothing here reads a counter to
      * decide whether to spend it — that would be a check-then-act race across instances, and a
      * wider limit than the one configured. Ordering and compensation are decisions about *which
-     * atomic operations to issue*, never a substitute for their atomicity. The refund direction is
-     * the safe one: it can only ever cause a request to be refused that might have been allowed
-     * had it arrived a moment later, never the reverse. `rate-limit.integration.test.ts` proves
-     * under real concurrency that neither bucket's limit can be exceeded.
+     * atomic operations to issue*, never a substitute for their atomicity.
+     *
+     * What that buys, stated no more strongly than it holds: concurrent requests cannot admit more
+     * than a bucket's allowance against the same remaining point, because admission is decided
+     * inside the script; and compensation cannot manufacture an admission, because a refund only
+     * follows a refusal and moves a counter *down*. The one gap is the library edge case described
+     * on `refund` below, worth a single extra point. `rate-limit.integration.test.ts` proves the
+     * first two under real concurrency.
+     *
+     * Note what is *not* claimed: the bucket that produces a refusal still increments its own
+     * counter past `points`, because the refusal is the return value of an unconditional `INCRBY`.
+     * That spends no usable allowance — it was already zero — and the window does not extend, so
+     * the reset arrives at the same moment regardless.
      */
     const spent: ResolvedBucket[] = [];
     const allowed: Array<{ result: RateLimiterRes; bucket: ResolvedBucket }> =

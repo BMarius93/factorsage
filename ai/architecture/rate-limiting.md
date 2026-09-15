@@ -245,24 +245,33 @@ abuser's allowance.
 account lets anybody lock a known victim out by spending the victim's allowance for them — trading a
 credential-stuffing defence for an account-denial attack.
 
-That choice is also why `auth-sensitive` is 20 per five minutes rather than the 5 or 10 a
-per-account limiter could afford. A per-origin counter has to tolerate the several genuine people
-behind one office, university or mobile-carrier NAT, and one attempt every fifteen seconds sustained
-is still useless to a stuffing run that needs thousands a minute. **A deployment expecting heavy
-carrier-grade NAT should raise `RATE_LIMIT_ALLOWANCE_MULTIPLIER` and watch
-`rate-limit.request.refused` for legitimate users** — that event carries the policy and the address
-class, which is exactly the signal for this.
+That choice is also why `auth-sensitive` is deliberately wider than a per-account credential
+limiter could afford to be. A per-origin counter has to tolerate the several genuine people behind
+one office, university or mobile-carrier NAT, while the sustained rate it permits is still orders of
+magnitude below what a credential-stuffing run needs to be worth mounting. The policy table above
+carries the exact allowance. **A deployment expecting heavy carrier-grade NAT should raise
+`RATE_LIMIT_ALLOWANCE_MULTIPLIER` and watch `rate-limit.request.refused` for legitimate users** —
+that event carries the policy and the address class, which is exactly the signal for this.
 
-**Combined protection** exists where one origin creating several accounts is a realistic path:
-`backtest-execution` and `billing-mutation` each carry a per-user bucket _and_ a wider per-IP
-bucket, and are refused if either is exhausted. The IP bucket is sized several times the per-user
-one so a shared office is never what trips it.
+**Combined protection** exists where one origin creating several accounts is a realistic path. Such
+a policy carries a per-user bucket _and_ a wider per-IP one, and is refused if either is exhausted;
+the shared bucket is sized several times the per-user one so a normal office is never what trips it.
+Which policies these are is the `Shared per-IP bucket` column of the table above rather than a list
+here — a list is the thing that goes stale when a policy is added.
 
 ### How a two-bucket policy spends, exactly
 
-**A refused request spends nothing.** Buckets are consumed in order — per-user first, then the
-shared per-IP one — stopping at the first refusal, and anything an earlier bucket already took is
-handed back when the request is refused anyway.
+**A refused request does not consume usable allowance from another bucket.** Buckets are consumed in
+order — per-user first, then the shared per-IP one — stopping at the first refusal, and anything an
+earlier bucket already took is handed back when the request is refused anyway.
+
+Said exactly, because the shorter version overclaims: the bucket that _produces_ the refusal does
+still increment its own counter past `points`, since the refusal is the return value of an
+unconditional `INCRBY`. That costs nothing — its usable allowance was already zero, and the window
+does not extend, so the reset arrives at the same moment either way — but it is not "nothing
+happened". What the design guarantees is narrower and is the part that matters: **no other bucket's
+usable allowance is spent.** The hand-back is also best-effort; a refund that cannot reach Redis
+leaves one point spent, which is logged as `rate-limit.refund.failed`.
 
 Both halves close a real hole, and the first is the serious one:
 
@@ -274,10 +283,26 @@ Both halves close a real hole, and the first is the serious one:
 **This does not weaken distributed correctness.** Every consume is still one atomic Redis script;
 nothing reads a counter to decide whether to spend it, which would be a check-then-act race and a
 wider limit than the one configured. Ordering and compensation decide _which_ atomic operations to
-issue, never how atomic they are. The compensation direction is the safe one: a refund can only
-cause a request to be refused that might have been allowed a moment later — never the reverse — so
-neither bucket's limit can be exceeded. `rate-limit.integration.test.ts` proves that under real
-concurrency across six callers sharing one address.
+issue, never how atomic they are.
+
+Stated as precisely as it holds:
+
+- **Concurrent requests cannot admit more than a bucket's allowance against the same remaining
+  point.** Admission is decided inside one atomic script, so two requests racing for one point
+  produce one admission and one refusal.
+- **Compensation cannot create an extra admission.** A refund only ever follows a refusal, and it
+  moves a counter _down_ — so it can cause a request to be refused that might have been allowed a
+  moment later, never the reverse.
+- **One library edge case is not covered by either statement.** If a key expires in the gap between
+  a consume and its refund, `reward` recreates it at `-1` with a fresh window, which effectively
+  grants one additional point in that new window. It is bounded to one point for one actor, needs
+  the window to end inside a sub-millisecond gap, and is the library's behaviour rather than
+  something this code chose.
+
+For abuse and capacity policies that tradeoff is accepted deliberately: eliminating it would mean
+replacing the library's atomic operation with hand-written Lua, and there is no evidence a single
+extra point matters to any policy here. `rate-limit.integration.test.ts` proves the first two
+statements under real concurrency across six callers sharing one address.
 
 The one sharp edge, stated rather than hidden: the library's `reward` recreates a key that expired
 in the sub-millisecond gap between the consume and the refund, leaving it at `-1` with a fresh
@@ -326,9 +351,10 @@ would widen a partial outage into a total one for no security gain. The request 
 `RateLimit-*` headers are sent** — reporting an allowance nothing counted would be worse than
 reporting none.
 
-**Fail closed (`deny`)** — `auth-sensitive`, `billing-mutation`, `admin-operation`. An outage is
-exactly when an unlimited credential endpoint is most valuable to an attacker, and when an unbounded
-retry storm against a payment provider is most expensive. These answer `503` with
+**Fail closed (`deny`)** — the credential, payment and operator policies; the `On Redis failure`
+column of the table above is the current list. An outage is exactly when an unlimited credential
+endpoint is most valuable to an attacker, and when an unbounded retry storm against a payment
+provider is most expensive. These answer `503` with
 `code: RATE_LIMIT_UNAVAILABLE` — deliberately **not** `429`, because the caller's allowance is
 untouched and "slow down" would be a lie they act on.
 
@@ -484,17 +510,18 @@ credential is ever logged.
 
 ## 12. Tests
 
-| Suite                                         | Needs              | Proves                                                                                        |
-| --------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------- |
-| `rate-limit-coverage.test.ts`                 | PostgreSQL         | Every mounted route declares a policy or a written exemption.                                 |
-| `rate-limit.integration.test.ts`              | Redis              | Limits, boundaries, `Retry-After`, refill, isolation, concurrency, multi-instance, namespace. |
-| `rate-limit.api.integration.test.ts`          | PostgreSQL + Redis | A real endpoint answers `429`; sign-in, lists and entitlements still behave.                  |
-| `rate-limit.failure.test.ts`                  | nothing            | Fail-open, fail-closed, timeout bounding, disabled mode.                                      |
-| `rate-limit.ordering.test.ts`                 | nothing            | Nest runs global interceptors after every guard.                                              |
-| `client-ip.test.ts`                           | nothing            | Proxy hops, spoofing, IPv6 `/64`, IPv4-mapped.                                                |
-| `openapi.contract.test.ts`                    | PostgreSQL         | The document describes exactly this API, policies and all.                                    |
-| `fmp-gate-coverage.test.ts`                   | nothing            | Every production `FmpClient` passes the shared gate.                                          |
-| `entitlements.rate-limiting-boundary.test.ts` | nothing            | Entitlements still carry no request-rate concept.                                             |
+| Suite                                         | Needs              | Proves                                                                                                                                                                                                                                  |
+| --------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rate-limit-coverage.test.ts`                 | PostgreSQL         | Every mounted route declares a policy or a written exemption; the exemption list is fixed.                                                                                                                                              |
+| `rate-limit.integration.test.ts`              | Redis              | Limits and boundaries, `Retry-After`, refill, the four window properties including the boundary burst, actor and policy isolation, both multi-bucket directions, concurrency across six callers, multi-instance sharing, key namespace. |
+| `rate-limit.api.integration.test.ts`          | PostgreSQL + Redis | A real endpoint answers `429`; credential counters are never keyed by email; two colleagues behind one address keep separate allowances; sign-in, lists and entitlements still behave.                                                  |
+| `rate-limit.failure.test.ts`                  | nothing            | Fail-open, fail-closed, timeout bounding, disabled mode, and a store that answers one bucket of a two-bucket policy but not the other.                                                                                                  |
+| `rate-limit-docs.test.ts`                     | nothing            | The policy table in this document equals the catalog value for value, and the multi-bucket prose does not overstate the implementation.                                                                                                 |
+| `rate-limit.ordering.test.ts`                 | nothing            | Nest runs global interceptors after every guard.                                                                                                                                                                                        |
+| `client-ip.test.ts`                           | nothing            | Proxy hops, spoofing, IPv6 `/64`, IPv4-mapped.                                                                                                                                                                                          |
+| `openapi.contract.test.ts`                    | PostgreSQL         | The document describes exactly this API — routes, policies, statuses, auth — and restates no allowance in prose.                                                                                                                        |
+| `fmp-gate-coverage.test.ts`                   | nothing            | Every production `FmpClient` passes the shared gate.                                                                                                                                                                                    |
+| `entitlements.rate-limiting-boundary.test.ts` | nothing            | Entitlements still carry no request-rate concept.                                                                                                                                                                                       |
 
 ---
 

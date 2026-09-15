@@ -1176,8 +1176,9 @@ paths:
         one per client address, the second being what sees one origin spreading submissions across
         several accounts. See `info.x-rate-limit-policies` for both allowances.
 
-        A request refused by either bucket spends nothing in the other, so retrying after your own
-        allowance is gone cannot drain the shared one for everybody else behind your address.
+        A request refused by either bucket does not consume usable allowance from the other, so
+        retrying after your own allowance is gone cannot drain the shared one for everybody else
+        behind your address.
 
         All of that is separate from `backtests.maxConcurrentRuns`, which is a plan entitlement and
         bounds how many may execute at once rather than how fast they may be submitted.

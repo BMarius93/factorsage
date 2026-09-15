@@ -108,13 +108,13 @@ export const RATE_LIMIT_POLICIES = {
    * trades a credential-stuffing defence for an account-denial attack. The counter therefore
    * follows the origin of the traffic, which is what a stuffing run actually has to spend.
    *
-   * Twenty attempts per five minutes — one every fifteen seconds sustained — is useless to a
-   * credential-stuffing run, which needs thousands a minute to be worth mounting, while leaving
-   * room for the several genuine people who may share one address. That headroom is the reason the
-   * number is not tighter: an office, a university or a mobile carrier's NAT presents one IPv4 for
-   * many users, and a per-origin counter sized for one person locks all of them out of a product
-   * they are paying for. A deployment that expects heavy carrier-grade NAT raises
-   * `RATE_LIMIT_ALLOWANCE_MULTIPLIER` and watches `rate-limit.request.refused`.
+   * The allowance below permits a sustained rate that is useless to a credential-stuffing run —
+   * those need thousands a minute to be worth mounting — while leaving room for the several genuine
+   * people who may share one address. That headroom is the reason it is not tighter: an office, a
+   * university or a mobile carrier's NAT presents one IPv4 for many users, and a per-origin counter
+   * sized for one person locks all of them out of a product they are paying for. A deployment that
+   * expects heavy carrier-grade NAT raises `RATE_LIMIT_ALLOWANCE_MULTIPLIER` and watches
+   * `rate-limit.request.refused`.
    *
    * Fail-closed: an outage must not open the front door.
    */
