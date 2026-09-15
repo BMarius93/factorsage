@@ -1,6 +1,8 @@
 import {
+  STRATEGY_MAX_EXIT_RULES,
   conditionOperatorsFor,
   strategyMetricOptions,
+  validateStrategy,
   valueSpecFor,
   type StrategyDefinition,
   type StrategyMetric,
@@ -311,5 +313,157 @@ describe("strategy draft reducer", () => {
       "SELL",
     ).map((option) => option.metric.kind);
     expect(sellKinds).toContain("GAIN");
+  });
+});
+
+/**
+ * FINAL EXIT's Exit Rules in the editor: one action, alternatives inside it.
+ *
+ * The reducer is where "editing rule 1 must not touch rule 2" is actually decided. Structural
+ * sharing is the mechanism — an untouched rule keeps its *identity*, not merely an equal value — so
+ * these assertions use `toBe` where identity is the point.
+ */
+describe("final exit rules", () => {
+  const FINAL_EXIT = { levelKind: "FINAL_EXIT" } as const;
+
+  function withFinalExit(rules = 1): StrategyDraftState {
+    const state = apply(withOneBuyLevel(), {
+      type: "addLevel",
+      levelKind: "FINAL_EXIT",
+    });
+    return apply(
+      state,
+      ...Array.from({ length: rules - 1 }, () => ({
+        type: "addExitRule" as const,
+      })),
+    );
+  }
+
+  function rulesOf(state: StrategyDraftState) {
+    return state.definition.finalExit?.rules ?? [];
+  }
+
+  it("opens FINAL EXIT with exactly one usable exit rule", () => {
+    const rules = rulesOf(withFinalExit());
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.signal.conditions).toHaveLength(1);
+  });
+
+  it("adds a second and a third rule, each with its own identity", () => {
+    const state = withFinalExit(3);
+    const ids = rulesOf(state).map((rule) => rule.id);
+
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+    // Rule ids never collide with the level's own, or with any condition's.
+    expect(ids).not.toContain(state.definition.finalExit?.id);
+  });
+
+  it("stops at the shared maximum rather than growing without bound", () => {
+    let state = withFinalExit();
+    for (let index = 0; index < STRATEGY_MAX_EXIT_RULES + 5; index += 1) {
+      state = strategyDraftReducer(state, { type: "addExitRule" });
+    }
+    expect(rulesOf(state)).toHaveLength(STRATEGY_MAX_EXIT_RULES);
+  });
+
+  it("edits rule 1 without touching rule 2", () => {
+    const before = withFinalExit(2);
+    const untouched = rulesOf(before)[1];
+
+    const after = apply(before, {
+      type: "setOperator",
+      ref: { ...FINAL_EXIT, ruleIndex: 0, part: "CONDITION", conditionIndex: 0 },
+      operator: "IS_BELOW",
+    });
+
+    expect(rulesOf(after)[0]?.signal.conditions[0]?.operator).toBe("IS_BELOW");
+    // Not merely equal: the same object, so nothing re-rendered or re-keyed rule 2.
+    expect(rulesOf(after)[1]).toBe(untouched);
+    expect(rulesOf(after)[0]?.id).toBe(rulesOf(before)[0]?.id);
+  });
+
+  it("edits rule 2 without touching rule 1", () => {
+    const before = withFinalExit(2);
+    const untouched = rulesOf(before)[0];
+
+    const after = apply(before, {
+      type: "addCondition",
+      ref: { ...FINAL_EXIT, ruleIndex: 1 },
+    });
+
+    expect(rulesOf(after)[1]?.signal.conditions).toHaveLength(2);
+    expect(rulesOf(after)[0]).toBe(untouched);
+  });
+
+  it("gives each rule its own trigger", () => {
+    const state = apply(withFinalExit(2), {
+      type: "addTrigger",
+      ref: { ...FINAL_EXIT, ruleIndex: 0 },
+    });
+
+    expect(rulesOf(state)[0]?.signal.trigger).toBeDefined();
+    expect(rulesOf(state)[1]?.signal.trigger).toBeUndefined();
+  });
+
+  it("removes rule 2 and leaves rule 1 exactly as it was", () => {
+    const before = withFinalExit(2);
+    const kept = rulesOf(before)[0];
+
+    const after = apply(before, { type: "removeExitRule", ruleIndex: 1 });
+
+    expect(rulesOf(after)).toHaveLength(1);
+    expect(rulesOf(after)[0]).toBe(kept);
+  });
+
+  it("removes the middle rule of three and leaves the outer two, in order", () => {
+    const before = withFinalExit(3);
+    const [first, , third] = rulesOf(before);
+
+    const after = apply(before, { type: "removeExitRule", ruleIndex: 1 });
+
+    expect(rulesOf(after)).toEqual([first, third]);
+  });
+
+  it("removes the first rule when there is more than one, leaving no stale data", () => {
+    const before = withFinalExit(2);
+    const second = rulesOf(before)[1];
+
+    const after = apply(before, { type: "removeExitRule", ruleIndex: 0 });
+
+    expect(rulesOf(after)).toEqual([second]);
+  });
+
+  /** FINAL EXIT with no way to match is not a document the product allows. */
+  it("refuses to remove the last rule; removing FINAL EXIT is what that means", () => {
+    const state = withFinalExit();
+    expect(
+      rulesOf(strategyDraftReducer(state, { type: "removeExitRule", ruleIndex: 0 })),
+    ).toHaveLength(1);
+
+    const removed = apply(state, { type: "removeLevel", ref: FINAL_EXIT });
+    expect(removed.definition.finalExit).toBeUndefined();
+    expect(removed.definition).not.toHaveProperty("finalExit");
+  });
+
+  it("ignores rule actions when there is no FINAL EXIT at all", () => {
+    const state = withOneBuyLevel();
+    expect(strategyDraftReducer(state, { type: "addExitRule" })).toBe(state);
+    expect(
+      strategyDraftReducer(state, { type: "removeExitRule", ruleIndex: 0 }),
+    ).toBe(state);
+  });
+
+  it("saves a valid multi-rule document the canonical validator accepts", () => {
+    const state = apply(withFinalExit(2), {
+      type: "setOperator",
+      ref: { ...FINAL_EXIT, ruleIndex: 1, part: "CONDITION", conditionIndex: 0 },
+      operator: "IS_BELOW",
+    });
+
+    // Distinct rules, so nothing is a duplicate; a real save would be rejected otherwise.
+    expect(
+      validateStrategy({ ...draftPayload(state), name: "Two ways out" }),
+    ).toEqual([]);
   });
 });

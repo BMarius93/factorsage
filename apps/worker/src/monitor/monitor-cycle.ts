@@ -1,6 +1,5 @@
 import {
   normalizeStrategyDefinition,
-  strategySignalFingerprint,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
 import {
@@ -19,8 +18,9 @@ import type {
 import {
   Evaluability,
   collectOperands,
-  evaluateSignalWithoutPosition,
+  evaluateLevelWithoutPosition,
   monitorStrategyLevels,
+  type MonitorStrategyLevel,
   type OperandKey,
 } from "@intrinsic/strategy";
 import { mapWithConcurrency } from "../shared/concurrency.js";
@@ -442,8 +442,11 @@ export class MonitorCycle {
           levelId: level.id,
           levelKind: level.kind,
           strategyVersionId: monitor.strategyVersionId,
-          signalFingerprint: strategySignalFingerprint(level.signal),
-          hasTrigger: level.signal.trigger !== undefined,
+          // Both come from `monitorStrategyLevels`, which resolves them from the level's complete
+          // logic — for FINAL EXIT that is every Exit Rule, so editing any one of them resets that
+          // level's transition state and no other.
+          signalFingerprint: level.fingerprint,
+          hasTrigger: level.hasTrigger,
           now,
           previous,
         };
@@ -490,7 +493,7 @@ export class MonitorCycle {
               symbol: member.symbol,
               levelId: level.id,
               levelKind: level.kind,
-              hasTrigger: level.signal.trigger !== undefined,
+              hasTrigger: level.hasTrigger,
               observationDate: outcome.observation?.date ?? null,
             });
           }
@@ -555,7 +558,7 @@ export class MonitorCycle {
    */
   private evaluateLevel(
     snapshot: SymbolSnapshot | undefined,
-    level: { id: string; kind: string; signal: Parameters<typeof evaluateSignalWithoutPosition>[0] },
+    level: Pick<MonitorStrategyLevel, "id" | "kind" | "rules">,
     member: { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[] },
   ):
     | { result: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation }
@@ -587,8 +590,11 @@ export class MonitorCycle {
       return { result: "NOT_MATCHED", observation };
     }
 
-    const evaluability = evaluateSignalWithoutPosition(
-      level.signal,
+    // One answer for the whole level. FINAL EXIT's Exit Rules are ORed inside the canonical
+    // evaluator, so two of them matching on one observation produce one match — there is no second
+    // result here for a duplicate Signal to be created from.
+    const evaluability = evaluateLevelWithoutPosition(
+      level.rules,
       frame.frame,
       frame.observationIndex,
     );

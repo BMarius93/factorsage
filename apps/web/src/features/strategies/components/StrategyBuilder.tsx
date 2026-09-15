@@ -30,7 +30,7 @@ import { ExplanationPanel } from "./ExplanationPanel";
 import type { HelpFocus } from "./help-focus";
 import { LogicPreview } from "./LogicPreview";
 import panel from "./ExplanationPanel.module.css";
-import { LevelCard } from "./LevelCard";
+import { FinalExitCard } from "./FinalExitCard";
 import { LevelSection } from "./LevelSection";
 import styles from "./StrategyBuilder.module.css";
 import { StrategyDetailsCard } from "./StrategyDetailsCard";
@@ -234,11 +234,8 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
             </header>
             {definition.finalExit ? (
               <ul className={styles.levelList}>
-                <LevelCard
-                  levelKind="FINAL_EXIT"
-                  signal={definition.finalExit.signal}
-                  canMoveUp={false}
-                  canMoveDown={false}
+                <FinalExitCard
+                  finalExit={definition.finalExit}
                   issues={issues}
                   isRevealed={isRevealed}
                   touch={touch}
@@ -249,8 +246,8 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
               </ul>
             ) : (
               <p className={styles.sectionEmpty}>
-                Optional — the condition that closes the whole remaining
-                position.
+                Optional — the rules that close the whole remaining position.
+                FINAL EXIT occurs when any one of them matches.
               </p>
             )}
           </section>

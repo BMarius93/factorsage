@@ -201,7 +201,9 @@ describe("QA-MATRIX fixture definitions", () => {
         }
         if (fixture.definition.finalExit) {
           ids.push(fixture.definition.finalExit.id);
-          collect(fixture.definition.finalExit.signal);
+          for (const rule of fixture.definition.finalExit.rules) {
+            collect(rule.signal);
+          }
         }
         expect(new Set(ids).size).toBe(ids.length);
         for (const id of ids) {

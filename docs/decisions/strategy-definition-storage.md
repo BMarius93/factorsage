@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted. Implemented by migration `20260907072239_add_strategies`.
+Accepted. Implemented by migration `20260907072239_add_strategies`. Extended by document schema
+version 2 (FINAL EXIT Exit Rules), which needed **no** migration — see "Schema version 2" below.
 
 ## Decision
 
@@ -37,6 +38,40 @@ reads the highest version.
 There is no pointer column and no circular relation: the current version is the highest
 `versionNumber`, which the unique constraint keeps unambiguous.
 
+## Schema version 2: FINAL EXIT Exit Rules
+
+Version 1 gave FINAL EXIT a single flat `signal`. Version 2 replaces it with `rules`, the ordered
+list of alternatives that FINAL EXIT occurs when *any* of matches. This is the first time the
+`schemaVersion` handle has actually been used, and it is what that handle was reserved for.
+
+**No data migration was written, and none is needed.** The document is read whole through
+`normalizeStrategyDefinition`, so the version boundary is a function, not a `UPDATE`:
+`upgradeStrategyDefinitionDocument` upcasts a version 1 document to the equivalent single-rule
+version 2 one before anything validates it. Every read path — the API, the Monitor worker, a
+backtest snapshot read years from now — is already funnelled through that one parse, so all of them
+gained compatibility at once. Rows are rewritten only when a user next saves the strategy, by the
+ordinary save path.
+
+Three properties make that safe, and each is covered by a test:
+
+- **Deterministic.** The single Exit Rule reuses FINAL EXIT's own id rather than inventing one, so
+  reading one immutable row twice yields byte-identical documents. Exit Rule ids are a separate id
+  namespace from level ids, so the reuse is not a collision.
+- **Semantics-preserving.** Only `schemaVersion` and the FINAL EXIT slot move. Every other field
+  passes through untouched, including an invalid one, so validation still reports it against the row
+  that carries it rather than the upgrade swallowing it.
+- **Fingerprint-stable.** An OR of one alternative *is* that alternative, so a single-rule FINAL
+  EXIT serializes identically to the same logic under version 1. See the next section for why that
+  is load-bearing rather than cosmetic.
+
+Rewriting every row in a migration was rejected for the reason the document format exists: a
+`StrategyVersion` is immutable and is the reproducibility authority behind completed backtests. A
+migration that rewrote historical versions would be editing the record of what already executed, to
+buy nothing — the upgrade is free at read time and provably lossless.
+
+A submitted version 1 payload is also still accepted and answered with a version 2 document, so a
+stale client is served rather than refused.
+
 ## Why a version is appended only on a real change
 
 `definitionHash` is a SHA-256 over `strategyDefinitionFingerprint(definition)` — a canonical
@@ -57,6 +92,15 @@ The fingerprint lives in `@intrinsic/contracts` beside the model, because knowin
 carry meaning is model knowledge; the hashing itself lives in the API, which has `node:crypto` and
 which the browser bundle must not grow.
 
+The fingerprint is led by a **serialization** version, not by the document's `schemaVersion`,
+because the two answer different questions. `schemaVersion` describes the document format;
+the fingerprint describes the logic. A version 1 document and its version 2 upcast express identical
+logic, so they must produce an identical fingerprint — otherwise the schema bump alone would have
+invalidated every stored `definitionHash`, appended a version to every strategy on its next save,
+and reset the transition state of every Monitor with a FINAL EXIT, all without anyone editing
+anything. The serialization version moves only when the serialization itself starts meaning
+something different.
+
 ## What this does not reopen
 
 `retain-wide-column-calculated-series-storage.md` decided that *calculated series* are explicit
@@ -71,6 +115,9 @@ and this decision does not weaken or revisit that one.
   (an omitted one is treated as empty and rejected for having no BUY level), so no persisted
   document ever fails to normalize on the way back out.
 - Version rows are never updated or deleted individually; they cascade with the strategy.
+- A document schema change is a read-time upcast plus a validator that accepts the older version,
+  never a rewrite of existing rows: `upgradeStrategyDefinitionDocument` is where version 2 did it,
+  and where a version 3 would.
 - Nothing indexes into the document. If a future feature needs to query strategies *by* their
   content — "every strategy using RSI 14D" — that is a new decision, and a derived index table is
   the likely answer rather than making the document queryable.

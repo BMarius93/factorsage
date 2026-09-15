@@ -126,6 +126,33 @@ export function priceCrossesAboveSignal(threshold: number): StrategySignal {
   };
 }
 
+/** A canonical series a fixture can drive as one independent market predicate. */
+export type DrivableSeriesId = "RSI_7D" | "RSI_14D" | "RSI_21D" | "SMA_20D";
+
+/**
+ * `<series> is above <threshold>`, ANDed — one independently drivable market predicate per series.
+ *
+ * Four separately movable series is what a truth table over `(A AND B) OR (C AND D)` needs. The
+ * metric kind follows the series, because that is what decides which frame column the evaluator
+ * reads; the threshold is a plain number so the fixture drives one column and nothing else.
+ */
+export function seriesAboveSignal(
+  seriesIds: readonly DrivableSeriesId[],
+  threshold: number,
+): StrategySignal {
+  return {
+    conditions: seriesIds.map((seriesId) => ({
+      id: `${seriesId.toLowerCase()}-above-${threshold}`,
+      metric:
+        seriesId === "SMA_20D"
+          ? { kind: "MOVING_AVERAGE", seriesId }
+          : { kind: "OSCILLATOR", seriesId },
+      operator: "IS_ABOVE",
+      value: { kind: "NUMBER", value: threshold },
+    })),
+  };
+}
+
 export function gainAboveSignal(percent: number): StrategySignal {
   return {
     conditions: [
@@ -168,11 +195,26 @@ export function sellLevel(
   return { id, percentage, signal };
 }
 
+/** A FINAL EXIT with one Exit Rule, the shape every strategy had before Exit Rules existed. */
 export function finalExit(
   id: string,
   signal: StrategySignal,
 ): StrategyFinalExit {
-  return { id, signal };
+  return { id, rules: [{ id, signal }] };
+}
+
+/** A FINAL EXIT whose Exit Rules are alternatives, ORed. Rule ids are positional and stable. */
+export function finalExitRules(
+  id: string,
+  ...signals: readonly StrategySignal[]
+): StrategyFinalExit {
+  return {
+    id,
+    rules: signals.map((signal, index) => ({
+      id: `${id}-rule-${index + 1}`,
+      signal,
+    })),
+  };
 }
 
 export function definitionOf(input: {

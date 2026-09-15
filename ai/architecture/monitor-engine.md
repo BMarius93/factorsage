@@ -152,6 +152,34 @@ A Monitor holds no position, so `Gain` and `Loss` are **not evaluated at all** �
 `signalNeedsPositionState` over `isPositionDependentMetric`. There is no second list of metric names
 anywhere, and the level is dropped whole rather than having its offending predicate stripped.
 
+For FINAL EXIT, "whole" means the level is excluded when **any** Exit Rule is position-dependent.
+Keeping only the market-derived alternatives would leave a level matching on strictly fewer days
+than the user wrote, and reporting "no match" from a subset of someone's logic is the same misreport
+as evaluating half a conjunction.
+
+### FINAL EXIT is one level, with alternatives
+
+`MonitorStrategyLevel` carries `rules` — the level's alternatives, ORed — rather than a single
+`signal`. BUY and SELL always carry exactly one; FINAL EXIT carries its Exit Rules in definition
+order. Modelling every level as a one-or-more list is what keeps the cycle free of a FINAL EXIT
+special case: it evaluates, fingerprints and reports all three families identically, through
+`evaluateLevelWithoutPosition`.
+
+That is also why multiple Exit Rules cannot duplicate a Signal. The disjunction collapses to one
+`Evaluability` inside the canonical evaluator, so the cycle sees **one** result for **one** level id
+and writes **one** `MonitorSignalState` row through **one** `applyTransition`. There is nothing
+downstream to deduplicate, because nothing downstream ever sees more than one answer.
+
+`fingerprint` and `hasTrigger` are resolved by `monitorStrategyLevels` rather than by each caller,
+so the worker and the API cannot develop separate opinions about when a level's logic changed or
+whether its match is an event.
+
+`hasTrigger` — whether a match is an **event** on one observation date rather than a **state** that
+persists — is true exactly when *every* alternative is triggered. A mixed FINAL EXIT, one rule with
+a Trigger and one without, is a state: the condition-only rule can stay true for days, and event
+semantics would re-emit a Signal for it on every session. A single-rule level is unchanged, which is
+`signal.trigger !== undefined` as it always was.
+
 That one list is also the cycle's **visited set**, which is what makes the lifecycle fall out for
 free: an excluded level is unvisited, so `resolveUnvisitedSignals` closes any Signal it still had and
 resets its latch — the same reconciliation a level removed from the Strategy gets. Editing a level
@@ -172,10 +200,18 @@ into `Gain` cannot leave behind something that reads as a decided non-match.
 ## Strategy identity and state invalidation
 
 A Monitor references the live `Strategy` and resolves its current version each cycle; no version is
-pinned. Durable state is keyed on the **canonical fingerprint of its own level's Signal**
-(`strategySignalFingerprint` in `@intrinsic/contracts`, which shares its serialization with
-`strategyDefinitionFingerprint` so the two cannot disagree), never on the Strategy version. Keying on
-the version would reset every level on any edit and re-emit a Signal on each unchanged one.
+pinned. Durable state is keyed on the **canonical fingerprint of its own level's logic**
+(`strategySignalFingerprint` for a BUY or SELL level, `strategyFinalExitFingerprint` for FINAL EXIT,
+both in `@intrinsic/contracts` and both sharing their serialization with
+`strategyDefinitionFingerprint` so none of them can disagree), never on the Strategy version. Keying
+on the version would reset every level on any edit and re-emit a Signal on each unchanged one.
+
+FINAL EXIT's fingerprint covers **every** Exit Rule, so editing, adding or removing any one of them
+resets that level's transition state and no other level's. A single-rule FINAL EXIT fingerprints
+byte-identically to the same logic under document schema version 1 — an OR of one alternative is
+that alternative — so upgrading a stored version 1 Strategy does not reset a single latch. Without
+that property, every Monitor with a FINAL EXIT would have lost its state on deploy, with nobody
+having edited anything.
 
 ## Rebinding: the configuration fence
 

@@ -2841,13 +2841,18 @@ components:
     StrategyDefinition:
       type: object
       description: |
-        The complete strategy. At least one BUY level is required. A level owns exactly one signal
-        and one percentage; there is no stock list, no valuation source and no execution parameter
-        here — capital, contributions, period and `maximumPositions` all belong to a backtest.
+        The complete strategy. At least one BUY level is required. A BUY or SELL level owns exactly
+        one signal and one percentage — those levels have no OR; there is no stock list, no
+        valuation source and no execution parameter here — capital, contributions, period and
+        `maximumPositions` all belong to a backtest.
       required: [schemaVersion, buyLevels, sellLevels]
       properties:
         schemaVersion:
-          { type: integer, description: Definition schema version. }
+          type: integer
+          description: |
+            Definition schema version. Responses always carry `2`. Requests may still submit `1`,
+            whose FINAL EXIT is a single flat `signal` instead of `rules`; it is upgraded to the
+            equivalent single-rule version 2 document on the way in and returned as version 2.
         buyLevels:
           type: array
           minItems: 1
@@ -2874,11 +2879,28 @@ components:
               percentage: { type: integer, enum: [25, 50, 75] }
         finalExit:
           type: object
-          description: Closes the whole remaining position when its signal matches.
-          required: [id, signal]
+          description: |
+            Closes the whole remaining position. One action, reached by one or more alternative
+            exit rules combined with OR: FINAL EXIT occurs when any rule matches, and however many
+            match on one date the position closes once. Conditions AND inside a rule; rules OR
+            across the action. There is no nested grouping — `A AND (B OR C)` is written as
+            `(A AND B) OR (A AND C)`.
+          required: [id, rules]
           properties:
             id: { type: string }
-            signal: { $ref: "#/components/schemas/StrategySignal" }
+            rules:
+              type: array
+              minItems: 1
+              maxItems: 10
+              description: |
+                Alternatives, in the order the strategy defines them. Each owns one signal, so each
+                carries its own optional trigger and no rule's trigger constrains another's.
+              items:
+                type: object
+                required: [id, signal]
+                properties:
+                  id: { type: string }
+                  signal: { $ref: "#/components/schemas/StrategySignal" }
 
     StrategySummary:
       type: object

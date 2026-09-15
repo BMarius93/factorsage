@@ -19,6 +19,7 @@ export function strategyIssueKey(path: StrategyIssuePath): string {
   return [
     path.levelKind ?? "",
     path.levelIndex ?? "",
+    path.ruleIndex ?? "",
     path.part,
     path.conditionIndex ?? "",
     path.field ?? "",

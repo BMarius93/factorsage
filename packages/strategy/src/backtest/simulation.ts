@@ -4,7 +4,11 @@ import {
   type LocalDate,
   type SecurityId,
 } from "@intrinsic/domain";
-import { Evaluability, evaluabilityAnd } from "../evaluability.js";
+import {
+  Evaluability,
+  evaluabilityAnd,
+  evaluabilityAny,
+} from "../evaluability.js";
 import type { EvaluationFrame } from "../frame.js";
 import { buildStrategyGates, readGate, type StrategyGates } from "../gates.js";
 import {
@@ -535,9 +539,23 @@ export class BacktestSimulation {
 
       // FINAL EXIT outranks a matching partial SELL on the same date.
       if (definition.finalExit) {
-        const result = evaluabilityAnd(
-          readGate(runtime.gates.finalExit ?? undefined, index),
-          evaluatePositionSignal(definition.finalExit.signal, context),
+        // One result for the whole level, whatever its Exit Rules did.
+        //
+        // Each rule is ANDed with *its own* position half first and the rules are ORed afterwards,
+        // so a rule carrying a Trigger can never lend that Trigger to another rule, and a rule with
+        // no Trigger matches on its conditions alone. Every rule is evaluated rather than
+        // short-circuited, so the level's result does not depend on the order the user wrote them
+        // in — and because the OR collapses to a single `Evaluability` before anything executes,
+        // two rules matching on one date reach exactly one exit below. There is no per-rule branch
+        // that could run twice.
+        const gates = runtime.gates.finalExit;
+        const result = evaluabilityAny(
+          definition.finalExit.rules.map((rule, ruleIndex) =>
+            evaluabilityAnd(
+              readGate(gates?.[ruleIndex], index),
+              evaluatePositionSignal(rule.signal, context),
+            ),
+          ),
         );
         if (result === Evaluability.TRUE) {
           const shares = position.shares;

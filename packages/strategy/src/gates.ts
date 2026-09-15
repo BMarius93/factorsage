@@ -28,12 +28,22 @@ export function buildMarketGate(
  *
  * BUY levels are fully decided here: the product forbids Gain/Loss in BUY rules, so a BUY signal is
  * completely precomputable. SELL and FINAL EXIT gates carry only their market-derived half and are
- * ANDed with live position predicates while a position is open.
+ * ANDed with live position predicates while a position is open. FINAL EXIT keeps one gate per Exit
+ * Rule, because each rule is ANDed with its own position half before the rules are ORed.
  */
 export type StrategyGates = {
   buy: ReadonlyMap<string, MarketGate>;
   sell: ReadonlyMap<string, MarketGate>;
-  finalExit: MarketGate | null;
+  /**
+   * One gate per FINAL EXIT Exit Rule, in definition order, or null when the strategy has no
+   * FINAL EXIT.
+   *
+   * Per rule rather than one combined gate, because the rules are ORed *after* each has been ANDed
+   * with its own position-dependent half. Pre-combining the market halves would produce
+   * `(marketA OR marketB) AND (positionA AND positionB)`, which is a different — and wrong —
+   * strategy: it would let rule 1's market conditions satisfy rule 2's trigger.
+   */
+  finalExit: readonly MarketGate[] | null;
 };
 
 export function buildStrategyGates(
@@ -51,9 +61,10 @@ export function buildStrategyGates(
   return {
     buy,
     sell,
-    finalExit: definition.finalExit
-      ? buildMarketGate(definition.finalExit.signal, frame)
-      : null,
+    finalExit:
+      definition.finalExit?.rules.map((rule) =>
+        buildMarketGate(rule.signal, frame),
+      ) ?? null,
   };
 }
 

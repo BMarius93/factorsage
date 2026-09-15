@@ -118,8 +118,8 @@ export function collectOperands(definition: StrategyDefinition): OperandKey[] {
   for (const level of definition.sellLevels) {
     addSignal(level.signal);
   }
-  if (definition.finalExit) {
-    addSignal(definition.finalExit.signal);
+  for (const rule of definition.finalExit?.rules ?? []) {
+    addSignal(rule.signal);
   }
 
   return [...keys].sort();

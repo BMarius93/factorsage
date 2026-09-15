@@ -116,6 +116,16 @@ cost basis and no lifecycle.
 A SELL or FINAL EXIT Signal is still meaningful: it reports that the Strategy's exit logic matches
 current data for that symbol. Those levels are therefore evaluated and may produce Signals.
 
+FINAL EXIT may hold several **Exit Rules** (`strategies.md` § FINAL EXIT). It remains **one** level
+here: one level id, one durable transition state, one Signal lifecycle. Its result is the OR of its
+rules, so several rules matching on the same observation is one match and produces one Signal — never
+one per rule. A level whose rules are a mix of triggered and condition-only is treated as a
+**condition**: a condition-only alternative can stay true for days, and treating it as an event would
+re-emit a Signal on every scan.
+
+A level is excluded from Monitor evaluation when **any** of its Exit Rules depends on `Gain` or
+`Loss`, for the same whole-level reason given below.
+
 ### `Gain` and `Loss` are outside Monitor evaluation
 
 `Gain` and `Loss` measure a position against its cost basis. A Monitor has neither, so they are **not

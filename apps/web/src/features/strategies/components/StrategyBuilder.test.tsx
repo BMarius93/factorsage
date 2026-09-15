@@ -1,4 +1,7 @@
-import type { StrategyDetailResponse } from "@intrinsic/contracts";
+import {
+  STRATEGY_SCHEMA_VERSION,
+  type StrategyDetailResponse,
+} from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,7 +46,7 @@ function savedStrategy(): StrategyDetailResponse {
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-01T10:00:00.000Z",
     definition: {
-      schemaVersion: 1,
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
       buyLevels: [
         {
           id: "buy-1",
@@ -354,5 +357,178 @@ describe("StrategyBuilder", () => {
       expect(screen.queryByLabelText(forbidden)).toBeNull();
       expect(screen.queryByPlaceholderText(forbidden)).toBeNull();
     }
+  });
+});
+
+/**
+ * FINAL EXIT in the Builder: one card, alternatives inside it, and an unmissable OR.
+ *
+ * The specific misreading this guards against is a reader seeing several Final Exits in sequence.
+ * So the card count stays one, the rule headings and the OR divider only appear when there is a
+ * genuine alternative to label, and the Strategy Logic panel says the same thing in words.
+ */
+describe("StrategyBuilder final exit rules", () => {
+  function exitCard() {
+    return within(screen.getByTestId("level-card-FINAL_EXIT"));
+  }
+
+  async function builderWithFinalExit() {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-level-FINAL_EXIT"));
+    return user;
+  }
+
+  it("opens FINAL EXIT with one rule, no rule heading and no OR", async () => {
+    await builderWithFinalExit();
+
+    expect(screen.getAllByTestId("level-card-FINAL_EXIT")).toHaveLength(1);
+    expect(exitCard().getAllByTestId("exit-rule")).toHaveLength(1);
+    expect(exitCard().queryByTestId("exit-rule-or")).toBeNull();
+    expect(exitCard().queryByText("Exit rule 1")).toBeNull();
+    // The control that makes the alternative reachable is there from the start.
+    expect(exitCard().getByTestId("add-exit-rule").textContent).toBe(
+      "+ Add OR rule",
+    );
+  });
+
+  it("adds a second rule, labels both and draws the OR between them", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+
+    // Still one FINAL EXIT card: the rules are alternatives inside it, not more Final Exits.
+    expect(screen.getAllByTestId("level-card-FINAL_EXIT")).toHaveLength(1);
+    expect(exitCard().getAllByTestId("exit-rule")).toHaveLength(2);
+    expect(exitCard().getByText("Exit rule 1")).toBeTruthy();
+    expect(exitCard().getByText("Exit rule 2")).toBeTruthy();
+    // Exactly one divider: between the two rules, never before the first.
+    const dividers = exitCard().getAllByTestId("exit-rule-or");
+    expect(dividers).toHaveLength(1);
+    expect(dividers[0]?.textContent).toBe("OR");
+  });
+
+  it("adds a third rule and numbers all three", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+
+    expect(exitCard().getAllByTestId("exit-rule")).toHaveLength(3);
+    expect(exitCard().getAllByTestId("exit-rule-or")).toHaveLength(2);
+    expect(exitCard().getByText("Exit rule 3")).toBeTruthy();
+  });
+
+  it("renumbers after the middle rule is removed", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+
+    // Give rule 3 a recognisable edit, so renumbering can be told from reordering.
+    const thirdRule = within(exitCard().getAllByTestId("exit-rule")[2] as HTMLElement);
+    await user.click(thirdRule.getByTestId("add-condition"));
+    expect(thirdRule.getAllByTestId("predicate-row")).toHaveLength(2);
+
+    await user.click(
+      exitCard().getByRole("button", { name: "Remove exit rule 2" }),
+    );
+
+    const remaining = exitCard().getAllByTestId("exit-rule");
+    expect(remaining).toHaveLength(2);
+    expect(exitCard().getByText("Exit rule 2")).toBeTruthy();
+    expect(exitCard().queryByText("Exit rule 3")).toBeNull();
+    // The rule that was third is now second, carrying its own two conditions with it.
+    expect(
+      within(remaining[1] as HTMLElement).getAllByTestId("predicate-row"),
+    ).toHaveLength(2);
+  });
+
+  it("drops the headings and the OR again once one rule is left", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    await user.click(
+      exitCard().getByRole("button", { name: "Remove exit rule 2" }),
+    );
+
+    expect(exitCard().getAllByTestId("exit-rule")).toHaveLength(1);
+    expect(exitCard().queryByTestId("exit-rule-or")).toBeNull();
+    expect(exitCard().queryByText("Exit rule 1")).toBeNull();
+  });
+
+  it("lets the first rule be removed once there are two", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+
+    expect(
+      exitCard().getByRole("button", { name: "Remove exit rule 1" }),
+    ).toBeTruthy();
+    await user.click(
+      exitCard().getByRole("button", { name: "Remove exit rule 1" }),
+    );
+    expect(exitCard().getAllByTestId("exit-rule")).toHaveLength(1);
+    // FINAL EXIT itself survives: only one of its alternatives went.
+    expect(screen.getAllByTestId("level-card-FINAL_EXIT")).toHaveLength(1);
+  });
+
+  it("shows the OR structure in the Strategy Logic panel", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    // Make rule 2 different, so the document is valid and the preview reads distinctly.
+    const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
+    await user.selectOptions(
+      secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
+      "IS_BELOW",
+    );
+
+    const preview = within(screen.getByTestId("logic-preview"));
+    expect(preview.getByText("Rule 1")).toBeTruthy();
+    expect(preview.getByText("Rule 2")).toBeTruthy();
+    expect(preview.getAllByTestId("preview-exit-rule-or")).toHaveLength(1);
+    // One FINAL EXIT heading, not one per rule.
+    expect(preview.getAllByText("FINAL EXIT")).toHaveLength(1);
+  });
+
+  it("reports an empty rule against that rule and blocks the save", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
+    await user.click(
+      secondRule.getByRole("button", { name: "Remove condition 1" }),
+    );
+
+    await user.click(screen.getByTestId("issue-count"));
+    expect(
+      within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement).getByRole(
+        "alert",
+      ).textContent,
+    ).toMatch(/at least one condition or a trigger/i);
+    expect(screen.getByTestId("save-strategy")).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("saves both rules, in order", async () => {
+    const user = await builderWithFinalExit();
+    await user.click(exitCard().getByTestId("add-exit-rule"));
+    const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
+    await user.selectOptions(
+      secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
+      "IS_BELOW",
+    );
+    await user.type(screen.getByLabelText("Name"), "Two ways out");
+
+    createStrategyMock.mockResolvedValue({
+      ...savedStrategy(),
+      name: "Two ways out",
+    });
+    await user.click(screen.getByTestId("save-strategy"));
+
+    await waitFor(() => expect(createStrategyMock).toHaveBeenCalled());
+    const sent = createStrategyMock.mock.calls[0]?.[0];
+    const rules = sent?.definition.finalExit?.rules ?? [];
+    expect(rules).toHaveLength(2);
+    expect(rules[0]?.signal.conditions[0]?.operator).toBe("IS_ABOVE");
+    expect(rules[1]?.signal.conditions[0]?.operator).toBe("IS_BELOW");
+    expect(new Set(rules.map((rule) => rule.id)).size).toBe(2);
   });
 });

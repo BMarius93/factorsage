@@ -214,7 +214,13 @@ function buildDefinition(
   };
   if (spec.finalExit) {
     const id = `${slug}-exit`;
-    definition.finalExit = { id, signal: buildSignal(id, spec.finalExit) };
+    // The single Exit Rule reuses FINAL EXIT's own id, exactly as the version 1 upcast does, so a
+    // fixture already seeded under schema version 1 normalizes to a byte-identical document and the
+    // seeder reconciles it as unchanged rather than appending a version.
+    definition.finalExit = {
+      id,
+      rules: [{ id, signal: buildSignal(id, spec.finalExit) }],
+    };
   }
   return definition;
 }
@@ -675,7 +681,7 @@ function signalsOf(definition: StrategyDefinition): StrategySignal[] {
   return [
     ...definition.buyLevels.map((level) => level.signal),
     ...definition.sellLevels.map((level) => level.signal),
-    ...(definition.finalExit ? [definition.finalExit.signal] : []),
+    ...(definition.finalExit?.rules ?? []).map((rule) => rule.signal),
   ];
 }
 

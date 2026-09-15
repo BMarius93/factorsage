@@ -1,12 +1,16 @@
-import type {
-  StrategyDefinition,
-  StrategySignal,
+import {
+  STRATEGY_SCHEMA_VERSION,
+  strategyFinalExitFingerprint,
+  strategySignalFingerprint,
+  type StrategyDefinition,
+  type StrategySignal,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { Evaluability } from "./evaluability.js";
 import { createEvaluationFrame, type EvaluationFrame } from "./frame.js";
 import { seriesOperand } from "./operands.js";
 import {
+  evaluateLevelWithoutPosition,
   evaluateSignalWithoutPosition,
   monitorStrategyLevels,
   signalNeedsPositionState,
@@ -187,31 +191,55 @@ describe("evaluateSignalWithoutPosition", () => {
   });
 });
 
+/** The level a Monitor addresses, with the fingerprint and event/state kind resolved canonically. */
+function level(
+  id: string,
+  kind: "BUY" | "SELL" | "FINAL_EXIT",
+  rules: readonly StrategySignal[],
+) {
+  return {
+    id,
+    kind,
+    rules,
+    fingerprint:
+      rules.length === 1
+        ? strategySignalFingerprint(rules[0] as StrategySignal)
+        : strategyFinalExitFingerprint({
+            id,
+            rules: rules.map((signal, index) => ({
+              id: `${id}-${index}`,
+              signal,
+            })),
+          }),
+    hasTrigger: rules.every((signal) => signal.trigger !== undefined),
+  };
+}
+
 describe("monitorStrategyLevels", () => {
   it("walks BUY, SELL and FINAL EXIT in the definition's own order", () => {
     const definition: StrategyDefinition = {
-      schemaVersion: 1,
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
       buyLevels: [
         { id: "b1", signal: priceAboveEma, percentage: 50 },
         { id: "b2", signal: priceCrossesAboveEma, percentage: 50 },
       ],
       sellLevels: [{ id: "s1", signal: gainAbove25, percentage: 25 }],
-      finalExit: { id: "f1", signal: priceAboveEma },
+      finalExit: { id: "f1", rules: [{ id: "f1", signal: priceAboveEma }] },
     };
 
     // The Gain SELL level is absent: a Monitor holds no position, so it is not part of what a
     // Monitor evaluates. Everything else keeps the definition's own order.
     expect(monitorStrategyLevels(definition)).toEqual([
-      { id: "b1", kind: "BUY", signal: priceAboveEma },
-      { id: "b2", kind: "BUY", signal: priceCrossesAboveEma },
-      { id: "f1", kind: "FINAL_EXIT", signal: priceAboveEma },
+      level("b1", "BUY", [priceAboveEma]),
+      level("b2", "BUY", [priceCrossesAboveEma]),
+      level("f1", "FINAL_EXIT", [priceAboveEma]),
     ]);
   });
 
   it("excludes a level whose condition is Gain or Loss", () => {
     expect(
       monitorStrategyLevels({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           { id: "b1", signal: gainAbove25, percentage: 50 },
           { id: "b2", signal: lossAbove10, percentage: 50 },
@@ -229,14 +257,14 @@ describe("monitorStrategyLevels", () => {
    */
   it("excludes the whole level when Gain is ANDed with a market condition", () => {
     const levels = monitorStrategyLevels({
-      schemaVersion: 1,
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
       buyLevels: [{ id: "b1", signal: priceAboveEmaAndGain, percentage: 100 }],
       sellLevels: [],
     });
 
     expect(levels).toEqual([]);
     // Specifically: nothing resembling the market half survived on its own.
-    expect(levels.map((level) => level.signal)).not.toContainEqual(
+    expect(levels.flatMap((entry) => entry.rules)).not.toContainEqual(
       priceAboveEma,
     );
   });
@@ -244,7 +272,7 @@ describe("monitorStrategyLevels", () => {
   it("excludes a level whose Trigger is position-dependent", () => {
     expect(
       monitorStrategyLevels({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           { id: "b1", signal: priceAboveEmaWithGainTrigger, percentage: 100 },
         ],
@@ -256,11 +284,11 @@ describe("monitorStrategyLevels", () => {
   it("keeps the evaluable levels of a mixed strategy and drops only the rest", () => {
     expect(
       monitorStrategyLevels({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [{ id: "b1", signal: priceAboveEma, percentage: 100 }],
         sellLevels: [{ id: "s1", signal: gainAbove25, percentage: 25 }],
       }),
-    ).toEqual([{ id: "b1", kind: "BUY", signal: priceAboveEma }]);
+    ).toEqual([level("b1", "BUY", [priceAboveEma])]);
   });
 
   /**
@@ -275,10 +303,10 @@ describe("monitorStrategyLevels", () => {
   it("returns nothing at all when every level is position-dependent", () => {
     expect(
       monitorStrategyLevels({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [{ id: "b1", signal: gainAbove25, percentage: 100 }],
         sellLevels: [{ id: "s1", signal: lossAbove10, percentage: 25 }],
-        finalExit: { id: "f1", signal: lossAbove10 },
+        finalExit: { id: "f1", rules: [{ id: "f1", signal: lossAbove10 }] },
       }),
     ).toEqual([]);
   });
@@ -286,10 +314,189 @@ describe("monitorStrategyLevels", () => {
   it("omits FINAL EXIT when the strategy has none", () => {
     expect(
       monitorStrategyLevels({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [{ id: "b1", signal: priceAboveEma, percentage: 100 }],
         sellLevels: [],
       }),
-    ).toEqual([{ id: "b1", kind: "BUY", signal: priceAboveEma }]);
+    ).toEqual([level("b1", "BUY", [priceAboveEma])]);
+  });
+});
+
+/**
+ * FINAL EXIT with more than one Exit Rule, as a Monitor sees it.
+ *
+ * A Monitor is not a portfolio: it reports whether a level *matches right now*. FINAL EXIT stays
+ * one level with one id, one durable state row and one Signal lifecycle, so the whole question this
+ * section answers is "what is the level's single result, and when does its state reset?".
+ */
+describe("FINAL EXIT with alternative Exit Rules", () => {
+  const priceBelowEma: StrategySignal = {
+    conditions: [
+      {
+        id: "c2",
+        metric: { kind: "PRICE" },
+        operator: "IS_BELOW",
+        value: { kind: "SERIES", seriesId: EMA50 },
+      },
+    ],
+  };
+
+  function definitionWithRules(
+    rules: readonly StrategySignal[],
+  ): StrategyDefinition {
+    return {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      // Deliberately not one of the exit-rule signals, so "nothing resembling an excluded rule
+      // survived" is a real assertion rather than a coincidence of the fixture.
+      buyLevels: [
+        { id: "b1", signal: priceCrossesAboveEma, percentage: 100 },
+      ],
+      sellLevels: [],
+      finalExit: {
+        id: "f1",
+        rules: rules.map((signal, index) => ({
+          id: `f1-rule-${index + 1}`,
+          signal,
+        })),
+      },
+    };
+  }
+
+  function finalExitLevel(rules: readonly StrategySignal[]) {
+    const level = monitorStrategyLevels(definitionWithRules(rules)).find(
+      (entry) => entry.kind === "FINAL_EXIT",
+    );
+    if (!level) {
+      throw new Error("FINAL EXIT was not returned");
+    }
+    return level;
+  }
+
+  it("carries every rule under one level id", () => {
+    const level = finalExitLevel([priceAboveEma, priceBelowEma]);
+
+    expect(level.id).toBe("f1");
+    expect(level.rules).toEqual([priceAboveEma, priceBelowEma]);
+  });
+
+  it("matches when any rule matches, and reports one result", () => {
+    // Price 110 against EMA 105: rule 1 (above) is TRUE, rule 2 (below) is FALSE.
+    const frame = frameOf([100, 110], [105, 105]);
+
+    expect(
+      evaluateLevelWithoutPosition(
+        finalExitLevel([priceAboveEma, priceBelowEma]).rules,
+        frame,
+        1,
+      ),
+    ).toBe(Evaluability.TRUE);
+    // The order of the alternatives changes nothing.
+    expect(
+      evaluateLevelWithoutPosition(
+        finalExitLevel([priceBelowEma, priceAboveEma]).rules,
+        frame,
+        1,
+      ),
+    ).toBe(Evaluability.TRUE);
+  });
+
+  it("does not match when no rule matches", () => {
+    // Price exactly at the EMA: strictly above and strictly below are both FALSE.
+    expect(
+      evaluateLevelWithoutPosition(
+        finalExitLevel([priceAboveEma, priceBelowEma]).rules,
+        frameOf([100, 105], [105, 105]),
+        1,
+      ),
+    ).toBe(Evaluability.FALSE);
+  });
+
+  /** A rule that definitively matched decides the level, whatever another rule could not read. */
+  it("reports a match even when another rule is undecidable", () => {
+    const frame = frameOf([100, 110], [105, 105]);
+    expect(
+      evaluateLevelWithoutPosition(
+        [priceAboveEma, priceCrossesAboveEma],
+        frame,
+        0,
+      ),
+    ).toBe(Evaluability.NOT_EVALUABLE);
+    // Index 1 has a previous value, so the crossing is decidable and the condition is TRUE.
+    expect(
+      evaluateLevelWithoutPosition(
+        [priceAboveEma, priceCrossesAboveEma],
+        frame,
+        1,
+      ),
+    ).toBe(Evaluability.TRUE);
+  });
+
+  /** Undecidable is never quietly downgraded to "did not match". */
+  it("stays undecidable when nothing matched and something could not be read", () => {
+    // Price 110 against EMA 105: `is below` is definitively FALSE, and at index 0 the crossing has
+    // no previous value to compare against, so the level as a whole is undecided rather than FALSE.
+    expect(
+      evaluateLevelWithoutPosition(
+        [priceBelowEma, priceCrossesAboveEma],
+        frameOf([110, 110], [105, 105]),
+        0,
+      ),
+    ).toBe(Evaluability.NOT_EVALUABLE);
+  });
+
+  it("fingerprints the level over all of its rules", () => {
+    const one = finalExitLevel([priceAboveEma]);
+    const two = finalExitLevel([priceAboveEma, priceBelowEma]);
+    const edited = finalExitLevel([priceAboveEma, priceCrossesAboveEma]);
+
+    expect(new Set([one.fingerprint, two.fingerprint, edited.fingerprint]).size).toBe(3);
+    // A single-rule level keeps the fingerprint that logic always had, so a Monitor's transition
+    // state survives the schema upgrade untouched.
+    expect(one.fingerprint).toBe(strategySignalFingerprint(priceAboveEma));
+  });
+
+  /**
+   * Whether a match is an event or a state.
+   *
+   * Every alternative triggered means the level can only ever match on a transition date, so it is
+   * an event. Mixed means a condition-only rule can stay true for days — treating that as an event
+   * would re-emit a Signal on every session, which is precisely the Signal spam the condition/event
+   * distinction exists to prevent.
+   */
+  it("is an event only when every rule is triggered", () => {
+    expect(finalExitLevel([priceCrossesAboveEma]).hasTrigger).toBe(true);
+    expect(
+      finalExitLevel([priceCrossesAboveEma, priceCrossesAboveEma]).hasTrigger,
+    ).toBe(true);
+    expect(finalExitLevel([priceAboveEma]).hasTrigger).toBe(false);
+    expect(
+      finalExitLevel([priceCrossesAboveEma, priceAboveEma]).hasTrigger,
+    ).toBe(false);
+  });
+
+  /**
+   * Whole-level exclusion, applied to a disjunction.
+   *
+   * Keeping only the market-derived rules would leave a level that matches on strictly fewer days
+   * than the user wrote, and a Monitor reporting "no match" from a subset of someone's logic is the
+   * same misreport as evaluating half a conjunction.
+   */
+  it("excludes the whole level when any rule depends on position state", () => {
+    const levels = monitorStrategyLevels(
+      definitionWithRules([priceAboveEma, gainAbove25]),
+    );
+
+    expect(levels.map((level) => level.kind)).toEqual(["BUY"]);
+    expect(levels.flatMap((level) => level.rules)).not.toContainEqual(
+      priceAboveEma,
+    );
+  });
+
+  it("keeps the level when every rule is market-derived", () => {
+    expect(
+      monitorStrategyLevels(
+        definitionWithRules([priceAboveEma, priceBelowEma]),
+      ).map((level) => level.kind),
+    ).toEqual(["BUY", "FINAL_EXIT"]);
   });
 });

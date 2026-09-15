@@ -1,5 +1,6 @@
 import {
   BUY_LEVEL_PERCENTAGES,
+  STRATEGY_MAX_EXIT_RULES,
   STRATEGY_SCHEMA_VERSION,
   SELL_LEVEL_PERCENTAGES,
   checkStrategyValue,
@@ -16,6 +17,7 @@ import {
   type StrategyDefinition,
   type StrategyDetailResponse,
   type StrategyDraft,
+  type StrategyExitRule,
   type StrategyLevelKind,
   type StrategyMetric,
   type StrategySignal,
@@ -43,10 +45,17 @@ export type StrategyDraftState = {
   readonly definition: StrategyDefinition;
 };
 
-/** Addresses one level. `levelIndex` is absent for FINAL EXIT, which is a single level. */
+/**
+ * Addresses one Signal in the document.
+ *
+ * `levelIndex` is absent for FINAL EXIT, which is a single level. `ruleIndex` is present **only**
+ * for FINAL EXIT, and says which of its Exit Rules owns the Signal — the two are never both set,
+ * which is what keeps OR out of BUY and SELL by construction rather than by a guard.
+ */
 export type LevelRef = {
   readonly levelKind: StrategyLevelKind;
   readonly levelIndex?: number;
+  readonly ruleIndex?: number;
 };
 
 /** Addresses one Condition or the Trigger inside a level, mirroring `StrategyIssuePath`. */
@@ -60,6 +69,8 @@ export type StrategyDraftAction =
   | { type: "setDescription"; description: string }
   | { type: "addLevel"; levelKind: StrategyLevelKind }
   | { type: "removeLevel"; ref: LevelRef }
+  | { type: "addExitRule" }
+  | { type: "removeExitRule"; ruleIndex: number }
   | { type: "moveLevel"; ref: LevelRef; direction: -1 | 1 }
   | { type: "setPercentage"; ref: LevelRef; percentage: number }
   | { type: "addCondition"; ref: LevelRef }
@@ -118,6 +129,11 @@ function newTrigger(levelKind: StrategyLevelKind): StrategyTrigger {
 /** A new level opens with one usable Condition rather than an empty, already-invalid signal. */
 function newSignal(levelKind: StrategyLevelKind): StrategySignal {
   return { conditions: [newCondition(levelKind)] };
+}
+
+/** A new Exit Rule: its own identity and one usable Condition, like any new level. */
+function newExitRule(): StrategyExitRule {
+  return { id: newRowId("exit-rule"), signal: newSignal("FINAL_EXIT") };
 }
 
 export function emptyDraft(): StrategyDraftState {
@@ -215,15 +231,22 @@ function withSignal(
   change: (signal: StrategySignal) => StrategySignal,
 ): StrategyDefinition {
   if (ref.levelKind === "FINAL_EXIT") {
-    return definition.finalExit
-      ? {
-          ...definition,
-          finalExit: {
-            ...definition.finalExit,
-            signal: change(definition.finalExit.signal),
-          },
-        }
-      : definition;
+    const finalExit = definition.finalExit;
+    if (!finalExit) {
+      return definition;
+    }
+    // Only the addressed rule is rebuilt; every other rule keeps its identity, so editing rule 1
+    // cannot touch rule 2 and React never re-keys a row the user did not edit.
+    const target = ref.ruleIndex ?? 0;
+    return {
+      ...definition,
+      finalExit: {
+        ...finalExit,
+        rules: finalExit.rules.map((rule, index) =>
+          index === target ? { ...rule, signal: change(rule.signal) } : rule,
+        ),
+      },
+    };
   }
   const key = ref.levelKind === "BUY" ? "buyLevels" : "sellLevels";
   return {
@@ -261,7 +284,7 @@ export function strategyDraftReducer(
                 ...definition,
                 finalExit: {
                   id: newRowId("exit"),
-                  signal: newSignal("FINAL_EXIT"),
+                  rules: [newExitRule()],
                 },
               },
             };
@@ -310,6 +333,41 @@ export function strategyDraftReducer(
             (_level, index) => index !== action.ref.levelIndex,
           ),
         } as StrategyDefinition,
+      };
+    }
+
+    case "addExitRule": {
+      const finalExit = state.definition.finalExit;
+      if (!finalExit || finalExit.rules.length >= STRATEGY_MAX_EXIT_RULES) {
+        return state;
+      }
+      return {
+        ...state,
+        definition: {
+          ...state.definition,
+          finalExit: { ...finalExit, rules: [...finalExit.rules, newExitRule()] },
+        },
+      };
+    }
+
+    case "removeExitRule": {
+      const finalExit = state.definition.finalExit;
+      // The last rule is never removed: FINAL EXIT with no way to match is not a document the
+      // product allows, and removing FINAL EXIT itself is the action that means that.
+      if (!finalExit || finalExit.rules.length <= 1) {
+        return state;
+      }
+      return {
+        ...state,
+        definition: {
+          ...state.definition,
+          finalExit: {
+            ...finalExit,
+            rules: finalExit.rules.filter(
+              (_rule, index) => index !== action.ruleIndex,
+            ),
+          },
+        },
       };
     }
 

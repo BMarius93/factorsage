@@ -119,23 +119,48 @@ export type StrategySellLevel = {
   signal: StrategySignal;
   percentage: 25 | 50 | 75;
 };
-/** FINAL EXIT has no percentage field at all — the type makes the rule unrepresentable. */
-export type StrategyFinalExit = { id: string; signal: StrategySignal };
+/**
+ * One alternative way FINAL EXIT can match. A rule owns exactly one Signal, so the only structure
+ * representable is OR of AND groups — there is no field a nested group could go in.
+ */
+export type StrategyExitRule = { id: string; signal: StrategySignal };
+
+/**
+ * FINAL EXIT: one action, one id, one or more alternative Exit Rules combined with OR. It has no
+ * percentage field at all — the type makes that rule unrepresentable.
+ */
+export type StrategyFinalExit = { id: string; rules: StrategyExitRule[] };
 
 export type StrategyDefinition = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   buyLevels: StrategyBuyLevel[];
   sellLevels: StrategySellLevel[];
   finalExit?: StrategyFinalExit;
 };
 ```
 
-Three product rules are enforced by the **type**, not by a runtime check, and their validation
+Five product rules are enforced by the **type**, not by a runtime check, and their validation
 tests assert the absence of a field rather than a rejection path:
 
-- at most one Trigger per Signal (`trigger?:` is singular);
+- at most one Trigger per Signal (`trigger?:` is singular) — so an Exit Rule has at most one too,
+  and a rule's Trigger belongs to that rule rather than to FINAL EXIT;
 - FINAL EXIT carries no percentage;
+- BUY and SELL carry one `signal` each and no rule list, so OR exists only in FINAL EXIT;
+- an Exit Rule carries `id` and `signal` only, so nested OR/AND is unrepresentable;
 - no Strategy-owned Stock List, capital, contribution, `maximumPositions` or date range.
+
+### Schema version 2 and version 1 documents
+
+`schemaVersion` is `2`: version 1 gave FINAL EXIT a flat `signal` instead of `rules`.
+`upgradeStrategyDefinitionDocument` upcasts a version 1 document to the equivalent single-rule
+version 2 one, and both `validateStrategyDefinition` and `normalizeStrategyDefinition` apply it
+first — so every read path, every stored row and every still-stale client payload is handled by one
+function and one set of validation rules. Nothing in the database is rewritten; see
+`../../docs/decisions/strategy-definition-storage.md`.
+
+The single upgraded rule reuses FINAL EXIT's own id, which is deterministic and needs no invention.
+Exit Rule ids are their own id namespace alongside level ids and predicate ids, so that reuse is not
+a collision.
 
 `Price` is deliberately not a catalog entry, so it is its own metric kind. Moving averages and RSI
 are addressed through their **catalog ids**, never a parallel enum. `Margin of Safety` is a first-class metric parameterized
@@ -293,7 +318,10 @@ enforced in one path and not the other.
 export type StrategyIssuePath = {
   levelKind: StrategyLevelKind;
   levelIndex?: number; // absent for FINAL_EXIT and strategy-level issues
-  part: "STRATEGY" | "NAME" | "LEVEL" | "PERCENTAGE" | "CONDITION" | "TRIGGER";
+  ruleIndex?: number; // FINAL_EXIT only: which Exit Rule; absent for FINAL EXIT as a whole
+  part:
+    | "STRATEGY" | "NAME" | "LEVEL" | "EXIT_RULE"
+    | "PERCENTAGE" | "CONDITION" | "TRIGGER";
   conditionIndex?: number;
   field?: "METRIC" | "OPERATOR" | "VALUE";
 };
@@ -323,7 +351,9 @@ Rules, each with its own `StrategyValidationCode`:
 | `NAME_REQUIRED` / `NAME_TOO_LONG`         | 1…`STRATEGY_NAME_MAX_LENGTH` after trim                                                                                                                                                   | Builder                          |
 | `DUPLICATE_CONDITION`                     | two **semantically** identical Conditions in one Signal — same Metric, same operator, same Value; never object or row identity, and never silently deduped                                | `strategies.md` § Validation     |
 | `BUY_LEVEL_REQUIRED`                      | at least one BUY level                                                                                                                                                                    | `strategies.md` § Strategy shape |
-| `TOO_MANY_LEVELS` / `TOO_MANY_CONDITIONS` | within the exported limits                                                                                                                                                                | Builder                          |
+| `EXIT_RULE_REQUIRED`                      | FINAL EXIT has at least one Exit Rule — an unmatchable FINAL EXIT is not saveable                                                                                                         | `strategies.md` § FINAL EXIT     |
+| `DUPLICATE_EXIT_RULE`                     | two **semantically** identical Exit Rules in one FINAL EXIT; identity is the rule's canonical logic, never its id, and a duplicate is rejected rather than silently dropped               | `strategies.md` § FINAL EXIT     |
+| `TOO_MANY_LEVELS` / `TOO_MANY_CONDITIONS` / `TOO_MANY_EXIT_RULES` | within the exported limits                                                                                                                                | Builder                          |
 
 Shared limits exported beside the types, matching the lists slice's precedent:
 
@@ -498,7 +528,8 @@ apps/web/src/features/strategies/
     StrategyBuilder.tsx      # layout shell: editor column + explanation panel
     StrategyDetailsCard.tsx  # name, description
     LevelSection.tsx         # "BUY levels" / "SELL levels" container + add button
-    LevelCard.tsx            # one level: tone, ordinal, percentage, remove, reorder
+    LevelCard.tsx            # one BUY/SELL level: tone, ordinal, percentage, remove, reorder
+    FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add OR rule
     SignalEditor.tsx         # Conditions block + optional Trigger block
     PredicateRow.tsx         # Metric / operator / Value — one component, two modes
     MetricSelect.tsx  OperatorSelect.tsx  ValueControl.tsx
@@ -739,6 +770,22 @@ SELL 1 · 50% of the remaining position
 FINAL EXIT
     Price crosses below SMA 200D
 ```
+
+A FINAL EXIT with more than one Exit Rule prints **one** heading with its alternatives beneath it,
+so `(rule 1) OR (rule 2)` reads as one action rather than as several Final Exits in sequence:
+
+```text
+FINAL EXIT
+    RULE 1
+        Price is below SMA 200D
+        AND SMA 50D is below SMA 200D
+    OR
+    RULE 2
+        RSI 14D is above 80
+```
+
+With a single Exit Rule no rule heading is printed at all — there is no alternative to distinguish
+it from, and the preview stays exactly what it was before Exit Rules existed.
 
 It is **derived at render time and never persisted**. The legacy schema stored a
 `generatedFormula` LongText column beside `configJson`; that is a second source of truth that goes

@@ -394,7 +394,22 @@ Trigger there is `NOT_EVALUABLE`.
 | **FALSE**         | FALSE         | FALSE     | **FALSE**     |
 | **NOT_EVALUABLE** | NOT_EVALUABLE | **FALSE** | NOT_EVALUABLE |
 
-This is a technical choice, not a change to product semantics: under either strong or strict AND a
+**Disjunction — Kleene strong OR, `TRUE` absorbing** — used for exactly one thing: combining
+FINAL EXIT's Exit Rules.
+
+|                   | TRUE     | FALSE         | NOT_EVALUABLE |
+| ----------------- | -------- | ------------- | ------------- |
+| **TRUE**          | TRUE     | TRUE          | **TRUE**      |
+| **FALSE**         | TRUE     | FALSE         | NOT_EVALUABLE |
+| **NOT_EVALUABLE** | **TRUE** | NOT_EVALUABLE | NOT_EVALUABLE |
+
+Chosen for the same diagnostic honesty as strong AND: a rule that is definitively `TRUE` decides the
+action whatever another rule's missing operand would have been, so reporting `NOT_EVALUABLE` there
+would understate a decision the data fully supports. When nothing is `TRUE` and something is
+undecidable the result stays `NOT_EVALUABLE`, never a silent `FALSE`. An empty disjunction is
+`FALSE`, though validation guarantees at least one rule.
+
+AND is a technical choice, not a change to product semantics: under either strong or strict AND a
 signal fires only when every part is `TRUE`, so no trading behaviour differs. The difference is
 diagnostic honesty — on a day where one Condition is definitively `FALSE`, the signal genuinely
 cannot fire no matter what the missing operand was, and reporting `NOT_EVALUABLE` there would
@@ -442,6 +457,18 @@ marketGate[levelId]: Uint8Array   // one Evaluability per frame index, 7.5 KB pe
 This is exactly the product's "logical daily result series". Position-dependent predicates are
 **excluded** from the gate and evaluated live (Phase 3); a level with no market-derived predicates
 gets an all-`TRUE` gate by the empty-conjunction rule.
+
+FINAL EXIT keeps **one gate per Exit Rule**, in definition order, rather than one combined gate. The
+order of operations is load-bearing: each rule is ANDed with *its own* position-dependent half and
+only then are the rules ORed. Pre-combining the market halves would produce
+`(marketA OR marketB) AND (positionA AND positionB)` — a different and wrong strategy, in which one
+rule's market conditions could satisfy another rule's Trigger or Gain requirement.
+
+Every rule is evaluated rather than short-circuited on the first `TRUE`, so the level's result never
+depends on the order the user happened to write its alternatives in. The disjunction collapses to a
+**single** `Evaluability` before anything executes, which is what makes a duplicate Final Exit
+structurally impossible rather than a case the day loop has to remember to guard: there is no
+per-rule branch that could run twice.
 
 Precomputing is worth it because the gate is read once per date per security by the portfolio loop
 and would otherwise be recomputed whenever the loop revisits a date. At 7.5 KB per level per
@@ -672,11 +699,23 @@ Storage is one number and one date per open position — O(`maximumPositions`), 
 
 ### 3.7 Combining with the market gate
 
-For one open position on frame index `i`, a SELL or FINAL EXIT level resolves as:
+For one open position on frame index `i`, a SELL level resolves as:
 
 ```
 level[i] = marketGate[levelId][i]  AND  positionPredicates(level, position, i)
 ```
+
+FINAL EXIT resolves the same way per Exit Rule, and ORs the results:
+
+```
+finalExit[i] = OR over rules r of (
+  marketGate[finalExit][r][i]  AND  positionPredicates(rule r, position, i)
+)
+```
+
+The AND is inside the OR, never the other way round: that is what keeps each rule's Trigger and each
+rule's `Gain`/`Loss` requirement attached to the rule that declares it. The OR yields one value, so
+the level has one result regardless of how many rules matched.
 
 using the same Kleene strong AND of §2.4. `positionPredicates` evaluates **every** position-dependent
 Condition and the Trigger if it is position-dependent — it does not short-circuit on a `FALSE` gate.
@@ -821,9 +860,11 @@ For each date `d` in the union calendar, in fixed phase order:
 
 1. **Cash in** — apply the monthly contribution if `d` is the contribution date (open question 8).
 2. **Value** the portfolio using §4.4.
-3. **Exits**, for each open position in deterministic order: evaluate FINAL EXIT, then SELL levels
-   in definition order, each as `marketGate AND positionPredicates` (§3.7). Execute per open
-   questions 2, 3 and 4.
+3. **Exits**, for each open position in deterministic order: evaluate FINAL EXIT — the OR of its
+   Exit Rules (§3.7) — then SELL levels in definition order, each as
+   `marketGate AND positionPredicates` (§3.7). Execute per open questions 2, 3 and 4. FINAL EXIT is
+   one branch producing at most one exit and then moving to the next position, so a date on which
+   several Exit Rules match closes the position once.
 4. **Entries**: for each list security whose `BuyWindowConfiguration` admits `d`, read the
    precomputed BUY gate (§3.1) — an indexed `Uint8Array` read, not an evaluation. Collect matching
    levels per open questions 1 and 4.

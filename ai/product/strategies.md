@@ -42,12 +42,15 @@ A strategy version contains:
 - name and optional description;
 - ordered **BUY levels**;
 - ordered **SELL levels**;
-- an optional **FINAL EXIT**;
+- an optional **FINAL EXIT**, which is one action reached by one or more alternative **Exit Rules**;
 - no global intrinsic-value model;
 - no Stock List or backtest execution parameters.
 
-Each level owns one **Signal**. The signal decides whether that level matches on a given eligible
-date. The level then carries the action metadata appropriate to BUY, SELL or FINAL EXIT.
+Each BUY and SELL level owns one **Signal**. The signal decides whether that level matches on a
+given eligible date. The level then carries the action metadata appropriate to BUY or SELL.
+
+FINAL EXIT is the one level that may hold more than one Signal: one per Exit Rule, combined with
+OR. It is still a single level with a single identity — see FINAL EXIT below.
 
 A Strategy must contain **at least one BUY level** to be saved: without one, nothing can ever be
 bought and the strategy is inert. SELL levels and FINAL EXIT remain optional — a strategy that only
@@ -584,11 +587,57 @@ and must be kept explicit in the backtest design; do not infer it merely from th
 
 FINAL EXIT is a distinct Strategy concept, not a `SELL 100%` level.
 
-It contains one Signal and no percentage selector. When it executes, it closes the entire remaining
+It is **one action** with no percentage selector. When it executes, it closes the entire remaining
 position.
 
 Keeping FINAL EXIT distinct allows the position lifecycle and later monitoring/backtest reporting
 to distinguish partial profit/risk management from the condition that ends the position.
+
+### Exit Rules
+
+FINAL EXIT may be reached by more than one **Exit Rule**. An Exit Rule is one alternative way for
+that single action to occur, and owns one Signal — its own Conditions and its own optional Trigger.
+
+**FINAL EXIT occurs when ANY Exit Rule matches.** Within one Exit Rule, all Conditions are ANDed as
+they are in every Signal.
+
+```text
+FinalExit[t] =
+  ExitRule1[t]
+  OR ExitRule2[t]
+  OR ...
+
+ExitRule1[t] =
+  ConditionA[t]
+  AND ConditionB[t]
+  AND OptionalTriggerOfRule1[t]
+```
+
+The Trigger belongs to the **Exit Rule**, never to FINAL EXIT as a whole. A rule with no Trigger
+matches on its Conditions alone, regardless of what another rule's Trigger did. This is deliberately
+not `((rule 1 conditions) OR (rule 2 conditions)) AND one global trigger`, which would be a
+different strategy.
+
+At least one Exit Rule is required: a FINAL EXIT that can never match is not saveable, and removing
+FINAL EXIT is what "this strategy has no final exit" means.
+
+**However many Exit Rules match on one date, FINAL EXIT executes once.** It is one action and one
+level: one backtest trade, one Monitor Signal, one durable transition state. Two rules matching
+together is not two exits, and never two entries in a backtest ledger.
+
+The supported grammar is exactly **OR of AND groups**, and only for FINAL EXIT:
+
+- BUY and SELL levels have no OR. They remain one Signal each;
+- there is no nesting, and no per-condition AND/OR choice;
+- `A AND (B OR C)` is not expressible as nested syntax. A user who needs it writes
+  `(A AND B) OR (A AND C)`, which this grammar already represents.
+
+Order among Exit Rules is presentation, not meaning — OR is commutative — but it is preserved
+exactly as written, because it is what the user arranged and what the Builder numbers.
+
+Two Exit Rules that say the same thing are rejected, for the same reason a repeated Condition is:
+ORing a rule with itself changes nothing, so it is always a mistake rather than something to
+silently remove.
 
 The precedence between a matching partial SELL and FINAL EXIT on the same date must remain an
 explicit engine rule. Preserve any already-authoritative rule; otherwise report it as an open
@@ -628,6 +677,11 @@ At minimum, Strategy validation must enforce:
 - no unavailable or arbitrary series identifiers outside the canonical catalogs/registries;
 - valid BUY/SELL level percentages;
 - FINAL EXIT has no percentage selector;
+- FINAL EXIT has at least one Exit Rule, and no more than the shared maximum;
+- every Exit Rule has a valid Signal — at least one Condition or a Trigger, like any other Signal;
+- no two semantically identical Exit Rules inside one FINAL EXIT. Identity is semantic — the rule's
+  Conditions, operators, Values and optional Trigger — not its id;
+- no OR anywhere but FINAL EXIT, and no nested boolean structure anywhere;
 - no Strategy-owned Stock List, capital, contribution, `maximumPositions` or backtest date-range
   fields.
 
@@ -666,6 +720,25 @@ Each Signal visually separates:
 
 - **Conditions** — zero or more rows, combined with AND;
 - **Trigger (optional)** — zero or one row.
+
+FINAL EXIT stays **one card**. Its Exit Rules appear inside it, separated by an unmistakable `OR`
+divider and labelled `Exit rule 1`, `Exit rule 2`, … with a `+ Add OR rule` control beneath them.
+They are alternatives within one action, so they are grouped by a divider rather than nested in
+cards of their own: a card inside a card would read as a second tier of levels, which is what an
+Exit Rule is not.
+
+With a single Exit Rule the card reads exactly as it did before Exit Rules existed — no rule
+heading, no divider. Headings and dividers appear the moment there is a genuine alternative to
+label, which is also the moment "Exit rule 1" starts meaning something.
+
+Every rule after the first is removable, and so is the first once more than one exists: with two
+alternatives neither is the "real" one, and the survivors simply renumber. The last rule is not
+removable; removing FINAL EXIT itself is the action that means "no final exit", and it keeps
+whatever rules the product already has about FINAL EXIT being optional.
+
+The logic preview must make `(rule 1) OR (rule 2)` legible as **one** FINAL EXIT with alternatives —
+one FINAL EXIT heading, its rules beneath it, `OR` between them — and never as a sequence of several
+Final Exit actions.
 
 Do not put Stock List selection, backtest period, initial capital, monthly contributions,
 `maximumPositions`, fees or other backtest-run parameters into Strategy Builder.
