@@ -23,10 +23,13 @@ const FIXTURES = [
   { symbol: `Q${tag}C`, name: `Quiet ${tag} Unrelated Corp` },
 ];
 
-async function search(term: string, limit = 25) {
+async function searchRows(term: string, limit = 25) {
   const store = new PrismaStockDataStore(prisma);
-  const results = await store.searchSecurities({ term, limit });
-  return results.map((result) => result.symbol);
+  return store.searchSecurities({ term, limit });
+}
+
+async function search(term: string, limit = 25) {
+  return (await searchRows(term, limit)).map((result) => result.symbol);
 }
 
 describe("security search persistence", () => {
@@ -53,6 +56,31 @@ describe("security search persistence", () => {
       where: { providerSymbol: { in: FIXTURES.map((row) => row.symbol) } },
     });
     await prisma.$disconnect();
+  });
+
+  it("carries the persisted mark of a profiled security, and omits it for the rest", async () => {
+    const profiled = await prisma.security.findFirstOrThrow({
+      where: { providerSymbol: `Z${tag}A` },
+    });
+    await prisma.securityProfile.create({
+      data: {
+        securityId: profiled.id,
+        logoUrl: `https://images.financialmodelingprep.com/symbol/Z${tag}A.png`,
+      },
+    });
+
+    const rows = await searchRows(`z${tag.toLowerCase()}`);
+
+    // One query, both facts: the search read joins the profile rather than leaving the caller to
+    // fan out a second request per row.
+    expect(rows.find((row) => row.symbol === `Z${tag}A`)?.logoUrl).toBe(
+      `https://images.financialmodelingprep.com/symbol/Z${tag}A.png`,
+    );
+    // Absent, not empty: a security the catalog has not profiled reports nothing rather than
+    // claiming it has no logo.
+    expect(rows.find((row) => row.symbol === `Z${tag}B`)).not.toHaveProperty(
+      "logoUrl",
+    );
   });
 
   it("matches a symbol prefix case-insensitively", async () => {

@@ -184,6 +184,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           <StockIdentity
             symbol={entry.security.symbol}
             name={entry.security.name}
+            {...(entry.security.logoUrl
+              ? { logoUrl: entry.security.logoUrl }
+              : {})}
             href={`/stocks/${encodeURIComponent(entry.security.symbol)}`}
           />
         ),
@@ -261,6 +264,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
         <StockIdentity
           symbol={signal.security.symbol}
           name={signal.security.name}
+          {...(signal.security.logoUrl
+            ? { logoUrl: signal.security.logoUrl }
+            : {})}
           href={`/stocks/${encodeURIComponent(signal.security.symbol)}`}
         />
       ),

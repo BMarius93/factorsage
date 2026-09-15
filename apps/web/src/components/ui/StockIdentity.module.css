@@ -1,5 +1,7 @@
 /* The box is sized before anything loads, so a logo that arrives late — or never —
-   cannot reflow the row it sits in. */
+   cannot reflow the row it sits in. Both dimensions are fixed at every size, and the
+   image below fills the box rather than sizing it: nothing here depends on the
+   intrinsic size of an asset that has not arrived. */
 .logo {
   display: inline-flex;
   flex: none;
@@ -11,28 +13,50 @@
   background: var(--color-surface-soft);
 }
 
+/* Compact identities — a search row, a trade log. */
 .logo[data-size="sm"] {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
 }
 
+/* The collection default: list members, monitored securities, signals, holdings. */
 .logo[data-size="md"] {
   width: 32px;
   height: 32px;
 }
 
+/* The one page-level identity, on Stock Details. */
 .logo[data-size="lg"] {
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
 }
 
+@media (min-width: 880px) {
+  .logo[data-size="lg"] {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+/* A near-white mark keeps its own shape on a dark plate rather than disappearing into
+   the surface. Measured from the loaded pixels — see `logo-brightness.ts`. */
+.logo[data-bright="true"] {
+  border-color: var(--color-surface-contrast);
+  background: var(--color-surface-contrast);
+}
+
+/* `contain`, never `cover`: a company mark is a piece of typography, and cropping it to
+   fill a square is how a wordmark loses its word. The padding keeps it off the border. */
 .logoImage {
   width: 100%;
   height: 100%;
   object-fit: contain;
   padding: 3px;
+}
+
+.logo[data-size="lg"] .logoImage {
+  padding: 5px;
 }
 
 .monogram::after {
@@ -47,11 +71,17 @@
 }
 
 .logo[data-size="sm"] .monogram {
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .logo[data-size="lg"] .monogram {
   font-size: 16px;
+}
+
+@media (min-width: 880px) {
+  .logo[data-size="lg"] .monogram {
+    font-size: 18px;
+  }
 }
 
 .identity {
@@ -62,6 +92,11 @@
   max-width: 100%;
   color: inherit;
   text-decoration: none;
+  /* Explicit, because the default is `baseline` and an inline-flex box takes its baseline from
+     its first item: the monogram contributes a text baseline and an image contributes none, so a
+     row aligned on it would change height at the moment a mark finished loading. Measured — it
+     moved every row of a thirty-stock list by 1.5px. */
+  vertical-align: middle;
 }
 
 .identity[data-size="sm"] {

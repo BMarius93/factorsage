@@ -320,6 +320,8 @@ export class MonitorsService {
               name: true,
               exchangeCode: true,
               exchangeName: true,
+              // The mark the row renders, from the profile the catalog persists.
+              profile: { select: { logoUrl: true } },
             },
           },
         },
@@ -393,6 +395,9 @@ export class MonitorsService {
           ...(item.security.exchangeName === null
             ? {}
             : { exchangeName: item.security.exchangeName }),
+          ...(item.security.profile?.logoUrl
+            ? { logoUrl: item.security.profile.logoUrl }
+            : {}),
         },
         status: securityStatusOf({
           rows,
@@ -666,6 +671,8 @@ export class MonitorsService {
             name: true,
             exchangeCode: true,
             exchangeName: true,
+            // The mark the row renders, from the profile the catalog persists.
+            profile: { select: { logoUrl: true } },
           },
         },
       },
@@ -680,6 +687,9 @@ export class MonitorsService {
         ...(row.security.exchangeName === null
           ? {}
           : { exchangeName: row.security.exchangeName }),
+        ...(row.security.profile?.logoUrl
+          ? { logoUrl: row.security.profile.logoUrl }
+          : {}),
       },
       levelKind: row.levelKind,
       levelId: row.levelId,

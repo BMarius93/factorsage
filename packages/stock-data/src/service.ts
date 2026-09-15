@@ -24,6 +24,7 @@ import {
   type Security,
   type SecurityId,
   type SecuritySearchQuery,
+  type SecurityWithLogo,
   type StockDataService,
   type StockDetails,
   type StockHistoryBounds,
@@ -395,7 +396,9 @@ export class CanonicalStockDataService implements StockDataService {
    * on every debounced keystroke, so an unknown term must resolve to an empty list rather than a
    * paid FMP profile lookup and a speculative hydration.
    */
-  async searchSecurities(query: SecuritySearchQuery): Promise<Security[]> {
+  async searchSecurities(
+    query: SecuritySearchQuery,
+  ): Promise<SecurityWithLogo[]> {
     const term = normalizeSearchTerm(query.term);
     if (term === "") {
       return [];

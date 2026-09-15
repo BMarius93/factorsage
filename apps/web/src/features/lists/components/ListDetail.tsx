@@ -171,6 +171,7 @@ export function ListDetail({ listId }: ListDetailProps) {
         <StockIdentity
           symbol={item.security.symbol}
           name={item.security.name}
+          {...(item.security.logoUrl ? { logoUrl: item.security.logoUrl } : {})}
           href={`/stocks/${encodeURIComponent(item.security.symbol)}`}
         />
       ),

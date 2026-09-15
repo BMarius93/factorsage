@@ -75,6 +75,9 @@ const ITEM_INCLUDE = {
       name: true,
       exchangeCode: true,
       exchangeName: true,
+      // The company mark, from the profile the catalog persists. A left join on an indexed
+      // primary key, so the list stays one query and still renders a real logo per member.
+      profile: { select: { logoUrl: true } },
     },
   },
   buyWindows: { orderBy: { startDate: "asc" as const } },
@@ -104,6 +107,9 @@ function itemResponse(item: ItemRow): StockListItemResponse {
       exchangeCode: item.security.exchangeCode,
       ...(item.security.exchangeName
         ? { exchangeName: item.security.exchangeName }
+        : {}),
+      ...(item.security.profile?.logoUrl
+        ? { logoUrl: item.security.profile.logoUrl }
         : {}),
     },
     buyWindowMode: item.buyWindowMode,

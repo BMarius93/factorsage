@@ -10,6 +10,7 @@ import type {
   Security,
   SecurityId,
   SecurityProfile,
+  SecurityWithLogo,
   StockDataset,
   StockDatasetState,
 } from "@intrinsic/domain";
@@ -106,8 +107,14 @@ export interface StockDataStore {
    * Candidate securities for the global search, matched case-insensitively on symbol prefix or
    * name substring. Returns unranked candidates: relevance ordering is a domain concern applied by
    * the service, so the store stays a plain persistence read.
+   *
+   * Each candidate carries the persisted company mark, so a dropdown row can show a real logo
+   * without a second query and without any surface reading a full profile.
    */
-  searchSecurities(input: { term: string; limit: number }): Promise<Security[]>;
+  searchSecurities(input: {
+    term: string;
+    limit: number;
+  }): Promise<SecurityWithLogo[]>;
   /** Reads existing catalog rows so a synchronization can tell created from updated. */
   findSecurityCatalogEntries(
     providerSymbols: readonly string[],

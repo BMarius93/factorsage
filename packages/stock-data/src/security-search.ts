@@ -70,12 +70,15 @@ function relevance(term: string, security: Security): number {
  *
  * Pure and persistence-free so ranking stays testable without a database, and so a future store
  * implementation cannot quietly change which result a user lands on.
+ *
+ * Generic over the candidate so a store may attach fields ranking does not read — the company mark
+ * a search row renders, for instance — and still get its own rows back rather than a narrowed copy.
  */
-export function rankSecurityMatches(
+export function rankSecurityMatches<T extends Security>(
   term: string,
-  candidates: readonly Security[],
+  candidates: readonly T[],
   limit: number,
-): Security[] {
+): T[] {
   const normalized = normalizeSearchTerm(term).toLowerCase();
   if (normalized === "") {
     return [];

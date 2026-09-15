@@ -98,7 +98,9 @@
 
 .option {
   display: flex;
-  align-items: baseline;
+  /* Centred rather than baseline-aligned: the row now opens with a fixed-height mark, and a
+     baseline would hang it off the text it sits beside. */
+  align-items: center;
   gap: 8px;
   padding: 9px 10px;
   border-radius: 10px;

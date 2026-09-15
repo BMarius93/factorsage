@@ -226,22 +226,70 @@ from columns with `cardRole: "links"`, so a collection does not need it.
 
 ### `StockIdentity` / `StockLogo`
 
-How a security is identified everywhere: mark, ticker, company name.
+How a security is identified everywhere: mark, ticker, company name. It is the **only** rendering
+path for a stock logo in the product — search rows, the list picker, list members, monitored
+securities, signals, backtest holdings and trades, and the Stock Details header all go through it,
+and no feature owns an `<img>` of its own.
 
 A logo is **decoration, never data**:
 
-- the box is sized before anything loads, so a slow or broken logo cannot shift its row;
+- the box is sized before anything loads, so a slow or broken logo cannot shift its row. Both
+  dimensions live on the container at every size and the image fills it, so nothing in the layout
+  depends on an asset that has not arrived;
 - a failed load falls back to the ticker monogram, never a broken-image glyph;
+- `object-fit: contain`, never `cover` — a wordmark cropped to fill a square has lost its word;
 - the element is `aria-hidden` — the symbol and name sit beside it, and announcing the logo too
   would read every row twice;
 - the monogram is rendered as CSS generated content from `data-monogram`, so it never joins the
   row's text layer, where it would be copied with a selection, matched by find-in-page, and
   prepended to every symbol.
 
-`logoUrl` is optional and today only `StockDetailsResponse.profile` carries one. Everywhere else
-renders the monogram. See "Known read-model gaps" below — the fix is one optional contract field,
-not a provider URL assembled in a component. **Do not** construct a provider image URL in the web
-app.
+**Sizes are contextual, not uniform.** `sm` is 28px for a compact dropdown or trade row, `md` is
+32px for a collection row, and `lg` is the one page-level identity — 48px, 56px from 880px up.
+
+**Near-white marks get a plate.** A great many logos are drawn for a dark header and are close
+enough to white to vanish on `--color-surface`. `StockLogo` samples the loaded image on a canvas
+(`logo-brightness.ts`), averages the perceived brightness of its opaque pixels, and sets
+`data-bright` so the box switches to `--color-surface-contrast`. It fails closed: no canvas, a
+tainted canvas or an unreadable sample all leave the mark on the ordinary surface.
+
+#### Where a mark comes from
+
+One rule, and it is the reason logos do not visibly reload as the user moves through the product:
+
+```text
+SecurityProfile.logoUrl  ->  contract projection  ->  StockLogo  ->  /api/logo/{TICKER}  ->  provider
+        (persisted)            (logoUrl?: string)     (stockLogoSrc)     (proxy + cache)
+```
+
+`apps/web/src/lib/stock-logo.ts` is the one abstraction. It turns a security into the product's own
+`/api/logo/{ticker}` URL, and `apps/web/src/app/api/logo/[symbol]/route.ts` is the **only** file in
+the web application that knows a provider image URL. That single indirection buys four things:
+
+- **One cache entry per security.** The URL is derived from the ticker alone, so the mark a search
+  row loaded is the same HTTP cache entry the list row and the Stock Details header ask for. The
+  route answers `public, max-age=86400, stale-while-revalidate=604800`, so navigation re-reads
+  them from cache instead of re-fetching a logo per screen.
+- **Same-origin pixels**, without which the brightness sample above is refused as a tainted canvas.
+- **No provider URL anywhere under `features/` or `components/`.**
+- **A mark for securities the catalog has not profiled.** `SecurityProfile` rows exist only for
+  securities something has hydrated, which is a small fraction of the catalog, so gating the image
+  on `logoUrl` would leave most rows showing initials. The endpoint is keyed by the ticker instead,
+  and a symbol with no mark upstream falls back to the monogram after one 404 that is itself cached
+  for an hour.
+
+`logoUrl` is still projected and still load-bearing: it is the product's own record of the mark, it
+is what a future non-FMP provider would flow through, and it is the image used directly for the one
+case the endpoint cannot serve — a ticker outside the safe-symbol pattern.
+
+The route validates the ticker against the same pattern the browser does, times the upstream out,
+refuses to pass a non-image `200` through as a logo, and never caches a `502`: a provider outage
+says nothing about the security.
+
+**Backtest results are deliberately not part of the contract half.** `BacktestTradeResponse` and
+`BacktestHoldingResponse` carry denormalized `symbol`/`name` frozen at execution precisely so a
+completed run never joins the mutable catalog, and a decoration is not a reason to change that.
+They render their marks from the ticker like every other row.
 
 ### `EmptyState`
 
@@ -305,7 +353,7 @@ The system is deliberately small. It is grouped, and the groups are the whole vo
 
 | Group           | Tokens                                                                                                                                                                                                                         |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Surfaces**    | `--color-background` `--color-surface` `--color-background-translucent` `--color-surface-muted` `--color-surface-soft` `--color-surface-selected`                                                                              |
+| **Surfaces**    | `--color-background` `--color-surface` `--color-background-translucent` `--color-surface-muted` `--color-surface-soft` `--color-surface-selected` `--color-surface-contrast`                                                   |
 | **Text**        | `--color-text-primary` `--color-text-body` `--color-text-secondary` `--color-text-muted` `--color-text-on-primary`                                                                                                             |
 | **Borders**     | `--color-border` `--color-border-strong` `--color-border-subtle`                                                                                                                                                               |
 | **Brand**       | `--color-primary` `--color-primary-hover` `--color-primary-ink` `--color-primary-soft` `--color-primary-soft-hover` `--color-primary-border`                                                                                   |
@@ -364,24 +412,16 @@ addition, not something to work around in the browser.
    the caller's monitors with the security, level kind, signal kind, observation price and detected
    time, plus the monitor / strategy / list ids and names — one page, newest first.
 
-2. **Stock logos outside Stock Details.** `StockListSecurityResponse` and
-   `StockSearchResultResponse` are identity-only by explicit contract design, so list members,
-   monitored stocks, signals, search results and backtest positions render the monogram.
-   `SecurityProfile.logoUrl` is already persisted. _Needed:_ an optional `logoUrl?: string` on the
-   lightweight security projection, joined in the three places that build it
-   (`apps/api/src/lists/stock-lists.service.ts`, `apps/api/src/monitors/monitors.service.ts` ×2).
-   Nothing in the UI changes — `StockIdentity` already takes the field.
-
-3. **Clickable entities in the Backtests collection.** `BacktestRunSummaryResponse` carries
+2. **Clickable entities in the Backtests collection.** `BacktestRunSummaryResponse` carries
    `strategyName` and `stockListName` but no ids, so the collection's chips are static while the
    run's own page links them. _Needed:_ the nullable `strategyId` / `stockListId` the detail
    configuration already exposes.
 
-4. **Reverse usage on Strategy and List.** "Which monitors and backtests use this?" has no
+3. **Reverse usage on Strategy and List.** "Which monitors and backtests use this?" has no
    contract. _Needed:_ a usage count or reference list on the Strategy and Stock List summaries. The
    API already refuses to delete a Strategy or List a Monitor references, so the relationship is
    known server-side; it is simply not projected.
 
-5. **Benchmark quotes.** The legacy dashboard showed S&P 500 and DJIA quote cards. `GET /benchmarks`
+4. **Benchmark quotes.** The legacy dashboard showed S&P 500 and DJIA quote cards. `GET /benchmarks`
    returns catalog metadata only, with no price or change, so those tiles are not built. _Needed:_ a
    latest-close projection on the benchmark catalog.

@@ -23,6 +23,8 @@ type SearchOption = {
   readonly symbol: string;
   readonly name: string;
   readonly exchange?: string;
+  /** The catalog's mark for this security, when it has profiled one. */
+  readonly logoUrl?: string;
 };
 
 /** One labelled run of options inside the single listbox. */
@@ -65,6 +67,7 @@ export function StockSearch() {
             symbol: result.symbol,
             name: result.name,
             exchange: result.exchangeName ?? result.exchangeCode,
+            ...(result.logoUrl ? { logoUrl: result.logoUrl } : {}),
           })),
         },
       ];
@@ -74,6 +77,7 @@ export function StockSearch() {
     const recentOptions = recent.map((security) => ({
       symbol: security.symbol,
       name: security.name,
+      ...(security.logoUrl ? { logoUrl: security.logoUrl } : {}),
     }));
     const popular = popularStockSearches(
       recentOptions.map((option) => option.symbol),
@@ -312,11 +316,13 @@ export function StockSearch() {
                       onClick={() => select(option)}
                     >
                       {/* The shared identity treatment, so a stock looks the same here as it
-                          does in a list, a monitor or a trade log. The catalog's search
-                          projection carries no logo, so this renders the ticker monogram. */}
+                          does in a list, a monitor or a trade log. The popular shortcuts are a
+                          static frontend list with no catalog row behind them, so they carry no
+                          projected mark and resolve theirs from the ticker like any other row. */}
                       <StockIdentity
                         symbol={option.symbol}
                         name={option.name}
+                        {...(option.logoUrl ? { logoUrl: option.logoUrl } : {})}
                         size="sm"
                       />
                       {option.exchange ? (

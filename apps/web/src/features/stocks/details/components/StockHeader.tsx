@@ -48,6 +48,9 @@ export function StockHeader({ security, summary, profile }: StockHeaderProps) {
             symbol={security.symbol}
             name={security.name}
             size="lg"
+            // The page's own identity, above the fold on every viewport: nothing is gained by
+            // deferring it behind a viewport check it passes on the first frame.
+            loading="eager"
             {...(profile?.logoUrl ? { logoUrl: profile.logoUrl } : {})}
           />
           <span className={styles.titleText}>

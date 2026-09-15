@@ -218,6 +218,45 @@ describe("stock lists", () => {
     await owner.delete(`/lists/${created.id}`).expect(204);
   });
 
+  /**
+   * The lightweight member projection carries the mark the catalog persisted.
+   *
+   * It is the read model that was missing: every surface that renders a list member could only
+   * show initials, because the projection stopped at identity. The mark is joined from
+   * `SecurityProfile` — never synthesised — and stays absent for a security nothing has profiled.
+   */
+  it("projects the persisted logo of a profiled member and omits it for the rest", async () => {
+    const logoUrl = `https://images.financialmodelingprep.com/symbol/LST1-${suffix.slice(0, 8).toUpperCase()}.png`;
+    await prisma.securityProfile.create({
+      data: { securityId: securityIds[0]!, logoUrl },
+    });
+
+    const created = await createListViaApi(owner, {
+      name: "Marks",
+      securityIds: [securityIds[0], securityIds[1]],
+    });
+
+    const byId = new Map(
+      created.items.map((item) => [item.security.id, item.security]),
+    );
+    expect(byId.get(securityIds[0]!)?.logoUrl).toBe(logoUrl);
+    expect(byId.get(securityIds[1]!)).not.toHaveProperty("logoUrl");
+
+    // The detail read agrees with the create response; both go through one projection.
+    const detail = (
+      await owner.get(`/lists/${created.id}`).expect(200)
+    ).body as StockListDetailResponse;
+    expect(
+      detail.items.find((item) => item.security.id === securityIds[0])?.security
+        .logoUrl,
+    ).toBe(logoUrl);
+
+    await owner.delete(`/lists/${created.id}`).expect(204);
+    await prisma.securityProfile.delete({
+      where: { securityId: securityIds[0]! },
+    });
+  });
+
   it("rejects creating a list that references a security outside the catalog", async () => {
     const response = await owner
       .post("/lists")

@@ -27,6 +27,9 @@ const SECURITY_SELECT = {
   name: true,
   exchangeCode: true,
   exchangeName: true,
+  // Same projection the search endpoint returns, mark included, so a recent row and a result row
+  // for the same stock cannot look different.
+  profile: { select: { logoUrl: true } },
 } satisfies Prisma.SecuritySelect;
 
 type SecurityRow = Prisma.SecurityGetPayload<{
@@ -40,6 +43,7 @@ function securityResponse(security: SecurityRow): StockSearchResultResponse {
     name: security.name,
     exchangeCode: security.exchangeCode,
     ...(security.exchangeName ? { exchangeName: security.exchangeName } : {}),
+    ...(security.profile?.logoUrl ? { logoUrl: security.profile.logoUrl } : {}),
   };
 }
 

@@ -287,6 +287,41 @@ describe("MonitorDetail", () => {
     expect(screen.queryByTestId("monitor-signals-window")).toBeNull();
   });
 
+  it("renders a mark for every monitored security and every signal", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        securities: [
+          evaluation({
+            security: {
+              ...security("sec-1", "AAA", "Alpha Corp"),
+              logoUrl:
+                "https://images.financialmodelingprep.com/symbol/AAA.png",
+            },
+          }),
+          evaluation({ security: security("sec-2", "BBB", "Beta Ltd") }),
+        ],
+        signals: [signal()],
+      }),
+    );
+
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const sources = [...document.querySelectorAll("img")].map((image) =>
+      image.getAttribute("src"),
+    );
+    // The profiled security, the unprofiled one and the signal row all ask the same endpoint —
+    // which is also why the signal's mark is already in cache from the table above it.
+    expect(sources).toContain("/api/logo/AAA");
+    expect(sources).toContain("/api/logo/BBB");
+    expect(
+      within(screen.getAllByTestId("monitor-signal-row")[0]!).getByRole(
+        "link",
+        { name: /AAA/ },
+      ),
+    ).toBeDefined();
+  });
+
   it("is honest that a full page of signals is only the most recent", async () => {
     fetchMonitorMock.mockResolvedValue(
       detail({

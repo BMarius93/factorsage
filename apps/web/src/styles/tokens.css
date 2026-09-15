@@ -31,6 +31,10 @@
   /* The resting fill of a selected row, option or segmented control. Deliberately the
      brand tint, because selection is the one quiet state that must read as chosen. */
   --color-surface-selected: #eef3ff;
+  /* The plate under content that is itself near-white and would otherwise disappear —
+     today only a company mark drawn for a dark header. Not a second canvas: nothing
+     that composes a page may use it as a background. */
+  --color-surface-contrast: #1f2937;
 
   /* ── Text ───────────────────────────────────────────────────────────────── */
   --color-text-primary: #222222;

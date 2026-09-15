@@ -196,6 +196,38 @@ describe("recent searches", () => {
     ).toBe(RECENT_SECURITY_LIMIT);
   });
 
+  /**
+   * A recent row and a search result for the same stock come from one projection, so the dropdown
+   * cannot show a logo in one section and initials in the other.
+   */
+  it("projects the persisted logo on a recent row, for a user and for a guest", async () => {
+    const logoUrl = `https://images.financialmodelingprep.com/symbol/${security(1).symbol}.png`;
+    await prisma.securityProfile.create({
+      data: { securityId: securityIds[0]!, logoUrl },
+    });
+    await view(owner, securityIds[0]!);
+    await view(owner, securityIds[1]!);
+
+    const rows = (await owner.get("/recent-searches").expect(200))
+      .body as StockSearchResultResponse[];
+    expect(rows.find((row) => row.symbol === security(1).symbol)?.logoUrl).toBe(
+      logoUrl,
+    );
+    expect(
+      rows.find((row) => row.symbol === security(2).symbol),
+    ).not.toHaveProperty("logoUrl");
+
+    // A Guest's ids are resolved against the same catalog read, so the mark is there too.
+    const guestRows = (
+      await guest.get(`/recent-searches?ids=${securityIds[0]!}`).expect(200)
+    ).body as StockSearchResultResponse[];
+    expect(guestRows[0]?.logoUrl).toBe(logoUrl);
+
+    await prisma.securityProfile.delete({
+      where: { securityId: securityIds[0]! },
+    });
+  });
+
   it("answers with an empty set for a user who has viewed nothing", async () => {
     expect(await recentSymbols(other)).toEqual([]);
   });

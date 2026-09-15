@@ -132,6 +132,30 @@ describe("StockSearch", () => {
     expect(requestedUrl).toContain("q=aap");
   });
 
+  it("renders a mark on every row, result or shortcut", async () => {
+    respondWith([
+      result("AAPL", "Apple Inc.", {
+        logoUrl: "https://images.financialmodelingprep.com/symbol/AAPL.png",
+      }),
+      result("AAP", "Advance Auto Parts"),
+    ]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<StockSearch />);
+    await typeQuery(user, "aap");
+    await vi.advanceTimersByTimeAsync(300);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("option")).toHaveLength(2);
+    });
+    const sources = screen
+      .getAllByRole("option")
+      .map((option) => option.querySelector("img")?.getAttribute("src"));
+    // One same-origin URL per ticker, whether or not the catalog projected the mark — so the
+    // dropdown does not mix real logos with initials row by row.
+    expect(sources).toEqual(["/api/logo/AAPL", "/api/logo/AAP"]);
+  });
+
   it("debounces typing into a single request", async () => {
     const fetchMock = respondWith([result("NVDA", "NVIDIA Corporation")]);
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

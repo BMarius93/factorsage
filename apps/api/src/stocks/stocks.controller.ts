@@ -18,7 +18,7 @@ import {
   type DateRange,
   type IntrinsicValueBlendId,
   type IntrinsicValueModel,
-  type Security,
+  type SecurityWithLogo,
   type StockDataService,
   type TechnicalSeriesField,
 } from "@intrinsic/domain";
@@ -119,13 +119,16 @@ function securityResponse(
   };
 }
 
-function searchResultResponse(security: Security): StockSearchResultResponse {
+function searchResultResponse(
+  security: SecurityWithLogo,
+): StockSearchResultResponse {
   return {
     id: security.id,
     symbol: security.symbol,
     name: security.name,
     exchangeCode: security.exchangeCode,
     ...(security.exchangeName ? { exchangeName: security.exchangeName } : {}),
+    ...(security.logoUrl ? { logoUrl: security.logoUrl } : {}),
   };
 }
 

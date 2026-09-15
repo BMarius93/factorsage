@@ -41,6 +41,17 @@ export type Security = {
   isActivelyTrading: boolean;
 };
 
+/**
+ * Catalog identity plus the one profile field a collection surface needs: the company mark.
+ *
+ * Deliberately not a field on `Security`. A `Security` is the catalog's identity row — what the
+ * bulk universe synchronization writes — and a logo belongs to the per-stock `SecurityProfile`
+ * that only a profile hydration fills in. This is the read model that joins the two for a surface
+ * that identifies securities without reading their profiles, and `logoUrl` is absent whenever the
+ * catalog has not profiled that security yet.
+ */
+export type SecurityWithLogo = Security & { logoUrl?: string };
+
 /** Current descriptive profile snapshot; V1 does not treat these fields as PIT historical data. */
 export type SecurityProfile = {
   securityId: SecurityId;
@@ -550,7 +561,7 @@ export interface StockDataService {
    * search. It never reaches the external provider: search runs on every keystroke and must stay a
    * cheap local read.
    */
-  searchSecurities(query: SecuritySearchQuery): Promise<Security[]>;
+  searchSecurities(query: SecuritySearchQuery): Promise<SecurityWithLogo[]>;
   getStockDetails(symbol: string, range?: DateRange): Promise<StockDetails>;
   getDailyPrices(symbol: string, range: DateRange): Promise<DailyPrice[]>;
   getDailyDerivedState(

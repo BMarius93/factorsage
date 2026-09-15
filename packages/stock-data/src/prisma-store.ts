@@ -13,6 +13,7 @@ import type {
   IntrinsicValueModel,
   Security,
   SecurityProfile,
+  SecurityWithLogo,
 } from "@intrinsic/domain";
 import { selectFinancialStatements } from "@intrinsic/domain";
 import type { MappedFmpProfile } from "@intrinsic/fmp";
@@ -454,7 +455,7 @@ export class PrismaStockDataStore implements StockDataStore {
   async searchSecurities(input: {
     term: string;
     limit: number;
-  }): Promise<Security[]> {
+  }): Promise<SecurityWithLogo[]> {
     const term = input.term.trim();
     if (term === "") {
       return [];
@@ -469,10 +470,17 @@ export class PrismaStockDataStore implements StockDataStore {
           { name: { contains: term, mode: "insensitive" } },
         ],
       },
+      // The mark comes along on the same read. A left join on an indexed primary key costs
+      // nothing next to the match itself, and the alternative — a second query per keystroke —
+      // would put a round trip on the search path for a decoration.
+      include: { profile: { select: { logoUrl: true } } },
       orderBy: [{ symbol: "asc" }],
       take: input.limit,
     });
-    return rows.map(mapSecurity);
+    return rows.map((row) => ({
+      ...mapSecurity(row),
+      ...(row.profile?.logoUrl ? { logoUrl: row.profile.logoUrl } : {}),
+    }));
   }
 
   async findSecurityCatalogEntries(
