@@ -329,6 +329,15 @@ describe("contributions", () => {
   });
 });
 
+/**
+ * Buy windows are the engine's point-in-time membership gate.
+ *
+ * A window restricts **new BUYs only**. A position opened while the member was eligible keeps
+ * being evaluated by every SELL and FINAL EXIT level afterwards, and nothing liquidates it because
+ * the window closed. Everything below compares canonical `YYYY-MM-DD` session dates drawn from the
+ * execution calendar — never a wall-clock timestamp — so a boundary assertion is a session
+ * assertion.
+ */
 describe("buy windows", () => {
   it("only opens a BUY inside a CUSTOM window and never restricts an exit", async () => {
     const dates = tradingDates("2020-01-06", 6);
@@ -354,6 +363,164 @@ describe("buy windows", () => {
     const buys = result.trades.filter((trade) => trade.action === "BUY");
     expect(buys).toHaveLength(1);
     expect(buys[0]?.date).toBe(dates[2]);
+  });
+
+  it("refuses every session before membership begins and admits the exact first one", async () => {
+    // The PIT case: the run starts before the security joined the index. A BUY signal that is true
+    // from day one must still produce nothing until the membership session arrives.
+    const dates = tradingDates("2020-01-06", 6);
+    const frame = frameOf({
+      symbol: "AAA",
+      dates,
+      closes: dates.map(() => 100),
+    });
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(ALWAYS))],
+        }),
+        securities: [
+          securityInput(frame, {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[3] as string, endDate: null }],
+          }),
+        ],
+      }),
+    );
+
+    const buys = result.trades.filter((trade) => trade.action === "BUY");
+    expect(buys).toHaveLength(1);
+    expect(buys[0]?.date).toBe(dates[3]);
+  });
+
+  it("admits a BUY on the window's last session but not on the one after it", async () => {
+    // The signal only becomes true on index 2, so the window's end boundary is what decides.
+    const dates = tradingDates("2020-01-06", 6);
+    const closes = [50, 50, 100, 100, 100, 100];
+    const definition = definitionOf({
+      buyLevels: [buyLevel("b1", 100, priceAboveSignal(90))],
+    });
+
+    const onBoundary = await simulateBacktest(
+      executionInput({
+        definition,
+        securities: [
+          securityInput(frameOf({ symbol: "AAA", dates, closes }), {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[0] as string, endDate: dates[2] as string }],
+          }),
+        ],
+      }),
+    );
+    expect(
+      onBoundary.trades.filter((trade) => trade.action === "BUY"),
+    ).toHaveLength(1);
+    expect(onBoundary.trades[0]?.date).toBe(dates[2]);
+
+    const oneSessionShort = await simulateBacktest(
+      executionInput({
+        definition,
+        securities: [
+          securityInput(frameOf({ symbol: "AAA", dates, closes }), {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[0] as string, endDate: dates[1] as string }],
+          }),
+        ],
+      }),
+    );
+    expect(oneSessionShort.trades).toHaveLength(0);
+  });
+
+  it("still sells a position the member held when its membership ended", async () => {
+    // Bought on the one eligible session, sold four sessions after the window closed. This is the
+    // regression this whole gate is allowed to exist only because it does not break.
+    const dates = tradingDates("2020-01-06", 8);
+    const closes = [100, 100, 100, 100, 100, 50, 50, 50];
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(ALWAYS))],
+          sellLevels: [sellLevel("s1", 75, priceBelowSignal(75))],
+        }),
+        securities: [
+          securityInput(frameOf({ symbol: "AAA", dates, closes }), {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[0] as string, endDate: dates[1] as string }],
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      result.trades.map((trade) => [trade.action, trade.date]),
+    ).toEqual([
+      ["BUY", dates[0]],
+      ["SELL", dates[5]],
+    ]);
+    // A SELL level trims a position rather than closing it, and the remainder is still held: the
+    // window closing neither sold it nor stopped the level that did.
+    expect(result.positions).toHaveLength(1);
+  });
+
+  it("still reaches FINAL EXIT after membership ended", async () => {
+    const dates = tradingDates("2020-01-06", 8);
+    const closes = [100, 100, 100, 100, 100, 50, 50, 50];
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(ALWAYS))],
+          finalExit: finalExit("fx", priceBelowSignal(75)),
+        }),
+        securities: [
+          securityInput(frameOf({ symbol: "AAA", dates, closes }), {
+            mode: "CUSTOM",
+            ranges: [{ startDate: dates[0] as string, endDate: dates[0] as string }],
+          }),
+        ],
+      }),
+    );
+
+    const exit = result.trades.find((trade) => trade.action === "FINAL_EXIT");
+    expect(exit?.date).toBe(dates[5]);
+    expect(exit?.levelId).toBe("fx");
+    expect(result.positions).toHaveLength(0);
+  });
+
+  it("blocks a re-entry inside the gap and allows one once membership resumes", async () => {
+    // Two historical periods with a gap, the shape of a security that left an index and rejoined.
+    // The dip on index 3 sits inside the gap: the position exits there (never restricted) and the
+    // always-true BUY signal is refused for every gap session until the period opens on index 8.
+    const dates = tradingDates("2020-01-06", 12);
+    const closes = dates.map((_, index) => (index === 3 ? 50 : 100));
+
+    const result = await simulateBacktest(
+      executionInput({
+        definition: definitionOf({
+          buyLevels: [buyLevel("b1", 100, priceAboveSignal(ALWAYS))],
+          finalExit: finalExit("fx", priceBelowSignal(75)),
+        }),
+        securities: [
+          securityInput(frameOf({ symbol: "AAA", dates, closes }), {
+            mode: "CUSTOM",
+            ranges: [
+              { startDate: dates[0] as string, endDate: dates[1] as string },
+              { startDate: dates[8] as string, endDate: null },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      result.trades.map((trade) => [trade.action, trade.date]),
+    ).toEqual([
+      ["BUY", dates[0]],
+      ["FINAL_EXIT", dates[3]],
+      ["BUY", dates[8]],
+    ]);
   });
 });
 

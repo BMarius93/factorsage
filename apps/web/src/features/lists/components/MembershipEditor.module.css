@@ -1,0 +1,198 @@
+.explainer {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* The read-only guard an item with more than one stored period opens in. It is a quiet panel
+   rather than an alert: the data is intact and nothing has gone wrong. */
+.history {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+}
+
+.historyTitle {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: var(--weight-emphasis);
+}
+
+.historyList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-body);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.modes {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.modes legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+/* The date group still needs a name — "From"/"To" mean little on their own — but showing it would
+   repeat the radio label directly above it, so it exists for assistive technology only. */
+.period legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.modeOption {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.modeOption[data-checked="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.modeOption input {
+  margin-top: 3px;
+  accent-color: var(--color-primary);
+}
+
+.modeOption:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring-inset);
+}
+
+.modeName {
+  display: block;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: var(--weight-emphasis);
+}
+
+.modeHint {
+  display: block;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.period {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* One row on desktop — From, arrow, To, Present. The Present toggle wraps to its own line rather
+   than squeezing the two date inputs below a usable width. */
+.periodFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.periodField {
+  display: grid;
+  flex: 1 1 140px;
+  gap: 4px;
+  min-width: 128px;
+}
+
+.periodLabel {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.periodField input:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: not-allowed;
+}
+
+.periodArrow {
+  padding-bottom: 12px;
+  color: var(--color-text-muted);
+}
+
+.presentToggle {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--control-height);
+  padding-right: 2px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.presentToggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-primary);
+}
+
+.presentToggle label {
+  cursor: pointer;
+}
+
+.presentToggle:focus-within label {
+  color: var(--color-primary-ink);
+}
+
+.fieldError {
+  margin: 0;
+  color: var(--color-negative);
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+}
+
+@media (max-width: 599px) {
+  /* Two full date inputs never share a phone row: they stack, and the arrow that implied a
+     left-to-right pairing goes with them. */
+  .periodArrow {
+    display: none;
+  }
+
+  .periodFields {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* `flex-basis` is the MAIN axis, which is vertical once this column stacks — leaving the row's
+     `flex: 1 1 140px` in place would make each date field 140px tall and grow it from there,
+     pushing the preview out of the dialog. A stacked field sizes to its own content. */
+  .periodField {
+    flex: 0 0 auto;
+  }
+
+  .presentToggle {
+    min-height: 28px;
+  }
+}

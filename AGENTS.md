@@ -4,13 +4,21 @@ Read `ai/README.md` before substantial work.
 
 ## Product invariants
 
-1. Historical S&P 500 / Dow membership PIT is removed from the product.
+1. Historical S&P 500 / Dow membership PIT **data** is removed from the product: nothing ships,
+   syncs or reconstructs index constituents. Point-in-time membership a user supplies is a
+   different thing and is supported — see invariant 3.
 2. Stock lists are static user-owned universes; membership references the canonical `Security`
    catalog, never free-text symbols.
 3. Each list membership defines buy eligibility:
    - `FULL` (no persisted ranges)
    - `CUSTOM` (one or more date ranges, persisted only in canonical normalized form —
      sorted, non-overlapping, non-adjacent, at most one open-ended; see `ai/product/lists.md`)
+
+   A buy window is the period a member is eligible for **new BUY** actions; it never constrains a
+   SELL or a FINAL EXIT, and nothing force-liquidates a position when one closes. The UI calls the
+   concept **membership** and renders an open-ended window as `Present`; `buyWindow` remains the
+   internal name everywhere else. Multiple periods are what make point-in-time index membership
+   representable, and the single-period V1 editor must never silently discard the others.
 4. Fundamental and intrinsic-value historical calculations must remain point-in-time correct and must not use future information.
 5. Backtests are asynchronous long-running work.
 6. API and worker are different processes, not different business implementations.

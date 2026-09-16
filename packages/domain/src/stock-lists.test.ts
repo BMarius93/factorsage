@@ -275,3 +275,125 @@ describe("buy eligibility", () => {
     expect(isBuyWindowEligible(configuration, "2021-01-15")).toBe(true);
   });
 });
+
+/**
+ * Point-in-time index membership, the use case buy windows exist for.
+ *
+ * The worked example throughout is a company that was in an index from 2001-03-10 to 2008-07-15,
+ * left it, and rejoined on 2012-05-01 with no end yet. A backtest sitting in 2005 must see it as
+ * buyable, one in 2010 must not, and one in 2020 must again — from the *same* stored member.
+ */
+describe("point-in-time membership", () => {
+  const MEMBERSHIP = {
+    mode: "CUSTOM" as const,
+    ranges: [range("2001-03-10", "2008-07-15"), range("2012-05-01", null)],
+  };
+
+  it("is canonical as stored: two periods, sorted, the open-ended one last", () => {
+    expect(normalizeBuyWindowConfiguration(MEMBERSHIP)).toEqual(MEMBERSHIP);
+  });
+
+  it("refuses every date before the first membership begins", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "1998-01-01")).toBe(false);
+    expect(isBuyWindowEligible(MEMBERSHIP, "2001-03-09")).toBe(false);
+  });
+
+  it("admits the exact start boundary", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2001-03-10")).toBe(true);
+  });
+
+  it("admits a date inside the first period", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2005-06-30")).toBe(true);
+  });
+
+  it("admits the exact end boundary", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2008-07-15")).toBe(true);
+  });
+
+  it("refuses the day after the end boundary", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2008-07-16")).toBe(false);
+  });
+
+  it("refuses every date in the gap between the two periods", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2010-01-01")).toBe(false);
+    expect(isBuyWindowEligible(MEMBERSHIP, "2012-04-30")).toBe(false);
+  });
+
+  it("admits re-entry from the second period's exact start onwards", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2012-05-01")).toBe(true);
+    expect(isBuyWindowEligible(MEMBERSHIP, "2020-11-03")).toBe(true);
+  });
+
+  it("stays eligible indefinitely because the final period is open-ended", () => {
+    expect(isBuyWindowEligible(MEMBERSHIP, "2199-12-31")).toBe(true);
+  });
+
+  it("is a fixed point: normalizing canonical output again changes nothing", () => {
+    const once = normalizeBuyWindowConfiguration(MEMBERSHIP);
+    expect(normalizeBuyWindowConfiguration(once)).toEqual(once);
+  });
+
+  it("survives a JSON serialization round-trip without losing a period", () => {
+    const canonical = normalizeBuyWindowConfiguration(MEMBERSHIP);
+    const revived = JSON.parse(
+      JSON.stringify(canonical),
+    ) as typeof canonical;
+
+    expect(revived).toEqual(canonical);
+    // `endDate: null` is the open-ended marker and must not become `undefined` or disappear.
+    expect(Object.keys(revived.ranges[1] ?? {})).toContain("endDate");
+    expect(revived.ranges[1]?.endDate).toBeNull();
+    expect(normalizeBuyWindowConfiguration(revived)).toEqual(canonical);
+  });
+
+  it("orders deterministically however the periods arrive", () => {
+    const shuffled = normalizeBuyWindowConfiguration({
+      mode: "CUSTOM",
+      ranges: [range("2012-05-01", null), range("2001-03-10", "2008-07-15")],
+    });
+    expect(shuffled).toEqual(MEMBERSHIP);
+  });
+
+  it("rejects an end date before its start rather than reordering it", () => {
+    expect(() =>
+      normalizeBuyWindowConfiguration({
+        mode: "CUSTOM",
+        ranges: [range("2020-01-01", "2019-01-01")],
+      }),
+    ).toThrow(BuyWindowValidationError);
+  });
+
+  it("merges two overlapping membership periods into the one span they cover", () => {
+    // Overlap is accepted input, not an error: the canonical form is what disambiguates it. The
+    // union is exactly the eligible dates, so no date becomes eligible that was not submitted.
+    expect(
+      normalizeBuyWindowConfiguration({
+        mode: "CUSTOM",
+        ranges: [range("2001-03-10", "2005-12-31"), range("2004-01-01", "2008-07-15")],
+      }),
+    ).toEqual({
+      mode: "CUSTOM",
+      ranges: [range("2001-03-10", "2008-07-15")],
+    });
+  });
+
+  it("keeps a one-day gap open rather than closing it into one period", () => {
+    const configuration = normalizeBuyWindowConfiguration({
+      mode: "CUSTOM",
+      ranges: [range("2001-03-10", "2008-07-15"), range("2008-07-17", null)],
+    });
+    expect(configuration.ranges).toHaveLength(2);
+    expect(isBuyWindowEligible(configuration, "2008-07-16")).toBe(false);
+  });
+
+  it("is one open-ended period when the stock simply joined and never left", () => {
+    const configuration = {
+      mode: "CUSTOM" as const,
+      ranges: [range("1982-11-30", null)],
+    };
+    expect(normalizeBuyWindowConfiguration(configuration)).toEqual(configuration);
+    expect(isBuyWindowEligible(configuration, "1982-11-29")).toBe(false);
+    expect(isBuyWindowEligible(configuration, "1982-11-30")).toBe(true);
+    expect(isBuyWindowEligible(configuration, "2026-09-16")).toBe(true);
+  });
+});
