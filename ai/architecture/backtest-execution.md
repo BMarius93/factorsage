@@ -221,6 +221,30 @@ cache read, because the answer cannot change with effort spent:
   every derived operand column including materialized intrinsic values, the statements those values
   are computed from, and the benchmark bars that are both the comparison and the execution calendar.
 
+### The snapshot's definition document schema
+
+The two guards above are *refusals*. A Strategy document's **schema version** is deliberately not
+one: it is an upgrade, applied at the worker's parse boundary.
+
+`STRATEGY_SCHEMA_VERSION` describes the document's shape, and a run queued, recovered or retried
+across a release still carries the shape that was current at submission — a run submitted before
+FINAL EXIT gained Exit Rules holds `schemaVersion: 1` with a flat `finalExit.signal`. Refusing those
+would fail runs for a format change that altered no logic, so `parseRunSnapshot` projects the frozen
+definition to the current document through `withExecutableStrategyDefinition` and the engine
+consumes that. Every downstream read is then correct by construction, including ones added later.
+
+Three properties keep this honest, and each is covered by
+`apps/worker/src/backtest/backtest-legacy-snapshot.test.ts`, which drives the real processor:
+
+- **The stored row is never written back.** The projection returns a new document; `BacktestRun.snapshot`
+  stays byte-for-byte what was submitted, which is what makes it the reproducibility authority.
+- **It is an upcast, not a revalidation.** Only `schemaVersion` and the FINAL EXIT slot move. Adding
+  validation here would let a snapshot the worker has always executed start being refused because a
+  *later* release tightened a rule — the retroactive reinterpretation this section exists to prevent.
+- **Forensics keep the stored form.** The debug archive records the document exactly as stored, not
+  the executable projection: the upcast is deterministic, so the executed form stays derivable, while
+  the reverse is not true.
+
 `strategyEvaluation` deserves its own note. `STRATEGY_SCHEMA_VERSION` protects a Strategy document's
 _shape_; it says nothing about what evaluating it means. Correcting what "crosses above" does to a
 series that was flat for a week changes the answer for an unchanged document, an unchanged schema
@@ -452,6 +476,10 @@ completed run, and no read path depends on those rows.
 
 ### What is guaranteed
 
+- A read surface answers in the **current** contract while the row keeps the submitted document:
+  `GET /backtests/{runId}/strategy` projects an older definition schema to the canonical one through
+  `withCanonicalStrategyDefinition`, so it never publishes a shape its response contract does not
+  describe and never edits history to achieve that.
 - The submitted configuration is immutable, and editing a Strategy, a list or the benchmark catalog
   afterwards changes nothing about it.
 - A completed run's stored results are immutable.

@@ -49,6 +49,37 @@ export function evaluabilityAll(values: Iterable<Evaluability>): Evaluability {
   return result;
 }
 
+/**
+ * Kleene strong OR with TRUE absorbing.
+ *
+ * The mirror of {@link evaluabilityAnd}, and chosen for the same diagnostic honesty: on a day when
+ * one FINAL EXIT Exit Rule is definitively TRUE the action occurs whatever the other rules' missing
+ * operands would have been, so reporting NOT_EVALUABLE there would understate a decision the data
+ * fully supports. When nothing is TRUE and something is undecidable the result stays
+ * NOT_EVALUABLE — never a silent FALSE.
+ */
+export function evaluabilityOr(a: Evaluability, b: Evaluability): Evaluability {
+  if (a === Evaluability.TRUE || b === Evaluability.TRUE) {
+    return Evaluability.TRUE;
+  }
+  if (a === Evaluability.NOT_EVALUABLE || b === Evaluability.NOT_EVALUABLE) {
+    return Evaluability.NOT_EVALUABLE;
+  }
+  return Evaluability.FALSE;
+}
+
+/** An empty disjunction is FALSE: no alternative matched, because there was none to match. */
+export function evaluabilityAny(values: Iterable<Evaluability>): Evaluability {
+  let result: Evaluability = Evaluability.FALSE;
+  for (const value of values) {
+    result = evaluabilityOr(result, value);
+    if (result === Evaluability.TRUE) {
+      return result;
+    }
+  }
+  return result;
+}
+
 export function fromBoolean(value: boolean): Evaluability {
   return value ? Evaluability.TRUE : Evaluability.FALSE;
 }

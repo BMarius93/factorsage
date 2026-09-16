@@ -161,10 +161,38 @@ export type StrategySellLevel = {
   percentage: SellLevelPercentage;
 };
 
-/** FINAL EXIT carries no percentage at all: the type makes the product rule unrepresentable. */
-export type StrategyFinalExit = { id: string; signal: StrategySignal };
+/**
+ * One alternative way FINAL EXIT can match: a Signal, with its own identity.
+ *
+ * A rule owns exactly one Signal, so the only structure the model can express is **OR of AND
+ * groups**: Conditions AND inside a rule, rules OR across the action. There is no nested group, no
+ * per-condition connector and no boolean expression tree — `A AND (B OR C)` is written as
+ * `(A AND B) OR (A AND C)`, which the grammar already represents.
+ */
+export type StrategyExitRule = { id: string; signal: StrategySignal };
 
-export const STRATEGY_SCHEMA_VERSION = 1;
+/**
+ * FINAL EXIT: **one** action, reached by one or more alternative Exit Rules combined with OR.
+ *
+ * It carries no percentage at all — the type makes that product rule unrepresentable — and it
+ * remains a single level with a single id, which is the identity a Monitor's durable state and a
+ * backtest trade are keyed by. The rules are alternatives *within* that one action, never several
+ * Final Exits: however many of them match on one date, the position closes once.
+ */
+export type StrategyFinalExit = { id: string; rules: StrategyExitRule[] };
+
+/**
+ * The persisted definition document's schema version.
+ *
+ * `1` described a FINAL EXIT as a single flat `signal`. `2` replaces that with `rules`, the ordered
+ * list of alternatives. Version 1 documents are still read: `upgradeStrategyDefinitionDocument`
+ * upcasts one to the equivalent single-rule version 2 document before anything validates it, so no
+ * stored row is rewritten and no strategy changes meaning.
+ */
+export const STRATEGY_SCHEMA_VERSION = 2;
+
+/** The version this file can still read and upcast. Never written. */
+export const STRATEGY_LEGACY_SCHEMA_VERSION = 1;
 
 /**
  * The versioned Strategy document: ordered BUY levels, ordered SELL levels and an optional
@@ -203,6 +231,13 @@ export const STRATEGY_DESCRIPTION_MAX_LENGTH = 500;
 export const STRATEGY_MAX_BUY_LEVELS = 10;
 export const STRATEGY_MAX_SELL_LEVELS = 10;
 export const STRATEGY_MAX_CONDITIONS_PER_SIGNAL = 10;
+/**
+ * Alternatives inside one FINAL EXIT.
+ *
+ * The same bound as the BUY and SELL level lists, because it bounds the same thing: how many
+ * independent ways one action can be reached.
+ */
+export const STRATEGY_MAX_EXIT_RULES = 10;
 
 /** An empty definition: one that a user starts from, and that validation rejects until a BUY exists. */
 export function emptyStrategyDefinition(): StrategyDefinition {
@@ -682,6 +717,15 @@ export type StrategyPreviewLine =
       /** Absent for FINAL EXIT, which has no percentage. */
       percentage?: number;
     }
+  /**
+   * The header of one FINAL EXIT Exit Rule, emitted **only when there is more than one**.
+   *
+   * A single-rule FINAL EXIT reads exactly as it always has — a heading and its rows — because
+   * labelling a lone alternative "RULE 1" would name a choice the strategy does not offer.
+   * `connector` is present on every rule after the first, and is what makes `(rule 1) OR (rule 2)`
+   * legible rather than a run of separate FINAL EXIT actions.
+   */
+  | { kind: "EXIT_RULE"; index: number; connector?: "OR" }
   | { kind: "CONDITION"; text: string; connector?: "AND" }
   /** `connector` is present exactly when Conditions precede the Trigger it is ANDed with. */
   | { kind: "TRIGGER"; text: string; connector?: "AND" }
@@ -729,6 +773,10 @@ function describeSignal(signal: StrategySignal): StrategyPreviewLine[] {
  * An incomplete level renders an explicit `EMPTY` line rather than vanishing, so the preview shows
  * what is missing instead of silently under-reporting the strategy. Output is deterministic: the
  * same definition always produces the same lines in the same order.
+ *
+ * FINAL EXIT emits **one** level header followed by its Exit Rules, so a reader sees one action
+ * with alternatives rather than a sequence of Final Exits. With a single rule the shape is exactly
+ * what it was before Exit Rules existed.
  */
 export function describeStrategy(
   definition: StrategyDefinition,
@@ -764,7 +812,25 @@ export function describeStrategy(
     appendLevel("SELL", level.signal, index + 1, level.percentage);
   });
   if (definition.finalExit) {
-    appendLevel("FINAL_EXIT", definition.finalExit.signal);
+    // One FINAL EXIT heading, then its alternatives beneath it. The heading is never repeated: the
+    // strategy has one Final Exit action however many ways there are to reach it.
+    lines.push({ kind: "LEVEL", levelKind: "FINAL_EXIT" });
+    const rules = definition.finalExit.rules;
+    rules.forEach((rule, index) => {
+      if (rules.length > 1) {
+        lines.push(
+          index === 0
+            ? { kind: "EXIT_RULE", index: index + 1 }
+            : { kind: "EXIT_RULE", index: index + 1, connector: "OR" },
+        );
+      }
+      const body = describeSignal(rule.signal);
+      if (body.length === 0) {
+        lines.push({ kind: "EMPTY", levelKind: "FINAL_EXIT" });
+        return;
+      }
+      lines.push(...body);
+    });
   }
 
   return lines;
@@ -1022,6 +1088,9 @@ export const STRATEGY_VALIDATION_CODES = [
   "TOO_MANY_LEVELS",
   "TOO_MANY_CONDITIONS",
   "SIGNAL_EMPTY",
+  "EXIT_RULE_REQUIRED",
+  "TOO_MANY_EXIT_RULES",
+  "DUPLICATE_EXIT_RULE",
   "PERCENTAGE_INVALID",
   "METRIC_NOT_ALLOWED_IN_LEVEL",
   "METRIC_SERIES_UNSUPPORTED",
@@ -1041,6 +1110,8 @@ export type StrategyIssuePart =
   | "NAME"
   | "DESCRIPTION"
   | "LEVEL"
+  /** One FINAL EXIT Exit Rule, as a whole. */
+  | "EXIT_RULE"
   | "PERCENTAGE"
   | "CONDITION"
   | "TRIGGER";
@@ -1058,6 +1129,11 @@ export type StrategyIssuePath = {
   levelKind?: StrategyLevelKind;
   /** Absent for FINAL EXIT, which is a single level, and for strategy-scope issues. */
   levelIndex?: number;
+  /**
+   * Which Exit Rule inside FINAL EXIT, 0-based. Present only under `FINAL_EXIT`, and absent on the
+   * issues that belong to FINAL EXIT as a whole — an empty or over-long rule list.
+   */
+  ruleIndex?: number;
   part: StrategyIssuePart;
   conditionIndex?: number;
   field?: StrategyIssueField;
@@ -1089,7 +1165,8 @@ const DEFINITION_KEYS = [
   "finalExit",
 ] as const;
 const LEVEL_KEYS = ["id", "signal", "percentage"] as const;
-const FINAL_EXIT_KEYS = ["id", "signal"] as const;
+const FINAL_EXIT_KEYS = ["id", "rules"] as const;
+const EXIT_RULE_KEYS = ["id", "signal"] as const;
 const SIGNAL_KEYS = ["conditions", "trigger"] as const;
 const PREDICATE_KEYS = ["id", "metric", "operator", "value"] as const;
 
@@ -1123,6 +1200,7 @@ function issuePath(input: StrategyIssuePath): StrategyIssuePath {
   return {
     ...(input.levelKind !== undefined ? { levelKind: input.levelKind } : {}),
     ...(input.levelIndex !== undefined ? { levelIndex: input.levelIndex } : {}),
+    ...(input.ruleIndex !== undefined ? { ruleIndex: input.ruleIndex } : {}),
     part: input.part,
     ...(input.conditionIndex !== undefined
       ? { conditionIndex: input.conditionIndex }
@@ -1135,6 +1213,7 @@ function issuePath(input: StrategyIssuePath): StrategyIssuePath {
 type PredicateLocation = {
   levelKind: StrategyLevelKind;
   levelIndex?: number;
+  ruleIndex?: number;
   part: "CONDITION" | "TRIGGER";
   conditionIndex?: number;
 };
@@ -1166,13 +1245,16 @@ const BACKTEST_FIELD_HINT =
  * The state of one validation pass: the issues found so far, and the ids already claimed.
  *
  * Ids are checked across the **whole definition** rather than within one level, because they are
- * persisted and are what future per-level diagnostics and evaluator references address. Levels and
- * predicates keep separate namespaces: a level and a condition sharing a string are addressing
- * different things and never collide.
+ * persisted and are what future per-level diagnostics and evaluator references address. Levels,
+ * Exit Rules and predicates keep separate namespaces: a level and a condition sharing a string are
+ * addressing different things and never collide. The separation is load-bearing for backwards
+ * compatibility — upcasting a version 1 FINAL EXIT reuses the level's own id for the single Exit
+ * Rule it becomes, which is the only id derivable from the stored document without inventing one.
  */
 class ValidationContext {
   readonly issues: StrategyValidationIssue[] = [];
   private readonly levelIds = new Set<string>();
+  private readonly exitRuleIds = new Set<string>();
   private readonly predicateIds = new Set<string>();
 
   /**
@@ -1182,12 +1264,17 @@ class ValidationContext {
    * not put it.
    */
   claimId(
-    namespace: "LEVEL" | "PREDICATE",
+    namespace: "LEVEL" | "EXIT_RULE" | "PREDICATE",
     id: string,
     path: StrategyIssuePath,
     what: string,
   ): void {
-    const taken = namespace === "LEVEL" ? this.levelIds : this.predicateIds;
+    const taken =
+      namespace === "LEVEL"
+        ? this.levelIds
+        : namespace === "EXIT_RULE"
+          ? this.exitRuleIds
+          : this.predicateIds;
     if (taken.has(id)) {
       this.add(
         "DUPLICATE_ID",
@@ -1454,6 +1541,36 @@ function predicateIdentity(
 }
 
 /**
+ * The semantic identity of one Exit Rule, **for duplicate detection only**.
+ *
+ * Order-insensitive across the ANDed Conditions, because AND is commutative: `A AND B` and
+ * `B AND A` are the same rule, and the product guarantee is that two *semantically identical* Exit
+ * Rules are rejected. Writing one of them the other way round does not make FINAL EXIT occur any
+ * more often, so it is the same mistake as writing it twice. The at-most-one Trigger is a separate
+ * slot and stays where it is.
+ *
+ * Deliberately **not** a fingerprint, and deliberately not built by sorting one.
+ * `strategySignalFingerprint` preserves authored order and is the identity
+ * `StrategyVersion.definitionHash` and `MonitorSignalState.signalFingerprint` are keyed by; sorting
+ * there would silently change what those mean for every strategy that already exists — appending
+ * versions and resetting Monitor latches for documents nobody edited. This is a second, local
+ * identity with exactly one job, and it never reaches persistence, a response or a hash.
+ *
+ * It reuses the canonical per-predicate serialization rather than defining a second one, so the two
+ * can never disagree about which fields carry meaning.
+ */
+function exitRuleIdentity(signal: StrategySignal): string {
+  const [conditions, trigger] = signalFingerprintValue(signal) as [
+    unknown[],
+    unknown,
+  ];
+  return JSON.stringify([
+    conditions.map((condition) => JSON.stringify(condition)).sort(),
+    trigger,
+  ]);
+}
+
+/**
  * Validates one Condition or Trigger and returns its semantic identity when it is complete enough
  * to have one. A row whose metric, operator or value could not be read has no identity, so it
  * never participates in duplicate detection.
@@ -1518,15 +1635,34 @@ function validatePredicate(
     : undefined;
 }
 
+/** Where one Signal lives: its level, and — inside FINAL EXIT — which Exit Rule owns it. */
+type SignalLocation = {
+  levelKind: StrategyLevelKind;
+  levelIndex?: number;
+  ruleIndex?: number;
+};
+
 function validateSignal(
   raw: unknown,
-  levelKind: StrategyLevelKind,
-  levelIndex: number | undefined,
+  location: SignalLocation,
   issues: ValidationContext,
 ): void {
-  const levelPath = issuePath({ levelKind, levelIndex, part: "LEVEL" });
+  const { levelKind, levelIndex, ruleIndex } = location;
+  // A Signal's own issues belong to the row that owns it: the Exit Rule inside FINAL EXIT, the
+  // level everywhere else. That is what lets the Builder put the message under the right rule.
+  const levelPath = issuePath(
+    ruleIndex === undefined
+      ? { levelKind, levelIndex, part: "LEVEL" }
+      : { levelKind, ruleIndex, part: "EXIT_RULE" },
+  );
   if (!isRecord(raw)) {
-    issues.add("SHAPE_INVALID", levelPath, "This level is missing its signal.");
+    issues.add(
+      "SHAPE_INVALID",
+      levelPath,
+      ruleIndex === undefined
+        ? "This level is missing its signal."
+        : "This exit rule is missing its signal.",
+    );
     return;
   }
   issues.rejectUnknownKeys(raw, SIGNAL_KEYS, levelPath);
@@ -1558,13 +1694,19 @@ function validateSignal(
 
   const seen = new Map<string, number>();
   conditions.forEach((condition, conditionIndex) => {
-    const location: PredicateLocation = {
+    const predicateLocation: PredicateLocation = {
       levelKind,
       levelIndex,
+      ruleIndex,
       part: "CONDITION",
       conditionIndex,
     };
-    const identity = validatePredicate(condition, location, levelKind, issues);
+    const identity = validatePredicate(
+      condition,
+      predicateLocation,
+      levelKind,
+      issues,
+    );
     if (identity === undefined) {
       return;
     }
@@ -1575,7 +1717,7 @@ function validateSignal(
     }
     issues.add(
       "DUPLICATE_CONDITION",
-      predicatePath(location),
+      predicatePath(predicateLocation),
       `This condition repeats condition ${firstIndex + 1}. Combining a condition with itself changes nothing, so remove one of them.`,
     );
   });
@@ -1583,11 +1725,104 @@ function validateSignal(
   if (trigger !== undefined) {
     validatePredicate(
       trigger,
-      { levelKind, levelIndex, part: "TRIGGER" },
+      { levelKind, levelIndex, ruleIndex, part: "TRIGGER" },
       levelKind,
       issues,
     );
   }
+}
+
+/**
+ * One FINAL EXIT Exit Rule: an identity and the Signal it matches on.
+ *
+ * Its keys are exactly `id` and `signal`, so a rule cannot carry a nested rule list and the
+ * supported grammar stays **OR of AND groups** by construction rather than by a runtime check.
+ */
+function validateExitRule(
+  raw: unknown,
+  ruleIndex: number,
+  issues: ValidationContext,
+): void {
+  const rulePath = issuePath({
+    levelKind: "FINAL_EXIT",
+    ruleIndex,
+    part: "EXIT_RULE",
+  });
+  if (!isRecord(raw)) {
+    issues.add("SHAPE_INVALID", rulePath, "An exit rule must be an object.");
+    return;
+  }
+  issues.rejectUnknownKeys(raw, EXIT_RULE_KEYS, rulePath);
+  if (typeof raw.id !== "string" || raw.id.trim().length === 0) {
+    issues.add(
+      "SHAPE_INVALID",
+      rulePath,
+      "This exit rule is missing its identifier.",
+    );
+  } else {
+    issues.claimId("EXIT_RULE", raw.id, rulePath, "exit rule");
+  }
+  validateSignal(raw.signal, { levelKind: "FINAL_EXIT", ruleIndex }, issues);
+}
+
+/**
+ * FINAL EXIT's Exit Rules: at least one, at most {@link STRATEGY_MAX_EXIT_RULES}, none repeating
+ * another.
+ *
+ * A duplicate is rejected for the same reason a duplicate Condition is: ORing a rule with itself
+ * changes nothing, so it is always a mistake rather than something to silently drop. Identity is
+ * semantic — see {@link exitRuleIdentity} — not the rule's id, so two differently-keyed copies of
+ * one rule are still caught, and so is one whose Conditions were merely written in another order.
+ */
+function validateExitRules(
+  raw: unknown,
+  issues: ValidationContext,
+): void {
+  const levelPath = issuePath({ levelKind: "FINAL_EXIT", part: "LEVEL" });
+  if (!Array.isArray(raw)) {
+    issues.add(
+      "SHAPE_INVALID",
+      levelPath,
+      "FINAL EXIT's exit rules must be a list.",
+    );
+    return;
+  }
+  if (raw.length === 0) {
+    issues.add(
+      "EXIT_RULE_REQUIRED",
+      levelPath,
+      "FINAL EXIT needs at least one exit rule; remove FINAL EXIT instead of leaving it empty.",
+    );
+  }
+  if (raw.length > STRATEGY_MAX_EXIT_RULES) {
+    issues.add(
+      "TOO_MANY_EXIT_RULES",
+      levelPath,
+      `FINAL EXIT can hold at most ${STRATEGY_MAX_EXIT_RULES} exit rules.`,
+    );
+  }
+
+  const seen = new Map<string, number>();
+  raw.forEach((rule, ruleIndex) => {
+    const before = issues.issues.length;
+    validateExitRule(rule, ruleIndex, issues);
+    if (issues.issues.length !== before) {
+      // A rule that did not validate has no canonical logic, so it never participates in duplicate
+      // detection — exactly as an unreadable Condition row does not.
+      return;
+    }
+    const identity = exitRuleIdentity((rule as StrategyExitRule).signal);
+    const firstIndex = seen.get(identity);
+    if (firstIndex === undefined) {
+      seen.set(identity, ruleIndex);
+      return;
+    }
+    issues.add(
+      "DUPLICATE_EXIT_RULE",
+      issuePath({ levelKind: "FINAL_EXIT", ruleIndex, part: "EXIT_RULE" }),
+      `This exit rule repeats exit rule ${firstIndex + 1}. FINAL EXIT already occurs when that rule matches, so remove one of them.`,
+    );
+  });
 }
 
 function validateLevel(
@@ -1635,22 +1870,22 @@ function validateLevel(
     issues.claimId("LEVEL", raw.id, levelPath, "level");
   }
 
-  if (levelKind !== "FINAL_EXIT") {
-    const allowed: readonly number[] =
-      levelKind === "BUY" ? BUY_LEVEL_PERCENTAGES : SELL_LEVEL_PERCENTAGES;
-    if (
-      typeof raw.percentage !== "number" ||
-      !allowed.includes(raw.percentage)
-    ) {
-      issues.add(
-        "PERCENTAGE_INVALID",
-        issuePath({ levelKind, levelIndex, part: "PERCENTAGE" }),
-        `A ${STRATEGY_LEVEL_LABELS[levelKind]} level percentage must be one of ${allowed.join("%, ")}%.`,
-      );
-    }
+  if (levelKind === "FINAL_EXIT") {
+    validateExitRules(raw.rules, issues);
+    return;
   }
 
-  validateSignal(raw.signal, levelKind, levelIndex, issues);
+  const allowed: readonly number[] =
+    levelKind === "BUY" ? BUY_LEVEL_PERCENTAGES : SELL_LEVEL_PERCENTAGES;
+  if (typeof raw.percentage !== "number" || !allowed.includes(raw.percentage)) {
+    issues.add(
+      "PERCENTAGE_INVALID",
+      issuePath({ levelKind, levelIndex, part: "PERCENTAGE" }),
+      `A ${STRATEGY_LEVEL_LABELS[levelKind]} level percentage must be one of ${allowed.join("%, ")}%.`,
+    );
+  }
+
+  validateSignal(raw.signal, { levelKind, levelIndex }, issues);
 }
 
 function validateLevelList(
@@ -1687,7 +1922,11 @@ function validateLevelList(
   });
 }
 
-function validateDefinition(raw: unknown, issues: ValidationContext): void {
+function validateDefinition(input: unknown, issues: ValidationContext): void {
+  // Every persisted document reaches validation through this one upcast, so a version 1 row, a
+  // version 1 backtest snapshot and a version 1 request body are all validated as the version 2
+  // documents they are equivalent to — with one set of rules and one set of issue paths.
+  const raw = upgradeStrategyDefinitionDocument(input);
   const strategyPath = issuePath({ part: "STRATEGY" });
   if (!isRecord(raw)) {
     issues.add(
@@ -1707,7 +1946,7 @@ function validateDefinition(raw: unknown, issues: ValidationContext): void {
     issues.add(
       "SHAPE_INVALID",
       strategyPath,
-      `A strategy definition must declare schemaVersion ${STRATEGY_SCHEMA_VERSION}.`,
+      `A strategy definition must declare schemaVersion ${STRATEGY_SCHEMA_VERSION} (version ${STRATEGY_LEGACY_SCHEMA_VERSION} is still accepted and upgraded).`,
     );
   }
   validateLevelList(raw.buyLevels, "BUY", STRATEGY_MAX_BUY_LEVELS, issues);
@@ -1730,6 +1969,60 @@ export function validateStrategyDefinition(
   const issues = new ValidationContext();
   validateDefinition(definition, issues);
   return issues.issues;
+}
+
+// ---------------------------------------------------------------------------
+// Document upgrade
+// ---------------------------------------------------------------------------
+
+/**
+ * Upcasts a schema version 1 definition document to the equivalent version 2 one.
+ *
+ * Version 1 gave FINAL EXIT a single flat `signal`. Version 2 gives it `rules`, the ordered list of
+ * alternatives combined with OR. The two are **logically identical for one rule** — an OR of a
+ * single alternative is that alternative — so a stored version 1 document is upgraded rather than
+ * migrated: nothing in the database is rewritten, no strategy version is appended, and no completed
+ * backtest snapshot changes meaning.
+ *
+ * Three properties make that safe, and all three are tested:
+ *
+ * 1. **Deterministic.** The single Exit Rule reuses FINAL EXIT's own id rather than inventing one,
+ *    so reading one immutable row twice produces byte-identical documents. Exit Rule ids live in
+ *    their own namespace, so reusing the level's id is not a collision.
+ * 2. **Semantics-preserving.** Only `schemaVersion` and the FINAL EXIT slot move; every other field
+ *    is passed through untouched, including ones that are invalid, so validation still reports them
+ *    against the rows that carry them.
+ * 3. **Idempotent.** A version 2 document — or anything that is not a readable version 1 one — is
+ *    returned as-is, so callers may apply it defensively without checking first.
+ *
+ * Input is `unknown` and the result is `unknown`: this converts a shape, it does not prove one.
+ * Validation is what proves it.
+ */
+export function upgradeStrategyDefinitionDocument(definition: unknown): unknown {
+  if (!isRecord(definition)) {
+    return definition;
+  }
+  if (definition.schemaVersion !== STRATEGY_LEGACY_SCHEMA_VERSION) {
+    return definition;
+  }
+  const upgraded: Record<string, unknown> = {
+    ...definition,
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
+  };
+  const finalExit = definition.finalExit;
+  if (
+    isRecord(finalExit) &&
+    typeof finalExit.id === "string" &&
+    finalExit.rules === undefined &&
+    finalExit.signal !== undefined
+  ) {
+    const { signal, ...rest } = finalExit;
+    upgraded.finalExit = {
+      ...rest,
+      rules: [{ id: finalExit.id, signal }],
+    };
+  }
+  return upgraded;
 }
 
 /** Every issue in a complete strategy — name, description and definition — in document order. */
@@ -1860,7 +2153,13 @@ function buildDefinition(definition: StrategyDefinition): StrategyDefinition {
   if (definition.finalExit) {
     normalized.finalExit = {
       id: definition.finalExit.id,
-      signal: buildSignal(definition.finalExit.signal),
+      // Exit Rule order is preserved exactly, like level and condition order. OR is commutative, so
+      // reordering does not change what the strategy does — but it is what the user wrote, it is
+      // what the Builder renumbers, and rewriting it would move their rules for them.
+      rules: definition.finalExit.rules.map((rule) => ({
+        id: rule.id,
+        signal: buildSignal(rule.signal),
+      })),
     };
   }
   return normalized;
@@ -1879,11 +2178,15 @@ function buildDefinition(definition: StrategyDefinition): StrategyDefinition {
 export function normalizeStrategyDefinition(
   definition: unknown,
 ): StrategyDefinition {
-  const issues = validateStrategyDefinition(definition);
+  // The upcast happens here as well as inside validation, because the canonical result must be
+  // built from the *upgraded* document: a version 1 row validates cleanly and must then normalize
+  // to the version 2 shape rather than back to the one it was stored in.
+  const upgraded = upgradeStrategyDefinitionDocument(definition);
+  const issues = validateStrategyDefinition(upgraded);
   if (issues.length > 0) {
     throw new StrategyValidationError(issues);
   }
-  return buildDefinition(definition as StrategyDefinition);
+  return buildDefinition(upgraded as StrategyDefinition);
 }
 
 // ---------------------------------------------------------------------------
@@ -1900,12 +2203,25 @@ export function normalizeStrategyDefinition(
  * The value is a deterministic serialization, not a hash: hashing belongs to the persistence layer,
  * which has `node:crypto`, while the knowledge of which fields carry meaning belongs here with the
  * model. Two definitions produce the same string exactly when they express the same logic.
+ *
+ * It is led by {@link STRATEGY_FINGERPRINT_VERSION} rather than by the document's `schemaVersion`,
+ * because the two answer different questions. `schemaVersion` describes the *document format*;
+ * this describes the *logic*. A version 1 document and its version 2 upcast express identical
+ * logic, so they must — and do — produce an identical fingerprint, which is what keeps every
+ * existing `StrategyVersion.definitionHash` valid and stops the next save of an unedited strategy
+ * appending a version that changes nothing.
  */
+/**
+ * The version of the fingerprint *serialization*, bumped only when the serialization itself starts
+ * meaning something different — never when the persisted document format changes.
+ */
+const STRATEGY_FINGERPRINT_VERSION = 1;
+
 export function strategyDefinitionFingerprint(
   definition: StrategyDefinition,
 ): string {
   return JSON.stringify([
-    definition.schemaVersion,
+    STRATEGY_FINGERPRINT_VERSION,
     definition.buyLevels.map((level) => [
       level.percentage,
       signalFingerprintValue(level.signal),
@@ -1914,9 +2230,7 @@ export function strategyDefinitionFingerprint(
       level.percentage,
       signalFingerprintValue(level.signal),
     ]),
-    definition.finalExit
-      ? signalFingerprintValue(definition.finalExit.signal)
-      : null,
+    definition.finalExit ? finalExitFingerprintValue(definition.finalExit) : null,
   ]);
 }
 
@@ -1933,6 +2247,36 @@ export function strategyDefinitionFingerprint(
  */
 export function strategySignalFingerprint(signal: StrategySignal): string {
   return JSON.stringify(signalFingerprintValue(signal));
+}
+
+/**
+ * The canonical serialization of the whole FINAL EXIT level — every Exit Rule, in order.
+ *
+ * This is what a Monitor keys its durable FINAL EXIT state by, so editing *any* rule resets that
+ * level and only that level, exactly as editing a BUY level's only signal resets that BUY level.
+ *
+ * A single-rule FINAL EXIT fingerprints **byte-identically to the same logic under schema version
+ * 1**, because an OR of one alternative is that alternative. That is not a compatibility shim: it
+ * is the same statement the upgrade makes, and it is what stops a deploy silently resetting the
+ * transition state of every Monitor that has a FINAL EXIT.
+ */
+export function strategyFinalExitFingerprint(
+  finalExit: StrategyFinalExit,
+): string {
+  return JSON.stringify(finalExitFingerprintValue(finalExit));
+}
+
+/**
+ * The id-free value of one FINAL EXIT.
+ *
+ * `"OR"` leads the multi-rule form so it can never be confused with a single Signal's value, whose
+ * first element is always the list of conditions.
+ */
+function finalExitFingerprintValue(finalExit: StrategyFinalExit): unknown {
+  const rules = finalExit.rules.map((rule) =>
+    signalFingerprintValue(rule.signal),
+  );
+  return rules.length === 1 ? rules[0] : ["OR", rules];
 }
 
 /** The canonical id-free value of one Signal. Shared by both fingerprints; never inlined twice. */

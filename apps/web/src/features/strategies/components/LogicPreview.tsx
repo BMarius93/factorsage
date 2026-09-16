@@ -6,6 +6,7 @@ import {
   describeStrategy,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
+import { Fragment } from "react";
 import styles from "./ExplanationPanel.module.css";
 
 /**
@@ -14,6 +15,9 @@ import styles from "./ExplanationPanel.module.css";
  * `describeStrategy` returns structured lines rather than a formatted string, so each line is
  * toned by its level kind here instead of being generated and then re-parsed. A stored rendering
  * would be a second source of truth that goes stale the moment this component changes.
+ *
+ * FINAL EXIT prints one heading followed by its Exit Rules, separated by OR. A single-rule FINAL
+ * EXIT prints no rule headings at all, because there is no alternative to distinguish it from.
  */
 export function LogicPreview({
   definition,
@@ -58,6 +62,26 @@ export function LogicPreview({
                       <span className={styles.previewBasis}> · {basis}</span>
                     ) : null}
                   </li>
+                );
+              }
+              if (line.kind === "EXIT_RULE") {
+                // The OR belongs between two rules, so it is drawn as its own divider row rather
+                // than as a prefix on the heading: `(rule 1) OR (rule 2)` has to be legible as one
+                // FINAL EXIT with alternatives, never as two Final Exit actions in sequence.
+                return (
+                  <Fragment key={index}>
+                    {line.connector ? (
+                      <li
+                        className={styles.previewOr}
+                        data-testid="preview-exit-rule-or"
+                      >
+                        <span>{line.connector}</span>
+                      </li>
+                    ) : null}
+                    <li className={styles.previewExitRule}>
+                      Rule {line.index}
+                    </li>
+                  </Fragment>
                 );
               }
               if (line.kind === "EMPTY") {

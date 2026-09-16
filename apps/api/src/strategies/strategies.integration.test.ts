@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import {
   STRATEGY_SCHEMA_VERSION,
@@ -220,15 +220,20 @@ describe("strategies", () => {
     const withExit = definition({
       finalExit: {
         id: nextId("exit"),
-        signal: {
-          conditions: [],
-          trigger: {
-            id: nextId("trigger"),
-            metric: { kind: "PRICE" },
-            operator: "CROSSES_BELOW",
-            value: { kind: "SERIES", seriesId: "SMA_200D" },
+        rules: [
+          {
+            id: nextId("exit-rule"),
+            signal: {
+              conditions: [],
+              trigger: {
+                id: nextId("trigger"),
+                metric: { kind: "PRICE" },
+                operator: "CROSSES_BELOW",
+                value: { kind: "SERIES", seriesId: "SMA_200D" },
+              },
+            },
           },
-        },
+        ],
       },
     });
     const replaced = await owner
@@ -537,5 +542,365 @@ describe("strategies", () => {
     expect(body.issues.map((issue) => issue.code)).toEqual([
       "BUY_LEVEL_REQUIRED",
     ]);
+  });
+  /**
+   * `StrategyVersion.definitionHash` exactly as schema version 1 produced it.
+   *
+   * Transcribed from the version 1 serialization — `[schemaVersion, buy, sell, finalExitSignal]`
+   * with row ids stripped — rather than calling `strategyDefinitionFingerprint`, so this stands as
+   * an independent oracle for what is already on disk. A build that changed the serialization would
+   * fail here instead of silently appending a version to every strategy a user owns.
+   */
+  function legacyDefinitionHash(document: {
+    schemaVersion: number;
+    buyLevels: readonly { percentage: number; signal: unknown }[];
+    sellLevels: readonly { percentage: number; signal: unknown }[];
+    finalExit?: { signal: unknown };
+  }): string {
+    type Row = {
+      metric: { kind: string; seriesId?: string; sourceId?: string };
+      operator: string;
+      value: { kind: string; seriesId?: string; value?: number };
+    };
+    const predicate = (row: Row) => [
+      [row.metric.kind, row.metric.seriesId ?? row.metric.sourceId ?? null],
+      row.operator,
+      row.value.kind === "SERIES"
+        ? [row.value.kind, row.value.seriesId]
+        : [row.value.kind, row.value.value],
+    ];
+    const signal = (raw: unknown) => {
+      const value = raw as { conditions: Row[]; trigger?: Row };
+      return [
+        value.conditions.map(predicate),
+        value.trigger ? predicate(value.trigger) : null,
+      ];
+    };
+    const level = (entry: { percentage: number; signal: unknown }) => [
+      entry.percentage,
+      signal(entry.signal),
+    ];
+    return createHash("sha256")
+      .update(
+        JSON.stringify([
+          document.schemaVersion,
+          document.buyLevels.map(level),
+          document.sellLevels.map(level),
+          document.finalExit ? signal(document.finalExit.signal) : null,
+        ]),
+      )
+      .digest("hex");
+  }
+
+  /**
+   * FINAL EXIT's Exit Rules across the HTTP boundary and back out of PostgreSQL.
+   *
+   * The definition is a JSON document, so "does it round-trip" is not a formality: every rule, its
+   * order, its own trigger and its ids have to survive a write, a read, an edit and another read.
+   * Backwards compatibility is proven the only way that counts — by writing a genuine schema
+   * version 1 row and reading it back through the API.
+   */
+  describe("final exit exit rules", () => {
+    function exitRule(seriesId: "SMA_200D" | "EMA_50D" | "EMA_200D") {
+      return {
+        id: nextId("exit-rule"),
+        signal: {
+          conditions: [
+            {
+              id: nextId("condition"),
+              metric: { kind: "PRICE" as const },
+              operator: "IS_BELOW" as const,
+              value: { kind: "SERIES" as const, seriesId },
+            },
+          ],
+        },
+      };
+    }
+
+    function rsiRule(threshold: number) {
+      return {
+        id: nextId("exit-rule"),
+        signal: {
+          conditions: [
+            {
+              id: nextId("condition"),
+              metric: { kind: "OSCILLATOR" as const, seriesId: "RSI_14D" as const },
+              operator: "IS_ABOVE" as const,
+              value: { kind: "NUMBER" as const, value: threshold },
+            },
+          ],
+        },
+      };
+    }
+
+    it("persists and reloads a FINAL EXIT with two exit rules", async () => {
+      const rules = [exitRule("SMA_200D"), rsiRule(80)];
+      const created = await createStrategy(owner, {
+        name: `Two exit rules ${suffix}`,
+        definition: definition({
+          finalExit: { id: nextId("exit"), rules },
+        }),
+      });
+
+      expect(created.definition.finalExit?.rules).toHaveLength(2);
+
+      const reloaded = await owner
+        .get(`/strategies/${created.id}`)
+        .expect(200);
+      const body = reloaded.body as StrategyDetailResponse;
+      expect(body.definition.finalExit?.rules).toEqual(rules);
+      expect(body.hasFinalExit).toBe(true);
+    });
+
+    it("persists and reloads three exit rules in the order they were sent", async () => {
+      const rules = [exitRule("EMA_20D" as "EMA_200D"), exitRule("SMA_200D"), rsiRule(75)];
+      const created = await createStrategy(owner, {
+        name: `Three exit rules ${suffix}`,
+        definition: definition({ finalExit: { id: nextId("exit"), rules } }),
+      });
+
+      const body = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(body.definition.finalExit?.rules.map((rule) => rule.id)).toEqual(
+        rules.map((rule) => rule.id),
+      );
+      expect(body.definition.finalExit?.rules).toEqual(rules);
+    });
+
+    /** Add, save, reload, edit, save, reload — the exact round trip a user performs. */
+    it("keeps the structure exactly through an add / save / reload / edit / save / reload cycle", async () => {
+      const ruleOne = exitRule("SMA_200D");
+      const created = await createStrategy(owner, {
+        name: `Round trip ${suffix}`,
+        definition: definition({
+          finalExit: { id: nextId("exit"), rules: [ruleOne] },
+        }),
+      });
+
+      // Add a second rule.
+      const ruleTwo = rsiRule(80);
+      const afterAdd = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({
+            definition: {
+              ...created.definition,
+              finalExit: {
+                id: created.definition.finalExit?.id,
+                rules: [ruleOne, ruleTwo],
+              },
+            },
+          })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(afterAdd.versionNumber).toBe(2);
+
+      const reloaded = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(reloaded.definition.finalExit?.rules).toEqual([ruleOne, ruleTwo]);
+
+      // Edit only rule 2.
+      const editedTwo = {
+        ...ruleTwo,
+        signal: {
+          conditions: [
+            { ...ruleTwo.signal.conditions[0]!, value: { kind: "NUMBER" as const, value: 70 } },
+          ],
+        },
+      };
+      await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({
+          definition: {
+            ...reloaded.definition,
+            finalExit: {
+              id: reloaded.definition.finalExit?.id,
+              rules: [ruleOne, editedTwo],
+            },
+          },
+        })
+        .expect(200);
+
+      const final = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      // Rule 1 untouched, rule 2 carries the edit, the OR structure intact.
+      expect(final.definition.finalExit?.rules[0]).toEqual(ruleOne);
+      expect(final.definition.finalExit?.rules[1]).toEqual(editedTwo);
+      expect(final.versionNumber).toBe(3);
+    });
+
+    it("removes the middle rule and leaves no stale data behind", async () => {
+      const rules = [exitRule("SMA_200D"), rsiRule(80), rsiRule(75)];
+      const created = await createStrategy(owner, {
+        name: `Remove middle ${suffix}`,
+        definition: definition({ finalExit: { id: nextId("exit"), rules } }),
+      });
+
+      await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({
+          definition: {
+            ...created.definition,
+            finalExit: {
+              id: created.definition.finalExit?.id,
+              rules: [rules[0], rules[2]],
+            },
+          },
+        })
+        .expect(200);
+
+      const body = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(body.definition.finalExit?.rules).toEqual([rules[0], rules[2]]);
+      // The persisted document holds two rules, not three with one blanked.
+      const stored = await prisma.strategyVersion.findFirstOrThrow({
+        where: { strategyId: created.id },
+        orderBy: { versionNumber: "desc" },
+      });
+      expect(
+        (stored.definition as { finalExit: { rules: unknown[] } }).finalExit
+          .rules,
+      ).toHaveLength(2);
+    });
+
+    it("rejects an empty rule list and a duplicated rule with row-addressed issues", async () => {
+      const created = await createStrategy(owner, {
+        name: `Invalid rules ${suffix}`,
+        definition: definition(),
+      });
+
+      const empty = await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({
+          definition: definition({ finalExit: { id: nextId("exit"), rules: [] } }),
+        })
+        .expect(400);
+      expect((empty.body as StrategyValidationErrorResponse).issues[0]?.code).toBe(
+        "EXIT_RULE_REQUIRED",
+      );
+
+      const rule = rsiRule(80);
+      const duplicated = await owner
+        .put(`/strategies/${created.id}/definition`)
+        .send({
+          definition: definition({
+            finalExit: {
+              id: nextId("exit"),
+              rules: [rule, { ...rsiRule(80), id: nextId("exit-rule") }],
+            },
+          }),
+        })
+        .expect(400);
+      const issue = (duplicated.body as StrategyValidationErrorResponse)
+        .issues[0];
+      expect(issue?.code).toBe("DUPLICATE_EXIT_RULE");
+      expect(issue?.path).toEqual({
+        levelKind: "FINAL_EXIT",
+        ruleIndex: 1,
+        part: "EXIT_RULE",
+      });
+    });
+
+    /**
+     * The backwards-compatibility proof that matters, against a real row.
+     *
+     * The version 1 document is written straight to PostgreSQL — the shape every strategy saved
+     * before Exit Rules existed still has — and then read back through the ordinary API. It must
+     * come out as a single-rule version 2 document, and its `definitionHash` must still be the hash
+     * the row was stored with, or the next save would append a version nobody asked for.
+     */
+    it("reads a stored schema version 1 strategy as one exit rule, without touching the row", async () => {
+      const created = await createStrategy(owner, {
+        name: `Legacy exit ${suffix}`,
+        definition: definition(),
+      });
+      const legacySignal = {
+        conditions: [
+          {
+            id: "legacy-c1",
+            metric: { kind: "PRICE" },
+            operator: "IS_BELOW",
+            value: { kind: "SERIES", seriesId: "SMA_200D" },
+          },
+        ],
+      };
+      const legacyDocument = {
+        schemaVersion: 1,
+        buyLevels: created.definition.buyLevels,
+        sellLevels: [],
+        finalExit: { id: "legacy-exit", signal: legacySignal },
+      };
+      const current = await prisma.strategyVersion.findFirstOrThrow({
+        where: { strategyId: created.id },
+        orderBy: { versionNumber: "desc" },
+      });
+      await prisma.strategyVersion.update({
+        where: { id: current.id },
+        data: {
+          definition: legacyDocument,
+          // The hash the build that wrote this row would have stored, produced by a transcription
+          // of the version 1 serialization rather than by today's helper — otherwise this would
+          // only prove the code agrees with itself.
+          definitionHash: legacyDefinitionHash(legacyDocument),
+        },
+      });
+
+      const body = (await owner.get(`/strategies/${created.id}`).expect(200))
+        .body as StrategyDetailResponse;
+      expect(body.definition.schemaVersion).toBe(STRATEGY_SCHEMA_VERSION);
+      expect(body.definition.finalExit).toEqual({
+        id: "legacy-exit",
+        // The single rule reuses FINAL EXIT's own id: deterministic, and derived from the row.
+        rules: [{ id: "legacy-exit", signal: legacySignal }],
+      });
+      expect(body.hasFinalExit).toBe(true);
+
+      // Nothing rewrote the stored row.
+      const stored = await prisma.strategyVersion.findUniqueOrThrow({
+        where: { id: current.id },
+      });
+      expect(stored.definition).toEqual(legacyDocument);
+
+      // And re-saving the upgraded document appends no version, because no logic changed: the
+      // upgrade is semantics-preserving, so it fingerprints to exactly what the row already holds.
+      const resaved = (
+        await owner
+          .put(`/strategies/${created.id}/definition`)
+          .send({ definition: body.definition })
+          .expect(200)
+      ).body as StrategyDetailResponse;
+      expect(resaved.versionNumber).toBe(current.versionNumber);
+    });
+
+    /** A stale client still posting the old shape is served, not refused. */
+    it("accepts a schema version 1 payload and returns it as version 2", async () => {
+      const created = await createStrategy(owner, {
+        name: `Legacy payload ${suffix}`,
+        definition: {
+          schemaVersion: 1,
+          buyLevels: definition().buyLevels,
+          sellLevels: [],
+          finalExit: {
+            id: "legacy-payload-exit",
+            signal: {
+              conditions: [
+                {
+                  id: "legacy-payload-c1",
+                  metric: { kind: "PRICE" },
+                  operator: "IS_BELOW",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(created.definition.schemaVersion).toBe(STRATEGY_SCHEMA_VERSION);
+      expect(created.definition.finalExit?.rules).toHaveLength(1);
+      expect(created.definition.finalExit?.rules[0]?.id).toBe(
+        "legacy-payload-exit",
+      );
+    });
   });
 });

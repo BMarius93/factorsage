@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  STRATEGY_SCHEMA_VERSION,
   normalizeStrategyDefinition,
   type StrategyDefinition,
   type StrategySignal,
@@ -241,7 +242,7 @@ function priceAboveSmaSignal(conditionId: string): StrategySignal {
 
 function priceAboveSmaDefinition(): StrategyDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
     buyLevels: [
       {
         id: "buy-1",
@@ -264,7 +265,7 @@ function priceAboveSmaDefinition(): StrategyDefinition {
 
 function priceCrossesAboveSmaDefinition(): StrategyDefinition {
   return {
-    schemaVersion: 1,
+    schemaVersion: STRATEGY_SCHEMA_VERSION,
     buyLevels: [
       {
         id: "buy-1",
@@ -573,7 +574,7 @@ describe("monitor evaluation cycle", () => {
     await createMonitor({
       userId,
       definition: {
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           {
             id: "buy-1",
@@ -649,6 +650,169 @@ describe("monitor evaluation cycle", () => {
     signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(1);
     expect(signals[0]?.resolvedAt).not.toBeNull();
+  });
+
+  /**
+   * FINAL EXIT with alternative Exit Rules, through the real cycle and real PostgreSQL.
+   *
+   * FINAL EXIT stays one level: one id, one `MonitorSignalState` row, one Signal lifecycle. The
+   * thing a durable append-only Signal log cannot survive being wrong about is a duplicate, so the
+   * fixture makes **both** rules true at once and counts what was written.
+   */
+  it("emits one Signal for FINAL EXIT when two exit rules match together", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`ORX${suffix.slice(0, 4)}`);
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          { id: "buy-1", percentage: 100, signal: priceAboveSmaSignal("c-buy") },
+        ],
+        sellLevels: [],
+        finalExit: {
+          id: "exit-1",
+          rules: [
+            // Deliberately overlapping: above 100 satisfies both at once.
+            { id: "exit-rule-1", signal: priceAboveSmaSignal("c-exit-1") },
+            {
+              id: "exit-rule-2",
+              signal: {
+                conditions: [
+                  {
+                    // A second 20-bar average, so both rules are warmed up by the same history and
+                    // each is genuinely decidable — an undecidable alternative would prove nothing
+                    // about two *matching* rules.
+                    id: "c-exit-2",
+                    metric: { kind: "PRICE" },
+                    operator: "IS_ABOVE",
+                    value: { kind: "SERIES", seriesId: "EMA_20D" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    const cycle = cycleOf(loader);
+
+    loader.currentPrice = 90;
+    await cycle.run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(0);
+
+    // Both rules become true on the same observation.
+    loader.currentPrice = 150;
+    await cycle.run(nextCycle());
+    const signals = await signalsOf(monitorId);
+    const exits = signals.filter((signal) => signal.levelKind === "FINAL_EXIT");
+    expect(exits).toHaveLength(1);
+    expect(exits[0]?.levelId).toBe("exit-1");
+    expect(exits[0]?.resolvedAt).toBeNull();
+
+    // One durable state row for the level, not one per rule.
+    const states = await prisma.monitorSignalState.findMany({
+      where: { monitorId, levelId: "exit-1" },
+    });
+    expect(states).toHaveLength(1);
+
+    // Still both true on the next scan: no duplicate.
+    loader.currentPrice = 160;
+    await cycle.run(nextCycle());
+    expect(
+      (await signalsOf(monitorId)).filter(
+        (signal) => signal.levelKind === "FINAL_EXIT",
+      ),
+    ).toHaveLength(1);
+
+    // Neither rule holds any more: the one Signal resolves once.
+    loader.currentPrice = 80;
+    await cycle.run(nextCycle());
+    const resolved = (await signalsOf(monitorId)).filter(
+      (signal) => signal.levelKind === "FINAL_EXIT",
+    );
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.resolvedAt).not.toBeNull();
+  });
+
+  /**
+   * A Monitor's durable transition state is keyed by the level's logic fingerprint. A strategy
+   * stored under schema version 1 upgrades to a single-rule FINAL EXIT, which by construction
+   * fingerprints to exactly what version 1 produced — so the latch survives, no Signal is resolved
+   * as stale, and nothing re-fires. Without that property every Monitor with a FINAL EXIT would
+   * lose its state on deploy, with nobody having edited anything.
+   */
+  it("keeps FINAL EXIT's transition state across a schema version 1 strategy", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`LGX${suffix.slice(0, 4)}`);
+    const { monitorId, strategyId } = await createMonitor({
+      userId,
+      definition: {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          { id: "buy-1", percentage: 100, signal: priceAboveSmaSignal("c-buy") },
+        ],
+        sellLevels: [],
+        finalExit: {
+          id: "exit-1",
+          rules: [{ id: "exit-1", signal: priceAboveSmaSignal("c-exit") }],
+        },
+      },
+      securities: [security],
+    });
+
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    const cycle = cycleOf(loader);
+
+    loader.currentPrice = 150;
+    await cycle.run(nextCycle());
+    const before = await prisma.monitorSignalState.findFirstOrThrow({
+      where: { monitorId, levelId: "exit-1" },
+    });
+    expect(before.lastOutcome).toBe("MATCHED");
+
+    // Rewrite the version as the build before Exit Rules would have stored it.
+    const version = await prisma.strategyVersion.findFirstOrThrow({
+      where: { strategyId },
+      orderBy: { versionNumber: "desc" },
+    });
+    await prisma.strategyVersion.update({
+      where: { id: version.id },
+      data: {
+        definition: {
+          schemaVersion: 1,
+          buyLevels: [
+            {
+              id: "buy-1",
+              percentage: 100,
+              signal: priceAboveSmaSignal("c-buy"),
+            },
+          ],
+          sellLevels: [],
+          finalExit: { id: "exit-1", signal: priceAboveSmaSignal("c-exit") },
+        } as never,
+      },
+    });
+
+    loader.currentPrice = 160;
+    await cycle.run(nextCycle());
+
+    const after = await prisma.monitorSignalState.findFirstOrThrow({
+      where: { monitorId, levelId: "exit-1" },
+    });
+    // The same fingerprint, so the same latch and the same Signal: nothing was treated as stale.
+    expect(after.signalFingerprint).toBe(before.signalFingerprint);
+    expect(after.activeSignalId).toBe(before.activeSignalId);
+    expect(
+      (await signalsOf(monitorId)).filter(
+        (signal) => signal.levelKind === "FINAL_EXIT",
+      ),
+    ).toHaveLength(1);
   });
 
   it("emits a crossing once and not again while the price stays above", async () => {
@@ -1150,14 +1314,19 @@ describe("monitor evaluation cycle", () => {
     const { monitorId } = await createMonitor({
       userId,
       definition: {
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           { id: "buy-1", percentage: 100, signal: priceAboveSmaSignal("c-buy") },
         ],
         sellLevels: [
           { id: "sell-1", percentage: 50, signal: priceAboveSmaSignal("c-sell") },
         ],
-        finalExit: { id: "exit-1", signal: priceAboveSmaSignal("c-exit") },
+        finalExit: {
+          id: "exit-1",
+          rules: [
+            { id: "exit-1", signal: priceAboveSmaSignal("c-exit") },
+          ],
+        },
       },
       securities: [security],
     });
@@ -1199,7 +1368,7 @@ describe("monitor evaluation cycle", () => {
     const { monitorId } = await createMonitor({
       userId,
       definition: {
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           {
             id: "buy-1",
@@ -1812,7 +1981,7 @@ describe("monitor evaluation cycle", () => {
       conditions: readonly object[],
     ): StrategyDefinition {
       return normalizeStrategyDefinition({
-        schemaVersion: 1,
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
         buyLevels: [
           {
             id: "buy-1",
@@ -1924,7 +2093,7 @@ describe("monitor evaluation cycle", () => {
       const { monitorId } = await createMonitor({
         userId,
         definition: normalizeStrategyDefinition({
-          schemaVersion: 1,
+          schemaVersion: STRATEGY_SCHEMA_VERSION,
           buyLevels: [
             {
               id: "buy-1",
@@ -1962,7 +2131,7 @@ describe("monitor evaluation cycle", () => {
       const { monitorId } = await createMonitor({
         userId,
         definition: normalizeStrategyDefinition({
-          schemaVersion: 1,
+          schemaVersion: STRATEGY_SCHEMA_VERSION,
           buyLevels: [
             {
               id: "buy-1",

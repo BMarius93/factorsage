@@ -9,6 +9,7 @@ import {
   canonicalBacktestSnapshotDocument,
   isTerminalBacktestStatus,
   normalizeStrategyDefinition,
+  withCanonicalStrategyDefinition,
   type BacktestCurvePointResponse,
   type BacktestFailurePhase,
   type BacktestFailureResponse,
@@ -951,7 +952,20 @@ export class BacktestsService {
     return progressOf(run);
   }
 
-  /** The definition as of submission, from the snapshot — not the strategy's current version. */
+  /**
+   * The definition as of submission, from the snapshot — not the strategy's current version.
+   *
+   * Projected through `withCanonicalStrategyDefinition`, because the response contract is the
+   * **current** `StrategyDefinition`. A run submitted before FINAL EXIT gained Exit Rules froze a
+   * `schemaVersion: 1` document, and returning that verbatim would publish a shape the contract
+   * does not describe — a client reading `finalExit.rules` would find nothing there.
+   *
+   * The projection is read-only and semantics-preserving: the stored `JSONB` row keeps the exact
+   * document that was submitted, which is what makes it the reproducibility authority, while the
+   * API answers in the shape it promises. A document that cannot be canonicalized is corruption and
+   * surfaces as an internal failure, exactly as a corrupt `StrategyVersion` row does on the
+   * strategy read path.
+   */
   async getRunStrategy(
     userId: string,
     runId: string,
@@ -963,7 +977,9 @@ export class BacktestsService {
     if (!run) {
       throw new BacktestRunNotFoundError();
     }
-    const snapshot = readSnapshot(run.snapshot);
+    const snapshot = withCanonicalStrategyDefinition(
+      readSnapshot(run.snapshot),
+    );
     return {
       strategyName: snapshot.strategy.name,
       versionNumber: snapshot.strategy.versionNumber,

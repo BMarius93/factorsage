@@ -134,7 +134,13 @@ function definitionInLevel(
         ...base,
         sellLevels: [{ id: "sell-1", percentage: 25, signal: levelSignal }],
       }
-    : { ...base, finalExit: { id: "exit-1", signal: levelSignal } };
+    : {
+        ...base,
+        finalExit: {
+          id: "exit-1",
+          rules: [{ id: "exit-rule-1", signal: levelSignal }],
+        },
+      };
 }
 
 function codesOf(issues: readonly StrategyValidationIssue[]): string[] {
@@ -192,10 +198,15 @@ function completeDefinition(): StrategyDefinition {
     ],
     finalExit: {
       id: "exit-1",
-      signal: signal(
-        [],
-        trigger({ kind: "LOSS" }, "CROSSES_ABOVE", percent(10), "t2"),
-      ),
+      rules: [
+        {
+          id: "exit-rule-1",
+          signal: signal(
+            [],
+            trigger({ kind: "LOSS" }, "CROSSES_ABOVE", percent(10), "t2"),
+          ),
+        },
+      ],
     },
   };
 }
@@ -933,7 +944,7 @@ describe("level rules", () => {
       finalExit: {
         id: "exit-1",
         percentage: 100,
-        signal: signal([priceAboveEma200D()]),
+        rules: [{ id: "exit-rule-1", signal: signal([priceAboveEma200D()]) }],
       },
     });
     expect(withPercentage).toHaveLength(1);
@@ -1358,11 +1369,21 @@ describe("unknown identifiers and foreign fields", () => {
   });
 
   it("rejects a wrong or missing schema version", () => {
+    // A version this build does not know. Version 1 is deliberately *not* here: it is a document
+    // this build still reads, upgrades and accepts — see the schema-version-1 suite.
     expect(
       codesOf(
         validateStrategyDefinition({
           ...definitionOf(signal([priceAboveEma200D()])),
-          schemaVersion: 2,
+          schemaVersion: STRATEGY_SCHEMA_VERSION + 1,
+        }),
+      ),
+    ).toEqual(["SHAPE_INVALID"]);
+    expect(
+      codesOf(
+        validateStrategyDefinition({
+          buyLevels: definitionOf(signal([priceAboveEma200D()])).buyLevels,
+          sellLevels: [],
         }),
       ),
     ).toEqual(["SHAPE_INVALID"]);

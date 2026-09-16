@@ -3,7 +3,6 @@
 import {
   STRATEGY_LEVEL_LABELS,
   type StrategyIssuePath,
-  type StrategyLevelKind,
   type StrategySignal,
 } from "@intrinsic/contracts";
 import type { LevelRef, StrategyDraftAction } from "../utils/strategy-draft";
@@ -14,10 +13,11 @@ import { SignalEditor } from "./SignalEditor";
 import styles from "./StrategyBuilder.module.css";
 
 type LevelCardProps = {
-  readonly levelKind: StrategyLevelKind;
-  readonly levelIndex?: number;
-  readonly ordinal?: number;
-  readonly percentage?: number;
+  /** BUY and SELL only. FINAL EXIT is one action with alternatives; `FinalExitCard` renders it. */
+  readonly levelKind: "BUY" | "SELL";
+  readonly levelIndex: number;
+  readonly ordinal: number;
+  readonly percentage: number;
   readonly signal: StrategySignal;
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
@@ -30,11 +30,12 @@ type LevelCardProps = {
 };
 
 /**
- * One BUY level, SELL level or FINAL EXIT.
+ * One BUY or SELL level: an ordered candidate action with a percentage.
  *
- * The tone comes from the level kind so the three read apart at a glance without having to read
- * every label. FINAL EXIT renders no percentage control, because it has none: it closes the entire
- * remaining position.
+ * The tone comes from the level kind so the families read apart at a glance without having to read
+ * every label. FINAL EXIT is deliberately not rendered here — it carries no percentage, no
+ * ordering, and one or more alternative Exit Rules — so `FinalExitCard` owns it rather than this
+ * component growing a second personality.
  */
 export function LevelCard({
   levelKind,
@@ -51,18 +52,14 @@ export function LevelCard({
   onFocusHelp,
   focus,
 }: LevelCardProps) {
-  const levelRef: LevelRef =
-    levelIndex === undefined ? { levelKind } : { levelKind, levelIndex };
+  const levelRef: LevelRef = { levelKind, levelIndex };
   const levelPath: StrategyIssuePath = { ...levelRef, part: "LEVEL" };
   const percentagePath: StrategyIssuePath = { ...levelRef, part: "PERCENTAGE" };
   const levelMessage =
     messageAt(issues, levelPath, isRevealed(levelPath)) ??
     messageAt(issues, percentagePath, isRevealed(percentagePath));
 
-  const title =
-    ordinal === undefined
-      ? STRATEGY_LEVEL_LABELS[levelKind]
-      : `${STRATEGY_LEVEL_LABELS[levelKind]} ${ordinal}`;
+  const title = `${STRATEGY_LEVEL_LABELS[levelKind]} ${ordinal}`;
 
   return (
     <li
@@ -78,49 +75,41 @@ export function LevelCard({
         >
           {title}
         </button>
-        {levelKind !== "FINAL_EXIT" &&
-        percentage !== undefined &&
-        levelIndex !== undefined ? (
-          <LevelPercentageSelect
-            levelKind={levelKind}
-            levelIndex={levelIndex}
-            percentage={percentage}
-            onChange={(next) =>
-              dispatch({
-                type: "setPercentage",
-                ref: levelRef,
-                percentage: next,
-              })
-            }
-          />
-        ) : null}
+        <LevelPercentageSelect
+          levelKind={levelKind}
+          levelIndex={levelIndex}
+          percentage={percentage}
+          onChange={(next) =>
+            dispatch({
+              type: "setPercentage",
+              ref: levelRef,
+              percentage: next,
+            })
+          }
+        />
         <div className={styles.levelActions}>
-          {levelKind === "FINAL_EXIT" ? null : (
-            <>
-              <button
-                type="button"
-                className={styles.levelAction}
-                aria-label={`Move ${title} up`}
-                disabled={!canMoveUp}
-                onClick={() =>
-                  dispatch({ type: "moveLevel", ref: levelRef, direction: -1 })
-                }
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                className={styles.levelAction}
-                aria-label={`Move ${title} down`}
-                disabled={!canMoveDown}
-                onClick={() =>
-                  dispatch({ type: "moveLevel", ref: levelRef, direction: 1 })
-                }
-              >
-                ↓
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className={styles.levelAction}
+            aria-label={`Move ${title} up`}
+            disabled={!canMoveUp}
+            onClick={() =>
+              dispatch({ type: "moveLevel", ref: levelRef, direction: -1 })
+            }
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className={styles.levelAction}
+            aria-label={`Move ${title} down`}
+            disabled={!canMoveDown}
+            onClick={() =>
+              dispatch({ type: "moveLevel", ref: levelRef, direction: 1 })
+            }
+          >
+            ↓
+          </button>
           <button
             type="button"
             className={styles.levelRemove}

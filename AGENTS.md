@@ -32,6 +32,18 @@ Read `ai/README.md` before substantial work.
     multiple triggers, or backtest execution parameters to the Strategy model. Strategy Builder and
     backend validation must share canonical compatibility definitions rather than maintaining
     separate matrices.
+    **FINAL EXIT is the one level that may hold more than one Signal**: it is a single action
+    reached by one or more alternative **Exit Rules**, ORed, each owning its own Signal and
+    therefore its own optional Trigger. The supported grammar is exactly OR of AND groups, and only
+    there — BUY and SELL keep one Signal each, there is no nesting, and there is no per-condition
+    AND/OR choice. Whatever number of Exit Rules match on one date, FINAL EXIT is still **one**
+    action, one level id, one trade and one Signal; it must never execute or emit twice. The
+    persisted definition document is schema version 2; version 1 rows are upgraded at read time by
+    `upgradeStrategyDefinitionDocument`, never rewritten, and a single-rule FINAL EXIT fingerprints
+    identically to version 1 so no stored `definitionHash` or Monitor latch moves. A **frozen copy**
+    of a definition — `BacktestRun.snapshot.strategy.definition` — is not covered by that read path
+    and is projected at its own boundaries instead: the worker upcasts the document to execute it,
+    the API canonicalizes it to answer its contract, and neither writes the row back.
 12. A submitted `BacktestRun` snapshot is immutable and is the reproducibility authority. Nothing in
     a completed or running run may be re-derived from the current `Strategy`, `StrategyVersion`,
     `StockList` or `Benchmark` rows, and deleting any of them must never delete or reinterpret a

@@ -1,4 +1,7 @@
-import type { StrategyDefinition } from "@intrinsic/contracts";
+import {
+  STRATEGY_SCHEMA_VERSION,
+  type StrategyDefinition,
+} from "@intrinsic/contracts";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -23,7 +26,7 @@ function strategyWith(definition: StrategyDefinition) {
 }
 
 const MOS_STRATEGY = strategyWith({
-  schemaVersion: 1,
+  schemaVersion: STRATEGY_SCHEMA_VERSION,
   buyLevels: [
     {
       id: "buy-1",
@@ -64,15 +67,20 @@ const MOS_STRATEGY = strategyWith({
   ],
   finalExit: {
     id: "exit-1",
-    signal: {
-      conditions: [],
-      trigger: {
-        id: "t2",
-        metric: { kind: "PRICE" },
-        operator: "CROSSES_BELOW",
-        value: { kind: "SERIES", seriesId: "SMA_200D" },
+    rules: [
+      {
+        id: "exit-rule-1",
+        signal: {
+          conditions: [],
+          trigger: {
+            id: "t2",
+            metric: { kind: "PRICE" },
+            operator: "CROSSES_BELOW",
+            value: { kind: "SERIES", seriesId: "SMA_200D" },
+          },
+        },
       },
-    },
+    ],
   },
 });
 

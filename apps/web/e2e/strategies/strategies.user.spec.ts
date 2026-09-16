@@ -214,6 +214,228 @@ test.describe("strategy builder", () => {
   });
 });
 
+/**
+ * FINAL EXIT with several Exit Rules, through the real product.
+ *
+ * The unit and integration suites already prove the semantics. What only a browser can prove is
+ * that a user can *build* this — add rules, edit one without disturbing another, remove the middle
+ * one — and that what comes back after a reload is what they wrote.
+ */
+test.describe("strategy builder final exit rules", () => {
+  const MULTI_RULE_NAME = "E2E multi-rule final exit";
+
+  test.afterEach(async ({ page }) => {
+    await deleteStrategyIfPresent(page, MULTI_RULE_NAME);
+  });
+
+  /** The nth Exit Rule inside the single FINAL EXIT card. */
+  function exitRule(page: Page, index: number) {
+    return page
+      .getByTestId("level-card-FINAL_EXIT")
+      .getByTestId("exit-rule")
+      .nth(index);
+  }
+
+  test("builds, reloads and edits a final exit with several exit rules", async ({
+    page,
+  }) => {
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(MULTI_RULE_NAME);
+
+    // A BUY level, because a strategy without one can never buy anything.
+    await page.getByTestId("add-level-BUY").click();
+
+    await page.getByTestId("add-level-FINAL_EXIT").click();
+    const exitCard = page.getByTestId("level-card-FINAL_EXIT");
+    // One rule: no heading and no divider, exactly as a single-rule FINAL EXIT always looked.
+    await expect(exitCard.getByTestId("exit-rule")).toHaveCount(1);
+    await expect(exitCard.getByTestId("exit-rule-or")).toHaveCount(0);
+
+    // Rule 1: Price is below SMA 200D AND SMA 50D is below SMA 200D.
+    const first = exitRule(page, 0);
+    await first.getByTestId("metric-select").first().selectOption("PRICE:");
+    await first.getByTestId("operator-select").first().selectOption("IS_BELOW");
+    await first.getByTestId("value-control").first().selectOption("SMA_200D");
+    await first.getByTestId("add-condition").click();
+    const firstSecondRow = first.getByTestId("predicate-row").nth(1);
+    await firstSecondRow
+      .getByTestId("metric-select")
+      .selectOption("MOVING_AVERAGE:SMA_50D");
+    await firstSecondRow.getByTestId("operator-select").selectOption("IS_BELOW");
+    await firstSecondRow.getByTestId("value-control").selectOption("SMA_200D");
+
+    // Rule 2: RSI 14D is above 80.
+    await exitCard.getByTestId("add-exit-rule").click();
+    await expect(exitCard.getByTestId("exit-rule")).toHaveCount(2);
+    // Exactly one OR divider, between the two rules.
+    await expect(exitCard.getByTestId("exit-rule-or")).toHaveCount(1);
+    await expect(exitCard.getByTestId("exit-rule-or")).toHaveText("OR");
+    await expect(exitCard.getByText("Exit rule 1")).toBeVisible();
+    await expect(exitCard.getByText("Exit rule 2")).toBeVisible();
+    // Still one FINAL EXIT card, not two Final Exits.
+    await expect(page.getByTestId("level-card-FINAL_EXIT")).toHaveCount(1);
+
+    const second = exitRule(page, 1);
+    await second
+      .getByTestId("metric-select")
+      .first()
+      .selectOption("OSCILLATOR:RSI_14D");
+    await second.getByTestId("operator-select").first().selectOption("IS_ABOVE");
+    await second.getByTestId("value-control").first().fill("80");
+
+    // The Strategy Logic panel must read as (rule 1) OR (rule 2), under one FINAL EXIT.
+    const preview = page.getByTestId("logic-preview");
+    await expect(preview).toContainText("Rule 1");
+    await expect(preview).toContainText("Price is below SMA 200D");
+    await expect(preview).toContainText("SMA 50D is below SMA 200D");
+    await expect(preview).toContainText("Rule 2");
+    await expect(preview).toContainText("RSI 14D is above 80");
+    await expect(preview.getByTestId("preview-exit-rule-or")).toHaveCount(1);
+    await expect(preview.getByText("FINAL EXIT")).toHaveCount(1);
+    await expectNoHorizontalScroll(page);
+
+    await page.getByTestId("save-strategy").click();
+    await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
+
+    // Reload: both rules come back, in order, with the OR intact.
+    await page.reload();
+    await expect(page.getByLabel("Name")).toHaveValue(MULTI_RULE_NAME);
+    await expect(
+      page.getByTestId("level-card-FINAL_EXIT").getByTestId("exit-rule"),
+    ).toHaveCount(2);
+    await expect(
+      page.getByTestId("level-card-FINAL_EXIT").getByTestId("exit-rule-or"),
+    ).toHaveCount(1);
+    await expect(exitRule(page, 0).getByTestId("predicate-row")).toHaveCount(2);
+    await expect(preview).toContainText("RSI 14D is above 80");
+
+    // Edit only rule 2, save, reload: rule 1 unchanged, rule 2 carries the edit.
+    await exitRule(page, 1).getByTestId("value-control").first().fill("70");
+    await page.getByTestId("save-strategy").click();
+    await expect(page.getByText("All changes saved")).toBeVisible();
+    await page.reload();
+    await expect(preview).toContainText("Price is below SMA 200D");
+    await expect(preview).toContainText("SMA 50D is below SMA 200D");
+    await expect(preview).toContainText("RSI 14D is above 70");
+    await expect(preview).not.toContainText("RSI 14D is above 80");
+    await expect(preview.getByTestId("preview-exit-rule-or")).toHaveCount(1);
+
+    // A third rule, then remove the middle one: the survivors renumber and keep their own rows.
+    await page.getByTestId("level-card-FINAL_EXIT").getByTestId("add-exit-rule").click();
+    const third = exitRule(page, 2);
+    await third.getByTestId("metric-select").first().selectOption("PRICE:");
+    await third.getByTestId("operator-select").first().selectOption("IS_ABOVE");
+    await third.getByTestId("value-control").first().selectOption("SMA_20D");
+    await page.getByTestId("save-strategy").click();
+    await expect(page.getByText("All changes saved")).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByTestId("level-card-FINAL_EXIT").getByTestId("exit-rule"),
+    ).toHaveCount(3);
+
+    await page
+      .getByTestId("level-card-FINAL_EXIT")
+      .getByRole("button", { name: "Remove exit rule 2" })
+      .click();
+    await page.getByTestId("save-strategy").click();
+    await expect(page.getByText("All changes saved")).toBeVisible();
+    await page.reload();
+
+    await expect(
+      page.getByTestId("level-card-FINAL_EXIT").getByTestId("exit-rule"),
+    ).toHaveCount(2);
+    await expect(
+      page.getByTestId("level-card-FINAL_EXIT").getByText("Exit rule 3"),
+    ).toHaveCount(0);
+    // No stale data: the removed RSI rule is gone, the other two are exactly as written.
+    await expect(preview).toContainText("Price is below SMA 200D");
+    await expect(preview).toContainText("Price is above SMA 20D");
+    await expect(preview).not.toContainText("RSI 14D");
+  });
+
+  test("reports an empty exit rule against that rule and blocks the save", async ({
+    page,
+  }) => {
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(MULTI_RULE_NAME);
+    await page.getByTestId("add-level-BUY").click();
+    await page.getByTestId("add-level-FINAL_EXIT").click();
+
+    const exitCard = page.getByTestId("level-card-FINAL_EXIT");
+    await exitCard.getByTestId("add-exit-rule").click();
+    await exitRule(page, 1)
+      .getByRole("button", { name: "Remove condition 1" })
+      .click();
+
+    await page.getByTestId("issue-count").click();
+    await expect(exitRule(page, 1).getByRole("alert")).toContainText(
+      "at least one condition or a trigger",
+    );
+    await expect(page.getByTestId("save-strategy")).toBeDisabled();
+
+    // Two identical rules are refused too: FINAL EXIT already occurs when the first one matches.
+    await exitRule(page, 1).getByTestId("add-condition").click();
+    await page.getByTestId("issue-count").click();
+    await expect(exitRule(page, 1).getByRole("alert")).toContainText(
+      "repeats exit rule 1",
+    );
+    await expect(page.getByTestId("save-strategy")).toBeDisabled();
+  });
+});
+
+test.describe("strategy builder final exit rules on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  const MOBILE_NAME = "E2E multi-rule final exit (mobile)";
+
+  test.afterEach(async ({ page }) => {
+    await deleteStrategyIfPresent(page, MOBILE_NAME);
+  });
+
+  test("stacks three exit rules in one column without sideways scrolling", async ({
+    page,
+  }) => {
+    await page.goto("/strategies/new");
+    await page.getByLabel("Name").fill(MOBILE_NAME);
+    await page.getByTestId("add-level-BUY").click();
+    await page.getByTestId("add-level-FINAL_EXIT").click();
+
+    const exitCard = page.getByTestId("level-card-FINAL_EXIT");
+    await exitCard.getByTestId("add-exit-rule").click();
+    await exitCard.getByTestId("add-exit-rule").click();
+    await expect(exitCard.getByTestId("exit-rule")).toHaveCount(3);
+    await expect(exitCard.getByTestId("exit-rule-or")).toHaveCount(2);
+
+    // The OR divider spans the card rather than being clipped or wrapped off-screen.
+    const cardBox = await exitCard.boundingBox();
+    const dividerBox = await exitCard
+      .getByTestId("exit-rule-or")
+      .first()
+      .boundingBox();
+    expect(dividerBox).not.toBeNull();
+    if (cardBox && dividerBox) {
+      expect(dividerBox.width).toBeGreaterThan(cardBox.width * 0.5);
+      expect(dividerBox.x + dividerBox.width).toBeLessThanOrEqual(
+        cardBox.x + cardBox.width + 1,
+      );
+    }
+
+    await expectNoHorizontalScroll(page);
+
+    // An optional trigger inside a rule still stacks rather than clipping.
+    await exitRuleAt(page, 2).getByTestId("add-trigger").click();
+    await expect(exitRuleAt(page, 2).getByTestId("predicate-row")).toHaveCount(2);
+    await expectNoHorizontalScroll(page);
+  });
+
+  function exitRuleAt(page: Page, index: number) {
+    return page
+      .getByTestId("level-card-FINAL_EXIT")
+      .getByTestId("exit-rule")
+      .nth(index);
+  }
+});
+
 test.describe("strategy builder unsaved changes", () => {
   test.afterEach(async ({ page }) => {
     await deleteStrategyIfPresent(page, STRATEGY_NAME);

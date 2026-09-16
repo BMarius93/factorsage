@@ -1294,6 +1294,9 @@ paths:
       description: |
         Read from the run's immutable snapshot, never from the live strategy. It stays correct after
         the strategy has been edited or deleted, which is what makes a result reproducible.
+
+        The snapshot is never rewritten, so a run submitted under an older definition schema keeps
+        that document on disk; the response projects it to the canonical current one.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: standard-read }
       responses:
@@ -2841,13 +2844,19 @@ components:
     StrategyDefinition:
       type: object
       description: |
-        The complete strategy. At least one BUY level is required. A level owns exactly one signal
-        and one percentage; there is no stock list, no valuation source and no execution parameter
-        here — capital, contributions, period and `maximumPositions` all belong to a backtest.
+        The complete strategy. At least one BUY level is required. A BUY or SELL level owns exactly
+        one signal and one percentage — those levels have no OR; there is no stock list, no
+        valuation source and no execution parameter here — capital, contributions, period and
+        `maximumPositions` all belong to a backtest.
       required: [schemaVersion, buyLevels, sellLevels]
       properties:
         schemaVersion:
-          { type: integer, description: Definition schema version. }
+          type: integer
+          enum: [2]
+          description: |
+            Definition schema version. This schema is the canonical version 2 document, and every
+            response carries it. Requests may also submit the older version 1 shape — see
+            `StrategyDefinitionInput`.
         buyLevels:
           type: array
           minItems: 1
@@ -2874,11 +2883,69 @@ components:
               percentage: { type: integer, enum: [25, 50, 75] }
         finalExit:
           type: object
-          description: Closes the whole remaining position when its signal matches.
+          description: |
+            Closes the whole remaining position. One action, reached by one or more alternative
+            exit rules combined with OR: FINAL EXIT occurs when any rule matches, and however many
+            match on one date the position closes once. Conditions AND inside a rule; rules OR
+            across the action. There is no nested grouping — `A AND (B OR C)` is written as
+            `(A AND B) OR (A AND C)`.
+          required: [id, rules]
+          properties:
+            id: { type: string }
+            rules:
+              type: array
+              minItems: 1
+              maxItems: 10
+              description: |
+                Alternatives, in the order the strategy defines them. Each owns one signal, so each
+                carries its own optional trigger and no rule's trigger constrains another's.
+              items:
+                type: object
+                required: [id, signal]
+                properties:
+                  id: { type: string }
+                  signal: { $ref: "#/components/schemas/StrategySignal" }
+
+    LegacyStrategyDefinitionV1:
+      type: object
+      description: |
+        The definition document as schema version 1 wrote it. Its only difference from the canonical
+        version 2 document is FINAL EXIT: a single flat `signal` rather than a list of alternative
+        exit `rules`.
+
+        Accepted on requests and upgraded on the way in — a version 1 FINAL EXIT becomes exactly one
+        exit rule carrying the same signal, keyed by FINAL EXIT's own id — so a client that has not
+        been updated is served rather than refused. **Never returned**: responses are always version
+        2. New clients should send `StrategyDefinition`.
+      required: [schemaVersion, buyLevels, sellLevels]
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [1]
+        buyLevels:
+          { $ref: "#/components/schemas/StrategyDefinition/properties/buyLevels" }
+        sellLevels:
+          {
+            $ref: "#/components/schemas/StrategyDefinition/properties/sellLevels",
+          }
+        finalExit:
+          type: object
+          description: Closes the whole remaining position when its single signal matches.
           required: [id, signal]
           properties:
             id: { type: string }
             signal: { $ref: "#/components/schemas/StrategySignal" }
+
+    StrategyDefinitionInput:
+      description: |
+        A strategy definition as a request may submit it: the canonical version 2 document, or the
+        version 1 document a client written before FINAL EXIT gained exit rules still sends. A
+        version 1 body is upgraded to the equivalent single-rule version 2 document before
+        validation, so both are validated by one set of rules and both are answered with a
+        version 2 document.
+      oneOf:
+        - { $ref: "#/components/schemas/StrategyDefinition" }
+        - { $ref: "#/components/schemas/LegacyStrategyDefinitionV1" }
 
     StrategySummary:
       type: object
@@ -2923,7 +2990,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 500 }
-        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+        definition: { $ref: "#/components/schemas/StrategyDefinitionInput" }
 
     UpdateStrategyRequest:
       type: object
@@ -2939,7 +3006,7 @@ components:
       type: object
       required: [definition]
       properties:
-        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+        definition: { $ref: "#/components/schemas/StrategyDefinitionInput" }
 
     # -------------------------------------------------------------------------------------------
     # Benchmarks
@@ -3515,7 +3582,14 @@ components:
       properties:
         strategyName: { type: string }
         versionNumber: { type: integer }
-        definition: { $ref: "#/components/schemas/StrategyDefinition" }
+        definition:
+          allOf:
+            - { $ref: "#/components/schemas/StrategyDefinition" }
+          description: |
+            The canonical current document. A run submitted before FINAL EXIT gained exit rules
+            froze a version 1 definition, and the stored snapshot keeps it that way forever — it is
+            the reproducibility authority. The response projects it to version 2, so an old run's
+            FINAL EXIT is returned as exactly one exit rule carrying its original signal.
 
     # -------------------------------------------------------------------------------------------
     # Monitors

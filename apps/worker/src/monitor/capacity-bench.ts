@@ -423,9 +423,11 @@ function level(
   signal: Record<string, unknown>,
   percentage = 25,
 ): Record<string, unknown> {
-  return kind === "FINAL_EXIT"
-    ? { id: rowId("exit"), signal }
-    : { id: rowId(kind.toLowerCase()), percentage, signal };
+  if (kind !== "FINAL_EXIT") {
+    return { id: rowId(kind.toLowerCase()), percentage, signal };
+  }
+  const id = rowId("exit");
+  return { id, rules: [{ id, signal }] };
 }
 
 function definitionOf(kind: StrategyKind): StrategyDefinition {
