@@ -1541,6 +1541,36 @@ function predicateIdentity(
 }
 
 /**
+ * The semantic identity of one Exit Rule, **for duplicate detection only**.
+ *
+ * Order-insensitive across the ANDed Conditions, because AND is commutative: `A AND B` and
+ * `B AND A` are the same rule, and the product guarantee is that two *semantically identical* Exit
+ * Rules are rejected. Writing one of them the other way round does not make FINAL EXIT occur any
+ * more often, so it is the same mistake as writing it twice. The at-most-one Trigger is a separate
+ * slot and stays where it is.
+ *
+ * Deliberately **not** a fingerprint, and deliberately not built by sorting one.
+ * `strategySignalFingerprint` preserves authored order and is the identity
+ * `StrategyVersion.definitionHash` and `MonitorSignalState.signalFingerprint` are keyed by; sorting
+ * there would silently change what those mean for every strategy that already exists — appending
+ * versions and resetting Monitor latches for documents nobody edited. This is a second, local
+ * identity with exactly one job, and it never reaches persistence, a response or a hash.
+ *
+ * It reuses the canonical per-predicate serialization rather than defining a second one, so the two
+ * can never disagree about which fields carry meaning.
+ */
+function exitRuleIdentity(signal: StrategySignal): string {
+  const [conditions, trigger] = signalFingerprintValue(signal) as [
+    unknown[],
+    unknown,
+  ];
+  return JSON.stringify([
+    conditions.map((condition) => JSON.stringify(condition)).sort(),
+    trigger,
+  ]);
+}
+
+/**
  * Validates one Condition or Trigger and returns its semantic identity when it is complete enough
  * to have one. A row whose metric, operator or value could not be read has no identity, so it
  * never participates in duplicate detection.
@@ -1741,8 +1771,8 @@ function validateExitRule(
  *
  * A duplicate is rejected for the same reason a duplicate Condition is: ORing a rule with itself
  * changes nothing, so it is always a mistake rather than something to silently drop. Identity is
- * semantic — the rule's canonical logic — not its id, so two differently-keyed copies of one rule
- * are still caught.
+ * semantic — see {@link exitRuleIdentity} — not the rule's id, so two differently-keyed copies of
+ * one rule are still caught, and so is one whose Conditions were merely written in another order.
  */
 function validateExitRules(
   raw: unknown,
@@ -1781,9 +1811,7 @@ function validateExitRules(
       // detection — exactly as an unreadable Condition row does not.
       return;
     }
-    const identity = strategySignalFingerprint(
-      (rule as StrategyExitRule).signal,
-    );
+    const identity = exitRuleIdentity((rule as StrategyExitRule).signal);
     const firstIndex = seen.get(identity);
     if (firstIndex === undefined) {
       seen.set(identity, ruleIndex);

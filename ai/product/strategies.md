@@ -637,7 +637,10 @@ exactly as written, because it is what the user arranged and what the Builder nu
 
 Two Exit Rules that say the same thing are rejected, for the same reason a repeated Condition is:
 ORing a rule with itself changes nothing, so it is always a mistake rather than something to
-silently remove.
+silently remove. "The same thing" ignores the order of the ANDed Conditions — `A AND B` and
+`B AND A` are one rule — because AND is commutative and rewriting a rule the other way round does
+not make FINAL EXIT occur any more often. The optional Trigger is a separate slot, so a rule that
+adds one is a different rule.
 
 The precedence between a matching partial SELL and FINAL EXIT on the same date must remain an
 explicit engine rule. Preserve any already-authoritative rule; otherwise report it as an open
@@ -680,7 +683,9 @@ At minimum, Strategy validation must enforce:
 - FINAL EXIT has at least one Exit Rule, and no more than the shared maximum;
 - every Exit Rule has a valid Signal — at least one Condition or a Trigger, like any other Signal;
 - no two semantically identical Exit Rules inside one FINAL EXIT. Identity is semantic — the rule's
-  Conditions, operators, Values and optional Trigger — not its id;
+  Conditions, operators, Values and optional Trigger — not its id, and **not the order the
+  Conditions were written in**: AND is commutative, so `A AND B` and `B AND A` are one rule and the
+  second is rejected. Authored order is still preserved exactly as written;
 - no OR anywhere but FINAL EXIT, and no nested boolean structure anywhere;
 - no Strategy-owned Stock List, capital, contribution, `maximumPositions` or backtest date-range
   fields.

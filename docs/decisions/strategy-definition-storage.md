@@ -72,6 +72,24 @@ buy nothing — the upgrade is free at read time and provably lossless.
 A submitted version 1 payload is also still accepted and answered with a version 2 document, so a
 stale client is served rather than refused.
 
+### Run snapshots are the exception that proves the rule
+
+A `StrategyVersion` row is read through `normalizeStrategyDefinition` everywhere, so it upgraded for
+free. A `BacktestRun.snapshot` did **not**: it is a frozen copy taken at submission, it is the
+reproducibility authority, and nothing normalizes it on the way out. A run queued before this change
+and claimed after it would therefore have reached the new engine with a flat `finalExit.signal`.
+
+Two boundaries close that, and they deliberately do different things because they owe different
+things:
+
+| Boundary | Projection | Why |
+| --- | --- | --- |
+| `parseRunSnapshot` (worker) | `withExecutableStrategyDefinition` — document upcast only | Its job is to run what was submitted. The API validated that document when it wrote it, and re-validating would let a later release's stricter rule refuse a snapshot the worker has always executed. |
+| `getRunStrategy` (API) | `withCanonicalStrategyDefinition` — full normalization | Its job is to honour a published contract. `BacktestRunStrategyResponse.definition` is the current `StrategyDefinition`, so returning an older document verbatim would publish a shape the contract does not describe. |
+
+Neither writes. The stored snapshot stays exactly what was submitted, which is the whole point of
+it, and the debug archive keeps that stored form rather than the executable projection.
+
 ## Why a version is appended only on a real change
 
 `definitionHash` is a SHA-256 over `strategyDefinitionFingerprint(definition)` — a canonical
@@ -118,6 +136,9 @@ and this decision does not weaken or revisit that one.
 - A document schema change is a read-time upcast plus a validator that accepts the older version,
   never a rewrite of existing rows: `upgradeStrategyDefinitionDocument` is where version 2 did it,
   and where a version 3 would.
+- **Every frozen copy of a definition needs the same treatment as the row itself.** The one that was
+  missed here was `BacktestRun.snapshot`; a future schema change must check for others, because a
+  copy that nothing normalizes is a copy nothing upgrades.
 - Nothing indexes into the document. If a future feature needs to query strategies *by* their
   content — "every strategy using RSI 14D" — that is a new decision, and a derived index table is
   the likely answer rather than making the document queryable.

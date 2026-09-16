@@ -288,6 +288,98 @@ describe("validation of the Exit Rule list", () => {
     expect(issues[0]?.message).toContain("exit rule 1");
   });
 
+  /**
+   * AND is commutative, so `A AND B` and `B AND A` are the same rule.
+   *
+   * The documented guarantee is that two *semantically identical* Exit Rules are rejected, and
+   * writing one of them the other way round does not make FINAL EXIT occur any more often — it is
+   * the same mistake as writing it twice.
+   */
+  it("refuses two rules whose conditions are the same set in a different order", () => {
+    const a = priceBelow("SMA_200D", "a");
+    const b = rsiAbove(80, "b");
+    const issues = validateStrategyDefinition(
+      withRules([
+        { id: "r1", signal: { conditions: [a, b] } },
+        {
+          id: "r2",
+          signal: {
+            conditions: [
+              { ...b, id: "b-again" },
+              { ...a, id: "a-again" },
+            ],
+          },
+        },
+      ]),
+    );
+
+    expect(codesOf(issues)).toEqual(["DUPLICATE_EXIT_RULE"]);
+    expect(issues[0]?.path.ruleIndex).toBe(1);
+  });
+
+  /** A reordering that is not a duplicate stays accepted: the rules differ by a real predicate. */
+  it("accepts reordered conditions when the rules are genuinely different", () => {
+    const a = priceBelow("SMA_200D", "a");
+    const b = rsiAbove(80, "b");
+    const c = rsiAbove(70, "c");
+    expect(
+      validateStrategyDefinition(
+        withRules([
+          { id: "r1", signal: { conditions: [a, b] } },
+          { id: "r2", signal: { conditions: [c, { ...a, id: "a2" }] } },
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  /** A Trigger is its own slot, so an identical condition set with a Trigger is a different rule. */
+  it("does not treat a triggered rule as a duplicate of the untriggered one", () => {
+    const a = priceBelow("SMA_200D", "a");
+    expect(
+      validateStrategyDefinition(
+        withRules([
+          { id: "r1", signal: { conditions: [a] } },
+          {
+            id: "r2",
+            signal: {
+              conditions: [{ ...a, id: "a2" }],
+              trigger: priceCrossesBelow("t"),
+            },
+          },
+        ]),
+      ),
+    ).toEqual([]);
+  });
+
+  /**
+   * The order-insensitive identity is validation-only and must not leak into persistence.
+   *
+   * Condition order stays exactly as authored in the normalized document, and the fingerprints that
+   * key `definitionHash` and a Monitor's latch keep distinguishing the two orders — changing that
+   * would append a version and reset transition state for documents nobody edited.
+   */
+  it("keeps authored condition order, and leaves both fingerprints order-sensitive", () => {
+    const a = priceBelow("SMA_200D", "a");
+    const b = rsiAbove(80, "b");
+    const forward = withRules([{ id: "r1", signal: { conditions: [a, b] } }]);
+    const reversed = withRules([{ id: "r1", signal: { conditions: [b, a] } }]);
+
+    // Authored order survives normalization untouched.
+    expect(
+      normalizeStrategyDefinition(reversed).finalExit?.rules[0]?.signal.conditions.map(
+        (condition) => condition.id,
+      ),
+    ).toEqual(["b", "a"]);
+
+    // And the persisted identities still tell the two documents apart.
+    expect(strategyDefinitionFingerprint(forward)).not.toBe(
+      strategyDefinitionFingerprint(reversed),
+    );
+    expect(
+      strategyFinalExitFingerprint(forward.finalExit as never),
+    ).not.toBe(strategyFinalExitFingerprint(reversed.finalExit as never));
+  });
+
   it("accepts two rules that differ only in their threshold", () => {
     expect(
       validateStrategyDefinition(

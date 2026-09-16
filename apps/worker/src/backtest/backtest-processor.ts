@@ -53,7 +53,11 @@ import {
 } from "./job-repository.js";
 import { mapWithConcurrency } from "../shared/concurrency.js";
 import { toLiveSnapshotResponse } from "./live-snapshot.js";
-import { parseRunSnapshot, snapshotBuyWindows } from "./run-snapshot.js";
+import {
+  parseRunSnapshot,
+  snapshotBuyWindows,
+  storedRunSnapshot,
+} from "./run-snapshot.js";
 import type { BacktestSecurityCatalog } from "./securities.js";
 import type { BacktestJobProcessor } from "./worker-loop.js";
 
@@ -278,7 +282,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
 
     try {
       const snapshot = parseRunSnapshot(claim.snapshot);
-      await archive?.recordSnapshot(snapshot);
+      // Forensics keep the document **exactly as stored**, not the executable projection: the
+      // archive is what a reviewer re-runs a run from, and the upcast that produced `snapshot` is
+      // deterministic, so the executed form stays derivable from it.
+      await archive?.recordSnapshot(storedRunSnapshot(claim.snapshot));
       const period = {
         from: snapshot.period.startDate,
         to: snapshot.period.endDate,

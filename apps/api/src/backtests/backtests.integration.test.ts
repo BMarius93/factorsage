@@ -346,6 +346,107 @@ describe("backtests", () => {
     expect(sp500).not.toHaveProperty("sourceKind");
   });
 
+  /**
+   * A `BacktestRun` submitted **before** FINAL EXIT gained Exit Rules, read back through the API.
+   *
+   * The snapshot is the reproducibility authority and is never rewritten, so an old run keeps a
+   * `schemaVersion: 1` document with a flat `finalExit.signal` forever. The run-strategy response,
+   * though, publishes the **current** `StrategyDefinition` contract — so the two have to be
+   * reconciled at the response boundary rather than by editing history.
+   *
+   * The row is written directly here on purpose: the point is a document the current API can no
+   * longer produce, so it cannot be created by submitting one.
+   */
+  describe("a schema version 1 run snapshot", () => {
+    const LEGACY_EXIT_SIGNAL = {
+      conditions: [
+        {
+          id: "legacy-exit-condition",
+          metric: { kind: "PRICE" },
+          operator: "IS_BELOW",
+          value: { kind: "SERIES", seriesId: "SMA_200D" },
+        },
+      ],
+    };
+
+    /** Takes a real submitted run and rewrites its snapshot to the shape the old release wrote. */
+    async function runWithLegacySnapshot(): Promise<{
+      runId: string;
+      stored: Record<string, unknown>;
+    }> {
+      const run = await submit();
+      const current = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true },
+      });
+      const snapshot = current.snapshot as unknown as Record<string, unknown>;
+      const strategy = snapshot.strategy as Record<string, unknown>;
+      const legacy = {
+        ...snapshot,
+        strategy: {
+          ...strategy,
+          definition: {
+            ...(strategy.definition as Record<string, unknown>),
+            schemaVersion: 1,
+            finalExit: { id: "legacy-exit", signal: LEGACY_EXIT_SIGNAL },
+          },
+        },
+      };
+      await prisma.backtestRun.update({
+        where: { id: run.id },
+        data: { snapshot: legacy as never },
+      });
+      return { runId: run.id, stored: legacy };
+    }
+
+    it("projects the frozen definition to the current contract without rewriting history", async () => {
+      const { runId, stored } = await runWithLegacySnapshot();
+
+      const response = await owner
+        .get(`/backtests/${runId}/strategy`)
+        .expect(200);
+      const body = response.body as BacktestRunStrategyResponse;
+
+      // The response honours the published contract.
+      expect(body.definition.schemaVersion).toBe(STRATEGY_SCHEMA_VERSION);
+      // Exactly one Exit Rule, carrying the original logic unchanged, keyed deterministically by
+      // FINAL EXIT's own id rather than by something invented per request.
+      expect(body.definition.finalExit).toEqual({
+        id: "legacy-exit",
+        rules: [{ id: "legacy-exit", signal: LEGACY_EXIT_SIGNAL }],
+      });
+      // Everything else about the frozen definition is untouched.
+      expect(body.definition.buyLevels).toEqual(definition.buyLevels);
+      expect(body.strategyName).toBe("Discount accumulator");
+
+      // The persisted snapshot is still exactly what was stored: version 1, flat signal, no rules.
+      const after = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: runId },
+        select: { snapshot: true },
+      });
+      expect(after.snapshot).toEqual(stored);
+      const definitionAfter = (
+        (after.snapshot as unknown as Record<string, unknown>)
+          .strategy as Record<string, unknown>
+      ).definition as Record<string, unknown>;
+      expect(definitionAfter.schemaVersion).toBe(1);
+      expect(definitionAfter.finalExit).toEqual({
+        id: "legacy-exit",
+        signal: LEGACY_EXIT_SIGNAL,
+      });
+      expect(definitionAfter.finalExit).not.toHaveProperty("rules");
+    });
+
+    it("is repeatable: two reads of one immutable row answer identically", async () => {
+      const { runId } = await runWithLegacySnapshot();
+
+      const first = await owner.get(`/backtests/${runId}/strategy`).expect(200);
+      const second = await owner.get(`/backtests/${runId}/strategy`).expect(200);
+
+      expect(first.body).toEqual(second.body);
+    });
+  });
+
   it("freezes every result-affecting input into an immutable snapshot", async () => {
     const run = await submit();
 

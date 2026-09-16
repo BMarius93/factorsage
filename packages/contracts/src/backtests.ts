@@ -1,5 +1,9 @@
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
-import type { StrategyDefinition } from "./strategies.js";
+import {
+  normalizeStrategyDefinition,
+  upgradeStrategyDefinitionDocument,
+  type StrategyDefinition,
+} from "./strategies.js";
 
 /**
  * The one canonical Backtest contract: submission, run state, live progress and results.
@@ -697,6 +701,64 @@ export type BacktestRunSnapshot = {
     benchmarkPriceDatasetVersion: number;
   };
 };
+
+/**
+ * A run snapshot's frozen strategy definition, brought up to the current document schema.
+ *
+ * ## Why a snapshot needs this at all
+ *
+ * A `StrategyVersion` row is read through `normalizeStrategyDefinition` on every path, so a stored
+ * strategy is upgraded wherever it is loaded. A run snapshot is not a strategy row: it is an
+ * immutable copy taken at submission and it is the reproducibility authority (`AGENTS.md`
+ * invariant 12), so a run queued, recovered or retried across a release still carries whatever
+ * document schema was current when it was submitted — a run submitted before FINAL EXIT gained
+ * Exit Rules holds `schemaVersion: 1` with a flat `finalExit.signal`.
+ *
+ * ## Why there are two of these, and not one
+ *
+ * The two consumers owe different things, so collapsing them would make one of them wrong:
+ *
+ * - {@link withExecutableStrategyDefinition} is for the **worker**. Its boundary's job is to run
+ *   what was submitted, and the API already validated that document when it wrote it, so this
+ *   applies the document upcast and nothing else. Adding validation there would let a snapshot the
+ *   worker has always executed start being refused because a *later* release tightened a rule,
+ *   which is precisely the retroactive reinterpretation invariant 12 forbids.
+ * - {@link withCanonicalStrategyDefinition} is for the **API response**. Its boundary's job is to
+ *   honour a published contract — `BacktestRunStrategyResponse.definition` is the current
+ *   `StrategyDefinition` — so it canonicalizes fully, exactly as the strategy read path does. A
+ *   document it cannot canonicalize is corruption and surfaces as such rather than being returned
+ *   under a contract it does not satisfy.
+ *
+ * Both share two rules:
+ *
+ * 1. **The input is never mutated.** A new snapshot object with a new `strategy` object is
+ *    returned; the caller's document — and therefore the `JSONB` row it was read from — is left
+ *    exactly as submitted. Nothing here writes, and no caller may persist the result.
+ * 2. **The projection is semantics-preserving.** The upcast rewrites `schemaVersion` and the FINAL
+ *    EXIT slot and nothing else; a version 1 FINAL EXIT becomes the single Exit Rule it always
+ *    meant. Neither reinterprets a rule.
+ */
+export function withExecutableStrategyDefinition(
+  snapshot: BacktestRunSnapshot,
+): BacktestRunSnapshot {
+  const definition = upgradeStrategyDefinitionDocument(
+    snapshot.strategy.definition,
+  ) as StrategyDefinition;
+  return definition === snapshot.strategy.definition
+    ? snapshot
+    : { ...snapshot, strategy: { ...snapshot.strategy, definition } };
+}
+
+/** The snapshot's definition as the current API contract publishes it. See above for why this is separate. */
+export function withCanonicalStrategyDefinition(
+  snapshot: BacktestRunSnapshot,
+): BacktestRunSnapshot {
+  const definition = normalizeStrategyDefinition(snapshot.strategy.definition);
+  return {
+    ...snapshot,
+    strategy: { ...snapshot.strategy, definition },
+  };
+}
 
 /**
  * The canonical serialization a run's `snapshotHash` is taken over.

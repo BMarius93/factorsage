@@ -1,5 +1,6 @@
 import {
   BACKTEST_SNAPSHOT_VERSION,
+  withExecutableStrategyDefinition,
   type BacktestRunSnapshot,
   type BacktestSnapshotSecurity,
 } from "@intrinsic/contracts";
@@ -14,12 +15,29 @@ export class BacktestSnapshotError extends Error {
 }
 
 /**
- * Reads the immutable submission document a claimed run carries.
+ * Reads the immutable submission document a claimed run carries, and returns the form the engine
+ * executes.
  *
  * The API validated this document when it wrote it, so this is not a second validation layer: it
  * is the process boundary refusing to execute something it cannot interpret — a snapshot written
  * by an older version of the product, or a hand-edited row — rather than crashing halfway through
  * a run with an undefined property.
+ *
+ * It is also the **one** place a snapshot's frozen strategy definition is brought up to the
+ * current document schema. A run queued before a release, or recovered or retried after one, still
+ * carries the schema that was current at submission: a run submitted before FINAL EXIT gained Exit
+ * Rules holds `schemaVersion: 1` with a flat `finalExit.signal`, which the current engine cannot
+ * read. Upgrading here rather than at each consumer is what makes every downstream read correct by
+ * construction — including consumers added later, which is exactly how this defect arose.
+ *
+ * The stored row is never touched: `withExecutableStrategyDefinition` returns a new document and
+ * nothing writes the result back. `BacktestRun.snapshot` remains byte-for-byte what was submitted,
+ * which is what `AGENTS.md` invariant 12 requires of the reproducibility authority.
+ *
+ * It stays a document *upcast* and not a revalidation. This function's contract is unchanged: the
+ * API validated the definition when it wrote it, and re-validating here would let a snapshot the
+ * worker has always executed start being refused because a later release tightened a rule — the
+ * retroactive reinterpretation invariant 12 exists to prevent.
  */
 export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
   const document = record(value, "snapshot");
@@ -89,6 +107,24 @@ export function parseRunSnapshot(value: unknown): BacktestRunSnapshot {
     }
   });
 
+  // The returned snapshot is a copy whenever the upcast changed anything: `value` — the document
+  // the claim carried, and the shape of the persisted row — is never written through.
+  return withExecutableStrategyDefinition(value as BacktestRunSnapshot);
+}
+
+/**
+ * The stored document, typed but **not** upgraded — what forensics keep.
+ *
+ * `parseRunSnapshot` returns the executable projection, which is what the engine consumes. The
+ * debug archive wants the opposite: the submission document exactly as stored, because that is the
+ * reproducibility authority a reviewer re-runs from. The upcast is deterministic, so the executed
+ * form is always derivable from the stored one; the reverse is not true.
+ *
+ * A cast rather than a copy: `parseRunSnapshot` has already proven this document's structure, and
+ * this exists to make the stored-versus-executable distinction visible at the call site rather than
+ * leaving it an anonymous `as`.
+ */
+export function storedRunSnapshot(value: unknown): BacktestRunSnapshot {
   return value as BacktestRunSnapshot;
 }
 
