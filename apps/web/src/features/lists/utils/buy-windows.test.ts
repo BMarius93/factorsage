@@ -128,7 +128,10 @@ describe("membershipError", () => {
   it("requires a start date", () => {
     expect(
       membershipError({ startDate: "", endDate: "", present: true }),
-    ).toEqual({ field: "startDate", message: "Pick the date membership starts" });
+    ).toEqual({
+      field: "startDate",
+      message: "Pick the date membership starts",
+    });
   });
 
   it("requires an end date unless Present is chosen", () => {

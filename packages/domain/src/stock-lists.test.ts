@@ -335,9 +335,7 @@ describe("point-in-time membership", () => {
 
   it("survives a JSON serialization round-trip without losing a period", () => {
     const canonical = normalizeBuyWindowConfiguration(MEMBERSHIP);
-    const revived = JSON.parse(
-      JSON.stringify(canonical),
-    ) as typeof canonical;
+    const revived = JSON.parse(JSON.stringify(canonical)) as typeof canonical;
 
     expect(revived).toEqual(canonical);
     // `endDate: null` is the open-ended marker and must not become `undefined` or disappear.
@@ -369,7 +367,10 @@ describe("point-in-time membership", () => {
     expect(
       normalizeBuyWindowConfiguration({
         mode: "CUSTOM",
-        ranges: [range("2001-03-10", "2005-12-31"), range("2004-01-01", "2008-07-15")],
+        ranges: [
+          range("2001-03-10", "2005-12-31"),
+          range("2004-01-01", "2008-07-15"),
+        ],
       }),
     ).toEqual({
       mode: "CUSTOM",
@@ -391,7 +392,9 @@ describe("point-in-time membership", () => {
       mode: "CUSTOM" as const,
       ranges: [range("1982-11-30", null)],
     };
-    expect(normalizeBuyWindowConfiguration(configuration)).toEqual(configuration);
+    expect(normalizeBuyWindowConfiguration(configuration)).toEqual(
+      configuration,
+    );
     expect(isBuyWindowEligible(configuration, "1982-11-29")).toBe(false);
     expect(isBuyWindowEligible(configuration, "1982-11-30")).toBe(true);
     expect(isBuyWindowEligible(configuration, "2026-09-16")).toBe(true);

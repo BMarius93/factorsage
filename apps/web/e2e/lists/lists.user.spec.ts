@@ -94,8 +94,12 @@ test.describe("PRO_USER stock lists", () => {
       });
       listId = new URL(page.url()).pathname.split("/").pop() ?? null;
       await expect(page.getByRole("heading", { name: listName })).toBeVisible();
-      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText("Full history");
-      await expect(itemRow(page, QA_SYMBOL_TWO)).toContainText("Full history");
+      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText(
+        "Always eligible",
+      );
+      await expect(itemRow(page, QA_SYMBOL_TWO)).toContainText(
+        "Always eligible",
+      );
 
       // 3. Restrict one stock to a bounded membership period.
       const editor = await openMembership(page, QA_SYMBOL_ONE);
@@ -109,11 +113,13 @@ test.describe("PRO_USER stock lists", () => {
         "Jan 1, 2020",
       );
 
-      // 4. Switch back to full history; the period is gone.
+      // 4. Switch back to unrestricted eligibility; the period is gone.
       const reopened = await openMembership(page, QA_SYMBOL_ONE);
-      await reopened.getByRole("radio", { name: /Full history/ }).click();
+      await reopened.getByRole("radio", { name: /Always eligible/ }).click();
       await reopened.getByTestId("save-membership").click();
-      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText("Full history");
+      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText(
+        "Always eligible",
+      );
 
       // 5. Remove the second stock after confirmation.
       await chooseFromOverflowMenu(
@@ -148,11 +154,9 @@ test.describe("PRO_USER stock lists", () => {
         securityId === null,
         `${QA_SYMBOL_ONE} is not in the catalog. Run \`pnpm test:securities:seed\`.`,
       );
-      const list = await createList(
-        page,
-        `QA Membership E2E ${Date.now()}`,
-        [securityId as string],
-      );
+      const list = await createList(page, `QA Membership E2E ${Date.now()}`, [
+        securityId as string,
+      ]);
       listId = list.id;
     });
 
@@ -189,8 +193,12 @@ test.describe("PRO_USER stock lists", () => {
 
       // Reopening shows the persisted period, not a blank form.
       const reopened = await openMembership(page, QA_SYMBOL_ONE);
-      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue("1982-11-30");
-      await expect(reopened.getByLabel("Present", { exact: true })).toBeChecked();
+      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue(
+        "1982-11-30",
+      );
+      await expect(
+        reopened.getByLabel("Present", { exact: true }),
+      ).toBeChecked();
       await expect(reopened.getByLabel("To", { exact: true })).toBeDisabled();
 
       // Open-ended is `null` on the wire, never a fabricated future date.
@@ -227,9 +235,15 @@ test.describe("PRO_USER stock lists", () => {
       await expect(cell).not.toContainText("Present");
 
       const reopened = await openMembership(page, QA_SYMBOL_ONE);
-      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue("2001-03-10");
-      await expect(reopened.getByLabel("To", { exact: true })).toHaveValue("2008-07-15");
-      await expect(reopened.getByLabel("Present", { exact: true })).not.toBeChecked();
+      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue(
+        "2001-03-10",
+      );
+      await expect(reopened.getByLabel("To", { exact: true })).toHaveValue(
+        "2008-07-15",
+      );
+      await expect(
+        reopened.getByLabel("Present", { exact: true }),
+      ).not.toBeChecked();
     });
 
     // Scenario 3 — the invalid state is refused locally and never reaches the database.
@@ -245,7 +259,9 @@ test.describe("PRO_USER stock lists", () => {
       await editor.getByTestId("save-membership").click();
 
       const message = editor.getByTestId("membership-validation");
-      await expect(message).toHaveText("Membership cannot end before it starts");
+      await expect(message).toHaveText(
+        "Membership cannot end before it starts",
+      );
       // The message belongs to the field it is about, for assistive technology too.
       await expect(editor.getByLabel("To", { exact: true })).toHaveAttribute(
         "aria-invalid",
@@ -257,7 +273,9 @@ test.describe("PRO_USER stock lists", () => {
       await editor.getByRole("button", { name: "Cancel" }).click();
       await page.reload();
       await expect(page.getByTestId("list-detail")).toBeVisible();
-      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText("Full history");
+      await expect(itemRow(page, QA_SYMBOL_ONE)).toContainText(
+        "Always eligible",
+      );
 
       const persisted = itemOf(
         await readList(page, listId as string),
@@ -299,13 +317,18 @@ test.describe("PRO_USER stock lists", () => {
       await expect(editor.getByLabel("From", { exact: true })).toHaveCount(0);
 
       await editor.getByRole("button", { name: "Close", exact: true }).click();
-      const after = itemOf(await readList(page, listId as string), QA_SYMBOL_ONE);
+      const after = itemOf(
+        await readList(page, listId as string),
+        QA_SYMBOL_ONE,
+      );
       expect(after.buyWindows).toEqual(periods);
 
       // Replacing is possible, but only after saying so.
       const reopened = await openMembership(page, QA_SYMBOL_ONE);
       await reopened.getByTestId("replace-membership-history").click();
-      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue("2001-03-10");
+      await expect(reopened.getByLabel("From", { exact: true })).toHaveValue(
+        "2001-03-10",
+      );
       await expect(reopened.getByTestId("save-membership")).toBeVisible();
     });
 

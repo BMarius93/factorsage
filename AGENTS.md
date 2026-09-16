@@ -19,6 +19,7 @@ Read `ai/README.md` before substantial work.
    concept **membership** and renders an open-ended window as `Present`; `buyWindow` remains the
    internal name everywhere else. Multiple periods are what make point-in-time index membership
    representable, and the single-period V1 editor must never silently discard the others.
+
 4. Fundamental and intrinsic-value historical calculations must remain point-in-time correct and must not use future information.
 5. Backtests are asynchronous long-running work.
 6. API and worker are different processes, not different business implementations.

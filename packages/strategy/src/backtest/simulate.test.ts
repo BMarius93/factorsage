@@ -408,7 +408,9 @@ describe("buy windows", () => {
         securities: [
           securityInput(frameOf({ symbol: "AAA", dates, closes }), {
             mode: "CUSTOM",
-            ranges: [{ startDate: dates[0] as string, endDate: dates[2] as string }],
+            ranges: [
+              { startDate: dates[0] as string, endDate: dates[2] as string },
+            ],
           }),
         ],
       }),
@@ -424,7 +426,9 @@ describe("buy windows", () => {
         securities: [
           securityInput(frameOf({ symbol: "AAA", dates, closes }), {
             mode: "CUSTOM",
-            ranges: [{ startDate: dates[0] as string, endDate: dates[1] as string }],
+            ranges: [
+              { startDate: dates[0] as string, endDate: dates[1] as string },
+            ],
           }),
         ],
       }),
@@ -447,15 +451,15 @@ describe("buy windows", () => {
         securities: [
           securityInput(frameOf({ symbol: "AAA", dates, closes }), {
             mode: "CUSTOM",
-            ranges: [{ startDate: dates[0] as string, endDate: dates[1] as string }],
+            ranges: [
+              { startDate: dates[0] as string, endDate: dates[1] as string },
+            ],
           }),
         ],
       }),
     );
 
-    expect(
-      result.trades.map((trade) => [trade.action, trade.date]),
-    ).toEqual([
+    expect(result.trades.map((trade) => [trade.action, trade.date])).toEqual([
       ["BUY", dates[0]],
       ["SELL", dates[5]],
     ]);
@@ -477,7 +481,9 @@ describe("buy windows", () => {
         securities: [
           securityInput(frameOf({ symbol: "AAA", dates, closes }), {
             mode: "CUSTOM",
-            ranges: [{ startDate: dates[0] as string, endDate: dates[0] as string }],
+            ranges: [
+              { startDate: dates[0] as string, endDate: dates[0] as string },
+            ],
           }),
         ],
       }),
@@ -514,9 +520,7 @@ describe("buy windows", () => {
       }),
     );
 
-    expect(
-      result.trades.map((trade) => [trade.action, trade.date]),
-    ).toEqual([
+    expect(result.trades.map((trade) => [trade.action, trade.date])).toEqual([
       ["BUY", dates[0]],
       ["FINAL_EXIT", dates[3]],
       ["BUY", dates[8]],

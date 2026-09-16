@@ -168,10 +168,9 @@ export function MembershipEditor({
                   }}
                 />
                 <span>
-                  <span className={styles.modeName}>Full history</span>
+                  <span className={styles.modeName}>Always eligible</span>
                   <span className={styles.modeHint}>
-                    Part of this list on every date a strategy or backtest
-                    covers.
+                    Can be bought on every date a strategy or backtest covers.
                   </span>
                 </span>
               </label>

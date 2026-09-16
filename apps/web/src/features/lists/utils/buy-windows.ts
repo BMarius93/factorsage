@@ -23,8 +23,13 @@ import { formatMembershipDate } from "./format";
 /** How an open-ended membership renders. Never `null`, `—`, `Today`, or a fabricated future date. */
 export const PRESENT_LABEL = "Present";
 
-/** What the row and the editor show for a member with no date restriction at all. */
-export const FULL_HISTORY_LABEL = "Full history";
+/**
+ * What the row and the editor show for a member with no date restriction at all.
+ *
+ * Not "full history": the mode says nothing about how much price history the stock has, only that
+ * membership places no limit on when it may be bought.
+ */
+export const ALWAYS_ELIGIBLE_LABEL = "Always eligible";
 
 /** `{ startDate: "1982-11-30", endDate: null }` → `"Nov 30, 1982 → Present"`. */
 export function formatMembershipPeriod(range: BuyWindowRangeResponse): string {
@@ -110,9 +115,10 @@ export function toEditableMembership(
 }
 
 /** The request body's single range. `present` is what becomes `endDate: null` over the wire. */
-export function toRequestRange(
-  membership: EditableMembership,
-): { startDate: string; endDate: string | null } {
+export function toRequestRange(membership: EditableMembership): {
+  startDate: string;
+  endDate: string | null;
+} {
   return {
     startDate: membership.startDate,
     endDate: membership.present ? null : membership.endDate,

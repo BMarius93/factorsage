@@ -28,7 +28,7 @@ import {
 } from "../api/stock-lists-api";
 import { useStockList } from "../hooks/use-stock-list";
 import {
-  FULL_HISTORY_LABEL,
+  ALWAYS_ELIGIBLE_LABEL,
   membershipSummary,
   PRESENT_LABEL,
 } from "../utils/buy-windows";
@@ -69,7 +69,7 @@ function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
         data-mode={summary.mode}
         title={summary.title}
       >
-        {FULL_HISTORY_LABEL}
+        {ALWAYS_ELIGIBLE_LABEL}
       </span>
     );
   }

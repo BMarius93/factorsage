@@ -139,7 +139,7 @@ describe("ListDetail", () => {
     expect(screen.getByText("2 stocks")).toBeDefined();
     expect(screen.getByText("AAPL")).toBeDefined();
     expect(screen.getByText("AAPL Incorporated")).toBeDefined();
-    expect(screen.getByText("Full history")).toBeDefined();
+    expect(screen.getByText("Always eligible")).toBeDefined();
     // The multi-period member leads with its first period and says how many more it holds, so a
     // gap in membership is never presented as continuous eligibility.
     expect(screen.getByText("Jan 1, 2020")).toBeDefined();

@@ -50,7 +50,7 @@ independently restricts when a strategy/backtest may open a **new BUY** in that 
 when a Monitor may report a **BUY** Signal for it. Selling is never restricted.
 
 **The user-facing name is "membership".** `buyWindow` stays the internal name — schema, domain,
-contracts, engine, Monitor — because it is what the mechanism *does*, and renaming it across the
+contracts, engine, Monitor — because it is what the mechanism _does_, and renaming it across the
 repository would be churn without correctness. The browser says membership, because that is what a
 user is describing when they set it: the period this stock was part of this list's universe.
 Point-in-time index reconstruction is the case the multi-period model exists for — a security that
@@ -148,12 +148,17 @@ list page through a per-stock editor dialog.
 
 ### The V1 membership editor exposes one period
 
-`MembershipEditor` offers **Full history** or **one** membership period — `From`, `To`, and a
+`MembershipEditor` offers **Always eligible** or **one** membership period — `From`, `To`, and a
 `Present` checkbox. There is deliberately no "add another period", no timeline and no history
 browser: a user building an ordinary watchlist should not have to understand index history to add a
 stock, and the default for a newly added member is `FULL`, which needs no date at all. No date is
 ever invented to satisfy a constraint; `FULL` is the absence of a restriction, not a range from the
 beginning of time.
+
+**`FULL` is shown as "Always eligible", never "Full history".** The mode says nothing about how
+much price history the stock has — it says membership places no limit on when it may be bought, so
+wording that implies a dataset would describe the wrong thing. `ALWAYS_ELIGIBLE_LABEL` in
+`features/lists/utils/buy-windows.ts` is the one place that string lives.
 
 `Present` is the open-ended state. Internally it is `endDate: null` and nothing else — never a
 sentinel, a far-future date, or today's date frozen in. The editor keeps `present` as its own flag

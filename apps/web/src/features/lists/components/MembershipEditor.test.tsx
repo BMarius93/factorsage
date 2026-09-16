@@ -52,9 +52,9 @@ describe("MembershipEditor", () => {
   it("opens an open-ended member with its start date and Present chosen", () => {
     mount(withWindows([{ startDate: "1982-11-30", endDate: null }]));
 
-    expect(
-      (screen.getByLabelText("From") as HTMLInputElement).value,
-    ).toBe("1982-11-30");
+    expect((screen.getByLabelText("From") as HTMLInputElement).value).toBe(
+      "1982-11-30",
+    );
     expect((screen.getByLabelText("Present") as HTMLInputElement).checked).toBe(
       true,
     );
@@ -183,13 +183,15 @@ describe("MembershipEditor", () => {
     );
   });
 
-  it("switching to full history submits zero ranges", async () => {
+  it("switching to always eligible submits zero ranges", async () => {
     replaceBuyWindowsMock.mockResolvedValue(fullItem());
     const saved = mount(
       withWindows([{ startDate: "2020-01-01", endDate: null }]),
     );
 
-    await userEvent.click(screen.getByRole("radio", { name: /Full history/ }));
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Always eligible/ }),
+    );
     await userEvent.click(screen.getByTestId("save-membership"));
 
     await waitFor(() => {
