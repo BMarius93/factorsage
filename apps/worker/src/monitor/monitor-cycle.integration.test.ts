@@ -3303,9 +3303,13 @@ describe("monitor evaluation cycle", () => {
       expect(summary.levelsReconstructed).toBe(1);
       expect(summary.reconstructionHistoryExtensions).toBe(1);
       await expectReconstructedActive(monitorId, loader, streak);
+      // Both cycles run on the same injected clock, so the two Signals share `detectedAt` and
+      // their order is not defined: identify them by what they are.
       const signals = await signalsOf(monitorId);
-      expect(signals).toHaveLength(2);
-      expect(signals[0]!.resolutionReason).toBe("MONITOR_REBOUND");
+      expect(signals.map((signal) => signal.resolutionReason).sort()).toEqual([
+        "MONITOR_REBOUND",
+        null,
+      ]);
     });
 
     it("a level whose logic was edited", async () => {
@@ -3339,11 +3343,16 @@ describe("monitor evaluation cycle", () => {
         ["ACTIVE", "RESOLVED", "LOGIC_CHANGED"],
         ["INACTIVE", "ACTIVE", "RECONSTRUCTED"],
       ]);
+      // Same clock for both cycles: identify the Signals by what they are, not by their order.
       const signals = await signalsOf(monitorId);
-      expect(signals).toHaveLength(2);
-      expect(signals[0]!.resolutionReason).toBe("LOGIC_CHANGED");
+      expect(signals.map((signal) => signal.resolutionReason).sort()).toEqual([
+        "LOGIC_CHANGED",
+        null,
+      ]);
       state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
-      expect(state.activeSignalId).toBe(signals[1]!.id);
+      expect(state.activeSignalId).toBe(
+        signals.find((signal) => signal.resolvedAt === null)!.id,
+      );
     });
   });
 
