@@ -27,9 +27,13 @@ import {
   removeStockListItem,
 } from "../api/stock-lists-api";
 import { useStockList } from "../hooks/use-stock-list";
-import { buyWindowLabel } from "../utils/buy-windows";
-import { stockCountLabel } from "../utils/format";
-import { BuyWindowEditor } from "./BuyWindowEditor";
+import {
+  ALWAYS_ELIGIBLE_LABEL,
+  membershipSummary,
+  PRESENT_LABEL,
+} from "../utils/buy-windows";
+import { formatMembershipDate, stockCountLabel } from "../utils/format";
+import { MembershipEditor } from "./MembershipEditor";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
@@ -40,17 +44,73 @@ type ListDetailProps = {
   readonly listId: string;
 };
 
+/**
+ * A member's membership, as it reads in a row: `Nov 30, 1982 → Present`.
+ *
+ * Secondary metadata by design — it must not compete with the ticker and company name beside it,
+ * so it is plain text at the table's own weight rather than a badge.
+ *
+ * The arrow is decoration and is hidden from assistive technology, which reads "Nov 30, 1982 to
+ * Present" instead. `Present` is a real word in the accessibility tree for the same reason it is
+ * one on screen: an open-ended membership is a fact about the stock, not a missing value.
+ *
+ * A member with more than one stored period shows the first and says how many more there are,
+ * with all of them in the tooltip — the V1 editor cannot create that state, but the API can, and a
+ * cell that showed only the first period would imply an eligibility the stock never had.
+ */
+function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
+  const summary = membershipSummary(item);
+
+  if (summary.leading === null) {
+    return (
+      <span
+        className={styles.membership}
+        data-testid="membership"
+        data-mode={summary.mode}
+        title={summary.title}
+      >
+        {ALWAYS_ELIGIBLE_LABEL}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={styles.membership}
+      data-testid="membership"
+      data-mode={summary.mode}
+      title={summary.title}
+    >
+      <span>{formatMembershipDate(summary.leading.startDate)}</span>
+      <span className={styles.membershipArrow} aria-hidden="true">
+        →
+      </span>
+      <span className={styles.srOnly}>to</span>
+      <span>
+        {summary.leading.endDate === null
+          ? PRESENT_LABEL
+          : formatMembershipDate(summary.leading.endDate)}
+      </span>
+      {summary.additionalCount > 0 ? (
+        <span className={styles.membershipMore}>
+          +{summary.additionalCount} more
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 type DialogState =
   | { kind: "closed" }
   | { kind: "rename" }
   | { kind: "delete-list" }
   | { kind: "remove-item"; item: StockListItemResponse }
-  | { kind: "buy-windows"; item: StockListItemResponse };
+  | { kind: "membership"; item: StockListItemResponse };
 
 /**
- * One list: identity, membership, and per-stock buy eligibility. Everything renders from list
- * data plus the local catalog identity of each member — deliberately no prices, fundamentals, or
- * other heavy stock hydration.
+ * One list: identity, membership, and each member's membership period. Everything renders from
+ * list data plus the local catalog identity of each member — deliberately no prices, fundamentals,
+ * or other heavy stock hydration.
  */
 export function ListDetail({ listId }: ListDetailProps) {
   const router = useRouter();
@@ -177,19 +237,11 @@ export function ListDetail({ listId }: ListDetailProps) {
       ),
     },
     {
-      key: "buy-window",
-      header: "Buy window",
-      cardRole: "status",
+      key: "membership",
+      header: "Membership",
+      cardRole: "fact",
       nowrap: true,
-      render: (item) => (
-        <StatusBadge
-          tone={item.buyWindowMode === "FULL" ? "neutral" : "active"}
-          variant="outline"
-          dataAttributes={{ "data-mode": item.buyWindowMode }}
-        >
-          {buyWindowLabel(item)}
-        </StatusBadge>
-      ),
+      render: (item) => <MembershipCell item={item} />,
     },
     {
       key: "exchange",
@@ -209,9 +261,9 @@ export function ListDetail({ listId }: ListDetailProps) {
           <button
             type="button"
             className={actionStyles.action}
-            onClick={() => setDialog({ kind: "buy-windows", item })}
+            onClick={() => setDialog({ kind: "membership", item })}
           >
-            Buy windows
+            Membership
           </button>
           <OverflowMenu
             label={`${item.security.symbol} in this list`}
@@ -323,7 +375,7 @@ export function ListDetail({ listId }: ListDetailProps) {
         <SectionCard
           id="list-members"
           title="Stocks"
-          caption="Each stock's buy window decides the dates a strategy may open a position in it."
+          caption="Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
           flush={detail.items.length > 0}
         >
           <DataTable
@@ -368,8 +420,8 @@ export function ListDetail({ listId }: ListDetailProps) {
           title="Delete list"
           body={
             <p className={styles.confirmBody}>
-              Delete <strong>{detail.name}</strong> and its buy-window
-              configuration? This cannot be undone.
+              Delete <strong>{detail.name}</strong> and every stock&apos;s
+              membership configuration? This cannot be undone.
             </p>
           }
           confirmLabel="Delete list"
@@ -387,8 +439,8 @@ export function ListDetail({ listId }: ListDetailProps) {
           title="Remove stock"
           body={
             <p className={styles.confirmBody}>
-              Remove <strong>{dialog.item.security.symbol}</strong> and its buy
-              windows from this list?
+              Remove <strong>{dialog.item.security.symbol}</strong> and its
+              membership periods from this list?
             </p>
           }
           confirmLabel="Remove stock"
@@ -402,8 +454,8 @@ export function ListDetail({ listId }: ListDetailProps) {
         />
       ) : null}
 
-      {dialog.kind === "buy-windows" ? (
-        <BuyWindowEditor
+      {dialog.kind === "membership" ? (
+        <MembershipEditor
           listId={detail.id}
           item={dialog.item}
           onClose={closeDialog}

@@ -1,3 +1,22 @@
+/**
+ * Buy windows: when a list member may be bought.
+ *
+ * > A Buy Window represents the period during which a List member is eligible for new BUY
+ * > actions. It may correspond to point-in-time index membership. It does not constrain SELL
+ * > actions for existing positions.
+ *
+ * That second sentence is the whole reason a window is called a *buy* window. A security bought
+ * while it was eligible keeps its position after the window closes, and every SELL and FINAL EXIT
+ * level keeps evaluating against it — the engine (`@intrinsic/strategy`) and the Monitor cycle
+ * both consult `isBuyWindowEligible` on entries only. Nothing in the product force-liquidates a
+ * position because a window ended.
+ *
+ * A member may hold **any number** of windows, so a security that left an index and later rejoined
+ * it is representable: `[2001-03-10 … 2008-07-15]`, `[2012-05-01 … open]` is one member, and a
+ * date in the 2008-2012 gap is simply not eligible. The persisted set is always canonical — see
+ * `normalizeBuyWindowRanges`.
+ */
+
 import type { LocalDate } from "./stock-data.js";
 
 /**

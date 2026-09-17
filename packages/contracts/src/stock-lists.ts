@@ -5,6 +5,14 @@ import type { SecurityResponse } from "./stock-data.js";
  *
  * `FULL`: eligible on every date a future strategy/backtest covers; carries zero ranges.
  * `CUSTOM`: eligible only inside the configured date ranges.
+ *
+ * > A Buy Window represents the period during which a List member is eligible for new BUY
+ * > actions. It may correspond to point-in-time index membership. It does not constrain SELL
+ * > actions for existing positions.
+ *
+ * The browser presents this as **membership**, because that is what a user is describing when
+ * they set it. The wire contract keeps the `buyWindow` naming, which is what the domain, the
+ * schema, the backtest engine and the Monitor all call it.
  */
 export const BUY_WINDOW_MODES = ["FULL", "CUSTOM"] as const;
 

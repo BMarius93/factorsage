@@ -115,7 +115,7 @@ afterEach(() => {
 });
 
 describe("ListDetail", () => {
-  it("renders membership with identity and buy-eligibility state", async () => {
+  it("renders membership beside each member's identity", async () => {
     fetchStockListMock.mockResolvedValue(
       detail([
         item("item-1", "AAPL"),
@@ -139,8 +139,12 @@ describe("ListDetail", () => {
     expect(screen.getByText("2 stocks")).toBeDefined();
     expect(screen.getByText("AAPL")).toBeDefined();
     expect(screen.getByText("AAPL Incorporated")).toBeDefined();
-    expect(screen.getByText("Full history")).toBeDefined();
-    expect(screen.getByText("Custom · 2 windows")).toBeDefined();
+    expect(screen.getByText("Always eligible")).toBeDefined();
+    // The multi-period member leads with its first period and says how many more it holds, so a
+    // gap in membership is never presented as continuous eligibility.
+    expect(screen.getByText("Jan 1, 2020")).toBeDefined();
+    expect(screen.getByText("Dec 31, 2020")).toBeDefined();
+    expect(screen.getByText("+1 more")).toBeDefined();
   });
 
   it("renders the member's mark from the catalog projection", async () => {
@@ -284,7 +288,7 @@ describe("ListDetail", () => {
     expect(screen.getByText("NVDA")).toBeDefined();
   });
 
-  it("opens the buy-window editor and renders the canonical saved result", async () => {
+  it("opens the membership editor and renders the canonical saved result", async () => {
     fetchStockListMock.mockResolvedValue(detail([item("item-1", "AAPL")]));
     replaceBuyWindowsMock.mockResolvedValue(
       item("item-1", "AAPL", {
@@ -299,15 +303,16 @@ describe("ListDetail", () => {
       expect(screen.getByTestId("list-detail")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Buy windows"));
-    expect(screen.getByTestId("buy-window-editor")).toBeDefined();
+    // "Membership" is also the column header and each card's label, so the row action is
+    // addressed by role rather than by text.
+    await userEvent.click(screen.getByRole("button", { name: "Membership" }));
+    expect(screen.getByTestId("membership-editor")).toBeDefined();
 
-    await userEvent.click(screen.getByText("Custom windows"));
-    await userEvent.type(
-      screen.getByLabelText("Range 1 start date"),
-      "2020-01-01",
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Membership period/ }),
     );
-    await userEvent.click(screen.getByTestId("save-buy-windows"));
+    await userEvent.type(screen.getByLabelText("From"), "2020-01-01");
+    await userEvent.click(screen.getByTestId("save-membership"));
 
     await waitFor(() => {
       expect(replaceBuyWindowsMock).toHaveBeenCalledWith("list-1", "item-1", {
@@ -316,8 +321,9 @@ describe("ListDetail", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByText("Custom · 1 window")).toBeDefined();
+      expect(screen.getByText("Present")).toBeDefined();
     });
-    expect(screen.queryByTestId("buy-window-editor")).toBeNull();
+    expect(screen.getByText("Jan 1, 2020")).toBeDefined();
+    expect(screen.queryByTestId("membership-editor")).toBeNull();
   });
 });

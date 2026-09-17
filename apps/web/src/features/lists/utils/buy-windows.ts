@@ -2,79 +2,178 @@ import type {
   BuyWindowRangeResponse,
   StockListItemResponse,
 } from "@intrinsic/contracts";
+import { formatMembershipDate } from "./format";
 
-/** Compact eligibility state shown on a membership row. */
-export function buyWindowLabel(
-  item: Pick<StockListItemResponse, "buyWindowMode" | "buyWindows">,
-): string {
-  if (item.buyWindowMode === "FULL") {
-    return "Full history";
-  }
-  const count = item.buyWindows.length;
-  return `Custom · ${count} ${count === 1 ? "window" : "windows"}`;
-}
+/**
+ * List membership, as the browser presents it.
+ *
+ * The API and the domain call this a *buy window* and that naming is kept end to end — see
+ * `packages/domain/src/stock-lists.ts`. The UI says **membership**, because that is what a user is
+ * actually describing: the period a stock was part of this list's universe, typically a
+ * point-in-time index membership. The rule behind both names is the same one:
+ *
+ * > A buy window is the period during which a list member is eligible for **new BUY** actions. It
+ * > does not constrain SELL actions for existing positions.
+ *
+ * The backend stores **any number** of periods per member, so a stock that left an index and later
+ * rejoined is representable. The V1 editor deliberately exposes one — see `MembershipEditor`,
+ * which refuses to overwrite a multi-period member without an explicit instruction.
+ */
 
-export function formatBuyWindowRange(range: BuyWindowRangeResponse): string {
-  return `${range.startDate} → ${range.endDate ?? "no end date"}`;
-}
+/** How an open-ended membership renders. Never `null`, `—`, `Today`, or a fabricated future date. */
+export const PRESENT_LABEL = "Present";
 
-/** One editable editor row. Empty `endDate` means open-ended. */
-export type EditableBuyWindowRange = {
-  readonly startDate: string;
-  readonly endDate: string;
-};
+/**
+ * What the row and the editor show for a member with no date restriction at all.
+ *
+ * Not "full history": the mode says nothing about how much price history the stock has, only that
+ * membership places no limit on when it may be bought.
+ */
+export const ALWAYS_ELIGIBLE_LABEL = "Always eligible";
 
-export function toEditableRanges(
-  ranges: readonly BuyWindowRangeResponse[],
-): EditableBuyWindowRange[] {
-  return ranges.map((range) => ({
-    startDate: range.startDate,
-    endDate: range.endDate ?? "",
-  }));
+/** `{ startDate: "1982-11-30", endDate: null }` → `"Nov 30, 1982 → Present"`. */
+export function formatMembershipPeriod(range: BuyWindowRangeResponse): string {
+  return `${formatMembershipDate(range.startDate)} → ${
+    range.endDate === null ? PRESENT_LABEL : formatMembershipDate(range.endDate)
+  }`;
 }
 
 /**
- * Presentation-level validation for one editor row. The API (through the domain normalizer)
- * remains authoritative; this only catches what the user can see and fix in the form.
+ * What a membership cell renders, for one list member.
+ *
+ * `periods` is empty for `FULL`. A member with more than one period shows the first and says how
+ * many more there are; `title` carries all of them, because the cell must not imply that a stock
+ * with a gap in its membership was eligible throughout.
  */
-export function editableRangeError(
-  range: EditableBuyWindowRange,
-): string | null {
-  if (range.startDate === "") {
-    return "Pick a start date";
+export type MembershipSummary = {
+  readonly mode: StockListItemResponse["buyWindowMode"];
+  readonly periods: readonly BuyWindowRangeResponse[];
+  /** The period shown in the cell, or `null` under `FULL`. */
+  readonly leading: BuyWindowRangeResponse | null;
+  /** Periods beyond the leading one; `0` for every member the V1 editor can produce. */
+  readonly additionalCount: number;
+  /** Every period, one per line, for the cell's `title`. */
+  readonly title: string;
+};
+
+export function membershipSummary(
+  item: Pick<StockListItemResponse, "buyWindowMode" | "buyWindows">,
+): MembershipSummary {
+  if (item.buyWindowMode === "FULL") {
+    return {
+      mode: "FULL",
+      periods: [],
+      leading: null,
+      additionalCount: 0,
+      title: "Eligible to buy on every date a strategy or backtest covers.",
+    };
   }
-  if (range.endDate !== "" && range.endDate < range.startDate) {
-    return "The end date is before the start date";
+  const periods = item.buyWindows;
+  return {
+    mode: "CUSTOM",
+    periods,
+    leading: periods[0] ?? null,
+    additionalCount: Math.max(periods.length - 1, 0),
+    title: periods.map(formatMembershipPeriod).join("\n"),
+  };
+}
+
+/**
+ * The one membership period the V1 editor edits.
+ *
+ * `present` is the open-ended state and is the *only* way to express it: an empty `endDate` with
+ * `present` false is an incomplete form, not an open-ended period. Keeping the two apart is what
+ * lets the editor say "pick an end date, or choose Present" instead of silently saving an
+ * open-ended membership the user never asked for.
+ */
+export type EditableMembership = {
+  readonly startDate: string;
+  /** Ignored while `present` is true. */
+  readonly endDate: string;
+  readonly present: boolean;
+};
+
+export const EMPTY_MEMBERSHIP: EditableMembership = {
+  startDate: "",
+  endDate: "",
+  present: true,
+};
+
+/** Seeds the editor from the persisted canonical periods; the first one is what V1 edits. */
+export function toEditableMembership(
+  ranges: readonly BuyWindowRangeResponse[],
+): EditableMembership {
+  const first = ranges[0];
+  if (!first) {
+    return EMPTY_MEMBERSHIP;
+  }
+  return {
+    startDate: first.startDate,
+    endDate: first.endDate ?? "",
+    present: first.endDate === null,
+  };
+}
+
+/** The request body's single range. `present` is what becomes `endDate: null` over the wire. */
+export function toRequestRange(membership: EditableMembership): {
+  startDate: string;
+  endDate: string | null;
+} {
+  return {
+    startDate: membership.startDate,
+    endDate: membership.present ? null : membership.endDate,
+  };
+}
+
+/** Which control an editor message belongs to, so it can be wired to that field's `aria-describedby`. */
+export type MembershipField = "startDate" | "endDate";
+
+export type MembershipError = {
+  readonly field: MembershipField;
+  readonly message: string;
+};
+
+/**
+ * Presentation-level validation for the one membership period.
+ *
+ * **The API is authoritative** — every rule here is the same rule `normalizeBuyWindowConfiguration`
+ * enforces in `@intrinsic/domain`, restated only because `apps/web` may depend on `@intrinsic/contracts`
+ * and not on `@intrinsic/domain`. Nothing here is stricter or laxer than the server; the two extra
+ * messages ("pick a date") are form completeness, which the server sees as a missing field.
+ */
+export function membershipError(
+  membership: EditableMembership,
+): MembershipError | null {
+  if (membership.startDate === "") {
+    return { field: "startDate", message: "Pick the date membership starts" };
+  }
+  if (membership.present) {
+    return null;
+  }
+  if (membership.endDate === "") {
+    return {
+      field: "endDate",
+      message: "Pick the date membership ends, or choose Present",
+    };
+  }
+  if (membership.endDate < membership.startDate) {
+    return {
+      field: "endDate",
+      message: "Membership cannot end before it starts",
+    };
   }
   return null;
 }
 
-/**
- * Whether two rows describe overlapping or directly back-to-back periods, so the editor can tell
- * the user they will be saved as one continuous range. Feedback only — merging itself is the
- * API's job and its canonical response is what gets rendered after save.
- */
-export function editableRangesTouch(
-  ranges: readonly EditableBuyWindowRange[],
-): boolean {
-  const valid = ranges.filter((range) => editableRangeError(range) === null);
-  const sorted = [...valid].sort((left, right) =>
-    left.startDate < right.startDate ? -1 : left.startDate > right.startDate ? 1 : 0,
-  );
-  for (let index = 1; index < sorted.length; index += 1) {
-    const previous = sorted[index - 1];
-    const current = sorted[index];
-    if (!previous || !current) {
-      continue;
-    }
-    if (previous.endDate === "") {
-      return true;
-    }
-    const dayAfterPrevious = new Date(`${previous.endDate}T00:00:00.000Z`);
-    dayAfterPrevious.setUTCDate(dayAfterPrevious.getUTCDate() + 1);
-    if (current.startDate <= dayAfterPrevious.toISOString().slice(0, 10)) {
-      return true;
-    }
+/** The live preview under the fields: what will be saved, in the same words the row uses. */
+export function previewMembershipPeriod(
+  membership: EditableMembership,
+): string | null {
+  if (membershipError(membership) !== null) {
+    return null;
   }
-  return false;
+  return formatMembershipPeriod({
+    startDate: membership.startDate,
+    endDate: membership.present ? null : membership.endDate,
+  });
 }

@@ -41,8 +41,25 @@ authorization authority.
 
 ## Buy windows
 
-Each list item independently restricts when a strategy/backtest may open a **new BUY** in that
-stock, and equally when a Monitor may report a **BUY** Signal for it. Selling is never restricted.
+> A Buy Window represents the period during which a List member is eligible for new BUY actions.
+> It may correspond to point-in-time index membership. It does not constrain SELL actions for
+> existing positions.
+
+That paragraph is the definition; everything below is how it is enforced. Each list item
+independently restricts when a strategy/backtest may open a **new BUY** in that stock, and equally
+when a Monitor may report a **BUY** Signal for it. Selling is never restricted.
+
+**The user-facing name is "membership".** `buyWindow` stays the internal name — schema, domain,
+contracts, engine, Monitor — because it is what the mechanism _does_, and renaming it across the
+repository would be churn without correctness. The browser says membership, because that is what a
+user is describing when they set it: the period this stock was part of this list's universe.
+Point-in-time index reconstruction is the case the multi-period model exists for — a security that
+was in an index from 2001-03-10 to 2008-07-15, left, and rejoined on 2012-05-01 is one member with
+two periods, and a backtest sitting in 2010 must not buy it.
+
+This is a naming and UI decision, not a data one: the product still ships **no** historical index
+membership dataset, and nothing reconstructs S&P 500 or Dow constituents for a user. A user (or an
+import) supplies the periods; the product stores and honours them.
 
 ```text
 FULL    eligible on every date the strategy/backtest covers; zero persisted rows
@@ -83,7 +100,12 @@ eligibility rule applies to that single date:
 `isBuyWindowEligible` in `@intrinsic/domain` is the one implementation of that question; the backtest
 engine and the Monitor cycle both call it and neither restates it.
 
-Do not reintroduce index-membership PIT through list semantics.
+A Monitor's membership handling is deliberately **not** symmetric with a SELL: a member whose
+window has closed stops producing BUY Signals and nothing else happens. Membership ending is not a
+liquidation event, and there is no forced exit anywhere in the product.
+
+Do not ship a historical index-membership dataset, and do not derive membership from anything but
+the periods a user stored.
 
 ## Mutability and the backtest reproducibility invariant
 
@@ -121,8 +143,42 @@ Structured events (`component: stock-lists`, `actorUserId` from the request cont
 `apps/web/src/features/lists/` with routes `/lists` and `/lists/[id]`. The membership picker
 (`SecurityMultiSelect`) is a chips combobox built on the same `useStockSearch` hook as the global
 topbar search — one search behavior, catalog-only, and Enter can only select a real result, never
-free text. List creation stays fast: name + stock selection; buy windows are edited afterwards on
-the list page through a per-stock editor dialog.
+free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
+list page through a per-stock editor dialog.
+
+### The V1 membership editor exposes one period
+
+`MembershipEditor` offers **Always eligible** or **one** membership period — `From`, `To`, and a
+`Present` checkbox. There is deliberately no "add another period", no timeline and no history
+browser: a user building an ordinary watchlist should not have to understand index history to add a
+stock, and the default for a newly added member is `FULL`, which needs no date at all. No date is
+ever invented to satisfy a constraint; `FULL` is the absence of a restriction, not a range from the
+beginning of time.
+
+**`FULL` is shown as "Always eligible", never "Full history".** The mode says nothing about how
+much price history the stock has — it says membership places no limit on when it may be bought, so
+wording that implies a dataset would describe the wrong thing. `ALWAYS_ELIGIBLE_LABEL` in
+`features/lists/utils/buy-windows.ts` is the one place that string lives.
+
+`Present` is the open-ended state. Internally it is `endDate: null` and nothing else — never a
+sentinel, a far-future date, or today's date frozen in. The editor keeps `present` as its own flag
+rather than treating an empty end input as open-ended, so "I have not filled this in yet" and "this
+has no end" stay different states and the form can ask for the first without saving the second. The
+row renders it as the word `Present`, in the product's standard day format:
+`Nov 30, 1982 → Present`.
+
+### A one-period editor must not destroy a multi-period member
+
+The backend stores any number of periods, and `PUT …/buy-windows` replaces the complete set — so a
+naive one-period form would flatten `[p1, p2, p3]` to `[p1]` on any read/edit/save cycle. There are
+no built-in or system lists to make read-only, so the protection lives in the editor: an item with
+more than one stored period opens **read-only**, listing every period it has, with no form and no
+save button. The single-period form appears only after the user presses `Replace with one period`.
+The collection row shows the same truth — the first period plus `+N more`, with all of them in the
+cell's title — rather than implying continuous eligibility across a gap.
+
+`lists.user.spec.ts` asserts this against a member the API gave two periods: opening the editor,
+closing it, and re-reading the API must return both periods unchanged.
 
 ## Testing
 

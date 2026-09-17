@@ -421,6 +421,122 @@ describe("stock lists", () => {
     await owner.delete(`/lists/${created.id}`).expect(204);
   });
 
+  it("preserves every historical membership period across reads and unrelated writes", async () => {
+    // A security that was in an index, left it, and rejoined: three periods with two real gaps.
+    // Nothing short of an explicit replacement of this item's configuration may lose one of them,
+    // because a list read is what the browser's single-period editor renders from.
+    const created = await createListViaApi(owner, {
+      name: "Index reconstruction",
+      securityIds: [securityIds[0]],
+    });
+    const item = created.items[0] as StockListItemResponse;
+    const periods = [
+      { startDate: "1998-02-02", endDate: "2001-03-09" },
+      { startDate: "2001-03-10", endDate: "2008-07-15" },
+      { startDate: "2012-05-01", endDate: null },
+    ];
+    // The first two are adjacent, so the canonical set merges them into one continuous period.
+    const canonicalPeriods = [
+      { startDate: "1998-02-02", endDate: "2008-07-15" },
+      { startDate: "2012-05-01", endDate: null },
+    ];
+
+    const saved = await owner
+      .put(`/lists/${created.id}/items/${item.id}/buy-windows`)
+      .send({ mode: "CUSTOM", ranges: periods })
+      .expect(200);
+    expect((saved.body as StockListItemResponse).buyWindows).toEqual(
+      canonicalPeriods,
+    );
+
+    const expectPeriodsIntact = async (context: string) => {
+      const detail = await owner.get(`/lists/${created.id}`).expect(200);
+      const member = (detail.body as StockListDetailResponse).items.find(
+        (entry) => entry.id === item.id,
+      );
+      expect(member?.buyWindows, context).toEqual(canonicalPeriods);
+    };
+
+    // A plain read returns every period, in canonical order, with the open-ended one last.
+    await expectPeriodsIntact("a read dropped a period");
+
+    // Writes that are about something else must not touch them.
+    await owner
+      .patch(`/lists/${created.id}`)
+      .send({ name: "Index reconstruction (renamed)" })
+      .expect(200);
+    await expectPeriodsIntact("renaming the list dropped a period");
+
+    await owner
+      .post(`/lists/${created.id}/items`)
+      .send({ securityIds: [securityIds[1]] })
+      .expect(200);
+    await expectPeriodsIntact("adding another stock dropped a period");
+
+    const secondItem = (
+      (await owner.get(`/lists/${created.id}`).expect(200))
+        .body as StockListDetailResponse
+    ).items.find((entry) => entry.id !== item.id);
+    await owner
+      .put(`/lists/${created.id}/items/${secondItem?.id}/buy-windows`)
+      .send({
+        mode: "CUSTOM",
+        ranges: [{ startDate: "2024-01-01", endDate: null }],
+      })
+      .expect(200);
+    await expectPeriodsIntact(
+      "configuring another member's membership dropped a period",
+    );
+
+    await owner.delete(`/lists/${created.id}/items/${secondItem?.id}`).expect(204);
+    await expectPeriodsIntact("removing another member dropped a period");
+
+    // Only an explicit replacement of *this* item's configuration changes it, and then it is the
+    // complete submitted set that is stored — the single-period write the V1 editor makes.
+    const replaced = await owner
+      .put(`/lists/${created.id}/items/${item.id}/buy-windows`)
+      .send({
+        mode: "CUSTOM",
+        ranges: [{ startDate: "2012-05-01", endDate: null }],
+      })
+      .expect(200);
+    expect((replaced.body as StockListItemResponse).buyWindows).toEqual([
+      { startDate: "2012-05-01", endDate: null },
+    ]);
+
+    await owner.delete(`/lists/${created.id}`).expect(204);
+  });
+
+  it("keeps one user's membership periods invisible and unwritable to another", async () => {
+    const created = await createListViaApi(owner, {
+      name: "Private membership",
+      securityIds: [securityIds[0]],
+    });
+    const item = created.items[0] as StockListItemResponse;
+    await owner
+      .put(`/lists/${created.id}/items/${item.id}/buy-windows`)
+      .send({
+        mode: "CUSTOM",
+        ranges: [{ startDate: "2001-03-10", endDate: "2008-07-15" }],
+      })
+      .expect(200);
+
+    // A list that belongs to someone else answers exactly like one that does not exist.
+    await other.get(`/lists/${created.id}`).expect(404);
+    await other
+      .put(`/lists/${created.id}/items/${item.id}/buy-windows`)
+      .send({ mode: "FULL", ranges: [] })
+      .expect(404);
+
+    // …and the refused write changed nothing.
+    const after = await owner.get(`/lists/${created.id}`).expect(200);
+    expect(
+      (after.body as StockListDetailResponse).items[0]?.buyWindows,
+    ).toEqual([{ startDate: "2001-03-10", endDate: "2008-07-15" }]);
+
+    await owner.delete(`/lists/${created.id}`).expect(204);
+  });
+
   it("rejects invalid buy-window submissions", async () => {
     const created = await createListViaApi(owner, {
       name: "Window validation",
