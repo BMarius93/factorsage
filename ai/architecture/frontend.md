@@ -211,16 +211,43 @@ cannot drift apart.
 ## Guest-readable routes
 
 The `(app)` shell renders for Guests, and `RouteAccessGate` decides per route whether a session is
-required: `/dashboard`, `/stocks`, `/stocks/[symbol]` and the detail pages of Lists, Strategies and
-Monitors (which may name built-in content) are public; everything else goes through `RequireAuth`.
-The list is `isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test. The API
-still authorizes every request — a detail page for another customer's object reads as not found.
+required: `/dashboard`, `/stocks`, `/stocks/[symbol]` and **both the collections and the detail
+pages** of Lists, Strategies and Monitors are public, because built-in content is public product
+content (`AGENTS.md` invariant 21) and a visitor who cannot browse it cannot discover what the
+product does. `/strategies/new` and everything else goes through `RequireAuth`. The list is
+`isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test. The API still
+authorizes every request — a page for another customer's object reads as not found.
+
+**A Guest is never redirected for navigating.** Reaching a protected *action* — New list, New
+strategy, New monitor, a built-in Monitor's dashboard-visibility switch — opens `SignInPrompt`
+where they are, offering Sign in and Create an account; `/login` is a destination they choose, not
+one they are sent to. `useSignInPrompt` (`features/auth/hooks/use-sign-in-prompt.tsx`) is the one
+way a page asks: it answers whether the viewer is signed in, runs the action or opens the prompt,
+and hands back the element to render. Do not build a second auth modal.
 
 Built-in content renders through the ordinary feature pages. The response's `canEdit` decides the
 presentation: a customer sees a built-in List, Strategy or Monitor read-only (the Strategy through
 `StrategyReadOnlyView`, the same `LogicPreview` the Builder uses), an administrator sees the ordinary
-editors, and nothing offers to delete a built-in. An action that needs an account asks a Guest to sign
-in (`SignInPrompt`) rather than failing.
+editors, and nothing offers to delete a built-in.
+
+## Ownership-aware collections
+
+Lists, Strategies and Monitors each return one collection holding two kinds of thing, and each page
+renders them as **two sections: the viewer's own first, the built-ins second.** They are never one
+mixed table — only one of them can be edited, and only one of them counts against a plan.
+
+`components/ui/OwnedCollection.tsx` owns that shape: `partitionByOwnership` splits the rows, and
+`CollectionSection` renders one titled `SectionCard` with a `DataTable` and a `CollectionFooter`.
+Each section is a component instance so it holds its own `usePagination` state — paging the
+built-ins never moves the viewer's own list — and each needs its own `footerTestId`, which is what
+its page-size control's `id` is built from. A Guest gets the built-in section alone; there is no
+empty "Your …" section for someone who cannot own one.
+
+An empty "Your …" section is a **compact** `EmptyState` inside its own section, not a full-page one:
+a signed-in user with no monitors of their own must still see the built-ins under it, rather than a
+page that claims the whole product is empty. Exactly one create call to action exists in every
+state — the page header carries it when the viewer has content of their own (or is a Guest), the
+empty section carries it otherwise.
 
 ## Charts
 

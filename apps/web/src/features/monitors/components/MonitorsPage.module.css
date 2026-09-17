@@ -90,3 +90,16 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* The built-in dashboard-visibility switch, with room under it for a refused save. */
+.visibilityCell {
+  display: inline-grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+@media (max-width: 879px) {
+  .visibilityCell {
+    justify-items: start;
+  }
+}

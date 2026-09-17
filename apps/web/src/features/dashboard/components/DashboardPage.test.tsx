@@ -3,38 +3,27 @@ import type {
   DashboardResponse,
   DashboardRowResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
-import { updateMonitor } from "../../monitors/api/monitors-api";
-import {
-  fetchDashboard,
-  setBuiltInMonitorVisibility,
-} from "../api/dashboard-api";
+import { fetchDashboard } from "../api/dashboard-api";
 import { DashboardPage } from "./DashboardPage";
 
-vi.mock("../api/dashboard-api", () => ({
-  fetchDashboard: vi.fn(),
-  setBuiltInMonitorVisibility: vi.fn(),
-}));
-
-vi.mock("../../monitors/api/monitors-api", () => ({
-  updateMonitor: vi.fn(),
-}));
+vi.mock("../api/dashboard-api", () => ({ fetchDashboard: vi.fn() }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
   useAuthSession: vi.fn(),
 }));
 
 const fetchDashboardMock = vi.mocked(fetchDashboard);
-const setVisibilityMock = vi.mocked(setBuiltInMonitorVisibility);
-const updateMonitorMock = vi.mocked(updateMonitor);
 const useAuthSessionMock = vi.mocked(useAuthSession);
 
 const RECENT_SCAN = new Date(Date.now() - 3 * 60_000).toISOString();
 
-function monitor(overrides: Partial<DashboardMonitorResponse> = {}): DashboardMonitorResponse {
+function monitor(
+  overrides: Partial<DashboardMonitorResponse> = {},
+): DashboardMonitorResponse {
   return {
     id: "monitor-a",
     name: "S&P Value & Trend",
@@ -51,17 +40,27 @@ function monitor(overrides: Partial<DashboardMonitorResponse> = {}): DashboardMo
   };
 }
 
-function row(overrides: Partial<DashboardRowResponse> = {}): DashboardRowResponse {
+function row(
+  overrides: Partial<DashboardRowResponse> = {},
+): DashboardRowResponse {
   return {
     id: "row-1",
     state: "ACTIVE",
-    security: { id: "sec-aapl", symbol: "AAPL", name: "Apple Inc.", exchangeCode: "NASDAQ" },
+    security: {
+      id: "sec-aapl",
+      symbol: "AAPL",
+      name: "Apple Inc.",
+      exchangeCode: "NASDAQ",
+    },
     levelKind: "BUY",
     levelIndex: 1,
     levelPercentage: 100,
     reasons: [
       {
-        conditions: ["Margin of Safety (Balanced) is above 5%", "Price is above SMA 200D"],
+        conditions: [
+          "Margin of Safety (Balanced) is above 5%",
+          "Price is above SMA 200D",
+        ],
         waitingForTrigger: false,
       },
     ],
@@ -77,7 +76,9 @@ function row(overrides: Partial<DashboardRowResponse> = {}): DashboardRowRespons
   };
 }
 
-function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardResponse {
+function dashboard(
+  overrides: Partial<DashboardResponse> = {},
+): DashboardResponse {
   return {
     viewer: "GUEST",
     generatedAt: new Date().toISOString(),
@@ -97,7 +98,12 @@ function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardRespons
       row({
         id: "row-pending",
         state: "PENDING_TRIGGER",
-        security: { id: "sec-rop", symbol: "ROP", name: "Roper", exchangeCode: "NASDAQ" },
+        security: {
+          id: "sec-rop",
+          symbol: "ROP",
+          name: "Roper",
+          exchangeCode: "NASDAQ",
+        },
         reasons: [
           {
             conditions: ["SMA 50D is above SMA 200D", "Price is above SMA 200D"],
@@ -105,12 +111,23 @@ function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardRespons
             waitingForTrigger: true,
           },
         ],
-        monitor: { id: "monitor-b", name: "Nasdaq Trend Confirmation", ownership: "SYSTEM" },
+        monitor: {
+          id: "monitor-b",
+          name: "Nasdaq Trend Confirmation",
+          ownership: "SYSTEM",
+        },
         strategy: { id: "strategy-b", name: "Trend Confirmation" },
         stockList: { id: "list-b", name: "Nasdaq-100 Newcomers" },
         signalId: undefined,
       }),
-      row({ id: "row-b", monitor: { id: "monitor-b", name: "Nasdaq Trend Confirmation", ownership: "SYSTEM" } }),
+      row({
+        id: "row-b",
+        monitor: {
+          id: "monitor-b",
+          name: "Nasdaq Trend Confirmation",
+          ownership: "SYSTEM",
+        },
+      }),
       row(),
       row({
         id: "row-exit",
@@ -118,8 +135,15 @@ function dashboard(overrides: Partial<DashboardResponse> = {}): DashboardRespons
         levelIndex: undefined,
         levelPercentage: undefined,
         reconstructed: true,
-        security: { id: "sec-uber", symbol: "UBER", name: "Uber", exchangeCode: "NYSE" },
-        reasons: [{ conditions: ["Price is below SMA 200D"], waitingForTrigger: false }],
+        security: {
+          id: "sec-uber",
+          symbol: "UBER",
+          name: "Uber",
+          exchangeCode: "NYSE",
+        },
+        reasons: [
+          { conditions: ["Price is below SMA 200D"], waitingForTrigger: false },
+        ],
       }),
     ],
     ...overrides,
@@ -137,7 +161,12 @@ function signedIn() {
   useAuthSessionMock.mockReturnValue({
     state: {
       status: "authenticated",
-      user: { id: "user-1", email: "user@example.test", role: "USER", plan: "FREE" },
+      user: {
+        id: "user-1",
+        email: "user@example.test",
+        role: "USER",
+        plan: "FREE",
+      },
     },
     signOut: vi.fn(),
   });
@@ -157,96 +186,125 @@ describe("DashboardPage", () => {
     const rows = within(table).getAllByTestId("dashboard-signal-row");
     expect(rows).toHaveLength(4);
     // The same stock under two monitors is two rows.
-    expect(rows.filter((entry) => entry.textContent?.includes("AAPL"))).toHaveLength(2);
+    expect(
+      rows.filter((entry) => entry.textContent?.includes("AAPL")),
+    ).toHaveLength(2);
     expect(within(rows[0]!).getByText("Waiting for trigger")).toBeDefined();
-    expect(within(rows[0]!).getByText(/Waiting for: Price crosses above SMA 20D/)).toBeDefined();
+    expect(
+      within(rows[0]!).getByText(/Waiting for: Price crosses above SMA 20D/),
+    ).toBeDefined();
     expect(within(rows[1]!).getByText("Active")).toBeDefined();
     expect(within(rows[1]!).getByText("Buy 100%")).toBeDefined();
     expect(within(rows[3]!).getByText("Final exit")).toBeDefined();
-    expect(within(rows[3]!).getByText("from history")).toBeDefined();
-
-    // The identity cell is the row's link to Stock Details; the source chips link elsewhere.
-    expect(within(rows[1]!).getByRole("link", { name: /AAPL/ }).getAttribute("href")).toBe("/stocks/AAPL");
-    expect(
-      within(rows[1]!).getByRole("link", { name: "Value & Trend" }).getAttribute("href"),
-    ).toBe("/strategies/strategy-a");
-    expect(
-      within(rows[1]!).getByRole("link", { name: /Backtest/ }).getAttribute("href"),
-    ).toBe("/backtests/new?strategyId=strategy-a&stockListId=list-a");
   });
 
-  it("filters by state and by action", async () => {
+  it("shows exactly the agreed columns: no Since, and no per-row Backtest", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const table = await screen.findByTestId("dashboard-signals");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual([
+      "Stock",
+      "Action",
+      "Why",
+      "Price",
+      "Strategy",
+      "List",
+      "Monitor",
+    ]);
+    expect(within(table).queryByRole("columnheader", { name: "Since" })).toBeNull();
+    expect(screen.queryAllByRole("link", { name: /Backtest/ })).toHaveLength(0);
+  });
+
+  it("links the stock, the strategy, the list and the monitor independently", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const active = rows[1]!;
+    // The identity cell is the row's own link to Stock Details; the three relationship cells
+    // each go somewhere else, and none of them is the row's destination.
+    expect(
+      within(active).getByRole("link", { name: /AAPL/ }).getAttribute("href"),
+    ).toBe("/stocks/AAPL");
+    expect(
+      within(active)
+        .getByRole("link", { name: "Value & Trend" })
+        .getAttribute("href"),
+    ).toBe("/strategies/strategy-a");
+    expect(
+      within(active)
+        .getByRole("link", { name: "S&P 500 Growth Leaders" })
+        .getAttribute("href"),
+    ).toBe("/lists/list-a");
+    expect(
+      within(active)
+        .getByRole("link", { name: "Nasdaq Trend Confirmation" })
+        .getAttribute("href"),
+    ).toBe("/monitors/monitor-b");
+  });
+
+  it("filters by state with a segmented control and by action with a dropdown", async () => {
     const user = userEvent.setup();
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-signals");
 
     const states = screen.getByTestId("dashboard-state-filter");
-    await user.click(within(states).getByRole("button", { name: /Waiting for trigger/ }));
+    expect(
+      within(states)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["All4", "Active3", "Waiting1"]);
+
+    await user.click(within(states).getByRole("button", { name: /^Waiting/ }));
     expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(1);
 
+    // State AND action compose: back to Active, then narrow to the one final exit.
     await user.click(within(states).getByRole("button", { name: /^Active/ }));
-    const levels = screen.getByTestId("dashboard-level-filter");
-    await user.click(within(levels).getByRole("button", { name: /Final exit/ }));
+    expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(3);
+    const actions = screen.getByTestId("dashboard-level-filter");
+    await user.selectOptions(actions, "FINAL_EXIT");
     expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(1);
 
-    await user.click(within(levels).getByRole("button", { name: /Sell/ }));
+    // A composition with no rows says so rather than showing an unfiltered table.
+    await user.selectOptions(actions, "SELL");
     expect(screen.getByTestId("dashboard-signals-filtered-empty")).toBeDefined();
+
+    await user.selectOptions(actions, "ALL");
+    await user.click(within(states).getByRole("button", { name: /^All/ }));
+    expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(4);
   });
 
-  it("asks a Guest to sign in instead of storing a monitor preference", async () => {
-    const user = userEvent.setup();
-    fetchDashboardMock.mockResolvedValue(dashboard());
-    render(<DashboardPage />);
-    await screen.findByTestId("dashboard-guest-notice");
-
-    const [toggle] = screen.getAllByTestId("dashboard-monitor-toggle");
-    expect(toggle!.getAttribute("aria-checked")).toBe("true");
-    await user.click(toggle!);
-
-    const prompt = await screen.findByTestId("sign-in-prompt");
-    expect(within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
-    expect(setVisibilityMock).not.toHaveBeenCalled();
-    expect(updateMonitorMock).not.toHaveBeenCalled();
-  });
-
-  it("saves a signed-in user's built-in preference and a customer monitor's own switch", async () => {
+  it("carries no monitor configuration: that lives with the monitors", async () => {
     signedIn();
-    const user = userEvent.setup();
     fetchDashboardMock.mockResolvedValue(
-      dashboard({
-        viewer: "AUTHENTICATED",
-        monitors: [
-          monitor(),
-          monitor({
-            id: "own-monitor",
-            name: "My watch",
-            ownership: "USER",
-            control: "MONITOR_ENABLED",
-            visible: false,
-            freshness: "PAUSED",
-          }),
-        ],
-      }),
+      dashboard({ viewer: "AUTHENTICATED" }),
     );
-    setVisibilityMock.mockResolvedValue(undefined);
-    updateMonitorMock.mockResolvedValue({} as never);
     render(<DashboardPage />);
     await screen.findByTestId("dashboard-signals");
-    expect(screen.queryByTestId("dashboard-guest-notice")).toBeNull();
 
-    const toggles = screen.getAllByTestId("dashboard-monitor-toggle");
-    await user.click(toggles[0]!);
-    await waitFor(() =>
-      expect(setVisibilityMock).toHaveBeenCalledWith("monitor-a", { visible: false }),
-    );
-    await user.click(toggles[1]!);
-    await waitFor(() =>
-      expect(updateMonitorMock).toHaveBeenCalledWith("own-monitor", { enabled: true }),
-    );
-    // Each saved change re-reads the Dashboard.
-    await waitFor(() => expect(fetchDashboardMock).toHaveBeenCalledTimes(3));
-    expect(screen.getByText("Paused")).toBeDefined();
+    expect(screen.queryByTestId("dashboard-monitors")).toBeNull();
+    expect(screen.queryAllByTestId("dashboard-monitor")).toHaveLength(0);
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+    expect(screen.queryByTestId("dashboard-guest-notice")).toBeNull();
+  });
+
+  it("invites a Guest in without redirecting them anywhere", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const notice = await screen.findByTestId("dashboard-guest-notice");
+    expect(
+      within(notice).getByRole("link", { name: "Sign in" }).getAttribute("href"),
+    ).toBe("/login");
+    expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(4);
   });
 
   it("presents stale scans honestly", async () => {
@@ -255,7 +313,9 @@ describe("DashboardPage", () => {
         monitors: [
           monitor({
             freshness: "STALE",
-            lastScanAt: new Date(Date.now() - 2 * 24 * 60 * 60_000).toISOString(),
+            lastScanAt: new Date(
+              Date.now() - 2 * 24 * 60 * 60_000,
+            ).toISOString(),
           }),
         ],
       }),
@@ -273,5 +333,19 @@ describe("DashboardPage", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByTestId("dashboard-signals-empty")).toBeDefined();
     expect(screen.getByText("Nothing is matching right now")).toBeDefined();
+  });
+
+  it("sends a viewer who hid every monitor to the page that can bring one back", async () => {
+    fetchDashboardMock.mockResolvedValue(
+      dashboard({ rows: [], monitors: [monitor({ visible: false })] }),
+    );
+    render(<DashboardPage />);
+    const empty = await screen.findByTestId("dashboard-signals-empty");
+    expect(within(empty).getByText("No monitors are shown")).toBeDefined();
+    expect(
+      within(empty)
+        .getByRole("link", { name: "Go to monitors" })
+        .getAttribute("href"),
+    ).toBe("/monitors");
   });
 });

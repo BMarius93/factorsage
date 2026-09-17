@@ -5,23 +5,24 @@ import {
   type StrategySummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
-import {
-  DataTable,
-  type DataTableColumn,
-} from "../../../components/ui/DataTable";
+import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { CollectionFooter } from "../../../components/ui/CollectionFooter";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
+import {
+  CollectionSection,
+  partitionByOwnership,
+} from "../../../components/ui/OwnedCollection";
 import { PageHeader } from "../../../components/ui/PageHeader";
-import { usePagination } from "../../../components/ui/use-pagination";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
+import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStrategy } from "../api/strategies-api";
 import { useStrategies } from "../hooks/use-strategies";
 import { formatStrategyDate, strategyShapeLabel } from "../utils/format";
@@ -39,24 +40,37 @@ const EXAMPLE_CONDITION = describeCondition({
   value: { kind: "SERIES", seriesId: "EMA_200D" },
 });
 
+const SIGN_IN_TO_CREATE = {
+  title: "Sign in to create a strategy",
+  body: "Built-in strategies are free to read. Your own buy, sell and final-exit logic is saved to your account, so creating one needs somewhere to keep it.",
+};
+
 type DialogState =
   | { kind: "closed" }
   | { kind: "rename"; strategy: StrategySummaryResponse }
   | { kind: "delete"; strategy: StrategySummaryResponse };
 
 /**
- * The signed-in user's strategies: reusable BUY / SELL / FINAL EXIT logic.
+ * Strategies: the viewer's own reusable BUY / SELL / FINAL EXIT logic, and FactorSage's built-in
+ * ones.
+ *
+ * Two sections rather than one mixed table, because the two are owned differently and only one of
+ * them can be edited. A Guest reads the built-in section — public product content — and is asked
+ * for an account when they reach for the Builder, not on arrival.
  *
  * Creating goes through the Builder rather than a dialog, because a strategy is not saveable until
  * it has at least one BUY level — there is no name-only strategy to create here. Rendering needs
  * only the summary counts, never a definition.
  */
 export function StrategiesPage() {
+  const router = useRouter();
   const { status, strategies, retry, applyUpdated, applyDeleted } =
     useStrategies();
+  const gate = useSignInPrompt();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
 
   const closeDialog = () => setDialog({ kind: "closed" });
+  const { own, builtIn } = partitionByOwnership(strategies);
 
   const columns: readonly DataTableColumn<StrategySummaryResponse>[] = [
     {
@@ -147,7 +161,38 @@ export function StrategiesPage() {
       ),
     },
   ];
-  const paging = usePagination(strategies);
+
+  /**
+   * "New strategy" is navigation for a customer and a question for a Guest, so it is a link for
+   * one and a button for the other rather than a link that quietly refuses.
+   */
+  const newStrategyAction = (className: string | undefined) =>
+    gate.signedIn ? (
+      <Link
+        className={className}
+        href="/strategies/new"
+        data-testid="new-strategy-button"
+      >
+        New strategy
+      </Link>
+    ) : (
+      <button
+        type="button"
+        className={className}
+        data-testid="new-strategy-button"
+        onClick={() =>
+          gate.attempt(SIGN_IN_TO_CREATE, () => router.push("/strategies/new"))
+        }
+      >
+        New strategy
+      </button>
+    );
+
+  // Exactly one "New strategy" affordance in every state.
+  const headerAction =
+    gate.resolved && status === "ready" && (gate.guest || own.length > 0)
+      ? newStrategyAction(forms.tintedButton)
+      : null;
 
   return (
     <PageContainer>
@@ -155,17 +200,7 @@ export function StrategiesPage() {
         <PageHeader
           title="Strategies"
           lead="Reusable buy, sell and final-exit logic for backtests and monitors."
-          actions={
-            status === "ready" && strategies.length > 0 ? (
-              <Link
-                className={forms.tintedButton}
-                href="/strategies/new"
-                data-testid="new-strategy-button"
-              >
-                New strategy
-              </Link>
-            ) : null
-          }
+          {...(headerAction ? { actions: headerAction } : {})}
         />
 
         {status === "loading" ? (
@@ -191,52 +226,56 @@ export function StrategiesPage() {
           />
         ) : null}
 
-        {status === "ready" && strategies.length === 0 ? (
-          <EmptyState
-            testId="strategies-empty"
-            title="No strategies yet"
-            body={
-              <p>
-                A strategy is the reusable logic that decides when to buy and
-                when to sell — conditions such as <em>{EXAMPLE_CONDITION}</em>,
-                and the event that fires them.
-              </p>
-            }
-            actions={
-              <Link
-                className={forms.primaryButton}
-                href="/strategies/new"
-                data-testid="new-strategy-button"
-              >
-                Create your first strategy
-              </Link>
+        {status === "ready" && gate.signedIn ? (
+          <CollectionSection
+            title="Your strategies"
+            label="Your strategies"
+            noun="strategies"
+            testId="your-strategies"
+            tableTestId="strategies-grid"
+            rowTestId="strategy-row"
+            footerTestId="strategies-footer"
+            columns={columns}
+            rows={own}
+            getRowKey={(strategy) => strategy.id}
+            clickableRows
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="strategies-empty"
+                title="You haven't created any strategies yet"
+                body={
+                  <p>
+                    A strategy is the reusable logic that decides when to buy
+                    and when to sell — conditions such as{" "}
+                    <em>{EXAMPLE_CONDITION}</em>, and the event that fires them.
+                  </p>
+                }
+                actions={newStrategyAction(forms.primaryButton)}
+              />
             }
           />
         ) : null}
 
-        {status === "ready" && strategies.length > 0 ? (
-          <SectionCard ariaLabel="Strategies" flush>
-            <DataTable
-              label="Strategies"
-              testId="strategies-grid"
-              rowTestId="strategy-row"
-              columns={columns}
-              rows={paging.visibleRows}
-              getRowKey={(strategy) => strategy.id}
-              clickableRows
-            />
-            <CollectionFooter
-              testId="strategies-footer"
-              noun="strategies"
-              total={paging.total}
-              page={paging.page}
-              pageSize={paging.pageSize}
-              onPageChange={paging.setPage}
-              onPageSizeChange={paging.setPageSize}
-            />
-          </SectionCard>
+        {status === "ready" && builtIn.length > 0 ? (
+          <CollectionSection
+            title="Built-in strategies"
+            caption="FactorSage's own logic. Everyone can read and backtest it; only FactorSage changes it."
+            label="Built-in strategies"
+            noun="strategies"
+            testId="built-in-strategies"
+            tableTestId="built-in-strategies-grid"
+            rowTestId="strategy-row"
+            footerTestId="built-in-strategies-footer"
+            columns={columns}
+            rows={builtIn}
+            getRowKey={(strategy) => strategy.id}
+            clickableRows
+          />
         ) : null}
       </div>
+
+      {gate.prompt}
 
       {dialog.kind === "rename" ? (
         <StrategyRenameDialog

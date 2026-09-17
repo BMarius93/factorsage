@@ -832,6 +832,51 @@ Do not add in this slice:
 
 ---
 
+## 17a. Accepted amendment — built-in content UX (2026-09-17)
+
+The slice shipped as specified above. Using it showed three places where the specification's own
+goal — a visitor meeting real product content immediately — was undermined by where that content
+was put. The following supersede the sections named, and nothing else in this document changes. No
+signal-lifecycle, ownership, entitlement or evaluation semantics move.
+
+**Guest access is navigational, not just deep-linkable (supersedes section 5.1 in part).** The
+Lists, Strategies and Monitors **collection** pages are readable without a session and show the
+built-in sections. Previously only a detail page whose id the visitor already had was reachable,
+which made public built-ins undiscoverable. `GET /monitors` therefore accepts a Guest and returns
+published built-ins, as `GET /lists` and `GET /strategies` already did. A Guest still sees no
+"Your …" section, and another customer's private object is still `404`.
+
+**A refused action asks, it does not redirect (supersedes section 5.1's "must ask the visitor to
+sign in").** Every protected action — New list / strategy / monitor, and a built-in Monitor's
+visibility switch — opens the shared sign-in prompt in place. Navigating a Guest to `/login`
+discarded the page they were reading to tell them they needed an account to change it.
+
+**Monitor visibility moves to the Monitors page (supersedes section 4 and section 5.2's placement,
+not their semantics).** The toggle is a property of a Monitor, so it lives in the built-in section
+of the Monitors collection. The Dashboard is the signal table alone: the monitor cards below it
+competed with the signals they configured and made the product's home page read as a settings
+screen. The preference itself is unchanged — one `UserBuiltInMonitorPreference` override row, per
+user, never touching evaluation — and is now also reported on `GET /monitors` as
+`dashboardVisible`.
+
+**Dashboard row information (supersedes section 4.3).** Columns are Stock, Action, Why, Price,
+Strategy, List, Monitor. `Strategy`, `List` and `Monitor` are three columns with three links, not
+one combined cell. The `Since` column is removed — the activation time was the least-used fact in
+the row and the widest — and so is the per-row `Backtest` button, which repeated one call to action
+on every row of a table whose job is to report. Row click still opens Stock Details; the phone
+presentation is still the shared `DataTable` card.
+
+**Dashboard filters (supersedes section 4.4).** The state filter (All / Active / Waiting) is a
+segmented control with counts; the action filter (All actions / Buy / Sell / Final exit) is a
+dropdown. They are deliberately different control shapes, because two identical pill groups read as
+two competing tab systems rather than one view and one refinement of it. They compose as
+state AND action.
+
+**Collections separate ownership (new).** Each collection page shows the viewer's own content
+first and built-in content second, in two sections, rather than one mixed table. A signed-in user
+with nothing of their own gets a compact empty section, never a full-page empty state that hides
+the built-ins below it.
+
 ## 18. Recommended implementation order
 
 1. Update canonical Monitor lifecycle docs/tests for the accepted state machine.

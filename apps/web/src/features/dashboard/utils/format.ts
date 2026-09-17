@@ -12,6 +12,18 @@ export const ROW_STATE_LABELS: Record<DashboardRowState, string> = {
   PENDING_TRIGGER: "Waiting for trigger",
 };
 
+/**
+ * The same two states as a compact filter label.
+ *
+ * `Waiting for trigger` is the honest full name and stays on the row badge and in the reason text,
+ * where there is room to be precise. A segmented control has no such room: three buttons and their
+ * counts must fit one line on a phone, and a truncated label teaches nothing.
+ */
+export const ROW_STATE_FILTER_LABELS: Record<DashboardRowState, string> = {
+  ACTIVE: "Active",
+  PENDING_TRIGGER: "Waiting",
+};
+
 export const ROW_STATE_TONES: Record<DashboardRowState, StatusTone> = {
   ACTIVE: "positive",
   PENDING_TRIGGER: "active",
@@ -31,20 +43,6 @@ export function levelLabel(
   return row.levelPercentage === undefined
     ? kind
     : `${kind} ${row.levelPercentage}%`;
-}
-
-/** A `YYYY-MM-DD` session as `Sep 15, 2026`, without a timezone shift. */
-export function formatSessionDate(date: string): string {
-  const parsed = new Date(`${date}T12:00:00.000Z`);
-  if (Number.isNaN(parsed.valueOf())) {
-    return date;
-  }
-  return parsed.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
 }
 
 /** `just now`, `4 min ago`, `3 h ago`, `2 days ago`. */

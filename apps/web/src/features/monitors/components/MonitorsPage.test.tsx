@@ -4,19 +4,25 @@ import type {
   StockListSummaryResponse,
   StrategySummaryResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   chooseFromOverflowMenu,
   openOverflowMenu,
 } from "../../../components/ui/__testing__/overflow-menu";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  guestSession,
+  signedInSession,
+} from "../../auth/__testing__/auth-session";
+import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
 import { fetchStrategies } from "../../strategies/api/strategies-api";
 import {
   createMonitor,
   deleteMonitor,
   fetchMonitors,
+  setBuiltInMonitorVisibility,
   updateMonitor,
 } from "../api/monitors-api";
 import { MonitorsPage } from "./MonitorsPage";
@@ -26,6 +32,11 @@ vi.mock("../api/monitors-api", () => ({
   createMonitor: vi.fn(),
   updateMonitor: vi.fn(),
   deleteMonitor: vi.fn(),
+  setBuiltInMonitorVisibility: vi.fn(),
+}));
+
+vi.mock("../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: vi.fn(),
 }));
 
 vi.mock("../../strategies/api/strategies-api", () => ({
@@ -36,7 +47,9 @@ vi.mock("../../lists/api/stock-lists-api", () => ({
   fetchStockLists: vi.fn(),
 }));
 
+const useAuthSessionMock = vi.mocked(useAuthSession);
 const fetchMonitorsMock = vi.mocked(fetchMonitors);
+const setVisibilityMock = vi.mocked(setBuiltInMonitorVisibility);
 const createMonitorMock = vi.mocked(createMonitor);
 const updateMonitorMock = vi.mocked(updateMonitor);
 const deleteMonitorMock = vi.mocked(deleteMonitor);
@@ -133,9 +146,32 @@ beforeEach(() => {
   createMonitorMock.mockReset();
   updateMonitorMock.mockReset();
   deleteMonitorMock.mockReset();
+  setVisibilityMock.mockReset();
   fetchStrategiesMock.mockReset().mockResolvedValue(STRATEGIES);
   fetchStockListsMock.mockReset().mockResolvedValue(LISTS);
+  useAuthSessionMock.mockReturnValue(signedInSession());
 });
+
+/** A published built-in, as `GET /monitors` reports one to a signed-in customer. */
+function builtIn(
+  overrides: Partial<MonitorSummaryResponse> = {},
+): MonitorSummaryResponse {
+  return summary({
+    ownership: "SYSTEM",
+    systemKey: "sp500-value-and-trend",
+    canEdit: false,
+    id: "builtin-1",
+    name: "S&P Value & Trend",
+    strategyId: "strategy-b",
+    strategyName: "Value & Trend",
+    stockListId: "list-b",
+    stockListName: "S&P 500 Growth Leaders",
+    isPublished: true,
+    isGloballyEnabled: true,
+    dashboardVisible: true,
+    ...overrides,
+  });
+}
 
 describe("MonitorsPage", () => {
   it("shows the empty state with a create call to action", async () => {
@@ -146,8 +182,144 @@ describe("MonitorsPage", () => {
     await waitFor(() => {
       expect(screen.getByTestId("monitors-empty")).toBeDefined();
     });
-    expect(screen.getByText("Create your first monitor")).toBeDefined();
+    expect(
+      screen.getByText("You haven't created any monitors yet"),
+    ).toBeDefined();
     expect(screen.queryByTestId("monitors-grid")).toBeNull();
+  });
+
+  it("keeps an empty 'Your monitors' compact so the built-ins under it still show", async () => {
+    fetchMonitorsMock.mockResolvedValue([builtIn()]);
+
+    render(<MonitorsPage />);
+
+    expect(await screen.findByTestId("monitors-empty")).toBeDefined();
+    const builtIns = screen.getByTestId("built-in-monitors");
+    expect(builtIns.textContent).toContain("S&P Value & Trend");
+    expect(screen.getAllByTestId("new-monitor-button")).toHaveLength(1);
+  });
+
+  it("separates the viewer's own monitors from the built-in ones", async () => {
+    fetchMonitorsMock.mockResolvedValue([builtIn(), summary()]);
+
+    render(<MonitorsPage />);
+
+    const own = await screen.findByTestId("your-monitors");
+    const builtIns = screen.getByTestId("built-in-monitors");
+    expect(own.textContent).toContain("Value entries");
+    expect(own.textContent).not.toContain("S&P Value & Trend");
+    expect(builtIns.textContent).toContain("S&P Value & Trend");
+    // Your content first.
+    expect(own.compareDocumentPosition(builtIns)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // A built-in is read-only for a customer: no enable/disable, no edit, no delete.
+    expect(
+      within(builtIns).queryByRole("button", { name: /S&P Value & Trend/ }),
+    ).toBeNull();
+    expect(
+      within(builtIns).getByRole("link", { name: "Open" }).getAttribute("href"),
+    ).toBe("/monitors/builtin-1");
+  });
+
+  it("saves a built-in's dashboard visibility as this user's own preference", async () => {
+    const user = userEvent.setup();
+    // The page re-reads the collection after a change, so the second answer is the persisted
+    // preference: the row never keeps a value the server did not confirm.
+    fetchMonitorsMock
+      .mockResolvedValueOnce([builtIn()])
+      .mockResolvedValue([builtIn({ dashboardVisible: false })]);
+    setVisibilityMock.mockResolvedValue(undefined);
+
+    render(<MonitorsPage />);
+
+    const toggle = await screen.findByTestId("built-in-monitor-toggle");
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await user.click(toggle);
+
+    await waitFor(() =>
+      expect(setVisibilityMock).toHaveBeenCalledWith("builtin-1", {
+        visible: false,
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+    // It is a preference, never the shared monitor: nothing patched the monitor itself.
+    expect(updateMonitorMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the row on its real preference when the change is refused", async () => {
+    const user = userEvent.setup();
+    fetchMonitorsMock.mockResolvedValue([builtIn()]);
+    setVisibilityMock.mockRejectedValue(new Error("network"));
+
+    render(<MonitorsPage />);
+    await user.click(await screen.findByTestId("built-in-monitor-toggle"));
+
+    expect(
+      await screen.findByTestId("monitor-visibility-error"),
+    ).toBeDefined();
+    expect(
+      screen.getByTestId("built-in-monitor-toggle").getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("shows a hidden built-in as hidden", async () => {
+    fetchMonitorsMock.mockResolvedValue([builtIn({ dashboardVisible: false })]);
+
+    render(<MonitorsPage />);
+
+    expect(
+      (await screen.findByTestId("built-in-monitor-toggle")).getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
+  });
+
+  it("lets an administrator edit a built-in through the ordinary editor", async () => {
+    fetchMonitorsMock.mockResolvedValue([builtIn({ canEdit: true })]);
+    useAuthSessionMock.mockReturnValue(signedInSession({ role: "ADMIN" }));
+
+    render(<MonitorsPage />);
+    await screen.findByTestId("built-in-monitors");
+
+    await chooseFromOverflowMenu(userEvent, "S&P Value & Trend", "Edit");
+    await waitFor(() => expect(screen.getByTestId("monitor-form")).toBeDefined());
+    // Deleting a built-in is offered to nobody.
+    expect(screen.queryByText("Delete")).toBeNull();
+  });
+
+  it("asks a Guest for an account rather than storing a preference or redirecting", async () => {
+    const user = userEvent.setup();
+    useAuthSessionMock.mockReturnValue(guestSession());
+    fetchMonitorsMock.mockResolvedValue([builtIn()]);
+
+    render(<MonitorsPage />);
+
+    expect(await screen.findByTestId("built-in-monitors")).toBeDefined();
+    expect(screen.queryByTestId("your-monitors")).toBeNull();
+
+    await user.click(screen.getByTestId("built-in-monitor-toggle"));
+    let prompt = await screen.findByTestId("sign-in-prompt");
+    expect(
+      within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
+    ).toBe("/login");
+    expect(setVisibilityMock).not.toHaveBeenCalled();
+    await user.click(within(prompt).getByRole("button", { name: "Close dialog" }));
+
+    await user.click(screen.getByTestId("new-monitor-button"));
+    prompt = await screen.findByTestId("sign-in-prompt");
+    expect(
+      within(prompt)
+        .getByRole("link", { name: "Create an account" })
+        .getAttribute("href"),
+    ).toBe("/register");
+    expect(screen.queryByTestId("monitor-form")).toBeNull();
+    // Still on the monitors page throughout.
+    expect(screen.getByTestId("monitors-page")).toBeDefined();
   });
 
   it("identifies each monitor by its strategy, list, universe and state", async () => {
@@ -232,7 +404,7 @@ describe("MonitorsPage", () => {
       expect(screen.getByTestId("monitors-empty")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Create your first monitor"));
+    await userEvent.click(screen.getByTestId("new-monitor-button"));
     await waitFor(() => {
       expect(screen.getByTestId("monitor-form")).toBeDefined();
     });

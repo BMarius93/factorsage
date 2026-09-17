@@ -22,32 +22,6 @@
   min-width: 0;
 }
 
-.label {
-  color: var(--color-text-muted);
-  font-size: var(--text-label-size);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: var(--text-label-tracking);
-  text-transform: uppercase;
-}
-
-.select {
-  min-height: var(--action-height);
-  padding: 0 8px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-body);
-  background: var(--color-surface);
-  font: inherit;
-  font-size: var(--text-secondary);
-  font-weight: var(--weight-emphasis);
-}
-
-.select:focus-visible {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: var(--focus-ring);
-}
-
 .range {
   font-variant-numeric: tabular-nums;
 }

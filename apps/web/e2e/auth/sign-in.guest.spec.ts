@@ -27,8 +27,9 @@ test.describe("guest authentication @smoke", () => {
   });
 
   test("is sent to sign-in when opening a product route", async ({ page }) => {
-    // The Dashboard is public (built-in content); a personal collection is not.
-    await page.goto("/monitors");
+    // The Dashboard and the built-in collections are public; a route that is only ever about the
+    // caller's own work is not.
+    await page.goto("/backtests");
 
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);

@@ -2,8 +2,15 @@
 
 import actions from "./actions.module.css";
 import styles from "./CollectionFooter.module.css";
+import { SelectControl, type SelectControlOption } from "./SelectControl";
 
 export const COLLECTION_PAGE_SIZES = [25, 50, 100] as const;
+
+const PAGE_SIZE_OPTIONS: readonly SelectControlOption[] =
+  COLLECTION_PAGE_SIZES.map((size) => ({
+    value: String(size),
+    label: String(size),
+  }));
 
 type CollectionFooterProps = {
   /** Total rows in the collection, before paging. */
@@ -43,21 +50,13 @@ export function CollectionFooter({
       {...(testId ? { "data-testid": testId } : {})}
     >
       <div className={styles.group}>
-        <label className={styles.label} htmlFor={`${testId ?? noun}-page-size`}>
-          Rows
-        </label>
-        <select
+        <SelectControl
           id={`${testId ?? noun}-page-size`}
-          className={styles.select}
-          value={pageSize}
-          onChange={(event) => onPageSizeChange(Number(event.target.value))}
-        >
-          {COLLECTION_PAGE_SIZES.map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
+          label="Rows"
+          value={String(pageSize)}
+          onChange={(value) => onPageSizeChange(Number(value))}
+          options={PAGE_SIZE_OPTIONS}
+        />
         <span className={styles.range}>
           Showing {first}–{last} of {total} {noun}
         </span>

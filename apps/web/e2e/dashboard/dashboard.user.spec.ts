@@ -1,8 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * A signed-in user's Dashboard: the same built-in rows a Guest sees, plus the right to hide a
- * built-in monitor — a preference that persists for this account only.
+ * A signed-in customer's Dashboard: the same built-in rows a Guest sees, and nothing else — the
+ * page is the signal table alone, and choosing which monitors feed it happens on the Monitors page
+ * (`e2e/builtins/collections.user.spec.ts`).
  *
  * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`, which also clears any preference a
  * previous run left behind.
@@ -16,75 +17,47 @@ function qaRows(page: Page) {
     .filter({ hasText: /QA Built-in Monitor/ });
 }
 
-function card(page: Page) {
-  return page.getByTestId("dashboard-monitor").filter({ hasText: MONITOR_A });
-}
-
 test.describe("PRO_USER dashboard", () => {
-  test("hides a built-in monitor for this account and keeps the choice", async ({
+  test("keeps the built-in signals after signing in, with no configuration panel", async ({
     page,
-    browser,
   }) => {
     await page.goto("/dashboard");
     await expect(page.getByTestId("dashboard-guest-notice")).toHaveCount(0);
     await expect(qaRows(page)).toHaveCount(3);
 
-    const toggle = card(page).getByTestId("dashboard-monitor-toggle");
-    await expect(toggle).toHaveAttribute("aria-checked", "true");
-    try {
-      await toggle.click();
-      await expect(toggle).toHaveAttribute("aria-checked", "false");
-      await expect(qaRows(page)).toHaveCount(2);
-      await expect(qaRows(page).filter({ hasText: MONITOR_A })).toHaveCount(0);
-
-      await page.reload();
-      await expect(
-        card(page).getByTestId("dashboard-monitor-toggle"),
-      ).toHaveAttribute("aria-checked", "false");
-      await expect(qaRows(page)).toHaveCount(2);
-
-      // A visitor with no session still sees the shared monitor: the preference is per account.
-      const guest = await browser.newContext({
-        storageState: { cookies: [], origins: [] },
-      });
-      const guestPage = await guest.newPage();
-      await guestPage.goto("/dashboard");
-      await expect(qaRows(guestPage)).toHaveCount(3);
-      await guest.close();
-    } finally {
-      const current = card(page).getByTestId("dashboard-monitor-toggle");
-      if ((await current.getAttribute("aria-checked")) === "false") {
-        await current.click();
-        await expect(current).toHaveAttribute("aria-checked", "true");
-      }
-    }
-    await expect(qaRows(page)).toHaveCount(3);
+    // Signing in must not make the public content disappear, and must not add a settings panel.
+    await expect(page.getByTestId("dashboard-monitor")).toHaveCount(0);
+    await expect(page.getByRole("switch")).toHaveCount(0);
+    await expect(
+      page.getByTestId("dashboard-signals").getByRole("link", { name: "Backtest" }),
+    ).toHaveCount(0);
   });
 
-  test("links a row to a five-year backtest of the same strategy and list", async ({
+  test("reaches the strategy, the list and the monitor behind a row", async ({
     page,
   }) => {
     await page.goto("/dashboard");
-    await qaRows(page)
-      .filter({ hasText: MONITOR_A })
-      .first()
-      .getByRole("link", { name: "Backtest" })
-      .click();
-    await expect(page).toHaveURL(
-      /\/backtests\/new\?strategyId=.+&stockListId=.+/,
+    const row = qaRows(page).filter({ hasText: MONITOR_A }).first();
+
+    await expect(
+      row.getByRole("link", { name: "QA Built-in Trend" }),
+    ).toHaveAttribute("href", /\/strategies\/[0-9a-f-]{36}$/);
+    await expect(
+      row.getByRole("link", { name: "QA Built-in Leaders" }),
+    ).toHaveAttribute("href", /\/lists\/[0-9a-f-]{36}$/);
+    await expect(row.getByRole("link", { name: MONITOR_A })).toHaveAttribute(
+      "href",
+      /\/monitors\/[0-9a-f-]{36}$/,
     );
-    await expect(page.getByTestId("backtest-strategy")).toHaveValue(/.+/);
-    await expect(
-      page.getByTestId("backtest-strategy").locator("option:checked"),
-    ).toHaveText("QA Built-in Trend");
-    await expect(
-      page.getByTestId("backtest-list").locator("option:checked"),
-    ).toHaveText("QA Built-in Leaders");
   });
 
   test("shows a customer a built-in monitor read-only", async ({ page }) => {
     await page.goto("/dashboard");
-    await card(page).getByRole("link", { name: MONITOR_A }).click();
+    await qaRows(page)
+      .filter({ hasText: MONITOR_A })
+      .first()
+      .getByRole("link", { name: MONITOR_A })
+      .click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
     await expect(page.getByTestId("built-in-badge")).toBeVisible();
     await expect(page.getByTestId("edit-monitor")).toHaveCount(0);

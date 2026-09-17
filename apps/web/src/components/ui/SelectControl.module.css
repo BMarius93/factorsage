@@ -1,0 +1,36 @@
+/* A labelled native dropdown. The geometry comes from the shared control scale so it lines
+   up with the row-level actions and the filter pills it sits beside. */
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.select {
+  min-height: var(--action-height);
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-body);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+.select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}

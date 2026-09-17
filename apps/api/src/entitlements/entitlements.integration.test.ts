@@ -1073,7 +1073,11 @@ describe("entitlements", () => {
       await setPlan("downgrade", "FREE");
 
       const response = await agentOf("downgrade").get("/monitors").expect(200);
-      const monitors = response.body as MonitorSummaryResponse[];
+      // The collection also carries the platform's built-ins, which have no owner and no plan;
+      // the entitlement question is only ever about the customer's own.
+      const monitors = (response.body as MonitorSummaryResponse[]).filter(
+        (row) => row.ownership === "USER",
+      );
       expect(monitors).toHaveLength(5);
       // Intent is untouched: every one of them is still the user's stated `enabled`.
       expect(monitors.every((row) => row.enabled)).toBe(true);

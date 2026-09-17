@@ -448,7 +448,10 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
   never deleted.
 - **Visibility is per user, evaluation is not.** A Guest sees every published built-in on the
   Dashboard. A signed-in user sees them too unless they hid one; only that override is stored, and it
-  never changes whether the Monitor runs. A Guest's toggle asks them to sign in and stores nothing.
+  never changes whether the Monitor runs. The switch lives on the **Monitors page**, in the built-in
+  section, beside the Monitor it is a property of — not on the Dashboard, which is the signal table
+  and nothing else. `GET /monitors` carries it as `dashboardVisible` for built-ins. A Guest's toggle
+  asks them to sign in and stores nothing.
 - **A customer's own Monitor** keeps its real `enabled` lifecycle: disabled (or plan-blocked)
   Monitors contribute no Dashboard rows, whatever their frozen state says. A customer's Monitor
   watches only the customer's own Lists and Strategies; a built-in Monitor watches only built-ins.
@@ -457,7 +460,12 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
 
 The Dashboard is a table of `ACTIVE` occurrences and `PENDING_TRIGGER` setups — never `INACTIVE` or
 `RESOLVED` — with one row per Monitor outcome (the same security under two Monitors is two rows),
-newest state first, and each Monitor's freshness from its real scan time.
+newest state first, and each Monitor's freshness from its real scan time. Its columns are Stock,
+Action, Why, Price, Strategy, List, Monitor: the three entities are three separate links, because
+they are three separate objects with three separate pages. Two filters compose — a segmented state
+control (All / Active / Waiting) and an action dropdown — deliberately built as two *different*
+control shapes so they do not read as two competing tab bars. `Waiting` is only the compact filter
+label; a row's own badge and reason text keep the precise `Waiting for trigger`.
 
 ## Open product decisions
 

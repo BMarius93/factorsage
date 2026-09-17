@@ -395,6 +395,102 @@ describe("built-in content", () => {
       await guest.get(`/strategies/${ids.strategy}`).expect(200);
     });
 
+    /**
+     * The Monitors collection is public product content too, so a visitor can browse the built-ins
+     * rather than being told to sign in first. It carries the one piece of per-viewer state a
+     * built-in has — whether this viewer's Dashboard shows it — because that is where the control
+     * lives; a Guest has no preference row and therefore reads the built-in default.
+     */
+    it("lets every viewer list built-in monitors, with this viewer's own dashboard preference", async () => {
+      const guestMonitors = (await guest.get("/monitors").expect(200))
+        .body as MonitorSummaryResponse[];
+      expect(guestMonitors.every((monitor) => monitor.ownership === "SYSTEM")).toBe(
+        true,
+      );
+      expect(
+        guestMonitors.find((monitor) => monitor.id === ids.monitorA),
+      ).toMatchObject({
+        ownership: "SYSTEM",
+        systemKey: key("monitor-a"),
+        canEdit: false,
+        isPublished: true,
+        dashboardVisible: true,
+      });
+      expect(
+        await prisma.userBuiltInMonitorPreference.count({
+          where: { monitorId: ids.monitorA },
+        }),
+      ).toBe(0);
+
+      // An administrator may change the same row; a customer may not.
+      expect(
+        (
+          (await admin.get("/monitors").expect(200))
+            .body as MonitorSummaryResponse[]
+        ).find((monitor) => monitor.id === ids.monitorA)?.canEdit,
+      ).toBe(true);
+
+      // A stored preference is reported on the collection that owns the control.
+      await user
+        .put(`/dashboard/monitors/${ids.monitorA}/visibility`)
+        .send({ visible: false })
+        .expect(200);
+      try {
+        const mine = (await user.get("/monitors").expect(200))
+          .body as MonitorSummaryResponse[];
+        expect(
+          mine.find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+        ).toBe(false);
+        expect(
+          mine.find((monitor) => monitor.id === ids.monitorB)?.dashboardVisible,
+        ).toBe(true);
+        // One account's preference, never the shared monitor's state and never anyone else's.
+        expect(
+          (
+            (await other.get("/monitors").expect(200))
+              .body as MonitorSummaryResponse[]
+          ).find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+        ).toBe(true);
+        expect(
+          (
+            (await guest.get("/monitors").expect(200))
+              .body as MonitorSummaryResponse[]
+          ).find((monitor) => monitor.id === ids.monitorA)?.dashboardVisible,
+        ).toBe(true);
+      } finally {
+        // Removed rather than set back: a stored `enabled = true` is still a stored preference,
+        // and the suite's other cases assert that nothing is persisted until somebody asks.
+        await prisma.userBuiltInMonitorPreference.deleteMany({
+          where: { monitorId: ids.monitorA },
+        });
+      }
+    });
+
+    it("keeps an unpublished built-in monitor out of every collection but an administrator's", async () => {
+      await prisma.monitor.update({
+        where: { id: ids.monitorB },
+        data: { isPublished: false },
+      });
+      try {
+        const holds = async (
+          agent: ReturnType<typeof request> | ReturnType<typeof request.agent>,
+        ) =>
+          (
+            (await agent.get("/monitors").expect(200))
+              .body as MonitorSummaryResponse[]
+          ).some((monitor) => monitor.id === ids.monitorB);
+
+        expect(await holds(guest)).toBe(false);
+        expect(await holds(user)).toBe(false);
+        expect(await holds(admin)).toBe(true);
+      } finally {
+        await prisma.monitor.update({
+          where: { id: ids.monitorB },
+          data: { isPublished: true },
+        });
+      }
+    });
+
     it("refuses every customer change to built-in content with a 403", async () => {
       const item = await prisma.stockListItem.findFirstOrThrow({
         where: { stockListId: ids.listA },
@@ -646,9 +742,21 @@ describe("built-in content", () => {
             .expect(201)
         ).body as MonitorDetailResponse;
         expect(created.operationalStatus).toBe("ACTIVE");
-        const own = (await user.get("/monitors").expect(200))
+        const collection = (await user.get("/monitors").expect(200))
           .body as MonitorSummaryResponse[];
-        expect(own.map((monitor) => monitor.id)).toEqual([created.id]);
+        expect(
+          collection
+            .filter((monitor) => monitor.ownership === "USER")
+            .map((monitor) => monitor.id),
+        ).toEqual([created.id]);
+        // The built-ins are in the same response, under their own ownership, and took none of
+        // the plan's capacity to get there. Matched by containment: a developer database also
+        // holds the real shipped catalog, which this suite does not own.
+        expect(
+          collection
+            .filter((monitor) => monitor.ownership === "SYSTEM")
+            .map((monitor) => monitor.id),
+        ).toEqual(expect.arrayContaining([ids.monitorA, ids.monitorB]));
         await prisma.monitor.delete({ where: { id: created.id } });
         await prisma.strategy.delete({ where: { id: strategy.id } });
         await prisma.stockList.delete({ where: { id: list.id } });
