@@ -8,13 +8,10 @@ import { apiBaseUrl, readEntitlements } from "../utils/entitlements";
  * session and forbids creating a row for it, so this project has no storage state and nothing to
  * seed.
  *
- * The split between the two halves below is deliberate and worth reading. The **public reads** are
- * asserted against the API, because the web app currently puts every product route — `/stocks`
- * included — behind `RequireAuth`, so there is no signed-out browsing surface to drive. That is a
- * UI gap, not a contradiction in the decision document: the entitlement exists and the API honours
- * it, and building a public stocks page would be a product change this suite has no business
- * making. The **refusals** are asserted through the browser, because that is where a user meets
- * them.
+ * The split between the two halves below is deliberate. The **public reads** are asserted against
+ * the API, which is the authority for them; the signed-out browsing surface — the Dashboard, Stock
+ * Details and built-in content — is driven in `e2e/dashboard/dashboard.guest.spec.ts`. The
+ * **refusals** are asserted through the browser, because that is where a user meets them.
  */
 test.describe("guest entitlements", () => {
   test("resolves guest entitlements without creating an account", async ({

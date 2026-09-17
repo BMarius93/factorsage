@@ -1,3 +1,4 @@
+import type { ContentOwnershipResponse } from "./builtins.js";
 import type { SecurityResponse } from "./stock-data.js";
 
 /**
@@ -52,13 +53,14 @@ export const STOCK_LIST_MAX_SECURITIES_PER_ADD = 100;
 export const BUY_WINDOW_MAX_RANGES = 100;
 
 /** One row of `GET /lists`: enough to render the collection without loading memberships. */
-export type StockListSummaryResponse = {
+export type StockListSummaryResponse = ContentOwnershipResponse & {
   id: string;
   name: string;
   description?: string;
   itemCount: number;
   createdAt: string;
   updatedAt: string;
+  /** Built-in content is not a customer's List and is always compliant. */
   compliance: StockListComplianceResponse;
 };
 
@@ -89,7 +91,7 @@ export type StockListItemResponse = {
   buyWindows: BuyWindowRangeResponse[];
 };
 
-export type StockListDetailResponse = {
+export type StockListDetailResponse = ContentOwnershipResponse & {
   id: string;
   name: string;
   description?: string;

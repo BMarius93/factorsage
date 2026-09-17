@@ -27,8 +27,9 @@ test.describe("ADMIN_USER session @smoke", () => {
 
     await expect(page).toHaveURL(/\/login$/);
 
-    // The cleared cookie must actually end the session, not just change the view.
-    await page.goto("/dashboard");
+    // The cleared cookie must actually end the session, not just change the view. The Dashboard is
+    // public, so a session-only route proves it.
+    await page.goto("/monitors");
     await expect(page).toHaveURL(/\/login$/);
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);
   });

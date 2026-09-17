@@ -98,6 +98,19 @@ export class PrismaMonitorScanRepository implements MonitorScanRepository {
   }
 
   /**
+   * Makes the next cycle due now — an operator action (`pnpm monitors:scan-once`), never a
+   * user-facing cadence control. It only moves `dueAt` earlier; a cycle already claimed keeps its
+   * lease and is not disturbed.
+   */
+  async requestImmediateScan(now: Date): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "MonitorScanSchedule"
+      SET "dueAt" = LEAST("dueAt", ${now}), "updatedAt" = ${now}
+      WHERE "id" = ${MONITOR_SCAN_SCHEDULE_ID}
+    `;
+  }
+
+  /**
    * Takes the cycle, or nothing.
    *
    * The candidate query is what enforces both rules at once: the cycle is due (`dueAt <= now`) and

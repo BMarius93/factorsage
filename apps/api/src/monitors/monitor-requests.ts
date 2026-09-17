@@ -92,6 +92,10 @@ export type ParsedUpdateMonitorRequest = {
   strategyId?: string;
   /** Rebinds the Monitor to a different Stock List. Ownership is checked by the service. */
   stockListId?: string;
+  /** Built-in only; the service refuses them on a customer's Monitor. */
+  isPublished?: boolean;
+  isGloballyEnabled?: boolean;
+  displayOrder?: number | null;
 };
 
 const UPDATABLE_KEYS = [
@@ -99,7 +103,43 @@ const UPDATABLE_KEYS = [
   "enabled",
   "strategyId",
   "stockListId",
+  "isPublished",
+  "isGloballyEnabled",
+  "displayOrder",
 ] as const;
+
+/** The keys that only mean something on a built-in Monitor. */
+export const BUILT_IN_MONITOR_KEYS = [
+  "isPublished",
+  "isGloballyEnabled",
+  "displayOrder",
+] as const;
+
+function parseFlag(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new BadRequestException(
+      `Invalid request: ${field} must be true or false`,
+    );
+  }
+  return value;
+}
+
+function parseDisplayOrder(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > 10_000
+  ) {
+    throw new BadRequestException(
+      "Invalid request: displayOrder must be a whole number from 0 to 10000, or null",
+    );
+  }
+  return value;
+}
 
 export function parseUpdateMonitorRequest(
   body: unknown,
@@ -108,7 +148,7 @@ export function parseUpdateMonitorRequest(
   rejectUnknownKeys(record, UPDATABLE_KEYS);
   if (UPDATABLE_KEYS.every((key) => record[key] === undefined)) {
     throw new BadRequestException(
-      "Invalid request: provide a name, enabled, strategyId or stockListId to update",
+      "Invalid request: provide a name, enabled, strategyId, stockListId, isPublished, isGloballyEnabled or displayOrder to update",
     );
   }
   return {
@@ -122,5 +162,19 @@ export function parseUpdateMonitorRequest(
     ...(record.stockListId === undefined
       ? {}
       : { stockListId: parseId(record.stockListId, "stockListId") }),
+    ...(record.isPublished === undefined
+      ? {}
+      : { isPublished: parseFlag(record.isPublished, "isPublished") }),
+    ...(record.isGloballyEnabled === undefined
+      ? {}
+      : {
+          isGloballyEnabled: parseFlag(
+            record.isGloballyEnabled,
+            "isGloballyEnabled",
+          ),
+        }),
+    ...(record.displayOrder === undefined
+      ? {}
+      : { displayOrder: parseDisplayOrder(record.displayOrder) }),
   };
 }

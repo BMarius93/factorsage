@@ -672,6 +672,133 @@ describe("backtests", () => {
     });
   });
 
+  describe("built-in content", () => {
+    const systemKey = `backtest-builtin-${suffix}`;
+    let builtInListId = "";
+    let builtInStrategyId = "";
+
+    beforeAll(async () => {
+      const strategy = await prisma.strategy.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey,
+          name: "Built-in accumulator",
+          versions: {
+            create: {
+              versionNumber: 1,
+              definition: definition as unknown as object,
+              definitionHash,
+            },
+          },
+        },
+      });
+      builtInStrategyId = strategy.id;
+      const list = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey,
+          name: "Built-in universe",
+          items: {
+            create: [
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("A")) ?? "",
+                buyWindowMode: "CUSTOM",
+                buyWindows: {
+                  create: [
+                    { startDate: new Date("2020-06-15T00:00:00.000Z"), endDate: null },
+                  ],
+                },
+              },
+              {
+                securityId: securityIdsBySymbol.get(symbolOf("B")) ?? "",
+                buyWindowMode: "FULL",
+              },
+            ],
+          },
+        },
+      });
+      builtInListId = list.id;
+    });
+
+    afterAll(async () => {
+      await prisma.strategy.deleteMany({ where: { systemKey } });
+      await prisma.stockList.deleteMany({ where: { systemKey } });
+    });
+
+    it("runs a built-in Strategy over a built-in List, with its buy windows frozen", async () => {
+      const run = await submit({
+        strategyId: builtInStrategyId,
+        stockListId: builtInListId,
+      });
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true },
+      });
+      const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.strategy.name).toBe("Built-in accumulator");
+      expect(snapshot.stockList.name).toBe("Built-in universe");
+      expect(
+        snapshot.securities.map((security) => [
+          security.symbol,
+          security.buyWindowMode,
+          security.buyWindows,
+        ]),
+      ).toEqual([
+        [symbolOf("A"), "CUSTOM", [{ startDate: "2020-06-15", endDate: null }]],
+        [symbolOf("B"), "FULL", []],
+      ]);
+    });
+
+    it("keeps a submitted run unchanged when an administrator later edits the built-ins", async () => {
+      const run = await submit({
+        strategyId: builtInStrategyId,
+        stockListId: builtInListId,
+      });
+      const before = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true, snapshotHash: true },
+      });
+
+      // What an administrator's edits through the ordinary routes persist.
+      await prisma.strategyVersion.create({
+        data: {
+          strategyId: builtInStrategyId,
+          versionNumber: 2,
+          definition: {
+            ...definition,
+            buyLevels: definition.buyLevels.map((level) => ({ ...level, percentage: 100 })),
+          } as unknown as object,
+          definitionHash: randomUUID(),
+        },
+      });
+      await prisma.stockList.update({
+        where: { id: builtInListId },
+        data: { name: "Renamed built-in" },
+      });
+      await prisma.stockListBuyWindow.updateMany({
+        where: { item: { stockListId: builtInListId } },
+        data: { startDate: new Date("2020-09-01T00:00:00.000Z") },
+      });
+
+      const after = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true, snapshotHash: true },
+      });
+      expect(after).toEqual(before);
+      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
+        .body as BacktestRunDetailResponse;
+      expect(detail.configuration.stockListName).toBe("Built-in universe");
+      expect(detail.configuration.strategyVersionNumber).toBe(1);
+    });
+
+    it("still refuses another customer's content", async () => {
+      await expectRejected(
+        submission({ strategyId: otherStrategyId }),
+        "strategy was not found",
+      );
+    });
+  });
+
   it("lists only the caller's runs, newest queued first", async () => {
     const first = await submit();
     const second = await submit();

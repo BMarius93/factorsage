@@ -49,6 +49,8 @@ const fetchStockListsMock = vi.mocked(fetchStockLists);
 
 const STRATEGIES: StrategySummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "strategy-1",
     name: "Deep value",
     buyLevelCount: 1,
@@ -59,6 +61,8 @@ const STRATEGIES: StrategySummaryResponse[] = [
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
   {
+    ownership: "USER",
+    canEdit: true,
     id: "strategy-2",
     name: "Momentum exits",
     buyLevelCount: 1,
@@ -72,6 +76,8 @@ const STRATEGIES: StrategySummaryResponse[] = [
 
 const LISTS: StockListSummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "list-1",
     name: "Quality compounders",
     itemCount: 2,
@@ -80,6 +86,8 @@ const LISTS: StockListSummaryResponse[] = [
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
   {
+    ownership: "USER",
+    canEdit: true,
     id: "list-2",
     name: "Tech universe",
     itemCount: 3,
@@ -101,6 +109,7 @@ function evaluation(
   return {
     status: "NOT_CHECKED",
     matchedLevels: [],
+    waitingLevels: [],
     ...overrides,
   };
 }
@@ -117,6 +126,7 @@ function signal(
     observationDate: "2026-09-11",
     observationPrice: 101.5,
     detectedAt: "2026-09-11T15:30:00.000Z",
+    reconstructed: false,
     ...overrides,
   };
 }
@@ -125,6 +135,8 @@ function detail(
   overrides: Partial<MonitorDetailResponse> = {},
 ): MonitorDetailResponse {
   const base: MonitorSummaryResponse = {
+    ownership: "USER",
+    canEdit: true,
     id: "monitor-1",
     name: "Value entries",
     enabled: true,
@@ -158,6 +170,81 @@ beforeEach(() => {
 });
 
 describe("MonitorDetail", () => {
+  describe("built-in monitors", () => {
+    const builtIn = {
+      ownership: "SYSTEM" as const,
+      systemKey: "nasdaq-trend-confirmation",
+      isPublished: true,
+      isGloballyEnabled: true,
+    };
+
+    it("is read-only for a customer, offering the backtest instead of edits", async () => {
+      fetchMonitorMock.mockResolvedValue(
+        detail({
+          ...builtIn,
+          canEdit: false,
+          securities: [
+            evaluation({
+              security: security("sec-1", "ROP", "Roper"),
+              status: "WAITING_FOR_TRIGGER",
+              waitingLevels: [
+                {
+                  levelId: "buy",
+                  levelKind: "BUY",
+                  since: "2026-09-15T15:00:00.000Z",
+                },
+              ],
+            }),
+          ],
+        }),
+      );
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      expect(screen.getByTestId("built-in-badge")).toBeDefined();
+      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+        "Running",
+      );
+      expect(screen.queryByTestId("edit-monitor")).toBeNull();
+      expect(screen.queryByTestId("monitor-detail-actions")).toBeNull();
+      expect(
+        screen
+          .getByRole("link", { name: "Backtest this monitor" })
+          .getAttribute("href"),
+      ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
+      expect(screen.getByText("Waiting for trigger")).toBeDefined();
+      expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
+    });
+
+    it("lets an administrator pause and unpublish it, never delete it", async () => {
+      const user = userEvent.setup();
+      fetchMonitorMock.mockResolvedValue(detail({ ...builtIn, canEdit: true }));
+      updateMonitorMock.mockResolvedValue({
+        ...detail({ ...builtIn, canEdit: true }),
+        isPublished: false,
+      });
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      expect(screen.getByTestId("monitor-published-pill").textContent).toBe(
+        "Published",
+      );
+      await openOverflowMenu(user, "Value entries");
+      expect(screen.queryByText("Delete monitor")).toBeNull();
+      await user.click(screen.getByTestId("publish-monitor"));
+      await waitFor(() =>
+        expect(updateMonitorMock).toHaveBeenCalledWith("monitor-1", {
+          isPublished: false,
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("monitor-published-pill").textContent).toBe(
+          "Unpublished",
+        ),
+      );
+    });
+  });
+
   it("shows what the monitor watches, with its state and last checked time", async () => {
     fetchMonitorMock.mockResolvedValue(detail());
 

@@ -8,12 +8,19 @@ import { AuthModule } from "../auth/auth.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
+import { SystemContentModule } from "../builtins/system-content.module";
 import { ListsController } from "./lists.controller";
 import { LISTS_LOGGER } from "./lists.tokens";
 import { StockListsService } from "./stock-lists.service";
 
 @Module({
-  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
+  imports: [
+    ConfigurationModule,
+    DatabaseModule,
+    AuthModule,
+    EntitlementsModule,
+    SystemContentModule,
+  ],
   controllers: [ListsController],
   providers: [
     {

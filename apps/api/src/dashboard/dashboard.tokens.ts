@@ -1,0 +1,2 @@
+export const DASHBOARD_LOGGER = Symbol("DASHBOARD_LOGGER");
+export const DASHBOARD_OPTIONS = Symbol("DASHBOARD_OPTIONS");

@@ -5,6 +5,7 @@ import { BacktestsModule } from "./backtests/backtests.module";
 import { BenchmarksModule } from "./benchmarks/benchmarks.module";
 import { BillingModule } from "./billing/billing.module";
 import { ConfigurationModule } from "./config/configuration.module";
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health.controller";
@@ -32,6 +33,7 @@ import { StrategiesModule } from "./strategies/strategies.module";
     RecentSearchesModule,
     StocksModule,
     MonitorsModule,
+    DashboardModule,
     StrategiesModule,
   ],
   controllers: [HealthController],

@@ -1,3 +1,4 @@
+import type { ContentOwnershipResponse } from "./builtins.js";
 import type {
   MonitorBlockedReason,
   MonitorOperationalStatus,
@@ -38,8 +39,62 @@ export type MonitorSignalKind = (typeof MONITOR_SIGNAL_KINDS)[number];
  */
 export type MonitorLevelKind = StrategyLevelKind;
 
+/**
+ * The durable current state of one evaluated Strategy signal under a Monitor.
+ *
+ * `docs/decisions/builtin-dashboard-signals-v1.md` section 2 owns the state machine:
+ *
+ * - `INACTIVE` — nothing is matched and no occurrence has ended since the state was reset;
+ * - `PENDING_TRIGGER` — the Conditions of a triggered Signal hold, and its Trigger has not fired
+ *   for this setup yet. No Signal occurrence exists;
+ * - `ACTIVE` — a Signal occurrence is current;
+ * - `RESOLVED` — the most recent occurrence ended.
+ *
+ * `NOT_EVALUABLE` is deliberately absent: it is an evaluation result, not a lifecycle state, and a
+ * not-evaluable observation never moves this.
+ */
+export const MONITOR_LIFECYCLE_STATES = [
+  "INACTIVE",
+  "PENDING_TRIGGER",
+  "ACTIVE",
+  "RESOLVED",
+] as const;
+export type MonitorLifecycleState = (typeof MONITOR_LIFECYCLE_STATES)[number];
+
+/**
+ * Why a lifecycle state changed, recorded on every transition and on a resolved Signal.
+ *
+ * - `CONDITIONS_MET` — a condition-only Signal's Conditions became true;
+ * - `SETUP_STARTED` — a triggered Signal's Conditions became true, waiting for the Trigger;
+ * - `TRIGGER_FIRED` — the Trigger fired (with the Conditions holding, when there are any);
+ * - `CONDITIONS_ENDED` — a required Condition became false;
+ * - `EVENT_SESSION_ENDED` — a trigger-only event reached a later real exchange session;
+ * - `BUY_WINDOW_CLOSED` — a BUY level's List membership no longer admits the observation date;
+ * - `LOGIC_CHANGED` — the level's canonical logic was edited;
+ * - `LEVEL_REMOVED` — the level is no longer evaluated by the Monitor's Strategy;
+ * - `MEMBER_REMOVED` — the security left the Monitor's Stock List;
+ * - `MONITOR_REBOUND` — the Monitor was pointed at a different Strategy or Stock List;
+ * - `RECONSTRUCTED` — the state was established by historical reconstruction rather than
+ *   observed live.
+ */
+export const MONITOR_TRANSITION_REASONS = [
+  "CONDITIONS_MET",
+  "SETUP_STARTED",
+  "TRIGGER_FIRED",
+  "CONDITIONS_ENDED",
+  "EVENT_SESSION_ENDED",
+  "BUY_WINDOW_CLOSED",
+  "LOGIC_CHANGED",
+  "LEVEL_REMOVED",
+  "MEMBER_REMOVED",
+  "MONITOR_REBOUND",
+  "RECONSTRUCTED",
+] as const;
+export type MonitorTransitionReason =
+  (typeof MONITOR_TRANSITION_REASONS)[number];
+
 /** One row of `GET /monitors`. */
-export type MonitorSummaryResponse = {
+export type MonitorSummaryResponse = ContentOwnershipResponse & {
   id: string;
   name: string;
   enabled: boolean;
@@ -66,6 +121,18 @@ export type MonitorSummaryResponse = {
   operationalStatus: MonitorOperationalStatus;
   /** Present only when `operationalStatus` is `BLOCKED_BY_ENTITLEMENT`. */
   blockedReason?: MonitorBlockedReason;
+  /**
+   * Built-in only. Whether customers can see it; an unpublished built-in is visible to
+   * administrators alone.
+   */
+  isPublished?: boolean;
+  /**
+   * Built-in only. Whether the platform evaluates it — the operator's switch. A built-in's
+   * `enabled` mirrors this, and `operationalStatus` is `DISABLED` while it is off.
+   */
+  isGloballyEnabled?: boolean;
+  /** Built-in only. */
+  displayOrder?: number;
 };
 
 export type MonitorSignalResponse = {
@@ -81,6 +148,13 @@ export type MonitorSignalResponse = {
   detectedAt: string;
   /** Absent while the matched state is still active. */
   resolvedAt?: string;
+  /** Why the occurrence ended. Absent while it is active. */
+  resolutionReason?: MonitorTransitionReason;
+  /**
+   * True when historical reconstruction established this occurrence's activation — the Monitor
+   * did not exist, or had no state for this logic, when it began.
+   */
+  reconstructed: boolean;
 };
 
 /**
@@ -94,6 +168,11 @@ export type MonitorSignalResponse = {
 export const MONITOR_SECURITY_STATUSES = [
   /** At least one level of the Strategy currently has an active Signal for this security. */
   "MATCHED",
+  /**
+   * No level is active, and a triggered level's Conditions hold while its Trigger has not fired
+   * (`PENDING_TRIGGER`).
+   */
+  "WAITING_FOR_TRIGGER",
   /** Evaluated and decided, and no level currently matches. */
   "NO_MATCH",
   /** Evaluated, but its inputs could not decide the rule — warm-up, missing data, no quote. */
@@ -114,6 +193,14 @@ export type MonitorMatchedLevelResponse = {
   detectedAt: string;
 };
 
+/** One level whose Conditions hold while its Trigger has not fired yet. */
+export type MonitorWaitingLevelResponse = {
+  levelId: string;
+  levelKind: MonitorLevelKind;
+  /** When the setup began. */
+  since: string;
+};
+
 /**
  * One security of the Monitor's current Stock List, with what its durable state says.
  *
@@ -125,6 +212,8 @@ export type MonitorSecurityEvaluationResponse = {
   status: MonitorSecurityStatus;
   /** Non-empty exactly when `status` is `MATCHED`. */
   matchedLevels: MonitorMatchedLevelResponse[];
+  /** Levels whose setup is waiting for its Trigger, whatever the overall status. */
+  waitingLevels: MonitorWaitingLevelResponse[];
   /**
    * When this security's recorded status last **changed**.
    *
@@ -168,4 +257,10 @@ export type UpdateMonitorRequest = {
   enabled?: boolean;
   strategyId?: string;
   stockListId?: string;
+  /** Built-in only, administrators only. */
+  isPublished?: boolean;
+  /** Built-in only, administrators only. */
+  isGloballyEnabled?: boolean;
+  /** Built-in only, administrators only. `null` clears it. */
+  displayOrder?: number | null;
 };

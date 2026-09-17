@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
 import styles from "./AccountMenu.module.css";
 
-/** Account control for the application topbar: identity, ADMIN entry point, and sign out. */
+/**
+ * Account control for the application topbar: identity, ADMIN entry point, and sign out — or, for a
+ * Guest on a public page, the way to sign in.
+ */
 export function AccountMenu() {
   const router = useRouter();
   const { state, signOut } = useAuthSession();
@@ -41,6 +44,14 @@ export function AccountMenu() {
     };
   }, [open]);
 
+  if (state.status === "unauthenticated") {
+    // A Guest browsing the public pages needs a way in.
+    return (
+      <Link className={styles.signIn} href="/login" data-testid="sign-in-link">
+        Sign in
+      </Link>
+    );
+  }
   if (state.status !== "authenticated") {
     return null;
   }

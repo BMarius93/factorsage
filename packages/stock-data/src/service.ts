@@ -804,6 +804,15 @@ export class CanonicalStockDataService implements StockDataService {
     });
   }
 
+  /**
+   * The first session a backtest of this security could replay: the product horizon, clamped to a
+   * known listing date. A Monitor reconstruction whose history read starts here is a replay of the
+   * security's whole canonical history.
+   */
+  evaluationHistoryStart(security: Security): LocalDate {
+    return this.productTarget(security).from;
+  }
+
   /** Catalog rows for a set of internal ids. One read for a whole Monitor cycle's universe. */
   async findSecuritiesByIds(
     securityIds: readonly SecurityId[],

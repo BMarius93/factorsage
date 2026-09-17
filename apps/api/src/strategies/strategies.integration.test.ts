@@ -176,11 +176,16 @@ describe("strategies", () => {
     await prisma.stockList.delete({ where: { id: list.id } });
   });
 
-  it("requires authentication on every route", async () => {
+  it("requires authentication on every write, and shows a Guest built-ins only", async () => {
     const anonymous = request(app.getHttpServer());
-    await anonymous.get("/strategies").expect(401);
+    const guestStrategies = await anonymous.get("/strategies").expect(200);
+    expect(
+      (guestStrategies.body as StrategySummaryResponse[]).every(
+        (strategy) => strategy.ownership === "SYSTEM" && !strategy.canEdit,
+      ),
+    ).toBe(true);
     await anonymous.post("/strategies").send({ name: "x" }).expect(401);
-    await anonymous.get(`/strategies/${randomUUID()}`).expect(401);
+    await anonymous.get(`/strategies/${randomUUID()}`).expect(404);
     await anonymous
       .patch(`/strategies/${randomUUID()}`)
       .send({ name: "x" })

@@ -3,33 +3,33 @@ import {
   type StrategyDefinition,
 } from "@intrinsic/contracts";
 import {
-  isBuyWindowEligible,
   tradingSessionDate,
   type LocalDate,
   type Security,
   type SecurityId,
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
-import type {
-  CurrentObservation,
-  MonitorEvaluationFrame,
-  TradingCalendar,
+import {
+  addDays,
+  monitorWindowCalendarDays,
+  type CurrentObservation,
+  type MonitorEvaluationFrame,
+  type TradingCalendar,
 } from "@intrinsic/stock-data";
 import {
-  Evaluability,
   collectOperands,
-  evaluateLevelWithoutPosition,
   monitorStrategyLevels,
+  type EvaluationFrame,
   type MonitorStrategyLevel,
   type OperandKey,
 } from "@intrinsic/strategy";
 import { mapWithConcurrency } from "../shared/concurrency.js";
+import { decideLevel, needsDeeperHistory } from "./level-decision.js";
 import {
   signalStateKey,
   type ActiveMonitor,
-  type MonitorObservation,
+  type ActiveMonitorMember,
   type MonitorRepository,
-  type SignalTransitionWrite,
   type PersistedSignalState,
 } from "./monitor-repository.js";
 
@@ -75,14 +75,41 @@ export interface MonitorDataLoader {
   }): Promise<MonitorEvaluationFrame | null>;
   /** Trading observations the required operands need behind the current one. */
   monitorWindowObservations(operands: readonly OperandKey[]): number;
+  /**
+   * Prepares closed history for historical reconstruction — the canonical backtest path, so the
+   * replay reads the same materialized series a backtest would.
+   */
+  prepareReconstructionData(
+    security: Security,
+    range: { from: LocalDate; to: LocalDate },
+  ): Promise<void>;
+  readReconstructionFrame(
+    security: Security,
+    range: { from: LocalDate; to: LocalDate },
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame>;
+  /**
+   * The first session of the security's canonical history — the oldest day a backtest could
+   * replay. A reconstruction whose history read starts there is the full canonical replay.
+   */
+  reconstructionHistoryStart(security: Security): LocalDate;
 }
 
 export type MonitorCycleOptions = {
   symbolConcurrency: number;
   /** How stale a provider quote may be and still act as the provisional observation. */
   quoteMaxAgeMs: number;
+  /**
+   * Closed exchange sessions first read to reconstruct a level that has no current state — a new
+   * Monitor, a new member, a rebind or an edited level. Defaults to about one year. A level whose
+   * state that read cannot establish is read again with twice the history, until it can or the
+   * read reaches the start of the security's history.
+   */
+  reconstructionSessions?: number;
   now?: () => Date;
 };
+
+export const DEFAULT_RECONSTRUCTION_SESSIONS = 252;
 
 export type MonitorCycleSummary = {
   monitors: number;
@@ -90,6 +117,15 @@ export type MonitorCycleSummary = {
   evaluations: number;
   signalsEmitted: number;
   signalsResolved: number;
+  /** Lifecycle state changes recorded, pending setups included. */
+  transitionsRecorded: number;
+  /** Levels whose state was established by historical reconstruction this cycle. */
+  levelsReconstructed: number;
+  /**
+   * History reads beyond the first one, made because a level's state depended on sessions older
+   * than the default reconstruction window.
+   */
+  reconstructionHistoryExtensions: number;
   notEvaluable: number;
   /** Symbols with no usable current quote. Every Monitor watching one is NOT_EVALUABLE. */
   symbolsWithoutCurrentData: number;
@@ -119,9 +155,36 @@ export type MonitorCycleSummary = {
 export type AbortSignalCheck = () => boolean;
 
 /** One prepared per-symbol snapshot, shared by every Monitor that references the symbol. */
-type SymbolSnapshot = {
+export type SymbolSnapshot = {
   security: Security;
   frame: MonitorEvaluationFrame | null;
+  /**
+   * Closed history before the observation, for reconstruction. `undefined` when no level of this
+   * security needed reconstructing; `null` when it was needed and could not be read — those
+   * levels then wait for a later cycle rather than starting as if nothing had happened before.
+   */
+  history?: ReconstructionHistory | null;
+};
+
+/** One history read for reconstruction. */
+export type ReconstructionHistory = {
+  frame: EvaluationFrame;
+  /** The read starts at the security's first canonical session: nothing older exists. */
+  complete: boolean;
+};
+
+/** A `(member, level)` with no current state for its logic, which the cycle reconstructs. */
+type ReconstructionTarget = {
+  member: ActiveMonitorMember;
+  level: MonitorStrategyLevel;
+};
+
+/** One Monitor, parsed, with the levels it evaluates and its durable state. */
+type PreparedMonitor = {
+  monitor: ActiveMonitor;
+  definition: StrategyDefinition;
+  levels: MonitorStrategyLevel[];
+  states: Map<string, PersistedSignalState>;
 };
 
 export class MonitorCycle {
@@ -149,6 +212,9 @@ export class MonitorCycle {
       evaluations: 0,
       signalsEmitted: 0,
       signalsResolved: 0,
+      transitionsRecorded: 0,
+      levelsReconstructed: 0,
+      reconstructionHistoryExtensions: 0,
       notEvaluable: 0,
       symbolsWithoutCurrentData: 0,
       symbolsOutsideTradingSession: 0,
@@ -173,18 +239,53 @@ export class MonitorCycle {
           event: "monitor.definition.invalid",
           cycleSequence,
           monitorId: monitor.monitorId,
-          actorUserId: monitor.actorUserId,
+          actorUserId: monitor.actorUserId ?? undefined,
           err,
         });
         return [];
       }
     });
 
+    // Durable state first: which levels have none (or state under logic that no longer exists)
+    // decides which securities need closed history for reconstruction.
+    const prepared: PreparedMonitor[] = [];
+    for (const { monitor, definition } of parsed) {
+      try {
+        prepared.push({
+          monitor,
+          definition,
+          levels: monitorStrategyLevels(definition),
+          states: await this.repository.loadSignalStates(monitor.monitorId),
+        });
+      } catch (err) {
+        this.logger.error({
+          event: "monitor.state.load-failed",
+          cycleSequence,
+          monitorId: monitor.monitorId,
+          actorUserId: monitor.actorUserId ?? undefined,
+          err,
+        });
+      }
+    }
+    const needsReconstruction = new Map<SecurityId, ReconstructionTarget[]>();
+    for (const { monitor, levels, states } of prepared) {
+      for (const member of monitor.members) {
+        for (const level of levels) {
+          const state = states.get(signalStateKey(member.securityId, level.id));
+          if (!state || state.signalFingerprint !== level.fingerprint) {
+            const targets = needsReconstruction.get(member.securityId) ?? [];
+            targets.push({ member, level });
+            needsReconstruction.set(member.securityId, targets);
+          }
+        }
+      }
+    }
+
     // Required-series aggregation: the union of the operands every Monitor references, per symbol.
     // This is what decides both which frame columns exist and how much history is loaded, so a
     // symbol is never asked for a series no active Monitor names.
     const operandsBySecurity = new Map<SecurityId, Set<OperandKey>>();
-    for (const { monitor, definition } of parsed) {
+    for (const { monitor, definition } of prepared) {
       const operands = collectOperands(definition);
       for (const member of monitor.members) {
         let required = operandsBySecurity.get(member.securityId);
@@ -298,6 +399,17 @@ export class MonitorCycle {
           asOf,
           cycleSequence,
         });
+        const targets = needsReconstruction.get(security.id);
+        if (snapshot.frame && targets) {
+          snapshot.history = await this.loadReconstructionHistory({
+            security,
+            operands,
+            snapshot,
+            targets,
+            cycleSequence,
+            summary,
+          });
+        }
         snapshots.set(security.id, snapshot);
         if (!snapshot.frame) {
           summary.symbolsWithoutSnapshot += 1;
@@ -306,7 +418,8 @@ export class MonitorCycle {
     );
 
     const scanned: { monitorId: string; configVersion: number }[] = [];
-    for (const { monitor, definition } of parsed) {
+    for (const entry of prepared) {
+      const { monitor } = entry;
       if (isAborted()) {
         // Stopping between Monitors is safe: every transition is decided from durable state and
         // persisted history, so the next cycle re-evaluates whatever this one did not reach and
@@ -315,8 +428,7 @@ export class MonitorCycle {
         break;
       }
       await this.evaluateMonitor({
-        monitor,
-        definition,
+        prepared: entry,
         snapshots,
         now,
         summary,
@@ -391,79 +503,127 @@ export class MonitorCycle {
   }
 
   /**
-   * Evaluates one Monitor against the shared snapshots and persists every transition.
+   * Reads the closed history the security's reconstructions replay: the sessions strictly before
+   * the observation, through the canonical backtest frame.
    *
-   * The snapshots are already built, so this does no data work at all: it reads one index of a
-   * frame per level per security through the canonical evaluator.
+   * About a year is read first. A level whose state that year cannot establish — its rules never
+   * all rested in it, so it depends on something older — gets the read doubled, until every level
+   * that needs it is established or the read reaches the security's first session, where the
+   * replay is the full canonical one. Almost every level rests within days, so the common case is
+   * one read; a year-plus setup costs a few more, never a full-history replay per level.
+   *
+   * A failure is contained to this security and reported as `null`, so its unreconstructed levels
+   * wait for a later cycle instead of starting from a history that was never read.
+   */
+  private async loadReconstructionHistory(input: {
+    security: Security;
+    operands: readonly OperandKey[];
+    snapshot: SymbolSnapshot;
+    targets: readonly ReconstructionTarget[];
+    cycleSequence: number;
+    summary: MonitorCycleSummary;
+  }): Promise<ReconstructionHistory | null> {
+    const { security, snapshot, targets } = input;
+    const observationDate = snapshot.frame!.observationDate;
+    let sessions =
+      this.options.reconstructionSessions ?? DEFAULT_RECONSTRUCTION_SESSIONS;
+    try {
+      const start = this.data.reconstructionHistoryStart(security);
+      const to = addDays(observationDate, -1);
+      for (;;) {
+        const earliest = addDays(observationDate, -monitorWindowCalendarDays(sessions));
+        const complete = earliest <= start;
+        // Never before the first session. A security whose history starts after `to` keeps the
+        // unclamped range, which is still a valid one and simply holds nothing.
+        const range = { from: complete && start <= to ? start : earliest, to };
+        await this.data.prepareReconstructionData(security, range);
+        const history: ReconstructionHistory = {
+          frame: await this.data.readReconstructionFrame(security, range, input.operands),
+          complete,
+        };
+        const deeper = targets.filter((target) =>
+          needsDeeperHistory({ ...target, snapshot, history }),
+        );
+        if (deeper.length === 0) {
+          return history;
+        }
+        input.summary.reconstructionHistoryExtensions += 1;
+        this.logger.debug({
+          event: "monitor.reconstruction.history-extended",
+          cycleSequence: input.cycleSequence,
+          symbol: security.symbol,
+          sessions,
+          levels: deeper.length,
+        });
+        sessions *= 2;
+      }
+    } catch (err) {
+      this.logger.error({
+        event: "monitor.reconstruction.history-failed",
+        cycleSequence: input.cycleSequence,
+        symbol: input.security.symbol,
+        err,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Evaluates one Monitor against the shared snapshots and persists every decided change.
+   *
+   * The snapshots are already built, so this does no data work: it reads one index of a frame per
+   * level per security through the canonical evaluator, folds it through the lifecycle reducer and
+   * hands the repository a fully decided write.
    */
   private async evaluateMonitor(input: {
-    monitor: ActiveMonitor;
-    definition: StrategyDefinition;
+    prepared: PreparedMonitor;
     snapshots: Map<SecurityId, SymbolSnapshot>;
     now: Date;
     summary: MonitorCycleSummary;
     cycleSequence: number;
   }): Promise<void> {
-    const { monitor, definition, snapshots, now, summary } = input;
-    const levels = monitorStrategyLevels(definition);
-    if (levels.length === 0) {
-      return;
-    }
-
-    let states: Map<string, PersistedSignalState>;
-    try {
-      states = await this.repository.loadSignalStates(monitor.monitorId);
-    } catch (err) {
-      this.logger.error({
-        event: "monitor.state.load-failed",
-        cycleSequence: input.cycleSequence,
-        monitorId: monitor.monitorId,
-        actorUserId: monitor.actorUserId,
-        err,
-      });
-      return;
-    }
+    const { prepared, snapshots, now, summary } = input;
+    const { monitor, levels, states } = prepared;
+    const actorUserId = monitor.actorUserId ?? undefined;
 
     for (const member of monitor.members) {
       const snapshot = snapshots.get(member.securityId);
       for (const level of levels) {
         const previous =
           states.get(signalStateKey(member.securityId, level.id)) ?? null;
-        const outcome = this.evaluateLevel(snapshot, level, member);
-        if (outcome.result === "NOT_EVALUABLE") {
+        const decision = decideLevel({
+          monitor,
+          member,
+          level,
+          previous,
+          snapshot,
+          now,
+        });
+        summary.evaluations += 1;
+        if (decision.outcome === "NOT_EVALUABLE") {
           summary.notEvaluable += 1;
         }
-        summary.evaluations += 1;
-
-        const base = {
-          monitorId: monitor.monitorId,
-          configVersion: monitor.configVersion,
-          securityId: member.securityId,
-          levelId: level.id,
-          levelKind: level.kind,
-          strategyVersionId: monitor.strategyVersionId,
-          // Both come from `monitorStrategyLevels`, which resolves them from the level's complete
-          // logic — for FINAL EXIT that is every Exit Rule, so editing any one of them resets that
-          // level's transition state and no other.
-          signalFingerprint: level.fingerprint,
-          hasTrigger: level.hasTrigger,
-          now,
-          previous,
-        };
-        // Split so the type carries the rule: a decided outcome always has its observation, and
-        // only `NOT_EVALUABLE` may have none.
-        const write: SignalTransitionWrite =
-          outcome.result === "NOT_EVALUABLE"
-            ? { ...base, outcome: "NOT_EVALUABLE", observation: outcome.observation }
-            : { ...base, outcome: outcome.result, observation: outcome.observation };
+        if (decision.reconstructionIncomplete) {
+          // The history read could not establish this level's state; it waits rather than
+          // starting from a guess. The deepening read above makes this unreachable in practice.
+          this.logger.warn({
+            event: "monitor.reconstruction.incomplete",
+            cycleSequence: input.cycleSequence,
+            monitorId: monitor.monitorId,
+            symbol: member.symbol,
+            levelId: level.id,
+          });
+        }
+        if (!decision.write) {
+          summary.transitionsUnchanged += 1;
+          continue;
+        }
 
         try {
-          const applied = await this.repository.applyTransition(write);
+          const applied = await this.repository.applyLevelState(decision.write);
           if (!applied.applied) {
             // Nothing was written. Either a concurrent cycle moved this state first, or the
             // Monitor was rebound and this evaluation belongs to the configuration it replaced.
-            // They are counted apart: overlapping cycles are an operational signal, a rebind is
-            // the user editing their Monitor.
             if (applied.staleConfiguration) {
               summary.transitionsStaleConfiguration += 1;
             } else {
@@ -482,28 +642,36 @@ export class MonitorCycle {
           }
           if (applied.unchanged) {
             summary.transitionsUnchanged += 1;
+            continue;
           }
-          if (applied.emittedSignalId) {
+          summary.transitionsRecorded += applied.transitions;
+          if (decision.reconstructed) {
+            summary.levelsReconstructed += 1;
+          }
+          if (applied.closedSignalId) {
+            summary.signalsResolved += 1;
+          }
+          if (applied.openedSignalId) {
             summary.signalsEmitted += 1;
             this.logger.info({
               event: "monitor.signal.emitted",
               cycleSequence: input.cycleSequence,
               monitorId: monitor.monitorId,
-              actorUserId: monitor.actorUserId,
+              ownership: monitor.ownership,
+              actorUserId,
               symbol: member.symbol,
               levelId: level.id,
               levelKind: level.kind,
-              hasTrigger: level.hasTrigger,
-              observationDate: outcome.observation?.date ?? null,
+              reconstructed: decision.write.open?.reconstructed ?? false,
+              observationDate: decision.write.open?.observationDate ?? null,
             });
           }
-          summary.signalsResolved += applied.resolvedSignalIds.length;
         } catch (err) {
           this.logger.error({
             event: "monitor.transition.failed",
             cycleSequence: input.cycleSequence,
             monitorId: monitor.monitorId,
-            actorUserId: monitor.actorUserId,
+            actorUserId,
             symbol: member.symbol,
             levelId: level.id,
             err,
@@ -513,10 +681,10 @@ export class MonitorCycle {
     }
 
     // A security removed from the list, or a level removed from the Strategy, stops being visited.
-    // Only an evaluation ever resolves a Signal, so without this its match would stay active
+    // Only an evaluation ever moves a lifecycle, so without this its occurrence would stay current
     // forever — pointing at a level or a holding that no longer exists.
     try {
-      const resolved = await this.repository.resolveUnvisitedSignals({
+      const resolved = await this.repository.resolveUnvisitedStates({
         monitorId: monitor.monitorId,
         configVersion: monitor.configVersion,
         securityIds: monitor.members.map((member) => member.securityId),
@@ -529,7 +697,7 @@ export class MonitorCycle {
           event: "monitor.signals.orphaned-resolved",
           cycleSequence: input.cycleSequence,
           monitorId: monitor.monitorId,
-          actorUserId: monitor.actorUserId,
+          actorUserId,
           resolved,
         });
       }
@@ -541,72 +709,6 @@ export class MonitorCycle {
         err,
       });
     }
-  }
-
-  /**
-   * One level, one security, one observation.
-   *
-   * Two gates come before the evaluator, and both are canonical rather than Monitor-specific:
-   *
-   * - **No snapshot means NOT_EVALUABLE.** A symbol whose history could not be loaded, or that has
-   *   no current observation this cycle, has nothing to compare — and the architecture is explicit
-   *   that a provider failure or a missing history must never become a match.
-   * - **A BUY level honours the list membership's buy window.** `ai/product/lists.md` defines a
-   *   CUSTOM window as the dates the member is eligible on, and the backtest reads the same
-   *   `isBuyWindowEligible` before firing a BUY. A member the list says is not buyable today is
-   *   not a BUY match today. SELL and FINAL EXIT are not gated, matching the engine.
-   */
-  private evaluateLevel(
-    snapshot: SymbolSnapshot | undefined,
-    level: Pick<MonitorStrategyLevel, "id" | "kind" | "rules">,
-    member: { buyWindowMode: "FULL" | "CUSTOM"; buyWindows: readonly { startDate: LocalDate; endDate: LocalDate | null }[] },
-  ):
-    | { result: "MATCHED" | "NOT_MATCHED"; observation: MonitorObservation }
-    // Only an undecidable evaluation may lack an observation: a decided one is decided *from* one.
-    | { result: "NOT_EVALUABLE"; observation: MonitorObservation | null } {
-    const frame = snapshot?.frame;
-    if (!frame) {
-      // Deliberately no observation, rather than the wall-clock day and a zero price.
-      //
-      // A synthetic date is not merely cosmetic here: it is a *session*, and a session is what
-      // advances a Trigger Signal's lifetime. Naming today when the market never opened — a
-      // weekend, a holiday, or simply a cycle with no quote — would close a Friday crossing on
-      // Saturday, having observed nothing at all. Only a real observation may advance it.
-      return { result: "NOT_EVALUABLE", observation: null };
-    }
-
-    const observation: MonitorObservation = {
-      date: frame.observationDate,
-      price: frame.observationPrice,
-    };
-
-    if (
-      level.kind === "BUY" &&
-      !isBuyWindowEligible(
-        { mode: member.buyWindowMode, ranges: member.buyWindows },
-        observation.date,
-      )
-    ) {
-      return { result: "NOT_MATCHED", observation };
-    }
-
-    // One answer for the whole level. FINAL EXIT's Exit Rules are ORed inside the canonical
-    // evaluator, so two of them matching on one observation produce one match — there is no second
-    // result here for a duplicate Signal to be created from.
-    const evaluability = evaluateLevelWithoutPosition(
-      level.rules,
-      frame.frame,
-      frame.observationIndex,
-    );
-    return {
-      result:
-        evaluability === Evaluability.TRUE
-          ? "MATCHED"
-          : evaluability === Evaluability.FALSE
-            ? "NOT_MATCHED"
-            : "NOT_EVALUABLE",
-      observation,
-    };
   }
 
   /**

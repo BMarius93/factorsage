@@ -7,8 +7,8 @@ Read `ai/README.md` before substantial work.
 1. Historical S&P 500 / Dow membership PIT **data** is removed from the product: nothing ships,
    syncs or reconstructs index constituents. Point-in-time membership a user supplies is a
    different thing and is supported — see invariant 3.
-2. Stock lists are static user-owned universes; membership references the canonical `Security`
-   catalog, never free-text symbols.
+2. Stock lists are static universes owned by a user or by the system (built-in content, see
+   invariant 21); membership references the canonical `Security` catalog, never free-text symbols.
 3. Each list membership defines buy eligibility:
    - `FULL` (no persisted ranges)
    - `CUSTOM` (one or more date ranges, persisted only in canonical normalized form —
@@ -73,7 +73,11 @@ Read `ai/README.md` before substantial work.
     configured by `BACKTEST_WORKER_PROCESSES`.
 15. A Monitor is a live `Strategy` plus a `StockList` plus `enabled` — no pinned version, no
     execution parameters, no user-configurable cadence — and it produces Signals, which are
-    append-only durable records distinct from the Monitor itself. `ai/product/product-overview.md`
+    durable occurrences distinct from the Monitor itself. Each evaluated level has one durable
+    lifecycle (`INACTIVE | PENDING_TRIGGER | ACTIVE | RESOLVED`) decided only by the pure reducer in
+    `@intrinsic/strategy` (`monitor-lifecycle.ts`); a Trigger controls entry into `ACTIVE` and is
+    then latched, and a level with no state is reconstructed from history, never started blank
+    (`docs/decisions/builtin-dashboard-signals-v1.md`). `ai/product/product-overview.md`
     fixes how List, Strategy, Backtest, Monitor and Signal relate; `ai/product/monitors.md` and
     `ai/architecture/monitor-engine.md` own the semantics. The scan cycle is claimed from
     PostgreSQL through the singleton `MonitorScanSchedule` row with the same `FOR UPDATE SKIP
@@ -149,6 +153,16 @@ Read `ai/README.md` before substantial work.
     or renamed route cannot land undocumented. `pnpm openapi:validate` separately validates the
     document against the official OpenAPI 3.1 schema. Do not document an endpoint that does not
     exist, and do not add a route without documenting it.
+
+21. Built-in content is `SYSTEM`-owned, never owned by a special customer account:
+    `ownership = SYSTEM`, `userId = null`, an immutable `systemKey` that is the only bootstrap
+    identity (never the display name). Everybody may read it, Guests included; only `role = ADMIN`
+    changes it, through the ordinary routes and editors; nobody deletes it. It never counts against a
+    customer's capacity and is never cloned per user — a customer's Dashboard visibility of a
+    built-in Monitor is the only per-user state (`UserBuiltInMonitorPreference`). Deploys run
+    `pnpm builtins:bootstrap`, which creates missing built-ins and never overwrites an
+    administrator's edits; `pnpm builtins:reset` is the explicit restore. `docs/decisions/builtin-dashboard-signals-v1.md`
+    is the decision; `docs/development/builtin-content.md` holds the catalog's verified sources.
 
 ## Dependency rules
 

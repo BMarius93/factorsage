@@ -43,6 +43,7 @@ import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { getBacktestWorkerConfig } from "@intrinsic/config";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { Inject, Injectable } from "@nestjs/common";
+import { readableWhere } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import {
@@ -679,8 +680,10 @@ export class BacktestsService {
       backtestPeriodYears(input.startDate, input.endDate),
     );
 
+    // The caller's own Strategy and List, or a built-in: built-ins are selectable wherever the
+    // caller's plan allows a Backtest at all, and are snapshotted exactly like the caller's own.
     const strategy = await this.prisma.strategy.findFirst({
-      where: { id: input.strategyId, userId },
+      where: { id: input.strategyId, ...readableWhere(user) },
       include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
     });
     if (!strategy) {
@@ -700,7 +703,7 @@ export class BacktestsService {
     const definition = normalizeStrategyDefinition(version.definition);
 
     const stockList = await this.prisma.stockList.findFirst({
-      where: { id: input.stockListId, userId },
+      where: { id: input.stockListId, ...readableWhere(user) },
       include: {
         items: {
           include: STOCK_LIST_ITEM_INCLUDE,

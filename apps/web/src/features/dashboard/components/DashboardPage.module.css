@@ -1,28 +1,39 @@
-/* Page rhythm, the monitor filter pills, and the two cells that carry dashboard-specific
-   meaning. Surfaces, tables, badges, chips and empty states come from `components/ui`. */
+/* Page rhythm, the filter pills and the cells that carry dashboard-specific meaning. Surfaces,
+   tables, badges, chips and empty states come from `components/ui`. */
 .page {
   composes: stack from "../../../components/ui/page.module.css";
 }
 
-.nameLink {
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: var(--weight-emphasis);
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.nameLink:hover {
-  color: var(--color-primary);
-}
-
-.nameLink:focus-visible {
-  outline: none;
+.guestNotice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-primary-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--focus-ring);
+  background: var(--color-primary-soft);
+  color: var(--color-text-body);
+  font-size: 14px;
 }
 
-/* The legacy dashboard's filter row: a pill per view with the count it would show. */
+.guestNotice p {
+  margin: 0;
+  flex: 1 1 20rem;
+}
+
+.guestNotice a {
+  text-decoration: none;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* A pill per view with the count it would show. */
 .filters {
   display: flex;
   flex-wrap: wrap;
@@ -74,28 +85,76 @@
   color: var(--color-primary);
 }
 
-.moreLink {
-  color: var(--color-primary);
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
-  text-decoration: none;
-}
-
-.moreLink:hover {
-  text-decoration: underline;
-}
-
-/* The list reference and the size of the universe it names, as one cell. */
-.listCell {
+.badges {
   display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.reasons {
+  display: grid;
+  gap: 2px;
+  min-width: 14rem;
+  max-width: 26rem;
+}
+
+.reason {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.reasonRule {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+.reasonTrigger {
+  color: var(--color-text-secondary);
+}
+
+.since {
+  display: inline-grid;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sinceNote {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.sources {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
   min-width: 0;
 }
 
-.listCount {
+.sourceDetail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.placeholder {
   color: var(--color-text-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+@media (max-width: 879px) {
+  .reasons {
+    min-width: 0;
+    max-width: none;
+  }
 }

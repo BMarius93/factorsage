@@ -23,6 +23,9 @@ export function summaryOf(
   detail: StrategyDetailResponse,
 ): StrategySummaryResponse {
   return {
+    ownership: detail.ownership,
+    ...(detail.systemKey === undefined ? {} : { systemKey: detail.systemKey }),
+    canEdit: detail.canEdit,
     id: detail.id,
     name: detail.name,
     ...(detail.description === undefined

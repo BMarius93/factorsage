@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  ContentOwnership,
   StockListSummaryResponse,
   StrategySummaryResponse,
 } from "@intrinsic/contracts";
@@ -26,8 +27,13 @@ export type MonitorOptionsState = {
  * authority: `POST /monitors` re-checks both references against the caller before inserting.
  *
  * They load together in one round trip pair because a monitor cannot be created from half of them.
+ *
+ * `ownership` narrows both to one owner: a customer's Monitor watches the customer's own content,
+ * and a built-in Monitor watches built-in content only — the API refuses anything else.
  */
-export function useMonitorOptions(): MonitorOptionsState {
+export function useMonitorOptions(
+  ownership: ContentOwnership = "USER",
+): MonitorOptionsState {
   const [status, setStatus] = useState<MonitorOptionsStatus>("loading");
   const [strategies, setStrategies] = useState<
     readonly StrategySummaryResponse[]
@@ -48,8 +54,12 @@ export function useMonitorOptions(): MonitorOptionsState {
         if (requestId !== latestRequestRef.current) {
           return;
         }
-        setStrategies(loadedStrategies);
-        setLists(loadedLists);
+        setStrategies(
+          loadedStrategies.filter(
+            (strategy) => strategy.ownership === ownership,
+          ),
+        );
+        setLists(loadedLists.filter((list) => list.ownership === ownership));
         setStatus("ready");
       })
       .catch(() => {
@@ -63,7 +73,7 @@ export function useMonitorOptions(): MonitorOptionsState {
       });
 
     return () => controller.abort();
-  }, [attempt]);
+  }, [attempt, ownership]);
 
   return { status, strategies, lists, retry };
 }

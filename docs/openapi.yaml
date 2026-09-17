@@ -186,9 +186,15 @@ tags:
       These are the only public routes that can reach the market-data provider; provider traffic is
       throttled separately by a shared Redis gate that every API and worker process passes through.
   - name: Stock lists
-    description: User-owned universes of catalog securities, each with its buy-eligibility windows.
+    description: |
+      Universes of catalog securities, each with its buy-eligibility windows: the caller's own, and
+      the platform's built-in (`SYSTEM`) lists, which everyone may read and only administrators may
+      change.
   - name: Strategies
-    description: User-owned strategy definitions — ordered BUY/SELL levels and an optional final exit.
+    description: |
+      Strategy definitions — ordered BUY/SELL levels and an optional final exit: the caller's own,
+      and the built-in (`SYSTEM`) strategies, which everyone may read and only administrators may
+      change.
   - name: Backtests
     description: |
       Asynchronous historical execution. Submission answers `202` with a queued run; a worker
@@ -197,6 +203,10 @@ tags:
     description: |
       Live evaluation of a strategy against a stock list. Cadence is an application decision and is
       not configurable, so there is deliberately no "scan now" route.
+  - name: Dashboard
+    description: |
+      The current matches and setups of every monitor the caller can see, including the published
+      built-in monitors a Guest sees by default.
   - name: Benchmarks
     description: The system-owned benchmark catalog a backtest may compare against.
   - name: Entitlements
@@ -790,23 +800,23 @@ paths:
     get:
       tags: [Stock lists]
       operationId: listStockLists
-      summary: The caller's stock lists.
+      summary: The built-in stock lists, then the caller's own.
       description: |
-        Scoped to the caller. Each summary carries a `compliance` block reporting the list against
-        the plan's symbol limit — a list that grew under a higher plan stays readable and is
-        reported as non-compliant rather than truncated.
-      security: [{ cookieAuth: [] }]
+        Readable without a session: a Guest receives the built-in (`SYSTEM`) lists only. A signed-in
+        caller receives the built-ins first, in operator order, then their own lists. Each summary
+        carries a `compliance` block reporting a customer list against the plan's symbol limit — a
+        list that grew under a higher plan stays readable and is reported as non-compliant rather
+        than truncated. Built-ins are platform content and always compliant.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
-          description: The caller's lists.
+          description: The lists the caller can use.
           headers: *rateLimitHeaders
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StockListSummary" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -845,7 +855,7 @@ paths:
       tags: [Stock lists]
       operationId: getStockList
       summary: One stock list with its members and buy windows.
-      security: [{ cookieAuth: [] }]
+      description: Readable without a session for a built-in list; a customer list needs its owner.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -854,7 +864,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StockListDetail" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -862,7 +871,9 @@ paths:
       tags: [Stock lists]
       operationId: updateStockList
       summary: Rename a list or change its description.
-      description: "At least one of `name` or `description` must be present. `description: null` clears it."
+      description: |
+        At least one of `name` or `description` must be present. `description: null` clears it.
+        A built-in list may be changed by an administrator only.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
       requestBody:
@@ -879,6 +890,7 @@ paths:
               schema: { $ref: "#/components/schemas/StockListSummary" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -893,9 +905,12 @@ paths:
           description: Deleted.
           headers: *rateLimitHeaders
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "409":
-          description: A monitor still references this list. Delete or rebind the monitor first.
+          description: |
+            A monitor still references this list (delete or rebind the monitor first), or the list
+            is built-in content, which is never deleted (`SYSTEM_CONTENT_PROTECTED`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -931,7 +946,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "403": { $ref: "#/components/responses/EntitlementOrContentForbidden" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -950,6 +965,7 @@ paths:
           description: Removed.
           headers: *rateLimitHeaders
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -988,6 +1004,7 @@ paths:
               schema: { $ref: "#/components/schemas/StockListItem" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -998,8 +1015,9 @@ paths:
     get:
       tags: [Strategies]
       operationId: listStrategies
-      summary: The caller's strategies.
-      security: [{ cookieAuth: [] }]
+      summary: The built-in strategies, then the caller's own.
+      description: |
+        Readable without a session: a Guest receives the built-in (`SYSTEM`) strategies only.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -1010,7 +1028,6 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StrategySummary" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -1047,7 +1064,7 @@ paths:
       tags: [Strategies]
       operationId: getStrategy
       summary: One strategy with its full definition.
-      security: [{ cookieAuth: [] }]
+      description: Readable without a session for a built-in strategy; a customer strategy needs its owner.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -1056,7 +1073,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StrategyDetail" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1064,7 +1080,9 @@ paths:
       tags: [Strategies]
       operationId: updateStrategy
       summary: Rename a strategy or change its description.
-      description: Metadata only. The definition is replaced through its own endpoint.
+      description: |
+        Metadata only. The definition is replaced through its own endpoint. A built-in strategy may
+        be changed by an administrator only.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
       requestBody:
@@ -1081,6 +1099,7 @@ paths:
               schema: { $ref: "#/components/schemas/StrategySummary" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1098,9 +1117,12 @@ paths:
           description: Deleted.
           headers: *rateLimitHeaders
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "409":
-          description: A monitor still references this strategy. Delete or rebind the monitor first.
+          description: |
+            A monitor still references this strategy (delete or rebind the monitor first), or the
+            strategy is built-in content, which is never deleted (`SYSTEM_CONTENT_PROTECTED`).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1114,8 +1136,9 @@ paths:
       operationId: replaceStrategyDefinition
       summary: Replace the complete strategy definition.
       description: |
-        Atomic whole-document replace; it creates a new strategy version. Partial edits are not
-        supported — send the entire definition.
+        Atomic whole-document replace; it creates a new strategy version when the logic changed.
+        Partial edits are not supported — send the entire definition. A built-in strategy may be
+        changed by an administrator only, and is versioned exactly like a customer's.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
       requestBody:
@@ -1133,6 +1156,7 @@ paths:
               schema: { $ref: "#/components/schemas/StrategyDetail" }
         "400": { $ref: "#/components/responses/StrategyInvalid" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1397,7 +1421,9 @@ paths:
       tags: [Monitors]
       operationId: getMonitor
       summary: One monitor, its monitored securities and its newest signals.
-      security: [{ cookieAuth: [] }]
+      description: |
+        Readable without a session for a published built-in monitor. A customer monitor needs its
+        owner; an unpublished built-in is visible to administrators only.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
@@ -1406,7 +1432,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MonitorDetail" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1419,6 +1444,10 @@ paths:
         boundary, not an edit: transition state is discarded, active signals are resolved and
         `lastScanAt` is cleared, while signal history is kept. An in-flight scan cycle is fenced off
         so it cannot write state belonging to the old configuration.
+
+        A built-in monitor may be changed by an administrator only: its name, its binding (to other
+        built-in content only), `isPublished`, `isGloballyEnabled` and `displayOrder`. Those three
+        fields are refused on a customer's monitor, and `enabled` is refused on a built-in.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: monitor-mutation }
       requestBody:
@@ -1434,12 +1463,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MonitorSummary" }
         "400":
-          description: Malformed body, an unknown field, or a strategy or list the caller does not own.
+          description: Malformed body, an unknown field, a field that does not apply to this monitor, or a strategy or list the caller does not own.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "403": { $ref: "#/components/responses/EntitlementOrContentForbidden" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1447,7 +1476,9 @@ paths:
       tags: [Monitors]
       operationId: deleteMonitor
       summary: Delete a monitor.
-      description: Signals it produced are append-only durable records and are never deleted with it.
+      description: |
+        The monitor's signals and transition history go with it. A built-in monitor is never
+        deleted; an administrator unpublishes or pauses it instead.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: monitor-mutation }
       responses:
@@ -1455,7 +1486,74 @@ paths:
           description: Deleted.
           headers: *rateLimitHeaders
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/SystemContentReadOnly" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "409":
+          description: The monitor is built-in content, which is never deleted (`SYSTEM_CONTENT_PROTECTED`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SystemContentError" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Dashboard
+  # ---------------------------------------------------------------------------------------------
+  /dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      summary: Every current monitor match and setup the caller can see.
+      description: |
+        Readable without a session. A Guest sees the published built-in monitors, all visible by
+        default. A signed-in caller also sees their own monitors, and built-ins they have hidden are
+        left out of `rows`. Signing in changes only visibility, never what any monitor decided.
+
+        `rows` holds `ACTIVE` signal occurrences and `PENDING_TRIGGER` setups only, one row per
+        monitor outcome — the same security under two monitors is two rows — newest state change
+        first. A paused, disabled or plan-blocked monitor contributes no rows. `freshness` reports
+        each monitor's latest scan honestly, against `staleAfterMs`.
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The Dashboard read model.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DashboardResponse" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /dashboard/monitors/{monitorId}/visibility:
+    parameters:
+      - { $ref: "#/components/parameters/MonitorId" }
+    put:
+      tags: [Dashboard]
+      operationId: setBuiltInMonitorVisibility
+      summary: Show or hide a published built-in monitor on the caller's Dashboard.
+      description: |
+        Stores the caller's override only; absence means visible. It never changes whether the
+        shared built-in is evaluated. A Guest is refused — nothing anonymous is ever stored. A
+        customer's own monitor is switched with `PATCH /monitors/{monitorId}` instead.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateBuiltInMonitorVisibilityRequest" }
+      responses:
+        "200":
+          description: The stored preference.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuiltInMonitorVisibility" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No published built-in monitor with this id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -1640,6 +1738,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AdminHealthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/RoleForbidden" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /admin/built-ins:
+    get:
+      tags: [Admin]
+      operationId: getBuiltInContent
+      summary: Every built-in list, strategy and monitor, published or not.
+      description: |
+        The administrator's overview of built-in content. Built-ins are edited through the ordinary
+        list, strategy and monitor routes, which authorize an administrator for built-in content.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The built-in content.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuiltInContentAdminResponse" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/RoleForbidden" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
@@ -1932,6 +2051,24 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/EntitlementError" }
+    SystemContentReadOnly:
+      description: |
+        The resource is built-in content and the caller is not an administrator
+        (`SYSTEM_CONTENT_READ_ONLY`). Built-ins are readable by everyone and changeable by
+        administrators only.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/SystemContentError" }
+    EntitlementOrContentForbidden:
+      description: |
+        Either the caller's plan does not allow this (an `ENTITLEMENT_*` code), or the resource is
+        built-in content the caller may not change (`SYSTEM_CONTENT_READ_ONLY`).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - { $ref: "#/components/schemas/EntitlementError" }
+              - { $ref: "#/components/schemas/SystemContentError" }
     OwnedResourceNotFound:
       description: |
         No such resource for this caller. A resource that exists but belongs to somebody else
@@ -2645,10 +2782,33 @@ components:
         symbolLimit: { $ref: "#/components/schemas/EntitlementLimit" }
         compliant: { type: boolean }
 
+    ContentOwnership:
+      type: string
+      enum: [USER, SYSTEM]
+      description: |
+        `USER` content belongs to one customer. `SYSTEM` content is built in: readable by everyone,
+        Guests included, and changeable by administrators only.
+
+    SystemContentError:
+      allOf:
+        - { $ref: "#/components/schemas/Error" }
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum: [SYSTEM_CONTENT_READ_ONLY, SYSTEM_CONTENT_PROTECTED]
+
     StockListSummary:
       type: object
-      required: [id, name, itemCount, createdAt, updatedAt, compliance]
+      required:
+        [id, name, itemCount, createdAt, updatedAt, compliance, ownership, canEdit]
       properties:
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        systemKey: { type: string, description: The immutable identity of a built-in. }
+        canEdit:
+          type: boolean
+          description: Whether the caller may change it. Presentation only; the API authorizes every change.
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -2677,8 +2837,11 @@ components:
 
     StockListDetail:
       type: object
-      required: [id, name, createdAt, updatedAt, items, compliance]
+      required: [id, name, createdAt, updatedAt, items, compliance, ownership, canEdit]
       properties:
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        systemKey: { type: string }
+        canEdit: { type: boolean }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -2959,8 +3122,13 @@ components:
           versionNumber,
           createdAt,
           updatedAt,
+          ownership,
+          canEdit,
         ]
       properties:
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        systemKey: { type: string }
+        canEdit: { type: boolean }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
@@ -3596,28 +3764,47 @@ components:
     # -------------------------------------------------------------------------------------------
     MonitorOperationalStatus:
       type: string
-      enum: [ACTIVE, PAUSED, BLOCKED]
+      enum: [ACTIVE, DISABLED, BLOCKED_BY_ENTITLEMENT]
       description: |
         Derived, never persisted as user intent. `enabled` is what the user set; a monitor may still
-        be `BLOCKED` because the caller's plan no longer covers it, and re-subscribing unblocks it
-        without the user having to re-enable anything.
+        be `BLOCKED_BY_ENTITLEMENT` because the caller's plan no longer covers it, and upgrading
+        unblocks it without the user having to re-enable anything. A built-in monitor is `ACTIVE`
+        or `DISABLED` according to its global switch alone.
     MonitorBlockedReason:
       type: string
-      enum: [PLAN_MONITOR_LIMIT, PLAN_LIST_SYMBOL_LIMIT]
+      enum: [MONITOR_CAPACITY, LIST_OVER_LIMIT]
 
     MonitorSignalKind:
       type: string
-      enum: [STATE, EVENT]
+      enum: [CONDITION, TRIGGER]
       description: |
-        A condition-only level produces a `STATE` — emitted when the match begins and resolved when
-        it ends. A level with a trigger produces an `EVENT` on one observation date, at most once
-        per date.
+        Explanation only: whether the matched Strategy signal carried a Trigger. Both are signals.
+    MonitorLifecycleState:
+      type: string
+      enum: [INACTIVE, PENDING_TRIGGER, ACTIVE, RESOLVED]
+    MonitorTransitionReason:
+      type: string
+      enum:
+        [
+          CONDITIONS_MET,
+          SETUP_STARTED,
+          TRIGGER_FIRED,
+          CONDITIONS_ENDED,
+          EVENT_SESSION_ENDED,
+          BUY_WINDOW_CLOSED,
+          LOGIC_CHANGED,
+          LEVEL_REMOVED,
+          MEMBER_REMOVED,
+          MONITOR_REBOUND,
+          RECONSTRUCTED,
+        ]
     MonitorSecurityStatus:
       type: string
-      enum: [MATCHED, NOT_MATCHED, NOT_EVALUABLE]
+      enum: [MATCHED, WAITING_FOR_TRIGGER, NO_MATCH, NOT_EVALUABLE, NOT_CHECKED]
       description: |
         `NOT_EVALUABLE` is a real answer, not an error: missing, warm-up or point-in-time
-        unavailable data is never replaced by zero or by future data.
+        unavailable data is never replaced by zero or by future data. `WAITING_FOR_TRIGGER` means a
+        triggered level's Conditions hold and its Trigger has not fired yet.
 
     MonitorMatchedLevel:
       type: object
@@ -3631,20 +3818,33 @@ components:
         observationPrice: { type: number }
         detectedAt: { type: string, format: date-time }
 
+    MonitorWaitingLevel:
+      type: object
+      required: [levelId, levelKind, since]
+      properties:
+        levelId: { type: string }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        since: { type: string, format: date-time }
+
     MonitorSecurityEvaluation:
       type: object
-      required: [security, status, matchedLevels]
+      required: [security, status, matchedLevels, waitingLevels]
       properties:
         security: { $ref: "#/components/schemas/StockSearchResult" }
         status: { $ref: "#/components/schemas/MonitorSecurityStatus" }
         matchedLevels:
           type: array
           items: { $ref: "#/components/schemas/MonitorMatchedLevel" }
+        waitingLevels:
+          type: array
+          items: { $ref: "#/components/schemas/MonitorWaitingLevel" }
         statusSince: { type: string, format: date-time }
 
     MonitorSignal:
       type: object
-      description: Append-only and never deleted, including when its monitor is deleted.
+      description: |
+        One signal occurrence: created when a level becomes `ACTIVE`, resolved when it stops, never
+        reopened. A later activation is a new signal.
       required:
         [
           id,
@@ -3655,6 +3855,7 @@ components:
           observationDate,
           observationPrice,
           detectedAt,
+          reconstructed,
         ]
       properties:
         id: { type: string, format: uuid }
@@ -3662,13 +3863,18 @@ components:
         levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
         levelId: { type: string }
         kind: { $ref: "#/components/schemas/MonitorSignalKind" }
-        observationDate: { type: string, format: date }
+        observationDate:
+          { type: string, format: date, description: The session the occurrence became active on. }
         observationPrice: { type: number }
         detectedAt: { type: string, format: date-time }
         resolvedAt:
           type: string
           format: date-time
-          description: Set when a `STATE` signal's match ended. Absent while it is still active.
+          description: Set when the occurrence ended. Absent while it is still active.
+        resolutionReason: { $ref: "#/components/schemas/MonitorTransitionReason" }
+        reconstructed:
+          type: boolean
+          description: True when historical reconstruction, not a live scan, established the activation.
 
     MonitorSummary:
       type: object
@@ -3686,14 +3892,19 @@ components:
           createdAt,
           updatedAt,
           operationalStatus,
+          ownership,
+          canEdit,
         ]
       properties:
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        systemKey: { type: string }
+        canEdit: { type: boolean }
         id: { type: string, format: uuid }
         name: { type: string, maxLength: 120 }
         enabled:
           {
             type: boolean,
-            description: The user's intent. Never rewritten by the server.,
+            description: The user's intent, never rewritten by the server. For a built-in, its global switch.,
           }
         strategyId: { type: string, format: uuid }
         strategyName: { type: string }
@@ -3707,6 +3918,9 @@ components:
         operationalStatus:
           { $ref: "#/components/schemas/MonitorOperationalStatus" }
         blockedReason: { $ref: "#/components/schemas/MonitorBlockedReason" }
+        isPublished: { type: boolean, description: Built-in monitors only. }
+        isGloballyEnabled: { type: boolean, description: Built-in monitors only. }
+        displayOrder: { type: integer, description: Built-in monitors only. }
 
     MonitorDetail:
       allOf:
@@ -3722,6 +3936,169 @@ components:
               type: array
               description: The newest signals, newest first.
               items: { $ref: "#/components/schemas/MonitorSignal" }
+
+    # -------------------------------------------------------------------------------------------
+    # Dashboard and built-in content
+    # -------------------------------------------------------------------------------------------
+    DashboardEntityReference:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+
+    DashboardMonitor:
+      type: object
+      required:
+        [id, name, ownership, strategy, stockList, visible, control, freshness, activeCount, pendingCount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
+        stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
+        visible:
+          { type: boolean, description: Whether its rows are on this caller's Dashboard. }
+        control:
+          type: string
+          enum: [BUILT_IN_PREFERENCE, MONITOR_ENABLED]
+          description: |
+            What a toggle changes: the caller's own visibility of a built-in, or a customer
+            monitor's real `enabled` lifecycle.
+        freshness:
+          type: string
+          enum: [CURRENT, STALE, NOT_SCANNED, PAUSED]
+        lastScanAt: { type: string, format: date-time }
+        activeCount: { type: integer, minimum: 0 }
+        pendingCount: { type: integer, minimum: 0 }
+
+    DashboardRowReason:
+      type: object
+      required: [conditions, waitingForTrigger]
+      properties:
+        exitRule:
+          { type: integer, minimum: 1, description: The FINAL EXIT Exit Rule's position, when there are several. }
+        conditions: { type: array, items: { type: string } }
+        trigger: { type: string }
+        waitingForTrigger: { type: boolean }
+
+    DashboardRow:
+      type: object
+      required:
+        [id, state, security, levelKind, reasons, monitor, strategy, stockList, since, reconstructed]
+      properties:
+        id: { type: string, description: Stable and opaque. }
+        state: { type: string, enum: [ACTIVE, PENDING_TRIGGER] }
+        security: { $ref: "#/components/schemas/StockSearchResult" }
+        levelKind: { $ref: "#/components/schemas/StrategyLevelKind" }
+        levelIndex: { type: integer, minimum: 1 }
+        levelPercentage: { type: integer }
+        reasons:
+          type: array
+          items: { $ref: "#/components/schemas/DashboardRowReason" }
+        monitor:
+          allOf:
+            - { $ref: "#/components/schemas/DashboardEntityReference" }
+            - type: object
+              required: [ownership]
+              properties:
+                ownership: { $ref: "#/components/schemas/ContentOwnership" }
+        strategy: { $ref: "#/components/schemas/DashboardEntityReference" }
+        stockList: { $ref: "#/components/schemas/DashboardEntityReference" }
+        price: { type: number, description: The price observed when the state began. }
+        observationDate: { type: string, format: date }
+        since: { type: string, format: date-time }
+        reconstructed: { type: boolean }
+        signalId: { type: string, format: uuid }
+
+    DashboardResponse:
+      type: object
+      required: [viewer, generatedAt, staleAfterMs, monitors, rows]
+      properties:
+        viewer: { type: string, enum: [GUEST, AUTHENTICATED] }
+        generatedAt: { type: string, format: date-time }
+        staleAfterMs: { type: integer, minimum: 0 }
+        monitors:
+          type: array
+          items: { $ref: "#/components/schemas/DashboardMonitor" }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/DashboardRow" }
+
+    UpdateBuiltInMonitorVisibilityRequest:
+      type: object
+      additionalProperties: false
+      required: [visible]
+      properties:
+        visible: { type: boolean }
+
+    BuiltInMonitorVisibility:
+      type: object
+      required: [monitorId, visible]
+      properties:
+        monitorId: { type: string, format: uuid }
+        visible: { type: boolean }
+
+    BuiltInContentItem:
+      type: object
+      required: [id, systemKey, name, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        systemKey: { type: string }
+        name: { type: string }
+        displayOrder: { type: integer }
+        updatedAt: { type: string, format: date-time }
+        updatedByEmail: { type: string, format: email }
+
+    BuiltInContentAdminResponse:
+      type: object
+      required: [lists, strategies, monitors]
+      properties:
+        lists:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/BuiltInContentItem" }
+              - type: object
+                required: [itemCount]
+                properties:
+                  itemCount: { type: integer, minimum: 0 }
+        strategies:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/BuiltInContentItem" }
+              - type: object
+                required: [versionNumber]
+                properties:
+                  versionNumber: { type: integer, minimum: 1 }
+        monitors:
+          type: array
+          items:
+            allOf:
+              - { $ref: "#/components/schemas/BuiltInContentItem" }
+              - type: object
+                required:
+                  [
+                    isPublished,
+                    isGloballyEnabled,
+                    strategyId,
+                    strategyName,
+                    stockListId,
+                    stockListName,
+                    activeCount,
+                    pendingCount,
+                  ]
+                properties:
+                  isPublished: { type: boolean }
+                  isGloballyEnabled: { type: boolean }
+                  strategyId: { type: string, format: uuid }
+                  strategyName: { type: string }
+                  stockListId: { type: string, format: uuid }
+                  stockListName: { type: string }
+                  lastScanAt: { type: string, format: date-time }
+                  activeCount: { type: integer, minimum: 0 }
+                  pendingCount: { type: integer, minimum: 0 }
 
     CreateMonitorRequest:
       type: object
@@ -3748,6 +4125,15 @@ components:
           { type: string, format: uuid, description: Rebinds the monitor. }
         stockListId:
           { type: string, format: uuid, description: Rebinds the monitor. }
+        isPublished:
+          { type: boolean, description: Built-in monitors only; administrators only. }
+        isGloballyEnabled:
+          { type: boolean, description: Built-in monitors only; administrators only. }
+        displayOrder:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 10000
+          description: Built-in monitors only; administrators only. `null` clears it.
 
     # -------------------------------------------------------------------------------------------
     # Billing

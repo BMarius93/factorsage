@@ -222,7 +222,12 @@ export function ListDetail({ listId }: ListDetailProps) {
     }
   };
 
-  const columns: readonly DataTableColumn<StockListItemResponse>[] = [
+  // Built-in lists are readable by everyone and changeable by administrators only; the API decides
+  // `canEdit` and enforces it again on every change.
+  const editable = detail.canEdit;
+  const builtIn = detail.ownership === "SYSTEM";
+
+  const columns: DataTableColumn<StockListItemResponse>[] = [
     {
       key: "stock",
       header: "Stock",
@@ -250,7 +255,9 @@ export function ListDetail({ listId }: ListDetailProps) {
       render: (item) =>
         item.security.exchangeName ?? item.security.exchangeCode,
     },
-    {
+  ];
+  if (editable) {
+    columns.push({
       key: "actions",
       header: "Actions",
       cardRole: "actions",
@@ -277,18 +284,31 @@ export function ListDetail({ listId }: ListDetailProps) {
           />
         </span>
       ),
-    },
-  ];
+    });
+  }
 
   return (
     <PageContainer>
       <div className={styles.page} data-testid="list-detail">
         <PageHeader
-          back={{ href: "/lists", label: "Lists" }}
+          back={
+            builtIn && !editable
+              ? { href: "/dashboard", label: "Dashboard" }
+              : { href: "/lists", label: "Lists" }
+          }
           title={detail.name}
           {...(detail.description ? { lead: detail.description } : {})}
           badges={
             <>
+              {builtIn ? (
+                <StatusBadge
+                  tone="neutral"
+                  variant="outline"
+                  testId="built-in-badge"
+                >
+                  Built-in
+                </StatusBadge>
+              ) : null}
               <StatusBadge tone="neutral">
                 {stockCountLabel(detail.items.length)}
               </StatusBadge>
@@ -307,75 +327,85 @@ export function ListDetail({ listId }: ListDetailProps) {
             </>
           }
           actions={
-            <>
-              <button
-                type="button"
-                className={forms.tintedButton}
-                onClick={() => setDialog({ kind: "rename" })}
-              >
-                Edit
-              </button>
-              <OverflowMenu
-                label={detail.name}
-                testId="list-detail-actions"
-                items={[
-                  {
-                    label: "Delete list",
-                    tone: "danger",
-                    onSelect: () => setDialog({ kind: "delete-list" }),
-                  },
-                ]}
-              />
-            </>
+            editable ? (
+              <>
+                <button
+                  type="button"
+                  className={forms.tintedButton}
+                  onClick={() => setDialog({ kind: "rename" })}
+                >
+                  Edit
+                </button>
+                {builtIn ? null : (
+                  <OverflowMenu
+                    label={detail.name}
+                    testId="list-detail-actions"
+                    items={[
+                      {
+                        label: "Delete list",
+                        tone: "danger",
+                        onSelect: () => setDialog({ kind: "delete-list" }),
+                      },
+                    ]}
+                  />
+                )}
+              </>
+            ) : undefined
           }
         />
 
-        <SectionCard
-          id="add-stocks"
-          title="Add stocks"
-          caption="Search the supported catalog and add one or more stocks to this list."
-        >
-          <div className={styles.addControl}>
-            <div className={styles.addSearch}>
-              <SecurityMultiSelect
-                selected={pendingAdd}
-                onChange={(next) => {
-                  setPendingAdd(next);
-                  setAddError(null);
-                }}
-                excludedIds={memberIds}
-                inputLabel="Search stocks to add to this list"
-              />
+        {editable ? (
+          <SectionCard
+            id="add-stocks"
+            title="Add stocks"
+            caption="Search the supported catalog and add one or more stocks to this list."
+          >
+            <div className={styles.addControl}>
+              <div className={styles.addSearch}>
+                <SecurityMultiSelect
+                  selected={pendingAdd}
+                  onChange={(next) => {
+                    setPendingAdd(next);
+                    setAddError(null);
+                  }}
+                  excludedIds={memberIds}
+                  inputLabel="Search stocks to add to this list"
+                />
+              </div>
+              <button
+                type="button"
+                className={forms.primaryButton}
+                data-testid="add-stocks-button"
+                disabled={pendingAdd.length === 0 || adding}
+                onClick={submitAdd}
+              >
+                {adding
+                  ? "Adding…"
+                  : pendingAdd.length > 1
+                    ? `Add ${pendingAdd.length} stocks`
+                    : "Add to list"}
+              </button>
             </div>
-            <button
-              type="button"
-              className={forms.primaryButton}
-              data-testid="add-stocks-button"
-              disabled={pendingAdd.length === 0 || adding}
-              onClick={submitAdd}
-            >
-              {adding
-                ? "Adding…"
-                : pendingAdd.length > 1
-                  ? `Add ${pendingAdd.length} stocks`
-                  : "Add to list"}
-            </button>
-          </div>
-          {addError ? (
-            <p
-              className={`${forms.error} ${styles.addError}`}
-              role="alert"
-              data-testid="list-add-error"
-            >
-              {addError}
-            </p>
-          ) : null}
-        </SectionCard>
+            {addError ? (
+              <p
+                className={`${forms.error} ${styles.addError}`}
+                role="alert"
+                data-testid="list-add-error"
+              >
+                {addError}
+              </p>
+            ) : null}
+          </SectionCard>
+        ) : null}
 
         <SectionCard
           id="list-members"
           title="Stocks"
-          caption="Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
+          caption={
+            builtIn
+              ? "A built-in list maintained by FactorSage. Each stock's membership decides the dates a strategy may open a new position in it; selling is never restricted."
+              : "Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
+          }
           flush={detail.items.length > 0}
         >
           <DataTable

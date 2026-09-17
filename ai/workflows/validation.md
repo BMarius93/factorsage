@@ -12,6 +12,16 @@ pnpm openapi:validate
 
 Do not suppress failing type checks.
 
+## Package builds are incremental
+
+`pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared
+packages they import so they also work standalone. Every `packages/*` build is therefore
+`tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources writes
+nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated. A plain
+`tsc` rewrites every output and once made a whole web test file see `emptyStrategyDefinition is not
+a function` in CI. `packages/config/src/workspace-builds.test.ts` keeps the rule. Deleting a
+package's `dist` also deletes its build info and forces a full build.
+
 ## PostgreSQL-backed tests
 
 `DATABASE_URL` is the development database and is never written to by tests.
@@ -31,6 +41,7 @@ Current callers:
 - `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
+- `apps/api/src/builtins/builtins.integration.test.ts`
 - `apps/api/src/billing/billing.integration.test.ts`
 - `apps/api/src/entitlements/entitlements.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
@@ -303,6 +314,9 @@ or equal to `DATABASE_URL` (except in CI, where one database is the whole enviro
 | `pnpm db:test:prepare`                              | `TEST_DATABASE_URL`        |
 | `pnpm test` (PostgreSQL-backed suites)              | `TEST_DATABASE_URL`        |
 | `pnpm test:users:seed`, `pnpm test:securities:seed` | `TEST_DATABASE_URL`        |
+| `pnpm test:builtins:seed`                           | `TEST_DATABASE_URL`        |
+| `pnpm builtins:bootstrap`, `pnpm builtins:reset`    | `DATABASE_URL`             |
+| `pnpm monitors:scan-once`                           | `DATABASE_URL`             |
 | `pnpm test:matrix:seed`                             | `TEST_DATABASE_URL`        |
 | `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`           | `TEST_DATABASE_URL`        |
 
@@ -331,7 +345,7 @@ same way `db:test:prepare` does:
 set -a && . ./.env && set +a      # export TEST_DATABASE_URL for the two e2e stack commands
 pnpm infra:up
 pnpm db:test:prepare
-pnpm test:users:seed && pnpm test:securities:seed
+pnpm test:users:seed && pnpm test:securities:seed && pnpm test:builtins:seed
 pnpm dev:api:e2e    # and, in other shells:
 pnpm dev:worker:e2e
 pnpm dev:web
@@ -367,6 +381,21 @@ It deletes bars, coverage intervals and watermarks — a durable projection of p
 user-owned state — and leaves the `BenchmarkSeries` rows themselves alone, because completed runs
 pin them. Completed runs keep their stored results either way. The next backtest re-hydrates the
 series from FMP.
+
+## Built-in content and the Dashboard
+
+- `packages/strategy/src/monitor-lifecycle.test.ts` — **needs nothing.** The accepted signal
+  lifecycle, case by case.
+- `apps/worker/src/monitor/monitor-cycle.integration.test.ts` — PostgreSQL. The lifecycle through
+  the real repository: pending setups, latched triggers, reconstruction (including setups older
+  than the first history read), buy windows, built-in Monitors, and transition history that always
+  ends in the stored state.
+- `apps/api/src/builtins/builtin-catalog.test.ts` — **needs nothing.** The canonical catalog pinned
+  to the decision document.
+- `apps/api/src/builtins/builtins.integration.test.ts` — PostgreSQL. Bootstrap idempotency, SYSTEM
+  authorization, administrator edits, capacity, and the Dashboard read model with preferences.
+- `apps/web/e2e/dashboard/*.spec.ts` — Playwright against the deterministic stack, after
+  `pnpm test:builtins:seed`.
 
 ## Rate limiting and the OpenAPI document
 

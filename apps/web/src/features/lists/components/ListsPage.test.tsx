@@ -38,6 +38,8 @@ function summary(
   overrides: Partial<StockListSummaryResponse> = {},
 ): StockListSummaryResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id,
     name,
     itemCount: 0,
@@ -50,6 +52,8 @@ function summary(
 
 function detail(id: string, name: string): StockListDetailResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id,
     name,
     createdAt: "2026-08-01T10:00:00.000Z",

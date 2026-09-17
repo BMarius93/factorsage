@@ -94,6 +94,8 @@ function detail(
   overrides: Partial<StockListDetailResponse> = {},
 ): StockListDetailResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id: "list-1",
     name: "Growth universe",
     description: "Long-term compounders",
@@ -115,6 +117,50 @@ afterEach(() => {
 });
 
 describe("ListDetail", () => {
+  it("shows a built-in list read-only to a customer", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail(
+        [
+          item("item-1", "PANW", {
+            buyWindowMode: "CUSTOM",
+            buyWindows: [{ startDate: "2023-06-20", endDate: null }],
+          }),
+        ],
+        {
+          ownership: "SYSTEM",
+          systemKey: "sp500-growth-leaders",
+          canEdit: false,
+        },
+      ),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    expect(screen.getByTestId("built-in-badge")).toBeDefined();
+    expect(screen.getByTestId("membership").textContent).toContain("Present");
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByTestId("list-detail-actions")).toBeNull();
+    expect(screen.queryByTestId("add-stocks-button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Membership" })).toBeNull();
+  });
+
+  it("lets an administrator edit a built-in list but never offers to delete it", async () => {
+    fetchStockListMock.mockResolvedValue(
+      detail([item("item-1", "AAPL")], {
+        ownership: "SYSTEM",
+        systemKey: "sp500-growth-leaders",
+        canEdit: true,
+      }),
+    );
+    render(<ListDetail listId="list-1" />);
+
+    await screen.findByTestId("list-detail");
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDefined();
+    expect(screen.getByTestId("add-stocks-button")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Membership" })).toBeDefined();
+    expect(screen.queryByTestId("list-detail-actions")).toBeNull();
+  });
+
   it("renders membership beside each member's identity", async () => {
     fetchStockListMock.mockResolvedValue(
       detail([

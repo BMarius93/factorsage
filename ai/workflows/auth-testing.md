@@ -104,14 +104,15 @@ persistent accounts.
 ## 4. Seeding the QA personas
 
 ```bash
-pnpm test:personas:seed     # personas + QA securities + entitlement fixtures, in order
+pnpm test:personas:seed     # personas + QA securities + QA built-ins + entitlement fixtures, in order
 ```
 
-Or the three steps on their own:
+Or the steps on their own:
 
 ```bash
 pnpm test:users:seed          # the five personas
 pnpm test:securities:seed     # the deterministic QA catalog rows
+pnpm test:builtins:seed       # QA built-in lists/strategy/monitors with exact Dashboard state
 pnpm test:entitlements:seed   # the entitlement fixtures the entitlement specs run against
 ```
 

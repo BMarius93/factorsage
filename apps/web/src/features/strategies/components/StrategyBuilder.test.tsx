@@ -37,6 +37,8 @@ const replaceDefinitionMock = vi.mocked(replaceStrategyDefinition);
 
 function savedStrategy(): StrategyDetailResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id: "s1",
     name: "Deep value",
     buyLevelCount: 1,

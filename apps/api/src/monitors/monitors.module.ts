@@ -6,11 +6,12 @@ import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { EntitlementsModule } from "../entitlements/entitlements.module";
 import { MonitorsController } from "./monitors.controller";
+import { SystemContentModule } from "../builtins/system-content.module";
 import { MonitorsService } from "./monitors.service";
 import { MONITORS_LOGGER } from "./monitors.tokens";
 
 @Module({
-  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule],
+  imports: [ConfigurationModule, DatabaseModule, AuthModule, EntitlementsModule, SystemContentModule],
   controllers: [MonitorsController],
   providers: [
     {

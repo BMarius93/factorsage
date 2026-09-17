@@ -56,6 +56,14 @@ correct only until either side moves and then is silently wrong.
 | backtest worker claim | `PrismaBacktestJobRepository.claimNextJob` |
 | Monitor cycle | `PrismaMonitorRepository.listActiveMonitors` |
 
+Built-in (`SYSTEM`) content is outside every one of these: a built-in List is not a customer List
+and no symbol limit applies to it, and a built-in Monitor has no owner, consumes no active-Monitor
+slot and runs on its global switch alone. Built-ins are selectable in a Backtest wherever the plan
+allows a Backtest at all; the Backtest's own depth, symbol and concurrency gates still apply to it
+unchanged. A customer's Dashboard preference for a built-in Monitor is not an entitlement — any
+signed-in plan may store it, and a Guest may not store anything
+(`docs/decisions/builtin-dashboard-signals-v1.md` section 15).
+
 Reads are never refused for exceeding a plan. Renames, removals and every corrective mutation stay
 open, because a downgrade must leave the user able to fix the violation.
 

@@ -1,4 +1,5 @@
 import type {
+  AuthUser,
   MonitorEligibility,
   MonitorDetailResponse,
   MonitorMatchedLevelResponse,
@@ -6,21 +7,34 @@ import type {
   MonitorSecurityStatus,
   MonitorSignalResponse,
   MonitorSummaryResponse,
+  MonitorWaitingLevelResponse,
 } from "@intrinsic/contracts";
 import { normalizeStrategyDefinition } from "@intrinsic/contracts";
 import type { Prisma } from "@intrinsic/database";
 import { monitorStrategyLevels } from "@intrinsic/strategy";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
+import {
+  assertMutable,
+  auditOf,
+  isAdministrator,
+  ownershipResponse,
+  SystemContentProtectedError,
+  type ContentViewer,
+} from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
+import { crossMonitorConfigurationBoundary } from "./monitor-configuration-boundary";
 import { MONITORS_LOGGER } from "./monitors.tokens";
-import type { ParsedUpdateMonitorRequest } from "./monitor-requests";
+import {
+  BUILT_IN_MONITOR_KEYS,
+  type ParsedUpdateMonitorRequest,
+} from "./monitor-requests";
 
 /**
- * Raised for a monitor that does not exist *or* is not owned by the caller. The two cases are
- * deliberately indistinguishable, so knowing another user's monitor id reveals nothing. There is
- * no ADMIN bypass, matching the strategy and stock-list slices.
+ * Raised for a monitor that does not exist *or* belongs to another customer (or is an unpublished
+ * built-in, for a non-administrator). The cases are deliberately indistinguishable, so knowing
+ * another user's monitor id reveals nothing. There is no ADMIN bypass of customer content.
  */
 export class MonitorNotFoundError extends Error {
   constructor() {
@@ -39,6 +53,25 @@ export class MonitorReferenceNotFoundError extends Error {
     );
     this.name = "MonitorReferenceNotFoundError";
   }
+}
+
+/** A well-formed request that asks for something this Monitor does not have. */
+export class MonitorRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MonitorRequestError";
+  }
+}
+
+/**
+ * The Monitors a viewer can see: their own, published built-ins, and — for an administrator —
+ * every built-in.
+ */
+export function visibleMonitorWhere(viewer: ContentViewer) {
+  const builtIns = isAdministrator(viewer)
+    ? { ownership: "SYSTEM" as const }
+    : { ownership: "SYSTEM" as const, isPublished: true };
+  return viewer ? { OR: [{ userId: viewer.id }, builtIns] } : builtIns;
 }
 
 /** How many Signals a detail response carries. Newest first; the collection page pages later. */
@@ -66,13 +99,20 @@ const MONITOR_ORDER = [{ updatedAt: "desc" as const }, { id: "desc" as const }];
 function summaryOf(
   row: MonitorRow,
   eligibility: MonitorEligibility | undefined,
+  viewer: ContentViewer,
 ): MonitorSummaryResponse {
-  const status =
-    eligibility?.status ?? (row.enabled ? "ACTIVE" : "DISABLED");
+  const system = row.ownership === "SYSTEM";
+  // A built-in has no owner and no plan: whether it runs is the operator's global switch alone.
+  const status = system
+    ? row.isGloballyEnabled
+      ? "ACTIVE"
+      : "DISABLED"
+    : (eligibility?.status ?? (row.enabled ? "ACTIVE" : "DISABLED"));
   return {
+    ...ownershipResponse(row, viewer),
     id: row.id,
     name: row.name,
-    enabled: row.enabled,
+    enabled: system ? row.isGloballyEnabled : row.enabled,
     strategyId: row.strategy.id,
     strategyName: row.strategy.name,
     stockListId: row.stockList.id,
@@ -85,8 +125,15 @@ function summaryOf(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     operationalStatus: status,
-    ...(eligibility?.blockedReason
+    ...(!system && eligibility?.blockedReason
       ? { blockedReason: eligibility.blockedReason }
+      : {}),
+    ...(system
+      ? {
+          isPublished: row.isPublished,
+          isGloballyEnabled: row.isGloballyEnabled,
+          ...(row.displayOrder === null ? {} : { displayOrder: row.displayOrder }),
+        }
       : {}),
   };
 }
@@ -110,11 +157,15 @@ function summaryOf(
 function securityStatusOf(input: {
   rows: readonly { lastOutcome: string }[];
   matched: boolean;
+  waiting: boolean;
   lastScanAt: Date | null;
   memberSince: Date;
 }): MonitorSecurityStatus {
   if (input.matched) {
     return "MATCHED";
+  }
+  if (input.waiting) {
+    return "WAITING_FOR_TRIGGER";
   }
   if (input.rows.some((row) => row.lastOutcome !== "NOT_EVALUABLE")) {
     return "NO_MATCH";
@@ -137,7 +188,9 @@ export class MonitorsService {
     @Inject(MONITORS_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  async listForUser(userId: string): Promise<MonitorSummaryResponse[]> {
+  /** The caller's own Monitors. Built-ins are presented by the Dashboard and the admin surface. */
+  async listForUser(user: AuthUser): Promise<MonitorSummaryResponse[]> {
+    const userId = user.id;
     const [rows, eligibility] = await Promise.all([
       this.prisma.monitor.findMany({
         where: { userId },
@@ -146,7 +199,7 @@ export class MonitorsService {
       }),
       this.entitlements.getMonitorExecutionEligibility(userId),
     ]);
-    return rows.map((row) => summaryOf(row, eligibility.get(row.id)));
+    return rows.map((row) => summaryOf(row, eligibility.get(row.id), user));
   }
 
   /**
@@ -162,7 +215,7 @@ export class MonitorsService {
    * stops two concurrent creations from each seeing the same active count and both succeeding.
    */
   async createMonitor(
-    userId: string,
+    user: AuthUser,
     input: {
       name: string;
       strategyId: string;
@@ -170,6 +223,7 @@ export class MonitorsService {
       enabled: boolean;
     },
   ): Promise<MonitorDetailResponse> {
+    const userId = user.id;
     const row = await this.prisma.$transaction(async (tx) => {
       if (input.enabled) {
         await this.entitlements.assertCanEnableMonitor(tx, userId);
@@ -214,7 +268,7 @@ export class MonitorsService {
       userId,
     );
     return {
-      ...summaryOf(row, eligibility.get(row.id)),
+      ...summaryOf(row, eligibility.get(row.id), user),
       securities: await this.listSecurityEvaluations(
         row,
         await this.monitoredLevelIds(input.strategyId),
@@ -224,11 +278,11 @@ export class MonitorsService {
   }
 
   async getMonitor(
-    userId: string,
+    viewer: ContentViewer,
     monitorId: string,
   ): Promise<MonitorDetailResponse> {
     const row = await this.prisma.monitor.findFirst({
-      where: { id: monitorId, userId },
+      where: { id: monitorId, ...visibleMonitorWhere(viewer) },
       include: MONITOR_INCLUDE,
     });
     if (!row) {
@@ -240,10 +294,12 @@ export class MonitorsService {
     const [monitoredLevelIds, signals, eligibility] = await Promise.all([
       this.monitoredLevelIds(row.strategyId),
       this.listSignals(monitorId),
-      this.entitlements.getMonitorExecutionEligibility(userId),
+      row.userId === null
+        ? Promise.resolve(new Map<string, MonitorEligibility>())
+        : this.entitlements.getMonitorExecutionEligibility(row.userId),
     ]);
     return {
-      ...summaryOf(row, eligibility.get(row.id)),
+      ...summaryOf(row, eligibility.get(row.id), viewer),
       securities: await this.listSecurityEvaluations(row, monitoredLevelIds),
       signals,
     };
@@ -335,6 +391,8 @@ export class MonitorsService {
           levelKind: true,
           lastOutcome: true,
           lastOutcomeAt: true,
+          lifecycleState: true,
+          lifecycleSince: true,
           activeSignal: {
             select: {
               id: true,
@@ -365,7 +423,9 @@ export class MonitorsService {
     return items.map((item) => {
       const rows = bySecurity.get(item.security.id) ?? [];
       const matchedLevels: MonitorMatchedLevelResponse[] = rows
-        .filter((row) => row.activeSignal !== null)
+        .filter(
+          (row) => row.lifecycleState === "ACTIVE" && row.activeSignal !== null,
+        )
         .map((row) => {
           const signal = row.activeSignal as NonNullable<
             typeof row.activeSignal
@@ -379,13 +439,18 @@ export class MonitorsService {
             detectedAt: signal.detectedAt.toISOString(),
           };
         });
-      const statusSince = rows.reduce<Date | null>(
-        (newest, row) =>
-          newest === null || row.lastOutcomeAt > newest
-            ? row.lastOutcomeAt
-            : newest,
-        null,
-      );
+      const waitingLevels: MonitorWaitingLevelResponse[] = rows
+        .filter((row) => row.lifecycleState === "PENDING_TRIGGER")
+        .map((row) => ({
+          levelId: row.levelId,
+          levelKind: row.levelKind,
+          since: row.lifecycleSince.toISOString(),
+        }));
+      const statusSince = rows.reduce<Date | null>((newest, row) => {
+        const changed =
+          row.lifecycleSince > row.lastOutcomeAt ? row.lifecycleSince : row.lastOutcomeAt;
+        return newest === null || changed > newest ? changed : newest;
+      }, null);
       return {
         security: {
           id: item.security.id,
@@ -402,10 +467,12 @@ export class MonitorsService {
         status: securityStatusOf({
           rows,
           matched: matchedLevels.length > 0,
+          waiting: waitingLevels.length > 0,
           lastScanAt: monitor.lastScanAt,
           memberSince: item.createdAt,
         }),
         matchedLevels,
+        waitingLevels,
         ...(statusSince === null
           ? {}
           : { statusSince: statusSince.toISOString() }),
@@ -431,12 +498,26 @@ export class MonitorsService {
    * same ones must not reset a thing.
    */
   async updateMonitor(
-    userId: string,
+    user: AuthUser,
     monitorId: string,
     patch: ParsedUpdateMonitorRequest,
   ): Promise<MonitorSummaryResponse> {
+    const userId = user.id;
+    const target = await this.findMutable(user, monitorId);
+    const builtInKeys = BUILT_IN_MONITOR_KEYS.filter((key) => patch[key] !== undefined);
+    if (target.ownership === "USER" && builtInKeys.length > 0) {
+      throw new MonitorRequestError(
+        `\`${builtInKeys[0]}\` applies to built-in monitors only`,
+      );
+    }
+    if (target.ownership === "SYSTEM" && patch.enabled !== undefined) {
+      throw new MonitorRequestError(
+        "A built-in monitor is switched on and off with isGloballyEnabled",
+      );
+    }
+
     if (patch.strategyId !== undefined || patch.stockListId !== undefined) {
-      return this.rebindMonitor(userId, monitorId, patch);
+      return this.rebindMonitor(user, target.ownership, monitorId, patch);
     }
 
     // Switching a Monitor on is a capacity decision, so the check and the write share one
@@ -445,19 +526,32 @@ export class MonitorsService {
     //
     // Switching one *off* is never refused. A user over capacity after a downgrade has to be able
     // to reduce their active set — refusing the one operation that fixes the situation would be
-    // a trap.
+    // a trap. A built-in consumes nobody's capacity.
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (patch.enabled === true) {
+      if (target.ownership === "USER" && patch.enabled === true) {
         await this.entitlements.assertCanEnableMonitor(tx, userId, {
           excludeMonitorId: monitorId,
         });
       }
       // `updateMany` applies the ownership filter and the write in one atomic statement.
       return tx.monitor.updateMany({
-        where: { id: monitorId, userId },
+        where:
+          target.ownership === "SYSTEM"
+            ? { id: monitorId, ownership: "SYSTEM" }
+            : { id: monitorId, userId },
         data: {
           ...(patch.name === undefined ? {} : { name: patch.name }),
           ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+          ...(patch.isPublished === undefined
+            ? {}
+            : { isPublished: patch.isPublished }),
+          ...(patch.isGloballyEnabled === undefined
+            ? {}
+            : { isGloballyEnabled: patch.isGloballyEnabled }),
+          ...(patch.displayOrder === undefined
+            ? {}
+            : { displayOrder: patch.displayOrder }),
+          ...auditOf(target, user),
         },
       });
     });
@@ -465,17 +559,47 @@ export class MonitorsService {
       throw new MonitorNotFoundError();
     }
 
-    const [row, eligibility] = await Promise.all([
-      this.readOwnMonitor(userId, monitorId),
-      this.entitlements.getMonitorExecutionEligibility(userId),
-    ]);
+    const row = await this.readVisibleMonitor(user, monitorId);
+    const eligibility =
+      row.userId === null
+        ? new Map<string, MonitorEligibility>()
+        : await this.entitlements.getMonitorExecutionEligibility(row.userId);
     this.logger.info({
       event: "monitor.updated",
       actorUserId: userId,
       monitorId,
+      ownership: row.ownership,
       enabled: row.enabled,
+      ...(row.ownership === "SYSTEM"
+        ? {
+            isPublished: row.isPublished,
+            isGloballyEnabled: row.isGloballyEnabled,
+          }
+        : {}),
     });
-    return summaryOf(row, eligibility.get(row.id));
+    return summaryOf(row, eligibility.get(row.id), user);
+  }
+
+  /**
+   * The Monitor a viewer asked to change: 404 when not visible to them, 403 when it is a built-in
+   * and they are not an administrator.
+   */
+  private async findMutable(user: AuthUser, monitorId: string) {
+    const row = await this.prisma.monitor.findFirst({
+      where: {
+        id: monitorId,
+        OR: [
+          { userId: user.id },
+          { ownership: "SYSTEM", ...(isAdministrator(user) ? {} : { isPublished: true }) },
+        ],
+      },
+      select: { id: true, ownership: true, userId: true, systemKey: true },
+    });
+    const monitor = assertMutable(row, user, "monitors");
+    if (!monitor) {
+      throw new MonitorNotFoundError();
+    }
+    return monitor;
   }
 
   /**
@@ -501,16 +625,23 @@ export class MonitorsService {
    * as creation does — a foreign key alone would accept any id that exists.
    */
   private async rebindMonitor(
-    userId: string,
+    user: AuthUser,
+    ownership: "USER" | "SYSTEM",
     monitorId: string,
     patch: ParsedUpdateMonitorRequest,
   ): Promise<MonitorSummaryResponse> {
+    const userId = user.id;
+    const system = ownership === "SYSTEM";
+    // A customer's Monitor watches the customer's own content; a built-in watches built-ins only.
+    const referenceOwner = system
+      ? { ownership: "SYSTEM" as const }
+      : { userId };
     const now = new Date();
     const outcome = await this.prisma.$transaction(async (tx) => {
       // A rebind may also switch the Monitor on, so it is the same capacity decision — taken
       // before the Monitor row is locked, so this transaction acquires the per-user entitlement
       // lock and the Monitor row lock in the one order every writer uses.
-      if (patch.enabled === true) {
+      if (!system && patch.enabled === true) {
         await this.entitlements.assertCanEnableMonitor(tx, userId, {
           excludeMonitorId: monitorId,
         });
@@ -519,14 +650,19 @@ export class MonitorsService {
       // Signals. A cycle committing a transition locks the same row (`FOR SHARE`) before its own
       // state writes, so both orders agree and the two cannot deadlock. Ownership is part of the
       // lock predicate, so a Monitor the caller does not own locks nothing and reads as missing.
-      const locked = await tx.$queryRaw<
-        { strategyId: string; stockListId: string }[]
-      >`
-        SELECT "strategyId", "stockListId"
-        FROM "Monitor"
-        WHERE "id" = ${monitorId} AND "userId" = ${userId}
-        FOR UPDATE
-      `;
+      const locked = system
+        ? await tx.$queryRaw<{ strategyId: string; stockListId: string }[]>`
+            SELECT "strategyId", "stockListId"
+            FROM "Monitor"
+            WHERE "id" = ${monitorId} AND "ownership" = 'SYSTEM'
+            FOR UPDATE
+          `
+        : await tx.$queryRaw<{ strategyId: string; stockListId: string }[]>`
+            SELECT "strategyId", "stockListId"
+            FROM "Monitor"
+            WHERE "id" = ${monitorId} AND "userId" = ${userId}
+            FOR UPDATE
+          `;
       const current = locked[0];
       if (!current) {
         throw new MonitorNotFoundError();
@@ -539,7 +675,7 @@ export class MonitorsService {
       // query, and a reference that is already attached cannot become unowned.
       if (nextStrategyId !== current.strategyId) {
         const strategy = await tx.strategy.findFirst({
-          where: { id: nextStrategyId, userId },
+          where: { id: nextStrategyId, ...referenceOwner },
           select: { id: true },
         });
         if (!strategy) {
@@ -548,7 +684,7 @@ export class MonitorsService {
       }
       if (nextStockListId !== current.stockListId) {
         const stockList = await tx.stockList.findFirst({
-          where: { id: nextStockListId, userId },
+          where: { id: nextStockListId, ...referenceOwner },
           select: { id: true },
         });
         if (!stockList) {
@@ -563,15 +699,8 @@ export class MonitorsService {
       let resolvedSignals = 0;
       let clearedStates = 0;
       if (rebound) {
-        resolvedSignals = (
-          await tx.monitorSignal.updateMany({
-            where: { monitorId, resolvedAt: null },
-            data: { resolvedAt: now },
-          })
-        ).count;
-        clearedStates = (
-          await tx.monitorSignalState.deleteMany({ where: { monitorId } })
-        ).count;
+        ({ resolvedSignals, clearedStates } =
+          await crossMonitorConfigurationBoundary(tx, monitorId, now));
       }
 
       const row = await tx.monitor.update({
@@ -579,6 +708,16 @@ export class MonitorsService {
         data: {
           ...(patch.name === undefined ? {} : { name: patch.name }),
           ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+          ...(patch.isPublished === undefined
+            ? {}
+            : { isPublished: patch.isPublished }),
+          ...(patch.isGloballyEnabled === undefined
+            ? {}
+            : { isGloballyEnabled: patch.isGloballyEnabled }),
+          ...(patch.displayOrder === undefined
+            ? {}
+            : { displayOrder: patch.displayOrder }),
+          ...(system ? { updatedByUserId: userId } : {}),
           strategyId: nextStrategyId,
           stockListId: nextStockListId,
           ...(rebound
@@ -614,19 +753,19 @@ export class MonitorsService {
           }
         : {}),
     });
-    const eligibility = await this.entitlements.getMonitorExecutionEligibility(
-      userId,
-    );
-    return summaryOf(outcome.row, eligibility.get(outcome.row.id));
+    const eligibility = system
+      ? new Map<string, MonitorEligibility>()
+      : await this.entitlements.getMonitorExecutionEligibility(userId);
+    return summaryOf(outcome.row, eligibility.get(outcome.row.id), user);
   }
 
-  /** Re-reads the caller's own Monitor, or reports it missing if it vanished underneath. */
-  private async readOwnMonitor(
-    userId: string,
+  /** Re-reads a Monitor the caller can see, or reports it missing if it vanished underneath. */
+  private async readVisibleMonitor(
+    user: AuthUser,
     monitorId: string,
   ): Promise<MonitorRow> {
     const row = await this.prisma.monitor.findFirst({
-      where: { id: monitorId, userId },
+      where: { id: monitorId, ...visibleMonitorWhere(user) },
       include: MONITOR_INCLUDE,
     });
     if (!row) {
@@ -636,7 +775,12 @@ export class MonitorsService {
     return row;
   }
 
-  async deleteMonitor(userId: string, monitorId: string): Promise<void> {
+  async deleteMonitor(user: AuthUser, monitorId: string): Promise<void> {
+    const userId = user.id;
+    const target = await this.findMutable(user, monitorId);
+    if (target.ownership === "SYSTEM") {
+      throw new SystemContentProtectedError("monitors");
+    }
     const deleted = await this.prisma.monitor.deleteMany({
       where: { id: monitorId, userId },
     });
@@ -700,6 +844,10 @@ export class MonitorsService {
       ...(row.resolvedAt === null
         ? {}
         : { resolvedAt: row.resolvedAt.toISOString() }),
+      ...(row.resolutionReason === null
+        ? {}
+        : { resolutionReason: row.resolutionReason }),
+      reconstructed: row.reconstructed,
     }));
   }
 }

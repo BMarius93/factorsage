@@ -97,6 +97,11 @@ export type MonitorStrategyLevel = {
   kind: "BUY" | "SELL" | "FINAL_EXIT";
   /** The level's alternatives, ORed. Always at least one. */
   rules: readonly StrategySignal[];
+  /**
+   * The identity each alternative's rule-local lifecycle is stored under, parallel to `rules`:
+   * the level id for BUY and SELL, each Exit Rule's own id for FINAL EXIT.
+   */
+  ruleIds: readonly string[];
   /** The canonical id-free serialization of this level's whole logic. */
   fingerprint: string;
   /**
@@ -139,6 +144,7 @@ export function monitorStrategyLevels(
     id: string,
     kind: MonitorStrategyLevel["kind"],
     rules: readonly StrategySignal[],
+    ruleIds: readonly string[],
     fingerprint: string,
   ) => {
     // Whole-level, and for a disjunction that means *any* alternative: dropping a Gain-dependent
@@ -152,6 +158,7 @@ export function monitorStrategyLevels(
       id,
       kind,
       rules,
+      ruleIds,
       fingerprint,
       hasTrigger: rules.every((signal) => signal.trigger !== undefined),
     });
@@ -162,6 +169,7 @@ export function monitorStrategyLevels(
       level.id,
       "BUY",
       [level.signal],
+      [level.id],
       strategySignalFingerprint(level.signal),
     );
   }
@@ -170,6 +178,7 @@ export function monitorStrategyLevels(
       level.id,
       "SELL",
       [level.signal],
+      [level.id],
       strategySignalFingerprint(level.signal),
     );
   }
@@ -178,6 +187,7 @@ export function monitorStrategyLevels(
       definition.finalExit.id,
       "FINAL_EXIT",
       definition.finalExit.rules.map((rule) => rule.signal),
+      definition.finalExit.rules.map((rule) => rule.id),
       strategyFinalExitFingerprint(definition.finalExit),
     );
   }

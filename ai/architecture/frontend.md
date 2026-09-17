@@ -205,8 +205,22 @@ cannot drift apart.
   collection out into one request per row to reconstruct an aggregate the API does not expose, and
   do not invent or infer a value the backend did not record. Record the gap in `ui-system.md` under
   "Known read-model gaps" and build what the existing contracts truthfully support. The Dashboard is
-  the worked example: it shows collection-level truth and links into each monitor, because the
-  cross-monitor active-match aggregate does not exist yet.
+  the worked example of closing one: `GET /dashboard` is its dedicated read model, so the page makes
+  one request instead of joining monitors, states and strategies in the browser.
+
+## Guest-readable routes
+
+The `(app)` shell renders for Guests, and `RouteAccessGate` decides per route whether a session is
+required: `/dashboard`, `/stocks`, `/stocks/[symbol]` and the detail pages of Lists, Strategies and
+Monitors (which may name built-in content) are public; everything else goes through `RequireAuth`.
+The list is `isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test. The API
+still authorizes every request — a detail page for another customer's object reads as not found.
+
+Built-in content renders through the ordinary feature pages. The response's `canEdit` decides the
+presentation: a customer sees a built-in List, Strategy or Monitor read-only (the Strategy through
+`StrategyReadOnlyView`, the same `LogicPreview` the Builder uses), an administrator sees the ordinary
+editors, and nothing offers to delete a built-in. An action that needs an account asks a Guest to sign
+in (`SignInPrompt`) rather than failing.
 
 ## Charts
 

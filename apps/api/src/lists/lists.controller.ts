@@ -24,6 +24,8 @@ import {
 import type { AuthUser } from "@intrinsic/contracts";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
+import { Viewer } from "../auth/viewer.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseAddStockListItemsRequest,
@@ -40,13 +42,14 @@ import {
 } from "./stock-lists.service";
 
 /**
- * User-owned stock lists. Every route requires an authenticated session and operates strictly on
- * the caller's own rows: the service scopes each query by the authenticated user id, and a list
- * that exists but belongs to someone else answers exactly like one that does not exist. There is
- * intentionally no ADMIN bypass.
+ * Stock lists: the caller's own, plus the platform's built-ins.
+ *
+ * Reads accept a Guest, who sees built-ins only (`docs/decisions/entitlements-v1.md` lets every
+ * viewer see built-in content). Every write requires a session. A list that exists but belongs to
+ * another customer answers exactly like one that does not exist, for administrators too; a
+ * built-in may be changed by an administrator only, and is never deleted.
  */
 @Controller("lists")
-@UseGuards(CookieAuthGuard)
 export class ListsController {
   constructor(
     @Inject(StockListsService) private readonly lists: StockListsService,
@@ -54,14 +57,16 @@ export class ListsController {
 
   @RateLimit("standard-read")
   @Get()
+  @UseGuards(OptionalCookieAuthGuard)
   async listOwn(
-    @CurrentUser() user: AuthUser,
+    @Viewer() viewer: AuthUser | null,
   ): Promise<StockListSummaryResponse[]> {
-    return this.lists.listForUser(user);
+    return this.lists.listForUser(viewer);
   }
 
   @RateLimit("mutation")
   @Post()
+  @UseGuards(CookieAuthGuard)
   async create(
     @CurrentUser() user: AuthUser,
     @Body() body: unknown,
@@ -72,15 +77,17 @@ export class ListsController {
 
   @RateLimit("standard-read")
   @Get(":listId")
+  @UseGuards(OptionalCookieAuthGuard)
   async getOne(
-    @CurrentUser() user: AuthUser,
+    @Viewer() viewer: AuthUser | null,
     @Param("listId") listId: string,
   ): Promise<StockListDetailResponse> {
-    return this.execute(() => this.lists.getList(user, listId));
+    return this.execute(() => this.lists.getList(viewer, listId));
   }
 
   @RateLimit("mutation")
   @Patch(":listId")
+  @UseGuards(CookieAuthGuard)
   async update(
     @CurrentUser() user: AuthUser,
     @Param("listId") listId: string,
@@ -92,12 +99,13 @@ export class ListsController {
 
   @RateLimit("mutation")
   @Delete(":listId")
+  @UseGuards(CookieAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthUser,
     @Param("listId") listId: string,
   ): Promise<void> {
-    await this.execute(() => this.lists.deleteList(user.id, listId));
+    await this.execute(() => this.lists.deleteList(user, listId));
   }
 
   /**
@@ -106,6 +114,7 @@ export class ListsController {
    */
   @RateLimit("mutation")
   @Post(":listId/items")
+  @UseGuards(CookieAuthGuard)
   @HttpCode(HttpStatus.OK)
   async addItems(
     @CurrentUser() user: AuthUser,
@@ -120,18 +129,20 @@ export class ListsController {
 
   @RateLimit("mutation")
   @Delete(":listId/items/:itemId")
+  @UseGuards(CookieAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeItem(
     @CurrentUser() user: AuthUser,
     @Param("listId") listId: string,
     @Param("itemId") itemId: string,
   ): Promise<void> {
-    await this.execute(() => this.lists.removeItem(user.id, listId, itemId));
+    await this.execute(() => this.lists.removeItem(user, listId, itemId));
   }
 
   /** Replaces the item's complete buy-window configuration and returns the canonical result. */
   @RateLimit("mutation")
   @Put(":listId/items/:itemId/buy-windows")
+  @UseGuards(CookieAuthGuard)
   async replaceBuyWindows(
     @CurrentUser() user: AuthUser,
     @Param("listId") listId: string,
@@ -140,7 +151,7 @@ export class ListsController {
   ): Promise<StockListItemResponse> {
     const input = parseReplaceBuyWindowsRequest(body);
     return this.execute(() =>
-      this.lists.replaceBuyWindows(user.id, listId, itemId, input),
+      this.lists.replaceBuyWindows(user, listId, itemId, input),
     );
   }
 

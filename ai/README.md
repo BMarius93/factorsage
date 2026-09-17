@@ -99,7 +99,10 @@ forty invariants it validates independently, and which three of those need the d
 open is engine methodology recorded in `architecture/backtest-execution.md`, never re-decided in
 feature code.
 
-For Monitor work, read `product/product-overview.md` (the domain map) and `product/monitors.md` first, then `architecture/monitor-engine.md`, `architecture/deep-discovery.md` (verified end-to-end behaviour, invariants and open product questions, one investigation per entry),
+For Monitor, Dashboard or built-in content work, read
+`../docs/decisions/builtin-dashboard-signals-v1.md` (the accepted signal lifecycle, SYSTEM ownership,
+the Dashboard and the built-in catalog), then `product/product-overview.md` (the domain map) and
+`product/monitors.md`, then `architecture/monitor-engine.md`, `architecture/deep-discovery.md` (verified end-to-end behaviour, invariants and open product questions, one investigation per entry),
 `product/strategies.md`, `architecture/strategy-evaluation.md`, and `architecture/calculated-series.md`.
 Monitor reuses the canonical Strategy language but evaluates it against current data. The V1 architecture
 loads/updates data and computes required series per symbol, evaluates per Monitor, uses process memory for
@@ -143,7 +146,7 @@ When old code or old documentation conflicts with V2 documents, V2 documents win
 ## Current V2 product model
 
 ```text
-StockList (user-owned)
+StockList (user-owned, or SYSTEM built-in: readable by all, changed by ADMIN only)
   |
   +-- StockListItem -> Security (canonical catalog identity)
        +-- BUY window = FULL
@@ -158,7 +161,7 @@ SelectableSeriesCatalog
   +-- Stock Details overlays
   +-- compatible Strategy Metric/Value selections
 
-Strategy
+Strategy (user-owned, or SYSTEM built-in)
   |
   +-- ordered BUY levels
   +-- ordered SELL levels
@@ -187,7 +190,7 @@ Backtest run
   +-- durable PostgreSQL job claim, live progress checkpoints
   +-- deterministic results / diagnostics
 
-Monitor (user-owned)
+Monitor (user-owned with `enabled`, or SYSTEM built-in with isPublished / isGloballyEnabled)
   |
   +-- live Strategy reference (no pinned version) + live StockList reference + enabled
   |   (both references may be rebound; doing so discards transition state, resolves active
@@ -197,11 +200,19 @@ Monitor (user-owned)
   +-- evaluates every BUY / SELL / FINAL EXIT level against current data (closed history
   |   plus the live quote as the provisional observation), BUY gated by the member's buy window
   |
-  +-- produces Signal (append-only, never deleted; resolved when the match ends)
-       +-- condition-only level = a state: emitted when it begins, resolved when it ends
-       +-- trigger level         = an event on one observation date, at most once per date
-       +-- durable (Monitor, Security, level) transition state keyed to the level's own
-           canonical fingerprint, so a Strategy edit resets only the levels that changed
+  +-- durable (Monitor, Security, level) lifecycle: INACTIVE / PENDING_TRIGGER / ACTIVE / RESOLVED,
+  |   keyed to the level's own canonical fingerprint (a Strategy edit resets only changed levels)
+  |   +-- conditions only      = a state: ACTIVE while the Conditions hold
+  |   +-- conditions + trigger = PENDING_TRIGGER until the Trigger fires, then ACTIVE (latched)
+  |   |                          while the Conditions hold
+  |   +-- trigger only         = an event: ACTIVE for its session, RESOLVED on a later session
+  |   +-- a level with no state is reconstructed from history, never started blank
+  +-- produces Signal occurrences (created on entering ACTIVE, resolved with a reason, never
+  |   reopened) and a transition history of state changes only
+  |
+Dashboard = ACTIVE occurrences + PENDING_TRIGGER setups of every Monitor the viewer can see
+  +-- Guest: published built-ins; signed-in: those not hidden (UserBuiltInMonitorPreference)
+      plus the user's own enabled Monitors
 ```
 
 `product/product-overview.md` holds the one-page map of how List, Strategy, Backtest, Monitor and

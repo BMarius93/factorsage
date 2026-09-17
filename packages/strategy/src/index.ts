@@ -17,6 +17,7 @@ export * from "./frame.js";
 export * from "./predicates.js";
 export * from "./gates.js";
 export * from "./monitor.js";
+export * from "./monitor-lifecycle.js";
 export * from "./position.js";
 export * from "./backtest/methodology.js";
 export * from "./backtest/types.js";

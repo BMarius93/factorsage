@@ -20,7 +20,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --incremental --tsBuildInfoFile dist/.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "capture:execution-calendar": "tsx scripts/capture-execution-calendar.ts"
   },

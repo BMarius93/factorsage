@@ -1,6 +1,7 @@
 "use client";
 
 import { PageContainer } from "../../../components/layout/PageContainer";
+import { BuiltInContentPanel } from "../../../features/admin/components/BuiltInContentPanel";
 import { RequireAuth } from "../../../features/auth/components/RequireAuth";
 import { useAuthSession } from "../../../features/auth/hooks/use-auth-session";
 import styles from "./admin.module.css";
@@ -9,8 +10,11 @@ import styles from "./admin.module.css";
 export default function AdminPage() {
   return (
     <RequireAuth role="ADMIN">
-      <PageContainer width="reading">
-        <AdminOverview />
+      <PageContainer>
+        <div className={styles.stack}>
+          <AdminOverview />
+          <BuiltInContentPanel />
+        </div>
       </PageContainer>
     </RequireAuth>
   );
