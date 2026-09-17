@@ -27,10 +27,14 @@
   text-decoration: none;
 }
 
+/* The primary state filter on the left, the action refinement on the right — two different
+   control shapes so they never read as two competing tab bars. They stack on a phone. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
 }
 
 /* A pill per view with the count it would show. */
@@ -114,42 +118,8 @@
   color: var(--color-text-secondary);
 }
 
-.since {
-  display: inline-grid;
-  gap: 1px;
-  font-variant-numeric: tabular-nums;
-}
-
-.sinceNote {
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
-.sources {
-  display: grid;
-  gap: 4px;
-  justify-items: start;
-  min-width: 0;
-}
-
-.sourceDetail {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-
 .placeholder {
   color: var(--color-text-muted);
-}
-
-.visuallyHidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }
 
 @media (max-width: 879px) {

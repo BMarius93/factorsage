@@ -50,13 +50,17 @@ export class MonitorsController {
     @Inject(MonitorsService) private readonly monitors: MonitorsService,
   ) {}
 
+  /**
+   * Readable by a Guest, who receives the published built-ins alone. A signed-in caller also
+   * receives their own Monitors, and each built-in carries their Dashboard visibility preference.
+   */
   @RateLimit("standard-read")
   @Get()
-  @UseGuards(CookieAuthGuard)
+  @UseGuards(OptionalCookieAuthGuard)
   async listOwn(
-    @CurrentUser() user: AuthUser,
+    @Viewer() viewer: AuthUser | null,
   ): Promise<MonitorSummaryResponse[]> {
-    return this.monitors.listForUser(user);
+    return this.monitors.listForUser(viewer);
   }
 
   @RateLimit("monitor-mutation")

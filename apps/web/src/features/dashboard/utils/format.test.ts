@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatAge,
-  formatSessionDate,
-  freshnessLabel,
-  levelLabel,
-} from "./format";
+import { formatAge, freshnessLabel, levelLabel } from "./format";
 
 describe("dashboard formatting", () => {
   const now = new Date("2026-09-17T12:00:00.000Z");
@@ -14,10 +9,6 @@ describe("dashboard formatting", () => {
       "Buy 100%",
     );
     expect(levelLabel({ levelKind: "FINAL_EXIT" })).toBe("Final exit");
-  });
-
-  it("formats a session date without shifting it by timezone", () => {
-    expect(formatSessionDate("2026-09-15")).toBe("Sep 15, 2026");
   });
 
   it("says how old a scan is, and never calls a stale one current", () => {

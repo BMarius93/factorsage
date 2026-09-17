@@ -17,43 +17,46 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
-import actionStyles from "../../../components/ui/actions.module.css";
 import forms from "../../../components/ui/forms.module.css";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
-import { formatObservationPrice, LEVEL_KIND_LABELS } from "../../monitors/utils/format";
+import {
+  formatObservationPrice,
+  LEVEL_KIND_LABELS,
+} from "../../monitors/utils/format";
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { useDashboard } from "../hooks/use-dashboard";
 import {
   FRESHNESS_TONES,
   LEVEL_TONES,
+  ROW_STATE_FILTER_LABELS,
   ROW_STATE_LABELS,
   ROW_STATE_TONES,
-  formatAge,
-  formatSessionDate,
   freshnessLabel,
   levelLabel,
 } from "../utils/format";
-import { MonitorVisibilityPanel } from "./MonitorVisibilityPanel";
 import styles from "./DashboardPage.module.css";
 
 type StateFilter = "ALL" | DashboardRowState;
 type LevelFilter = "ALL" | MonitorLevelKind;
 
-const STATE_FILTERS: readonly { readonly id: StateFilter; readonly label: string }[] = [
-  { id: "ALL", label: "All" },
-  { id: "ACTIVE", label: ROW_STATE_LABELS.ACTIVE },
-  { id: "PENDING_TRIGGER", label: ROW_STATE_LABELS.PENDING_TRIGGER },
-];
+const STATE_FILTERS: readonly { readonly id: StateFilter; readonly label: string }[] =
+  [
+    { id: "ALL", label: "All" },
+    { id: "ACTIVE", label: ROW_STATE_FILTER_LABELS.ACTIVE },
+    { id: "PENDING_TRIGGER", label: ROW_STATE_FILTER_LABELS.PENDING_TRIGGER },
+  ];
 
-const LEVEL_FILTERS: readonly { readonly id: LevelFilter; readonly label: string }[] = [
-  { id: "ALL", label: "All actions" },
-  { id: "BUY", label: LEVEL_KIND_LABELS.BUY },
-  { id: "SELL", label: LEVEL_KIND_LABELS.SELL },
-  { id: "FINAL_EXIT", label: LEVEL_KIND_LABELS.FINAL_EXIT },
-];
+const LEVEL_FILTERS: readonly { readonly value: LevelFilter; readonly label: string }[] =
+  [
+    { value: "ALL", label: "All actions" },
+    { value: "BUY", label: LEVEL_KIND_LABELS.BUY },
+    { value: "SELL", label: LEVEL_KIND_LABELS.SELL },
+    { value: "FINAL_EXIT", label: LEVEL_KIND_LABELS.FINAL_EXIT },
+  ];
 
 function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
   return (
@@ -77,132 +80,126 @@ function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
   );
 }
 
-function SinceCell({ row, now }: { readonly row: DashboardRowResponse; readonly now: Date }) {
-  const date = row.observationDate ? formatSessionDate(row.observationDate) : null;
-  return (
-    <span className={styles.since} title={new Date(row.since).toLocaleString()}>
-      {date ?? formatAge(row.since, now)}
-      {row.reconstructed ? <span className={styles.sinceNote}>from history</span> : null}
-    </span>
-  );
-}
-
-function columnsFor(now: Date): DataTableColumn<DashboardRowResponse>[] {
-  return [
-    {
-      key: "stock",
-      header: "Stock",
-      cardRole: "identity",
-      render: (row) => (
-        <StockIdentity
-          symbol={row.security.symbol}
-          name={row.security.name}
-          {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
-          href={stockDetailsHref(row.security.symbol)}
-          size="sm"
-        />
-      ),
-    },
-    {
-      key: "action",
-      header: "Action",
-      cardRole: "status",
-      nowrap: true,
-      render: (row) => (
-        <span className={styles.badges}>
-          <StatusBadge
-            tone={LEVEL_TONES[row.levelKind]}
-            variant="outline"
-            dataAttributes={{ "data-level": row.levelKind }}
-          >
-            {levelLabel(row)}
-          </StatusBadge>
-          <StatusBadge
-            tone={ROW_STATE_TONES[row.state]}
-            dataAttributes={{ "data-state": row.state }}
-          >
-            {ROW_STATE_LABELS[row.state]}
-          </StatusBadge>
-        </span>
-      ),
-    },
-    {
-      key: "reason",
-      header: "Why",
-      cardLabel: "Why",
-      render: (row) => <ReasonCell row={row} />,
-    },
-    {
-      key: "price",
-      header: "Price",
-      align: "right",
-      numeric: true,
-      nowrap: true,
-      render: (row) =>
-        row.price === undefined ? (
-          <span className={styles.placeholder}>—</span>
-        ) : (
-          formatObservationPrice(row.price)
-        ),
-    },
-    {
-      key: "since",
-      header: "Since",
-      nowrap: true,
-      render: (row) => <SinceCell row={row} now={now} />,
-    },
-    {
-      key: "source",
-      header: "Monitor",
-      cardRole: "links",
-      cardLabel: "From",
-      render: (row) => (
-        <span className={styles.sources}>
-          <EntityReferenceChip
-            kind="monitor"
-            name={row.monitor.name}
-            href={`/monitors/${row.monitor.id}`}
-          />
-          <span className={styles.sourceDetail}>
-            <EntityReferenceChip
-              kind="strategy"
-              name={row.strategy.name}
-              href={`/strategies/${row.strategy.id}`}
-            />
-            <EntityReferenceChip
-              kind="list"
-              name={row.stockList.name}
-              href={`/lists/${row.stockList.id}`}
-            />
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: "actions",
-      header: <span className={styles.visuallyHidden}>Actions</span>,
-      cardRole: "actions",
-      nowrap: true,
-      render: (row) => (
-        <Link
-          className={actionStyles.action}
-          href={`/backtests/new?strategyId=${encodeURIComponent(row.strategy.id)}&stockListId=${encodeURIComponent(row.stockList.id)}`}
-          title={`Backtest ${row.strategy.name} over ${row.stockList.name}`}
+/**
+ * The signal table's columns.
+ *
+ * Strategy, List and Monitor are **three** columns, not one. They are three different objects with
+ * three different pages, and collapsing them into one cell made the row's most useful fact — which
+ * strategy said this — something the reader had to go looking for. Each is an ordinary entity
+ * reference, so the same chip means the same thing here as on a Monitor's own page, and on a phone
+ * `DataTable` folds the three into the card's linked block without a second implementation.
+ *
+ * There is deliberately no per-row Backtest button: it repeated one call to action on every row of
+ * a table whose job is to report, and the same backtest is one click away from the Strategy, the
+ * List or the Monitor the row already links to.
+ */
+const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
+  {
+    key: "stock",
+    header: "Stock",
+    cardRole: "identity",
+    render: (row) => (
+      <StockIdentity
+        symbol={row.security.symbol}
+        name={row.security.name}
+        {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
+        href={stockDetailsHref(row.security.symbol)}
+        size="sm"
+      />
+    ),
+  },
+  {
+    key: "action",
+    header: "Action",
+    cardRole: "status",
+    nowrap: true,
+    render: (row) => (
+      <span className={styles.badges}>
+        <StatusBadge
+          tone={LEVEL_TONES[row.levelKind]}
+          variant="outline"
+          dataAttributes={{ "data-level": row.levelKind }}
         >
-          Backtest
-        </Link>
+          {levelLabel(row)}
+        </StatusBadge>
+        <StatusBadge
+          tone={ROW_STATE_TONES[row.state]}
+          dataAttributes={{ "data-state": row.state }}
+        >
+          {ROW_STATE_LABELS[row.state]}
+        </StatusBadge>
+      </span>
+    ),
+  },
+  {
+    key: "reason",
+    header: "Why",
+    cardLabel: "Why",
+    render: (row) => <ReasonCell row={row} />,
+  },
+  {
+    key: "price",
+    header: "Price",
+    align: "right",
+    numeric: true,
+    nowrap: true,
+    render: (row) =>
+      row.price === undefined ? (
+        <span className={styles.placeholder}>—</span>
+      ) : (
+        formatObservationPrice(row.price)
       ),
-    },
-  ];
-}
+  },
+  {
+    key: "strategy",
+    header: "Strategy",
+    cardRole: "links",
+    render: (row) => (
+      <EntityReferenceChip
+        kind="strategy"
+        name={row.strategy.name}
+        href={`/strategies/${row.strategy.id}`}
+      />
+    ),
+  },
+  {
+    key: "list",
+    header: "List",
+    cardRole: "links",
+    render: (row) => (
+      <EntityReferenceChip
+        kind="list"
+        name={row.stockList.name}
+        href={`/lists/${row.stockList.id}`}
+      />
+    ),
+  },
+  {
+    key: "monitor",
+    header: "Monitor",
+    cardRole: "links",
+    render: (row) => (
+      <EntityReferenceChip
+        kind="monitor"
+        name={row.monitor.name}
+        href={`/monitors/${row.monitor.id}`}
+      />
+    ),
+  },
+];
 
 /**
  * The application home: every current match and setup from the monitors the viewer can see.
  *
  * `docs/decisions/builtin-dashboard-signals-v1.md` section 4. One row per monitor outcome — the same
  * stock under two monitors is two rows — showing `ACTIVE` signals and `PENDING_TRIGGER` setups only.
- * A Guest sees the published built-in monitors; a signed-in user may hide those and also sees their
- * own. Freshness comes from real scan times and is never described as live when it is not.
+ * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
+ * plus their own. Freshness comes from real scan times and is never described as live when it is not.
+ *
+ * The page is **only** that table. Choosing which monitors feed it is a property of a monitor, so
+ * it lives on the Monitors page beside the monitor it belongs to; a configuration panel under the
+ * signals competed with them for the screen and made the product's home page look like a settings
+ * screen.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
@@ -212,13 +209,16 @@ export function DashboardPage() {
   const now = new Date();
 
   const rows = dashboard?.rows ?? [];
-  const byState = rows.filter((row) => levelFilter === "ALL" || row.levelKind === levelFilter);
-  const visibleRows = byState.filter(
+  const byLevel = rows.filter(
+    (row) => levelFilter === "ALL" || row.levelKind === levelFilter,
+  );
+  const visibleRows = byLevel.filter(
     (row) => stateFilter === "ALL" || row.state === stateFilter,
   );
   const monitors = dashboard?.monitors ?? [];
   const shownMonitors = monitors.filter((monitor) => monitor.visible);
-  const guest = dashboard?.viewer === "GUEST" || session.status === "unauthenticated";
+  const guest =
+    dashboard?.viewer === "GUEST" || session.status === "unauthenticated";
 
   return (
     <PageContainer>
@@ -226,14 +226,19 @@ export function DashboardPage() {
         <PageHeader
           title="Dashboard"
           lead="Current matches and setups from your monitors, including FactorSage's built-in ones."
-          aside={dashboard ? <OverallFreshness monitors={shownMonitors} now={now} /> : undefined}
+          aside={
+            dashboard ? (
+              <OverallFreshness monitors={shownMonitors} now={now} />
+            ) : undefined
+          }
         />
 
         {guest && status === "ready" ? (
           <div className={styles.guestNotice} data-testid="dashboard-guest-notice">
             <p>
-              You are viewing FactorSage&apos;s built-in monitors. Sign in to choose which ones
-              appear here, create your own, and backtest any of them.
+              You are viewing FactorSage&apos;s built-in monitors. Sign in to
+              choose which ones appear here, create your own, and backtest any
+              of them.
             </p>
             <Link className={forms.tintedButton} href="/login">
               Sign in
@@ -253,7 +258,11 @@ export function DashboardPage() {
             title="The dashboard could not be loaded"
             body={<p>This is usually temporary — try again in a moment.</p>}
             actions={
-              <button type="button" className={forms.secondaryButton} onClick={reload}>
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={reload}
+              >
                 Try again
               </button>
             }
@@ -261,110 +270,111 @@ export function DashboardPage() {
         ) : null}
 
         {status === "ready" && dashboard ? (
-          <>
-            <SectionCard
-              id="signals"
-              title="Current signals"
-              caption="Active signals stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
-              flush={rows.length > 0}
-              toolbar={
-                rows.length > 0 ? (
-                  <div className={styles.toolbar}>
-                    <FilterGroup
-                      label="Filter by state"
-                      options={STATE_FILTERS}
-                      value={stateFilter}
-                      onChange={setStateFilter}
-                      count={(id) =>
-                        byState.filter((row) => id === "ALL" || row.state === id).length
-                      }
-                      testId="dashboard-state-filter"
-                    />
-                    <FilterGroup
-                      label="Filter by action"
-                      options={LEVEL_FILTERS}
-                      value={levelFilter}
-                      onChange={setLevelFilter}
-                      count={(id) =>
-                        rows.filter(
-                          (row) =>
-                            (id === "ALL" || row.levelKind === id) &&
-                            (stateFilter === "ALL" || row.state === stateFilter),
-                        ).length
-                      }
-                      testId="dashboard-level-filter"
-                    />
-                  </div>
-                ) : null
-              }
-            >
-              {rows.length === 0 ? (
-                <EmptyState
-                  variant="compact"
-                  testId="dashboard-signals-empty"
-                  title={
-                    shownMonitors.length === 0
-                      ? "No monitors are shown"
-                      : "Nothing is matching right now"
-                  }
-                  body={
-                    <p>
-                      {shownMonitors.length === 0
-                        ? "Turn a monitor on below to see its matches here."
-                        : "Your monitors are running. Matches and setups appear here as soon as a scan finds them."}
-                    </p>
-                  }
-                />
-              ) : visibleRows.length === 0 ? (
-                <EmptyState
-                  variant="compact"
-                  testId="dashboard-signals-filtered-empty"
-                  title="No signals match these filters"
-                />
-              ) : (
-                <DataTable
-                  label="Current signals"
-                  testId="dashboard-signals"
-                  rowTestId="dashboard-signal-row"
-                  clickableRows
-                  columns={columnsFor(now)}
-                  rows={visibleRows}
-                  getRowKey={(row) => row.id}
-                />
-              )}
-            </SectionCard>
-
-            <MonitorVisibilityPanel
-              monitors={monitors}
-              guest={guest}
-              now={now}
-              onChanged={reload}
-            />
-          </>
+          <SectionCard
+            id="signals"
+            title="Current signals"
+            caption="Active signals stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
+            flush={rows.length > 0}
+            toolbar={
+              rows.length > 0 ? (
+                <div className={styles.toolbar}>
+                  {/*
+                    Two different questions, so deliberately two different controls. The state is
+                    the primary view and takes the segmented control; the action is a refinement of
+                    whatever is on screen and takes a dropdown. Rendering both as pill groups made
+                    them look like two competing tab bars.
+                  */}
+                  <StateFilterGroup
+                    value={stateFilter}
+                    onChange={setStateFilter}
+                    count={(id) =>
+                      byLevel.filter((row) => id === "ALL" || row.state === id)
+                        .length
+                    }
+                  />
+                  <SelectControl
+                    id="dashboard-action-filter"
+                    label="Action"
+                    value={levelFilter}
+                    onChange={(value) => setLevelFilter(value as LevelFilter)}
+                    options={LEVEL_FILTERS}
+                    testId="dashboard-level-filter"
+                  />
+                </div>
+              ) : null
+            }
+          >
+            {rows.length === 0 ? (
+              <EmptyState
+                variant="compact"
+                testId="dashboard-signals-empty"
+                title={
+                  shownMonitors.length === 0
+                    ? "No monitors are shown"
+                    : "Nothing is matching right now"
+                }
+                body={
+                  <p>
+                    {shownMonitors.length === 0
+                      ? "Turn a monitor back on from the Monitors page to see its matches here."
+                      : "Your monitors are running. Matches and setups appear here as soon as a scan finds them."}
+                  </p>
+                }
+                actions={
+                  shownMonitors.length === 0 ? (
+                    <Link className={forms.secondaryButton} href="/monitors">
+                      Go to monitors
+                    </Link>
+                  ) : undefined
+                }
+              />
+            ) : visibleRows.length === 0 ? (
+              <EmptyState
+                variant="compact"
+                testId="dashboard-signals-filtered-empty"
+                title="No signals match these filters"
+              />
+            ) : (
+              <DataTable
+                label="Current signals"
+                testId="dashboard-signals"
+                rowTestId="dashboard-signal-row"
+                clickableRows
+                columns={COLUMNS}
+                rows={visibleRows}
+                getRowKey={(row) => row.id}
+              />
+            )}
+          </SectionCard>
         ) : null}
       </div>
     </PageContainer>
   );
 }
 
-function FilterGroup<T extends string>({
-  label,
-  options,
+/**
+ * The primary view switch: every current row, the active ones, or the setups still waiting.
+ *
+ * Each option carries the count it would show, so the user can see there is nothing behind a view
+ * before opening it.
+ */
+function StateFilterGroup({
   value,
   onChange,
   count,
-  testId,
 }: {
-  readonly label: string;
-  readonly options: readonly { readonly id: T; readonly label: string }[];
-  readonly value: T;
-  readonly onChange: (next: T) => void;
-  readonly count: (id: T) => number;
-  readonly testId: string;
+  readonly value: StateFilter;
+  readonly onChange: (next: StateFilter) => void;
+  readonly count: (id: StateFilter) => number;
 }) {
   return (
-    <div className={styles.filters} role="group" aria-label={label} data-testid={testId}>
-      {options.map((option) => (
+    <div
+      className={styles.filters}
+      role="group"
+      aria-label="Filter by state"
+      data-testid="dashboard-state-filter"
+    >
+      {STATE_FILTERS.map((option) => (
         <button
           key={option.id}
           type="button"

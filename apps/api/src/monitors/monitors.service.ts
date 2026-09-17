@@ -19,6 +19,7 @@ import {
   auditOf,
   isAdministrator,
   ownershipResponse,
+  SYSTEM_FIRST_ORDER,
   SystemContentProtectedError,
   type ContentViewer,
 } from "../builtins/content-access";
@@ -100,6 +101,8 @@ function summaryOf(
   row: MonitorRow,
   eligibility: MonitorEligibility | undefined,
   viewer: ContentViewer,
+  /** Built-ins this viewer has hidden from their own Dashboard. */
+  hiddenBuiltIns: ReadonlySet<string> = new Set(),
 ): MonitorSummaryResponse {
   const system = row.ownership === "SYSTEM";
   // A built-in has no owner and no plan: whether it runs is the operator's global switch alone.
@@ -133,6 +136,9 @@ function summaryOf(
           isPublished: row.isPublished,
           isGloballyEnabled: row.isGloballyEnabled,
           ...(row.displayOrder === null ? {} : { displayOrder: row.displayOrder }),
+          // The viewer's own preference, never the shared Monitor's state. Absence of a row is
+          // the built-in default, so a Guest — who can have no row — reads `true`.
+          dashboardVisible: !hiddenBuiltIns.has(row.id),
         }
       : {}),
   };
@@ -188,18 +194,48 @@ export class MonitorsService {
     @Inject(MONITORS_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  /** The caller's own Monitors. Built-ins are presented by the Dashboard and the admin surface. */
-  async listForUser(user: AuthUser): Promise<MonitorSummaryResponse[]> {
-    const userId = user.id;
-    const [rows, eligibility] = await Promise.all([
+  /**
+   * Every Monitor a viewer can see: their own, plus the built-ins they may read.
+   *
+   * The collection page presents the two as separate sections, so a Guest gets the published
+   * built-ins rather than a redirect to sign in, and an administrator additionally sees the
+   * unpublished ones. Each built-in carries this viewer's own Dashboard visibility preference,
+   * which is the control that lives on this page.
+   */
+  async listForUser(viewer: ContentViewer): Promise<MonitorSummaryResponse[]> {
+    const [rows, eligibility, hidden] = await Promise.all([
       this.prisma.monitor.findMany({
-        where: { userId },
-        orderBy: MONITOR_ORDER,
+        where: visibleMonitorWhere(viewer),
+        orderBy: [...SYSTEM_FIRST_ORDER, ...MONITOR_ORDER],
         include: MONITOR_INCLUDE,
       }),
-      this.entitlements.getMonitorExecutionEligibility(userId),
+      viewer
+        ? this.entitlements.getMonitorExecutionEligibility(viewer.id)
+        : Promise.resolve(new Map<string, MonitorEligibility>()),
+      this.hiddenBuiltInMonitors(viewer),
     ]);
-    return rows.map((row) => summaryOf(row, eligibility.get(row.id), user));
+    return rows.map((row) =>
+      summaryOf(row, eligibility.get(row.id), viewer, hidden),
+    );
+  }
+
+  /**
+   * Which built-ins this viewer has hidden from their own Dashboard.
+   *
+   * Only an override is stored (`docs/decisions/builtin-dashboard-signals-v1.md` section 5.2), so
+   * the absent case is the default rather than a missing value, and a Guest — who is never given a
+   * row — simply has none.
+   */
+  private async hiddenBuiltInMonitors(
+    viewer: ContentViewer,
+  ): Promise<ReadonlySet<string>> {
+    if (!viewer) {
+      return new Set<string>();
+    }
+    const preferences = await this.prisma.userBuiltInMonitorPreference.findMany(
+      { where: { userId: viewer.id, enabled: false }, select: { monitorId: true } },
+    );
+    return new Set(preferences.map((entry) => entry.monitorId));
   }
 
   /**

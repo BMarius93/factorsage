@@ -6,18 +6,18 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actions from "../../../components/ui/actions.module.css";
-import {
-  DataTable,
-  type DataTableColumn,
-} from "../../../components/ui/DataTable";
-import { CollectionFooter } from "../../../components/ui/CollectionFooter";
+import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
+import {
+  CollectionSection,
+  partitionByOwnership,
+} from "../../../components/ui/OwnedCollection";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
-import { usePagination } from "../../../components/ui/use-pagination";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
@@ -32,123 +32,155 @@ type DialogState =
   | { kind: "rename"; list: StockListSummaryResponse }
   | { kind: "delete"; list: StockListSummaryResponse };
 
+const SIGN_IN_TO_CREATE = {
+  title: "Sign in to create a list",
+  body: "Built-in lists are free to read. Your own lists are saved to your account, so creating one needs somewhere to keep it.",
+};
+
 /**
- * The signed-in user's stock lists: reusable universes for future strategies, backtests, and
- * monitors. Rendering needs only list metadata — never stock data hydration.
+ * Stock lists: the viewer's own reusable universes, and FactorSage's built-in ones.
+ *
+ * Two sections, never one mixed table — a customer's own content first, the platform's under it —
+ * because they are owned differently and only one of them can be edited. A Guest is a legitimate
+ * reader here (built-ins are public product content), so they get the built-in section and are
+ * asked for an account at the point of action rather than redirected on arrival. Rendering needs
+ * only list metadata — never stock data hydration.
  */
 export function ListsPage() {
   const router = useRouter();
   const { status, lists, retry, applyCreated, applyUpdated, applyDeleted } =
     useStockLists();
+  const gate = useSignInPrompt();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
 
   const closeDialog = () => setDialog({ kind: "closed" });
+  const create = () =>
+    gate.attempt(SIGN_IN_TO_CREATE, () => setDialog({ kind: "create" }));
+
+  const { own, builtIn } = partitionByOwnership(lists);
 
   // Compliance is derived on every read and is false only after a downgrade or an
   // over-limit import. Reserving a column of em dashes for the usual case would be noise,
-  // so the column appears exactly when it has something to report.
-  const anyOverLimit = lists.some((list) => !list.compliance.compliant);
-
-  const allColumns: readonly DataTableColumn<StockListSummaryResponse>[] = [
-    {
-      key: "name",
-      header: "Name",
-      cardRole: "identity",
-      render: (list) => (
-        <Link className={styles.nameLink} href={`/lists/${list.id}`}>
-          <span className={styles.name}>
-            {list.name}
-            {list.ownership === "SYSTEM" ? (
-              <>
-                {" "}
-                <StatusBadge tone="neutral" variant="outline">
-                  Built-in
-                </StatusBadge>
-              </>
+  // so the column appears exactly when it has something to report — and never for built-ins,
+  // which are platform content that no plan limit applies to.
+  const columnsFor = (
+    scope: "own" | "built-in",
+  ): readonly DataTableColumn<StockListSummaryResponse>[] => {
+    const all: readonly DataTableColumn<StockListSummaryResponse>[] = [
+      {
+        key: "name",
+        header: "Name",
+        cardRole: "identity",
+        render: (list) => (
+          <Link className={styles.nameLink} href={`/lists/${list.id}`}>
+            <span className={styles.name}>
+              {list.name}
+              {list.ownership === "SYSTEM" ? (
+                <>
+                  {" "}
+                  <StatusBadge tone="neutral" variant="outline">
+                    Built-in
+                  </StatusBadge>
+                </>
+              ) : null}
+            </span>
+            {list.description ? (
+              <span className={styles.description}>{list.description}</span>
+            ) : null}
+          </Link>
+        ),
+      },
+      {
+        key: "compliance",
+        header: "Status",
+        cardRole: "status",
+        render: (list) =>
+          // A list over the plan's symbol limit stays fully readable — the flag is derived on
+          // every read, so nothing here claims the list was changed or truncated.
+          list.compliance.compliant ? null : (
+            <StatusBadge
+              tone="warning"
+              title={
+                list.compliance.symbolLimit === null
+                  ? "This list exceeds your plan's symbol limit."
+                  : `This list holds ${list.compliance.symbolCount} stocks; your plan allows ${list.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
+              }
+            >
+              Over plan limit
+            </StatusBadge>
+          ),
+      },
+      {
+        key: "stocks",
+        header: "Stocks",
+        align: "right",
+        numeric: true,
+        nowrap: true,
+        render: (list) => stockCountLabel(list.itemCount),
+      },
+      {
+        key: "updated",
+        header: "Updated",
+        nowrap: true,
+        render: (list) => formatListDate(list.updatedAt),
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        cardRole: "actions",
+        align: "right",
+        nowrap: true,
+        render: (list) => (
+          <span className={actions.group}>
+            <Link className={actions.action} href={`/lists/${list.id}`}>
+              Open
+            </Link>
+            {list.canEdit ? (
+              <OverflowMenu
+                label={list.name}
+                testId="list-actions"
+                items={[
+                  {
+                    label: "Rename",
+                    onSelect: () => setDialog({ kind: "rename", list }),
+                  },
+                  // Built-in lists are never deleted, not even by an administrator.
+                  ...(list.ownership === "SYSTEM"
+                    ? []
+                    : [
+                        {
+                          label: "Delete",
+                          tone: "danger" as const,
+                          separated: true,
+                          onSelect: () => setDialog({ kind: "delete", list }),
+                        },
+                      ]),
+                ]}
+              />
             ) : null}
           </span>
-          {list.description ? (
-            <span className={styles.description}>{list.description}</span>
-          ) : null}
-        </Link>
-      ),
-    },
-    {
-      key: "compliance",
-      header: "Status",
-      cardRole: "status",
-      render: (list) =>
-        // A list over the plan's symbol limit stays fully readable — the flag is derived on
-        // every read, so nothing here claims the list was changed or truncated.
-        list.compliance.compliant ? null : (
-          <StatusBadge
-            tone="warning"
-            title={
-              list.compliance.symbolLimit === null
-                ? "This list exceeds your plan's symbol limit."
-                : `This list holds ${list.compliance.symbolCount} stocks; your plan allows ${list.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
-            }
-          >
-            Over plan limit
-          </StatusBadge>
         ),
-    },
-    {
-      key: "stocks",
-      header: "Stocks",
-      align: "right",
-      numeric: true,
-      nowrap: true,
-      render: (list) => stockCountLabel(list.itemCount),
-    },
-    {
-      key: "updated",
-      header: "Updated",
-      nowrap: true,
-      render: (list) => formatListDate(list.updatedAt),
-    },
-    {
-      key: "actions",
-      header: "Actions",
-      cardRole: "actions",
-      align: "right",
-      nowrap: true,
-      render: (list) => (
-        <span className={actions.group}>
-          <Link className={actions.action} href={`/lists/${list.id}`}>
-            Open
-          </Link>
-          {list.canEdit ? (
-            <OverflowMenu
-              label={list.name}
-              testId="list-actions"
-              items={[
-                {
-                  label: "Rename",
-                  onSelect: () => setDialog({ kind: "rename", list }),
-                },
-                // Built-in lists are never deleted, not even by an administrator.
-                ...(list.ownership === "SYSTEM"
-                  ? []
-                  : [
-                      {
-                        label: "Delete",
-                        tone: "danger" as const,
-                        separated: true,
-                        onSelect: () => setDialog({ kind: "delete", list }),
-                      },
-                    ]),
-              ]}
-            />
-          ) : null}
-        </span>
-      ),
-    },
-  ];
-  const columns = allColumns.filter(
-    (column) => column.key !== "compliance" || anyOverLimit,
-  );
-  const paging = usePagination(lists);
+      },
+    ];
+    const showCompliance =
+      scope === "own" && own.some((list) => !list.compliance.compliant);
+    return all.filter((column) => column.key !== "compliance" || showCompliance);
+  };
+
+  // Exactly one "New list" affordance in every state: the header carries it once the viewer has
+  // lists of their own (or is a Guest, who will never have a "Your lists" section), and the empty
+  // section carries it otherwise.
+  const headerAction =
+    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
+      <button
+        type="button"
+        className={forms.tintedButton}
+        data-testid="new-list-button"
+        onClick={create}
+      >
+        New list
+      </button>
+    ) : null;
 
   return (
     <PageContainer>
@@ -156,18 +188,7 @@ export function ListsPage() {
         <PageHeader
           title="Lists"
           lead="Reusable stock universes for strategies, backtests, and monitors."
-          actions={
-            status === "ready" && lists.length > 0 ? (
-              <button
-                type="button"
-                className={forms.tintedButton}
-                data-testid="new-list-button"
-                onClick={() => setDialog({ kind: "create" })}
-              >
-                New list
-              </button>
-            ) : null
-          }
+          {...(headerAction ? { actions: headerAction } : {})}
         />
 
         {status === "loading" ? (
@@ -193,52 +214,65 @@ export function ListsPage() {
           />
         ) : null}
 
-        {status === "ready" && lists.length === 0 ? (
-          <EmptyState
-            testId="lists-empty"
-            title="No lists yet"
-            body={
-              <p>
-                Group the stocks you care about into a named list, then restrict
-                per-stock buy windows whenever a universe needs them.
-              </p>
-            }
-            actions={
-              <button
-                type="button"
-                className={forms.primaryButton}
-                data-testid="new-list-button"
-                onClick={() => setDialog({ kind: "create" })}
-              >
-                Create your first list
-              </button>
+        {status === "ready" && gate.signedIn ? (
+          <CollectionSection
+            title="Your lists"
+            label="Your lists"
+            noun="lists"
+            testId="your-lists"
+            tableTestId="lists-grid"
+            rowTestId="list-row"
+            footerTestId="lists-footer"
+            columns={columnsFor("own")}
+            rows={own}
+            getRowKey={(list) => list.id}
+            clickableRows
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="lists-empty"
+                title="You haven't created any lists yet"
+                body={
+                  <p>
+                    Group the stocks you care about into a named list, then
+                    restrict per-stock buy windows whenever a universe needs
+                    them.
+                  </p>
+                }
+                actions={
+                  <button
+                    type="button"
+                    className={forms.primaryButton}
+                    data-testid="new-list-button"
+                    onClick={create}
+                  >
+                    New list
+                  </button>
+                }
+              />
             }
           />
         ) : null}
 
-        {status === "ready" && lists.length > 0 ? (
-          <SectionCard ariaLabel="Stock lists" flush>
-            <DataTable
-              label="Stock lists"
-              testId="lists-grid"
-              rowTestId="list-row"
-              columns={columns}
-              rows={paging.visibleRows}
-              getRowKey={(list) => list.id}
-              clickableRows
-            />
-            <CollectionFooter
-              testId="lists-footer"
-              noun="lists"
-              total={paging.total}
-              page={paging.page}
-              pageSize={paging.pageSize}
-              onPageChange={paging.setPage}
-              onPageSizeChange={paging.setPageSize}
-            />
-          </SectionCard>
+        {status === "ready" && builtIn.length > 0 ? (
+          <CollectionSection
+            title="Built-in lists"
+            caption="FactorSage's own universes. Everyone can read and backtest them; only FactorSage changes them."
+            label="Built-in lists"
+            noun="lists"
+            testId="built-in-lists"
+            tableTestId="built-in-lists-grid"
+            rowTestId="list-row"
+            footerTestId="built-in-lists-footer"
+            columns={columnsFor("built-in")}
+            rows={builtIn}
+            getRowKey={(list) => list.id}
+            clickableRows
+          />
         ) : null}
       </div>
+
+      {gate.prompt}
 
       {dialog.kind === "create" ? (
         <ListFormDialog

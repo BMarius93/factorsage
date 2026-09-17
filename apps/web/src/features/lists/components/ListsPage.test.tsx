@@ -2,10 +2,15 @@ import type {
   StockListDetailResponse,
   StockListSummaryResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  guestSession,
+  signedInSession,
+} from "../../auth/__testing__/auth-session";
+import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import {
   createStockList,
   deleteStockList,
@@ -20,6 +25,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
+vi.mock("../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: vi.fn(),
+}));
+
 vi.mock("../api/stock-lists-api", () => ({
   fetchStockLists: vi.fn(),
   createStockList: vi.fn(),
@@ -27,6 +36,7 @@ vi.mock("../api/stock-lists-api", () => ({
   deleteStockList: vi.fn(),
 }));
 
+const useAuthSessionMock = vi.mocked(useAuthSession);
 const fetchStockListsMock = vi.mocked(fetchStockLists);
 const createStockListMock = vi.mocked(createStockList);
 const updateStockListMock = vi.mocked(updateStockList);
@@ -65,6 +75,7 @@ function detail(id: string, name: string): StockListDetailResponse {
 
 beforeEach(() => {
   push.mockReset();
+  useAuthSessionMock.mockReturnValue(signedInSession());
 });
 
 afterEach(() => {
@@ -72,15 +83,88 @@ afterEach(() => {
 });
 
 describe("ListsPage", () => {
-  it("shows the empty state with a create call to action", async () => {
-    fetchStockListsMock.mockResolvedValue([]);
+  it("keeps an empty 'Your lists' compact so the built-ins under it still show", async () => {
+    fetchStockListsMock.mockResolvedValue([
+      summary("builtin-1", "S&P 500 Growth Leaders", {
+        ownership: "SYSTEM",
+        systemKey: "sp500-growth-leaders",
+        canEdit: false,
+        itemCount: 10,
+      }),
+    ]);
 
     render(<ListsPage />);
 
     await waitFor(() => {
       expect(screen.getByTestId("lists-empty")).toBeDefined();
     });
-    expect(screen.getByText("Create your first list")).toBeDefined();
+    expect(screen.getByText("You haven't created any lists yet")).toBeDefined();
+    // The built-in section is a peer of the empty one, not something it replaced.
+    const builtIns = screen.getByTestId("built-in-lists");
+    expect(builtIns.textContent).toContain("S&P 500 Growth Leaders");
+    expect(screen.getAllByTestId("new-list-button")).toHaveLength(1);
+  });
+
+  it("separates the viewer's own lists from the built-in ones", async () => {
+    fetchStockListsMock.mockResolvedValue([
+      summary("builtin-1", "Recent Market Debuts", {
+        ownership: "SYSTEM",
+        systemKey: "recent-market-debuts",
+        canEdit: false,
+        itemCount: 10,
+      }),
+      summary("list-1", "Dividend picks", { itemCount: 3 }),
+    ]);
+
+    render(<ListsPage />);
+
+    const own = await screen.findByTestId("your-lists");
+    const builtIns = screen.getByTestId("built-in-lists");
+    expect(own.textContent).toContain("Dividend picks");
+    expect(own.textContent).not.toContain("Recent Market Debuts");
+    expect(builtIns.textContent).toContain("Recent Market Debuts");
+    expect(builtIns.textContent).not.toContain("Dividend picks");
+    // Your content first.
+    expect(own.compareDocumentPosition(builtIns)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    // A built-in is read-only for a customer: no row menu at all.
+    expect(
+      within(builtIns).queryByRole("button", { name: /Recent Market Debuts/ }),
+    ).toBeNull();
+  });
+
+  it("asks a Guest for an account instead of sending them to the login page", async () => {
+    useAuthSessionMock.mockReturnValue(guestSession());
+    fetchStockListsMock.mockResolvedValue([
+      summary("builtin-1", "Nasdaq-100 Newcomers", {
+        ownership: "SYSTEM",
+        systemKey: "nasdaq100-newcomers",
+        canEdit: false,
+        itemCount: 10,
+      }),
+    ]);
+
+    render(<ListsPage />);
+
+    expect(await screen.findByTestId("built-in-lists")).toBeDefined();
+    // No fake "Your lists" section for someone who cannot own one.
+    expect(screen.queryByTestId("your-lists")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("new-list-button"));
+    const prompt = await screen.findByTestId("sign-in-prompt");
+    expect(
+      within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
+    ).toBe("/login");
+    expect(
+      within(prompt)
+        .getByRole("link", { name: "Create an account" })
+        .getAttribute("href"),
+    ).toBe("/register");
+    // They are still on the page they were reading, and nothing was created.
+    expect(screen.getByTestId("lists-page")).toBeDefined();
+    expect(push).not.toHaveBeenCalled();
+    expect(createStockListMock).not.toHaveBeenCalled();
   });
 
   it("renders list cards with stock counts and descriptions", async () => {
@@ -130,7 +214,7 @@ describe("ListsPage", () => {
       expect(screen.getByTestId("lists-empty")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Create your first list"));
+    await userEvent.click(screen.getByTestId("new-list-button"));
     await userEvent.type(screen.getByLabelText("Name"), "My universe");
     await userEvent.click(screen.getByText("Create list"));
 
@@ -150,7 +234,7 @@ describe("ListsPage", () => {
       expect(screen.getByTestId("lists-empty")).toBeDefined();
     });
 
-    await userEvent.click(screen.getByText("Create your first list"));
+    await userEvent.click(screen.getByTestId("new-list-button"));
     await userEvent.click(screen.getByText("Create list"));
 
     expect(screen.getByText("A list needs a name.")).toBeDefined();

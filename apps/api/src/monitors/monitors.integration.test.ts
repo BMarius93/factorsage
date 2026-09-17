@@ -235,14 +235,40 @@ describe("monitors", () => {
     }
   });
 
-  it("requires authentication on every route but the built-in read", async () => {
+  it("requires authentication on every route but the built-in reads", async () => {
     const anonymous = request(app.getHttpServer());
-    await anonymous.get("/monitors").expect(401);
     await anonymous.post("/monitors").send({ name: "x" }).expect(401);
     await anonymous.patch("/monitors/any-id").send({ enabled: false }).expect(401);
     await anonymous.delete("/monitors/any-id").expect(401);
+    // Built-in monitors are public product content, so the collection is readable without a
+    // session. It holds only built-ins for a Guest — this suite creates none, so it is empty —
+    // and never another customer's monitor.
+    const collection = (await anonymous.get("/monitors").expect(200))
+      .body as MonitorSummaryResponse[];
+    expect(collection.every((monitor) => monitor.ownership === "SYSTEM")).toBe(
+      true,
+    );
     // A Guest may read a published built-in; anything else reads as missing.
     await anonymous.get("/monitors/any-id").expect(404);
+  });
+
+  it("gives a customer their own monitors and nobody else's", async () => {
+    const mine = await createMonitor(owner, {
+      name: "Mine",
+      strategyId,
+      stockListId,
+    });
+    await createMonitor(other, {
+      name: "Theirs",
+      strategyId: otherStrategyId,
+      stockListId: otherStockListId,
+    });
+
+    const body = (await owner.get("/monitors").expect(200))
+      .body as MonitorSummaryResponse[];
+    expect(
+      body.filter((monitor) => monitor.ownership === "USER").map((m) => m.id),
+    ).toEqual([mine.id]);
   });
 
   it("creates an enabled monitor by default", async () => {

@@ -9,25 +9,26 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
-import {
-  DataTable,
-  type DataTableColumn,
-} from "../../../components/ui/DataTable";
+import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
+import {
+  CollectionSection,
+  partitionByOwnership,
+} from "../../../components/ui/OwnedCollection";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { CollectionFooter } from "../../../components/ui/CollectionFooter";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
-import { usePagination } from "../../../components/ui/use-pagination";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { stockCountLabel } from "../../lists/utils/format";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitors } from "../hooks/use-monitors";
 import { activeSignalLabel, lastScanLabel } from "../utils/format";
+import { BuiltInMonitorVisibility } from "./BuiltInMonitorVisibility";
 import { MonitorFormDialog } from "./MonitorFormDialog";
 import styles from "./MonitorsPage.module.css";
 
@@ -36,6 +37,11 @@ type DialogState =
   | { kind: "create" }
   | { kind: "edit"; monitor: MonitorSummaryResponse }
   | { kind: "delete"; monitor: MonitorSummaryResponse };
+
+const SIGN_IN_TO_CREATE = {
+  title: "Sign in to create a monitor",
+  body: "Built-in monitors are free to read. Your own monitors run against your strategies and lists, so creating one needs an account to own it.",
+};
 
 /**
  * Why an enabled monitor is not scanning, in the user's own terms.
@@ -52,7 +58,7 @@ function blockedExplanation(reason: MonitorBlockedReason | undefined): string {
 }
 
 /**
- * The enable/disable control for one row.
+ * The enable/disable control for one of the viewer's own monitors.
  *
  * The request is owned here rather than by the page so a failure is reported on the monitor it
  * belongs to, and so one in-flight toggle cannot disable the buttons on every other row.
@@ -145,8 +151,14 @@ function MonitorRowActions({
 }
 
 /**
- * The signed-in user's monitors: a live strategy watched over a live stock list against current
- * market data.
+ * Monitors: the viewer's own live strategies, and FactorSage's built-in ones.
+ *
+ * Two sections rather than one mixed table. They are not the same object with a different owner:
+ * a customer's monitor has an `enabled` lifecycle and a plan behind it, while a built-in is shared
+ * platform content whose only per-viewer state is whether its signals reach that viewer's dashboard
+ * — which is why that switch lives on this page rather than on the Dashboard, beside the monitor it
+ * is a property of. A Guest reads the built-in section and is asked for an account at the point of
+ * action.
  *
  * Everything a row shows comes from `GET /monitors`, which already carries the strategy and list
  * names, the universe size and the active-Signal count — so the collection is one request rather
@@ -155,59 +167,26 @@ function MonitorRowActions({
 export function MonitorsPage() {
   const { status, monitors, retry, applyCreated, applyUpdated, applyDeleted } =
     useMonitors();
+  const gate = useSignInPrompt();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
 
   const closeDialog = () => setDialog({ kind: "closed" });
+  const create = () =>
+    gate.attempt(SIGN_IN_TO_CREATE, () => setDialog({ kind: "create" }));
+  const { own, builtIn } = partitionByOwnership(monitors);
 
-  const columns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
-    {
-      key: "monitor",
-      header: "Monitor",
-      cardRole: "identity",
-      render: (monitor) => (
-        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
-          {monitor.name}
-        </Link>
-      ),
-    },
-    {
-      key: "state",
-      header: "State",
-      cardRole: "status",
-      render: (monitor) => (
-        <span className={styles.stateCell}>
-          {/*
-            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
-            for and never changes on its own; the operational status is what the system will
-            actually do with that intent right now. A monitor left over capacity by a downgrade is
-            still enabled — collapsing the two would either claim it is scanning when it is not, or
-            claim the user turned it off when they did not.
-          */}
-          <StatusBadge
-            tone={monitor.enabled ? "positive" : "pending"}
-            testId="monitor-enabled-pill"
-          >
-            {monitor.enabled ? "Enabled" : "Disabled"}
-          </StatusBadge>
-          {monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
-            <StatusBadge
-              tone="blocked"
-              testId="monitor-blocked-pill"
-              title={blockedExplanation(monitor.blockedReason)}
-              {...(monitor.blockedReason
-                ? {
-                    dataAttributes: {
-                      "data-blocked-reason": monitor.blockedReason,
-                    },
-                  }
-                : {})}
-            >
-              Not scanning
-            </StatusBadge>
-          ) : null}
-        </span>
-      ),
-    },
+  const identityColumn: DataTableColumn<MonitorSummaryResponse> = {
+    key: "monitor",
+    header: "Monitor",
+    cardRole: "identity",
+    render: (monitor) => (
+      <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
+        {monitor.name}
+      </Link>
+    ),
+  };
+
+  const referenceColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
     {
       key: "strategy",
       header: "Strategy",
@@ -260,6 +239,49 @@ export function MonitorsPage() {
       nowrap: true,
       render: (monitor) => lastScanLabel(monitor.lastScanAt),
     },
+  ];
+
+  const ownColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
+    identityColumn,
+    {
+      key: "state",
+      header: "State",
+      cardRole: "status",
+      render: (monitor) => (
+        <span className={styles.stateCell}>
+          {/*
+            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
+            for and never changes on its own; the operational status is what the system will
+            actually do with that intent right now. A monitor left over capacity by a downgrade is
+            still enabled — collapsing the two would either claim it is scanning when it is not, or
+            claim the user turned it off when they did not.
+          */}
+          <StatusBadge
+            tone={monitor.enabled ? "positive" : "pending"}
+            testId="monitor-enabled-pill"
+          >
+            {monitor.enabled ? "Enabled" : "Disabled"}
+          </StatusBadge>
+          {monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
+            <StatusBadge
+              tone="blocked"
+              testId="monitor-blocked-pill"
+              title={blockedExplanation(monitor.blockedReason)}
+              {...(monitor.blockedReason
+                ? {
+                    dataAttributes: {
+                      "data-blocked-reason": monitor.blockedReason,
+                    },
+                  }
+                : {})}
+            >
+              Not scanning
+            </StatusBadge>
+          ) : null}
+        </span>
+      ),
+    },
+    ...referenceColumns,
     {
       key: "actions",
       header: "Actions",
@@ -276,7 +298,71 @@ export function MonitorsPage() {
       ),
     },
   ];
-  const paging = usePagination(monitors);
+
+  const builtInColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
+    identityColumn,
+    {
+      key: "visibility",
+      header: "On my dashboard",
+      cardRole: "status",
+      cardLabel: "On my dashboard",
+      nowrap: true,
+      render: (monitor) => (
+        <BuiltInMonitorVisibility
+          monitor={monitor}
+          gate={gate}
+          onChanged={applyUpdated}
+        />
+      ),
+    },
+    ...referenceColumns,
+    {
+      key: "actions",
+      header: "Actions",
+      cardRole: "actions",
+      align: "right",
+      nowrap: true,
+      // A built-in is read-only for everybody but an administrator, who edits it through the very
+      // same editor rather than a parallel admin form. It is never deleted by anyone.
+      render: (monitor) => (
+        <span className={actionStyles.group}>
+          <Link
+            className={actionStyles.action}
+            href={`/monitors/${monitor.id}`}
+          >
+            Open
+          </Link>
+          {monitor.canEdit ? (
+            <OverflowMenu
+              label={monitor.name}
+              testId="monitor-actions"
+              items={[
+                {
+                  label: "Edit",
+                  onSelect: () => setDialog({ kind: "edit", monitor }),
+                },
+              ]}
+            />
+          ) : null}
+        </span>
+      ),
+    },
+  ];
+
+  // Exactly one "New monitor" affordance in every state: the header carries it once the viewer has
+  // monitors of their own (or is a Guest, who will never have a "Your monitors" section), and the
+  // empty section carries it otherwise.
+  const headerAction =
+    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
+      <button
+        type="button"
+        className={forms.tintedButton}
+        data-testid="new-monitor-button"
+        onClick={create}
+      >
+        New monitor
+      </button>
+    ) : null;
 
   return (
     <PageContainer>
@@ -284,18 +370,7 @@ export function MonitorsPage() {
         <PageHeader
           title="Monitors"
           lead="Watch a strategy against current market data and collect the signals it produces."
-          actions={
-            status === "ready" && monitors.length > 0 ? (
-              <button
-                type="button"
-                className={forms.tintedButton}
-                data-testid="new-monitor-button"
-                onClick={() => setDialog({ kind: "create" })}
-              >
-                New monitor
-              </button>
-            ) : null
-          }
+          {...(headerAction ? { actions: headerAction } : {})}
         />
 
         {status === "loading" ? (
@@ -321,55 +396,68 @@ export function MonitorsPage() {
           />
         ) : null}
 
-        {status === "ready" && monitors.length === 0 ? (
-          <EmptyState
-            testId="monitors-empty"
-            title="No monitors yet"
-            body={
-              <p>
-                A monitor watches one strategy over one stock list using current
-                prices, and records a signal whenever a stock matches one of the
-                strategy&apos;s levels. Scanning runs in the background on a
-                fixed schedule, so there is nothing to time yourself — you
-                choose what is watched and whether it is running.
-              </p>
-            }
-            actions={
-              <button
-                type="button"
-                className={forms.primaryButton}
-                data-testid="new-monitor-button"
-                onClick={() => setDialog({ kind: "create" })}
-              >
-                Create your first monitor
-              </button>
+        {status === "ready" && gate.signedIn ? (
+          <CollectionSection
+            title="Your monitors"
+            label="Your monitors"
+            noun="monitors"
+            testId="your-monitors"
+            tableTestId="monitors-grid"
+            rowTestId="monitor-card"
+            footerTestId="monitors-footer"
+            columns={ownColumns}
+            rows={own}
+            getRowKey={(monitor) => monitor.id}
+            clickableRows
+            emptyState={
+              <EmptyState
+                variant="compact"
+                testId="monitors-empty"
+                title="You haven't created any monitors yet"
+                body={
+                  <p>
+                    A monitor watches one strategy over one stock list using
+                    current prices, and records a signal whenever a stock
+                    matches one of the strategy&apos;s levels. Scanning runs in
+                    the background on a fixed schedule, so there is nothing to
+                    time yourself — you choose what is watched and whether it is
+                    running.
+                  </p>
+                }
+                actions={
+                  <button
+                    type="button"
+                    className={forms.primaryButton}
+                    data-testid="new-monitor-button"
+                    onClick={create}
+                  >
+                    New monitor
+                  </button>
+                }
+              />
             }
           />
         ) : null}
 
-        {status === "ready" && monitors.length > 0 ? (
-          <SectionCard ariaLabel="Monitors" flush>
-            <DataTable
-              label="Monitors"
-              testId="monitors-grid"
-              rowTestId="monitor-card"
-              columns={columns}
-              rows={paging.visibleRows}
-              getRowKey={(monitor) => monitor.id}
-              clickableRows
-            />
-            <CollectionFooter
-              testId="monitors-footer"
-              noun="monitors"
-              total={paging.total}
-              page={paging.page}
-              pageSize={paging.pageSize}
-              onPageChange={paging.setPage}
-              onPageSizeChange={paging.setPageSize}
-            />
-          </SectionCard>
+        {status === "ready" && builtIn.length > 0 ? (
+          <CollectionSection
+            title="Built-in monitors"
+            caption="FactorSage's own monitors. Choose which of them appear on your dashboard; they keep running either way, and only FactorSage changes them."
+            label="Built-in monitors"
+            noun="monitors"
+            testId="built-in-monitors"
+            tableTestId="built-in-monitors-grid"
+            rowTestId="monitor-card"
+            footerTestId="built-in-monitors-footer"
+            columns={builtInColumns}
+            rows={builtIn}
+            getRowKey={(monitor) => monitor.id}
+            clickableRows
+          />
         ) : null}
       </div>
+
+      {gate.prompt}
 
       {dialog.kind === "create" ? (
         <MonitorFormDialog

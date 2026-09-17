@@ -133,6 +133,15 @@ export type MonitorSummaryResponse = ContentOwnershipResponse & {
   isGloballyEnabled?: boolean;
   /** Built-in only. */
   displayOrder?: number;
+  /**
+   * Built-in only: whether this viewer's Dashboard shows the built-in's rows.
+   *
+   * This is the viewer's own `UserBuiltInMonitorPreference`, never a property of the shared
+   * Monitor — hiding one changes nothing about whether the platform evaluates it, and a customer's
+   * own Monitor has no such field because its real `enabled` lifecycle is that switch. A Guest has
+   * no preference row and reads the built-in default.
+   */
+  dashboardVisible?: boolean;
 };
 
 export type MonitorSignalResponse = {

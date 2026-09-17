@@ -83,7 +83,10 @@ test.describe("guest entitlements", () => {
   test("is sent to sign in when opening an authenticated-only page", async ({
     page,
   }) => {
-    for (const path of ["/lists", "/strategies", "/backtests", "/monitors"]) {
+    // The collection pages for Lists, Strategies and Monitors are deliberately **not** here: they
+    // carry public built-in content, so a Guest reads them and is asked for an account at the
+    // point of action instead (`e2e/builtins/collections.guest.spec.ts`).
+    for (const path of ["/backtests", "/backtests/new", "/billing"]) {
       await page.goto(path);
       await expect(page).toHaveURL(/\/login$/);
       await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
@@ -94,7 +97,7 @@ test.describe("guest entitlements", () => {
   test("offers a way into the product rather than a dead end", async ({
     page,
   }) => {
-    await page.goto("/monitors");
+    await page.goto("/backtests");
 
     await expect(page).toHaveURL(/\/login$/);
     // The remedy for ENTITLEMENT_AUTH_REQUIRED is to sign in or register, and both are reachable.

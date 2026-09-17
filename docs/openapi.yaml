@@ -1367,19 +1367,23 @@ paths:
     get:
       tags: [Monitors]
       operationId: listMonitors
-      summary: The caller's monitors.
-      security: [{ cookieAuth: [] }]
+      summary: The built-in monitors, then the caller's own.
+      description: |
+        Readable without a session: a Guest receives the published built-in (`SYSTEM`) monitors
+        only. A signed-in caller also receives their own, and an administrator additionally
+        receives unpublished built-ins. Each built-in carries `dashboardVisible`, the caller's own
+        Dashboard visibility preference — absence of a stored preference is the built-in default,
+        so a Guest always reads `true`.
       x-rate-limit: { policy: standard-read }
       responses:
         "200":
-          description: Monitor summaries.
+          description: The monitors the caller can see.
           headers: *rateLimitHeaders
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/MonitorSummary" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -3921,6 +3925,11 @@ components:
         isPublished: { type: boolean, description: Built-in monitors only. }
         isGloballyEnabled: { type: boolean, description: Built-in monitors only. }
         displayOrder: { type: integer, description: Built-in monitors only. }
+        dashboardVisible:
+          {
+            type: boolean,
+            description: "Built-in monitors only: whether this viewer's dashboard shows its rows. The viewer's own preference, never the shared monitor's state.",
+          }
 
     MonitorDetail:
       allOf:
