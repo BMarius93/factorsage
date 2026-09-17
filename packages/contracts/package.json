@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --incremental --tsBuildInfoFile dist/.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

@@ -88,7 +88,7 @@ Debuts) joined the Nasdaq-100 on 2026-06-22, which does not affect their debut-b
 | Symbol | First trading day | Venue |
 | --- | --- | --- |
 | HOOD | 2021-07-29 | Nasdaq |
-| RIVN | 2021-11-10 | Nasdaq |
+| RIVN | 2021-11-10 | Nasdaq (Rivian newsroom pricing release, 2021-11-09, also on Business Wire) |
 | MBLY | 2022-10-26 | Nasdaq |
 | CAVA | 2023-06-15 | NYSE |
 | ARM | 2023-09-14 | Nasdaq |

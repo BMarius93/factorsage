@@ -12,6 +12,16 @@ pnpm openapi:validate
 
 Do not suppress failing type checks.
 
+## Package builds are incremental
+
+`pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared
+packages they import so they also work standalone. Every `packages/*` build is therefore
+`tsc --incremental --tsBuildInfoFile dist/.tsbuildinfo`: a rebuild with unchanged sources writes
+nothing, so a concurrent suite can never import a `dist` file that `tsc` has just truncated. A plain
+`tsc` rewrites every output and once made a whole web test file see `emptyStrategyDefinition is not
+a function` in CI. `packages/config/src/workspace-builds.test.ts` keeps the rule. Deleting a
+package's `dist` also deletes its build info and forces a full build.
+
 ## PostgreSQL-backed tests
 
 `DATABASE_URL` is the development database and is never written to by tests.

@@ -180,7 +180,7 @@ export const BUILT_IN_LISTS: readonly BuiltInList[] = [
         symbol: "RIVN",
         eligibleFrom: "2021-11-10",
         source:
-          "https://www.cnbc.com/2021/11/09/rivian-prices-ipo-at-78-a-share-valuing-company-at-66point5-billion.html",
+          "https://rivian.com/newsroom/article/rivian-announces-pricing-of-upsized-initial-public-offering",
       },
       {
         symbol: "MBLY",

@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --incremental --tsBuildInfoFile dist/.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "node ./scripts/prisma-command.mjs generate",
     "prisma:validate": "node ./scripts/prisma-command.mjs validate",
