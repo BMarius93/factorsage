@@ -245,7 +245,7 @@ present the same pair to an in-flight cycle whose state had already been discard
 semantics. The implementation is split three ways, deliberately:
 
 ```text
-@intrinsic/strategy   monitor-lifecycle.ts   stepMonitorLevel / replayMonitorLevel     pure reducer
+@intrinsic/strategy   monitor-lifecycle.ts   stepMonitorLevel / reconstructMonitorLevel pure reducer
 apps/worker           level-decision.ts      decideLevel                                pure framing
 apps/worker           monitor-repository.ts  applyLevelState / resolveUnvisitedStates   persistence
 ```
@@ -256,7 +256,12 @@ apps/worker           monitor-repository.ts  applyLevelState / resolveUnvisitedS
   aggregates the rules into the level state. Resolution before activation is what lets a trigger-only
   event superseded by the next session's crossing produce two transitions and two occurrences, while
   one FINAL EXIT rule taking over from another on the same observation stays one occurrence. It
-  reports the new lifecycle, the level transitions, and whether an occurrence closed or opened.
+  reports the new lifecycle, the level transitions, and whether an occurrence closed or opened. The
+  transitions always form one chain from the stored state to the new one: when the last active rule
+  ends while another rule is already `PENDING_TRIGGER`, the step records `ACTIVE -> RESOLVED` (the
+  ending rule's reason) and `RESOLVED -> PENDING_TRIGGER` (`SETUP_STARTED`, the waiting rule's id).
+  `monitor-lifecycle.test.ts` checks that chain, the OR aggregate and one-occurrence-at-a-time over
+  thousands of random multi-rule sequences.
 - **`observeMonitorLevel`** evaluates each rule's Conditions and Trigger **separately** with the
   canonical `evaluateMarketCondition` / `evaluateMarketTrigger`. Their AND is exactly
   `evaluateMarketSignal`, so nothing about predicate semantics is restated; the lifecycle simply
@@ -305,18 +310,48 @@ a weekend, a full closure, a failed load — produces no step at all.
 
 ### Reconstruction
 
-A level with no state, or state under different logic, is reconstructed rather than started blank.
-The cycle notices this before any data work, reads about `DEFAULT_RECONSTRUCTION_SESSIONS` (252)
-closed sessions before the observation through the **backtest** read path
-(`prepareDailyEvaluationData` + `readDailyEvaluationFrame`, materialized series, per-day intrinsic
-values), folds them through `replayMonitorLevel`, and applies the live step. Only the result is
-persisted: the final lifecycle (a reconstructed `RESOLVED` is stored as `INACTIVE`, because no
-occurrence was ever recorded for it), at most one `reconstructed` occurrence dated to its real
-activation session and priced at that session's close, and one transition — `RECONSTRUCTED`, or the
-live reason when the live observation itself entered the state. Only a decidable live observation
-creates a row, so a level that cannot be decided today waits, and a history read that fails leaves
-the level for a later cycle rather than starting it from nothing. The replay horizon is bounded: a
-setup whose Conditions held for the whole horizon starts `PENDING_TRIGGER` at the horizon's start.
+A level with no state, or state under different logic, is reconstructed rather than started blank,
+and the reconstructed state is the one a **full canonical replay** — every session from the
+security's first canonical session (`evaluationHistoryStart`: the product horizon, clamped to the
+listing date) — would reach. A fixed window is not enough: a Conditions + Trigger setup whose
+Conditions held for longer than the window, with its Trigger consumed before it, would start
+`PENDING_TRIGGER` at the window's start instead of `ACTIVE` since the Trigger.
+
+**Resting sessions.** An observation *rests* a level when it leaves every rule neither `ACTIVE` nor
+`PENDING_TRIGGER` whatever state it was applied to: the BUY window refuses the date, a
+condition-bearing rule's Conditions are false, or a trigger-only rule observes a session without a
+crossing (`isRestingMonitorStep`). Nothing before a resting session can influence the level after
+it, so `reconstructMonitorLevel` replays from the **latest** resting session only, and reports
+`exact: false` when the history it was given has none and does not start at the security's first
+session.
+
+**Reading history.** The cycle notices missing state before any data work and reads about
+`DEFAULT_RECONSTRUCTION_SESSIONS` (252) closed sessions before the observation through the
+**backtest** read path (`prepareDailyEvaluationData` + `readDailyEvaluationFrame`, materialized
+series, per-day intrinsic values). For each level being reconstructed, `needsDeeperHistory` scans
+that read backwards to its latest resting session. Only when a level that will actually be created
+now (decidable live observation that does not itself rest) finds none is the read doubled — 504,
+1,008, … sessions, clamped to the first session, where the replay is complete by definition
+(`reconstructionHistoryExtensions` counts these reads). Almost every level rests within days, so
+the common case is one read and a replay of a handful of sessions; a multi-year setup costs a few
+reads, never a full-history replay of every level.
+
+**Settling.** What a resting rule still carries from before the anchor — the date it came to rest,
+a Trigger it consumed earlier — changes nothing for any observation on or after the anchor, and
+cannot be known without the older history. `settleMonitorLevelLifecycle` pins it: a rule or level at
+rest since then is stored `INACTIVE` since the anchor, and a consumed Trigger older than the anchor is
+dropped. `ACTIVE` and `PENDING_TRIGGER` state, their dates and the consumed Trigger of an active
+occurrence are exactly the full replay's. A reading of a session older than the anchor — which closed
+history already decided — can never move the level. `monitor-lifecycle.test.ts` checks, over
+random histories with long unbroken runs, that the reconstruction equals the settled full replay
+and that both then behave identically on every later observation.
+
+**Persisting.** Only the result is written: the final lifecycle (a reconstructed `RESOLVED` is
+stored as `INACTIVE`, because no occurrence was ever recorded for it), at most one `reconstructed`
+occurrence dated to its real activation session and priced at that session's close, and one
+transition — `RECONSTRUCTED`, or the live reason when the live observation itself entered the state.
+Only a decidable live observation creates a row, so a level that cannot be decided today waits, and
+a history read that fails leaves the level for a later cycle rather than starting it from nothing.
 
 Because reconstruction is keyed on "no current state", it covers new Monitors, new or re-added
 members, rebinds and edited levels with one mechanism. `resolveUnvisitedStates` therefore deletes the
@@ -402,6 +437,9 @@ Implementation is incomplete without tests covering at minimum:
 - condition transition `false -> true -> true -> false` without duplicate Signals;
 - a triggered setup waiting, firing once, and staying active while its Conditions hold;
 - reconstruction establishing a trigger that fired before the Monitor existed, idempotently;
+- reconstruction equal to a full canonical replay when the Conditions have held for longer than the
+  first history read (new Monitor, new member, rebind, logic reset);
+- FINAL EXIT durable state and transition history ending in the same aggregate state;
 - restart/cache-loss behavior does not fabricate a trigger;
 - current provisional daily observation affects daily calculated series as specified;
 - missing/warm-up/PIT-unavailable dependencies return `NOT_EVALUABLE`, not a match;
@@ -469,8 +507,10 @@ Recorded so they are not rediscovered as defects. None can produce a wrong Signa
 - **Per-`(monitor, security, level)` writes.** A change is applied in its own transaction.
   Evaluations that change nothing write nothing at all, so the steady state costs no transactions;
   only genuine state changes do.
-- **Reconstruction reads a year of history per new or reset security** through the backtest path.
-  It happens once per level, not per cycle.
+- **Reconstruction reads a year of history per new or reset security** through the backtest path,
+  and more only for a level whose rules have not all rested within that year (doubling, up to the
+  security's first session). It happens once per level, not per cycle. A level that is not decidable
+  today asks for no deeper read.
 
 ## Non-goals for this branch
 

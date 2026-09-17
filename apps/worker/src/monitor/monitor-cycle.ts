@@ -24,10 +24,11 @@ import {
   type OperandKey,
 } from "@intrinsic/strategy";
 import { mapWithConcurrency } from "../shared/concurrency.js";
-import { decideLevel } from "./level-decision.js";
+import { decideLevel, needsDeeperHistory } from "./level-decision.js";
 import {
   signalStateKey,
   type ActiveMonitor,
+  type ActiveMonitorMember,
   type MonitorRepository,
   type PersistedSignalState,
 } from "./monitor-repository.js";
@@ -87,6 +88,11 @@ export interface MonitorDataLoader {
     range: { from: LocalDate; to: LocalDate },
     operands: readonly OperandKey[],
   ): Promise<EvaluationFrame>;
+  /**
+   * The first session of the security's canonical history — the oldest day a backtest could
+   * replay. A reconstruction whose history read starts there is the full canonical replay.
+   */
+  reconstructionHistoryStart(security: Security): LocalDate;
 }
 
 export type MonitorCycleOptions = {
@@ -94,8 +100,10 @@ export type MonitorCycleOptions = {
   /** How stale a provider quote may be and still act as the provisional observation. */
   quoteMaxAgeMs: number;
   /**
-   * Closed exchange sessions replayed to reconstruct a level that has no current state — a new
-   * Monitor, a new member, a rebind or an edited level. Defaults to about one year.
+   * Closed exchange sessions first read to reconstruct a level that has no current state — a new
+   * Monitor, a new member, a rebind or an edited level. Defaults to about one year. A level whose
+   * state that read cannot establish is read again with twice the history, until it can or the
+   * read reaches the start of the security's history.
    */
   reconstructionSessions?: number;
   now?: () => Date;
@@ -113,6 +121,11 @@ export type MonitorCycleSummary = {
   transitionsRecorded: number;
   /** Levels whose state was established by historical reconstruction this cycle. */
   levelsReconstructed: number;
+  /**
+   * History reads beyond the first one, made because a level's state depended on sessions older
+   * than the default reconstruction window.
+   */
+  reconstructionHistoryExtensions: number;
   notEvaluable: number;
   /** Symbols with no usable current quote. Every Monitor watching one is NOT_EVALUABLE. */
   symbolsWithoutCurrentData: number;
@@ -150,7 +163,20 @@ export type SymbolSnapshot = {
    * security needed reconstructing; `null` when it was needed and could not be read — those
    * levels then wait for a later cycle rather than starting as if nothing had happened before.
    */
-  history?: EvaluationFrame | null;
+  history?: ReconstructionHistory | null;
+};
+
+/** One history read for reconstruction. */
+export type ReconstructionHistory = {
+  frame: EvaluationFrame;
+  /** The read starts at the security's first canonical session: nothing older exists. */
+  complete: boolean;
+};
+
+/** A `(member, level)` with no current state for its logic, which the cycle reconstructs. */
+type ReconstructionTarget = {
+  member: ActiveMonitorMember;
+  level: MonitorStrategyLevel;
 };
 
 /** One Monitor, parsed, with the levels it evaluates and its durable state. */
@@ -188,6 +214,7 @@ export class MonitorCycle {
       signalsResolved: 0,
       transitionsRecorded: 0,
       levelsReconstructed: 0,
+      reconstructionHistoryExtensions: 0,
       notEvaluable: 0,
       symbolsWithoutCurrentData: 0,
       symbolsOutsideTradingSession: 0,
@@ -240,13 +267,15 @@ export class MonitorCycle {
         });
       }
     }
-    const needsReconstruction = new Set<SecurityId>();
+    const needsReconstruction = new Map<SecurityId, ReconstructionTarget[]>();
     for (const { monitor, levels, states } of prepared) {
       for (const member of monitor.members) {
         for (const level of levels) {
           const state = states.get(signalStateKey(member.securityId, level.id));
           if (!state || state.signalFingerprint !== level.fingerprint) {
-            needsReconstruction.add(member.securityId);
+            const targets = needsReconstruction.get(member.securityId) ?? [];
+            targets.push({ member, level });
+            needsReconstruction.set(member.securityId, targets);
           }
         }
       }
@@ -370,12 +399,15 @@ export class MonitorCycle {
           asOf,
           cycleSequence,
         });
-        if (snapshot.frame && needsReconstruction.has(security.id)) {
-          snapshot.history = await this.loadHistory({
+        const targets = needsReconstruction.get(security.id);
+        if (snapshot.frame && targets) {
+          snapshot.history = await this.loadReconstructionHistory({
             security,
             operands,
-            observationDate: snapshot.frame.observationDate,
+            snapshot,
+            targets,
             cycleSequence,
+            summary,
           });
         }
         snapshots.set(security.id, snapshot);
@@ -471,31 +503,60 @@ export class MonitorCycle {
   }
 
   /**
-   * Reads the closed history a reconstruction replays: the sessions strictly before the observation,
-   * through the canonical backtest frame.
+   * Reads the closed history the security's reconstructions replay: the sessions strictly before
+   * the observation, through the canonical backtest frame.
+   *
+   * About a year is read first. A level whose state that year cannot establish — its rules never
+   * all rested in it, so it depends on something older — gets the read doubled, until every level
+   * that needs it is established or the read reaches the security's first session, where the
+   * replay is the full canonical one. Almost every level rests within days, so the common case is
+   * one read; a year-plus setup costs a few more, never a full-history replay per level.
    *
    * A failure is contained to this security and reported as `null`, so its unreconstructed levels
    * wait for a later cycle instead of starting from a history that was never read.
    */
-  private async loadHistory(input: {
+  private async loadReconstructionHistory(input: {
     security: Security;
     operands: readonly OperandKey[];
-    observationDate: LocalDate;
+    snapshot: SymbolSnapshot;
+    targets: readonly ReconstructionTarget[];
     cycleSequence: number;
-  }): Promise<EvaluationFrame | null> {
-    const sessions =
+    summary: MonitorCycleSummary;
+  }): Promise<ReconstructionHistory | null> {
+    const { security, snapshot, targets } = input;
+    const observationDate = snapshot.frame!.observationDate;
+    let sessions =
       this.options.reconstructionSessions ?? DEFAULT_RECONSTRUCTION_SESSIONS;
-    const range = {
-      from: addDays(input.observationDate, -monitorWindowCalendarDays(sessions)),
-      to: addDays(input.observationDate, -1),
-    };
     try {
-      await this.data.prepareReconstructionData(input.security, range);
-      return await this.data.readReconstructionFrame(
-        input.security,
-        range,
-        input.operands,
-      );
+      const start = this.data.reconstructionHistoryStart(security);
+      const to = addDays(observationDate, -1);
+      for (;;) {
+        const earliest = addDays(observationDate, -monitorWindowCalendarDays(sessions));
+        const complete = earliest <= start;
+        // Never before the first session. A security whose history starts after `to` keeps the
+        // unclamped range, which is still a valid one and simply holds nothing.
+        const range = { from: complete && start <= to ? start : earliest, to };
+        await this.data.prepareReconstructionData(security, range);
+        const history: ReconstructionHistory = {
+          frame: await this.data.readReconstructionFrame(security, range, input.operands),
+          complete,
+        };
+        const deeper = targets.filter((target) =>
+          needsDeeperHistory({ ...target, snapshot, history }),
+        );
+        if (deeper.length === 0) {
+          return history;
+        }
+        input.summary.reconstructionHistoryExtensions += 1;
+        this.logger.debug({
+          event: "monitor.reconstruction.history-extended",
+          cycleSequence: input.cycleSequence,
+          symbol: security.symbol,
+          sessions,
+          levels: deeper.length,
+        });
+        sessions *= 2;
+      }
     } catch (err) {
       this.logger.error({
         event: "monitor.reconstruction.history-failed",
@@ -541,6 +602,17 @@ export class MonitorCycle {
         summary.evaluations += 1;
         if (decision.outcome === "NOT_EVALUABLE") {
           summary.notEvaluable += 1;
+        }
+        if (decision.reconstructionIncomplete) {
+          // The history read could not establish this level's state; it waits rather than
+          // starting from a guess. The deepening read above makes this unreachable in practice.
+          this.logger.warn({
+            event: "monitor.reconstruction.incomplete",
+            cycleSequence: input.cycleSequence,
+            monitorId: monitor.monitorId,
+            symbol: member.symbol,
+            levelId: level.id,
+          });
         }
         if (!decision.write) {
           summary.transitionsUnchanged += 1;

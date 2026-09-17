@@ -647,6 +647,10 @@ class TimedLoader implements MonitorDataLoader {
       this.stockData.readDailyEvaluationFrame(security, range, operands),
     );
   }
+
+  reconstructionHistoryStart(security: Security): LocalDate {
+    return this.stockData.evaluationHistoryStart(security);
+  }
 }
 
 class TimedRepository implements MonitorRepository {

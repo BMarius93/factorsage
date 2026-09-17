@@ -166,4 +166,8 @@ class PrismaMonitorDataLoader implements MonitorDataLoader {
   ) {
     return this.stockData.readDailyEvaluationFrame(security, range, operands);
   }
+
+  reconstructionHistoryStart(security: Security): string {
+    return this.stockData.evaluationHistoryStart(security);
+  }
 }

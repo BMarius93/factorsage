@@ -103,7 +103,10 @@ FINAL EXIT remains **one** level and **one** Signal occurrence however many Exit
 rule keeps its own internal lifecycle — one rule may wait for its Trigger while another is active on
 its Conditions — and the level is `ACTIVE` while any rule is, `PENDING_TRIGGER` while none is active
 and any is waiting. Several rules matching on one observation produce one occurrence; one rule taking
-over as another ends is the same occurrence.
+over as another ends is the same occurrence. When the last active rule ends while another rule's
+setup is still waiting, the occurrence ends and the level waits on that setup: history records
+`ACTIVE -> RESOLVED` and then `RESOLVED -> PENDING_TRIGGER`, so the level's recorded history always
+ends in its stored state.
 
 ### What identifies a Signal
 
@@ -125,11 +128,13 @@ keyed to the Monitor, the security and the level.
 ### Historical reconstruction
 
 A level with no current state — a new Monitor, a new member, a rebind, an edited level — does not
-start as if nothing had happened before. The first cycle replays about a year of closed sessions
-through the same evaluator and the same lifecycle, then applies the live observation, and persists
-only the result: at most one occurrence (marked `reconstructed`, dated to its real activation
-session) and one `RECONSTRUCTED` transition. It never writes the replayed history. A level whose
-history cannot be read waits for a later cycle.
+start as if nothing had happened before. The first cycle replays closed sessions through the same
+evaluator and the same lifecycle, then applies the live observation, and persists only the result:
+at most one occurrence (marked `reconstructed`, dated to its real activation session) and one
+`RECONSTRUCTED` transition. It never writes the replayed history. The result is always the one a
+replay of the security's **whole** history would reach — a setup whose Conditions have held for
+years, with its Trigger long consumed, is `ACTIVE` since that Trigger, not a setup waiting since the
+start of some window. A level whose history cannot be read waits for a later cycle.
 
 ## Monitored universe and BUY eligibility
 

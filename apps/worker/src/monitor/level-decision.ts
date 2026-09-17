@@ -3,18 +3,18 @@ import type { MonitorEvaluationOutcome } from "@intrinsic/database";
 import { isBuyWindowEligible, type LocalDate } from "@intrinsic/domain";
 import {
   Evaluability,
-  INITIAL_MONITOR_LEVEL_LIFECYCLE,
   evaluateLevelWithoutPosition,
   frameIndexOf,
+  isRestingMonitorStep,
   observeMonitorLevel,
-  replayMonitorLevel,
+  reconstructMonitorLevel,
   stepMonitorLevel,
   type EvaluationFrame,
   type MonitorLevelLifecycle,
   type MonitorLevelStep,
   type MonitorStrategyLevel,
 } from "@intrinsic/strategy";
-import type { SymbolSnapshot } from "./monitor-cycle.js";
+import type { ReconstructionHistory, SymbolSnapshot } from "./monitor-cycle.js";
 import {
   endedStateOf,
   type ActiveMonitor,
@@ -36,6 +36,12 @@ import {
 export type LevelDecision = {
   outcome: MonitorEvaluationOutcome;
   reconstructed: boolean;
+  /**
+   * True when the level needed reconstructing but the history read could not establish its state
+   * — no resting session in it, and it does not reach the start of the security's history. Nothing
+   * is written; the cycle reads deeper history before it gets here, so this is a safety net.
+   */
+  reconstructionIncomplete?: boolean;
   write: LevelStateWrite | null;
 };
 
@@ -200,11 +206,25 @@ export function decideLevel(input: {
     return { outcome, reconstructed: false, write: null };
   }
 
-  const replayed = history
-    ? replayMonitorLevel(historySteps(level, member, history, observation.date))
-    : INITIAL_MONITOR_LEVEL_LIFECYCLE;
-  const step = stepMonitorLevel(replayed, liveStep);
-  const final = step.next;
+  // Replayed from the latest resting session, so the result is the full canonical replay's
+  // whatever the window's length (`reconstructMonitorLevel`).
+  const reconstruction = reconstructMonitorLevel({
+    history: history
+      ? historySteps(level, member, history.frame, observation.date)
+      : [],
+    live: liveStep,
+    complete: history ? history.complete : true,
+  });
+  if (!reconstruction.exact) {
+    return {
+      outcome,
+      reconstructed: false,
+      reconstructionIncomplete: true,
+      write: null,
+    };
+  }
+  const step = reconstruction.live;
+  const final = reconstruction.lifecycle;
   // Only an ACTIVE state carries an occurrence. A reconstructed "resolved" is simply "nothing is
   // current": no occurrence was ever persisted for it, so it is recorded as INACTIVE.
   const state = final.state === "RESOLVED" ? "INACTIVE" : final.state;
@@ -218,7 +238,7 @@ export function decideLevel(input: {
       ? null
       : since === observation.date
         ? observation.price
-        : (closeOn(history ?? frame.frame, since) ??
+        : ((history ? closeOn(history.frame, since) : null) ??
           closeOn(frame.frame, since));
 
   const transitions: TransitionRecord[] = [...(reset?.transitions ?? [])];
@@ -310,28 +330,94 @@ function logicChangeReset(previous: PersistedSignalState): {
   };
 }
 
-/** Every closed session of the history frame before the live observation, as lifecycle steps. */
-function* historySteps(
+function historyStep(
+  level: MonitorStrategyLevel,
+  member: ActiveMonitorMember,
+  history: EvaluationFrame,
+  index: number,
+): MonitorLevelStep {
+  const date = history.dates[index]!;
+  return {
+    date,
+    eligible: eligibleOn(level, member, date),
+    rules: observeMonitorLevel(level, history, index),
+  };
+}
+
+/** The last index of the history frame's period that is strictly before `before`, or -1. */
+function lastHistoryIndex(history: EvaluationFrame, before: LocalDate): number {
+  let index = history.dates.length - 1;
+  while (index >= history.periodStartIndex && history.dates[index]! >= before) {
+    index -= 1;
+  }
+  return index;
+}
+
+/**
+ * The closed sessions of the history frame before the live observation, as lifecycle steps —
+ * from the latest resting session on when there is one, since nothing before it can matter.
+ * Scanning backwards means a level that rested recently evaluates a handful of sessions, not the
+ * whole window.
+ */
+function historySteps(
   level: MonitorStrategyLevel,
   member: ActiveMonitorMember,
   history: EvaluationFrame,
   before: LocalDate,
-): Generator<MonitorLevelStep> {
-  for (
-    let index = history.periodStartIndex;
-    index < history.dates.length;
-    index += 1
-  ) {
-    const date = history.dates[index]!;
-    if (date >= before) {
-      return;
+): MonitorLevelStep[] {
+  const last = lastHistoryIndex(history, before);
+  const steps: MonitorLevelStep[] = [];
+  for (let index = last; index >= history.periodStartIndex; index -= 1) {
+    const step = historyStep(level, member, history, index);
+    steps.push(step);
+    if (isRestingMonitorStep(step)) {
+      break;
     }
-    yield {
-      date,
-      eligible: eligibleOn(level, member, date),
-      rules: observeMonitorLevel(level, history, index),
-    };
   }
+  return steps.reverse();
+}
+
+/**
+ * Whether reconstructing this level needs more history than `history` holds.
+ *
+ * Only a level that will actually be created now can need it: one whose live observation is
+ * decidable and does not itself rest. It needs it when the history read has no resting session
+ * and does not already start where the security's history starts — the level's state then depends
+ * on something older than the read (`reconstructMonitorLevel`).
+ */
+export function needsDeeperHistory(input: {
+  level: MonitorStrategyLevel;
+  member: ActiveMonitorMember;
+  snapshot: SymbolSnapshot;
+  history: ReconstructionHistory;
+}): boolean {
+  const { level, member, snapshot, history } = input;
+  const frame = snapshot.frame;
+  if (!frame || history.complete) {
+    return false;
+  }
+  const date = frame.observationDate;
+  const eligible = eligibleOn(level, member, date);
+  if (
+    eligible &&
+    evaluateLevelWithoutPosition(
+      level.rules,
+      frame.frame,
+      frame.observationIndex,
+    ) === Evaluability.NOT_EVALUABLE
+  ) {
+    return false;
+  }
+  const live: MonitorLevelStep = {
+    date,
+    eligible,
+    rules: observeMonitorLevel(level, frame.frame, frame.observationIndex),
+  };
+  if (isRestingMonitorStep(live)) {
+    return false;
+  }
+  const steps = historySteps(level, member, history.frame, date);
+  return steps.length === 0 || !isRestingMonitorStep(steps[0]!);
 }
 
 function closeOn(frame: EvaluationFrame, date: LocalDate): number | null {

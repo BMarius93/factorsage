@@ -387,8 +387,9 @@ series from FMP.
 - `packages/strategy/src/monitor-lifecycle.test.ts` — **needs nothing.** The accepted signal
   lifecycle, case by case.
 - `apps/worker/src/monitor/monitor-cycle.integration.test.ts` — PostgreSQL. The lifecycle through
-  the real repository: pending setups, latched triggers, reconstruction, buy windows, built-in
-  Monitors, transition history.
+  the real repository: pending setups, latched triggers, reconstruction (including setups older
+  than the first history read), buy windows, built-in Monitors, and transition history that always
+  ends in the stored state.
 - `apps/api/src/builtins/builtin-catalog.test.ts` — **needs nothing.** The canonical catalog pinned
   to the decision document.
 - `apps/api/src/builtins/builtins.integration.test.ts` — PostgreSQL. Bootstrap idempotency, SYSTEM

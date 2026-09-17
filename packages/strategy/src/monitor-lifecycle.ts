@@ -289,9 +289,19 @@ export function stepMonitorLevel(
   });
   const closeReason = closeIndex >= 0 ? steps[closeIndex]!.closeReason : null;
   const closeRule = closeIndex >= 0 ? step.rules[closeIndex] : undefined;
-  const openIndex = steps.findIndex(
+  let openIndex = steps.findIndex(
     (entry) => entry.openReason !== null && entry.afterOpen.state === afterOpen,
   );
+  let openReason = openIndex >= 0 ? steps[openIndex]!.openReason : null;
+  if (openIndex < 0 && afterOpen === "PENDING_TRIGGER") {
+    // The level ended its occurrence while another rule's setup was already waiting: nothing
+    // began on this observation, but the level now waits on that setup, and the history must say
+    // so — otherwise the stored state and the last recorded transition disagree.
+    openIndex = steps.findIndex(
+      (entry) => entry.afterOpen.state === "PENDING_TRIGGER",
+    );
+    openReason = openIndex >= 0 ? "SETUP_STARTED" : null;
+  }
 
   let transitions: MonitorLifecycleTransition[] = [];
   if (afterClose !== prior && closeReason !== null) {
@@ -303,11 +313,11 @@ export function stepMonitorLevel(
       date: step.date,
     });
   }
-  if (afterOpen !== afterClose && openIndex >= 0) {
+  if (afterOpen !== afterClose && openReason !== null) {
     transitions.push({
       from: afterClose,
       to: afterOpen,
-      reason: steps[openIndex]!.openReason!,
+      reason: openReason,
       exitRuleId: step.rules[openIndex]!.exitRuleId,
       date: step.date,
     });
@@ -426,6 +436,136 @@ export function replayMonitorLevel(
     current = stepMonitorLevel(current, step).next;
   }
   return current;
+}
+
+/**
+ * Whether one observation leaves every rule of the level at rest — neither `ACTIVE` nor
+ * `PENDING_TRIGGER` — **whatever state it was applied to**.
+ *
+ * A rule rests after an observation that ends anything it could have been doing and begins
+ * nothing: its date refuses entries (a closed BUY window), a Condition of a condition-bearing rule
+ * is false, or a trigger-only rule observes a later session without a crossing. Nothing earlier
+ * than such an observation can influence where the level stands afterwards, which is what lets
+ * reconstruction start there instead of at the beginning of history.
+ */
+export function isRestingMonitorStep(step: MonitorLevelStep): boolean {
+  return step.rules.every(
+    (rule) =>
+      !step.eligible ||
+      (rule.conditions !== null
+        ? rule.conditions === Evaluability.FALSE
+        : rule.trigger !== Evaluability.TRUE),
+  );
+}
+
+export type MonitorLevelReconstruction = {
+  /**
+   * False when the steps given cannot establish the state: no observation in them left the level
+   * at rest, so it depends on what happened before the first of them. The caller either supplies
+   * older history or — when the steps already start at the beginning of the security's canonical
+   * history — declares them complete.
+   */
+  exact: boolean;
+  /** The reconstructed lifecycle, settled at `anchor`. Meaningful only when `exact`. */
+  lifecycle: MonitorLevelLifecycle;
+  /** The live observation's own step result, applied to the replayed history. */
+  live: MonitorLevelStepResult;
+  /** The latest resting observation the replay started from, if any. */
+  anchor: LocalDate | null;
+  /** Historical observations actually folded, for observability. */
+  replayed: number;
+};
+
+/**
+ * Reconstructs a level with no current state from closed history plus the live observation, and
+ * returns exactly what a replay of the security's **whole** canonical history would — without
+ * replaying it.
+ *
+ * A bounded replay is not enough on its own: a Conditions + Trigger setup whose Conditions have
+ * held for longer than the history read, and whose Trigger fired before it, would start
+ * `PENDING_TRIGGER` at the first step when the full history says `ACTIVE`. So the replay starts at
+ * the latest {@link isRestingMonitorStep resting} observation instead — every rule's state after
+ * it is independent of anything earlier — and reports `exact: false` when the history contains
+ * none, so the caller can read further back. `complete` says the steps already begin where the
+ * security's canonical history begins: that replay is the full one by definition.
+ *
+ * The result is settled at the anchor ({@link settleMonitorLevelLifecycle}), so the persisted
+ * lifecycle is one value however much history happened to be read.
+ */
+export function reconstructMonitorLevel(input: {
+  history: readonly MonitorLevelStep[];
+  live: MonitorLevelStep;
+  complete: boolean;
+}): MonitorLevelReconstruction {
+  const { history, live } = input;
+  let start = history.length - 1;
+  while (start >= 0 && !isRestingMonitorStep(history[start]!)) {
+    start -= 1;
+  }
+  const historyAnchor = start >= 0 ? history[start]!.date : null;
+  const liveRests = isRestingMonitorStep(live);
+  const exact = historyAnchor !== null || liveRests || input.complete;
+
+  let current = INITIAL_MONITOR_LEVEL_LIFECYCLE;
+  const from = Math.max(start, 0);
+  for (let index = from; index < history.length; index += 1) {
+    current = stepMonitorLevel(current, history[index]!).next;
+  }
+  const result = stepMonitorLevel(current, live);
+  const anchor = historyAnchor ?? (liveRests ? live.date : null);
+  return {
+    exact,
+    lifecycle:
+      anchor === null
+        ? result.next
+        : settleMonitorLevelLifecycle(result.next, anchor),
+    live: result,
+    anchor,
+    replayed: history.length - from,
+  };
+}
+
+/**
+ * The canonical form of a lifecycle whose history before `anchor` is not known.
+ *
+ * At a resting observation every rule and the level were at rest. What a rule or level still
+ * carries from before it — the date it came to rest, a Trigger it consumed earlier — changes
+ * nothing for any observation on or after `anchor`: no rest state is inspected, and every later
+ * crossing is fresh against an older consumed one. So those fields are pinned to the anchor:
+ * anything at rest since then is recorded as `INACTIVE` since `anchor`, a consumed Trigger older
+ * than `anchor` is forgotten, and a reading of a session before `anchor` — which closed history has
+ * already decided — can never move the level.
+ *
+ * Applied to a full replay, this yields exactly what {@link reconstructMonitorLevel} returns from a
+ * replay started at the same anchor; everything that began after `anchor` is left untouched.
+ */
+export function settleMonitorLevelLifecycle(
+  lifecycle: MonitorLevelLifecycle,
+  anchor: LocalDate,
+): MonitorLevelLifecycle {
+  const atRest = (state: MonitorLifecycleState) =>
+    state !== "ACTIVE" && state !== "PENDING_TRIGGER";
+  const rules: Record<string, MonitorRuleLifecycle> = {};
+  for (const [key, rule] of Object.entries(lifecycle.rules)) {
+    rules[key] =
+      atRest(rule.state) && (rule.since === null || rule.since <= anchor)
+        ? { state: "INACTIVE", since: anchor, triggerDate: null }
+        : {
+            ...rule,
+            triggerDate:
+              rule.triggerDate !== null && rule.triggerDate < anchor
+                ? null
+                : rule.triggerDate,
+          };
+  }
+  const levelSettled =
+    atRest(lifecycle.state) &&
+    (lifecycle.since === null || lifecycle.since <= anchor);
+  return {
+    state: levelSettled ? "INACTIVE" : lifecycle.state,
+    since: levelSettled ? anchor : lifecycle.since,
+    rules,
+  };
 }
 
 const LIFECYCLE_STATES = new Set<string>(MONITOR_LIFECYCLE_STATES);
