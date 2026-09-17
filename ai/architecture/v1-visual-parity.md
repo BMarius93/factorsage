@@ -264,11 +264,12 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 ### Dashboard
 
 - No redundant visible “Dashboard” heading.
-- The summary strip remains a compact four-item row on desktop and phone; phone content may use
-  abbreviated labels and values rather than changing to a 2x2 grid.
-- One major blue action tile may be used for Run Backtest. The other tiles remain quiet.
-- Current/active matches are the first primary dataset when the aggregate contract exists. Until
-  then, show truthful collection-level information with a clear path into Monitors.
+- Current matches are the first primary dataset: the "Current signals" table (desktop) / record
+  cards (phone), one row per monitor outcome, filterable by state and action, row click to Stock
+  Details (`docs/decisions/builtin-dashboard-signals-v1.md` section 4). It replaced the V2 summary
+  strip, which reported collection counts only while the aggregate contract did not exist.
+- Below it, the monitors feeding the table as quiet cards with a switch each and honest freshness.
+- A Guest sees the same page with a restrained sign-in notice; nothing on it is a dead end.
 
 ### New Backtest
 

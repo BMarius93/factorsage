@@ -31,7 +31,7 @@ Per cycle the harness records wall time, process CPU time (Node plus the Prisma 
 `pg_stat_database` deltas (after forcing every pooled backend to flush), Prisma query counts,
 Redis `INFO commandstats` and byte deltas, provider requests by endpoint, the time spent in each
 loader and repository method, and RSS/heap peaks sampled every 20 ms. The synthetic quote moves
-±2 % each cycle, so transition rates are far higher than a real market's; treat `applyTransition`
+±2 % each cycle, so transition rates are far higher than a real market's; treat `applyLevelState`
 costs as an upper bound.
 
 ## Workload model

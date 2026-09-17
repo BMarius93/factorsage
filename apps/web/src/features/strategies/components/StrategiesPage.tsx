@@ -65,7 +65,17 @@ export function StrategiesPage() {
       cardRole: "identity",
       render: (strategy) => (
         <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
-          <span className={styles.name}>{strategy.name}</span>
+          <span className={styles.name}>
+            {strategy.name}
+            {strategy.ownership === "SYSTEM" ? (
+              <>
+                {" "}
+                <StatusBadge tone="neutral" variant="outline">
+                  Built-in
+                </StatusBadge>
+              </>
+            ) : null}
+          </span>
           {strategy.description ? (
             <span className={styles.description}>{strategy.description}</span>
           ) : null}
@@ -110,22 +120,29 @@ export function StrategiesPage() {
           >
             Open
           </Link>
-          <OverflowMenu
-            label={strategy.name}
-            testId="strategy-actions"
-            items={[
-              {
-                label: "Rename",
-                onSelect: () => setDialog({ kind: "rename", strategy }),
-              },
-              {
-                label: "Delete",
-                tone: "danger",
-                separated: true,
-                onSelect: () => setDialog({ kind: "delete", strategy }),
-              },
-            ]}
-          />
+          {strategy.canEdit ? (
+            <OverflowMenu
+              label={strategy.name}
+              testId="strategy-actions"
+              items={[
+                {
+                  label: "Rename",
+                  onSelect: () => setDialog({ kind: "rename", strategy }),
+                },
+                // Built-in strategies are never deleted, not even by an administrator.
+                ...(strategy.ownership === "SYSTEM"
+                  ? []
+                  : [
+                      {
+                        label: "Delete",
+                        tone: "danger" as const,
+                        separated: true,
+                        onSelect: () => setDialog({ kind: "delete", strategy }),
+                      },
+                    ]),
+              ]}
+            />
+          ) : null}
         </span>
       ),
     },

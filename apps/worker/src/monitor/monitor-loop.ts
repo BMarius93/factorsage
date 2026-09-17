@@ -75,6 +75,23 @@ export class MonitorWorkerLoop {
   }
 
   /**
+   * Claims and runs at most one due cycle through the same protocol as {@link run}, then returns.
+   *
+   * For operator tooling. `false` means nothing was claimed: the cycle was not due, or another
+   * process holds its lease — in which case that process is the one scanning.
+   */
+  async runOnce(): Promise<boolean> {
+    await this.repository.ensureSchedule(this.now());
+    await this.recoverExpiredScan();
+    const claim = await this.claimDueScan();
+    if (!claim) {
+      return false;
+    }
+    await this.executeCycle(claim.cycleSequence, claim.takenOverFrom);
+    return true;
+  }
+
+  /**
    * Stops claiming and asks a cycle in flight to stop at its next Monitor boundary.
    *
    * Stopping mid-cycle is safe precisely because evaluation is idempotent: every transition is

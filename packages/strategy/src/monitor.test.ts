@@ -201,6 +201,7 @@ function level(
     id,
     kind,
     rules,
+    ruleIds: rules.length === 1 ? [id] : rules.map((_, index) => `${id}-${index}`),
     fingerprint:
       rules.length === 1
         ? strategySignalFingerprint(rules[0] as StrategySignal)
@@ -377,6 +378,8 @@ describe("FINAL EXIT with alternative Exit Rules", () => {
 
     expect(level.id).toBe("f1");
     expect(level.rules).toEqual([priceAboveEma, priceBelowEma]);
+    // Each alternative keeps its own rule-local lifecycle identity.
+    expect(level.ruleIds).toEqual(["f1-rule-1", "f1-rule-2"]);
   });
 
   it("matches when any rule matches, and reports one result", () => {

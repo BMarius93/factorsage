@@ -104,19 +104,30 @@ enum BuyWindowMode {
   CUSTOM
 }
 
+/// Who owns a List, Strategy or Monitor.
+///
+/// `USER` rows belong to exactly one customer (`userId` set, `systemKey` null). `SYSTEM` rows are the
+/// platform's built-in content (`userId` null, `systemKey` set): readable by every viewer, Guests
+/// included, and mutable only by an `ADMIN`. The pairing is a database CHECK constraint, not a
+/// convention. `docs/decisions/builtin-dashboard-signals-v1.md` section 6.
+enum ContentOwnership {
+  USER
+  SYSTEM
+}
+
 /// Product identity. `passwordHash` is null for external-identity-only users and
 /// `emailVerifiedAt` is null until a local registration proves the address.
 model User {
-  id                 String                   @id @default(uuid())
-  email              String                   @unique
-  passwordHash       String?
-  emailVerifiedAt    DateTime?
-  role               UserRole                 @default(USER)
+  id                        String                         @id @default(uuid())
+  email                     String                         @unique
+  passwordHash              String?
+  emailVerifiedAt           DateTime?
+  role                      UserRole                       @default(USER)
   /// Commercial plan. Orthogonal to `role`: a user may be `plan=FREE` and `role=ADMIN`.
   ///
   /// New accounts start on `FREE`, which is why the column is defaulted rather than nullable —
   /// "no plan" is not an access state the entitlement resolver has to consider.
-  plan               UserPlan                 @default(FREE)
+  plan                      UserPlan                       @default(FREE)
   /// This user's canonical Stripe Customer, created lazily the first time billing is needed.
   ///
   /// Server-managed and never accepted from a client. Unique in both directions: one FactorSage
@@ -127,18 +138,22 @@ model User {
   ///
   /// Null for every user who has never reached a billing surface, which is the normal state: this
   /// migration leaves every existing account FREE with no Stripe object at all.
-  stripeCustomerId   String?                  @unique
-  createdAt          DateTime                 @default(now())
-  updatedAt          DateTime                 @updatedAt
-  oauthAccounts      OAuthAccount[]
-  verificationTokens EmailVerificationToken[]
-  resetTokens        PasswordResetToken[]
-  stockLists         StockList[]
-  strategies         Strategy[]
-  backtestRuns       BacktestRun[]
-  monitors           Monitor[]
-  billingSubscription BillingSubscription?
-  recentSecurityViews RecentSecurityView[]
+  stripeCustomerId          String?                        @unique
+  createdAt                 DateTime                       @default(now())
+  updatedAt                 DateTime                       @updatedAt
+  oauthAccounts             OAuthAccount[]
+  verificationTokens        EmailVerificationToken[]
+  resetTokens               PasswordResetToken[]
+  stockLists                StockList[]
+  strategies                Strategy[]
+  backtestRuns              BacktestRun[]
+  monitors                  Monitor[]
+  billingSubscription       BillingSubscription?
+  recentSecurityViews       RecentSecurityView[]
+  builtInMonitorPreferences UserBuiltInMonitorPreference[]
+  updatedStockLists         StockList[]                    @relation("StockListUpdatedBy")
+  updatedStrategies         Strategy[]                     @relation("StrategyUpdatedBy")
+  updatedMonitors           Monitor[]                      @relation("MonitorUpdatedBy")
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -185,8 +200,8 @@ model PasswordResetToken {
 }
 
 model Security {
-  id                  String                 @id @default(uuid())
-  providerSymbol      String                 @unique
+  id                  String                   @id @default(uuid())
+  providerSymbol      String                   @unique
   symbol              String
   name                String
   exchangeCode        String
@@ -198,12 +213,12 @@ model Security {
   country             String?
   sector              String?
   industry            String?
-  ipoDate             DateTime?              @db.Date
+  ipoDate             DateTime?                @db.Date
   type                SecurityType
   isAdr               Boolean
   isActivelyTrading   Boolean
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   profile             SecurityProfile?
   datasetStates       StockDatasetState[]
   datasetCoverage     StockDatasetCoverage[]
@@ -216,6 +231,7 @@ model Security {
   backtestPositions   BacktestPosition[]
   monitorSignalStates MonitorSignalState[]
   monitorSignals      MonitorSignal[]
+  monitorTransitions  MonitorStateTransition[]
   recentViews         RecentSecurityView[]
 
   @@unique([symbol, exchangeCode])
@@ -245,21 +261,31 @@ model RecentSecurityView {
   @@index([userId, viewedAt(sort: Desc)])
 }
 
-/// User-owned reusable stock universe. Mutable configuration: future backtests must snapshot the
-/// membership and buy-window state they ran with instead of referencing this row's current state.
+/// Reusable stock universe, owned by a user or by the system (built-in). Mutable configuration:
+/// backtests snapshot the membership and buy-window state they ran with instead of referencing this
+/// row's current state.
+///
+/// `systemKey` is the immutable identity of a built-in List — the seed/bootstrap key — and never the
+/// display name. `updatedByUserId` records the administrator behind the latest edit of a built-in.
 model StockList {
-  id           String          @id @default(uuid())
-  userId       String
-  name         String
-  description  String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items        StockListItem[]
-  backtestRuns BacktestRun[]
-  monitors     Monitor[]
+  id              String           @id @default(uuid())
+  ownership       ContentOwnership @default(USER)
+  userId          String?
+  systemKey       String?          @unique
+  name            String
+  description     String?
+  displayOrder    Int?
+  updatedByUserId String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy       User?            @relation("StockListUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  items           StockListItem[]
+  backtestRuns    BacktestRun[]
+  monitors        Monitor[]
 
   @@index([userId])
+  @@index([ownership])
 }
 
 /// Membership of one canonical `Security` in one list. The catalog is the identity authority:
@@ -281,23 +307,30 @@ model StockListItem {
   @@index([securityId])
 }
 
-/// User-owned strategy identity: the name and description a user renames freely, plus the version
-/// history holding the actual BUY / SELL / FINAL EXIT logic. Names are deliberately not unique per
-/// user — identity is this row's id, and two strategies may both be called `Value Strategy`.
+/// Strategy identity, owned by a user or by the system (built-in): the name and description, plus
+/// the version history holding the actual BUY / SELL / FINAL EXIT logic. Names are deliberately not
+/// unique — identity is this row's id, and a built-in's seed identity is `systemKey`. Editing a
+/// built-in appends a version exactly like editing a user Strategy.
 model Strategy {
-  id           String            @id @default(uuid())
-  userId       String
-  name         String
-  description  String?
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  versions     StrategyVersion[]
-  backtestRuns BacktestRun[]
-  monitors     Monitor[]
+  id              String            @id @default(uuid())
+  ownership       ContentOwnership  @default(USER)
+  userId          String?
+  systemKey       String?           @unique
+  name            String
+  description     String?
+  displayOrder    Int?
+  updatedByUserId String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  user            User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy       User?             @relation("StrategyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  versions        StrategyVersion[]
+  backtestRuns    BacktestRun[]
+  monitors        Monitor[]
 
   @@index([userId])
   @@index([userId, updatedAt])
+  @@index([ownership])
 }
 
 /// One immutable strategy definition. `definition` is written once and never updated: a change
@@ -961,7 +994,38 @@ enum MonitorLevelKind {
   FINAL_EXIT
 }
 
-/// One user-owned Monitor: a Strategy evaluated against current market data over a Stock List.
+/// The durable lifecycle of one evaluated Strategy signal. Mirrors `MONITOR_LIFECYCLE_STATES` in
+/// `@intrinsic/contracts`; `docs/decisions/builtin-dashboard-signals-v1.md` section 2 owns it.
+/// `NOT_EVALUABLE` is an evaluation result and is deliberately not a state.
+enum MonitorLifecycleState {
+  INACTIVE
+  PENDING_TRIGGER
+  ACTIVE
+  RESOLVED
+}
+
+/// Why a lifecycle state changed. Mirrors `MONITOR_TRANSITION_REASONS` in `@intrinsic/contracts`.
+enum MonitorTransitionReason {
+  CONDITIONS_MET
+  SETUP_STARTED
+  TRIGGER_FIRED
+  CONDITIONS_ENDED
+  EVENT_SESSION_ENDED
+  BUY_WINDOW_CLOSED
+  LOGIC_CHANGED
+  LEVEL_REMOVED
+  MEMBER_REMOVED
+  MONITOR_REBOUND
+  RECONSTRUCTED
+}
+
+/// One Monitor: a Strategy evaluated against current market data over a Stock List.
+///
+/// Owned by a user, or by the system (a built-in, identified by `systemKey`). A built-in Monitor is
+/// shared: it is evaluated once for everybody, its `enabled` stays true, and whether it runs is the
+/// operator's `isGloballyEnabled`. `isPublished` decides whether customers see it at all. A
+/// customer's choice to hide a built-in from their Dashboard is `UserBuiltInMonitorPreference`
+/// and never touches either column. A built-in references only built-in Lists and Strategies.
 ///
 /// It references the `Strategy` rather than a pinned `StrategyVersion`, because a Monitor is live:
 /// editing the Strategy must change what is being watched. Durable state is scoped to the canonical
@@ -985,19 +1049,28 @@ enum MonitorLevelKind {
 /// produced. The user deletes the Monitor first, explicitly. It cascades from `User` like every
 /// other user-owned row, because deleting the account is the one case where all of it should go.
 model Monitor {
-  id          String    @id @default(uuid())
-  userId      String
-  strategyId  String
-  stockListId String
-  name        String
-  enabled     Boolean   @default(true)
+  id                String           @id @default(uuid())
+  ownership         ContentOwnership @default(USER)
+  userId            String?
+  systemKey         String?          @unique
+  /// SYSTEM only: whether customers can see and select it. Always true for a USER Monitor.
+  isPublished       Boolean          @default(true)
+  /// SYSTEM only: whether the worker evaluates it. Always true for a USER Monitor, whose own
+  /// `enabled` is the switch.
+  isGloballyEnabled Boolean          @default(true)
+  displayOrder      Int?
+  updatedByUserId   String?
+  strategyId        String
+  stockListId       String
+  name              String
+  enabled           Boolean          @default(true)
   /// Last cycle instant this Monitor was actually evaluated in, for observability and the UI's
   /// "last checked" line. It is never an input to trigger semantics.
   ///
   /// Cleared when the Monitor is rebound to a different Strategy or Stock List: the configuration
   /// it now names has not been checked, and reporting the previous one's scan time would claim
   /// otherwise.
-  lastScanAt  DateTime?
+  lastScanAt        DateTime?
   /// Which `(strategyId, stockListId)` binding this Monitor is on. Incremented **only** when one of
   /// them is rebound — never by a rename or an enable/disable, which change nothing a running cycle
   /// evaluated.
@@ -1007,20 +1080,24 @@ model Monitor {
   /// replaced configuration cannot land in the new one after the fact. A monotonic counter rather
   /// than a comparison of the two ids, because rebinding away and back would otherwise present the
   /// same pair to an in-flight cycle whose state had already been discarded.
-  configVersion Int     @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  configVersion     Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
-  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  strategy  Strategy             @relation(fields: [strategyId], references: [id], onDelete: Restrict)
-  stockList StockList            @relation(fields: [stockListId], references: [id], onDelete: Restrict)
-  states    MonitorSignalState[]
-  signals   MonitorSignal[]
+  user        User?                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy   User?                          @relation("MonitorUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  strategy    Strategy                       @relation(fields: [strategyId], references: [id], onDelete: Restrict)
+  stockList   StockList                      @relation(fields: [stockListId], references: [id], onDelete: Restrict)
+  states      MonitorSignalState[]
+  signals     MonitorSignal[]
+  transitions MonitorStateTransition[]
+  preferences UserBuiltInMonitorPreference[]
 
   @@index([userId])
   @@index([userId, updatedAt])
   /// The scan cycle's own query: every enabled Monitor, cheaply.
   @@index([enabled])
+  @@index([ownership, isGloballyEnabled])
 }
 
 /// The durable transition state of one `(Monitor, Security, Strategy level)`.
@@ -1066,16 +1143,20 @@ model MonitorSignalState {
   /// state can never point at two live Signals.
   activeSignalId String? @unique
 
-  /// Observation date the most recent Signal was emitted on, for a Signal carrying a Trigger.
-  ///
-  /// A Trigger is an *event on a date*: the canonical daily series has `crosses above` TRUE on
-  /// exactly one date, however many times it is evaluated that day. The provisional observation
-  /// moves intraday while its `t - 1` stays fixed at the last closed day, so a price that crosses,
-  /// dips back and crosses again satisfies the predicate twice within one date — and without this
-  /// column each would look like a fresh transition and emit a second Signal for one crossing.
-  /// A Condition has no such column on purpose: it describes a state, and a state that genuinely
-  /// ends and begins again is two matches.
-  lastTriggerSignalDate DateTime? @db.Date
+  /// The lifecycle state (`docs/decisions/builtin-dashboard-signals-v1.md` section 2). This, not
+  /// the Signal history, is the Dashboard's current truth: `ACTIVE` rows carry `activeSignalId`,
+  /// `PENDING_TRIGGER` rows have no Signal yet.
+  lifecycleState      MonitorLifecycleState @default(INACTIVE)
+  /// When the current lifecycle state was entered, and on which observation, at what price.
+  lifecycleSince      DateTime              @default(now())
+  lifecycleSinceDate  DateTime?             @db.Date
+  lifecycleSincePrice Decimal?              @db.Decimal(20, 8)
+  /// Rule-local lifecycle, keyed by rule id: `{ state, since, triggerDate }` per rule
+  /// (`MonitorRuleLifecycle` in `@intrinsic/strategy`). A FINAL EXIT with several Exit Rules needs
+  /// one latch per rule to apply the trigger semantics correctly, while the level keeps one state
+  /// and one Signal. `triggerDate` is what makes a daily trigger fire at most once per session and
+  /// a fresh setup require a fresh crossing. Internal: never exposed through the API.
+  ruleStates          Json                  @default("{}")
 
   stateVersion Int      @default(0)
   createdAt    DateTime @default(now())
@@ -1123,19 +1204,85 @@ model MonitorSignal {
   observationDate  DateTime @db.Date
   observationPrice Decimal  @db.Decimal(20, 8)
 
-  detectedAt DateTime  @default(now())
-  /// When the matched state stopped being active. Null while the match continues.
-  resolvedAt DateTime?
+  /// The level's canonical logic fingerprint the occurrence was decided under. Null only for
+  /// Signals written before it was recorded.
+  signalFingerprint String?
 
-  monitor   Monitor             @relation(fields: [monitorId], references: [id], onDelete: Cascade)
-  security  Security            @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  /// When the occurrence became ACTIVE (`activatedAt`); `observationDate` is its activation session.
+  detectedAt              DateTime                 @default(now())
+  /// When the matched state stopped being active. Null while the match continues.
+  resolvedAt              DateTime?
+  /// The session the occurrence ended on, when an observation ended it. Null for a closure that
+  /// observed nothing (a rebind, a removed member, an edited level).
+  resolvedObservationDate DateTime?                @db.Date
+  resolutionReason        MonitorTransitionReason?
+  /// True when historical reconstruction, not a live observation, established the activation.
+  reconstructed           Boolean                  @default(false)
+
+  monitor     Monitor                  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  security    Security                 @relation(fields: [securityId], references: [id], onDelete: Restrict)
   /// Back-reference of `MonitorSignalState.activeSignalId`; at most one state points here.
-  activeFor MonitorSignalState? @relation("MonitorSignalStateActiveSignal")
+  activeFor   MonitorSignalState?      @relation("MonitorSignalStateActiveSignal")
+  transitions MonitorStateTransition[]
 
   @@index([monitorId, detectedAt])
   @@index([securityId])
   /// The "currently active Signals" read: unresolved rows, newest first.
   @@index([monitorId, resolvedAt, detectedAt])
+}
+
+/// One lifecycle state change of one `(Monitor, Security, Strategy level)`, for audit and history.
+///
+/// Only changes are recorded — never a repeated `ACTIVE -> ACTIVE` scan. A row exists before any
+/// Signal does (`INACTIVE -> PENDING_TRIGGER`), which is why it is keyed by the logical identity
+/// and `signalId` is nullable. Rows are append-only and go with their Monitor.
+model MonitorStateTransition {
+  id                String                  @id @default(uuid())
+  /// Insertion order. Two changes of one observation (an event ending and a new one beginning)
+  /// share `occurredAt`; this is what orders them.
+  sequence          BigInt                  @default(autoincrement())
+  monitorId         String
+  securityId        String
+  levelId           String
+  levelKind         MonitorLevelKind
+  /// The FINAL EXIT Exit Rule that drove the change, when one did.
+  exitRuleId        String?
+  signalFingerprint String
+  fromState         MonitorLifecycleState
+  toState           MonitorLifecycleState
+  reason            MonitorTransitionReason
+  occurredAt        DateTime                @default(now())
+  /// The session observed, or null for a change no observation made (rebind, removal, edit).
+  observationDate   DateTime?               @db.Date
+  signalId          String?
+
+  monitor  Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  security Security       @relation(fields: [securityId], references: [id], onDelete: Restrict)
+  signal   MonitorSignal? @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@index([monitorId, securityId, levelId, sequence], map: "MonitorStateTransition_identity_idx")
+  @@index([monitorId, sequence])
+  @@index([securityId])
+  @@index([signalId])
+}
+
+/// A signed-in customer's override of a built-in Monitor's Dashboard visibility.
+///
+/// Absence means the built-in default, which is visible. Only the override is stored: built-ins are
+/// never cloned per user, and this row changes what one user's Dashboard shows — never whether the
+/// shared Monitor is evaluated.
+model UserBuiltInMonitorPreference {
+  userId    String
+  monitorId String
+  enabled   Boolean
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  monitor Monitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@id([userId, monitorId])
+  @@index([monitorId])
 }
 
 /// The durable Monitor scan schedule: exactly one row, claimed like a job.
@@ -1236,16 +1383,16 @@ model BillingSubscription {
 /// directly in the Dashboard, an event from a different Stripe environment — is still recorded, so
 /// Stripe stops retrying something this deployment can never act on, and so an operator can see it.
 model StripeWebhookEvent {
-  id             String   @id @default(uuid())
-  stripeEventId  String   @unique
-  type           String
+  id              String   @id @default(uuid())
+  stripeEventId   String   @unique
+  type            String
   /// Stripe's own `created` for the event. Kept for forensics, never used to order side effects.
   stripeCreatedAt DateTime
   /// Which local user the event resolved to, when it resolved to one.
-  userId         String?
+  userId          String?
   /// What processing did: applied a change, found nothing to change, or deliberately ignored it.
-  outcome        String
-  processedAt    DateTime @default(now())
+  outcome         String
+  processedAt     DateTime @default(now())
 
   @@index([type, processedAt])
   @@index([userId])

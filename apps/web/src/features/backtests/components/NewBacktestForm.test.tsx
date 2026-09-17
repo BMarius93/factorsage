@@ -14,8 +14,11 @@ import { NewBacktestForm } from "./NewBacktestForm";
 
 const push = vi.fn();
 
+let searchParams = new URLSearchParams();
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
+  useSearchParams: () => searchParams,
 }));
 
 vi.mock("../api/backtests-api", () => ({
@@ -38,6 +41,8 @@ const createBacktestRunMock = vi.mocked(createBacktestRun);
 
 const STRATEGIES: StrategySummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "strategy-1",
     name: "Deep value",
     buyLevelCount: 2,
@@ -51,6 +56,8 @@ const STRATEGIES: StrategySummaryResponse[] = [
 
 const LISTS: StockListSummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "list-1",
     name: "Quality compounders",
     itemCount: 12,
@@ -69,7 +76,26 @@ const BENCHMARKS: BenchmarkResponse[] = [
   { id: "b-1", code: "SP500", name: "S&P 500", currency: "USD" },
 ];
 
+const BUILT_IN_STRATEGY: StrategySummaryResponse = {
+  ...STRATEGIES[0]!,
+  ownership: "SYSTEM",
+  systemKey: "trend-confirmation",
+  canEdit: false,
+  id: "builtin-strategy",
+  name: "Trend Confirmation",
+};
+
+const BUILT_IN_LIST: StockListSummaryResponse = {
+  ...LISTS[0]!,
+  ownership: "SYSTEM",
+  systemKey: "recent-market-debuts",
+  canEdit: false,
+  id: "builtin-list",
+  name: "Recent Market Debuts",
+};
+
 beforeEach(() => {
+  searchParams = new URLSearchParams();
   push.mockReset();
   fetchStrategiesMock.mockReset().mockResolvedValue(STRATEGIES);
   fetchStockListsMock.mockReset().mockResolvedValue(LISTS);
@@ -78,6 +104,37 @@ beforeEach(() => {
 });
 
 describe("NewBacktestForm", () => {
+  it("offers built-ins beside the caller's own content, and preselects the ones a link names", async () => {
+    fetchStrategiesMock.mockResolvedValue([BUILT_IN_STRATEGY, ...STRATEGIES]);
+    fetchStockListsMock.mockResolvedValue([BUILT_IN_LIST, ...LISTS]);
+    searchParams = new URLSearchParams({
+      strategyId: "builtin-strategy",
+      stockListId: "builtin-list",
+    });
+    render(<NewBacktestForm />);
+
+    const strategy = (await screen.findByLabelText(
+      "Strategy",
+    )) as HTMLSelectElement;
+    await waitFor(() => expect(strategy.value).toBe("builtin-strategy"));
+    expect(
+      (screen.getByLabelText("Stock list") as HTMLSelectElement).value,
+    ).toBe("builtin-list");
+    const groups = Array.from(strategy.querySelectorAll("optgroup")).map(
+      (group) => group.label,
+    );
+    expect(groups).toEqual(["Built-in", "Your strategies"]);
+  });
+
+  it("ignores a linked id the caller cannot choose", async () => {
+    searchParams = new URLSearchParams({ strategyId: "someone-elses" });
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+    expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
+      "",
+    );
+  });
+
   it("offers the catalog's benchmarks and preselects the canonical default", async () => {
     render(<NewBacktestForm />);
 

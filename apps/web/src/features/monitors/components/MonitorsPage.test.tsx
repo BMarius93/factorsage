@@ -45,6 +45,8 @@ const fetchStockListsMock = vi.mocked(fetchStockLists);
 
 const STRATEGIES: StrategySummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "strategy-1",
     name: "Deep value",
     buyLevelCount: 2,
@@ -55,6 +57,8 @@ const STRATEGIES: StrategySummaryResponse[] = [
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
   {
+    ownership: "USER",
+    canEdit: true,
     id: "strategy-2",
     name: "Momentum exits",
     buyLevelCount: 1,
@@ -68,6 +72,8 @@ const STRATEGIES: StrategySummaryResponse[] = [
 
 const LISTS: StockListSummaryResponse[] = [
   {
+    ownership: "USER",
+    canEdit: true,
     id: "list-1",
     name: "Quality compounders",
     itemCount: 12,
@@ -76,6 +82,8 @@ const LISTS: StockListSummaryResponse[] = [
     updatedAt: "2026-08-20T10:00:00.000Z",
   },
   {
+    ownership: "USER",
+    canEdit: true,
     id: "list-2",
     name: "Tech universe",
     itemCount: 5,
@@ -89,6 +97,8 @@ function summary(
   overrides: Partial<MonitorSummaryResponse> = {},
 ): MonitorSummaryResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id: "monitor-1",
     name: "Value entries",
     enabled: true,

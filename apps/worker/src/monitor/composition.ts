@@ -28,13 +28,10 @@ import {
   PrismaMonitorRepository,
   type MonitorRepository,
 } from "./monitor-repository.js";
-import {
-  PrismaMonitorScanRepository,
-  type MonitorScanRepository,
-} from "./scan-repository.js";
+import { PrismaMonitorScanRepository } from "./scan-repository.js";
 
 export type MonitorRuntime = {
-  scans: MonitorScanRepository;
+  scans: PrismaMonitorScanRepository;
   monitors: MonitorRepository;
   data: MonitorDataLoader;
   calendar: TradingCalendar;
@@ -153,5 +150,20 @@ class PrismaMonitorDataLoader implements MonitorDataLoader {
 
   monitorWindowObservations(operands: readonly OperandKey[]): number {
     return monitorWindowObservations(requiredDailySeries(operands));
+  }
+
+  async prepareReconstructionData(
+    security: Security,
+    range: { from: string; to: string },
+  ): Promise<void> {
+    await this.stockData.prepareDailyEvaluationData(security, range);
+  }
+
+  async readReconstructionFrame(
+    security: Security,
+    range: { from: string; to: string },
+    operands: readonly OperandKey[],
+  ) {
+    return this.stockData.readDailyEvaluationFrame(security, range, operands);
   }
 }

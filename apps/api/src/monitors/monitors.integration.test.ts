@@ -235,13 +235,14 @@ describe("monitors", () => {
     }
   });
 
-  it("requires authentication on every route", async () => {
+  it("requires authentication on every route but the built-in read", async () => {
     const anonymous = request(app.getHttpServer());
     await anonymous.get("/monitors").expect(401);
     await anonymous.post("/monitors").send({ name: "x" }).expect(401);
-    await anonymous.get("/monitors/any-id").expect(401);
     await anonymous.patch("/monitors/any-id").send({ enabled: false }).expect(401);
     await anonymous.delete("/monitors/any-id").expect(401);
+    // A Guest may read a published built-in; anything else reads as missing.
+    await anonymous.get("/monitors/any-id").expect(404);
   });
 
   it("creates an enabled monitor by default", async () => {
@@ -516,6 +517,8 @@ describe("monitors", () => {
           lastEvaluableAt: new Date(),
           lastOutcome: "MATCHED",
           lastOutcomeAt: new Date(),
+          lifecycleState: "ACTIVE",
+          lifecycleSinceDate: new Date("2026-03-02T00:00:00.000Z"),
           activeSignalId: signal.id,
         },
       });
@@ -787,7 +790,21 @@ describe("monitors", () => {
         where: { id: signal.id },
       });
       expect(persisted.resolvedAt).not.toBeNull();
+      expect(persisted.resolutionReason).toBe("MONITOR_REBOUND");
       expect(Number(persisted.observationPrice)).toBeCloseTo(150.25);
+      // The ending is on the record, under the logic it belonged to.
+      const transitions = await prisma.monitorStateTransition.findMany({
+        where: { monitorId: monitor.id },
+      });
+      expect(transitions).toEqual([
+        expect.objectContaining({
+          fromState: "ACTIVE",
+          toState: "RESOLVED",
+          reason: "MONITOR_REBOUND",
+          signalFingerprint: "fingerprint-a",
+          signalId: signal.id,
+        }),
+      ]);
       // And the new configuration is honestly reported as unchecked.
       const binding = await bindingOf(monitor.id);
       expect(binding.lastScanAt).toBeNull();
@@ -800,6 +817,7 @@ describe("monitors", () => {
       // History is still readable, marked resolved.
       expect(body.signals).toHaveLength(1);
       expect(body.signals[0]?.resolvedAt).toBeDefined();
+      expect(body.signals[0]?.resolutionReason).toBe("MONITOR_REBOUND");
 
       await prisma.monitor.delete({ where: { id: monitor.id } });
       await prisma.security.delete({ where: { id: security.id } });
@@ -881,6 +899,7 @@ describe("monitors", () => {
             lastEvaluableAt: decidedAt,
             lastOutcome: "MATCHED",
             lastOutcomeAt: decidedAt,
+            lifecycleState: "ACTIVE",
             activeSignalId: signal.id,
           },
           {
@@ -1141,7 +1160,9 @@ describe("monitors", () => {
           lastEvaluableAt: decidedAt,
           lastOutcome: outcome,
           lastOutcomeAt: decidedAt,
-          ...(activeSignalId === undefined ? {} : { activeSignalId }),
+          ...(activeSignalId === undefined
+            ? {}
+            : { activeSignalId, lifecycleState: "ACTIVE" as const }),
         },
       });
     }

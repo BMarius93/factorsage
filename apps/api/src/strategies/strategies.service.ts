@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
 import {
   emptyStrategyDefinition,
   normalizeStrategyDefinition,
-  strategyDefinitionFingerprint,
   type StrategyDefinition,
   type AuthUser,
   type StrategyDetailResponse,
@@ -11,15 +9,29 @@ import {
 import type { Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
+import {
+  SYSTEM_FIRST_ORDER,
+  assertMutable,
+  auditOf,
+  mutableWhere,
+  ownershipResponse,
+  readableWhere,
+  SystemContentProtectedError,
+  type ContentViewer,
+} from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { STRATEGIES_LOGGER } from "./strategies.tokens";
 import type { ParsedUpdateStrategyRequest } from "./strategy-requests";
+import {
+  appendStrategyVersionIfChanged,
+  definitionHashOf,
+} from "./strategy-versions";
 
 /**
- * Raised for a strategy that does not exist *or* is not owned by the caller. The two cases are
+ * Raised for a strategy that does not exist *or* belongs to another customer. The two cases are
  * deliberately indistinguishable, so knowing another user's strategy id reveals nothing. There is
- * no ADMIN bypass, matching the stock-list slice.
+ * no ADMIN bypass of customer content; built-ins are readable by everyone.
  */
 export class StrategyNotFoundError extends Error {
   constructor() {
@@ -80,12 +92,6 @@ function isForeignKeyViolation(error: unknown): boolean {
   );
 }
 
-function definitionHashOf(definition: StrategyDefinition): string {
-  return createHash("sha256")
-    .update(strategyDefinitionFingerprint(definition))
-    .digest("hex");
-}
-
 /**
  * Parses a persisted document back through the canonical normalizer.
  *
@@ -103,8 +109,10 @@ function readDefinition(row: StrategyRow): StrategyDefinition {
 function summaryOf(
   row: StrategyRow,
   definition: StrategyDefinition,
+  viewer: ContentViewer,
 ): StrategySummaryResponse {
   return {
+    ...ownershipResponse(row, viewer),
     id: row.id,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
@@ -117,9 +125,12 @@ function summaryOf(
   };
 }
 
-function detailOf(row: StrategyRow): StrategyDetailResponse {
+function detailOf(
+  row: StrategyRow,
+  viewer: ContentViewer,
+): StrategyDetailResponse {
   const definition = readDefinition(row);
-  return { ...summaryOf(row, definition), definition };
+  return { ...summaryOf(row, definition, viewer), definition };
 }
 
 @Injectable()
@@ -131,13 +142,31 @@ export class StrategiesService {
     @Inject(STRATEGIES_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  async listForUser(userId: string): Promise<StrategySummaryResponse[]> {
+  /** Built-ins first, in operator order, then the caller's own. A Guest sees built-ins only. */
+  async listForUser(viewer: ContentViewer): Promise<StrategySummaryResponse[]> {
     const rows = await this.prisma.strategy.findMany({
-      where: { userId },
-      orderBy: STRATEGY_ORDER,
+      where: readableWhere(viewer),
+      orderBy: [...SYSTEM_FIRST_ORDER, ...STRATEGY_ORDER],
       include: STRATEGY_INCLUDE,
     });
-    return rows.map((row) => summaryOf(row, readDefinition(row)));
+    return rows.map((row) => summaryOf(row, readDefinition(row), viewer));
+  }
+
+  /** The Strategy a viewer asked to change: 404 when unreadable, 403 when a read-only built-in. */
+  private async findMutable(
+    db: Pick<PrismaService, "strategy">,
+    viewer: AuthUser,
+    strategyId: string,
+  ) {
+    const row = await db.strategy.findFirst({
+      where: { id: strategyId, ...readableWhere(viewer) },
+      select: { id: true, ownership: true, userId: true, systemKey: true },
+    });
+    const strategy = assertMutable(row, viewer, "strategies");
+    if (!strategy) {
+      throw new StrategyNotFoundError();
+    }
+    return strategy;
   }
 
   /**
@@ -186,37 +215,40 @@ export class StrategiesService {
       buyLevelCount: definition.buyLevels.length,
       sellLevelCount: definition.sellLevels.length,
     });
-    return detailOf(row);
+    return detailOf(row, user);
   }
 
   async getStrategy(
-    userId: string,
+    viewer: ContentViewer,
     strategyId: string,
   ): Promise<StrategyDetailResponse> {
     const row = await this.prisma.strategy.findFirst({
-      where: { id: strategyId, userId },
+      where: { id: strategyId, ...readableWhere(viewer) },
       include: STRATEGY_INCLUDE,
     });
     if (!row) {
       throw new StrategyNotFoundError();
     }
-    return detailOf(row);
+    return detailOf(row, viewer);
   }
 
   /** Name and description live on the strategy identity and never create a version. */
   async updateStrategy(
-    userId: string,
+    user: AuthUser,
     strategyId: string,
     patch: ParsedUpdateStrategyRequest,
   ): Promise<StrategySummaryResponse> {
-    // `updateMany` applies the ownership filter and the write in one atomic statement.
+    const userId = user.id;
+    const target = await this.findMutable(this.prisma, user, strategyId);
+    // `updateMany` re-applies the permission filter and the write in one atomic statement.
     const updated = await this.prisma.strategy.updateMany({
-      where: { id: strategyId, userId },
+      where: { id: strategyId, ...mutableWhere(user) },
       data: {
         ...(patch.name === undefined ? {} : { name: patch.name }),
         ...(patch.description === undefined
           ? {}
           : { description: patch.description }),
+        ...auditOf(target, user),
       },
     });
     if (updated.count === 0) {
@@ -224,7 +256,7 @@ export class StrategiesService {
     }
 
     const row = await this.prisma.strategy.findFirst({
-      where: { id: strategyId, userId },
+      where: { id: strategyId, ...readableWhere(user) },
       include: STRATEGY_INCLUDE,
     });
     if (!row) {
@@ -235,8 +267,9 @@ export class StrategiesService {
       event: "strategy.updated",
       actorUserId: userId,
       strategyId,
+      ownership: row.ownership,
     });
-    return summaryOf(row, readDefinition(row));
+    return summaryOf(row, readDefinition(row), user);
   }
 
   /**
@@ -246,63 +279,56 @@ export class StrategiesService {
    * churns the history while genuine reordering does. Existing version rows are never updated.
    */
   async replaceDefinition(
-    userId: string,
+    user: AuthUser,
     strategyId: string,
     submitted: unknown,
   ): Promise<StrategyDetailResponse> {
+    const userId = user.id;
     const definition = normalizeStrategyDefinition(submitted);
-    const hash = definitionHashOf(definition);
 
-    const row = await this.prisma.$transaction(async (tx) => {
-      // Serializes concurrent replacements of one strategy. The next version number is read and
-      // then written, so without a row lock two edits landing together both read the same current
-      // version, both compute the same next number, and the loser surfaces the unique
-      // `(strategyId, versionNumber)` constraint as a failed request instead of appending its own
-      // version behind the winner. Ownership is part of the lock predicate, so a strategy the
-      // caller does not own locks nothing and reads as missing, exactly like the read below.
+    const { row, appended } = await this.prisma.$transaction(async (tx) => {
+      const target = await this.findMutable(tx, user, strategyId);
+      // Serializes concurrent replacements of one strategy — see `appendStrategyVersionIfChanged`.
       const locked = await tx.$queryRaw<{ id: string }[]>`
-        SELECT "id"
-        FROM "Strategy"
-        WHERE "id" = ${strategyId} AND "userId" = ${userId}
-        FOR UPDATE
+        SELECT "id" FROM "Strategy" WHERE "id" = ${strategyId} FOR UPDATE
       `;
       if (locked.length === 0) {
         throw new StrategyNotFoundError();
       }
-      const existing = await tx.strategy.findFirst({
-        where: { id: strategyId, userId },
-        include: STRATEGY_INCLUDE,
-      });
-      if (!existing) {
-        throw new StrategyNotFoundError();
+      const appended = await appendStrategyVersionIfChanged(
+        tx,
+        strategyId,
+        definition,
+      );
+      if (!appended) {
+        return {
+          appended,
+          row: await tx.strategy.findUniqueOrThrow({
+            where: { id: strategyId },
+            include: STRATEGY_INCLUDE,
+          }),
+        };
       }
-      const current = existing.versions[0];
-      if (current?.definitionHash === hash) {
-        return existing;
-      }
-      await tx.strategyVersion.create({
-        data: {
-          strategyId,
-          versionNumber: (current?.versionNumber ?? 0) + 1,
-          definition: definition as unknown as Prisma.InputJsonValue,
-          definitionHash: hash,
-        },
-      });
-      return tx.strategy.update({
-        where: { id: strategyId },
-        // Touch the strategy so the collection's newest-changed ordering reflects the edit.
-        data: { updatedAt: new Date() },
-        include: STRATEGY_INCLUDE,
-      });
+      return {
+        appended,
+        row: await tx.strategy.update({
+          where: { id: strategyId },
+          // Touch the strategy so the collection's newest-changed ordering reflects the edit.
+          data: { updatedAt: new Date(), ...auditOf(target, user) },
+          include: STRATEGY_INCLUDE,
+        }),
+      };
     });
 
     this.logger.info({
       event: "strategy.definition-replaced",
       actorUserId: userId,
       strategyId,
+      ownership: row.ownership,
+      appended,
       versionNumber: row.versions[0]?.versionNumber ?? 0,
     });
-    return detailOf(row);
+    return detailOf(row, user);
   }
 
   /**
@@ -312,7 +338,12 @@ export class StrategiesService {
    * the constraint rather than a check that could race a Monitor created a moment later. The count
    * is read only on the error path, to say how many.
    */
-  async deleteStrategy(userId: string, strategyId: string): Promise<void> {
+  async deleteStrategy(user: AuthUser, strategyId: string): Promise<void> {
+    const userId = user.id;
+    const target = await this.findMutable(this.prisma, user, strategyId);
+    if (target.ownership === "SYSTEM") {
+      throw new SystemContentProtectedError("strategies");
+    }
     try {
       const deleted = await this.prisma.strategy.deleteMany({
         where: { id: strategyId, userId },

@@ -403,14 +403,10 @@ content constraint is different. See `v1-visual-parity.md`.
 These are UI requirements the current contracts cannot satisfy truthfully. Each is a backend
 addition, not something to work around in the browser.
 
-1. **Dashboard aggregate matches.** The legacy dashboard led with "Real-time Matches": every stock
-   currently matching, across every monitor, with its monitor, strategy and list beside it. V2 has
-   no endpoint for it — `GET /monitors` carries per-monitor counts, and only `GET /monitors/{id}`
-   carries evaluated securities. Fanning that out would cost one request per monitor and grow with
-   the account, so the dashboard reports collection-level truth and links into each monitor.
-   _Needed:_ something like `GET /monitors/signals?status=active`, returning active Signals across
-   the caller's monitors with the security, level kind, signal kind, observation price and detected
-   time, plus the monitor / strategy / list ids and names — one page, newest first.
+1. ~~**Dashboard aggregate matches.**~~ Closed by `GET /dashboard`
+   (`docs/decisions/builtin-dashboard-signals-v1.md`), which returns every current `ACTIVE` and
+   `PENDING_TRIGGER` row of the monitors the viewer can see, with security, level, reason, monitor,
+   strategy, list, price and freshness, in one request.
 
 2. **Clickable entities in the Backtests collection.** `BacktestRunSummaryResponse` carries
    `strategyName` and `stockListName` but no ids, so the collection's chips are static while the

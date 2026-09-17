@@ -20,11 +20,11 @@ map, not a second definition.
 
 | Concept | What it is | What it is not | Owner document |
 | --- | --- | --- | --- |
-| **List** (`StockList`) | A user-owned universe: catalog `Security` members, each with a BUY eligibility window (`FULL` or normalized `CUSTOM` ranges). | Investment logic. A List never says *when* or *why* to buy, only *what* may be bought and on which dates. | `lists.md` |
-| **Strategy** | User-owned investment logic: ordered BUY / SELL / optional FINAL EXIT levels, each carrying one Strategy signal (Conditions ANDed with at most one Trigger). Versioned append-only. | A List, capital, contributions, `maximumPositions`, a date range, or any execution assumption. One Strategy is reused against any List. | `strategies.md` |
+| **List** (`StockList`) | A user-owned or built-in universe: catalog `Security` members, each with a BUY eligibility window (`FULL` or normalized `CUSTOM` ranges). | Investment logic. A List never says *when* or *why* to buy, only *what* may be bought and on which dates. | `lists.md` |
+| **Strategy** | User-owned or built-in investment logic: ordered BUY / SELL / optional FINAL EXIT levels, each carrying one Strategy signal (Conditions ANDed with at most one Trigger). Versioned append-only. | A List, capital, contributions, `maximumPositions`, a date range, or any execution assumption. One Strategy is reused against any List. | `strategies.md` |
 | **Backtest** (`BacktestRun`) | Strategy + List + Benchmark + date range + capital + contributions + `maximumPositions` + methodology versions, frozen into an immutable snapshot and executed asynchronously once. | A live view of its inputs. Editing or deleting the Strategy or List afterwards changes nothing about the run. | `backtests.md` |
 | **Monitor** | A live Strategy reference + a live List reference + `enabled`. Evaluates the Strategy against current market data over the List on a platform-owned cadence. | A pinned snapshot, a portfolio, a second Strategy language, or a user-scheduled job. The user may name it, enable or disable it, rebind it to a different Strategy or List, and delete it — and nothing else. | `monitors.md` |
-| **Signal** (`MonitorSignal`) | The durable, append-only record that one List member matched one Strategy level under one Monitor evaluation, with the observation it was decided on. Resolved when the match ends; never deleted. | The Monitor itself, and not a Strategy signal (the rule). A Signal is an *outcome* of monitoring. | `monitors.md` |
+| **Signal** (`MonitorSignal`) | One durable occurrence of one List member's Strategy level being `ACTIVE` under one Monitor, with the observation it began on. Resolved with a reason when it ends; never reopened. A setup waiting for its Trigger (`PENDING_TRIGGER`) is Monitor state, not a Signal. | The Monitor itself, and not a Strategy signal (the rule). A Signal is an *outcome* of monitoring. | `monitors.md` |
 
 Relationships:
 
@@ -38,9 +38,16 @@ Monitor 1..* Signal     (Signal = Monitor x Security x Strategy level x observat
 
 Ownership boundaries and invariants:
 
-- Every List, Strategy, Backtest, Monitor and Signal belongs to exactly one user, and every API read
-  or write is scoped by that user at the query. A Monitor or Backtest may only reference a Strategy
-  and List of the **same** user, checked in the transaction that creates it.
+- Every Backtest belongs to exactly one user. Lists, Strategies and Monitors are either **USER**
+  content — owned by exactly one user, scoped by that user at the query, invisible to everybody else
+  — or **SYSTEM** built-in content (`docs/decisions/builtin-dashboard-signals-v1.md`): identified by
+  an immutable `systemKey`, readable by every viewer including Guests, changeable by an `ADMIN` only,
+  never deleted, and never counted against a customer's limits. A customer's Monitor references only
+  that customer's Strategy and List; a built-in Monitor references only built-ins. A Backtest may
+  reference the caller's own or built-in content, checked in the transaction that creates it.
+- Built-ins are ordinary domain objects: the same evaluator, snapshot rules and Buy Window
+  semantics apply. A customer's Dashboard preference hides a built-in Monitor from that customer
+  only; nothing is cloned per user.
 - A Backtest keeps working after its Strategy or List is deleted (the references are nullable and
   the snapshot is the authority). A Monitor does not: deleting a Strategy or List a Monitor still
   references is **refused**, because a Monitor owns Signal history that must not silently vanish.

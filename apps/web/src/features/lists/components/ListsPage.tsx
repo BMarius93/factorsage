@@ -56,7 +56,17 @@ export function ListsPage() {
       cardRole: "identity",
       render: (list) => (
         <Link className={styles.nameLink} href={`/lists/${list.id}`}>
-          <span className={styles.name}>{list.name}</span>
+          <span className={styles.name}>
+            {list.name}
+            {list.ownership === "SYSTEM" ? (
+              <>
+                {" "}
+                <StatusBadge tone="neutral" variant="outline">
+                  Built-in
+                </StatusBadge>
+              </>
+            ) : null}
+          </span>
           {list.description ? (
             <span className={styles.description}>{list.description}</span>
           ) : null}
@@ -108,22 +118,29 @@ export function ListsPage() {
           <Link className={actions.action} href={`/lists/${list.id}`}>
             Open
           </Link>
-          <OverflowMenu
-            label={list.name}
-            testId="list-actions"
-            items={[
-              {
-                label: "Rename",
-                onSelect: () => setDialog({ kind: "rename", list }),
-              },
-              {
-                label: "Delete",
-                tone: "danger",
-                separated: true,
-                onSelect: () => setDialog({ kind: "delete", list }),
-              },
-            ]}
-          />
+          {list.canEdit ? (
+            <OverflowMenu
+              label={list.name}
+              testId="list-actions"
+              items={[
+                {
+                  label: "Rename",
+                  onSelect: () => setDialog({ kind: "rename", list }),
+                },
+                // Built-in lists are never deleted, not even by an administrator.
+                ...(list.ownership === "SYSTEM"
+                  ? []
+                  : [
+                      {
+                        label: "Delete",
+                        tone: "danger" as const,
+                        separated: true,
+                        onSelect: () => setDialog({ kind: "delete", list }),
+                      },
+                    ]),
+              ]}
+            />
+          ) : null}
         </span>
       ),
     },

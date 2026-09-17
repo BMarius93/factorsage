@@ -24,7 +24,7 @@ type EditProps = {
   readonly mode: "edit";
   readonly monitor: Pick<
     MonitorSummaryResponse,
-    "id" | "name" | "enabled" | "strategyId" | "stockListId"
+    "id" | "name" | "enabled" | "strategyId" | "stockListId" | "ownership"
   >;
   readonly onSaved: (summary: MonitorSummaryResponse) => void;
   readonly onClose: () => void;
@@ -62,7 +62,10 @@ function requestMessage(error: unknown, mode: "create" | "edit"): string {
  */
 export function MonitorFormDialog(props: MonitorFormDialogProps) {
   const editing = props.mode === "edit" ? props.monitor : null;
-  const { status, strategies, lists, retry } = useMonitorOptions();
+  const builtIn = editing?.ownership === "SYSTEM";
+  const { status, strategies, lists, retry } = useMonitorOptions(
+    builtIn ? "SYSTEM" : "USER",
+  );
   const [name, setName] = useState(editing?.name ?? "");
   const [strategyId, setStrategyId] = useState(editing?.strategyId ?? "");
   const [stockListId, setStockListId] = useState(editing?.stockListId ?? "");
@@ -120,7 +123,8 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             name: trimmedName,
             strategyId,
             stockListId,
-            enabled,
+            // A built-in's switch is its global enable, which the monitor page owns.
+            ...(builtIn ? {} : { enabled }),
           }),
         );
       }
@@ -310,6 +314,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             )}
           </div>
 
+          {builtIn ? null : (
           <div className={styles.checkRow}>
             <input
               id="monitor-enabled"
@@ -327,6 +332,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
               </span>
             </label>
           </div>
+          )}
 
           {rebinding ? (
             <p className={styles.rebindNote} data-testid="monitor-rebind-note">

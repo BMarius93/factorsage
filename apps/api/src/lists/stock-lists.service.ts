@@ -13,6 +13,16 @@ import {
 } from "@intrinsic/domain";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable } from "@nestjs/common";
+import {
+  SYSTEM_FIRST_ORDER,
+  assertMutable,
+  auditOf,
+  mutableWhere,
+  ownershipResponse,
+  readableWhere,
+  SystemContentProtectedError,
+  type ContentViewer,
+} from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { LISTS_LOGGER } from "./lists.tokens";
@@ -123,8 +133,10 @@ function itemResponse(item: ItemRow): StockListItemResponse {
 function detailResponse(
   list: ListDetailRow,
   compliance: StockListComplianceResponse,
+  viewer: ContentViewer,
 ): StockListDetailResponse {
   return {
+    ...ownershipResponse(list, viewer),
     id: list.id,
     name: list.name,
     ...(list.description === null ? {} : { description: list.description }),
@@ -188,39 +200,84 @@ export class StockListsService {
     @Inject(LISTS_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
-  async listForUser(user: AuthUser): Promise<StockListSummaryResponse[]> {
+  /**
+   * The Lists a viewer can use: every built-in first, in operator order, then the caller's own,
+   * newest first. A Guest sees the built-ins only.
+   */
+  async listForUser(viewer: ContentViewer): Promise<StockListSummaryResponse[]> {
     const lists = await this.prisma.stockList.findMany({
-      where: { userId: user.id },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      where: readableWhere(viewer),
+      orderBy: [
+        ...SYSTEM_FIRST_ORDER,
+        { createdAt: "desc" },
+        { id: "desc" },
+      ],
       include: { _count: { select: { items: true } } },
     });
-    return lists.map((list) => ({
+    return lists.map((list) => this.summaryOf(list, viewer));
+  }
+
+  private summaryOf(
+    list: Prisma.StockListGetPayload<{
+      include: { _count: { select: { items: true } } };
+    }>,
+    viewer: ContentViewer,
+  ): StockListSummaryResponse {
+    return {
+      ...ownershipResponse(list, viewer),
       id: list.id,
       name: list.name,
       ...(list.description === null ? {} : { description: list.description }),
       itemCount: list._count.items,
       createdAt: list.createdAt.toISOString(),
       updatedAt: list.updatedAt.toISOString(),
-      compliance: this.complianceOf(user, list._count.items),
-    }));
+      compliance: this.complianceOf(list, viewer, list._count.items),
+    };
   }
 
   /**
    * Current membership against the caller's current entitlements.
    *
    * Reading a List is never refused for being over the limit — a downgrade leaves content intact
-   * and readable — so this is reported, not enforced.
+   * and readable — so this is reported, not enforced. A built-in is platform content, not a
+   * customer List, and no plan limit applies to it.
    */
   private complianceOf(
-    user: AuthUser,
+    list: { ownership: "USER" | "SYSTEM" },
+    viewer: ContentViewer,
     symbolCount: number,
   ): StockListComplianceResponse {
-    const compliance = this.entitlements.getListCompliance(user, symbolCount);
+    if (list.ownership === "SYSTEM" || !viewer) {
+      return { symbolCount, symbolLimit: null, compliant: true };
+    }
+    const compliance = this.entitlements.getListCompliance(viewer, symbolCount);
     return {
       symbolCount: compliance.usage,
       symbolLimit: compliance.limit,
       compliant: compliance.compliant,
     };
+  }
+
+  /**
+   * The List a viewer asked to change, or a refusal.
+   *
+   * Missing and "another customer's" read identically (404). A built-in the viewer may not change
+   * is a 403; an administrator may change it.
+   */
+  private async findMutable(
+    db: Pick<PrismaService, "stockList">,
+    viewer: AuthUser,
+    listId: string,
+  ) {
+    const row = await db.stockList.findFirst({
+      where: { id: listId, ...readableWhere(viewer) },
+      select: { id: true, ownership: true, userId: true, systemKey: true },
+    });
+    const list = assertMutable(row, viewer, "lists");
+    if (!list) {
+      throw new StockListNotFoundError();
+    }
+    return list;
   }
 
   /**
@@ -265,27 +322,35 @@ export class StockListsService {
       listId: list.id,
       itemCount: list.items.length,
     });
-    return detailResponse(list, this.complianceOf(user, list.items.length));
+    return detailResponse(
+      list,
+      this.complianceOf(list, user, list.items.length),
+      user,
+    );
   }
 
   /**
-   * Reads one of the caller's Lists.
+   * Reads one of the caller's Lists, or a built-in.
    *
    * Never refused for exceeding the current plan: grandfathered content stays readable, and the
    * derived `compliance` is how the caller learns it is over the limit.
    */
   async getList(
-    user: AuthUser,
+    viewer: ContentViewer,
     listId: string,
   ): Promise<StockListDetailResponse> {
     const list = await this.prisma.stockList.findFirst({
-      where: { id: listId, userId: user.id },
+      where: { id: listId, ...readableWhere(viewer) },
       include: { items: { include: ITEM_INCLUDE, orderBy: ITEMS_ORDER } },
     });
     if (!list) {
       throw new StockListNotFoundError();
     }
-    return detailResponse(list, this.complianceOf(user, list.items.length));
+    return detailResponse(
+      list,
+      this.complianceOf(list, viewer, list.items.length),
+      viewer,
+    );
   }
 
   /**
@@ -301,15 +366,16 @@ export class StockListsService {
     listId: string,
     patch: UpdateStockListRequest,
   ): Promise<StockListSummaryResponse> {
-    const userId = user.id;
-    // `updateMany` applies the ownership filter and the write in one atomic statement.
+    const target = await this.findMutable(this.prisma, user, listId);
+    // `updateMany` re-applies the permission filter and the write in one atomic statement.
     const updated = await this.prisma.stockList.updateMany({
-      where: { id: listId, userId },
+      where: { id: listId, ...mutableWhere(user) },
       data: {
         ...(patch.name === undefined ? {} : { name: patch.name }),
         ...(patch.description === undefined
           ? {}
           : { description: patch.description }),
+        ...auditOf(target, user),
       },
     });
     if (updated.count === 0) {
@@ -317,7 +383,7 @@ export class StockListsService {
     }
 
     const list = await this.prisma.stockList.findFirst({
-      where: { id: listId, userId },
+      where: { id: listId, ...readableWhere(user) },
       include: { _count: { select: { items: true } } },
     });
     if (!list) {
@@ -325,16 +391,13 @@ export class StockListsService {
       throw new StockListNotFoundError();
     }
 
-    this.logger.info({ event: "stock-list.updated", actorUserId: userId, listId });
-    return {
-      id: list.id,
-      name: list.name,
-      ...(list.description === null ? {} : { description: list.description }),
-      itemCount: list._count.items,
-      createdAt: list.createdAt.toISOString(),
-      updatedAt: list.updatedAt.toISOString(),
-      compliance: this.complianceOf(user, list._count.items),
-    };
+    this.logger.info({
+      event: "stock-list.updated",
+      actorUserId: user.id,
+      listId,
+      ownership: list.ownership,
+    });
+    return this.summaryOf(list, user);
   }
 
   /**
@@ -344,7 +407,12 @@ export class StockListsService {
    * the constraint rather than a check that could race a Monitor created a moment later. The count
    * is read only on the error path, to say how many.
    */
-  async deleteList(userId: string, listId: string): Promise<void> {
+  async deleteList(user: AuthUser, listId: string): Promise<void> {
+    const userId = user.id;
+    const target = await this.findMutable(this.prisma, user, listId);
+    if (target.ownership === "SYSTEM") {
+      throw new SystemContentProtectedError("lists");
+    }
     try {
       // Items and buy windows go with the list through the FK cascades.
       const deleted = await this.prisma.stockList.deleteMany({
@@ -395,15 +463,9 @@ export class StockListsService {
     const requested = [...new Set(securityIds)];
     const added = await this.prisma.$transaction(async (tx) => {
       await this.entitlements.lockUserScope(tx, userId);
-      // Ownership only: a List the caller does not own reads as missing, exactly as every other
-      // route answers.
-      const list = await tx.stockList.findFirst({
-        where: { id: listId, userId },
-        select: { id: true },
-      });
-      if (!list) {
-        throw new StockListNotFoundError();
-      }
+      // A List the caller does not own reads as missing, exactly as every other route answers; a
+      // built-in is changeable by an administrator only.
+      const list = await this.findMutable(tx, user, listId);
       await this.assertSecuritiesSupported(tx, securityIds);
 
       const [current, alreadyMembers] = await Promise.all([
@@ -412,10 +474,18 @@ export class StockListsService {
           where: { stockListId: listId, securityId: { in: requested } },
         }),
       ]);
-      await this.entitlements.assertListSymbolLimitIn(tx, userId, {
-        current,
-        adding: requested.length - alreadyMembers,
-      });
+      // A built-in is platform content: no customer's plan limits its membership.
+      if (list.ownership === "USER") {
+        await this.entitlements.assertListSymbolLimitIn(tx, userId, {
+          current,
+          adding: requested.length - alreadyMembers,
+        });
+      } else {
+        await tx.stockList.update({
+          where: { id: listId },
+          data: auditOf(list, user),
+        });
+      }
 
       // `skipDuplicates` makes re-submission and concurrent adds converge on one membership row
       // instead of surfacing the unique constraint as an error.
@@ -448,18 +518,30 @@ export class StockListsService {
    * refusing it would strand a downgraded user with a List they can neither use nor fix.
    */
   async removeItem(
-    userId: string,
+    user: AuthUser,
     listId: string,
     itemId: string,
   ): Promise<void> {
-    // One statement walks the whole ownership chain: item -> list -> user.
+    const list = await this.findMutable(this.prisma, user, listId);
+    // One statement walks the whole permission chain: item -> list -> owner (or administrator).
     const deleted = await this.prisma.stockListItem.deleteMany({
-      where: { id: itemId, stockListId: listId, stockList: { userId } },
+      where: { id: itemId, stockListId: listId, stockList: mutableWhere(user) },
     });
     if (deleted.count === 0) {
       throw new StockListItemNotFoundError();
     }
-    this.logger.info({ event: "stock-list.item.removed", listId, itemId });
+    if (list.ownership === "SYSTEM") {
+      await this.prisma.stockList.update({
+        where: { id: listId },
+        data: auditOf(list, user),
+      });
+    }
+    this.logger.info({
+      event: "stock-list.item.removed",
+      actorUserId: user.id,
+      listId,
+      itemId,
+    });
   }
 
   /**
@@ -469,7 +551,7 @@ export class StockListsService {
    * create nor worsen a capacity violation.
    */
   async replaceBuyWindows(
-    userId: string,
+    user: AuthUser,
     listId: string,
     itemId: string,
     submitted: BuyWindowConfiguration,
@@ -478,12 +560,23 @@ export class StockListsService {
     const canonical = normalizeBuyWindowConfiguration(submitted);
 
     const item = await this.prisma.$transaction(async (tx) => {
-      // The ownership-filtered mode write doubles as a row lock on the item, so two concurrent
+      const list = await this.findMutable(tx, user, listId);
+      // The permission-filtered mode write doubles as a row lock on the item, so two concurrent
       // replacements serialize instead of interleaving their delete/insert phases.
       const updated = await tx.stockListItem.updateMany({
-        where: { id: itemId, stockListId: listId, stockList: { userId } },
+        where: {
+          id: itemId,
+          stockListId: listId,
+          stockList: mutableWhere(user),
+        },
         data: { buyWindowMode: canonical.mode },
       });
+      if (list.ownership === "SYSTEM" && updated.count > 0) {
+        await tx.stockList.update({
+          where: { id: listId },
+          data: auditOf(list, user),
+        });
+      }
       if (updated.count === 0) {
         throw new StockListItemNotFoundError();
       }
@@ -511,6 +604,7 @@ export class StockListsService {
 
     this.logger.info({
       event: "stock-list.buy-windows.updated",
+      actorUserId: user.id,
       listId,
       itemId,
       mode: canonical.mode,

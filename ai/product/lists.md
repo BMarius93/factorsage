@@ -32,11 +32,16 @@ User
 
 ## Ownership and authorization
 
-Every list belongs to exactly one user. All `/lists` endpoints require authentication, and the
-service layer scopes every query by the authenticated user id. A list that exists but belongs to
-someone else answers exactly like one that does not exist (404 with the identical message), so a
-leaked list id reveals nothing. There is intentionally no ADMIN bypass; an admin surface would be
-a deliberate future endpoint. The browser UI is presentation only — the API/service layer is the
+A list belongs to exactly one user, or is **built-in** (`SYSTEM`) content
+(`docs/decisions/builtin-dashboard-signals-v1.md`). Reads (`GET /lists`, `GET /lists/:listId`) accept
+a Guest, who sees built-ins only; every write requires a session. The service scopes every query: a
+list that belongs to someone else answers exactly like one that does not exist (404 with the
+identical message), for administrators too, so a leaked list id reveals nothing. A built-in list is
+readable by everyone and changeable only by an `ADMIN` — anybody else is refused with `403`
+`SYSTEM_CONTENT_READ_ONLY` — and it is never deleted (`409` `SYSTEM_CONTENT_PROTECTED`). Built-ins
+are platform content: no plan's symbol limit applies to them, and their `compliance` is always
+compliant. A customer sees a built-in list read-only; an administrator gets the ordinary editor
+without a delete action. The browser UI is presentation only — the API/service layer is the
 authorization authority.
 
 ## Buy windows
@@ -93,8 +98,8 @@ row. The browser may pre-validate, but the API response is what gets rendered af
 A backtest covers a date range; a Monitor evaluates **one** date — its current observation. The same
 eligibility rule applies to that single date:
 
-- a BUY level produces no Signal for a symbol whose buy window does not admit the current
-  observation date;
+- a BUY level neither starts a setup nor opens a Signal for a symbol whose buy window does not
+  admit the current observation date, and an active BUY Signal whose window closes is resolved;
 - SELL and FINAL EXIT are unrestricted, exactly as they are in a backtest.
 
 `isBuyWindowEligible` in `@intrinsic/domain` is the one implementation of that question; the backtest
@@ -120,7 +125,7 @@ universe?" differently, and both on purpose.
 
 ## API surface
 
-All routes require the session cookie; bodies are parsed by `stock-list-requests.ts` against the
+Writes require the session cookie and the two reads accept a Guest (built-ins only); bodies are parsed by `stock-list-requests.ts` against the
 shared limits in `@intrinsic/contracts` (`stock-lists.ts`).
 
 ```text
@@ -170,8 +175,7 @@ row renders it as the word `Present`, in the product's standard day format:
 ### A one-period editor must not destroy a multi-period member
 
 The backend stores any number of periods, and `PUT …/buy-windows` replaces the complete set — so a
-naive one-period form would flatten `[p1, p2, p3]` to `[p1]` on any read/edit/save cycle. There are
-no built-in or system lists to make read-only, so the protection lives in the editor: an item with
+naive one-period form would flatten `[p1, p2, p3]` to `[p1]` on any read/edit/save cycle. The protection lives in the editor: an item with
 more than one stored period opens **read-only**, listing every period it has, with no form and no
 save button. The single-period form appears only after the user presses `Replace with one period`.
 The collection row shows the same truth — the first period plus `+N more`, with all of them in the

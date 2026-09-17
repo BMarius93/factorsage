@@ -1,5 +1,6 @@
 import type {
   AdminHealthResponse,
+  BuiltInContentAdminResponse,
   SecurityCatalogSyncResponse,
 } from "@intrinsic/contracts";
 import type { SecurityCatalogService } from "@intrinsic/stock-data";
@@ -15,6 +16,7 @@ import {
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { Roles } from "../auth/roles.decorator";
+import { BuiltInAdminService } from "../builtins/builtin-admin.service";
 import { RolesGuard } from "../auth/roles.guard";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { SECURITY_CATALOG_SERVICE } from "../stocks/stock-data.tokens";
@@ -26,7 +28,19 @@ export class AdminController {
   constructor(
     @Inject(SECURITY_CATALOG_SERVICE)
     private readonly securityCatalog: SecurityCatalogService,
+    @Inject(BuiltInAdminService)
+    private readonly builtIns: BuiltInAdminService,
   ) {}
+
+  /**
+   * Every built-in List, Strategy and Monitor, published or not. They are edited through the
+   * ordinary routes, which authorize an administrator for built-in content.
+   */
+  @RateLimit("standard-read")
+  @Get("built-ins")
+  async builtInContent(): Promise<BuiltInContentAdminResponse> {
+    return this.builtIns.overview();
+  }
 
   @RateLimit("standard-read")
   @Get("health")

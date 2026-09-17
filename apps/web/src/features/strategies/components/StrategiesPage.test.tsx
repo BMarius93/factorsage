@@ -27,6 +27,8 @@ function summary(
   overrides: Partial<StrategySummaryResponse> = {},
 ): StrategySummaryResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id,
     name,
     buyLevelCount: 1,

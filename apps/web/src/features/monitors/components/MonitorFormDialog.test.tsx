@@ -33,6 +33,8 @@ const fetchStockListsMock = vi.mocked(fetchStockLists);
 
 function strategy(id: string, name: string): StrategySummaryResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id,
     name,
     buyLevelCount: 1,
@@ -46,6 +48,8 @@ function strategy(id: string, name: string): StrategySummaryResponse {
 
 function list(id: string, name: string): StockListSummaryResponse {
   return {
+    ownership: "USER",
+    canEdit: true,
     id,
     name,
     itemCount: 4,
@@ -56,6 +60,8 @@ function list(id: string, name: string): StockListSummaryResponse {
 }
 
 const SUMMARY: MonitorSummaryResponse = {
+  ownership: "USER",
+  canEdit: true,
   id: "monitor-1",
   name: "Value entries",
   enabled: true,

@@ -8,6 +8,7 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import forms from "../../../components/ui/forms.module.css";
 import { useStrategy } from "../hooks/use-strategy";
 import { StrategyBuilder } from "./StrategyBuilder";
+import { StrategyReadOnlyView } from "./StrategyReadOnlyView";
 
 /**
  * Loads one strategy and hands it to the Builder.
@@ -42,7 +43,7 @@ export function StrategyEditor({
           body={
             <p>
               It may have been deleted, or the link may point at someone
-              else&apos;s strategy.
+              else&apos;s strategy. If it is yours, sign in to open it.
             </p>
           }
           actions={
@@ -77,5 +78,10 @@ export function StrategyEditor({
     );
   }
 
-  return <StrategyBuilder strategy={strategy} />;
+  // A built-in opens in the same Builder for an administrator; everyone else reads it.
+  return strategy.canEdit ? (
+    <StrategyBuilder strategy={strategy} />
+  ) : (
+    <StrategyReadOnlyView strategy={strategy} />
+  );
 }

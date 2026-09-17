@@ -30,79 +30,118 @@ A Signal means that a symbol matched one of the Strategy's canonical signals/lev
 
 Do not introduce separate user-facing concepts solely to distinguish condition-only matches from trigger-based matches. The UI may explain why a Signal exists, but both remain Signals.
 
-### Condition-only Strategy signal
+### The signal lifecycle
 
-A Strategy signal containing conditions but no trigger represents a state that may remain true across multiple Monitor evaluations.
-
-Example:
-
-```text
-Price is below Intrinsic Value
-```
-
-If it is true on several consecutive evaluations, the product should treat that as the same continuing matched state rather than fabricating a new event on every scan.
-
-### Trigger-based Strategy signal
-
-A Strategy signal with a trigger represents a transition/event and depends on the prior evaluable state.
-
-Example:
+`docs/decisions/builtin-dashboard-signals-v1.md` section 2 is the accepted state machine. Every
+evaluated Strategy signal — one level of one Strategy for one List member under one Monitor — is in
+exactly one durable state:
 
 ```text
-Price crosses above EMA50D
+INACTIVE          nothing is current
+PENDING_TRIGGER   a triggered signal's Conditions hold; its Trigger has not fired for this setup
+ACTIVE            a Signal occurrence is current
+RESOLVED          the most recent occurrence ended
 ```
 
-The Signal is emitted when the canonical trigger transition occurs. Remaining above EMA50D on the next evaluation is not another `crosses above` event.
+`NOT_EVALUABLE` is an evaluation result, not a state. A not-evaluable observation moves nothing and
+never synthesizes an observation date.
 
-The implementation must preserve enough durable prior-evaluation state to distinguish a genuine transition from a process restart or cache miss.
+**Conditions only** — a persistent state:
 
-#### A daily trigger is an event on an observation date
+```text
+INACTIVE/RESOLVED -- Conditions true  --> ACTIVE       (a new Signal occurrence)
+ACTIVE            -- Conditions true  --> ACTIVE       (the same occurrence; nothing is written)
+ACTIVE            -- Conditions false --> RESOLVED
+```
+
+**Conditions + Trigger** — the Trigger controls *entry* and is then latched; the Conditions alone
+maintain the occurrence:
+
+```text
+Conditions true, Trigger not fired        --> PENDING_TRIGGER (no Signal yet)
+PENDING_TRIGGER + Trigger fires           --> ACTIVE          (a new Signal occurrence)
+ACTIVE + Conditions still true            --> ACTIVE          (whatever the Trigger predicate does)
+ACTIVE + any Condition false              --> RESOLVED
+PENDING_TRIGGER + any Condition false     --> INACTIVE        (no occurrence ever existed)
+```
+
+Conditions and Trigger holding on the same observation enter `ACTIVE` directly, exactly as a
+backtest ANDs them on one date. While `ACTIVE`, the Trigger predicate turning false — or crossing
+again — changes nothing. After a resolution a fresh setup needs a **fresh** Trigger event: the
+crossing the previous occurrence consumed (same observation date) does not count twice.
+
+**Trigger only** — an event on an exchange session:
+
+```text
+INACTIVE/RESOLVED -- Trigger fires                      --> ACTIVE
+ACTIVE            -- a later real exchange session observed --> RESOLVED
+```
+
+The occurrence stays `ACTIVE` for the session it fired in. It does not end at midnight, on another
+scan of the same session, or on a weekend or holiday: a Friday event is active through the weekend
+and resolved by Monday's observation.
+
+#### A daily trigger is evaluated against the previous closed day
 
 A daily trigger is evaluated **from the previous closed daily observation to the current provisional
-daily observation**. It is not a tick-to-tick intraday trigger.
+daily observation**. It is not a tick-to-tick intraday trigger. The `t - 1` half is the last closed
+trading day and does not move during a session, so for the rest of that session the crossing
+predicate degenerates into the plain relationship it crossed into. That is why a crossing can fire at
+most once per session, and why the latch above — not the predicate — is what keeps a triggered
+occurrence alive.
 
-The `t - 1` half is the last closed trading day and does not move during a session, so for the rest
-of that session the crossing predicate degenerates into the plain relationship it crossed into. It
-follows that:
+**Only a real current observation advances anything.** A cycle that produced no observation — a
+weekend, a holiday, a symbol the provider did not price — has observed no session and changes
+nothing. A `NOT_EVALUABLE` caused by missing current data carries **no** observation date at all.
 
-- a daily trigger emits **at most once per observation date**;
-- a price that crosses, moves back across the boundary and crosses again within the same observation
-  date does **not** produce a second Signal for that date — the canonical daily series has that
-  crossing true on exactly one date, and a backtest over the same closed bar would record one event;
-- for the same reason, an intraday move back across the boundary does not end a trigger Signal. A
-  Trigger is an event, so the condition lifecycle below does not apply to it: its Signal is active
-  for the session it fired in and is closed when a later session is **actually observed**.
+The implementation must preserve enough durable prior state to distinguish a genuine transition from
+a process restart or cache miss; `ai/architecture/monitor-engine.md` describes it.
 
-**Only a real current observation advances that lifetime.** A cycle that produced no observation —
-a weekend, a holiday, a symbol the provider did not price — has observed no session, so it closes
-nothing. The wall-clock date is not a session: a Friday crossing must still be active on Saturday,
-and is closed by Monday's observation, not by Sunday arriving. A `NOT_EVALUABLE` caused by missing
-current data therefore carries **no** observation date at all rather than a synthetic one.
+### FINAL EXIT with several Exit Rules
 
-The `false -> true -> true -> false` state table applies to **condition-only** signals, which
-describe a state that genuinely ends and begins again.
+FINAL EXIT remains **one** level and **one** Signal occurrence however many Exit Rules it holds. Each
+rule keeps its own internal lifecycle — one rule may wait for its Trigger while another is active on
+its Conditions — and the level is `ACTIVE` while any rule is, `PENDING_TRIGGER` while none is active
+and any is waiting. Several rules matching on one observation produce one occurrence; one rule taking
+over as another ends is the same occurrence.
 
 ### What identifies a Signal
 
-A condition Signal is one unbroken run of matched evaluations of one level for one security under
-one Monitor: it begins on the first decided match and ends on the first decided non-match, on the
-security leaving the List, on the level leaving the Strategy, or on the level's logic changing. A
-trigger Signal is one crossing on one observation date within one such run of the same logic and
-membership; the same date may carry a second trigger Signal only after the run was broken — the
-level's logic changed and the new rule also crosses that day, or the member was removed and
-re-added. Restarts, retries, duplicate scans and re-observations of a session never create a
-Signal, because every decision is re-derived from the durable state and reaches the same
+A `Signal` row is one **occurrence**: created when its level enters `ACTIVE`, resolved (with a
+reason and, when an observation ended it, the session) when it leaves, and **never reopened** — a
+later activation is a new row. An occurrence ends on its own logic, on the member leaving the List,
+on the level leaving (or being excluded from) the Strategy, on the level's logic changing, or on a
+rebind. Restarts, retries, duplicate scans and re-observations never create an occurrence or a
+transition, because every decision is re-derived from the durable state and reaches the same
 conclusion. `ai/architecture/deep-discovery.md` investigation 4 records the full table.
+
+### Transition history
+
+Every lifecycle state change — and only a change, never a repeated scan — is recorded with its
+reason, the session it was observed on (or none, for a rebind, removal or edit) and the occurrence it
+concerns. A `INACTIVE -> PENDING_TRIGGER` change is recorded before any Signal exists, so history is
+keyed to the Monitor, the security and the level.
+
+### Historical reconstruction
+
+A level with no current state — a new Monitor, a new member, a rebind, an edited level — does not
+start as if nothing had happened before. The first cycle replays about a year of closed sessions
+through the same evaluator and the same lifecycle, then applies the live observation, and persists
+only the result: at most one occurrence (marked `reconstructed`, dated to its real activation
+session) and one `RECONSTRUCTED` transition. It never writes the replayed history. A level whose
+history cannot be read waits for a later cycle.
 
 ## Monitored universe and BUY eligibility
 
 A Monitor's universe is a Stock List. Membership is the canonical `Security` catalog reference, never
 a free-text symbol.
 
-**BUY eligibility from that list applies to Monitor BUY Signals.** `ai/product/lists.md` defines a
+**BUY eligibility from that list applies to Monitor BUY levels.** `ai/product/lists.md` defines a
 `CUSTOM` buy window as the dates a member is eligible on, and a Monitor evaluates one date — the
-current observation. A BUY level therefore produces no Signal for a symbol whose current buy window
-does not admit that date. `FULL` admits every date and so never restricts anything.
+current observation. For a BUY level, an ineligible observation may neither start a
+`PENDING_TRIGGER` setup nor create an occurrence; an `ACTIVE` BUY occurrence whose window no longer
+admits the observation is resolved with reason `BUY_WINDOW_CLOSED`, and a pending setup returns to
+`INACTIVE`. `FULL` admits every date and so never restricts anything.
 
 SELL and FINAL EXIT are **not** restricted by buy windows. A buy window governs entries; an exit rule
 must still be able to report what it sees. This mirrors the backtest engine, which reads the same
@@ -117,11 +156,8 @@ A SELL or FINAL EXIT Signal is still meaningful: it reports that the Strategy's 
 current data for that symbol. Those levels are therefore evaluated and may produce Signals.
 
 FINAL EXIT may hold several **Exit Rules** (`strategies.md` § FINAL EXIT). It remains **one** level
-here: one level id, one durable transition state, one Signal lifecycle. Its result is the OR of its
-rules, so several rules matching on the same observation is one match and produces one Signal — never
-one per rule. A level whose rules are a mix of triggered and condition-only is treated as a
-**condition**: a condition-only alternative can stay true for days, and treating it as an event would
-re-emit a Signal on every scan.
+here: one level id, one durable state row, one Signal lifecycle, with the rule-local lifecycles
+described above behind it.
 
 A level is excluded from Monitor evaluation when **any** of its Exit Rules depends on `Gain` or
 `Loss`, for the same whole-level reason given below.
@@ -168,8 +204,9 @@ Backtests are unaffected. They hold real simulated position state and continue t
 
 ## Lifecycle in one place
 
-- **Create.** A Monitor references a Strategy and a Stock List that both belong to the caller,
-  verified in the transaction that inserts it. It starts `enabled` unless created otherwise.
+- **Create.** A customer's Monitor references a Strategy and a Stock List that both belong to the
+  caller, verified in the transaction that inserts it. It starts `enabled` unless created otherwise.
+  Its first cycle reconstructs each level's state from history.
 - **Evaluate.** Every enabled Monitor is evaluated in every scan cycle. The cycle is a singleton
   claim across all worker processes, so two cycles never run at once by design; if a lease is lost
   and one overlaps anyway, the durable transition state's optimistic version guard means at most
@@ -177,19 +214,21 @@ Backtests are unaffected. They hold real simulated position state and continue t
 - **Disable.** Stops future evaluations from the next cycle on (a cycle already running finishes
   with the enabled set it loaded). Persisted transition state and active Signals are left exactly
   as they were: a disabled Monitor still shows the Signals that were active when it was disabled.
-- **Re-enable.** Resumes from that persisted state. A condition that was already matched is not
-  re-emitted; a trigger keeps the date it last fired on.
+- **Re-enable.** Resumes from that persisted state. An occurrence that was already active is not
+  re-emitted; a latched trigger stays latched.
 - **Edit the Strategy.** Takes effect from the next cycle. Only levels whose canonical logic
-  changed have their state reset and their active Signal closed; unchanged levels continue.
-- **Edit the List.** Takes effect from the next cycle. A removed member's active Signals are
-  resolved by that cycle; an added member is evaluated as new and may emit immediately.
+  changed have their occurrence closed (`LOGIC_CHANGED`) and their state reset and reconstructed;
+  unchanged levels continue.
+- **Edit the List.** Takes effect from the next cycle. A removed member's occurrences are resolved
+  (`MEMBER_REMOVED`) and its setups dropped by that cycle, and its state is forgotten; an added — or
+  re-added — member is reconstructed from history and may be active immediately.
 - **Rebind the Strategy or List.** Pointing the Monitor at a *different* Strategy or Stock List is
   not the same operation as editing the contents of the ones it references. It crosses a
   configuration boundary: the transition state is discarded, every Signal still active is resolved,
   `lastScanAt` is cleared, and the new configuration is evaluated from the next cycle. Signal
   history is kept. See "Rebinding a Monitor" below.
-- **Delete the Monitor.** Removes its transition state and its Signals with it. The Strategy and
-  List it referenced are untouched.
+- **Delete the Monitor.** Removes its state, its Signals and its transition history with it. The
+  Strategy and List it referenced are untouched. A built-in Monitor is never deleted.
 - **Delete the Strategy or List.** Refused while any Monitor references it. Delete the Monitor
   first.
 
@@ -232,16 +271,15 @@ configuration it was evaluating. A `MonitorSignalState` row latches the result o
 Strategy for one member of one List. Once either reference moves, that row describes something the
 Monitor no longer evaluates. So a rebind:
 
-- **resolves every Signal still active.** They stop being current, which they are not. A Signal that
-  was active under the replaced configuration is closed with the rebind's timestamp.
-- **keeps every Signal row.** A Signal is a record of what was observed, and observations are not
-  invalidated by a later configuration change. Nothing is deleted.
-- **discards the transition state.** No latch from the replaced configuration can decide an edge in
+- **resolves every Signal still active** (`MONITOR_REBOUND`) and drops every pending setup. Each
+  ending is recorded in the transition history under the logic it belonged to.
+- **keeps every Signal and transition row.** A Signal is a record of what was observed, and
+  observations are not invalidated by a later configuration change. Nothing is deleted.
+- **discards the lifecycle state.** No latch from the replaced configuration can decide anything in
   the new one, and no fingerprint coincidence between two Strategies can silently carry one across.
-- **clears `lastScanAt`.** The configuration the Monitor now names has not been checked. Reporting
-  the previous one's scan time would be a claim about work that never happened.
-- **evaluates the new configuration from the next cycle.** A match under the new rules is emitted
-  then, as a new Signal, because that is when it was first observed.
+- **clears `lastScanAt`.** The configuration the Monitor now names has not been checked.
+- **reconstructs the new configuration on the next cycle.** Each level's state is re-established
+  from history, as for a new Monitor.
 
 Rebinding away and back is two boundaries, not a round trip: the state discarded by the first is not
 restored by the second, and the next cycle re-establishes it from persisted history.
@@ -393,14 +431,37 @@ a wrong Signal.
 - Backtest configuration remains separate from Monitor configuration.
 - Redis/in-memory caches are implementation accelerators, never the semantic source of truth.
 
+## Built-in Monitors and the Dashboard
+
+`docs/decisions/builtin-dashboard-signals-v1.md` is the product decision. The platform ships
+built-in (`SYSTEM`) Lists, Strategies and Monitors — ordinary domain objects evaluated by the same
+cycle — so a first-time visitor's Dashboard already shows real matches.
+
+- **A built-in Monitor is shared.** It has no owner and is evaluated once for everybody. It has two
+  operator switches and no `enabled` of its own: `isPublished` (customers can see it) and
+  `isGloballyEnabled` (the cycle evaluates it). It consumes nobody's active-Monitor capacity and is
+  never deleted.
+- **Visibility is per user, evaluation is not.** A Guest sees every published built-in on the
+  Dashboard. A signed-in user sees them too unless they hid one; only that override is stored, and it
+  never changes whether the Monitor runs. A Guest's toggle asks them to sign in and stores nothing.
+- **A customer's own Monitor** keeps its real `enabled` lifecycle: disabled (or plan-blocked)
+  Monitors contribute no Dashboard rows, whatever their frozen state says. A customer's Monitor
+  watches only the customer's own Lists and Strategies; a built-in Monitor watches only built-ins.
+- **Administrators** (`role = ADMIN`) change built-ins through the ordinary routes and editors;
+  everybody else reads them. Changing a display name never changes the `systemKey`.
+
+The Dashboard is a table of `ACTIVE` occurrences and `PENDING_TRIGGER` setups — never `INACTIVE` or
+`RESOLVED` — with one row per Monitor outcome (the same security under two Monitors is two rows),
+newest state first, and each Monitor's freshness from its real scan time.
+
 ## Open product decisions
 
 Recorded so they are decided deliberately rather than by whichever code path is touched next. Each
 is traced in `ai/architecture/deep-discovery.md`.
 
 1. **A member that stops trading.** A delisted or indefinitely halted security yields no usable
-   quote, so every evaluation is `NOT_EVALUABLE`, the latch never moves and its active Signals —
-   condition or trigger — stay active indefinitely with `lastOutcome = NOT_EVALUABLE`. Nothing
+   quote, so every evaluation is `NOT_EVALUABLE`, the lifecycle never moves and its active
+   occurrences stay active indefinitely with `lastOutcome = NOT_EVALUABLE`. Nothing
    resolves them today; the catalog sync marks the security inactive but the List still holds it.
    Options: resolve on deactivation like a removed member, or surface "no current data since" and
    leave the Signal. Not decided.
@@ -420,7 +481,8 @@ is traced in `ai/architecture/deep-discovery.md`.
 Unless another canonical product document explicitly decides otherwise, do not add during V1:
 
 - user-configurable monitoring cadence;
-- separate user-facing names for persistent condition matches versus trigger events;
+- separate user-facing names for persistent condition matches versus trigger events (the Dashboard's
+  "Waiting for trigger" names a *setup*, which is not a Signal);
 - a second Monitor-specific Strategy DSL;
 - a requirement to recompute every available series for every symbol;
 - correctness that depends on Redis surviving a restart;

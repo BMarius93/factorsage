@@ -124,9 +124,11 @@ describeRedis("rate limiting on the real API surface", () => {
 
     it("still refuses a guest with 401 rather than with a rate-limit status", async () => {
       // The order matters: authentication runs in a controller guard, before the interceptor's
-      // policy is applied, so an unauthenticated caller must still see `401`.
+      // policy is applied, so an unauthenticated caller must still see `401`. (`GET /lists` is
+      // guest-readable for built-in content, so a session-only write is the route under test.)
       const response = await request(app.getHttpServer())
-        .get("/lists")
+        .post("/lists")
+        .send({ name: "Guest attempt" })
         .expect(401);
       expect(response.body.code).toBeUndefined();
     });

@@ -49,11 +49,12 @@ export function lastScanLabel(lastScanAt: string | undefined): string {
 /**
  * How each status reads, and the tone it carries.
  *
- * The four are kept apart deliberately: `ai/product/monitors.md` treats "could not be decided" as a
+ * The five are kept apart deliberately: `ai/product/monitors.md` treats "could not be decided" as a
  * different answer from "did not match", and neither is the same as "nothing has looked yet".
  */
 export const SECURITY_STATUS_LABELS: Record<MonitorSecurityStatus, string> = {
   MATCHED: "Matched",
+  WAITING_FOR_TRIGGER: "Waiting for trigger",
   NO_MATCH: "No match",
   NOT_EVALUABLE: "Not evaluable",
   NOT_CHECKED: "Not checked yet",
@@ -62,6 +63,7 @@ export const SECURITY_STATUS_LABELS: Record<MonitorSecurityStatus, string> = {
 export const SECURITY_STATUS_TONES: Record<MonitorSecurityStatus, StatusTone> =
   {
     MATCHED: "positive",
+    WAITING_FOR_TRIGGER: "active",
     NO_MATCH: "neutral",
     NOT_EVALUABLE: "warning",
     NOT_CHECKED: "pending",

@@ -19,8 +19,9 @@ Quick answers (each points at the entry and the owner document):
 - *What does a Monitor actually evaluate?* Closed persisted history plus the provider's last trade
   as a provisional row for the last-trade session (3); every level of every member (2).
 - *What identifies a market observation?* `(securityId, exchange session date)` (3).
-- *When exactly is a Signal emitted?* On the not-matched → matched edge of a level's durable latch,
-  once per session for a trigger, within one logic-and-membership epoch (4).
+- *When exactly is a Signal emitted?* When a level's durable lifecycle enters `ACTIVE` — Conditions
+  becoming true, or a fresh Trigger firing while the Conditions hold — and never on a repeated scan
+  (4; `docs/decisions/builtin-dashboard-signals-v1.md`).
 - *What happens to active Signals after Strategy/List changes?* Reset only for levels whose logic
   or id changed; resolved for removed members; untouched by unrelated edits (1, 2).
 - *How do Monitor and Backtest evaluation differ?* Same evaluator; live observation, bounded
@@ -51,21 +52,20 @@ cycles?
 - Durable state is one `MonitorSignalState` row per `(monitorId, securityId, levelId)`, carrying
   `signalFingerprint` = `strategySignalFingerprint(level.signal)` — the level's own logic with row
   ids stripped, sharing serialization with the definition hash so the two cannot disagree.
-- On evaluation, `applyTransition` compares the row's fingerprint with the current level's:
-  - **same id, same logic** → the latch and the active Signal continue; an edit to *another* level
-    does not touch this one (`monitor-cycle.integration.test.ts` "keeps an unchanged level's match
-    when another level of the Strategy is edited");
+- On evaluation, `decideLevel` compares the row's fingerprint with the current level's:
+  - **same id, same logic** → the lifecycle and the active occurrence continue; an edit to *another*
+    level does not touch this one (`monitor-cycle.integration.test.ts` "keeps an unchanged level's
+    match when another level of the Strategy is edited");
   - **same id, changed logic** (operator, metric, value, trigger added/removed, condition
-    added/removed) → the row is *stale*: its active Signal is resolved, the latch is discarded, and
-    the new logic is evaluated as if never seen — so a condition that is true under the new logic
-    emits a **new** Signal on the same observation, and a trigger emits only if the canonical
-    crossing holds between `t-1` and `t` ("resets state recorded under different level logic");
-  - **level id absent from the newest version** → `resolveUnvisitedSignals` closes the active
-    Signal and resets the row to NOT_MATCHED with no fire date. The row is kept, keyed by the old
-    id, and is harmless: if that id ever returns it starts from "not matched", which re-emits a
-    genuine match;
-  - **new level id** → no row; first evaluation emits immediately for a true condition, and for a
-    trigger only if the crossing holds on this observation.
+    added/removed) → the row is *stale*: its occurrence is resolved with `LOGIC_CHANGED` (recorded
+    under the old fingerprint), the state is discarded, and the new logic is **reconstructed** from
+    history and advanced by the live observation — so a condition that is true under the new logic
+    opens a new occurrence on the same observation ("resets state recorded under different level
+    logic, and records why");
+  - **level id absent from the newest version** → `resolveUnvisitedStates` closes the occurrence
+    with `LEVEL_REMOVED`, drops a pending setup, records the change and deletes the row; if that id
+    ever returns it is reconstructed like a new level;
+  - **new level id** → no row; its first decidable cycle reconstructs it from history.
 - `percentage` is not part of a Signal's fingerprint, so re-weighting a level keeps its state.
 - A Signal records the `strategyVersionId` it was decided under; the rule text is recoverable by
   joining that version's definition on `levelId`.
@@ -80,8 +80,8 @@ cycles?
    in place and never regenerates an existing id (`draftFrom`, reducer spreads).
 3. Only the newest version is evaluated; intermediate versions are history for backtests only.
 
-**Evidence.** `apps/worker/src/monitor/monitor-repository.ts` (`applyTransition`,
-`resolveUnvisitedSignals`), `packages/contracts/src/strategies.ts` (`strategySignalFingerprint`,
+**Evidence.** `apps/worker/src/monitor/level-decision.ts` (`decideLevel`),
+`monitor-repository.ts` (`applyLevelState`, `resolveUnvisitedStates`), `packages/contracts/src/strategies.ts` (`strategySignalFingerprint`,
 `ValidationContext.claimId`), `apps/api/src/strategies/strategies.service.ts` (`replaceDefinition`,
 version appended only on hash change, now under a row lock),
 `apps/web/src/features/strategies/utils/strategy-draft.ts`,
@@ -121,17 +121,16 @@ members are added, removed, removed and re-added, re-windowed, or changed while 
   in-memory `monitor.members`, so one cycle sees one consistent membership; a List edit during a
   cycle is visible from the next cycle only. There is no persisted membership snapshot and none is
   needed: state is keyed by `securityId`, not by list-item id.
-- **Added** member: no state row → evaluated as new next cycle; a true condition emits at once.
-- **Removed** member: next cycle's `resolveUnvisitedSignals` closes its active Signals and resets
-  its rows to NOT_MATCHED. Rows are kept (keyed by `securityId`).
-- **Removed and re-added** (a new `StockListItem` row, same `securityId`): the reset row is found,
-  the latch reads "not matched", and a still-true match emits a fresh Signal ("signals again for a
-  security removed from the list and added back"). This is a genuine second match, by decision.
+- **Added** member: no state row → reconstructed from history on its first decidable cycle.
+- **Removed** member: next cycle's `resolveUnvisitedStates` closes its occurrences
+  (`MEMBER_REMOVED`), drops its setups, records the changes and deletes its rows.
+- **Removed and re-added**: no row, so it is reconstructed; a still-true match is a fresh occurrence
+  ("signals again for a security removed from the list and added back"). A genuine second match, by
+  decision.
 - **Buy window changed**: BUY levels read `isBuyWindowEligible(config, observationDate)` — inclusive
-  on both ends, `FULL` always eligible — before evaluating; an ineligible date is `NOT_MATCHED`, so
-  an active BUY condition Signal resolves on the first observation after its window closes, and a
-  fired BUY trigger Signal closes when a later session is observed. SELL and FINAL EXIT ignore
-  windows. The date compared is the exchange session date of the observation, so a weekend cycle
+  on both ends, `FULL` always eligible. An ineligible observation neither starts a setup nor opens an
+  occurrence, resolves an active BUY occurrence with `BUY_WINDOW_CLOSED` and drops a pending one.
+  SELL and FINAL EXIT ignore windows. The date compared is the exchange session date of the observation, so a weekend cycle
   that re-observes Friday still tests Friday.
 - **Removed mid-cycle**: the running cycle still evaluates it from the members it loaded and may
   emit; the next cycle resolves. One-cycle lag, same as disable.
@@ -141,7 +140,7 @@ sweep names *current securities and levels*, never row ids, so states created in
 never swept by mistake. A Monitor over an emptied List sweeps everything (the "visits nothing" path)
 rather than returning early.
 
-**Evidence.** `monitor-repository.ts` (`listActiveMonitors`, `resolveUnvisitedSignals`),
+**Evidence.** `monitor-repository.ts` (`listActiveMonitors`, `resolveUnvisitedStates`),
 `monitor-cycle.ts` (`run` — no early return on an empty universe; `evaluateLevel` gating),
 `packages/domain/src/stock-lists.ts` (`isBuyWindowEligible`), tests "resolves a Signal whose
 security left the monitored list", "signals again for a security removed from the list and added
@@ -226,46 +225,41 @@ simulate today from an in-progress bar — see investigation 5 and the product q
 retry, Strategy edit, List removal/re-add, duplicate quotes, a duplicate scan, observation replay,
 a stale worker and a data correction?
 
-**Current behaviour.** The lifecycle is decided entirely from durable rows:
+**Current behaviour.** The lifecycle is decided entirely from durable rows, by the pure reducer
+`stepMonitorLevel` (`docs/decisions/builtin-dashboard-signals-v1.md` section 2):
 
 ```text
-no row                         first decided evaluation creates the row; MATCHED emits
-NOT_MATCHED -> MATCHED         emit (condition: !wasMatched; trigger: !firedThisObservation)
-MATCHED     -> MATCHED         no write at all (fast path), Signal stays active
-MATCHED     -> NOT_EVALUABLE   lastOutcome only; latch and Signal untouched
-NOT_EVALUABLE -> NOT_MATCHED   condition: resolve the active Signal (latch decides, not lastOutcome)
-MATCHED     -> NOT_MATCHED     condition: resolve; trigger: keep the Signal for its session
-later session observed         trigger: close the Signal whatever the outcome
-NOT_MATCHED -> MATCHED again   a new Signal (a condition state that ended and began again)
+no row                               reconstruct from history, then apply the live observation
+INACTIVE/RESOLVED -> ACTIVE          Conditions true (condition-only) or fresh Trigger with Conditions
+INACTIVE/RESOLVED -> PENDING_TRIGGER Conditions true, Trigger not (freshly) fired
+PENDING_TRIGGER   -> ACTIVE          Trigger fires while Conditions hold
+PENDING_TRIGGER   -> INACTIVE        a Condition false, or the BUY window closed — no occurrence existed
+ACTIVE            -> ACTIVE          nothing written (the Trigger is latched)
+ACTIVE            -> RESOLVED        a Condition false; the BUY window closed; a trigger-only event
+                                     reaching a later observed session; removal, edit or rebind
+NOT_EVALUABLE                        nothing moves (except a trigger-only event on a later session)
+no observation                       nothing moves at all
 ```
 
-- **A condition Signal** is one unbroken run of MATCHED decisions on one `(monitor, security,
-  level)`; it ends on the first decided NOT_MATCHED, on removal from the List, on removal of the
-  level, or on a logic change of the level.
-- **A trigger Signal** is one crossing on one session date within one *epoch* of the row — the
-  same level logic and continuous membership. Within an epoch there is at most one per
-  `(monitor, security, level, observationDate)`, enforced by `lastTriggerSignalDate`; the same
-  date may legitimately carry a second Signal in a **new epoch** (logic edited and the new rule
-  also crosses that day; member removed and re-added the same day). That is why no unique index
-  on `(monitorId, securityId, levelId, observationDate)` exists and none should be added: it would
-  turn those legitimate cases into a permanently contended transition.
-- Restart, retry, duplicate scan and observation replay all re-derive the same decision from the
-  same rows and take the fast path (nothing written). A stale worker's writes lose the
-  `stateVersion` guard and roll back the Signal they created. A duplicate quote cannot occur
-  (one batched request per cycle, keyed by security). A **data correction** that changes what the
-  current observation evaluates to is simply the next transition — the emitted Signal is history
-  and keeps the observation it was decided on.
-- Neither a trigger's `activeSignalId` nor its latch is cleared by an intraday move back across
-  the line, so `(lastEvaluableResult = NOT_MATCHED, activeSignalId ≠ null)` is a legitimate
-  trigger-row state.
+- **An occurrence** is one `MonitorSignal` row, from entering `ACTIVE` to leaving it, never
+  reopened. `ruleStates[*].triggerDate` records the crossing the latest occurrence consumed, so a
+  fresh setup needs a fresh crossing and a session can fire at most once.
+- Restart, retry, duplicate scan and observation replay re-derive the same decision from the same
+  rows and write nothing. A stale worker's writes lose the `stateVersion` guard and roll back the
+  occurrence and transitions they created. A **data correction** that changes what the current
+  observation evaluates to is simply the next transition.
+- That is why no unique index on `(monitorId, securityId, levelId, observationDate)` exists and none
+  should be added: a logic edit or a remove-and-re-add can legitimately open a second occurrence on
+  one date.
 
 **Invariants.** A Signal is created only inside the transaction that moves the latch, so it can
 never exist without the row that explains it. `activeSignalId` is unique. `NOT_EVALUABLE` never
 moves the latch. Only a real observation of a later session ends a trigger Signal.
 
-**Evidence.** `monitor-repository.ts` (`applyTransition`, `closesEventSession`, `resolveSignals`),
+**Evidence.** `packages/strategy/src/monitor-lifecycle.ts` and its test,
+`apps/worker/src/monitor/level-decision.ts`, `monitor-repository.ts` (`applyLevelState`),
 `monitor-cycle.integration.test.ts` (whipsaw, later-session close, older-session keep, state loss,
-double-apply, removed-and-re-added, logic reset).
+double-apply, removed-and-re-added, logic reset, pending setups, reconstruction).
 
 **Finding.** Healthy. Signal identity is now an explicit documented invariant rather than
 implementation knowledge.
@@ -567,7 +561,7 @@ flag is not consulted by the cycle, and the List keeps the member.
 changes nothing". The two cases are indistinguishable to the engine by design — only their
 duration differs.
 
-**Evidence.** `applyTransition` NOT_EVALUABLE branch (`monitor-repository.ts`), `closesEventSession`
+**Evidence.** `decideLevel` no-observation branch (`level-decision.ts`), `stepMonitorLevel`
 (null observation → false), test "leaves a Trigger Signal alone on a day no session was observed".
 
 **Finding.** **Product decision required** (recorded in `ai/product/monitors.md`). No code change:
@@ -633,8 +627,10 @@ Stopping here: three consecutive investigations confirmed already-understood beh
 
 Recorded so they are not "fixed".
 
-- **A trigger row with `lastEvaluableResult = NOT_MATCHED` and an active Signal.** Intentional: an
-  intraday move back across the line neither ends the event nor clears its fire date.
+- **An `ACTIVE` row with `lastEvaluableResult = NOT_MATCHED`.** Intentional: for a Conditions +
+  Trigger level the canonical level outcome (Conditions AND Trigger) is false on every session after
+  the crossing, while the latched lifecycle stays `ACTIVE`; for a trigger-only event an intraday move
+  back across the line does not end it.
 - **A Signal for a security no longer in the List, or for a disabled Monitor, still `active`.** The
   removed member is resolved by the next cycle; a disabled Monitor is deliberately untouched so
   re-enabling resumes rather than re-emits.
@@ -643,8 +639,11 @@ Recorded so they are not "fixed".
 - **`stateVersion`-guarded `updateMany` returning 0 rows and the transaction throwing.** That throw
   is the rollback of the Signal created in the same transaction; it is caught and reported as
   "not applied".
-- **`resolveUnvisitedSignals` keeping the reset state row.** Absence versus a NOT_MATCHED row decide
-  the same way; the row is harmless and keeps `stateVersion` history.
+- **`resolveUnvisitedStates` deleting the state row.** History lives in `MonitorStateTransition`;
+  absence is what makes a returning member or level reconstruct instead of resuming a stale latch.
+- **A reconstructed `RESOLVED` stored as `INACTIVE`.** No occurrence was ever recorded for it.
+- **A reconstructed Signal whose `detectedAt` is today and `observationDate` months ago.** The first
+  is when the platform recorded it, the second when it actually began; `reconstructed` says so.
 - **The cycle's fast path writing nothing, so `lastEvaluableAt` does not advance.** It records when
   the latch was decided, not the last confirmation; `Monitor.lastScanAt` carries the cycle.
 - **`markScanned` bypassing Prisma to avoid `@updatedAt`.** A scan is not a user edit; the

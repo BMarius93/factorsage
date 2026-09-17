@@ -193,10 +193,20 @@ on each unchanged one. `stateVersion`
 is an optimistic guard: the transition is applied with an `updateMany` filtered on the version it was
 read at, so two workers whose leases briefly overlap cannot both emit a Signal for one transition.
 
-`MonitorSignal` is the append-only product record, created on the `NOT_MATCHED -> MATCHED` edge and
-only there — which is what stops a condition that stays true from producing a Signal per scan, and a
-trigger that fired from repeating while the value stays on the same side. `resolvedAt` is set when
-the match ends; rows are never deleted. `MonitorSignalState.activeSignalId` is `@unique`, so one
+Migration `20260917120000_builtin_dashboard_signals` replaces the latch with the accepted lifecycle
+(`docs/decisions/builtin-dashboard-signals-v1.md`): `lifecycleState`, when/where/at what price it was
+entered, and `ruleStates` (rule-local lifecycle for multi-rule FINAL EXIT); `lastTriggerSignalDate`
+moved into `ruleStates`. `lastEvaluableResult` and `lastOutcome` remain observability.
+`MonitorStateTransition` is the append-only change log (only state changes, ordered by `sequence`,
+nullable `signalId`). The same migration adds SYSTEM ownership to `StockList`, `Strategy` and
+`Monitor` (`ownership`, nullable `userId`, unique `systemKey`, `displayOrder`, `updatedByUserId`,
+guarded by CHECK constraints), `Monitor.isPublished`/`isGloballyEnabled`, and
+`UserBuiltInMonitorPreference`. Its README records the backfill.
+
+`MonitorSignal` is one product occurrence, created when its level enters `ACTIVE` and only then —
+which is what stops a condition that stays true from producing a Signal per scan, and a latched
+trigger from repeating. `resolvedAt`, `resolvedObservationDate` and `resolutionReason` are set when
+the occurrence ends; rows are never reopened or deleted independently of their Monitor. `MonitorSignalState.activeSignalId` is `@unique`, so one
 state can never point at two live Signals. `hasTrigger` is explanation metadata, not a second
 product concept. Signals cascade from `Monitor`: unlike a `BacktestRun`, a Signal is not an
 independently addressable user-owned execution record — it names a level id inside that Monitor's

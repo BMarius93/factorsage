@@ -1,0 +1,33 @@
+.name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--color-text-primary);
+  font-weight: var(--weight-emphasis);
+  text-decoration: none;
+}
+
+.name:hover {
+  color: var(--color-primary);
+}
+
+.kind {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.key {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

@@ -1,3 +1,4 @@
+import type { ContentOwnershipResponse } from "./builtins.js";
 import {
   comparableMovingAverages,
   findSelectableSeries,
@@ -2310,7 +2311,7 @@ function signalFingerprintValue(signal: StrategySignal): unknown {
  * Counts rather than the definition, so the collection page renders without loading every
  * document — the same reasoning as `StockListSummaryResponse.itemCount`.
  */
-export type StrategySummaryResponse = {
+export type StrategySummaryResponse = ContentOwnershipResponse & {
   id: string;
   name: string;
   description?: string;

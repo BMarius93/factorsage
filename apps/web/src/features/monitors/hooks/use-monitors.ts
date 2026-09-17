@@ -30,6 +30,9 @@ export function summaryOf(
   detail: MonitorDetailResponse,
 ): MonitorSummaryResponse {
   return {
+    ownership: detail.ownership,
+    ...(detail.systemKey === undefined ? {} : { systemKey: detail.systemKey }),
+    canEdit: detail.canEdit,
     id: detail.id,
     name: detail.name,
     enabled: detail.enabled,
@@ -51,6 +54,15 @@ export function summaryOf(
     ...(detail.blockedReason === undefined
       ? {}
       : { blockedReason: detail.blockedReason }),
+    ...(detail.isPublished === undefined
+      ? {}
+      : { isPublished: detail.isPublished }),
+    ...(detail.isGloballyEnabled === undefined
+      ? {}
+      : { isGloballyEnabled: detail.isGloballyEnabled }),
+    ...(detail.displayOrder === undefined
+      ? {}
+      : { displayOrder: detail.displayOrder }),
   };
 }
 

@@ -16,7 +16,7 @@ A **Strategy** defines reusable investment signal logic.
 Keep these concepts separate:
 
 - **Strategy** — reusable BUY / SELL / FINAL EXIT logic;
-- **Stock List** — the user-owned universe of securities to evaluate;
+- **Stock List** — the user-owned (or built-in) universe of securities to evaluate;
 - **Backtest configuration** — combines a Strategy and a Stock List and adds execution inputs such
   as date range, initial capital, contributions, `maximumPositions`, fees or other simulation
   settings;

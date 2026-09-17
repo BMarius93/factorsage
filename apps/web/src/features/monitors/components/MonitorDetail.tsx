@@ -4,6 +4,7 @@ import type {
   MonitorDetailResponse,
   MonitorSecurityEvaluationResponse,
   MonitorSignalResponse,
+  UpdateMonitorRequest,
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
@@ -157,20 +158,30 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const view: MonitorDetailResponse =
     local === null ? monitor : { ...monitor, ...local };
 
-  const toggle = async () => {
+  const builtIn = view.ownership === "SYSTEM";
+
+  // One path for every switch this page owns: a customer's `enabled`, and an administrator's
+  // `isPublished` and `isGloballyEnabled` on a built-in.
+  const patchSwitch = async (patch: UpdateMonitorRequest) => {
     if (togglePending) {
       return;
     }
     setTogglePending(true);
     setToggleFailed(false);
     try {
-      setLocal(await updateMonitor(view.id, { enabled: !view.enabled }));
+      setLocal(await updateMonitor(view.id, patch));
     } catch {
       setToggleFailed(true);
     } finally {
       setTogglePending(false);
     }
   };
+  const toggle = () =>
+    patchSwitch(
+      builtIn
+        ? { isGloballyEnabled: !view.enabled }
+        : { enabled: !view.enabled },
+    );
 
   const signalsAtWindow = view.signals.length >= SIGNAL_WINDOW;
 
@@ -210,7 +221,8 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
         header: "Signal",
         nowrap: true,
         render: (entry) =>
-          entry.matchedLevels.length === 0 ? (
+          entry.matchedLevels.length === 0 &&
+          entry.waitingLevels.length === 0 ? (
             <Placeholder />
           ) : (
             <span className={styles.levels}>
@@ -220,6 +232,16 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   levelKind={level.levelKind}
                   kind={level.kind}
                 />
+              ))}
+              {entry.waitingLevels.map((level) => (
+                <StatusBadge
+                  key={level.levelId}
+                  tone="active"
+                  variant="outline"
+                  dataAttributes={{ "data-kind": level.levelKind }}
+                >
+                  {LEVEL_KIND_LABELS[level.levelKind]} · waiting for trigger
+                </StatusBadge>
               ))}
             </span>
           ),
@@ -306,7 +328,10 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       key: "detected",
       header: "Detected",
       nowrap: true,
-      render: (signal) => formatMonitorTimestamp(signal.detectedAt),
+      render: (signal) =>
+        signal.reconstructed
+          ? `${signal.observationDate} · from history`
+          : formatMonitorTimestamp(signal.detectedAt),
     },
   ];
 
@@ -314,59 +339,130 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     <PageContainer>
       <div className={styles.page} data-testid="monitor-detail">
         <PageHeader
-          back={{ href: "/monitors", label: "Monitors" }}
+          back={
+            builtIn && !view.canEdit
+              ? { href: "/dashboard", label: "Dashboard" }
+              : builtIn
+                ? { href: "/admin", label: "Admin" }
+                : { href: "/monitors", label: "Monitors" }
+          }
           title={view.name}
           badges={
-            <StatusBadge
-              tone={view.enabled ? "positive" : "pending"}
-              testId="monitor-enabled-pill"
-            >
-              {view.enabled ? "Enabled" : "Disabled"}
-            </StatusBadge>
+            <>
+              {builtIn ? (
+                <StatusBadge
+                  tone="neutral"
+                  variant="outline"
+                  testId="built-in-badge"
+                >
+                  Built-in
+                </StatusBadge>
+              ) : null}
+              <StatusBadge
+                tone={view.enabled ? "positive" : "pending"}
+                testId="monitor-enabled-pill"
+              >
+                {builtIn
+                  ? view.enabled
+                    ? "Running"
+                    : "Paused"
+                  : view.enabled
+                    ? "Enabled"
+                    : "Disabled"}
+              </StatusBadge>
+              {builtIn && view.canEdit ? (
+                <StatusBadge
+                  tone={view.isPublished ? "positive" : "warning"}
+                  testId="monitor-published-pill"
+                >
+                  {view.isPublished ? "Published" : "Unpublished"}
+                </StatusBadge>
+              ) : null}
+            </>
           }
           actions={
-            <>
-              <button
-                type="button"
+            !view.canEdit ? (
+              <Link
                 className={forms.tintedButton}
-                data-testid="edit-monitor"
-                onClick={() => setDialog({ kind: "edit" })}
+                href={`/backtests/new?strategyId=${encodeURIComponent(view.strategyId)}&stockListId=${encodeURIComponent(view.stockListId)}`}
               >
-                Edit monitor
-              </button>
-              <OverflowMenu
-                label={view.name}
-                testId="monitor-detail-actions"
-                items={[
-                  {
-                    label: view.enabled
-                      ? togglePending
-                        ? "Disabling…"
-                        : "Disable"
-                      : togglePending
-                        ? "Enabling…"
-                        : "Enable",
-                    disabled: togglePending,
-                    onSelect: toggle,
-                    testId: "toggle-monitor",
-                  },
-                  {
-                    label: "Delete monitor",
-                    tone: "danger",
-                    separated: true,
-                    onSelect: () => setDialog({ kind: "delete" }),
-                    testId: "delete-monitor",
-                  },
-                ]}
-              />
-            </>
+                Backtest this monitor
+              </Link>
+            ) : builtIn ? (
+              <>
+                <button
+                  type="button"
+                  className={forms.tintedButton}
+                  data-testid="edit-monitor"
+                  onClick={() => setDialog({ kind: "edit" })}
+                >
+                  Edit monitor
+                </button>
+                <OverflowMenu
+                  label={view.name}
+                  testId="monitor-detail-actions"
+                  items={[
+                    {
+                      label: view.enabled
+                        ? "Pause for everyone"
+                        : "Resume for everyone",
+                      disabled: togglePending,
+                      onSelect: toggle,
+                      testId: "toggle-monitor",
+                    },
+                    {
+                      label: view.isPublished ? "Unpublish" : "Publish",
+                      disabled: togglePending,
+                      onSelect: () =>
+                        patchSwitch({ isPublished: !view.isPublished }),
+                      testId: "publish-monitor",
+                    },
+                  ]}
+                />
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={forms.tintedButton}
+                  data-testid="edit-monitor"
+                  onClick={() => setDialog({ kind: "edit" })}
+                >
+                  Edit monitor
+                </button>
+                <OverflowMenu
+                  label={view.name}
+                  testId="monitor-detail-actions"
+                  items={[
+                    {
+                      label: view.enabled
+                        ? togglePending
+                          ? "Disabling…"
+                          : "Disable"
+                        : togglePending
+                          ? "Enabling…"
+                          : "Enable",
+                      disabled: togglePending,
+                      onSelect: toggle,
+                      testId: "toggle-monitor",
+                    },
+                    {
+                      label: "Delete monitor",
+                      tone: "danger",
+                      separated: true,
+                      onSelect: () => setDialog({ kind: "delete" }),
+                      testId: "delete-monitor",
+                    },
+                  ]}
+                />
+              </>
+            )
           }
         />
 
         {toggleFailed ? (
           <p className={forms.error} role="alert">
-            That change did not save. This monitor is still{" "}
-            {view.enabled ? "enabled" : "disabled"}.
+            That change did not save. This monitor is unchanged.
           </p>
         ) : null}
 

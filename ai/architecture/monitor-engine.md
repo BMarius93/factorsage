@@ -159,32 +159,24 @@ as evaluating half a conjunction.
 
 ### FINAL EXIT is one level, with alternatives
 
-`MonitorStrategyLevel` carries `rules` — the level's alternatives, ORed — rather than a single
-`signal`. BUY and SELL always carry exactly one; FINAL EXIT carries its Exit Rules in definition
-order. Modelling every level as a one-or-more list is what keeps the cycle free of a FINAL EXIT
-special case: it evaluates, fingerprints and reports all three families identically, through
-`evaluateLevelWithoutPosition`.
+`MonitorStrategyLevel` carries `rules` — the level's alternatives, ORed — and parallel `ruleIds`,
+rather than a single `signal`. BUY and SELL always carry exactly one rule, keyed by the level id;
+FINAL EXIT carries its Exit Rules in definition order, keyed by their own ids. Modelling every level
+as a one-or-more list keeps the cycle free of a FINAL EXIT special case.
 
-That is also why multiple Exit Rules cannot duplicate a Signal. The disjunction collapses to one
-`Evaluability` inside the canonical evaluator, so the cycle sees **one** result for **one** level id
-and writes **one** `MonitorSignalState` row through **one** `applyTransition`. There is nothing
-downstream to deduplicate, because nothing downstream ever sees more than one answer.
+Multiple Exit Rules cannot duplicate a Signal: each rule has its own lifecycle inside `ruleStates`,
+but the level aggregates them into **one** state, and the occurrence belongs to the level. The
+canonical `evaluateLevelWithoutPosition` still provides the level's single `lastOutcome`.
 
-`fingerprint` and `hasTrigger` are resolved by `monitorStrategyLevels` rather than by each caller,
-so the worker and the API cannot develop separate opinions about when a level's logic changed or
-whether its match is an event.
+`fingerprint` is resolved by `monitorStrategyLevels` rather than by each caller, so the worker and the
+API cannot develop separate opinions about when a level's logic changed. `hasTrigger` (every
+alternative triggered) is recorded on a Signal as explanation only; the lifecycle reads each rule's
+own shape instead.
 
-`hasTrigger` — whether a match is an **event** on one observation date rather than a **state** that
-persists — is true exactly when *every* alternative is triggered. A mixed FINAL EXIT, one rule with
-a Trigger and one without, is a state: the condition-only rule can stay true for days, and event
-semantics would re-emit a Signal for it on every session. A single-rule level is unchanged, which is
-`signal.trigger !== undefined` as it always was.
-
-That one list is also the cycle's **visited set**, which is what makes the lifecycle fall out for
-free: an excluded level is unvisited, so `resolveUnvisitedSignals` closes any Signal it still had and
-resets its latch — the same reconciliation a level removed from the Strategy gets. Editing a level
-into position-dependent logic therefore closes its Signal on the next cycle instead of leaving it
-active forever, and editing it back makes it a level with a reset latch that evaluates normally.
+That one list is also the cycle's **visited set**: an excluded level is unvisited, so
+`resolveUnvisitedStates` closes any occurrence it still had (`LEVEL_REMOVED`) and forgets its state —
+the same reconciliation a level removed from the Strategy gets. Editing it back makes it a level that
+is reconstructed from history.
 
 `evaluateSignalWithoutPosition` keeps its `NOT_EVALUABLE` guard for a position-dependent Signal even
 though the canonical path can no longer reach it. `evaluateMarketSignal` deliberately *skips*
@@ -213,6 +205,13 @@ that alternative — so upgrading a stored version 1 Strategy does not reset a s
 that property, every Monitor with a FINAL EXIT would have lost its state on deploy, with nobody
 having edited anything.
 
+## Built-in (SYSTEM) Monitors
+
+`listActiveMonitors` returns customer Monitors that are `enabled` **and** execution-eligible under
+their owner's entitlements, plus built-in Monitors whose `isGloballyEnabled` is on. A built-in has no
+owner, no plan and no capacity; `isPublished` and customers' Dashboard preferences never affect
+evaluation. Built-in Monitors are shared: ten thousand viewers cost one evaluation.
+
 ## Rebinding: the configuration fence
 
 A Monitor's `(strategyId, stockListId)` pair can be changed by its owner. `ai/product/monitors.md`
@@ -233,46 +232,99 @@ the replaced configuration finds no previous state and takes the create path —
 emitting a Signal with nothing to contend against. The fence has to be on the thing that changed,
 which is the Monitor.
 
+A rebind (`crossMonitorConfigurationBoundary`, shared by `MonitorsService` and the built-in reset)
+records a `MONITOR_REBOUND` transition for every current lifecycle, resolves every active Signal
+with that reason, and deletes the state; the next cycle reconstructs.
+
 A monotonic counter rather than comparing the two ids: rebinding away and back would otherwise
 present the same pair to an in-flight cycle whose state had already been discarded.
 
-## Condition state versus trigger events
+## The lifecycle, and where each part of it lives
 
-For a condition-only Strategy signal:
-
-```text
-false -> false : no active match
-false -> true  : match becomes active / Signal begins
-true  -> true  : same matched state continues; do not create a duplicate event each scan
-true  -> false : match is no longer active
-```
-
-For a trigger:
+`docs/decisions/builtin-dashboard-signals-v1.md` section 2 and `ai/product/monitors.md` own the
+semantics. The implementation is split three ways, deliberately:
 
 ```text
-previous relationship does not satisfy crossing
-current relationship satisfies the canonical crossing transition
-=> emit the trigger Signal once
+@intrinsic/strategy   monitor-lifecycle.ts   stepMonitorLevel / replayMonitorLevel     pure reducer
+apps/worker           level-decision.ts      decideLevel                                pure framing
+apps/worker           monitor-repository.ts  applyLevelState / resolveUnvisitedStates   persistence
 ```
 
-Remaining on the post-cross side on later scans is not another crossing.
+- **`stepMonitorLevel`** applies one real observation to one level: per rule it evaluates a *close*
+  phase (Conditions false, buy window closed, a trigger-only event reaching a later session) and then
+  an *open* phase (Conditions true → `ACTIVE` or `PENDING_TRIGGER`; a fresh Trigger → `ACTIVE`), and
+  aggregates the rules into the level state. Resolution before activation is what lets a trigger-only
+  event superseded by the next session's crossing produce two transitions and two occurrences, while
+  one FINAL EXIT rule taking over from another on the same observation stays one occurrence. It
+  reports the new lifecycle, the level transitions, and whether an occurrence closed or opened.
+- **`observeMonitorLevel`** evaluates each rule's Conditions and Trigger **separately** with the
+  canonical `evaluateMarketCondition` / `evaluateMarketTrigger`. Their AND is exactly
+  `evaluateMarketSignal`, so nothing about predicate semantics is restated; the lifecycle simply
+  needs the two halves apart.
+- **`decideLevel`** adds the Monitor framing — the observation, buy-window gating through
+  `isBuyWindowEligible`, logic-change resets, reconstruction — and returns one fully decided
+  `LevelStateWrite`, or nothing.
+- **`applyLevelState`** persists that write atomically: the Signal it closes (with reason and
+  session), the Signal it opens, the state row, and the transition rows, in one transaction behind the
+  binding fence and the `stateVersion` guard. A write that changes nothing opens no transaction.
 
-Use existing Strategy evaluation semantics for the exact definition of crossing, equality boundaries, missing values, and evaluability. Do not redefine those rules here.
+### Durable state
 
-That table is **condition** semantics. A trigger is an event on an observation date, and the two
-lifecycles are deliberately different:
+`MonitorSignalState` is the current truth for one `(monitor, security, level)`:
 
-```text
-condition : a state       -> emitted when it begins, resolved when it ends
-trigger   : an event      -> emitted at most once per observation date,
-                             active for that session, closed when a later session is observed
-```
+| Column | Meaning |
+| --- | --- |
+| `signalFingerprint` | the level's canonical logic the state belongs to |
+| `lifecycleState` | `INACTIVE` / `PENDING_TRIGGER` / `ACTIVE` / `RESOLVED` |
+| `lifecycleSince`, `lifecycleSinceDate`, `lifecycleSincePrice` | when, on which session and at what price the state was entered |
+| `ruleStates` | internal rule-local lifecycle, `{ [ruleId]: { state, since, triggerDate } }` |
+| `activeSignalId` | the current occurrence, exactly when `ACTIVE` |
+| `lastOutcome`, `lastEvaluable*` | observability: the latest outcome and the latest decided observation |
+| `stateVersion` | the optimistic guard |
 
-The provisional observation moves during a session while its `t - 1` stays fixed at the last closed
-day, so a crossing predicate degenerates into the plain relationship it crossed into for the rest of
-that date. Applying condition semantics to it would emit a second Signal for one crossing when the
-price moved back and forth, and would resolve the first one in between — a fired event disappearing
-from the user's list because the price ticked a cent. See `ai/product/monitors.md`.
+`ruleStates` is keyed by the level id for BUY and SELL and by each Exit Rule id for FINAL EXIT.
+`triggerDate` is the observation date of the crossing the latest occurrence consumed; it is what
+makes a Trigger fire at most once per session and a fresh setup require a fresh crossing. A rule the
+row does not describe (a row written before rule-local state existed) inherits the level's state and
+converges on its next decided observation. `ruleStates` is parsed defensively
+(`parseMonitorRuleStates`) and never exposed through the API.
+
+`MonitorSignal` is one occurrence: `detectedAt`/`observationDate` are its activation instant and
+session, `resolvedAt`/`resolvedObservationDate`/`resolutionReason` its end, `signalFingerprint` the
+logic it belonged to, `reconstructed` whether history rather than a live scan established it.
+
+`MonitorStateTransition` is the append-only change log, ordered by `sequence`. Only state changes are
+written — a repeated scan writes nothing at all — and `signalId` is nullable because a pending setup
+exists before any occurrence does.
+
+### What `NOT_EVALUABLE` does
+
+A level observation whose predicates cannot be decided moves nothing, except that a trigger-only
+event still ends when a later real session is observed. A cycle with **no** observation — no quote,
+a weekend, a full closure, a failed load — produces no step at all.
+
+### Reconstruction
+
+A level with no state, or state under different logic, is reconstructed rather than started blank.
+The cycle notices this before any data work, reads about `DEFAULT_RECONSTRUCTION_SESSIONS` (252)
+closed sessions before the observation through the **backtest** read path
+(`prepareDailyEvaluationData` + `readDailyEvaluationFrame`, materialized series, per-day intrinsic
+values), folds them through `replayMonitorLevel`, and applies the live step. Only the result is
+persisted: the final lifecycle (a reconstructed `RESOLVED` is stored as `INACTIVE`, because no
+occurrence was ever recorded for it), at most one `reconstructed` occurrence dated to its real
+activation session and priced at that session's close, and one transition — `RECONSTRUCTED`, or the
+live reason when the live observation itself entered the state. Only a decidable live observation
+creates a row, so a level that cannot be decided today waits, and a history read that fails leaves
+the level for a later cycle rather than starting it from nothing. The replay horizon is bounded: a
+setup whose Conditions held for the whole horizon starts `PENDING_TRIGGER` at the horizon's start.
+
+Because reconstruction is keyed on "no current state", it covers new Monitors, new or re-added
+members, rebinds and edited levels with one mechanism. `resolveUnvisitedStates` therefore deletes the
+state of a removed member or level (after closing its occurrence and recording why) instead of
+keeping a reset row.
+
+`pnpm monitors:scan-once` runs one cycle through the normal singleton claim — the operator step after
+`pnpm builtins:bootstrap`.
 
 ## Historical data loading
 
@@ -345,8 +397,11 @@ Implementation is incomplete without tests covering at minimum:
 
 - enabled versus disabled Monitor behavior;
 - multiple Monitors sharing one symbol snapshot without semantically duplicate data work;
+- the lifecycle table in `monitor-lifecycle.test.ts` (conditions only, conditions + trigger,
+  trigger only, buy windows, FINAL EXIT rules, retries, replay);
 - condition transition `false -> true -> true -> false` without duplicate Signals;
-- trigger crossing emitted once and not repeated while remaining on the same side;
+- a triggered setup waiting, firing once, and staying active while its Conditions hold;
+- reconstruction establishing a trigger that fired before the Monitor existed, idempotently;
 - restart/cache-loss behavior does not fabricate a trigger;
 - current provisional daily observation affects daily calculated series as specified;
 - missing/warm-up/PIT-unavailable dependencies return `NOT_EVALUABLE`, not a match;
@@ -411,9 +466,11 @@ Recorded so they are not rediscovered as defects. None can produce a wrong Signa
   resident set is bounded by configuration. A monitored universe larger than that bound re-hydrates
   from durable storage each cycle — a throughput limit, accepted for V1. Do not redesign Redis or add
   a Monitor cache.
-- **Per-`(monitor, security, level)` transition writes.** A transition is applied in its own
-  transaction. Evaluations that repeat the recorded outcome write nothing at all, so the steady state
-  costs no transactions; only genuine transitions do.
+- **Per-`(monitor, security, level)` writes.** A change is applied in its own transaction.
+  Evaluations that change nothing write nothing at all, so the steady state costs no transactions;
+  only genuine state changes do.
+- **Reconstruction reads a year of history per new or reset security** through the backtest path.
+  It happens once per level, not per cycle.
 
 ## Non-goals for this branch
 

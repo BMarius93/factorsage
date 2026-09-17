@@ -13,6 +13,8 @@ vi.mock("next/navigation", () => ({
 
 function strategyWith(definition: StrategyDefinition) {
   return {
+    ownership: "USER" as const,
+    canEdit: true,
     id: "s1",
     name: "Explained",
     buyLevelCount: definition.buyLevels.length,

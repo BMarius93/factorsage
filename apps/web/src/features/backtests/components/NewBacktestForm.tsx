@@ -10,7 +10,7 @@ import {
   DEFAULT_BENCHMARK_CODE,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -21,6 +21,7 @@ import forms from "../../../components/ui/forms.module.css";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
+import { OwnershipOptions } from "./OwnershipOptions";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
@@ -67,6 +68,7 @@ function submissionMessage(error: unknown): string {
  */
 export function NewBacktestForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { status, strategies, lists, benchmarks, retry } = useBacktestOptions();
   const [values, setValues] = useState<BacktestFormValues>(EMPTY_VALUES);
   const [errors, setErrors] = useState<BacktestFormErrors>({});
@@ -102,6 +104,27 @@ export function NewBacktestForm() {
         : { ...current, benchmarkCode: preferred.code };
     });
   }, [status, benchmarks]);
+
+  useEffect(() => {
+    if (status !== "ready") {
+      return;
+    }
+    // A link from the Dashboard names the Strategy and List it wants backtested. Only ids the
+    // caller can actually choose are applied; anything else leaves the form as it was.
+    const strategyId = searchParams?.get("strategyId") ?? "";
+    const stockListId = searchParams?.get("stockListId") ?? "";
+    setValues((current) => ({
+      ...current,
+      ...(current.strategyId === "" &&
+      strategies.some((strategy) => strategy.id === strategyId)
+        ? { strategyId }
+        : {}),
+      ...(current.stockListId === "" &&
+      lists.some((list) => list.id === stockListId)
+        ? { stockListId }
+        : {}),
+    }));
+  }, [status, strategies, lists, searchParams]);
 
   const update = <Key extends keyof BacktestFormValues>(
     key: Key,
@@ -250,11 +273,10 @@ export function NewBacktestForm() {
                     }
                   >
                     <option value="">Select a strategy…</option>
-                    {strategies.map((strategy) => (
-                      <option key={strategy.id} value={strategy.id}>
-                        {strategy.name}
-                      </option>
-                    ))}
+                    <OwnershipOptions
+                      items={strategies}
+                      ownLabel="Your strategies"
+                    />
                   </select>
                   {errors.strategyId ? (
                     <p className={forms.hint} role="alert">
@@ -279,11 +301,7 @@ export function NewBacktestForm() {
                     }
                   >
                     <option value="">Select a stock list…</option>
-                    {lists.map((list) => (
-                      <option key={list.id} value={list.id}>
-                        {list.name}
-                      </option>
-                    ))}
+                    <OwnershipOptions items={lists} ownLabel="Your lists" />
                   </select>
                   {errors.stockListId ? (
                     <p className={forms.hint} role="alert">

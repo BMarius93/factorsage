@@ -24,6 +24,9 @@ export function summaryOf(
   detail: StockListDetailResponse,
 ): StockListSummaryResponse {
   return {
+    ownership: detail.ownership,
+    ...(detail.systemKey === undefined ? {} : { systemKey: detail.systemKey }),
+    canEdit: detail.canEdit,
     id: detail.id,
     name: detail.name,
     ...(detail.description === undefined

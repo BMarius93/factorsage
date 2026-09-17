@@ -587,6 +587,8 @@ class TimedLoader implements MonitorDataLoader {
     getCurrentObservations: timer(),
     prepare: timer(),
     readFrame: timer(),
+    prepareHistory: timer(),
+    readHistory: timer(),
   };
 
   constructor(private readonly stockData: CanonicalStockDataService) {}
@@ -626,14 +628,33 @@ class TimedLoader implements MonitorDataLoader {
   monitorWindowObservations(operands: readonly OperandKey[]): number {
     return monitorWindowObservations(requiredDailySeries(operands));
   }
+
+  prepareReconstructionData(
+    security: Security,
+    range: { from: LocalDate; to: LocalDate },
+  ): Promise<void> {
+    return timed(this.phases.prepareHistory, async () => {
+      await this.stockData.prepareDailyEvaluationData(security, range);
+    });
+  }
+
+  readReconstructionFrame(
+    security: Security,
+    range: { from: LocalDate; to: LocalDate },
+    operands: readonly OperandKey[],
+  ) {
+    return timed(this.phases.readHistory, () =>
+      this.stockData.readDailyEvaluationFrame(security, range, operands),
+    );
+  }
 }
 
 class TimedRepository implements MonitorRepository {
   readonly phases = {
     listActiveMonitors: timer(),
     loadSignalStates: timer(),
-    applyTransition: timer(),
-    resolveUnvisitedSignals: timer(),
+    applyLevelState: timer(),
+    resolveUnvisitedStates: timer(),
     markScanned: timer(),
   };
 
@@ -651,17 +672,17 @@ class TimedRepository implements MonitorRepository {
     );
   }
 
-  applyTransition(write: Parameters<MonitorRepository["applyTransition"]>[0]) {
-    return timed(this.phases.applyTransition, () =>
-      this.inner.applyTransition(write),
+  applyLevelState(write: Parameters<MonitorRepository["applyLevelState"]>[0]) {
+    return timed(this.phases.applyLevelState, () =>
+      this.inner.applyLevelState(write),
     );
   }
 
-  resolveUnvisitedSignals(
-    input: Parameters<MonitorRepository["resolveUnvisitedSignals"]>[0],
+  resolveUnvisitedStates(
+    input: Parameters<MonitorRepository["resolveUnvisitedStates"]>[0],
   ) {
-    return timed(this.phases.resolveUnvisitedSignals, () =>
-      this.inner.resolveUnvisitedSignals(input),
+    return timed(this.phases.resolveUnvisitedStates, () =>
+      this.inner.resolveUnvisitedStates(input),
     );
   }
 

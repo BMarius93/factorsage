@@ -17,7 +17,13 @@ import {
   type MonitorEvaluationFrame,
   type TradingCalendar,
 } from "@intrinsic/stock-data";
-import { PRICE_OPERAND, seriesOperand, type OperandKey } from "@intrinsic/strategy";
+import {
+  PRICE_OPERAND,
+  createEvaluationFrame,
+  seriesOperand,
+  type EvaluationFrame,
+  type OperandKey,
+} from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
 import {
   afterAll,
@@ -29,7 +35,10 @@ import {
   it,
 } from "vitest";
 import { MonitorCycle, type MonitorDataLoader } from "./monitor-cycle.js";
-import { PrismaMonitorRepository } from "./monitor-repository.js";
+import {
+  PrismaMonitorRepository,
+  type LevelStateWrite,
+} from "./monitor-repository.js";
 
 // Before any PrismaClient in this file is constructed.
 useTestDatabase();
@@ -49,7 +58,7 @@ useTestDatabase();
 
 const prisma = new PrismaClient();
 const repository = new PrismaMonitorRepository(prisma);
-const logger = createLogger({ service: "worker", level: "silent" });
+const logger = createLogger({ service: "worker", level: (process.env.TEST_LOG_LEVEL as "silent") ?? "silent" });
 const suffix = randomUUID().replaceAll("-", "").slice(0, 12);
 
 const EMA_SERIES = "SMA_20D";
@@ -63,6 +72,8 @@ const securityIds: string[] = [];
  * earlier test's Monitor and its summary counts would describe the whole file.
  */
 const createdMonitorIds: string[] = [];
+/** Built-in rows this file creates; they have no owner to cascade from. */
+const systemRows: { monitorId: string; strategyId: string; stockListId: string }[] = [];
 
 /**
  * A loader driven by a fixed price history and a settable current price.
@@ -150,6 +161,59 @@ class FixtureLoader implements MonitorDataLoader {
   monitorWindowObservations(operands: readonly OperandKey[]): number {
     return monitorWindowObservations(requiredDailySeries(operands));
   }
+
+  /** When true, reconstruction sees the history with its SMA columns materialized. */
+  historyFrames = false;
+  historyError: Error | null = null;
+  historyCalls: string[] = [];
+
+  async prepareReconstructionData(security: Security): Promise<void> {
+    this.historyCalls.push(security.id);
+    if (this.historyError) {
+      throw this.historyError;
+    }
+  }
+
+  async readReconstructionFrame(
+    security: Security,
+    range: { from: string; to: string },
+    operands: readonly OperandKey[],
+  ): Promise<EvaluationFrame> {
+    const prices = this.historyFrames
+      ? (this.prices.get(security.id) ?? []).filter((price) => price.date <= range.to)
+      : [];
+    const closes = prices.map((price) => price.close);
+    const columns = new Map<OperandKey, Float64Array>();
+    for (const operand of operands) {
+      const period = /^series:SMA_(\d+)D$/.exec(operand)?.[1];
+      if (period) {
+        columns.set(operand, rollingMean(closes, Number(period)));
+      }
+    }
+    return createEvaluationFrame({
+      securityId: security.id,
+      symbol: security.symbol,
+      name: security.name,
+      dates: prices.map((price) => price.date),
+      closes: Float64Array.from(closes),
+      columns,
+      periodStartIndex: 0,
+    });
+  }
+}
+
+/** The canonical SMA definition, as a materialized column would hold it. */
+function rollingMean(values: readonly number[], period: number): Float64Array {
+  return Float64Array.from(values, (_, index) => {
+    if (index + 1 < period) {
+      return Number.NaN;
+    }
+    let sum = 0;
+    for (let cursor = index + 1 - period; cursor <= index; cursor += 1) {
+      sum += values[cursor]!;
+    }
+    return sum / period;
+  });
 }
 
 /** A plausible year of full closures, so the calendar's plausibility floor is satisfied. */
@@ -401,6 +465,77 @@ async function signalsOf(monitorId: string) {
   });
 }
 
+/** A decided write that opens an ACTIVE occurrence on a level that has no state yet. */
+function openingWrite(
+  monitorId: string,
+  securityId: string,
+  overrides: Partial<LevelStateWrite> = {},
+): LevelStateWrite {
+  const observation = { date: "2026-03-02", price: 150 };
+  return {
+    monitorId,
+    configVersion: 0,
+    securityId,
+    levelId: "buy-1",
+    levelKind: "BUY",
+    strategyVersionId: "version-1",
+    signalFingerprint: "fingerprint-a",
+    hasTrigger: false,
+    now: new Date(),
+    previous: null,
+    outcome: "MATCHED",
+    decided: { result: "MATCHED", observation },
+    lifecycle: {
+      state: "ACTIVE",
+      since: observation.date,
+      rules: {
+        "buy-1": { state: "ACTIVE", since: observation.date, triggerDate: null },
+      },
+    },
+    enteredAt: { observationDate: observation.date, price: observation.price },
+    transitions: [
+      {
+        from: "INACTIVE",
+        to: "ACTIVE",
+        reason: "CONDITIONS_MET",
+        exitRuleId: null,
+        observationDate: observation.date,
+        signalFingerprint: "fingerprint-a",
+        signal: "opened",
+      },
+    ],
+    close: null,
+    open: { observationDate: observation.date, price: observation.price, reconstructed: false },
+    ...overrides,
+  };
+}
+
+/** Appends a new Strategy version, exactly as an edit through the API would. */
+async function appendVersion(
+  strategyId: string,
+  definition: StrategyDefinition,
+): Promise<void> {
+  const latest = await prisma.strategyVersion.findFirstOrThrow({
+    where: { strategyId },
+    orderBy: { versionNumber: "desc" },
+  });
+  await prisma.strategyVersion.create({
+    data: {
+      strategyId,
+      versionNumber: latest.versionNumber + 1,
+      definition: definition as never,
+      definitionHash: randomUUID(),
+    },
+  });
+}
+
+async function transitionsOf(monitorId: string) {
+  return prisma.monitorStateTransition.findMany({
+    where: { monitorId },
+    orderBy: { sequence: "asc" },
+  });
+}
+
 let cycleSequence = 0;
 function nextCycle(): number {
   cycleSequence += 1;
@@ -421,10 +556,12 @@ function nextCycle(): number {
  * seeder re-asserts `enabled` anyway, so an interrupted run is recoverable rather than corrupting.
  */
 const foreignEnabledMonitorIds: string[] = [];
+/** Built-in Monitors (seeded by other suites or by hand) paused for the same reason. */
+const foreignSystemMonitorIds: string[] = [];
 
 beforeAll(async () => {
   const foreign = await prisma.monitor.findMany({
-    where: { enabled: true, id: { notIn: createdMonitorIds } },
+    where: { ownership: "USER", enabled: true, id: { notIn: createdMonitorIds } },
     select: { id: true },
   });
   foreignEnabledMonitorIds.push(...foreign.map((row) => row.id));
@@ -432,6 +569,17 @@ beforeAll(async () => {
     await prisma.monitor.updateMany({
       where: { id: { in: foreignEnabledMonitorIds } },
       data: { enabled: false },
+    });
+  }
+  const system = await prisma.monitor.findMany({
+    where: { ownership: "SYSTEM", isGloballyEnabled: true },
+    select: { id: true },
+  });
+  foreignSystemMonitorIds.push(...system.map((row) => row.id));
+  if (foreignSystemMonitorIds.length > 0) {
+    await prisma.monitor.updateMany({
+      where: { id: { in: foreignSystemMonitorIds } },
+      data: { isGloballyEnabled: false },
     });
   }
 });
@@ -450,6 +598,24 @@ afterAll(async () => {
       data: { enabled: true },
     });
   }
+  if (foreignSystemMonitorIds.length > 0) {
+    await prisma.monitor.updateMany({
+      where: { id: { in: foreignSystemMonitorIds } },
+      data: { isGloballyEnabled: true },
+    });
+  }
+  await prisma.monitor.deleteMany({
+    where: { id: { in: systemRows.map((row) => row.monitorId) } },
+  });
+  await prisma.strategy.deleteMany({
+    where: { id: { in: systemRows.map((row) => row.strategyId) } },
+  });
+  await prisma.stockList.deleteMany({
+    where: { id: { in: systemRows.map((row) => row.stockListId) } },
+  });
+  await prisma.monitorStateTransition.deleteMany({
+    where: { securityId: { in: securityIds } },
+  });
   await prisma.monitorSignalState.deleteMany({
     where: { securityId: { in: securityIds } },
   });
@@ -1902,30 +2068,19 @@ describe("monitor evaluation cycle", () => {
       securities: [security],
     });
 
-    const write = {
-      monitorId,
-      configVersion: 0,
-      securityId: security.id,
-      levelId: "buy-1",
-      levelKind: "BUY" as const,
-      strategyVersionId: "version-1",
-      signalFingerprint: "fingerprint-a",
-      hasTrigger: false,
-      outcome: "MATCHED" as const,
-      observation: { date: "2026-03-02", price: 150 },
-      now: new Date(),
-      previous: null,
-    };
+    const write = openingWrite(monitorId, security.id);
 
     // Two processes whose leases briefly overlap both read "no state" and both try to create it.
     const [first, second] = await Promise.all([
-      repository.applyTransition(write),
-      repository.applyTransition(write),
+      repository.applyLevelState(write),
+      repository.applyLevelState(write),
     ]);
 
     const applied = [first, second].filter((result) => result.applied);
     expect(applied).toHaveLength(1);
     expect(await signalsOf(monitorId)).toHaveLength(1);
+    // The loser's transition rolled back with its Signal.
+    expect(await transitionsOf(monitorId)).toHaveLength(1);
   });
 
   /**
@@ -2186,10 +2341,13 @@ describe("monitor evaluation cycle", () => {
       const afterEdit = await signalsOf(monitorId);
       expect(afterEdit).toHaveLength(1);
       expect(afterEdit[0]?.resolvedAt).not.toBeNull();
-      const state = await prisma.monitorSignalState.findFirstOrThrow({
-        where: { monitorId, levelId: "sell-1" },
-      });
-      expect(state.activeSignalId).toBeNull();
+      expect(afterEdit[0]?.resolutionReason).toBe("LEVEL_REMOVED");
+      // The state is forgotten, so a level that returns is reconstructed rather than resumed.
+      expect(
+        await prisma.monitorSignalState.count({
+          where: { monitorId, levelId: "sell-1" },
+        }),
+      ).toBe(0);
     });
 
     it("evaluates the level again once the edit is reversed", async () => {
@@ -2246,24 +2404,11 @@ describe("monitor evaluation cycle", () => {
         securities: [security],
       });
 
-      const write = {
-        monitorId,
-        configVersion: 0,
-        securityId: security.id,
-        levelId: "buy-1",
-        levelKind: "BUY" as const,
-        strategyVersionId: "version-1",
-        signalFingerprint: "fingerprint-a",
-        hasTrigger: false,
-        outcome: "MATCHED" as const,
-        observation: { date: "2026-03-02", price: 150 },
-        now: new Date(),
-        previous: null,
-      };
+      const write = openingWrite(monitorId, security.id);
 
       // The user rebinds after the cycle read the Monitor but before it commits.
       await rebind(monitorId);
-      const result = await repository.applyTransition(write);
+      const result = await repository.applyLevelState(write);
 
       expect(result.applied).toBe(false);
       expect(result.staleConfiguration).toBe(true);
@@ -2284,20 +2429,9 @@ describe("monitor evaluation cycle", () => {
         securities: [security],
       });
 
-      const result = await repository.applyTransition({
-        monitorId,
-        configVersion: 0,
-        securityId: security.id,
-        levelId: "buy-1",
-        levelKind: "BUY" as const,
-        strategyVersionId: "version-1",
-        signalFingerprint: "fingerprint-a",
-        hasTrigger: false,
-        outcome: "MATCHED" as const,
-        observation: { date: "2026-03-02", price: 150 },
-        now: new Date(),
-        previous: null,
-      });
+      const result = await repository.applyLevelState(
+        openingWrite(monitorId, security.id),
+      );
 
       expect(result.applied).toBe(true);
       expect(result.staleConfiguration).toBeUndefined();
@@ -2357,25 +2491,12 @@ describe("monitor evaluation cycle", () => {
       });
 
       // A match exists under the old configuration.
-      await repository.applyTransition({
-        monitorId,
-        configVersion: 0,
-        securityId: security.id,
-        levelId: "buy-1",
-        levelKind: "BUY" as const,
-        strategyVersionId: "version-1",
-        signalFingerprint: "fingerprint-a",
-        hasTrigger: false,
-        outcome: "MATCHED" as const,
-        observation: { date: "2026-03-02", price: 150 },
-        now: new Date(),
-        previous: null,
-      });
+      await repository.applyLevelState(openingWrite(monitorId, security.id));
       await rebind(monitorId);
 
       // The old cycle finishes and reconciles with the universe it loaded. It must not act: the
       // rebind owns closing those Signals, and it already did.
-      const resolved = await repository.resolveUnvisitedSignals({
+      const resolved = await repository.resolveUnvisitedStates({
         monitorId,
         configVersion: 0,
         securityIds: [],
@@ -2386,101 +2507,554 @@ describe("monitor evaluation cycle", () => {
     });
   });
 
-  it("resets state recorded under different level logic", async () => {
+  it("resets state recorded under different level logic, and records why", async () => {
     const userId = await createUser();
     const security = await createSecurity(`VER${suffix.slice(0, 4)}`);
-    const { monitorId } = await createMonitor({
+    const { monitorId, strategyId } = await createMonitor({
       userId,
       definition: priceAboveSmaDefinition(),
       securities: [security],
     });
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(
+      security.id,
+      longHistory(security.id, Array.from({ length: 60 }, () => 100)),
+    );
+    loader.currentPrice = 150;
+    const cycle = cycleOf(loader);
+    await cycle.run(nextCycle());
+    expect(await signalsOf(monitorId)).toHaveLength(1);
 
-    const base = {
-      monitorId,
-      configVersion: 0,
-      securityId: security.id,
-      levelId: "buy-1",
-      levelKind: "BUY" as const,
-      hasTrigger: false,
-      observation: { date: "2026-03-02", price: 150 },
-    };
-
-    const first = await repository.applyTransition({
-      ...base,
-      strategyVersionId: "version-1",
-      signalFingerprint: "fingerprint-a",
-      outcome: "MATCHED",
-      now: new Date(),
-      previous: null,
+    // The user edits THIS level: a still-true match under the new logic is a new occurrence.
+    const edited = priceAboveSmaDefinition();
+    edited.buyLevels[0]!.signal.conditions.push({
+      id: "c2",
+      metric: { kind: "MOVING_AVERAGE", seriesId: EMA_SERIES },
+      operator: "IS_ABOVE",
+      value: { kind: "SERIES", seriesId: "SMA_50D" },
     });
-    expect(first.emittedSignalId).not.toBeNull();
-
-    const states = await repository.loadSignalStates(monitorId);
-    const previous = states.get(`${security.id} buy-1`) ?? null;
-
-    // The user edited THIS level. State latched under the old logic cannot decide the new logic,
-    // so the still-matching signal is a NEW match and the old one is closed.
-    const second = await repository.applyTransition({
-      ...base,
-      strategyVersionId: "version-2",
-      signalFingerprint: "fingerprint-b",
-      outcome: "MATCHED",
-      now: new Date(),
-      previous,
-    });
-
-    expect(second.applied).toBe(true);
-    expect(second.emittedSignalId).not.toBeNull();
-    expect(second.resolvedSignalIds).toEqual([first.emittedSignalId]);
+    await appendVersion(strategyId, edited);
+    await cycle.run(nextCycle());
 
     const signals = await signalsOf(monitorId);
     expect(signals).toHaveLength(2);
     expect(signals[0]?.resolvedAt).not.toBeNull();
+    expect(signals[0]?.resolutionReason).toBe("LOGIC_CHANGED");
     expect(signals[1]?.resolvedAt).toBeNull();
+    const transitions = await transitionsOf(monitorId);
+    expect(transitions.map((row) => [row.fromState, row.toState, row.reason])).toEqual([
+      ["INACTIVE", "ACTIVE", "CONDITIONS_MET"],
+      ["ACTIVE", "RESOLVED", "LOGIC_CHANGED"],
+      ["INACTIVE", "ACTIVE", "CONDITIONS_MET"],
+    ]);
+    // The reset is recorded under the logic it ended.
+    expect(transitions[1]!.signalFingerprint).toBe(transitions[0]!.signalFingerprint);
+    expect(transitions[2]!.signalFingerprint).not.toBe(transitions[0]!.signalFingerprint);
+    expect(transitions[1]!.signalId).toBe(signals[0]!.id);
   });
 
   it("keeps an unchanged level's match when another level of the Strategy is edited", async () => {
     const userId = await createUser();
     const security = await createSecurity(`EDT${suffix.slice(0, 4)}`);
-    const { monitorId } = await createMonitor({
+    const { monitorId, strategyId } = await createMonitor({
       userId,
       definition: priceAboveSmaDefinition(),
       securities: [security],
     });
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    const cycle = cycleOf(loader);
+    await cycle.run(nextCycle());
 
-    const base = {
-      monitorId,
-      configVersion: 0,
-      securityId: security.id,
-      levelId: "buy-1",
-      levelKind: "BUY" as const,
-      signalFingerprint: "unchanged-level",
-      hasTrigger: false,
-      observation: { date: "2026-03-02", price: 150 },
+    // A SELL level is added: the Strategy has a new version, but buy-1's logic did not change.
+    const edited = priceAboveSmaDefinition();
+    edited.sellLevels.push({
+      id: "sell-1",
+      percentage: 50,
+      signal: priceAboveSmaSignal("s1"),
+    });
+    await appendVersion(strategyId, edited);
+    await cycle.run(nextCycle());
+
+    const signals = await signalsOf(monitorId);
+    const buys = signals.filter((signal) => signal.levelKind === "BUY");
+    expect(buys).toHaveLength(1);
+    expect(buys[0]?.resolvedAt).toBeNull();
+  });
+
+  describe("conditions + trigger lifecycle", () => {
+    /** BUY: Price is above SMA20D AND Price crosses above SMA20D… with a Condition that can differ. */
+    function setupDefinition(): StrategyDefinition {
+      return {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-1",
+            percentage: 100,
+            signal: {
+              // A Condition independent of the Trigger: the price is above a fixed level.
+              conditions: [
+                {
+                  id: "c1",
+                  metric: { kind: "PRICE" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "SMA_50D" },
+                },
+              ],
+              trigger: {
+                id: "t1",
+                metric: { kind: "PRICE" },
+                operator: "CROSSES_ABOVE",
+                value: { kind: "SERIES", seriesId: EMA_SERIES },
+              },
+            },
+          },
+        ],
+        sellLevels: [],
+      };
+    }
+
+    it("waits for the trigger, latches it, and resolves only when a Condition fails", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`PND${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: setupDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      // 60 flat closes at 100 then a slow rise: SMA50 lags below price, while the last close is
+      // already above its own SMA20 — so the Conditions hold and no crossing happens today.
+      loader.prices.set(security.id, longHistory(security.id, [
+        ...Array.from({ length: 55 }, () => 100),
+        102, 104, 106, 108, 110,
+      ]));
+      loader.currentPrice = 115;
+      const cycle = cycleOf(loader);
+
+      await cycle.run(nextCycle());
+      let state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
+      expect(state.lifecycleState).toBe("PENDING_TRIGGER");
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+
+      // Next session: the previous close dipped below SMA20 and the price crosses back above.
+      loader.prices.set(security.id, longHistory(security.id, [
+        ...Array.from({ length: 55 }, () => 100),
+        102, 104, 106, 108, 110, 101,
+      ]));
+      const cycle2 = cycleOf(loader, sessionOn("2026-03-03"));
+      loader.currentPrice = 120;
+      await cycle2.run(nextCycle());
+      state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
+      expect(state.lifecycleState).toBe("ACTIVE");
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+
+      // The next session does not cross again; the Trigger predicate is false, the Conditions hold.
+      loader.prices.set(security.id, longHistory(security.id, [
+        ...Array.from({ length: 55 }, () => 100),
+        102, 104, 106, 108, 110, 101, 120,
+      ]));
+      loader.currentPrice = 125;
+      await cycleOf(loader, sessionOn("2026-03-04")).run(nextCycle());
+      const signals = await signalsOf(monitorId);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.resolvedAt).toBeNull();
+
+      // Price falls below SMA50: a Condition fails and the occurrence resolves.
+      loader.currentPrice = 50;
+      await cycleOf(loader, sessionOn("2026-03-05")).run(nextCycle());
+      const resolved = await signalsOf(monitorId);
+      expect(resolved[0]?.resolvedAt).not.toBeNull();
+      expect(resolved[0]?.resolutionReason).toBe("CONDITIONS_ENDED");
+      expect(resolved[0]?.resolvedObservationDate?.toISOString().slice(0, 10)).toBe("2026-03-05");
+
+      const transitions = await transitionsOf(monitorId);
+      expect(transitions.map((row) => [row.fromState, row.toState])).toEqual([
+        ["INACTIVE", "PENDING_TRIGGER"],
+        ["PENDING_TRIGGER", "ACTIVE"],
+        ["ACTIVE", "RESOLVED"],
+      ]);
+      // The pending setup is addressable before any Signal exists.
+      expect(transitions[0]!.signalId).toBeNull();
+      expect(transitions[1]!.signalId).toBe(resolved[0]!.id);
+    });
+
+    it("drops a setup that breaks before the trigger without creating a Signal", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`BRK${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: setupDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, longHistory(security.id, [
+        ...Array.from({ length: 55 }, () => 100),
+        102, 104, 106, 108, 110,
+      ]));
+      loader.currentPrice = 115;
+      await cycleOf(loader).run(nextCycle());
+      loader.currentPrice = 50;
+      await cycleOf(loader).run(nextCycle());
+
+      const state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
+      expect(state.lifecycleState).toBe("INACTIVE");
+      expect(await signalsOf(monitorId)).toHaveLength(0);
+      expect(
+        (await transitionsOf(monitorId)).map((row) => [row.fromState, row.toState, row.reason]),
+      ).toEqual([
+        ["INACTIVE", "PENDING_TRIGGER", "SETUP_STARTED"],
+        ["PENDING_TRIGGER", "INACTIVE", "CONDITIONS_ENDED"],
+      ]);
+    });
+
+    it("does not write repeated scans as transitions", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`REP${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: setupDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, longHistory(security.id, [
+        ...Array.from({ length: 55 }, () => 100),
+        102, 104, 106, 108, 110,
+      ]));
+      loader.currentPrice = 115;
+      const cycle = cycleOf(loader);
+      await cycle.run(nextCycle());
+      const summary = await cycle.run(nextCycle());
+      await cycle.run(nextCycle());
+      expect(summary.transitionsRecorded).toBe(0);
+      expect(await transitionsOf(monitorId)).toHaveLength(1);
+    });
+  });
+
+  describe("historical reconstruction", () => {
+    it("reconstructs a trigger that fired before the Monitor existed", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RCN${suffix.slice(0, 4)}`);
+      // Trigger-and-condition: Price above SMA20D, entered by Price crossing above SMA20D.
+      const definition: StrategyDefinition = {
+        schemaVersion: STRATEGY_SCHEMA_VERSION,
+        buyLevels: [
+          {
+            id: "buy-1",
+            percentage: 100,
+            signal: {
+              conditions: priceAboveSmaSignal("c1").conditions,
+              trigger: {
+                id: "t1",
+                metric: { kind: "PRICE" },
+                operator: "CROSSES_ABOVE",
+                value: { kind: "SERIES", seriesId: EMA_SERIES },
+              },
+            },
+          },
+        ],
+        sellLevels: [],
+      };
+      const { monitorId } = await createMonitor({
+        userId,
+        definition,
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.historyFrames = true;
+      // Flat, then a jump that crosses SMA20 on the first rising day and stays above since.
+      const closes = [...Array.from({ length: 30 }, () => 100), 110, 112, 114, 116];
+      loader.prices.set(security.id, longHistory(security.id, closes));
+      loader.currentPrice = 118;
+      const cycle = cycleOf(loader);
+
+      const summary = await cycle.run(nextCycle());
+      expect(summary.levelsReconstructed).toBe(1);
+
+      const crossingDate = loader.prices.get(security.id)![30]!.date;
+      const signals = await signalsOf(monitorId);
+      expect(signals).toHaveLength(1);
+      expect(signals[0]!.reconstructed).toBe(true);
+      expect(signals[0]!.observationDate.toISOString().slice(0, 10)).toBe(crossingDate);
+      expect(Number(signals[0]!.observationPrice)).toBe(110);
+
+      // One reconstructed transition — no replayed history.
+      const transitions = await transitionsOf(monitorId);
+      expect(transitions.map((row) => [row.fromState, row.toState, row.reason])).toEqual([
+        ["INACTIVE", "ACTIVE", "RECONSTRUCTED"],
+      ]);
+
+      // Re-running is idempotent: the state exists now, so nothing is reconstructed again.
+      const again = await cycle.run(nextCycle());
+      expect(again.levelsReconstructed).toBe(0);
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+      expect(await transitionsOf(monitorId)).toHaveLength(1);
+    });
+
+    it("is deterministic for the same history", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RCD${suffix.slice(0, 4)}`);
+      const first = await createMonitor({
+        userId,
+        definition: priceCrossesAboveSmaDefinition(),
+        securities: [security],
+      });
+      const second = await createMonitor({
+        userId,
+        definition: priceCrossesAboveSmaDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.historyFrames = true;
+      // The last closed day crossed: a trigger-only event of an earlier session is over by today.
+      const closes = [...Array.from({ length: 30 }, () => 100), 110];
+      loader.prices.set(security.id, longHistory(security.id, closes));
+      loader.currentPrice = 111;
+      await cycleOf(loader).run(nextCycle());
+
+      for (const { monitorId } of [first, second]) {
+        const state = await prisma.monitorSignalState.findFirstOrThrow({ where: { monitorId } });
+        expect(state.lifecycleState).toBe("INACTIVE");
+        // The consumed crossing is remembered, so it can never fire again.
+        expect(
+          (state.ruleStates as Record<string, { triggerDate: string }>)["buy-1"]?.triggerDate,
+        ).toBe(loader.prices.get(security.id)![30]!.date);
+        expect(await signalsOf(monitorId)).toHaveLength(0);
+        expect(await transitionsOf(monitorId)).toHaveLength(0);
+      }
+    });
+
+    it("waits for a later cycle when the history cannot be read", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`RCF${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, flatHistory(security.id, 100));
+      loader.historyError = new Error("history unavailable");
+      loader.currentPrice = 150;
+      await cycleOf(loader).run(nextCycle());
+      expect(await prisma.monitorSignalState.count({ where: { monitorId } })).toBe(0);
+
+      loader.historyError = null;
+      await cycleOf(loader).run(nextCycle());
+      expect(await signalsOf(monitorId)).toHaveLength(1);
+    });
+  });
+
+  describe("built-in (SYSTEM) Monitors", () => {
+    async function createSystemMonitor(input: {
+      definition: StrategyDefinition;
+      securities: readonly Security[];
+      isGloballyEnabled?: boolean;
+    }): Promise<string> {
+      const key = randomUUID();
+      const strategy = await prisma.strategy.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: `test-strategy-${key}`,
+          name: "Built-in strategy",
+          versions: {
+            create: {
+              versionNumber: 1,
+              definition: input.definition as never,
+              definitionHash: randomUUID(),
+            },
+          },
+        },
+      });
+      const stockList = await prisma.stockList.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: `test-list-${key}`,
+          name: "Built-in list",
+          items: {
+            create: input.securities.map((security) => ({ securityId: security.id })),
+          },
+        },
+      });
+      const monitor = await prisma.monitor.create({
+        data: {
+          ownership: "SYSTEM",
+          systemKey: `test-monitor-${key}`,
+          name: "Built-in monitor",
+          strategyId: strategy.id,
+          stockListId: stockList.id,
+          isGloballyEnabled: input.isGloballyEnabled ?? true,
+        },
+      });
+      systemRows.push({
+        monitorId: monitor.id,
+        strategyId: strategy.id,
+        stockListId: stockList.id,
+      });
+      return monitor.id;
+    }
+
+    it("evaluates a globally enabled built-in with no owner, and skips a paused one", async () => {
+      const security = await createSecurity(`SYS${suffix.slice(0, 4)}`);
+      const running = await createSystemMonitor({
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+      const paused = await createSystemMonitor({
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+        isGloballyEnabled: false,
+      });
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, flatHistory(security.id, 100));
+      loader.currentPrice = 150;
+      const summary = await cycleOf(loader).run(nextCycle());
+
+      expect(summary.monitors).toBe(1);
+      expect(await signalsOf(running)).toHaveLength(1);
+      expect(await signalsOf(paused)).toHaveLength(0);
+      await prisma.monitor.update({
+        where: { id: running },
+        data: { isGloballyEnabled: false },
+      });
+    });
+  });
+
+  describe("unvisited states", () => {
+    it("resolves a removed member's occurrence, records why, and forgets its state", async () => {
+      const userId = await createUser();
+      const security = await createSecurity(`UNV${suffix.slice(0, 4)}`);
+      const { monitorId } = await createMonitor({
+        userId,
+        definition: priceAboveSmaDefinition(),
+        securities: [security],
+      });
+      const loader = new FixtureLoader([security]);
+      loader.prices.set(security.id, flatHistory(security.id, 100));
+      loader.currentPrice = 150;
+      const cycle = cycleOf(loader);
+      await cycle.run(nextCycle());
+
+      const monitor = await prisma.monitor.findUniqueOrThrow({ where: { id: monitorId } });
+      await prisma.stockListItem.deleteMany({
+        where: { stockListId: monitor.stockListId },
+      });
+      await cycle.run(nextCycle());
+
+      const [signal] = await signalsOf(monitorId);
+      expect(signal?.resolutionReason).toBe("MEMBER_REMOVED");
+      expect(await prisma.monitorSignalState.count({ where: { monitorId } })).toBe(0);
+      const transitions = await transitionsOf(monitorId);
+      expect(transitions.at(-1)).toMatchObject({
+        fromState: "ACTIVE",
+        toState: "RESOLVED",
+        reason: "MEMBER_REMOVED",
+        signalId: signal?.id,
+      });
+    });
+  });
+
+  it("drops a pending BUY setup when the buy window closes, but never gates FINAL EXIT", async () => {
+    const userId = await createUser();
+    const security = await createSecurity(`BWP${suffix.slice(0, 4)}`);
+    const definition: StrategyDefinition = {
+      schemaVersion: STRATEGY_SCHEMA_VERSION,
+      buyLevels: [
+        {
+          id: "buy-1",
+          percentage: 100,
+          signal: {
+            conditions: priceAboveSmaSignal("c1").conditions,
+            trigger: {
+              id: "t1",
+              metric: { kind: "PRICE" },
+              operator: "CROSSES_BELOW",
+              value: { kind: "SERIES", seriesId: EMA_SERIES },
+            },
+          },
+        },
+      ],
+      sellLevels: [],
+      finalExit: {
+        id: "exit-1",
+        rules: [{ id: "exit-1", signal: priceAboveSmaSignal("e1") }],
+      },
     };
-
-    const first = await repository.applyTransition({
-      ...base,
-      strategyVersionId: "version-1",
-      outcome: "MATCHED",
-      now: new Date(),
-      previous: null,
+    const { monitorId } = await createMonitor({
+      userId,
+      definition: normalizeStrategyDefinition(definition),
+      securities: [security],
     });
-    expect(first.emittedSignalId).not.toBeNull();
-
-    const states = await repository.loadSignalStates(monitorId);
-    // A different level changed, so the Strategy has a new version — but THIS level's logic did
-    // not, and its latched match must survive rather than re-emitting as a fresh Signal.
-    const second = await repository.applyTransition({
-      ...base,
-      strategyVersionId: "version-2",
-      outcome: "MATCHED",
-      now: new Date(),
-      previous: states.get(`${security.id} buy-1`) ?? null,
+    const loader = new FixtureLoader([security]);
+    loader.prices.set(security.id, flatHistory(security.id, 100));
+    loader.currentPrice = 150;
+    await cycleOf(loader).run(nextCycle());
+    const states = await prisma.monitorSignalState.findMany({
+      where: { monitorId },
+      orderBy: { levelId: "asc" },
     });
+    expect(states.map((state) => [state.levelId, state.lifecycleState])).toEqual([
+      ["buy-1", "PENDING_TRIGGER"],
+      ["exit-1", "ACTIVE"],
+    ]);
 
-    expect(second.emittedSignalId).toBeNull();
-    expect(second.resolvedSignalIds).toEqual([]);
-    expect(await signalsOf(monitorId)).toHaveLength(1);
+    // The member's window closes before this session.
+    const item = await prisma.stockListItem.findFirstOrThrow({
+      where: { stockList: { monitors: { some: { id: monitorId } } } },
+    });
+    await prisma.stockListItem.update({
+      where: { id: item.id },
+      data: {
+        buyWindowMode: "CUSTOM",
+        buyWindows: {
+          create: {
+            startDate: new Date("2026-01-01T00:00:00.000Z"),
+            endDate: new Date("2026-03-01T00:00:00.000Z"),
+          },
+        },
+      },
+    });
+    await cycleOf(loader).run(nextCycle());
+    const after = await prisma.monitorSignalState.findMany({
+      where: { monitorId },
+      orderBy: { levelId: "asc" },
+    });
+    expect(after.map((state) => [state.levelId, state.lifecycleState])).toEqual([
+      ["buy-1", "INACTIVE"],
+      ["exit-1", "ACTIVE"],
+    ]);
+    const buyTransitions = (await transitionsOf(monitorId)).filter(
+      (row) => row.levelId === "buy-1",
+    );
+    expect(buyTransitions.at(-1)).toMatchObject({
+      fromState: "PENDING_TRIGGER",
+      toState: "INACTIVE",
+      reason: "BUY_WINDOW_CLOSED",
+    });
   });
 });
+
+/**
+ * `count` weekday closes ending on Friday 2026-02-27, so every cycle session in this file is later.
+ */
+function longHistory(securityId: string, closes: readonly number[]): DailyPrice[] {
+  const dates: string[] = [];
+  const cursor = new Date("2026-02-27T00:00:00.000Z");
+  while (dates.length < closes.length) {
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) {
+      dates.unshift(cursor.toISOString().slice(0, 10));
+    }
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return closes.map((close, index) => ({
+    securityId,
+    date: dates[index]!,
+    open: close,
+    high: close,
+    low: close,
+    close,
+    volume: 1_000,
+  }));
+}

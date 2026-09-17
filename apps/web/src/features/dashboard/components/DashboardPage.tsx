@@ -1,9 +1,10 @@
 "use client";
 
-import {
-  BACKTEST_RUN_STATUS_LABELS,
-  type BacktestRunSummaryResponse,
-  type MonitorSummaryResponse,
+import type {
+  DashboardMonitorResponse,
+  DashboardRowResponse,
+  DashboardRowState,
+  MonitorLevelKind,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useState } from "react";
@@ -18,405 +19,389 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { StockIdentity } from "../../../components/ui/StockIdentity";
+import actionStyles from "../../../components/ui/actions.module.css";
 import forms from "../../../components/ui/forms.module.css";
-import { stockCountLabel } from "../../lists/utils/format";
-import { lastScanLabel } from "../../monitors/utils/format";
-import { formatTimestamp } from "../../backtests/utils/format";
+import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { formatObservationPrice, LEVEL_KIND_LABELS } from "../../monitors/utils/format";
+import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { useDashboard } from "../hooks/use-dashboard";
-import { SummaryStrip, type SummaryTile } from "./SummaryStrip";
+import {
+  FRESHNESS_TONES,
+  LEVEL_TONES,
+  ROW_STATE_LABELS,
+  ROW_STATE_TONES,
+  formatAge,
+  formatSessionDate,
+  freshnessLabel,
+  levelLabel,
+} from "../utils/format";
+import { MonitorVisibilityPanel } from "./MonitorVisibilityPanel";
 import styles from "./DashboardPage.module.css";
 
-/** How many recent runs the home page lists before sending the user to the full history. */
-const RECENT_RUN_LIMIT = 5;
+type StateFilter = "ALL" | DashboardRowState;
+type LevelFilter = "ALL" | MonitorLevelKind;
 
-type WatchFilter = "all" | "matching" | "attention";
-
-const WATCH_FILTERS: readonly {
-  readonly id: WatchFilter;
-  readonly label: string;
-}[] = [
-  { id: "all", label: "All" },
-  { id: "matching", label: "With signals" },
-  { id: "attention", label: "Needs attention" },
+const STATE_FILTERS: readonly { readonly id: StateFilter; readonly label: string }[] = [
+  { id: "ALL", label: "All" },
+  { id: "ACTIVE", label: ROW_STATE_LABELS.ACTIVE },
+  { id: "PENDING_TRIGGER", label: ROW_STATE_LABELS.PENDING_TRIGGER },
 ];
 
-/**
- * A monitor needs attention when the user asked for it to run and the system is not running it —
- * either an entitlement is holding it back, or it is switched off. Both are states the user can
- * act on, and neither is a match.
- */
-function needsAttention(monitor: MonitorSummaryResponse): boolean {
+const LEVEL_FILTERS: readonly { readonly id: LevelFilter; readonly label: string }[] = [
+  { id: "ALL", label: "All actions" },
+  { id: "BUY", label: LEVEL_KIND_LABELS.BUY },
+  { id: "SELL", label: LEVEL_KIND_LABELS.SELL },
+  { id: "FINAL_EXIT", label: LEVEL_KIND_LABELS.FINAL_EXIT },
+];
+
+function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
   return (
-    monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" || !monitor.enabled
+    <div className={styles.reasons}>
+      {row.reasons.map((reason, index) => (
+        <p key={index} className={styles.reason}>
+          {reason.exitRule !== undefined ? (
+            <span className={styles.reasonRule}>Rule {reason.exitRule}: </span>
+          ) : null}
+          {reason.conditions.join(" and ")}
+          {reason.trigger ? (
+            <span className={styles.reasonTrigger}>
+              {reason.conditions.length > 0 ? " · " : ""}
+              {reason.waitingForTrigger ? "Waiting for: " : "Triggered: "}
+              {reason.trigger}
+            </span>
+          ) : null}
+        </p>
+      ))}
+    </div>
   );
 }
 
-function matchesFilter(
-  monitor: MonitorSummaryResponse,
-  filter: WatchFilter,
-): boolean {
-  if (filter === "matching") {
-    return monitor.activeSignalCount > 0;
-  }
-  if (filter === "attention") {
-    return needsAttention(monitor);
-  }
-  return true;
+function SinceCell({ row, now }: { readonly row: DashboardRowResponse; readonly now: Date }) {
+  const date = row.observationDate ? formatSessionDate(row.observationDate) : null;
+  return (
+    <span className={styles.since} title={new Date(row.since).toLocaleString()}>
+      {date ?? formatAge(row.since, now)}
+      {row.reconstructed ? <span className={styles.sinceNote}>from history</span> : null}
+    </span>
+  );
 }
 
-/**
- * The application home.
- *
- * The legacy dashboard led with a "Real-time Matches" table: every stock currently matching, across
- * every monitor, with its monitor, strategy and list beside it. V2 cannot answer that in one
- * request — `GET /monitors` carries per-monitor counts, and only `GET /monitors/{id}` carries the
- * evaluated securities — so this page reports what is true at the collection level and links into
- * each monitor for the stocks behind the count. It never fans out a request per monitor to
- * reconstruct the missing aggregate, and it never invents a match. See `ai/architecture/frontend.md`
- * for the read model this is waiting on.
- */
-export function DashboardPage() {
-  const { status, monitors, runs, retry } = useDashboard();
-  const [filter, setFilter] = useState<WatchFilter>("all");
-
-  const activeSignals = monitors.reduce(
-    (total, monitor) => total + monitor.activeSignalCount,
-    0,
-  );
-  const scanning = monitors.filter(
-    (monitor) =>
-      monitor.enabled && monitor.operationalStatus !== "BLOCKED_BY_ENTITLEMENT",
-  ).length;
-  const attention = monitors.filter(needsAttention).length;
-  const latestRun = runs[0];
-
-  const summaryTiles: readonly SummaryTile[] = [
+function columnsFor(now: Date): DataTableColumn<DashboardRowResponse>[] {
+  return [
     {
-      id: "run-backtest",
-      label: "Backtest",
-      value: "Run a backtest",
-      detail: "Test a strategy over history",
-      href: "/backtests/new",
-      tone: "action",
-    },
-    {
-      id: "signals",
-      label: "Active signals",
-      value: activeSignals,
-      detail:
-        activeSignals === 0
-          ? "Nothing is matching right now"
-          : "Across all your monitors",
-      href: "/monitors",
-    },
-    {
-      id: "scanning",
-      label: "Scanning",
-      value: `${scanning}/${monitors.length}`,
-      detail:
-        attention === 0
-          ? "All monitors are running"
-          : `${attention} ${
-              attention === 1 ? "monitor needs" : "monitors need"
-            } attention`,
-      href: "/monitors",
-    },
-    {
-      id: "latest-run",
-      label: "Latest backtest",
-      value: latestRun
-        ? BACKTEST_RUN_STATUS_LABELS[latestRun.status]
-        : "None yet",
-      ...(latestRun
-        ? {
-            detail: latestRun.strategyName,
-            href: `/backtests/${latestRun.id}`,
-          }
-        : { detail: "You have not run one yet", href: "/backtests/new" }),
-    },
-  ];
-
-  const visibleMonitors = monitors
-    .filter((monitor) => matchesFilter(monitor, filter))
-    // Whatever has something to look at comes first; the rest keep the API's order.
-    .slice()
-    .sort((left, right) => right.activeSignalCount - left.activeSignalCount);
-
-  const monitorColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
-    {
-      key: "monitor",
-      header: "Monitor",
+      key: "stock",
+      header: "Stock",
       cardRole: "identity",
-      render: (monitor) => (
-        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
-          {monitor.name}
-        </Link>
-      ),
-    },
-    {
-      key: "signals",
-      header: "Active signals",
-      cardRole: "status",
-      nowrap: true,
-      render: (monitor) =>
-        monitor.activeSignalCount > 0 ? (
-          <StatusBadge tone="active">
-            {monitor.activeSignalCount}{" "}
-            {monitor.activeSignalCount === 1 ? "signal" : "signals"}
-          </StatusBadge>
-        ) : monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
-          <StatusBadge tone="blocked">Not scanning</StatusBadge>
-        ) : monitor.enabled ? (
-          <StatusBadge tone="neutral">No signals</StatusBadge>
-        ) : (
-          <StatusBadge tone="pending">Disabled</StatusBadge>
-        ),
-    },
-    {
-      key: "strategy",
-      header: "Strategy",
-      cardRole: "links",
-      render: (monitor) => (
-        <EntityReferenceChip
-          kind="strategy"
-          name={monitor.strategyName}
-          href={`/strategies/${monitor.strategyId}`}
+      render: (row) => (
+        <StockIdentity
+          symbol={row.security.symbol}
+          name={row.security.name}
+          {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
+          href={stockDetailsHref(row.security.symbol)}
+          size="sm"
         />
       ),
     },
     {
-      key: "list",
-      header: "Stock list",
+      key: "action",
+      header: "Action",
+      cardRole: "status",
+      nowrap: true,
+      render: (row) => (
+        <span className={styles.badges}>
+          <StatusBadge
+            tone={LEVEL_TONES[row.levelKind]}
+            variant="outline"
+            dataAttributes={{ "data-level": row.levelKind }}
+          >
+            {levelLabel(row)}
+          </StatusBadge>
+          <StatusBadge
+            tone={ROW_STATE_TONES[row.state]}
+            dataAttributes={{ "data-state": row.state }}
+          >
+            {ROW_STATE_LABELS[row.state]}
+          </StatusBadge>
+        </span>
+      ),
+    },
+    {
+      key: "reason",
+      header: "Why",
+      cardLabel: "Why",
+      render: (row) => <ReasonCell row={row} />,
+    },
+    {
+      key: "price",
+      header: "Price",
+      align: "right",
+      numeric: true,
+      nowrap: true,
+      render: (row) =>
+        row.price === undefined ? (
+          <span className={styles.placeholder}>—</span>
+        ) : (
+          formatObservationPrice(row.price)
+        ),
+    },
+    {
+      key: "since",
+      header: "Since",
+      nowrap: true,
+      render: (row) => <SinceCell row={row} now={now} />,
+    },
+    {
+      key: "source",
+      header: "Monitor",
       cardRole: "links",
-      // The universe size rides with the list reference it belongs to, rather than taking
-      // a column of its own.
-      render: (monitor) => (
-        <span className={styles.listCell}>
+      cardLabel: "From",
+      render: (row) => (
+        <span className={styles.sources}>
           <EntityReferenceChip
-            kind="list"
-            name={monitor.stockListName}
-            href={`/lists/${monitor.stockListId}`}
+            kind="monitor"
+            name={row.monitor.name}
+            href={`/monitors/${row.monitor.id}`}
           />
-          <span className={styles.listCount}>
-            {stockCountLabel(monitor.securityCount)}
+          <span className={styles.sourceDetail}>
+            <EntityReferenceChip
+              kind="strategy"
+              name={row.strategy.name}
+              href={`/strategies/${row.strategy.id}`}
+            />
+            <EntityReferenceChip
+              kind="list"
+              name={row.stockList.name}
+              href={`/lists/${row.stockList.id}`}
+            />
           </span>
         </span>
       ),
     },
     {
-      key: "checked",
-      header: "Last checked",
+      key: "actions",
+      header: <span className={styles.visuallyHidden}>Actions</span>,
+      cardRole: "actions",
       nowrap: true,
-      render: (monitor) => lastScanLabel(monitor.lastScanAt),
-    },
-  ];
-
-  const runColumns: readonly DataTableColumn<BacktestRunSummaryResponse>[] = [
-    {
-      key: "run",
-      header: "Strategy",
-      cardRole: "identity",
-      render: (run) => (
-        <Link className={styles.nameLink} href={`/backtests/${run.id}`}>
-          {run.strategyName}
+      render: (row) => (
+        <Link
+          className={actionStyles.action}
+          href={`/backtests/new?strategyId=${encodeURIComponent(row.strategy.id)}&stockListId=${encodeURIComponent(row.stockList.id)}`}
+          title={`Backtest ${row.strategy.name} over ${row.stockList.name}`}
+        >
+          Backtest
         </Link>
       ),
     },
-    {
-      key: "status",
-      header: "Status",
-      cardRole: "status",
-      nowrap: true,
-      render: (run) => (
-        <StatusBadge
-          tone={
-            run.status === "COMPLETED"
-              ? "positive"
-              : run.status === "FAILED"
-                ? "negative"
-                : run.status === "RUNNING" || run.status === "FINALIZING"
-                  ? "active"
-                  : "pending"
-          }
-        >
-          {BACKTEST_RUN_STATUS_LABELS[run.status]}
-        </StatusBadge>
-      ),
-    },
-    {
-      key: "list",
-      header: "Stock list",
-      cardRole: "links",
-      render: (run) => (
-        <EntityReferenceChip kind="list" name={run.stockListName} />
-      ),
-    },
-    {
-      key: "queued",
-      header: "Queued",
-      nowrap: true,
-      render: (run) => formatTimestamp(run.queuedAt),
-    },
   ];
+}
+
+/**
+ * The application home: every current match and setup from the monitors the viewer can see.
+ *
+ * `docs/decisions/builtin-dashboard-signals-v1.md` section 4. One row per monitor outcome — the same
+ * stock under two monitors is two rows — showing `ACTIVE` signals and `PENDING_TRIGGER` setups only.
+ * A Guest sees the published built-in monitors; a signed-in user may hide those and also sees their
+ * own. Freshness comes from real scan times and is never described as live when it is not.
+ */
+export function DashboardPage() {
+  const { status, dashboard, reload } = useDashboard();
+  const { state: session } = useAuthSession();
+  const [stateFilter, setStateFilter] = useState<StateFilter>("ALL");
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
+  const now = new Date();
+
+  const rows = dashboard?.rows ?? [];
+  const byState = rows.filter((row) => levelFilter === "ALL" || row.levelKind === levelFilter);
+  const visibleRows = byState.filter(
+    (row) => stateFilter === "ALL" || row.state === stateFilter,
+  );
+  const monitors = dashboard?.monitors ?? [];
+  const shownMonitors = monitors.filter((monitor) => monitor.visible);
+  const guest = dashboard?.viewer === "GUEST" || session.status === "unauthenticated";
 
   return (
     <PageContainer>
       <div className={styles.page} data-testid="dashboard-page">
         <PageHeader
           title="Dashboard"
-          lead="What your monitors are seeing right now, and the backtests you have run."
+          lead="Current matches and setups from your monitors, including FactorSage's built-in ones."
+          aside={dashboard ? <OverallFreshness monitors={shownMonitors} now={now} /> : undefined}
         />
+
+        {guest && status === "ready" ? (
+          <div className={styles.guestNotice} data-testid="dashboard-guest-notice">
+            <p>
+              You are viewing FactorSage&apos;s built-in monitors. Sign in to choose which ones
+              appear here, create your own, and backtest any of them.
+            </p>
+            <Link className={forms.tintedButton} href="/login">
+              Sign in
+            </Link>
+          </div>
+        ) : null}
 
         {status === "loading" ? (
           <SectionCard ariaLabel="Loading dashboard">
-            <SkeletonList rows={5} />
+            <SkeletonList rows={6} />
           </SectionCard>
         ) : null}
 
         {status === "error" ? (
           <EmptyState
             variant="error"
-            title="Your dashboard could not be loaded"
+            title="The dashboard could not be loaded"
             body={<p>This is usually temporary — try again in a moment.</p>}
             actions={
-              <button
-                type="button"
-                className={forms.secondaryButton}
-                onClick={retry}
-              >
+              <button type="button" className={forms.secondaryButton} onClick={reload}>
                 Try again
               </button>
             }
           />
         ) : null}
 
-        {status === "ready" ? (
+        {status === "ready" && dashboard ? (
           <>
-            <SummaryStrip tiles={summaryTiles} />
-
             <SectionCard
-              id="watchlist"
-              title="Monitors"
-              caption="Each monitor evaluates its strategy against current data. Open one to see which stocks are matching and why."
+              id="signals"
+              title="Current signals"
+              caption="Active signals stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
+              flush={rows.length > 0}
               toolbar={
-                monitors.length > 0 ? (
-                  <div
-                    className={styles.filters}
-                    role="group"
-                    aria-label="Filter monitors"
-                  >
-                    {WATCH_FILTERS.map((option) => {
-                      const count = monitors.filter((monitor) =>
-                        matchesFilter(monitor, option.id),
-                      ).length;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          className={styles.filter}
-                          data-active={filter === option.id ? "true" : undefined}
-                          aria-pressed={filter === option.id}
-                          onClick={() => setFilter(option.id)}
-                        >
-                          {option.label}
-                          <span className={styles.filterCount}>{count}</span>
-                        </button>
-                      );
-                    })}
+                rows.length > 0 ? (
+                  <div className={styles.toolbar}>
+                    <FilterGroup
+                      label="Filter by state"
+                      options={STATE_FILTERS}
+                      value={stateFilter}
+                      onChange={setStateFilter}
+                      count={(id) =>
+                        byState.filter((row) => id === "ALL" || row.state === id).length
+                      }
+                      testId="dashboard-state-filter"
+                    />
+                    <FilterGroup
+                      label="Filter by action"
+                      options={LEVEL_FILTERS}
+                      value={levelFilter}
+                      onChange={setLevelFilter}
+                      count={(id) =>
+                        rows.filter(
+                          (row) =>
+                            (id === "ALL" || row.levelKind === id) &&
+                            (stateFilter === "ALL" || row.state === stateFilter),
+                        ).length
+                      }
+                      testId="dashboard-level-filter"
+                    />
                   </div>
                 ) : null
               }
-              flush={visibleMonitors.length > 0}
             >
-              <DataTable
-                label="Monitors"
-                testId="dashboard-monitors"
-                rowTestId="dashboard-monitor-row"
-                columns={monitorColumns}
-                rows={visibleMonitors}
-                getRowKey={(monitor) => monitor.id}
-                clickableRows
-                emptyState={
-                  monitors.length === 0 ? (
-                    <EmptyState
-                      variant="compact"
-                      testId="dashboard-monitors-empty"
-                      title="No monitors yet"
-                      body={
-                        <p>
-                          A monitor watches one strategy over one stock list
-                          using current prices, and records a signal whenever a
-                          stock matches.
-                        </p>
-                      }
-                      actions={
-                        <Link className={forms.primaryButton} href="/monitors">
-                          Create a monitor
-                        </Link>
-                      }
-                    />
-                  ) : (
-                    <EmptyState
-                      variant="compact"
-                      testId="dashboard-monitors-filtered-empty"
-                      title="Nothing under this filter"
-                      body={
-                        <p>
-                          No monitor matches the filter you selected right now.
-                        </p>
-                      }
-                    />
-                  )
-                }
-              />
+              {rows.length === 0 ? (
+                <EmptyState
+                  variant="compact"
+                  testId="dashboard-signals-empty"
+                  title={
+                    shownMonitors.length === 0
+                      ? "No monitors are shown"
+                      : "Nothing is matching right now"
+                  }
+                  body={
+                    <p>
+                      {shownMonitors.length === 0
+                        ? "Turn a monitor on below to see its matches here."
+                        : "Your monitors are running. Matches and setups appear here as soon as a scan finds them."}
+                    </p>
+                  }
+                />
+              ) : visibleRows.length === 0 ? (
+                <EmptyState
+                  variant="compact"
+                  testId="dashboard-signals-filtered-empty"
+                  title="No signals match these filters"
+                />
+              ) : (
+                <DataTable
+                  label="Current signals"
+                  testId="dashboard-signals"
+                  rowTestId="dashboard-signal-row"
+                  clickableRows
+                  columns={columnsFor(now)}
+                  rows={visibleRows}
+                  getRowKey={(row) => row.id}
+                />
+              )}
             </SectionCard>
 
-            <SectionCard
-              id="recent-backtests"
-              title="Recent backtests"
-              aside={
-                runs.length > RECENT_RUN_LIMIT ? (
-                  <Link className={styles.moreLink} href="/backtests">
-                    View all {runs.length}
-                  </Link>
-                ) : null
-              }
-              flush={runs.length > 0}
-            >
-              <DataTable
-                label="Recent backtests"
-                testId="dashboard-backtests"
-                rowTestId="dashboard-backtest-row"
-                columns={runColumns}
-                rows={runs.slice(0, RECENT_RUN_LIMIT)}
-                getRowKey={(run) => run.id}
-                clickableRows
-                emptyState={
-                  <EmptyState
-                    variant="compact"
-                    testId="dashboard-backtests-empty"
-                    title="No backtests yet"
-                    body={
-                      <p>
-                        Run a strategy over a historical period to see how it
-                        would have performed against a benchmark.
-                      </p>
-                    }
-                    actions={
-                      <Link
-                        className={forms.primaryButton}
-                        href="/backtests/new"
-                      >
-                        Run a backtest
-                      </Link>
-                    }
-                  />
-                }
-              />
-            </SectionCard>
+            <MonitorVisibilityPanel
+              monitors={monitors}
+              guest={guest}
+              now={now}
+              onChanged={reload}
+            />
           </>
         ) : null}
       </div>
     </PageContainer>
+  );
+}
+
+function FilterGroup<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  count,
+  testId,
+}: {
+  readonly label: string;
+  readonly options: readonly { readonly id: T; readonly label: string }[];
+  readonly value: T;
+  readonly onChange: (next: T) => void;
+  readonly count: (id: T) => number;
+  readonly testId: string;
+}) {
+  return (
+    <div className={styles.filters} role="group" aria-label={label} data-testid={testId}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className={styles.filter}
+          data-active={value === option.id ? "true" : undefined}
+          aria-pressed={value === option.id}
+          onClick={() => onChange(option.id)}
+        >
+          {option.label}
+          <span className={styles.filterCount}>{count(option.id)}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The page-level freshness fact: the newest scan among the monitors shown, and a warning when any
+ * of them is stale. A Dashboard is never labelled live when its scans are not current.
+ */
+function OverallFreshness({
+  monitors,
+  now,
+}: {
+  readonly monitors: readonly DashboardMonitorResponse[];
+  readonly now: Date;
+}) {
+  const scanned = monitors
+    .map((monitor) => monitor.lastScanAt)
+    .filter((value): value is string => value !== undefined)
+    .sort();
+  const newest = scanned[scanned.length - 1];
+  const stale = monitors.some((monitor) => monitor.freshness === "STALE");
+  const freshness = stale ? "STALE" : newest ? "CURRENT" : "NOT_SCANNED";
+  return (
+    <StatusBadge tone={FRESHNESS_TONES[freshness]} testId="dashboard-freshness">
+      {freshnessLabel(freshness, newest, now)}
+    </StatusBadge>
   );
 }

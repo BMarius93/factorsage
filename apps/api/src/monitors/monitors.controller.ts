@@ -20,6 +20,8 @@ import {
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
+import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
+import { Viewer } from "../auth/viewer.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseCreateMonitorRequest,
@@ -28,21 +30,21 @@ import {
 import {
   MonitorNotFoundError,
   MonitorReferenceNotFoundError,
+  MonitorRequestError,
   MonitorsService,
 } from "./monitors.service";
 
 /**
- * User-owned monitors. Every route requires an authenticated session and operates strictly on the
- * caller's own rows: the service scopes each query by the authenticated user id, and a monitor that
- * exists but belongs to someone else answers exactly like one that does not exist. There is
- * intentionally no ADMIN bypass.
+ * Monitors. A customer's own Monitors, plus the platform's built-ins: a published built-in is
+ * readable by anyone, Guests included; only an administrator may change one, and none is ever
+ * deleted. A monitor that belongs to another customer answers exactly like one that does not exist,
+ * for administrators too.
  *
  * There is deliberately no route that triggers a scan. Cadence is an application decision
  * (`ai/product/monitors.md`), and a "scan now" endpoint would be a user-facing cadence control by
  * another name.
  */
 @Controller("monitors")
-@UseGuards(CookieAuthGuard)
 export class MonitorsController {
   constructor(
     @Inject(MonitorsService) private readonly monitors: MonitorsService,
@@ -50,29 +52,33 @@ export class MonitorsController {
 
   @RateLimit("standard-read")
   @Get()
+  @UseGuards(CookieAuthGuard)
   async listOwn(
     @CurrentUser() user: AuthUser,
   ): Promise<MonitorSummaryResponse[]> {
-    return this.monitors.listForUser(user.id);
+    return this.monitors.listForUser(user);
   }
 
   @RateLimit("monitor-mutation")
   @Post()
+  @UseGuards(CookieAuthGuard)
   async create(
     @CurrentUser() user: AuthUser,
     @Body() body: unknown,
   ): Promise<MonitorDetailResponse> {
     const input = parseCreateMonitorRequest(body);
-    return this.execute(() => this.monitors.createMonitor(user.id, input));
+    return this.execute(() => this.monitors.createMonitor(user, input));
   }
 
+  /** Readable by a Guest for a published built-in; everything else needs its owner. */
   @RateLimit("standard-read")
   @Get(":monitorId")
+  @UseGuards(OptionalCookieAuthGuard)
   async getOne(
-    @CurrentUser() user: AuthUser,
+    @Viewer() viewer: AuthUser | null,
     @Param("monitorId") monitorId: string,
   ): Promise<MonitorDetailResponse> {
-    return this.execute(() => this.monitors.getMonitor(user.id, monitorId));
+    return this.execute(() => this.monitors.getMonitor(viewer, monitorId));
   }
 
   /**
@@ -82,6 +88,7 @@ export class MonitorsController {
    */
   @RateLimit("monitor-mutation")
   @Patch(":monitorId")
+  @UseGuards(CookieAuthGuard)
   async update(
     @CurrentUser() user: AuthUser,
     @Param("monitorId") monitorId: string,
@@ -89,18 +96,19 @@ export class MonitorsController {
   ): Promise<MonitorSummaryResponse> {
     const patch = parseUpdateMonitorRequest(body);
     return this.execute(() =>
-      this.monitors.updateMonitor(user.id, monitorId, patch),
+      this.monitors.updateMonitor(user, monitorId, patch),
     );
   }
 
   @RateLimit("monitor-mutation")
   @Delete(":monitorId")
+  @UseGuards(CookieAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @CurrentUser() user: AuthUser,
     @Param("monitorId") monitorId: string,
   ): Promise<void> {
-    await this.execute(() => this.monitors.deleteMonitor(user.id, monitorId));
+    await this.execute(() => this.monitors.deleteMonitor(user, monitorId));
   }
 
   /**
@@ -116,7 +124,10 @@ export class MonitorsController {
       if (error instanceof MonitorNotFoundError) {
         throw new NotFoundException(error.message);
       }
-      if (error instanceof MonitorReferenceNotFoundError) {
+      if (
+        error instanceof MonitorReferenceNotFoundError ||
+        error instanceof MonitorRequestError
+      ) {
         throw new BadRequestException(error.message);
       }
       throw error;
