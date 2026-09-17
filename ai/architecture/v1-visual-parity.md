@@ -135,6 +135,25 @@ behaviour, that is the point to generalise, with the shared thing modelling save
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
 
+### The Dashboard overview strip
+
+The Dashboard opens with V1's own five-card row — `Run Backtest · S&P 500 · DJIA · VIX · Real-time
+Matches` — directly under the page header and above the signals table. It is a feature-owned
+composition, not a `SectionCard`: five small cards on the page canvas, measured against V1 at 76px
+on a phone and 120px from 880px, with the label/value/change hierarchy and the right-hand
+seven-session sparkline V1 uses. Two departures from V1 are deliberate:
+
+- **flat, not elevated.** V1 gives each card a soft drop shadow and the action card a blue gradient.
+  V2 surfaces use `--shadow-surface` (`none`) and a flat `--color-primary` fill, because a glow
+  under every panel is the single loudest thing that made V2 read as a different product.
+- **the session date, not `24h`.** V1's change pill says `24h`; these are end-of-day closes compared
+  session over session, so the pill carries the session the close belongs to instead. A market card
+  must not claim a freshness it does not have.
+
+`Run Backtest` is a card in the same family, not a button beside cards, and it wears the product's
+one solid-blue action treatment because it is the only thing in the strip that does something. Do
+not add a sixth card: the metrics deliberately left out are listed in `benchmark-data.md`.
+
 ## Visual tokens and elevation
 
 Ordinary product surfaces use:

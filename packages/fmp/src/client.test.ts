@@ -720,3 +720,124 @@ describe("current quotes", () => {
     expect(quotes[1]?.quotedAt).toBeUndefined();
   });
 });
+
+/**
+ * Index symbols on the same endpoint.
+ *
+ * Probed live on 2026-09-17 against the configured development key: `^GSPC`, `^DJI` and `^VIX` all
+ * answer `historical-price-eod/full` exactly as `SPY` does, with the same shape, the same
+ * newest-first ordering and the same 5000-row page cap. So there is deliberately **no** index
+ * branch in this adapter — a dedicated index endpoint would be a second walk, a second page cap and
+ * a second thing to keep correct, bought for nothing.
+ *
+ * What is worth pinning is the caret. It is not a URL-safe character, and a symbol that reached the
+ * provider as a bare `^` — or, worse, as a stripped `GSPC` — would return somebody else's prices
+ * rather than an error.
+ */
+describe("FMP index symbols", () => {
+  it.each(["^GSPC", "^DJI", "^VIX"])(
+    "reaches the shared EOD endpoint with %s percent-encoded",
+    async (providerSymbol) => {
+      const page = tradingDaysEndingOn("2026-09-17", 5);
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(response(page));
+
+      await new FmpClient(config, fetchMock).getBenchmarkDailyPrices(
+        providerSymbol,
+        "series-1",
+        { from: "2026-08-18", to: "2026-09-17" },
+      );
+
+      const url = fetchMock.mock.calls[0]![0] as URL;
+      expect(url.pathname).toContain("historical-price-eod/full");
+      // The caret survives as a caret to the provider …
+      expect(url.searchParams.get("symbol")).toBe(providerSymbol);
+      // … and travels as %5E on the wire, never bare and never dropped.
+      expect(url.toString()).toContain(
+        `symbol=%5E${providerSymbol.slice(1)}`,
+      );
+      expect(url.toString()).not.toContain(`symbol=${providerSymbol}`);
+    },
+  );
+
+  it("paginates an index history to completeness exactly as a stock's", async () => {
+    const first = tradingDaysEndingOn("2026-09-17", FMP_EOD_MAX_ROWS_PER_RESPONSE);
+    const oldestOfFirst = first.at(-1)!.date;
+    const dayBefore = new Date(`${oldestOfFirst}T00:00:00.000Z`);
+    dayBefore.setUTCDate(dayBefore.getUTCDate() - 1);
+    const second = tradingDaysEndingOn(dayBefore.toISOString().slice(0, 10), 900);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response(first))
+      .mockResolvedValueOnce(response(second));
+
+    const rows = await new FmpClient(config, fetchMock).getBenchmarkDailyPrices(
+      "^GSPC",
+      "series-1",
+      { from: "2000-01-01", to: "2026-09-17" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(rows).toHaveLength(FMP_EOD_MAX_ROWS_PER_RESPONSE + 900);
+    // Ascending, unique and stamped with the series that asked for them.
+    const dates = rows.map((row) => row.date);
+    expect([...dates].sort()).toEqual(dates);
+    expect(new Set(dates).size).toBe(dates.length);
+    expect(new Set(rows.map((row) => row.seriesId))).toEqual(
+      new Set(["series-1"]),
+    );
+  });
+
+  it("normalizes a zero-volume index bar rather than dropping it", async () => {
+    // `^VIX` has no traded volume at all. A mapper that treated 0 as missing would silently lose
+    // every VIX session.
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      response([
+        {
+          symbol: "^VIX",
+          date: "2026-09-17",
+          open: 16.03,
+          high: 16.29,
+          low: 15.38,
+          close: 15.43,
+          volume: 0,
+        },
+      ]),
+    );
+
+    const rows = await new FmpClient(config, fetchMock).getBenchmarkDailyPrices(
+      "^VIX",
+      "series-vix",
+      { from: "2026-09-17", to: "2026-09-17" },
+    );
+
+    expect(rows).toEqual([
+      {
+        seriesId: "series-vix",
+        date: "2026-09-17",
+        open: 16.03,
+        high: 16.29,
+        low: 15.38,
+        close: 15.43,
+        volume: 0,
+      },
+    ]);
+  });
+
+  it("never puts the API key in a provider error", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ error: "Invalid API KEY." }, 401));
+
+    await expect(
+      new FmpClient(config, fetchMock).getBenchmarkDailyPrices(
+        "^GSPC",
+        "series-1",
+        { from: "2026-09-01", to: "2026-09-17" },
+      ),
+    ).rejects.toSatisfy((error: unknown) => {
+      const serialized = `${String(error)} ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
+      expect(serialized).not.toContain(config().apiKey);
+      return true;
+    });
+  });
+});

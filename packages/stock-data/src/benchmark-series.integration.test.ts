@@ -94,10 +94,12 @@ describeSeries("immutable benchmark series", () => {
       code,
       name: "Series Fixture",
       sourceKind: "FMP_SYMBOL",
+      seriesType: "ETF_PROXY",
       providerSymbol: "OLDSPY",
       currency: "USD",
       methodologyVersion: 1,
       isActive: true,
+      isBacktestSelectable: true,
       displayOrder: 99,
       ...overrides,
     };
@@ -231,5 +233,89 @@ describeSeries("immutable benchmark series", () => {
     expect((await store.findBenchmarkByCode(code))?.name).toBe(
       "Renamed Fixture",
     );
+  });
+
+  it("D: changing what the series *is* appends a version, and history keeps its meaning", async () => {
+    const before = await prisma.benchmarkSeries.findMany({
+      where: { benchmark: { code } },
+      orderBy: { version: "asc" },
+    });
+    expect(before.every((series) => series.seriesType === "ETF_PROXY")).toBe(
+      true,
+    );
+
+    // Moving a code from an ETF proxy to the index itself changes every number it produces — the
+    // expense ratio, the distributions and the level are all different things. So it is part of the
+    // immutable definition, not a property that may be corrected in place.
+    const [moved] = await store.reconcileBenchmarkCatalog([
+      entry({
+        name: "Renamed Fixture",
+        providerSymbol: "NEWSPY",
+        methodologyVersion: 2,
+        seriesType: "INDEX",
+      }),
+    ]);
+
+    const after = await prisma.benchmarkSeries.findMany({
+      where: { benchmark: { code } },
+      orderBy: { version: "asc" },
+    });
+    expect(after).toHaveLength(before.length + 1);
+    expect(moved?.series.version).toBe(before.length + 1);
+    expect(moved?.series.seriesType).toBe("INDEX");
+    // Every earlier version still says what it said, so bars fetched under it keep their meaning.
+    for (const series of after.slice(0, before.length)) {
+      expect(series.seriesType).toBe("ETF_PROXY");
+    }
+    expect(after.map((series) => series.id)).toEqual([
+      ...before.map((series) => series.id),
+      moved?.series.id,
+    ]);
+  });
+
+  it("E: reconciling the same definition twice appends nothing", async () => {
+    const definition = entry({
+      name: "Renamed Fixture",
+      providerSymbol: "NEWSPY",
+      methodologyVersion: 2,
+      seriesType: "INDEX",
+    });
+    const before = await prisma.benchmarkSeries.count({
+      where: { benchmark: { code } },
+    });
+
+    await store.reconcileBenchmarkCatalog([definition]);
+    await store.reconcileBenchmarkCatalog([definition]);
+
+    expect(
+      await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
+    ).toBe(before);
+  });
+
+  it("F: selectability is corrected in place, because it does not change any number", async () => {
+    const before = await prisma.benchmarkSeries.count({
+      where: { benchmark: { code } },
+    });
+    const definition = entry({
+      name: "Renamed Fixture",
+      providerSymbol: "NEWSPY",
+      methodologyVersion: 2,
+      seriesType: "INDEX",
+    });
+
+    const [hidden] = await store.reconcileBenchmarkCatalog([
+      { ...definition, isBacktestSelectable: false },
+    ]);
+    expect(hidden?.isBacktestSelectable).toBe(false);
+    const [shown] = await store.reconcileBenchmarkCatalog([
+      { ...definition, isBacktestSelectable: true },
+    ]);
+    expect(shown?.isBacktestSelectable).toBe(true);
+
+    // Whether a user may pick it is a product decision about the row, not part of what the series
+    // means — so toggling it twice cannot leave two dead series versions behind.
+    expect(
+      await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
+    ).toBe(before);
   });
 });

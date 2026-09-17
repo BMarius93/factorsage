@@ -1,0 +1,48 @@
+/* The microchart's own geometry and its one piece of colour logic.
+ *
+ * The tone drives `currentColor` on the `<svg>`; the stroke, both gradient stops and the fill all
+ * read from it, so direction is decided once and the marks cannot disagree about it. The colours
+ * themselves are the product's financial-state tokens — a sparkline going green is the same green
+ * as a positive number anywhere else. */
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 44px;
+  /* No transition anywhere: a microchart that animates on data arrival is a layout shift the
+     Dashboard would pay for five times on load. */
+  color: var(--color-text-secondary);
+}
+
+.sparkline[data-tone="positive"] {
+  color: var(--color-positive);
+}
+
+.sparkline[data-tone="negative"] {
+  color: var(--color-negative);
+}
+
+.line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  /* The viewBox is stretched to the card, so an unscaled stroke keeps the same visual weight
+     whatever width the card ends up at. */
+  vector-effect: non-scaling-stroke;
+}
+
+.area {
+  stroke: none;
+}
+
+.fillStart {
+  stop-color: currentColor;
+  stop-opacity: 0.16;
+}
+
+.fillEnd {
+  stop-color: currentColor;
+  stop-opacity: 0;
+}

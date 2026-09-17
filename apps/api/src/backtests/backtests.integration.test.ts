@@ -18,6 +18,10 @@ import {
   type BenchmarkResponse,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
+import {
+  EXECUTION_CALENDAR_REFERENCE_CODE,
+  MARKET_REFERENCE_SERIES,
+} from "@intrinsic/domain";
 import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -1531,10 +1535,12 @@ describe("backtests", () => {
       code,
       name: "Pinned Fixture",
       sourceKind: "FMP_SYMBOL" as const,
+      seriesType: "ETF_PROXY" as const,
       providerSymbol: "OLDSYM",
       currency: "USD",
       methodologyVersion: 1,
       isActive: true,
+      isBacktestSelectable: true,
       displayOrder: 50,
     };
     await store.reconcileBenchmarkCatalog([definition]);
@@ -1615,6 +1621,93 @@ describe("backtests", () => {
     expect(
       await prisma.benchmarkSeries.count({ where: { id: reference.id } }),
     ).toBe(1);
+  });
+
+  /**
+   * The backtest benchmark did not move when the Dashboard's market references arrived.
+   *
+   * `SP500` is `SPY`, an investable ETF proxy, and it stays that way: a funded comparison portfolio
+   * has to be able to buy what it is compared against, and every completed run pinned that meaning.
+   * `SP500_INDEX`/`^GSPC` is a *different* series for reporting the market, not a correction of
+   * this one — so none of it may leak into a submission, a picker or a pinned snapshot.
+   */
+  describe("market references never become the backtest benchmark", () => {
+    it("still resolves SP500 to the SPY-backed series and pins it", async () => {
+      const run = await submit();
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
+      const series = await prisma.benchmarkSeries.findUniqueOrThrow({
+        where: { id: stored.benchmarkSeriesId ?? "" },
+      });
+
+      expect(series.providerSymbol).toBe("SPY");
+      expect(series.seriesType).toBe("ETF_PROXY");
+      const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.benchmark.code).toBe("SP500");
+      expect(snapshot.benchmark.providerSymbol).toBe("SPY");
+      expect(snapshot.benchmark.seriesId).toBe(series.id);
+    });
+
+    it("still runs the execution calendar off SP500/SPY", async () => {
+      const run = await submit();
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { executionCalendarSeriesId: true },
+      });
+      const calendar = await prisma.benchmarkSeries.findUniqueOrThrow({
+        where: { id: stored.executionCalendarSeriesId },
+        include: { benchmark: true },
+      });
+
+      expect(EXECUTION_CALENDAR_REFERENCE_CODE).toBe("SP500");
+      expect(calendar.benchmark.code).toBe("SP500");
+      expect(calendar.providerSymbol).toBe("SPY");
+      expect(calendar.seriesType).toBe("ETF_PROXY");
+    });
+
+    it("offers only S&P 500 in the selectable catalog", async () => {
+      const listed = (await owner.get("/benchmarks").expect(200))
+        .body as { code: string }[];
+      const codes = listed.map((benchmark) => benchmark.code);
+
+      expect(codes).toContain("SP500");
+      for (const reference of MARKET_REFERENCE_SERIES) {
+        expect(codes).not.toContain(reference.code);
+      }
+    });
+
+    it("refuses a submission that names an internal market reference", async () => {
+      const before = await prisma.backtestRun.count({
+        where: { userId: ownerUserId },
+      });
+
+      for (const reference of MARKET_REFERENCE_SERIES) {
+        // The row exists and is active — this is not a "not found"; it is a refusal to let a user
+        // compare a portfolio against something nothing can hold.
+        const registered = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: reference.code },
+        });
+        expect(registered.isActive).toBe(true);
+        expect(registered.isBacktestSelectable).toBe(false);
+
+        // 400 with the catalog's existing wording, not a new error class: to a submitter, a
+        // benchmark that may not be selected and one that does not exist are the same refusal.
+        const response = await owner
+          .post("/backtests")
+          .send(submission({ benchmarkCode: reference.code }))
+          .expect(400);
+        expect((response.body as { message: string }).message).toContain(
+          "is not a selectable benchmark",
+        );
+      }
+
+      // And nothing was created on the way to those refusals.
+      expect(await prisma.backtestRun.count({ where: { userId: ownerUserId } })).toBe(
+        before,
+      );
+    });
   });
 
   it("refuses to accept a run when the system execution calendar is not registered", async () => {

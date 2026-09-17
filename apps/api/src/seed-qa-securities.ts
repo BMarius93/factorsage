@@ -10,7 +10,10 @@ import {
   RedisBenchmarkDataCache,
   RedisStockDataCache,
 } from "@intrinsic/stock-data";
-import { seedQaBenchmarkData } from "./benchmarks/seed-qa-benchmark-data";
+import {
+  seedQaBenchmarkData,
+  seedQaMarketReferenceData,
+} from "./benchmarks/seed-qa-benchmark-data";
 import {
   assertQaSecuritySeedingAllowed,
   qaSeedDatabaseUrl,
@@ -22,7 +25,8 @@ import { seedQaStockData } from "./stocks/seed-qa-stock-data";
  * Seeds the deterministic fictional QA catalog rows the E2E suites use, plus the market data the
  * first of them needs so Stock Details can be exercised without a market-data provider, plus the
  * benchmark history a backtest compares against — the V1 benchmark is sourced from a real provider
- * symbol, so without it an E2E run would reach FMP.
+ * symbol, so without it an E2E run would reach FMP — plus the market-reference index history the
+ * Dashboard's overview cards read.
  *
  * Targets **TEST_DATABASE_URL**, explicitly and only. These are fictional catalog rows and
  * synthetic market data — including S&P 500 bars written into the real benchmark series — so
@@ -72,6 +76,16 @@ async function seed(): Promise<void> {
       `${benchmark.code} benchmark data ready: ${benchmark.tradingDays} trading days, ` +
         `${benchmark.from} to ${benchmark.to}.`,
     );
+    // The Dashboard's market references, through the same store and the same invalidation. Without
+    // them the overview would reach FMP for `^GSPC`, `^DJI` and `^VIX` during an E2E run, and the
+    // numbers a screenshot recorded would change with the real market.
+    for (const reference of await seedQaMarketReferenceData(prisma)) {
+      await benchmarkCache.invalidateManifest(reference.seriesId);
+      console.log(
+        `${reference.code} market reference ready: ${reference.tradingDays} sessions, ` +
+          `${reference.from} to ${reference.to}.`,
+      );
+    }
   } finally {
     redis.disconnect();
     await prisma.$disconnect();

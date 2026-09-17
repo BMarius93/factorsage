@@ -87,10 +87,16 @@ function discoverProductionFmpClientFiles(): string[] {
 describe("shared FMP provider gate", () => {
   const files = discoverProductionFmpClientFiles();
 
-  it("is constructed by exactly the three composition roots", () => {
-    // Listed rather than counted, so adding a fourth process is a deliberate edit here and an
-    // occasion to ask whether it shares the allowance correctly.
+  it("is constructed by exactly the known composition roots", () => {
+    // Listed rather than counted, so adding a process is a deliberate edit here and an occasion to
+    // ask whether it shares the allowance correctly.
+    //
+    // The benchmark prewarm CLI is the one entry point here that is not a long-running service. It
+    // is on the list for exactly the reason the list exists: a thirty-year index backfill is the
+    // job most likely to starve a live Stock Details read, so it goes through the same Redis gate
+    // and spends the same budget rather than opening a private lane beside it.
     expect(files).toEqual([
+      "apps/api/src/benchmarks/prewarm-benchmark-data.ts",
       "apps/api/src/stocks/stocks.module.ts",
       "apps/worker/src/backtest/composition.ts",
       "apps/worker/src/monitor/composition.ts",

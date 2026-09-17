@@ -66,6 +66,18 @@ Read `ai/README.md` before substantial work.
     metadata, and a provider symbol never crosses an API contract. Benchmark loading reuses the
     canonical provider adapter, coverage reconciliation, hydration lock, provider gate and Redis
     projection principles under its own namespace; see `ai/architecture/benchmark-data.md`.
+    **One infrastructure, several series.** `isActive` (does the system maintain it) and
+    `isBacktestSelectable` (may a customer compare a portfolio against it) are different questions
+    and are different columns: the market-reference indices behind the Dashboard cards —
+    `SP500_INDEX`/`^GSPC`, `DJIA_INDEX`/`^DJI`, `VIX_INDEX`/`^VIX` — are fully active system series
+    that a user may never select, and a submission naming one is refused at the canonical boundary,
+    not merely hidden from the picker. `seriesType` (`ETF_PROXY | INDEX`) says what the object *is*
+    and belongs to the immutable `BenchmarkSeries` definition, so changing it appends a version
+    rather than reinterpreting stored bars; `sourceKind` stays a statement about *how* data is
+    obtained. **`SP500` remains the SPY-backed ETF proxy for backtests and for the execution
+    calendar** — a funded comparison must be able to buy what it is compared against, and completed
+    runs pinned that meaning — so `SP500_INDEX` is a separate series, never a re-pointing of it. Do
+    not add a second market cache, a second price table or a second hydration path for index data.
 14. Backtest work is claimed from PostgreSQL (`BacktestJob`, `FOR UPDATE SKIP LOCKED`, renewable
     lease, ownership-guarded writes). Do not add a queue library, and do not make Redis the queue.
     One backtest is never internally parallelized: its simulation stays sequential and

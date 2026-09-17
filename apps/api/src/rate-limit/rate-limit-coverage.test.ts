@@ -178,6 +178,11 @@ describe("rate-limit coverage", () => {
     ]);
     // Split out on purpose: the client polls this one, its siblings are clicked.
     expect(byPolicy.get("billing-refresh")).toEqual(["POST /billing/refresh"]);
-    expect(byPolicy.get("stock-read")?.length).toBe(5);
+    // The five Stock Details reads plus the Dashboard's market overview: the same class, because
+    // each of them may hydrate from the market-data provider on a cold read.
+    expect(byPolicy.get("stock-read")?.sort()).toContain(
+      "GET /market-overview",
+    );
+    expect(byPolicy.get("stock-read")?.length).toBe(6);
   });
 });

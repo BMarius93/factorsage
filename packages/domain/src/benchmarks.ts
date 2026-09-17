@@ -18,6 +18,26 @@ export const BENCHMARK_SOURCE_KINDS = ["FMP_SYMBOL"] as const;
 
 export type BenchmarkSourceKind = (typeof BENCHMARK_SOURCE_KINDS)[number];
 
+/**
+ * What the financial object behind a series actually **is**.
+ *
+ * Deliberately not folded into `sourceKind`, which says how the numbers are *obtained*: `SPY` and
+ * `^GSPC` are both fetched as FMP symbols, and they are not the same kind of thing.
+ *
+ * - `ETF_PROXY` — a tradable fund that tracks an index. Its price is a share price, it carries the
+ *   fund's expense ratio and distribution behaviour, and a funded comparison portfolio can
+ *   conceptually buy it. That is why the backtest benchmark is one.
+ * - `INDEX` — the index itself. Nothing buys it, it has no expense ratio, and for `^VIX` the number
+ *   is not even a price. It is a market reference, which is what the Dashboard reports.
+ *
+ * It belongs to the **series**, not to the product row, because moving `SP500` from `SPY` to
+ * `^GSPC` would change what every stored bar means. Reconciliation therefore treats it as part of
+ * the immutable definition: changing it appends a version rather than reinterpreting history.
+ */
+export const BENCHMARK_SERIES_TYPES = ["ETF_PROXY", "INDEX"] as const;
+
+export type BenchmarkSeriesType = (typeof BENCHMARK_SERIES_TYPES)[number];
+
 export type BenchmarkId = string;
 export type BenchmarkSeriesId = string;
 
@@ -33,7 +53,21 @@ export type Benchmark = {
   code: string;
   name: string;
   description?: string;
+  /**
+   * Whether the system maintains this benchmark at all. A benchmark the product has retired stops
+   * being loaded and stops being resolvable; it is not how a series is kept out of a picker.
+   */
   isActive: boolean;
+  /**
+   * Whether a **user** may choose this benchmark for a backtest.
+   *
+   * Separate from `isActive` on purpose. The market-reference series behind the Dashboard cards are
+   * fully active system series — they hydrate, they are stored, internal services resolve them —
+   * and they are still not something a customer compares a portfolio against: nothing can buy
+   * `^GSPC`, and `^VIX` is not a price at all. Expressing that as `isActive = false` would have
+   * meant switching off the loading the Dashboard depends on in order to tidy a dropdown.
+   */
+  isBacktestSelectable: boolean;
   displayOrder: number;
 };
 
@@ -57,6 +91,8 @@ export type BenchmarkSeries = {
   /** 1-based, ascending. The highest version of a benchmark is its current definition. */
   version: number;
   sourceKind: BenchmarkSourceKind;
+  /** What the object behind the series is. Part of the immutable definition — see {@link BENCHMARK_SERIES_TYPES}. */
+  seriesType: BenchmarkSeriesType;
   /** Provider identifier for `FMP_SYMBOL`. Server-side only; never part of a browser contract. */
   providerSymbol: string;
   currency: string;
@@ -104,16 +140,86 @@ export const BENCHMARK_CATALOG: readonly BenchmarkCatalogEntry[] = [
     description:
       "Large-cap US equity benchmark. Currently sourced from the SPY ETF, which tracks the S&P 500.",
     sourceKind: "FMP_SYMBOL",
+    seriesType: "ETF_PROXY",
     providerSymbol: "SPY",
     currency: "USD",
     methodologyVersion: 1,
     isActive: true,
+    isBacktestSelectable: true,
     displayOrder: 0,
+  },
+  // ── Market references ──────────────────────────────────────────────────────────────────────
+  //
+  // The real indices, for reporting what the market did. They are ordinary benchmarks in every
+  // structural sense — same tables, same coverage, same hydration lock, same Redis namespace — and
+  // they are deliberately **not** selectable for a backtest: a funded comparison portfolio has to
+  // be able to buy what it is compared against, and `^VIX` is not even a price.
+  //
+  // `SP500` above stays `SPY` for exactly that reason. `SP500_INDEX` is a different series, not a
+  // correction of it, and the two never share a row, a bar or a cache key.
+  {
+    code: "SP500_INDEX",
+    name: "S&P 500 Index",
+    description:
+      "The S&P 500 index itself, as a market reference. Not investable, and not the backtest benchmark — that is SP500, sourced from the SPY ETF.",
+    sourceKind: "FMP_SYMBOL",
+    seriesType: "INDEX",
+    providerSymbol: "^GSPC",
+    currency: "USD",
+    methodologyVersion: 1,
+    isActive: true,
+    isBacktestSelectable: false,
+    displayOrder: 100,
+  },
+  {
+    code: "DJIA_INDEX",
+    name: "Dow Jones Industrial Average",
+    description:
+      "The Dow Jones Industrial Average, as a market reference. Price-weighted and not investable.",
+    sourceKind: "FMP_SYMBOL",
+    seriesType: "INDEX",
+    providerSymbol: "^DJI",
+    currency: "USD",
+    methodologyVersion: 1,
+    isActive: true,
+    isBacktestSelectable: false,
+    displayOrder: 101,
+  },
+  {
+    code: "VIX_INDEX",
+    name: "CBOE Volatility Index",
+    description:
+      "Expected 30-day volatility of the S&P 500, implied by option prices. A level, not a price: nothing holds it, and it is never a backtest benchmark.",
+    sourceKind: "FMP_SYMBOL",
+    seriesType: "INDEX",
+    providerSymbol: "^VIX",
+    currency: "USD",
+    methodologyVersion: 1,
+    isActive: true,
+    isBacktestSelectable: false,
+    displayOrder: 102,
   },
 ];
 
 /** The benchmark a submission selects when it names none. */
 export const DEFAULT_BENCHMARK_CODE = "SP500";
+
+/**
+ * The market references the product reports, in the order it reports them, with the words it uses.
+ *
+ * One list, here, for the same reason `BENCHMARK_CATALOG` is one list: the browser must not hold a
+ * second array that decides which indices exist or what they are called. The card label is shorter
+ * than the catalog name deliberately — `S&P 500 Index` is what the series *is*, `S&P 500` is what a
+ * reader calls it — and both stay in the domain rather than being retyped in a component.
+ */
+export const MARKET_REFERENCE_SERIES = [
+  { code: "SP500_INDEX", label: "S&P 500" },
+  { code: "DJIA_INDEX", label: "DJIA" },
+  { code: "VIX_INDEX", label: "VIX" },
+] as const satisfies readonly { code: string; label: string }[];
+
+export type MarketReferenceCode =
+  (typeof MARKET_REFERENCE_SERIES)[number]["code"];
 
 /**
  * The series whose trading days are the engine's execution calendar.
@@ -132,4 +238,11 @@ export function findBenchmarkCatalogEntry(
   code: string,
 ): BenchmarkCatalogEntry | undefined {
   return BENCHMARK_CATALOG.find((entry) => entry.code === code);
+}
+
+/** The entries a user may choose between when submitting a backtest. */
+export function backtestSelectableBenchmarks(): readonly BenchmarkCatalogEntry[] {
+  return BENCHMARK_CATALOG.filter(
+    (entry) => entry.isActive && entry.isBacktestSelectable,
+  );
 }

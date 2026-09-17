@@ -13,12 +13,41 @@ derived-state rebuild that calculates RSI and DCF for an index proxy for no reas
 identity and benchmark market data therefore stay explicit.
 
 ```text
-Benchmark                         product identity: code, name, description, selectability
- └─ BenchmarkSeries               IMMUTABLE definition: source kind, provider symbol, currency,
-     ├─ BenchmarkDailyPrice       methodology version — appended, never edited
+Benchmark                         product identity: code, name, description, active,
+ │                                backtest-selectable, display order
+ └─ BenchmarkSeries               IMMUTABLE definition: source kind, series type, provider symbol,
+     ├─ BenchmarkDailyPrice       currency, methodology version — appended, never edited
      ├─ BenchmarkDatasetState     tail/coverage watermarks
      └─ BenchmarkDatasetCoverage  exact successful coverage intervals
 ```
+
+## Two properties that are easy to conflate, and must not be
+
+**`isActive` is not `isBacktestSelectable`.** The first asks whether the system maintains the
+series at all; the second asks whether a customer may compare a portfolio against it. They started
+as one flag because every benchmark answered both the same way, and the market-reference indices are
+the case that separates them: they are fully live system series — reconciled, hydrated, stored,
+projected, read on every Dashboard load — and a user may never select one. Expressing that as
+`isActive = false` would have switched off the loading the Dashboard depends on in order to tidy a
+dropdown, and would have made "inactive" mean two different things depending on the row.
+
+The rule is enforced where it matters rather than in the picker: `/benchmarks` filters on both, and
+`BacktestsService` refuses a submission naming a non-selectable code with the catalog's existing
+wording — to a submitter, a benchmark that may not be chosen and one that does not exist are the
+same refusal. Leaving it to the dropdown would have made the rule presentational.
+
+**`sourceKind` is not `seriesType`.** `sourceKind` says *how* the data is obtained; `seriesType`
+says what the financial object *is*:
+
+- `ETF_PROXY` — a tradable fund tracking an index. A share price, carrying the fund's expense ratio
+  and distribution behaviour, and something a funded comparison portfolio can conceptually buy.
+- `INDEX` — the index itself. Not investable, no expense ratio, and for `^VIX` not a price at all.
+
+`SPY` and `^GSPC` are both `FMP_SYMBOL`, and they are not the same kind of thing. `seriesType` lives
+on the **series**, not the product row, because changing it changes what every stored bar means —
+so reconciliation treats it as part of the immutable definition and a change appends a version.
+Nothing in a browser contract carries it: the web app selects a code and reads labels, and what a
+series is remains a server-side fact.
 
 ## Identity is versioned, and data hangs off the version
 
@@ -117,7 +146,10 @@ benchmark:v1:benchmark:<seriesId>:manifest
 ```
 
 Keyed by the immutable series, so a new version projects into its own keys and can never read a
-previous version's cached bars.
+previous version's cached bars — and so can a *different* benchmark: `SP500`, `SP500_INDEX`,
+`DJIA_INDEX` and `VIX_INDEX` are four series ids, four sets of keys, four coverage ledgers and four
+watermarks. Hydrating an index cannot touch the SPY benchmark's bars or mark its coverage, which is
+what `packages/stock-data/src/benchmark-market-references.integration.test.ts` proves.
 
 Distinct from `stock-data:v2:security:<id>:…` on purpose: the stock LRU can never evict a benchmark,
 a benchmark can never occupy a stock residency slot, and a Redis flush costs one durable re-read.
@@ -142,23 +174,132 @@ no data move.
 `BENCHMARK_CATALOG` in `@intrinsic/domain` is the **one** source of benchmark metadata:
 
 ```text
-SP500 / "S&P 500" / FMP_SYMBOL / SPY / USD / methodologyVersion 1
+code          name                          source      type        symbol  selectable
+────────────────────────────────────────────────────────────────────────────────────────
+SP500         S&P 500                       FMP_SYMBOL  ETF_PROXY   SPY     yes
+SP500_INDEX   S&P 500 Index                 FMP_SYMBOL  INDEX       ^GSPC   no
+DJIA_INDEX    Dow Jones Industrial Average  FMP_SYMBOL  INDEX       ^DJI    no
+VIX_INDEX     CBOE Volatility Index         FMP_SYMBOL  INDEX       ^VIX    no
 ```
+
+**`SP500` stays `SPY`, and that is a decision rather than an omission.** The backtest benchmark is
+an investable ETF proxy because the funded comparison scenario buys it with the run's own cash
+flows — a portfolio compared against something nothing can hold is a comparison against an
+abstraction. Every completed run also pinned that meaning: `snapshot.benchmark` records the code,
+the series id, the provider symbol and the methodology version it executed under, so re-pointing
+`SP500` at `^GSPC` would have appended a version that re-based every future run's comparison while
+leaving the old ones reading a different thing under the same name. `SP500_INDEX` is therefore a
+**separate series**, not a correction of `SP500`, and the execution calendar keeps resolving
+`SP500`/`SPY` exactly as before.
+
+The three index rows are internal **market references**: what the Dashboard reports the market did.
+`MARKET_REFERENCE_SERIES` in `@intrinsic/domain` names them, in display order, with the words the
+product uses for them (`S&P 500`, `DJIA`, `VIX` — shorter than the catalog names, because that is
+what a reader calls them). It is one list for the same reason the catalog is: no array in the web
+app decides which indices exist.
 
 The API reconciles it into PostgreSQL idempotently at startup, so a normal local, development, CI or
 test database has the catalog after `migrate` with no manual SQL. No frontend array and no second
 backend list repeats `SP500` or `SPY`; the browser selects a code, and `providerSymbol` never crosses
 the HTTP boundary.
 
-**V1 ships exactly one benchmark, and it is the default.** The model is built for more: broad-market,
-sector, industry and global-equity benchmarks are new rows, and a direct index feed or a composite is
-a new `BenchmarkSourceKind` member plus a loader for it — not a reinterpretation of existing rows.
+**Exactly one benchmark is backtest-selectable, and it is the default.** The model is built for
+more: broad-market, sector, industry and global-equity benchmarks are new rows, and a composite or a
+direct feed of a different shape is a new `BenchmarkSourceKind` member plus a loader for it — not a
+reinterpretation of existing rows. The index references were the first proof of that: they are four
+catalog entries and a boolean, with no new table, no new namespace and no new loader.
 
 `methodologyVersion` describes what the _series means_. `SP500` is currently backed by the `SPY` ETF,
 which tracks the index including its own expense ratio and distribution behaviour. Replacing that
 with a direct index feed would change the numbers, so it raises the version — and because every run
 snapshots the benchmark id, code, name, source kind, provider symbol and methodology version it
 executed under, an already-completed run stays interpretable.
+
+## The market overview
+
+`GET /market-overview` is the read behind the Dashboard's three index cards. It is deliberately not
+part of `GET /dashboard`: the Dashboard read model is entirely about which monitors *this viewer*
+can see, and an index closed where it closed. The endpoint therefore carries no session at all — no
+guard, no cookie, no viewer argument on the service — so a Guest and a signed-in customer are served
+identical bytes, and a second surface wanting the same three numbers reads this rather than a
+viewer-scoped model that happens to contain them.
+
+```jsonc
+{
+  "generatedAt": "2026-09-17T20:00:00.000Z",
+  "basis": "END_OF_DAY",
+  "items": [
+    {
+      "code": "SP500_INDEX",
+      "label": "S&P 500",
+      "status": "AVAILABLE",
+      "value": 7637.05,
+      "previousClose": 7551.81,
+      "changePercent": 1.1287,
+      "sessionDate": "2026-09-17",
+      "sparkline": [{ "date": "2026-09-09", "value": 7521.35 }] // 7 sessions, oldest first
+    }
+  ]
+}
+```
+
+The rules, all decided in one pure function (`apps/api/src/market/market-overview.ts`) so each is
+tested without a database, a provider or a clock:
+
+- **`value`, not `price`.** `^VIX` is a level implied by option prices and nothing holds it. One
+  neutral name across three cards is more honest than an equity word stretched over the third.
+- **The latest _session_, never "today".** A read on a Sunday reports Friday's close and says so
+  with `sessionDate`.
+- **`changePercent` compares two adjacent observed sessions.** Not 24 hours of wall clock, which
+  would be meaningless over a weekend and wrong over a holiday.
+- **Fewer than two observations yields no percentage at all.** Zero would claim the market was flat,
+  which one bar cannot support.
+- **The sparkline is the last seven observed sessions**, with their real dates. Weekends and
+  holidays are absent rather than padded, because a padded weekend draws a flat segment the market
+  never had.
+- **`basis: END_OF_DAY` is a value, not a convention.** These are closes. Nothing consuming this
+  contract may present them as live, and the Dashboard's cards carry the session date for that
+  reason. An intraday source would be a second `basis` member and a different loading path, never a
+  silent reinterpretation of this one.
+- **One unreadable series costs one card.** Each reference is read independently; a failure is
+  logged with its code and the original error (`market.overview.reference.failed`) and returned as
+  `status: "UNAVAILABLE"` with no numbers. A provider hiccup must not take down a page that is
+  mostly about monitors, and a remembered number would be worse than none.
+
+There is **no market cache**. The service holds a `BenchmarkDataService` and can reach the provider
+only through it, so a read goes: catalog row → durable coverage subtracted → shared hydration lock →
+shared FMP gate → PostgreSQL → the `benchmark:v1:*` Redis projection. A `dashboard:market:*`
+namespace, a second price table or a browser cache used as the source of truth would each be a
+second implementation of something that already exists.
+
+The read asks for the **recent window it actually draws** (`MARKET_OVERVIEW_LOOKBACK_DAYS`, 30
+calendar days to today) and lets the existing loader hydrate whatever is missing or stale. That is
+what keeps API startup free of a decades-deep index download: nothing is prefetched at boot, and the
+page asks for what a page needs.
+
+## Prewarming deeper history
+
+These series are stored durably because we will use them for more than a card, and the lazy read
+above only ever materializes a month. `pnpm benchmarks:prewarm` is the way to say "fetch this range
+now, once, off the request path":
+
+```bash
+pnpm benchmarks:prewarm --code SP500_INDEX --from 1990-01-01
+pnpm benchmarks:prewarm --code SP500_INDEX --code DJIA_INDEX --code VIX_INDEX --from 2006-01-01
+pnpm benchmarks:prewarm --code SP500 --from 2000-01-01 --to 2009-12-31
+```
+
+It resolves a code and calls `ensureBenchmarkHydrated`, and that is all it does: coverage
+subtraction, the hydration lock, the shared provider gate, retries, persistence and the Redis
+projection are the canonical implementations, so a prewarmed range is indistinguishable from one a
+page read happened to materialize and rerunning it costs nothing. It reports what coverage says
+afterwards rather than assuming success — a series whose own history begins later legitimately
+leaves a leading gap.
+
+`--from` is **required and has no default**. Baking in a start date would put a claim about how much
+history the provider has into a tool, where it would quietly rot; coverage stays provider-driven.
+(Measured on 2026-09-17: one `historical-price-eod/full` page returns 5000 rows, so `^GSPC` reaches
+back to 2006-10-31 in a single request and the adapter's pagination walks further on request.)
 
 ## What the engine sees
 

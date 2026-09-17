@@ -209,6 +209,17 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
     StockDataRedisLifecycle,
   ],
   // The Redis client is exported for the readiness probe only; no feature module reads it.
-  exports: [STOCK_DATA_SERVICE, SECURITY_CATALOG_SERVICE, STOCK_DATA_REDIS],
+  //
+  // The provider and the coordinator are exported so the benchmark loader is built from the *same*
+  // FMP gate and the *same* Redlock instance this module already owns. A second gate would spend a
+  // second rate-limit budget against one provider account, and a second coordinator would make the
+  // hydration lock stop serializing the two loaders it exists to serialize.
+  exports: [
+    STOCK_DATA_SERVICE,
+    SECURITY_CATALOG_SERVICE,
+    STOCK_DATA_REDIS,
+    STOCK_DATA_PROVIDER,
+    STOCK_DATA_COORDINATOR,
+  ],
 })
 export class StocksModule {}

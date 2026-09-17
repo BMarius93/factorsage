@@ -209,6 +209,10 @@ tags:
       built-in monitors a Guest sees by default.
   - name: Benchmarks
     description: The system-owned benchmark catalog a backtest may compare against.
+  - name: Market
+    description: |
+      What the broad market did, as end-of-day closes. Readable without a session and identical for
+      every caller: nothing here depends on who is asking.
   - name: Entitlements
     description: What the current caller's plan allows. Advisory — every limit is enforced again server-side.
   - name: Billing
@@ -1358,6 +1362,36 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Benchmark" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Market
+  # ---------------------------------------------------------------------------------------------
+  /market-overview:
+    get:
+      tags: [Market]
+      operationId: getMarketOverview
+      summary: The market references the Dashboard reports.
+      description: |
+        Readable without a session, and identical for a Guest and a signed-in caller: an index
+        closed where it closed. The provider symbol behind a code never crosses this contract.
+
+        Every value is an **end-of-day close** — `basis` says so explicitly — and nothing here is
+        intraday. `changePercent` compares the latest session's close with the previous *session's*
+        close, never wall-clock arithmetic, and is absent rather than zero when there is only one
+        observation. `sparkline` holds the most recent observed market sessions, oldest first, with
+        their real session dates; weekends and holidays are absent rather than padded.
+
+        A reference whose data is temporarily unreadable is returned with `status: UNAVAILABLE` and
+        no numbers, so one provider problem costs one card instead of the whole response.
+      x-rate-limit: { policy: stock-read }
+      responses:
+        "200":
+          description: One item per market reference, in display order.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketOverviewResponse" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -3197,6 +3231,75 @@ components:
         name: { type: string }
         description: { type: string }
         currency: { type: string }
+
+    # -------------------------------------------------------------------------------------------
+    # Market
+    # -------------------------------------------------------------------------------------------
+    MarketOverviewPoint:
+      type: object
+      required: [date, value]
+      properties:
+        date:
+          {
+            type: string,
+            format: date,
+            description: The exchange session this value closed on.,
+          }
+        value: { type: number }
+
+    MarketOverviewItem:
+      type: object
+      required: [code, label, status, sparkline]
+      properties:
+        code:
+          {
+            type: string,
+            description: The benchmark code behind the card.,
+            examples: [SP500_INDEX],
+          }
+        label:
+          {
+            type: string,
+            description: What the product calls it.,
+            examples: [S&P 500],
+          }
+        status: { type: string, enum: [AVAILABLE, UNAVAILABLE] }
+        value:
+          type: number
+          description: |
+            The latest available close. Called a value rather than a price because `VIX_INDEX` is a
+            level implied by option prices and nothing holds it. Absent when `status` is
+            `UNAVAILABLE`.
+        previousClose:
+          {
+            type: number,
+            description: The close of the session before the latest one. Absent with fewer than two observations.,
+          }
+        changePercent:
+          {
+            type: number,
+            description: Latest close against the previous session's close. Absent rather than zero when it cannot be stated.,
+          }
+        sessionDate: { type: string, format: date }
+        sparkline:
+          type: array
+          description: The most recent observed sessions, oldest first. Empty when nothing is available.
+          items: { $ref: "#/components/schemas/MarketOverviewPoint" }
+
+    MarketOverviewResponse:
+      type: object
+      required: [generatedAt, basis, items]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        basis:
+          type: string
+          enum: [END_OF_DAY]
+          description: |
+            How current the numbers are. One member today; an intraday source would be a second
+            member and a different loading path, never a silent reinterpretation of this one.
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MarketOverviewItem" }
 
     # -------------------------------------------------------------------------------------------
     # Backtests

@@ -3,6 +3,7 @@ import type {
   BenchmarkDailyPrice,
   BenchmarkDataset,
   BenchmarkSeries,
+  BenchmarkSeriesType,
   BenchmarkSourceKind,
   BenchmarkWithSeries,
   DateRange,
@@ -24,6 +25,7 @@ type SeriesRow = {
   benchmarkId: string;
   version: number;
   sourceKind: BenchmarkSourceKind;
+  seriesType: BenchmarkSeriesType;
   providerSymbol: string;
   currency: string;
   methodologyVersion: number;
@@ -35,6 +37,7 @@ type BenchmarkRow = {
   name: string;
   description: string | null;
   isActive: boolean;
+  isBacktestSelectable: boolean;
   displayOrder: number;
   series: SeriesRow[];
 };
@@ -126,18 +129,28 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
             name: entry.name,
             description: entry.description ?? null,
             isActive: entry.isActive,
+            isBacktestSelectable: entry.isBacktestSelectable,
             displayOrder: entry.displayOrder,
           },
           update: {
             name: entry.name,
             description: entry.description ?? null,
             isActive: entry.isActive,
+            // Selectability is a product decision about the row, not part of what the series
+            // *means*, so it is corrected on every boot like the words beside it. Making a
+            // benchmark selectable or not does not reinterpret a single stored bar.
+            isBacktestSelectable: entry.isBacktestSelectable,
             displayOrder: entry.displayOrder,
           },
         });
 
+        // `seriesType` is in here, not in the update above: it says what the object behind the
+        // series *is*, and moving a code from an ETF proxy to the index itself changes every number
+        // it produces. Rewriting it in place would silently reinterpret history, so it appends a
+        // version exactly as a changed provider symbol does.
         const definition = {
           sourceKind: entry.sourceKind,
+          seriesType: entry.seriesType,
           providerSymbol: entry.providerSymbol,
           currency: entry.currency,
           methodologyVersion: entry.methodologyVersion,
@@ -153,6 +166,7 @@ export class PrismaBenchmarkDataStore implements BenchmarkDataStore {
         const unchanged =
           current !== null &&
           current.sourceKind === definition.sourceKind &&
+          current.seriesType === definition.seriesType &&
           current.providerSymbol === definition.providerSymbol &&
           current.currency === definition.currency &&
           current.methodologyVersion === definition.methodologyVersion;
@@ -461,6 +475,7 @@ function toSeries(row: SeriesRow): BenchmarkSeries {
     benchmarkId: row.benchmarkId,
     version: row.version,
     sourceKind: row.sourceKind,
+    seriesType: row.seriesType,
     providerSymbol: row.providerSymbol,
     currency: row.currency,
     methodologyVersion: row.methodologyVersion,
@@ -482,6 +497,7 @@ function toBenchmarkWithSeries(row: BenchmarkRow): BenchmarkWithSeries | null {
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     isActive: row.isActive,
+    isBacktestSelectable: row.isBacktestSelectable,
     displayOrder: row.displayOrder,
     series: toSeries(series),
   };

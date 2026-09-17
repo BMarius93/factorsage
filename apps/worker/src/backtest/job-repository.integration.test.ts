@@ -3,6 +3,7 @@ import {
   BacktestJobStatus,
   BacktestRunStatus,
   type Prisma,
+  BenchmarkSeriesType,
   BenchmarkSourceKind,
   PrismaClient,
 } from "@intrinsic/database";
@@ -60,6 +61,7 @@ describe("backtest job claiming", () => {
           create: {
             version: 1,
             sourceKind: BenchmarkSourceKind.FMP_SYMBOL,
+            seriesType: BenchmarkSeriesType.ETF_PROXY,
             providerSymbol: "SPY",
             currency: "USD",
           },

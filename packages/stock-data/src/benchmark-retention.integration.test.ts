@@ -160,8 +160,10 @@ describeRetention(
           providerSymbol: "RET",
           currency: "USD",
           sourceKind: "FMP_SYMBOL",
+          seriesType: "ETF_PROXY",
           methodologyVersion: 1,
           isActive: true,
+          isBacktestSelectable: true,
           displayOrder: 99,
         },
       ]);
@@ -329,8 +331,10 @@ describeRetention(
             providerSymbol: "COLD",
             currency: "USD",
             sourceKind: "FMP_SYMBOL",
+            seriesType: "ETF_PROXY",
             methodologyVersion: 1,
             isActive: true,
+            isBacktestSelectable: true,
             displayOrder: 98,
           },
         ]);
