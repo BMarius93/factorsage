@@ -81,12 +81,12 @@ document in the same commit as this plan.
 | TEST-001    | Investigate the intermittent `GET /backtests/:id` 404 in the API suite            | P2       | 5   | No, unless it reproduces as a product bug | T-4            |
 | AUTH-002    | Verifying an email must not activate a password the verifier did not set          | P1       | own | **Yes** (classified 2026-09-18, DEC-005)  | B-1 ¶2         |
 | AUTH-003    | Registration does not reveal whether an account exists                            | P1       | own | **Yes** (DEC-004; specified 2026-09-18)   | S-2            |
-| PRICING-001 | Public `/pricing` page for guests                                                 | P1       | TBD | **Yes** (DEC-001)                         | §2, §5         |
+| PRICING-001 | Public `/pricing` page for guests                                                 | P1       | own | **Yes** (DEC-001; specified 2026-09-18)   | §2, §5         |
 | DEMO-001    | Guest-viewable precomputed/static demo backtests                                  | P1       | TBD | **Yes** (DEC-002)                         | §2             |
 
 The last four rows were created by the product decisions in §8. Each is _specification pending_
-until the plan carries a full item for it; AUTH-002 (DEC-005) and AUTH-003 (DEC-004) are specified
-and ship in their own PRs.
+until the plan carries a full item for it; AUTH-002 (DEC-005), AUTH-003 (DEC-004) and PRICING-001
+(DEC-001) are specified and ship in their own PRs.
 
 "Release-blocking" means it must be merged, or its decision recorded, before public production.
 §9 is the gate.
@@ -1712,7 +1712,8 @@ In that case, raise it to P0 and stop the release.
   - `ai/architecture/v1-visual-parity.md:52` described a public pricing page as future work "if
     one is ever built". That wording is superseded by this decision.
   - V1 has a public `/pricing` (audit §5).
-- **New tracked item:** **PRICING-001, public `/pricing` page** (specification pending).
+- **New tracked item:** **PRICING-001, public `/pricing` page** (specified 2026-09-18; full item
+  below).
 - **Constraints the specification must respect** (traced to existing documents):
   - **One pricing source.** Plan capacities come from `PLAN_ENTITLEMENTS` and amounts from
     `BILLING_CATALOG`, as the billing cards already do. `ai/architecture/billing.md:772,794` and
@@ -1726,6 +1727,143 @@ In that case, raise it to P0 and stop the release.
 - **Canonical record:** `docs/decisions/stripe-billing-v1.md`, with a pointer from
   `docs/decisions/entitlements-v1.md` §4. Also correct `v1-visual-parity.md:52`.
 - **Release-blocking:** **yes**.
+
+### PRICING-001: Public `/pricing` page for guests
+
+**Severity:** P1 (DEC-001; audit §2, §5). Release-blocking.
+
+**Observed behaviour** (verified at `main` @ `74b89066`, after PR 4):
+
+- The only surface that shows prices is `/billing` (`app/(app)/billing/page.tsx` →
+  `features/billing/components/BillingPage.tsx`). It is not in `GUEST_ROUTE_PATTERNS`
+  (`features/auth/utils/guest-routes.ts`), so `RouteAccessGate` wraps it in `RequireAuth`, which
+  bounces a guest to `/login?next=%2Fbilling`. A guest cannot see a price anywhere in the product.
+- `BillingPage` loads `GET /billing/status` before it renders anything but a header, and that route
+  is authenticated (`401` for a guest, `e2e/billing/billing.guest.spec.ts`). The plan cards
+  themselves need nothing from the server: `plan-presentation.ts` derives every amount from
+  `BILLING_CATALOG_ENTRIES` and every capacity from `PLAN_ENTITLEMENTS`.
+- The plans section — caption, cadence toggle, three `PlanCard`s — and the Checkout / change /
+  Portal action handler are written inline in `BillingPage.tsx`'s `BillingContent`, so a second page
+  could only reuse them by copying.
+- The guest topbar offers "Sign in" and nothing else (`AccountMenu.tsx`).
+- `ai/architecture/v1-visual-parity.md` still calls a public pricing page future work "if one is ever
+  built".
+
+**Required behaviour:**
+
+1. **Route.** `/pricing` (exactly; no sub-routes) is added to `GUEST_ROUTE_PATTERNS`. It renders
+   inside the ordinary `(app)` shell for every viewer and is never redirected. `/billing` is
+   unchanged and stays behind `RequireAuth`.
+2. **Content.** The same three plan cards as `/billing` — Free, Starter, Pro — with the same
+   Monthly/Yearly cadence toggle, the same amounts, the same annual-saving line, the same five
+   capacity rows and the same "Recommended" badge. One `<h1>` ("Pricing"), one `<h2>` per plan, and
+   a short "How billing works" section that restates only rules the decision documents already fix
+   (USD, Stripe-hosted payment, immediate upgrades versus period-end downgrades and cancellation,
+   non-destructive downgrade). No trial, credit, top-up, discount, coupon or new plan.
+3. **Guest actions.** Every card has one button (`Start for free` on Free, `Choose Starter`,
+   `Choose Pro`). A guest's click opens the existing `SignInPrompt` through `useSignInPrompt`, with
+   one new copy constant beside `SIGN_IN_TO_BACKTEST`. The prompt's links are `signInHref` /
+   `registerHref` of the current path, i.e. `/login?next=%2Fpricing` and
+   `/register?next=%2Fpricing`. No billing endpoint is called for a guest — not `/billing/status`,
+   and never `/billing/checkout`. While the session is resolving the buttons are disabled.
+4. **Return.** Password sign-in from the prompt and Google sign-in both return to `/pricing` through
+   the UX-003 path; nothing new is needed on the API.
+5. **Signed-in viewers** get exactly the `/billing` behaviour for the plan cards: the card state from
+   `planCardState` over `GET /billing/status`, and the action handler shared with `/billing` (one
+   Checkout / change / Portal implementation, not two). Checkout's server-configured success and
+   cancel URLs still return to `/billing`, where the bounded settle lives. The header links to
+   `/billing` for subscription details and billing management.
+6. **Honest states.** Prices render in every state because they are published information. Actions
+   appear only when the answer is known: none while the session or billing status is loading
+   (with a status line), none after a status failure (an alert with retry), and none when the
+   environment has billing disabled (the same "not available in this environment" line as
+   `/billing`). The guest prompt promises a return only for signing in, because the
+   email-verification link carries no destination (UX-003 follow-up).
+7. **Discoverability.** The guest topbar gains a "Pricing" link beside "Sign in".
+
+**Why it matters:** DEC-001 — a visitor deciding whether to sign up cannot see what anything costs.
+
+**Likely affected files:**
+
+- Web, auth: `features/auth/utils/guest-routes.ts` (+ test), `features/auth/utils/sign-in-prompts.ts`,
+  `features/auth/components/AccountMenu.tsx` (+ CSS, test).
+- Web, billing: new `components/PlanCatalog.tsx` and `hooks/use-plan-actions.ts` extracted from
+  `BillingPage.tsx`; `utils/plan-actions.ts` (a guest card state); `components/PlanCard.tsx`; new
+  `components/PricingPage.tsx` (+ CSS, test); new `app/(app)/pricing/page.tsx`.
+- E2E: new `e2e/billing/pricing.guest.spec.ts` and `e2e/billing/pricing.free.spec.ts`.
+- Docs: `docs/decisions/stripe-billing-v1.md`, `docs/decisions/entitlements-v1.md` §4,
+  `ai/architecture/billing.md`, `ai/architecture/v1-visual-parity.md`, `ai/workflows/auth-testing.md`
+  (guest-route list) where it names the public routes.
+
+**Implementation constraints:**
+
+- **One pricing source.** No amount, limit, feature row, plan order or cadence label is written in
+  pricing code; the page renders the extracted `PlanCatalog`, which renders `PlanCard`, which reads
+  `plan-presentation.ts`. `/billing` renders the same component, so the two pages cannot differ.
+- **One action implementation.** The Checkout / change / Portal handler moves out of `BillingPage`
+  unchanged into `usePlanActions`; `BillingPage.test.tsx` must pass without edits to prove the move
+  is behaviour-neutral.
+- Guest buttons never carry a `data-price-key` and never reach `billing-api.ts`.
+- No API, schema, migration, OpenAPI, dependency, entitlement or billing-rule change. No new
+  endpoint to tell a guest whether billing is configured: the guest page makes no billing claim that
+  depends on it.
+- No Stripe identifier, price id or internal key is rendered as text.
+
+**Automated tests required:**
+
+1. `guest-routes.test.ts`: `/pricing` is guest-readable; `/pricing/x` and `/billing` are not.
+2. `PricingPage.test.tsx` (unit, `useAuthSession` and `billing-api` mocked):
+   - guest: the three cards render with amounts and capacities read from `BILLING_CATALOG` /
+     `PLAN_ENTITLEMENTS`; the cadence toggle re-prices; no billing API function is called;
+   - guest: each card's action opens `SignInPrompt`, `startCheckout` is never called, and the two
+     prompt links are `/login?next=%2Fpricing` and `/register?next=%2Fpricing`;
+   - resolving session: actions disabled, no prompt, no API call;
+   - signed-in: status loaded, `Upgrade to Pro` calls `startCheckout` with the key the card shows
+     and navigates to the returned URL; a paid subscriber's card calls `changeBillingPlan`;
+   - signed-in: loading, status failure (with retry) and `billingEnabled: false` show no action;
+   - drift: `/pricing` and `/billing` render identical price, note and feature text per plan and
+     cadence;
+   - invalid catalog: with a catalog entry removed, the page does not render a price (it fails into
+     the error boundary rather than rendering `undefined`).
+3. `plan-actions.test.ts`: the guest card state.
+4. `AccountMenu.test.tsx`: the guest Pricing link.
+5. `BillingPage.test.tsx`: unchanged and green.
+6. E2E, guest project: `/pricing` loads without redirect; three cards; no request to any
+   `/billing/*` route; the prompt links; sign-in through the prompt as `PRO_USER` lands on
+   `/pricing` signed in; `/billing` still bounces to `/login?next=%2Fbilling`; 1280 px and 390 px
+   with no document-level horizontal overflow; keyboard activation of a plan action.
+7. E2E, free project: with `/billing/status` and `/billing/checkout` **stubbed in the browser**,
+   `Upgrade to Pro` on `/pricing` posts only `{ priceKey }` and follows the stubbed URL.
+
+**Manual verification:**
+
+- Guest at 1280 px and 390 px: page, prompt, links, no overflow, focus order.
+- Sign in as `PRO_USER` from the prompt: back on `/pricing`, Pro marked current.
+- No live Checkout, real Google or real email check is part of this item.
+
+**External-provider isolation:** unit tests mock `billing-api`; E2E stubs every `/billing/*` call it
+exercises for a signed-in persona and runs against an API started with Stripe, SMTP and Google
+configuration blanked, so nothing can reach Stripe, a mail transport or Google. No page in the
+specs reads stock data, so FMP is not reached; the Redis FMP-gate counter is checked to confirm it.
+
+**Rollout:** web-only; ships with the next web deploy. No migration, no configuration, no API
+change. **Rollback:** revert the PR; `/pricing` disappears and `/billing` is unaffected.
+
+**Dependencies:** UX-002 (the prompt pattern) and UX-003 (safe `next`), both merged in PR 4.
+
+**Non-goals:** a marketing landing page, SEO/Open Graph work, a public billing-status endpoint,
+carrying the cadence through sign-in, `next` through the verification email, and any change to
+`/billing` beyond the extraction.
+
+**Residual risks:**
+
+- A guest cannot know before signing in whether the environment sells subscriptions; after
+  sign-in the page says so honestly. Acceptable because production requires Stripe (§9).
+- A guest who creates an account rather than signing in does not come straight back (UX-003
+  follow-up); the prompt copy does not promise it.
+- The cadence a guest picked is not carried through sign-in; they return to Monthly.
+
+**Release-blocking:** yes (DEC-001).
 
 ### DEC-002: Guest precomputed/static demo backtests. Decided: YES, launch scope
 
@@ -2189,7 +2327,7 @@ PR 5  E2E-001 E2E-002 E2E-003 E2E-005 E2E-004 E2E-006 E2E-007 TEST-001  (E2E-006
 ```text
 AUTH-003     registration enumeration        (after PR 2: needs PROD-001's required SMTP; coordinate with AUTH-002)
 AUTH-002     email-verification variant      (classify first; its own PR unless its PR proves a combined scope stays reviewable)
-PRICING-001  public /pricing                 (after PR 4: sign-in return to /pricing uses UX-003)
+PRICING-001  public /pricing                 (after PR 4: sign-in return to /pricing uses UX-003; specified, own PR)
 DEMO-001     guest demo backtests            (after its design is specified; after PR 4 for the guest prompt)
 ```
 
