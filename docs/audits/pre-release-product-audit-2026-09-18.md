@@ -124,7 +124,7 @@ What works end to end today (verified in the browser and by tests):
 
 - No public pricing page (deferred by `ai/architecture/v1-visual-parity.md:52`).
 - No guest demo backtests. The entitlement decision permits them but does not require them.
-- `/stocks` has no index page (see H-10).
+- `/stocks` has no index page (see U-5).
 
 ---
 
