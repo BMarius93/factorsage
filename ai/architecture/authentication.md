@@ -156,6 +156,17 @@ with their password instead.
    `oauth_link_not_allowed` and nothing is written: not the link, not the password, not the plan.
    The owner signs in with their password as before.
 
+   **Adopting an account nobody verified discards its password.** Anyone can register an address
+   they do not control, so the password on a never-verified row proves nothing about the mailbox
+   owner; keeping it would let whoever registered first sign in to the account Google just handed
+   to its owner (a pre-account takeover). When the row's `emailVerifiedAt` is null *at the moment
+   of linking*, the link's transaction also sets `passwordHash` to null and deletes any
+   `PasswordResetToken`, leaving a verified Google-only account. That condition is evaluated by
+   the conditional update inside the transaction, never from the earlier read, so a verification
+   redeemed first keeps the password, and any failure rolls the whole adoption back. An
+   already-verified account keeps its password: its owner proved control of both. Recovery skips
+   accounts without a password, so the result stays Google-only; there is no set-password flow.
+
 Resolution retries exactly once on a `P2002` uniqueness collision. Two callbacks for the same
 brand-new identity can both find nothing and both try to write it; PostgreSQL decides, and the
 loser resolves again and finds the row the winner wrote. The retry is bounded at one because the
