@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { apiBaseUrl } from "../utils/entitlements";
 
 /**
  * The overview strip for a signed-in customer, and the backtest invariants beside it.
@@ -28,6 +29,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
     await expect(
       page.getByTestId("dashboard-market-value-VIX_INDEX"),
     ).toHaveText("15.43");
+    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
     await expect(
       page.getByTestId("dashboard-market-change-SP500_INDEX"),
     ).toHaveText("+1.13%");
@@ -52,30 +54,36 @@ test.describe("PRO_USER dashboard overview cards", () => {
     await expect(page.getByTestId("sign-in-prompt")).toHaveCount(0);
   });
 
-  test("still offers S&P 500 and never an internal market reference as a benchmark", async ({
+  test("offers exactly the S&P 500 benchmark and nothing else", async ({
     page,
   }) => {
+    // The API first: the catalog the picker is built from.
+    const response = await page.request.get(`${apiBaseUrl()}/benchmarks`);
+    expect(response.status()).toBe(200);
+    const catalog = (await response.json()) as { code: string; name: string }[];
+    expect(catalog.map(({ code, name }) => ({ code, name }))).toEqual([
+      { code: "SP500", name: "S&P 500" },
+    ]);
+
     await page.goto("/backtests/new");
     const benchmark = page.getByTestId("backtest-benchmark");
     await expect(benchmark).toBeVisible();
     // The form enables its selects only once the catalog has arrived; reading the options before
     // that would assert against the placeholder.
     await expect(benchmark).toBeEnabled();
-    await expect(benchmark.locator("option")).not.toHaveCount(1);
 
-    const options = await benchmark
-      .locator("option")
-      .evaluateAll((elements) =>
-        elements.map((element) => (element as HTMLOptionElement).value),
-      );
+    const options = await benchmark.locator("option").evaluateAll((elements) =>
+      elements.map((element) => ({
+        value: (element as HTMLOptionElement).value,
+        label: element.textContent?.trim() ?? "",
+      })),
+    );
 
-    // The product benchmark is selectable …
-    expect(options).toContain("SP500");
-    // … and the Dashboard's index series are not, however active they are.
-    expect(options).not.toContain("SP500_INDEX");
-    expect(options).not.toContain("DJIA_INDEX");
-    expect(options).not.toContain("VIX_INDEX");
-    expect(options.filter((value) => value.endsWith("_INDEX"))).toEqual([]);
+    // Exactly the one product option beside the empty placeholder — not "contains S&P 500", which
+    // a leaked fixture or an internal index series would also satisfy.
+    expect(options.filter((option) => option.value !== "")).toEqual([
+      { value: "SP500", label: "S&P 500" },
+    ]);
   });
 
   test("reflects the rows this viewer's dashboard returned", async ({
@@ -134,6 +142,9 @@ test.describe("PRO_USER dashboard overview cards", () => {
     await expect(page.getByTestId("dashboard-overview")).toBeVisible();
     await expect(page.getByTestId("dashboard-run-backtest")).toBeVisible();
     await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();
+    // The phone VIX card is the compact form — level and zone as text, no arc squeezed into 65px.
+    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
+    await expect(page.getByTestId("dashboard-vix-gauge")).toBeHidden();
 
     const overflow = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,

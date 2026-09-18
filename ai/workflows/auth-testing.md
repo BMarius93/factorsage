@@ -111,7 +111,7 @@ Or the steps on their own:
 
 ```bash
 pnpm test:users:seed          # the five personas
-pnpm test:securities:seed     # QA catalog rows, their prices, the SP500 benchmark and the market references
+pnpm test:securities:seed     # QA catalog rows, prices, SP500, the market references; prunes leaked fixture benchmarks
 pnpm test:builtins:seed       # QA built-in lists/strategy/monitors with exact Dashboard state
 pnpm test:entitlements:seed   # the entitlement fixtures the entitlement specs run against
 ```

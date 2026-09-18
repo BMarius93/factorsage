@@ -7,6 +7,7 @@ import type {
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { MarketSparkline } from "../../market/components/MarketSparkline";
+import { VixGauge, vixZoneToneClass } from "../../market/components/VixGauge";
 import { useMarketOverview } from "../../market/hooks/use-market-overview";
 import {
   changeTone,
@@ -15,6 +16,7 @@ import {
   formatSessionDate,
   marketCardDescription,
 } from "../../market/utils/format";
+import { classifyVix, VIX_STATUS_LABELS } from "../../market/utils/vix";
 import {
   useSignInPrompt,
   type SignInPromptCopy,
@@ -78,9 +80,9 @@ export function DashboardOverview({ rows, rowsReady }: DashboardOverviewProps) {
       <div className={styles.grid}>
         <RunBacktestCard gate={gate} />
         {items.length > 0
-          ? items.map((item) => <MarketCard key={item.code} item={item} />)
+          ? items.map((item) => <ReferenceCard key={item.code} item={item} />)
           : PLACEHOLDER_CODES.map((placeholder) => (
-              <MarketCard
+              <ReferenceCard
                 key={placeholder.code}
                 item={{
                   code: placeholder.code,
@@ -162,6 +164,112 @@ function RunBacktestCard({
     >
       {content}
     </button>
+  );
+}
+
+/** The market reference that is a level rather than a price, and is read as a gauge. */
+const VIX_CODE = "VIX_INDEX";
+
+/**
+ * S&P 500 and DJIA read as a price with a trend; VIX reads as a level on a gauge. Same card, same
+ * slot, same data — only the representation differs.
+ */
+function ReferenceCard(props: {
+  readonly item: MarketOverviewItemResponse;
+  readonly pending?: boolean;
+}) {
+  return props.item.code === VIX_CODE ? (
+    <VixCard {...props} />
+  ) : (
+    <MarketCard {...props} />
+  );
+}
+
+/**
+ * VIX as a gauge: the title, a segmented arc with a marker, the level in the middle and its zone
+ * underneath — the reading order of a dial, in the same card as its neighbours.
+ *
+ * Three things are deliberately unchanged from the other market cards:
+ *
+ * - **the number is the real `^VIX` close.** Not a 0–100 score, not a sentiment reading and not the
+ *   clamped gauge position — a VIX of 93.4 says `93.40` while its marker sits at the end of the arc;
+ * - **the change is still session over session**, now secondary: beside the title, with the session
+ *   the close belongs to. Never "24h";
+ * - **unavailable is unavailable.** No level means no gauge, no zone and no change — never a marker
+ *   at zero labelled "Very low".
+ *
+ * It is called VIX and nothing else. The zone words describe the level of expected volatility; they
+ * are not a fear-and-greed reading, and nothing here converts one into the other.
+ */
+function VixCard({
+  item,
+  pending,
+}: {
+  readonly item: MarketOverviewItemResponse;
+  readonly pending?: boolean;
+}) {
+  const tone = changeTone(item.changePercent);
+  const value = item.status === "AVAILABLE" ? item.value : undefined;
+  const zone = classifyVix(value);
+  const description =
+    zone === null
+      ? marketCardDescription(item)
+      : `${marketCardDescription(item)} Volatility level: ${VIX_STATUS_LABELS[zone]}.`;
+
+  return (
+    <article
+      className={`${styles.card} ${styles.vixCard}`}
+      data-testid={`dashboard-market-card-${item.code}`}
+      data-status={item.status}
+      data-variant="gauge"
+      aria-label={description}
+    >
+      <div className={styles.vixHead}>
+        <p className={styles.label}>{item.label}</p>
+        {value !== undefined ? (
+          <p className={styles.vixMeta}>
+            {item.changePercent === undefined ? null : (
+              <span
+                className={styles.change}
+                data-tone={tone}
+                data-testid={`dashboard-market-change-${item.code}`}
+              >
+                {formatChangePercent(item.changePercent)}
+              </span>
+            )}
+            {item.sessionDate ? (
+              <span className={styles.session}>
+                {formatSessionDate(item.sessionDate)}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+      </div>
+      {value !== undefined && zone !== null ? (
+        <>
+          <div className={styles.vixDial}>
+            <div className={styles.vixGauge}>
+              <VixGauge value={value} status={zone} />
+            </div>
+            <p
+              className={styles.vixValue}
+              data-testid={`dashboard-market-value-${item.code}`}
+            >
+              {formatMarketValue(value)}
+            </p>
+          </div>
+          <p
+            className={`${styles.vixStatus} ${vixZoneToneClass}`}
+            data-zone={zone}
+            data-testid="dashboard-vix-status"
+          >
+            {VIX_STATUS_LABELS[zone]}
+          </p>
+        </>
+      ) : (
+        <p className={styles.valueUnavailable}>{pending ? "—" : "No data"}</p>
+      )}
+    </article>
   );
 }
 

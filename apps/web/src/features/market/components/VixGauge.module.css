@@ -1,0 +1,64 @@
+/* The VIX gauge's colour logic, in one place.
+ *
+ * Direction is the opposite of a fear/greed dial: a low VIX is calm and a high one is stress, so the
+ * arc runs green → amber → red from left to right. Every colour is a financial-state token or a mix
+ * of two adjacent ones — the palette has three semantic steps (positive, warning, negative) and the
+ * gauge has five zones, so the two in-between zones are blends rather than new hues. `.zoneTone`
+ * sets `--vix-zone` from `data-zone`, and the segments, the marker and the card's status text all
+ * wear it, so the mapping from zone to colour exists exactly once. */
+
+.gauge {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.zoneTone[data-zone="VERY_LOW"] {
+  --vix-zone: var(--color-positive);
+}
+
+.zoneTone[data-zone="NORMAL"] {
+  --vix-zone: color-mix(
+    in srgb,
+    var(--color-positive) 60%,
+    var(--color-warning)
+  );
+}
+
+.zoneTone[data-zone="ELEVATED"] {
+  --vix-zone: var(--color-warning);
+}
+
+.zoneTone[data-zone="HIGH"] {
+  --vix-zone: color-mix(
+    in srgb,
+    var(--color-warning) 45%,
+    var(--color-negative)
+  );
+}
+
+.zoneTone[data-zone="EXTREME"] {
+  --vix-zone: var(--color-negative);
+}
+
+.segment {
+  fill: none;
+  stroke: var(--vix-zone);
+  stroke-width: 6;
+  stroke-linecap: round;
+  /* The zones the value is not in recede, so the arc reads as "here" before "the whole range". */
+  opacity: 0.38;
+}
+
+.segment[data-active="true"] {
+  opacity: 1;
+}
+
+/* A surface-coloured dot ringed in its zone's colour: visible on the arc and on the white card
+   alike, where the reference's plain white dot would disappear. */
+.marker {
+  fill: var(--color-surface);
+  stroke: var(--vix-zone);
+  stroke-width: 2.5;
+}

@@ -234,7 +234,9 @@ describeReuse("provider reuse across repeated reads", () => {
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
-        isBacktestSelectable: true,
+        // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+        // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+        isBacktestSelectable: false,
         displayOrder: 90,
       },
     ]);
@@ -250,7 +252,7 @@ describeReuse("provider reuse across repeated reads", () => {
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
-        isBacktestSelectable: true,
+        isBacktestSelectable: false,
         displayOrder: 91,
       },
     ]);

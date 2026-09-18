@@ -277,6 +277,27 @@ calendar days to today) and lets the existing loader hydrate whatever is missing
 what keeps API startup free of a decades-deep index download: nothing is prefetched at boot, and the
 page asks for what a page needs.
 
+## Test isolation: the selectable catalog is exact
+
+The product exposes exactly one backtest benchmark, and the suites assert it exactly —
+`GET /benchmarks` is `["SP500"]`, and the New Backtest picker holds that one option — rather than
+"contains `SP500` and no `_INDEX` code". A test database that other suites write into makes an
+"exactly" assertion fail, and the fix for that is isolation, not a weaker assertion:
+
+- **loader and worker fixtures are never selectable.** The loader resolves by `isActive` alone, so
+  a fixture benchmark registered to exercise hydration, versioning or job claiming is created with
+  `isBacktestSelectable: false`. `pnpm -r test` runs packages concurrently, and a selectable
+  fixture from one package is a real `GET /benchmarks` entry for another package's assertion;
+- **a fixture that must be selectable deletes itself in the same test** (the pinned-series
+  versioning test submits a run against its own code, so it cleans up in a `finally`);
+- **the canonical QA seed prunes what leaked before.** `pnpm test:securities:seed` removes every
+  benchmark that is neither in `BENCHMARK_CATALOG` nor referenced by any run
+  (`pruneOrphanedFixtureBenchmarks`). The rule is structural — never a list of test codes — so it
+  cannot remove product data or history, and it only ever runs against `TEST_DATABASE_URL`.
+
+Integration suites do not prune for themselves: with packages running in parallel, a prune could
+remove another suite's live fixture mid-test.
+
 ## Prewarming deeper history
 
 These series are stored durably because we will use them for more than a card, and the lazy read

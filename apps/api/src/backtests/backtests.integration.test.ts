@@ -1543,62 +1543,71 @@ describe("backtests", () => {
       isBacktestSelectable: true,
       displayOrder: 50,
     };
-    await store.reconcileBenchmarkCatalog([definition]);
+    try {
+      await store.reconcileBenchmarkCatalog([definition]);
 
-    const run = await submit({ benchmarkCode: code });
-    const before = await prisma.backtestRun.findUniqueOrThrow({
-      where: { id: run.id },
-      select: { benchmarkSeriesId: true, snapshot: true },
-    });
+      const run = await submit({ benchmarkCode: code });
+      const before = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
 
-    // The catalog advances: re-sourced under a new methodology. This is the moment the old design
-    // lost reproducibility — the row every historical bar hung off was edited in place, and a run
-    // that had not started yet would have executed against a definition it never chose.
-    await store.reconcileBenchmarkCatalog([
-      { ...definition, providerSymbol: "NEWSYM", methodologyVersion: 2 },
-    ]);
-    const versions = await prisma.benchmarkSeries.findMany({
-      where: { benchmark: { code } },
-      orderBy: { version: "asc" },
-    });
-    expect(versions).toHaveLength(2);
-    expect(versions[1]?.providerSymbol).toBe("NEWSYM");
+      // The catalog advances: re-sourced under a new methodology. This is the moment the old design
+      // lost reproducibility — the row every historical bar hung off was edited in place, and a run
+      // that had not started yet would have executed against a definition it never chose.
+      await store.reconcileBenchmarkCatalog([
+        { ...definition, providerSymbol: "NEWSYM", methodologyVersion: 2 },
+      ]);
+      const versions = await prisma.benchmarkSeries.findMany({
+        where: { benchmark: { code } },
+        orderBy: { version: "asc" },
+      });
+      expect(versions).toHaveLength(2);
+      expect(versions[1]?.providerSymbol).toBe("NEWSYM");
 
-    // The run still points at v1, and its snapshot still describes v1.
-    const after = await prisma.backtestRun.findUniqueOrThrow({
-      where: { id: run.id },
-      select: { benchmarkSeriesId: true, snapshot: true },
-    });
-    expect(after.benchmarkSeriesId).toBe(before.benchmarkSeriesId);
-    expect(after.benchmarkSeriesId).toBe(versions[0]?.id);
-    const snapshot = after.snapshot as unknown as BacktestRunSnapshot;
-    expect(snapshot.benchmark.seriesId).toBe(versions[0]?.id);
-    expect(snapshot.benchmark.seriesVersion).toBe(1);
-    expect(snapshot.benchmark.providerSymbol).toBe("OLDSYM");
+      // The run still points at v1, and its snapshot still describes v1.
+      const after = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
+      expect(after.benchmarkSeriesId).toBe(before.benchmarkSeriesId);
+      expect(after.benchmarkSeriesId).toBe(versions[0]?.id);
+      const snapshot = after.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.benchmark.seriesId).toBe(versions[0]?.id);
+      expect(snapshot.benchmark.seriesVersion).toBe(1);
+      expect(snapshot.benchmark.providerSymbol).toBe("OLDSYM");
 
-    const detail = await owner.get(`/backtests/${run.id}`).expect(200);
-    const body = detail.body as BacktestRunDetailResponse;
-    expect(body.configuration.benchmark.methodologyVersion).toBe(1);
-    // And the browser still never learns which ticker backs the code.
-    expect(JSON.stringify(body)).not.toContain("NEWSYM");
-    expect(JSON.stringify(body)).not.toContain("OLDSYM");
+      const detail = await owner.get(`/backtests/${run.id}`).expect(200);
+      const body = detail.body as BacktestRunDetailResponse;
+      expect(body.configuration.benchmark.methodologyVersion).toBe(1);
+      // And the browser still never learns which ticker backs the code.
+      expect(JSON.stringify(body)).not.toContain("NEWSYM");
+      expect(JSON.stringify(body)).not.toContain("OLDSYM");
 
-    // Returning the catalog to its earlier definition is a *new* version, not a resurrection of
-    // the old one: its data would be fetched fresh, and v1 keeps everything already stored for it.
-    await store.reconcileBenchmarkCatalog([definition]);
-    const restored = await prisma.benchmarkSeries.findMany({
-      where: { benchmark: { code } },
-      orderBy: { version: "asc" },
-    });
-    expect(restored).toHaveLength(3);
-    expect(restored[2]?.providerSymbol).toBe("OLDSYM");
-    expect(restored[2]?.id).not.toBe(versions[0]?.id);
+      // Returning the catalog to its earlier definition is a *new* version, not a resurrection of
+      // the old one: its data would be fetched fresh, and v1 keeps everything already stored for it.
+      await store.reconcileBenchmarkCatalog([definition]);
+      const restored = await prisma.benchmarkSeries.findMany({
+        where: { benchmark: { code } },
+        orderBy: { version: "asc" },
+      });
+      expect(restored).toHaveLength(3);
+      expect(restored[2]?.providerSymbol).toBe("OLDSYM");
+      expect(restored[2]?.id).not.toBe(versions[0]?.id);
 
-    // Reconciling the same catalog twice appends nothing.
-    await store.reconcileBenchmarkCatalog([definition]);
-    expect(
-      await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
-    ).toBe(3);
+      // Reconciling the same catalog twice appends nothing.
+      await store.reconcileBenchmarkCatalog([definition]);
+      expect(
+        await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
+      ).toBe(3);
+    } finally {
+      // This fixture is active and selectable while the test needs it, and it must not outlive the
+      // test: a leaked `PINNED_…` row is a real entry in `GET /benchmarks`, and 227 of them had
+      // accumulated in the shared test database before this cleanup existed. Runs first, because
+      // they hold the benchmark with `onDelete: Restrict`; series and bars cascade.
+      await prisma.backtestRun.deleteMany({ where: { benchmark: { code } } });
+      await prisma.benchmark.deleteMany({ where: { code } });
+    }
   });
 
   it("pins the system execution calendar on every submitted run", async () => {
@@ -1667,14 +1676,20 @@ describe("backtests", () => {
       expect(calendar.seriesType).toBe("ETF_PROXY");
     });
 
-    it("offers only S&P 500 in the selectable catalog", async () => {
+    it("offers exactly S&P 500 in the selectable catalog", async () => {
       const listed = (await owner.get("/benchmarks").expect(200))
         .body as { code: string }[];
-      const codes = listed.map((benchmark) => benchmark.code);
 
-      expect(codes).toContain("SP500");
+      // Exactly, not "contains": the product exposes one benchmark to a user, and a fixture that
+      // leaks a selectable row out of another suite should fail here rather than be tolerated.
+      expect(listed.map((benchmark) => benchmark.code)).toEqual(["SP500"]);
+      // The market references are active and loaded — and still never offered.
       for (const reference of MARKET_REFERENCE_SERIES) {
-        expect(codes).not.toContain(reference.code);
+        const row = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: reference.code },
+        });
+        expect(row.isActive).toBe(true);
+        expect(row.isBacktestSelectable).toBe(false);
       }
     });
 

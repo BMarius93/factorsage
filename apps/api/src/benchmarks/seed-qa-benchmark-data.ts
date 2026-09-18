@@ -251,6 +251,53 @@ export async function seedQaMarketReferenceDataWith(
   return seeded;
 }
 
+/**
+ * Removes benchmark rows the canonical catalog does not know and nothing references.
+ *
+ * Integration suites register benchmarks of their own — a versioning fixture, a retention fixture —
+ * and a suite that crashed, or predates its own cleanup, leaves them behind as real catalog rows. In
+ * a shared test database that is not a cosmetic problem: an active, selectable leftover is a genuine
+ * entry in `GET /benchmarks`, and the Backtest picker's "exactly S&P 500" invariant cannot be
+ * asserted against a catalog that other suites have been writing into for weeks.
+ *
+ * So the canonical seed restores it. The rule is structural, never a list of test codes:
+ *
+ * - a row whose `code` is in `BENCHMARK_CATALOG` is product data and is never touched;
+ * - a row any `BacktestRun` still references is somebody's history and is never touched (the
+ *   foreign key is `Restrict` for exactly that reason) — the entitlement fixtures' inactive
+ *   benchmark is one;
+ * - anything else is an orphaned fixture, and goes. Its series, bars, coverage and watermarks
+ *   cascade.
+ *
+ * Test databases only: `seedQaBenchmarkData`'s callers are guarded by
+ * `assertQaSecuritySeedingAllowed` and target `TEST_DATABASE_URL`.
+ */
+export async function pruneOrphanedFixtureBenchmarks(
+  prisma: PrismaClient,
+): Promise<string[]> {
+  assertQaSecuritySeedingAllowed();
+  const catalogCodes = BENCHMARK_CATALOG.map((entry) => entry.code);
+  const orphaned = await prisma.benchmark.findMany({
+    where: {
+      code: { notIn: catalogCodes },
+      backtestRuns: { none: {} },
+      series: {
+        every: {
+          comparisonRuns: { none: {} },
+          executionCalendarRuns: { none: {} },
+        },
+      },
+    },
+    select: { id: true, code: true },
+  });
+  if (orphaned.length > 0) {
+    await prisma.benchmark.deleteMany({
+      where: { id: { in: orphaned.map((row) => row.id) } },
+    });
+  }
+  return orphaned.map((row) => row.code).sort();
+}
+
 export async function seedQaBenchmarkData(
   prisma: PrismaClient,
   today = new Date().toISOString().slice(0, 10),

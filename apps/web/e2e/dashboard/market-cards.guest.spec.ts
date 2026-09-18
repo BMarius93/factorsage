@@ -88,12 +88,46 @@ test.describe("guest dashboard overview cards", () => {
       page.getByTestId("dashboard-market-change-VIX_INDEX"),
     ).toHaveAttribute("data-tone", "negative");
 
-    // Seven observed sessions each, drawn without axes or labels.
-    for (const code of ["SP500_INDEX", "DJIA_INDEX", "VIX_INDEX"]) {
+    // Seven observed sessions each for the two price indices, drawn without axes or labels.
+    for (const code of ["SP500_INDEX", "DJIA_INDEX"]) {
       const spark = page.getByTestId(`${code}-sparkline`);
       await expect(spark).toHaveAttribute("data-points", "7");
       await expect(spark).toHaveAttribute("aria-hidden", "true");
     }
+  });
+
+  test("reads VIX as a gauge: the real close, its zone, and the session change", async ({
+    page,
+  }) => {
+    await page.goto("/dashboard");
+    const vix = page.getByTestId("dashboard-market-card-VIX_INDEX");
+
+    await expect(vix).toHaveAttribute("data-variant", "gauge");
+    await expect(
+      page.getByTestId("dashboard-market-value-VIX_INDEX"),
+    ).toHaveText("15.43");
+    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
+    await expect(page.getByTestId("dashboard-vix-status")).toHaveAttribute(
+      "data-zone",
+      "NORMAL",
+    );
+    // Secondary, and still session over session: the seeded fixture's fall.
+    await expect(
+      page.getByTestId("dashboard-market-change-VIX_INDEX"),
+    ).toHaveText("−12.87%");
+    const gauge = page.getByTestId("dashboard-vix-gauge");
+    await expect(gauge).toBeVisible();
+    await expect(gauge).toHaveAttribute("aria-hidden", "true");
+    await expect(gauge).toHaveAttribute(
+      "data-fraction",
+      (15.43 / 80).toFixed(4),
+    );
+    // A gauge, not a trend line, and never sentiment language.
+    await expect(page.getByTestId("VIX_INDEX-sparkline")).toHaveCount(0);
+    await expect(page.getByTestId("dashboard-page")).not.toContainText(
+      /fear|greed/i,
+    );
+    await expect(vix).not.toContainText(/24h/i);
   });
 
   test("serves the API the same numbers the cards render, and calls them closes", async ({
@@ -213,6 +247,29 @@ test.describe("guest dashboard overview cards", () => {
     await expect(
       page.getByTestId("dashboard-market-value-DJIA_INDEX"),
     ).toHaveText("51,778");
+
+    // VIX becomes its compact phone form: label, level, zone — all legible, none clipped.
+    const vix = page.getByTestId("dashboard-market-card-VIX_INDEX");
+    await expect(vix).toContainText("VIX");
+    await expect(
+      page.getByTestId("dashboard-market-value-VIX_INDEX"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("dashboard-market-value-VIX_INDEX"),
+    ).toHaveText("15.43");
+    await expect(page.getByTestId("dashboard-vix-status")).toBeVisible();
+    await expect(page.getByTestId("dashboard-vix-status")).toHaveText("Normal");
+    const fontSizes = await vix.evaluate((card) =>
+      [
+        card.querySelector('[data-testid="dashboard-market-value-VIX_INDEX"]'),
+        card.querySelector('[data-testid="dashboard-vix-status"]'),
+      ].map((element) =>
+        element ? Number.parseFloat(getComputedStyle(element).fontSize) : 0,
+      ),
+    );
+    for (const size of fontSizes) {
+      expect(size).toBeGreaterThanOrEqual(9);
+    }
 
     await expectNoHorizontalScroll(page);
 

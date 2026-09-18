@@ -163,7 +163,9 @@ describeRetention(
           seriesType: "ETF_PROXY",
           methodologyVersion: 1,
           isActive: true,
-          isBacktestSelectable: true,
+          // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+          // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+          isBacktestSelectable: false,
           displayOrder: 99,
         },
       ]);
@@ -185,9 +187,10 @@ describeRetention(
     }, 120_000);
 
     afterAll(async () => {
-      await prisma.benchmarkDailyPrice.deleteMany({
-        where: { seriesId: benchmark.series.id },
-      });
+      // The row itself, not only its bars: an orphaned fixture benchmark is still a catalog row,
+      // and it used to accumulate one `RET…` entry per run in every shared test database.
+      // Series, bars, coverage and watermarks cascade from it.
+      await prisma.benchmark.deleteMany({ where: { code } });
       await prisma.$disconnect();
       redis.disconnect();
     });
@@ -334,7 +337,7 @@ describeRetention(
             seriesType: "ETF_PROXY",
             methodologyVersion: 1,
             isActive: true,
-            isBacktestSelectable: true,
+            isBacktestSelectable: false,
             displayOrder: 98,
           },
         ]);

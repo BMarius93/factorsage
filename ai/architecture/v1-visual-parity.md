@@ -150,6 +150,17 @@ seven-session sparkline V1 uses. Two departures from V1 are deliberate:
   session over session, so the pill carries the session the close belongs to instead. A market card
   must not claim a freshness it does not have.
 
+**VIX is read as a gauge, not a trend.** It is a level, not a price, so its card keeps the family's
+size, border, radius and padding and swaps the sparkline for a segmented semicircular arc with a
+marker, the level set inside the arc and its zone underneath (`Very low · Normal · Elevated · High ·
+Extreme`, from `features/market/utils/vix.ts`, the one place the thresholds live). The number is
+always the real `^VIX` close. The arc is an explicitly clamped 0–80 display range — the marker pins
+to the end at 80 or more while the text keeps the real value — and runs green → amber → red because
+a low VIX is calm, the opposite of a fear/greed dial. Colours are the financial-state tokens and
+blends of adjacent ones, mapped once. The session-over-session change stays, secondary, beside the
+title. On a phone the card is `VIX · 15.43 · Normal`; an arc in 65px would not be legible. It is
+never called Fear & Greed or given a sentiment score.
+
 `Run Backtest` is a card in the same family, not a button beside cards, and it wears the product's
 one solid-blue action treatment because it is the only thing in the strip that does something. Do
 not add a sixth card: the metrics deliberately left out are listed in `benchmark-data.md`.

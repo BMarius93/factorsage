@@ -119,6 +119,8 @@ describe("backtest claim entitlements", () => {
       data: {
         code: `CLAIM_${suffix.toUpperCase()}`,
         name: "Claim Entitlement Benchmark",
+        // Referenced by id only; never offered to a user by `GET /benchmarks`.
+        isBacktestSelectable: false,
         series: {
           create: {
             version: 1,

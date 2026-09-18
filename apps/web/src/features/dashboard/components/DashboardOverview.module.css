@@ -271,6 +271,59 @@ button.actionCard:hover {
   white-space: nowrap;
 }
 
+/* ── VIX ────────────────────────────────────────────────────────────────────── */
+
+/* The same card as its neighbours — border, radius, padding, height — read as a dial instead of a
+   trend: title, arc, level, zone. On a phone there is no room for an arc worth drawing in 65px, so
+   the card becomes the three words that matter — `VIX`, `15.43`, `Normal` — in the same rhythm as
+   the other cards' label, value and change. */
+
+.vixHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vixMeta {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.vixDial {
+  min-width: 0;
+}
+
+.vixGauge {
+  display: none;
+}
+
+.vixValue {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+/* The zone, in its own colour from the gauge's single zone-to-colour map (`vixZoneToneClass`). On a
+   phone it is plain text in the slot where the other cards show their change. */
+.vixStatus {
+  margin: 4px 0 0;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  color: var(--vix-zone);
+  white-space: nowrap;
+}
+
 /* ── Desktop ────────────────────────────────────────────────────────────────── */
 
 /* 880px is the product's own desktop step — the breakpoint `--card-pad` and the page title already
@@ -355,6 +408,55 @@ button.actionCard:hover {
   .matchesBreakdown {
     flex-wrap: nowrap;
     font-size: var(--text-small);
+  }
+
+  .vixCard {
+    align-items: stretch;
+  }
+
+  .vixMeta {
+    display: flex;
+  }
+
+  /* Secondary to the zone: the same session-over-session number the other cards show, one step
+     smaller, so the dial and its word are what a glance lands on. */
+  .vixMeta .change {
+    font-size: var(--text-label-size);
+  }
+
+  /* The dial: the arc with the level set inside its bowl, as on a gauge face. Sized so title, dial
+     and zone fit the card's 94px of content height without the row growing for one card. */
+  .vixDial {
+    position: relative;
+    width: 100px;
+    height: 54px;
+    margin: 0 auto;
+  }
+
+  .vixGauge {
+    display: block;
+    position: absolute;
+    inset: 0;
+  }
+
+  .vixValue {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    margin: 0;
+    font-size: 20px;
+    text-align: center;
+  }
+
+  .vixStatus {
+    align-self: center;
+    margin-top: 3px;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--vix-zone) 12%, var(--color-surface));
+    font-size: var(--text-label-size);
+    line-height: 1.4;
   }
 }
 

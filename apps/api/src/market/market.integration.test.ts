@@ -180,13 +180,9 @@ describe("market overview", () => {
 
     const listed = (await user.get("/benchmarks").expect(200))
       .body as BenchmarkResponse[];
-    const codes = listed.map((benchmark) => benchmark.code);
-    // The product benchmark is there; the shared test database also carries fixtures other suites
-    // registered, so this asserts what must and must not be in the picker rather than an exact set.
-    expect(codes).toContain("SP500");
-    for (const reference of MARKET_REFERENCE_SERIES) {
-      expect(codes).not.toContain(reference.code);
-    }
+    // Exactly the one product benchmark. Every suite that registers a fixture benchmark now either
+    // makes it non-selectable or deletes it, so anything else here is a leak and must fail.
+    expect(listed.map((benchmark) => benchmark.code)).toEqual(["SP500"]);
   });
 
   it("stores each reference under its own series, so nothing can collide with SPY", async () => {

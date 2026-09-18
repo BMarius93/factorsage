@@ -228,19 +228,23 @@ describe("DashboardOverview", () => {
   it("renders the same seven points identically on every render", async () => {
     const { unmount } = render(<DashboardOverview rows={[]} rowsReady />);
     await waitFor(() =>
-      expect(screen.queryByTestId("VIX_INDEX-sparkline")).not.toBeNull(),
+      expect(screen.queryByTestId("SP500_INDEX-sparkline")).not.toBeNull(),
     );
-    const first = screen.getByTestId("VIX_INDEX-sparkline").innerHTML;
+    const first = screen.getByTestId("SP500_INDEX-sparkline").innerHTML;
+    const firstGauge = screen.getByTestId("dashboard-vix-gauge").innerHTML;
     unmount();
 
     render(<DashboardOverview rows={[]} rowsReady />);
     await waitFor(() =>
-      expect(screen.queryByTestId("VIX_INDEX-sparkline")).not.toBeNull(),
+      expect(screen.queryByTestId("SP500_INDEX-sparkline")).not.toBeNull(),
     );
 
     // A microchart that is a pure function of its values is what makes a seeded screenshot
     // comparable between runs.
-    expect(screen.getByTestId("VIX_INDEX-sparkline").innerHTML).toBe(first);
+    expect(screen.getByTestId("SP500_INDEX-sparkline").innerHTML).toBe(first);
+    expect(screen.getByTestId("dashboard-vix-gauge").innerHTML).toBe(
+      firstGauge,
+    );
   });
 
   it("renders a missing market card as unavailable, keeping the other four", async () => {
@@ -401,5 +405,168 @@ describe("DashboardOverview", () => {
     expect(
       screen.getByTestId("dashboard-matches-card").getAttribute("href"),
     ).toBe("#signals");
+  });
+});
+
+/**
+ * VIX is the one market card read as a gauge. Everything asserted here is a way the gauge could lie:
+ * by rewriting the number, by drawing a zone for data that is not there, or by borrowing the words
+ * of a sentiment dial it is not.
+ */
+describe("DashboardOverview VIX gauge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signedIn(true);
+  });
+
+  function withVix(overrides: Partial<MarketOverviewItemResponse>) {
+    const base = overview();
+    fetchMarketOverviewMock.mockResolvedValue({
+      ...base,
+      items: base.items.map((entry) =>
+        entry.code === "VIX_INDEX" ? { ...entry, ...overrides } : entry,
+      ),
+    });
+  }
+
+  it("renders VIX as a gauge card, and S&P 500 and DJIA as sparkline cards", async () => {
+    withVix({});
+    await renderOverview();
+
+    const vix = screen.getByTestId("dashboard-market-card-VIX_INDEX");
+    expect(vix.getAttribute("data-variant")).toBe("gauge");
+    expect(within(vix).getByTestId("dashboard-vix-gauge")).toBeDefined();
+    expect(screen.queryByTestId("VIX_INDEX-sparkline")).toBeNull();
+
+    for (const code of ["SP500_INDEX", "DJIA_INDEX"]) {
+      const card = screen.getByTestId(`dashboard-market-card-${code}`);
+      expect(card.getAttribute("data-variant")).toBeNull();
+      expect(within(card).getByTestId(`${code}-sparkline`)).toBeDefined();
+      expect(within(card).queryByTestId("dashboard-vix-gauge")).toBeNull();
+    }
+  });
+
+  it("shows the real VIX close, its zone and the session change", async () => {
+    withVix({});
+    await renderOverview();
+
+    expect(
+      screen.getByTestId("dashboard-market-value-VIX_INDEX").textContent,
+    ).toBe("15.43");
+    const status = screen.getByTestId("dashboard-vix-status");
+    expect(status.textContent).toBe("Normal");
+    expect(status.getAttribute("data-zone")).toBe("NORMAL");
+    const change = screen.getByTestId("dashboard-market-change-VIX_INDEX");
+    expect(change.textContent).toBe("−12.87%");
+    expect(change.getAttribute("data-tone")).toBe("negative");
+    // Still the session the close belongs to — never "24h".
+    const card = screen.getByTestId("dashboard-market-card-VIX_INDEX");
+    expect(card.textContent).toContain("17 Sep");
+    expect(card.textContent).not.toMatch(/24h/i);
+    expect(card.getAttribute("aria-label")).toBe(
+      "VIX: 15.43 at the close on 17 Sep, down 12.87% on the previous session. Volatility level: Normal.",
+    );
+  });
+
+  it.each([
+    [11.99, "Very low", "VERY_LOW"],
+    [12, "Normal", "NORMAL"],
+    [20, "Elevated", "ELEVATED"],
+    [30, "High", "HIGH"],
+    [40, "Extreme", "EXTREME"],
+  ] as const)("labels a close of %d as %s", async (value, label, zone) => {
+    withVix({ value });
+    await renderOverview();
+
+    expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(label);
+    expect(
+      screen.getByTestId("dashboard-vix-gauge").getAttribute("data-status"),
+    ).toBe(zone);
+  });
+
+  it("positions the marker along the 0–80 display range", async () => {
+    withVix({ value: 20 });
+    await renderOverview();
+
+    const gauge = screen.getByTestId("dashboard-vix-gauge");
+    expect(gauge.getAttribute("data-fraction")).toBe("0.2500");
+    // A quarter of the way round a semicircle centred on (50, 49) with radius 42.
+    const marker = screen.getByTestId("dashboard-vix-marker");
+    expect(Number(marker.getAttribute("cx"))).toBeCloseTo(
+      50 - 42 * Math.SQRT1_2,
+      1,
+    );
+    expect(Number(marker.getAttribute("cy"))).toBeCloseTo(
+      49 - 42 * Math.SQRT1_2,
+      1,
+    );
+  });
+
+  it("pins the marker at 80+ without clamping the number", async () => {
+    withVix({ value: 82.69 });
+    await renderOverview();
+
+    // The arc ends at 80 …
+    expect(
+      screen.getByTestId("dashboard-vix-gauge").getAttribute("data-fraction"),
+    ).toBe("1.0000");
+    const marker = screen.getByTestId("dashboard-vix-marker");
+    expect(Number(marker.getAttribute("cx"))).toBeCloseTo(92, 1);
+    // … the reading does not.
+    expect(
+      screen.getByTestId("dashboard-market-value-VIX_INDEX").textContent,
+    ).toBe("82.69");
+    expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(
+      "Extreme",
+    );
+  });
+
+  it("draws no gauge, zone, value or change for an unavailable VIX", async () => {
+    withVix({
+      status: "UNAVAILABLE",
+      value: undefined,
+      previousClose: undefined,
+      changePercent: undefined,
+      sessionDate: undefined,
+      sparkline: [],
+    });
+    await renderOverview();
+
+    const card = screen.getByTestId("dashboard-market-card-VIX_INDEX");
+    expect(card.textContent).toContain("No data");
+    expect(screen.queryByTestId("dashboard-vix-gauge")).toBeNull();
+    expect(screen.queryByTestId("dashboard-vix-status")).toBeNull();
+    expect(screen.queryByTestId("dashboard-market-value-VIX_INDEX")).toBeNull();
+    expect(
+      screen.queryByTestId("dashboard-market-change-VIX_INDEX"),
+    ).toBeNull();
+    // Never a fabricated zero, and never a zone for a level that is not there.
+    expect(card.textContent).not.toMatch(/\b0\.00\b|Very low/);
+  });
+
+  it("never calls VIX a fear and greed reading anywhere on the strip", async () => {
+    withVix({});
+    await renderOverview();
+
+    const strip = screen.getByTestId("dashboard-overview");
+    expect(strip.textContent).not.toMatch(/fear|greed|sentiment|24h/i);
+    expect(strip.innerHTML).not.toMatch(/fear|greed/i);
+  });
+
+  it("keeps the five cards in their agreed order", async () => {
+    withVix({});
+    await renderOverview();
+
+    const grid = screen.getByTestId("dashboard-run-backtest")
+      .parentElement as HTMLElement;
+    expect(
+      [...grid.children].map((card) => card.getAttribute("data-testid")),
+    ).toEqual([
+      "dashboard-run-backtest",
+      "dashboard-market-card-SP500_INDEX",
+      "dashboard-market-card-DJIA_INDEX",
+      "dashboard-market-card-VIX_INDEX",
+      "dashboard-matches-card",
+    ]);
   });
 });

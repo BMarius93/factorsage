@@ -11,6 +11,7 @@ import {
   RedisStockDataCache,
 } from "@intrinsic/stock-data";
 import {
+  pruneOrphanedFixtureBenchmarks,
   seedQaBenchmarkData,
   seedQaMarketReferenceData,
 } from "./benchmarks/seed-qa-benchmark-data";
@@ -70,6 +71,14 @@ async function seed(): Promise<void> {
           `${seededData.from} to ${seededData.to}.`,
       );
     }
+    // Before seeding: leftover fixture benchmarks from integration suites are real catalog rows,
+    // and the Backtest picker must offer exactly the product catalog in a seeded environment.
+    const pruned = await pruneOrphanedFixtureBenchmarks(prisma);
+    console.log(
+      pruned.length === 0
+        ? "Benchmark catalog clean: no orphaned fixture benchmarks."
+        : `Removed ${pruned.length} orphaned fixture benchmark(s) not in the product catalog.`,
+    );
     const benchmark = await seedQaBenchmarkData(prisma);
     await benchmarkCache.invalidateManifest(benchmark.seriesId);
     console.log(

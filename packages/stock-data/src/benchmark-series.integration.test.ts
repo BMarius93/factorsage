@@ -99,7 +99,9 @@ describeSeries("immutable benchmark series", () => {
       currency: "USD",
       methodologyVersion: 1,
       isActive: true,
-      isBacktestSelectable: true,
+      // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+      // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+      isBacktestSelectable: false,
       displayOrder: 99,
       ...overrides,
     };
@@ -303,14 +305,16 @@ describeSeries("immutable benchmark series", () => {
       seriesType: "INDEX",
     });
 
-    const [hidden] = await store.reconcileBenchmarkCatalog([
-      { ...definition, isBacktestSelectable: false },
-    ]);
-    expect(hidden?.isBacktestSelectable).toBe(false);
+    // Toggled on an inactive row, so the fixture is never listed by `GET /benchmarks` while it
+    // says `true` — another package's suite may be reading the product catalog at that moment.
     const [shown] = await store.reconcileBenchmarkCatalog([
-      { ...definition, isBacktestSelectable: true },
+      { ...definition, isActive: false, isBacktestSelectable: true },
     ]);
     expect(shown?.isBacktestSelectable).toBe(true);
+    const [hidden] = await store.reconcileBenchmarkCatalog([
+      { ...definition, isActive: false, isBacktestSelectable: false },
+    ]);
+    expect(hidden?.isBacktestSelectable).toBe(false);
 
     // Whether a user may pick it is a product decision about the row, not part of what the series
     // means — so toggling it twice cannot leave two dead series versions behind.

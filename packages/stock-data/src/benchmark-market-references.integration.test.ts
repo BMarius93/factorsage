@@ -155,7 +155,9 @@ describeReferences(
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
-        isBacktestSelectable: true,
+        // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+        // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+        isBacktestSelectable: false,
         displayOrder: 99,
         ...overrides,
       };
@@ -204,7 +206,9 @@ describeReferences(
       expect(byCode.get(codes.spx)?.isActive).toBe(true);
       // … and not selectable, which is a separate, product-level refusal.
       expect(byCode.get(codes.spx)?.isBacktestSelectable).toBe(false);
-      expect(byCode.get(codes.proxy)?.isBacktestSelectable).toBe(true);
+      // The proxy fixture is not selectable either — a loader fixture is never a user choice — and
+      // the loader does not care: selectability is a product rule enforced at the API boundary.
+      expect(byCode.get(codes.proxy)?.isActive).toBe(true);
       expect(byCode.get(codes.spx)?.series.seriesType).toBe("INDEX");
       expect(byCode.get(codes.proxy)?.series.seriesType).toBe("ETF_PROXY");
     });

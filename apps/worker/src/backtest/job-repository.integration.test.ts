@@ -57,6 +57,8 @@ describe("backtest job claiming", () => {
       data: {
         code: `TEST_${suffix.toUpperCase()}`,
         name: "Worker Suite Benchmark",
+        // Referenced by id only; never offered to a user by `GET /benchmarks`.
+        isBacktestSelectable: false,
         series: {
           create: {
             version: 1,

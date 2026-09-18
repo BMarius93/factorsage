@@ -426,6 +426,17 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("dashboard-run-backtest").tagName).toBe("BUTTON");
   });
 
+  it("never describes VIX, or anything on the Dashboard, as fear and greed", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-signals");
+    await screen.findByTestId("dashboard-market-value-VIX_INDEX");
+
+    const page = screen.getByTestId("dashboard-page");
+    expect(page.textContent).not.toMatch(/fear|greed/i);
+    expect(page.textContent).not.toMatch(/24h/i);
+  });
+
   it("sends a viewer who hid every monitor to the page that can bring one back", async () => {
     fetchDashboardMock.mockResolvedValue(
       dashboard({ rows: [], monitors: [monitor({ visible: false })] }),
