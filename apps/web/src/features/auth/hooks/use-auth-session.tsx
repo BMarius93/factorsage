@@ -10,7 +10,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { getAuthUser, logout as logoutRequest } from "../api/auth-api";
+import {
+  getAuthUser,
+  logout as logoutRequest,
+  logoutEverywhere as logoutEverywhereRequest,
+} from "../api/auth-api";
 
 export type AuthState =
   | { status: "loading" }
@@ -20,7 +24,11 @@ export type AuthState =
 
 export type AuthSession = {
   readonly state: AuthState;
-  readonly signOut: () => Promise<void>;
+  /**
+   * Signs this browser out. With `everywhere`, first revokes every session of the account, so
+   * every other device is signed out on its next request too.
+   */
+  readonly signOut: (options?: { everywhere?: boolean }) => Promise<void>;
 };
 
 const AuthSessionContext = createContext<AuthSession | null>(null);
@@ -34,8 +42,8 @@ const AuthSessionContext = createContext<AuthSession | null>(null);
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: "loading" });
 
-  const signOut = useCallback(async () => {
-    await logoutRequest();
+  const signOut = useCallback(async (options?: { everywhere?: boolean }) => {
+    await (options?.everywhere ? logoutEverywhereRequest() : logoutRequest());
     setState({ status: "unauthenticated" });
   }, []);
 

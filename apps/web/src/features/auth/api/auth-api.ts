@@ -93,6 +93,12 @@ export async function getAuthUser(): Promise<AuthUser | null> {
   }
 }
 
+/** Signs out this browser only; the account's other sessions stay signed in. */
 export async function logout(): Promise<void> {
   await apiPost<null>("/auth/logout", null);
+}
+
+/** Revokes every session of the account — every device — including this browser's. */
+export async function logoutEverywhere(): Promise<void> {
+  await apiPost<null>("/auth/logout-all", null);
 }

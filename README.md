@@ -226,7 +226,7 @@ Endpoints:
 
 - `GET /auth/providers` — which external providers this deployment configured
 - `POST /auth/register`, `POST /auth/verify-email`, `POST /auth/resend-verification`
-- `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`
+- `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`, `POST /auth/logout-all`
 - `GET /auth/google`, `GET /auth/google/callback`
 - `GET /admin/health` (ADMIN authorization proof only)
 

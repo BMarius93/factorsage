@@ -1,10 +1,9 @@
-import type { AuthUser } from "@intrinsic/contracts";
 import { OAuthProvider, type Prisma } from "@intrinsic/database";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { AUTH_LOGGER } from "../auth.tokens";
 import { isValidEmail, normalizeEmail } from "../email";
-import { UsersService } from "../users.service";
+import { type SessionGrant, UsersService } from "../users.service";
 import {
   mayLinkToExistingAccount,
   resolveGoogleEmailAuthority,
@@ -54,7 +53,7 @@ export class GoogleAuthService {
     return this.provider.buildAuthorizationUrl(request);
   }
 
-  async authenticate(exchange: GoogleCodeExchange): Promise<AuthUser> {
+  async authenticate(exchange: GoogleCodeExchange): Promise<SessionGrant> {
     if (!this.provider) {
       throw new GoogleAuthError(
         "oauth_unavailable",
@@ -81,13 +80,13 @@ export class GoogleAuthService {
           );
     }
 
-    const user = await this.resolveIdentity(identity);
+    const grant = await this.resolveIdentity(identity);
     this.logger.info({
       event: "auth.google.callback.completed",
-      actorUserId: user.id,
+      actorUserId: grant.user.id,
       durationMs: Date.now() - startedAt,
     });
-    return user;
+    return grant;
   }
 
   /**
@@ -98,7 +97,9 @@ export class GoogleAuthService {
    * and the loser simply resolves again, at which point the row the winner wrote is the answer. The
    * retry is bounded at one because the second pass reads a state that already exists.
    */
-  private async resolveIdentity(identity: GoogleIdentity): Promise<AuthUser> {
+  private async resolveIdentity(
+    identity: GoogleIdentity,
+  ): Promise<SessionGrant> {
     try {
       return await this.resolveIdentityOnce(identity);
     } catch (err) {
@@ -112,7 +113,7 @@ export class GoogleAuthService {
 
   private async resolveIdentityOnce(
     identity: GoogleIdentity,
-  ): Promise<AuthUser> {
+  ): Promise<SessionGrant> {
     const linked = await this.users.findByOAuthAccount(
       OAuthProvider.GOOGLE,
       identity.providerAccountId,
@@ -124,7 +125,7 @@ export class GoogleAuthService {
       const user = linked.emailVerifiedAt
         ? linked
         : await this.users.markEmailVerified(linked.id);
-      return this.users.toAuthUser(user);
+      return this.users.toSessionGrant(user);
     }
 
     const email = normalizeEmail(identity.email ?? "");
@@ -159,7 +160,7 @@ export class GoogleAuthService {
         actorUserId: created.id,
         emailAuthority: resolveGoogleEmailAuthority(identity),
       });
-      return this.users.toAuthUser(created);
+      return this.users.toSessionGrant(created);
     }
 
     // Adopting an account that already exists is where `email_verified` stops being enough:
@@ -191,7 +192,7 @@ export class GoogleAuthService {
       emailAuthority: authority,
       discardedUnverifiedPassword,
     });
-    return this.users.toAuthUser(user);
+    return this.users.toSessionGrant(user);
   }
 }
 

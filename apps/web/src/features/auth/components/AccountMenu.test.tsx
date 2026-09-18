@@ -90,6 +90,22 @@ describe("AccountMenu", () => {
     await user.click(screen.getByTestId("sign-out"));
 
     await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    expect(signOut).toHaveBeenCalledWith({ everywhere: false });
+    expect(replace).toHaveBeenCalledWith("/login");
+    expect(screen.queryByTestId("account-menu")).toBeNull();
+  });
+
+  it("signs out everywhere and returns the browser to the sign-in page", async () => {
+    const user = userEvent.setup();
+    render(<AccountMenu />);
+
+    await user.click(screen.getByTestId("account-menu-trigger"));
+    await user.click(
+      screen.getByRole("menuitem", { name: "Sign out everywhere" }),
+    );
+
+    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
+    expect(signOut).toHaveBeenCalledWith({ everywhere: true });
     expect(replace).toHaveBeenCalledWith("/login");
     expect(screen.queryByTestId("account-menu")).toBeNull();
   });

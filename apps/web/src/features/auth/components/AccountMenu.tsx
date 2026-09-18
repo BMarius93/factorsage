@@ -7,14 +7,16 @@ import { useAuthSession } from "../hooks/use-auth-session";
 import styles from "./AccountMenu.module.css";
 
 /**
- * Account control for the application topbar: identity, ADMIN entry point, and sign out — or, for a
- * Guest on a public page, the way to sign in.
+ * Account control for the application topbar: identity, ADMIN entry point, sign out of this browser
+ * and sign out everywhere — or, for a Guest on a public page, the way to sign in.
  */
 export function AccountMenu() {
   const router = useRouter();
   const { state, signOut } = useAuthSession();
   const [open, setOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
+  const [signingOut, setSigningOut] = useState<"here" | "everywhere" | null>(
+    null,
+  );
   const [error, setError] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
 
@@ -62,18 +64,18 @@ export function AccountMenu() {
   // dominate the topbar, and the full address is one click away inside the menu.
   const monogram = (user.email.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
 
-  async function handleSignOut() {
-    setSigningOut(true);
+  async function handleSignOut(scope: "here" | "everywhere") {
+    setSigningOut(scope);
     setError(false);
 
     try {
-      await signOut();
+      await signOut({ everywhere: scope === "everywhere" });
       setOpen(false);
       router.replace("/login");
       router.refresh();
     } catch {
       setError(true);
-      setSigningOut(false);
+      setSigningOut(null);
     }
   }
 
@@ -137,11 +139,25 @@ export function AccountMenu() {
             className={styles.signOut}
             type="button"
             role="menuitem"
-            disabled={signingOut}
+            disabled={signingOut !== null}
             data-testid="sign-out"
-            onClick={handleSignOut}
+            onClick={() => void handleSignOut("here")}
           >
-            {signingOut ? "Signing out..." : "Sign out"}
+            {signingOut === "here" ? "Signing out..." : "Sign out"}
+          </button>
+
+          {/* Ends every session of the account, on every device — the step after a lost device. */}
+          <button
+            className={styles.signOut}
+            type="button"
+            role="menuitem"
+            disabled={signingOut !== null}
+            data-testid="sign-out-everywhere"
+            onClick={() => void handleSignOut("everywhere")}
+          >
+            {signingOut === "everywhere"
+              ? "Signing out everywhere..."
+              : "Sign out everywhere"}
           </button>
 
           {error ? (

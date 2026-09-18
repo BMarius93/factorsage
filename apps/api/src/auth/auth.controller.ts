@@ -55,6 +55,7 @@ import {
 } from "./google/oauth-transaction";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { RegistrationService } from "./registration.service";
+import type { SessionGrant } from "./users.service";
 
 /** Where the web app takes over after a successful external sign-in. */
 const POST_LOGIN_PATH = "/dashboard";
@@ -155,14 +156,34 @@ export class AuthController {
     return user;
   }
 
+  /**
+   * Signs out **this browser**: clears its cookie and nothing else.
+   *
+   * Deliberately not a revocation. Other devices stay signed in, which is what "sign out" means
+   * on a shared machine; `POST /auth/logout-all` is the action that ends every session.
+   */
   @RateLimit("session-probe")
   @Post("logout")
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(@Res({ passthrough: true }) response: Response): void {
-    response.clearCookie(
-      this.config.cookieName,
-      authCookieOptions(this.config, false),
-    );
+    this.clearSessionCookie(response);
+  }
+
+  /**
+   * "Sign out everywhere": revokes every session of the signed-in account, then clears this
+   * browser's cookie. Any other copy of a token — another device, or a captured cookie — gets the
+   * generic `401` on its next request.
+   */
+  @RateLimit("mutation")
+  @Post("logout-all")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(CookieAuthGuard)
+  async logoutAll(
+    @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<void> {
+    await this.auth.revokeAllSessions(user.id);
+    this.clearSessionCookie(response);
   }
 
   @RateLimit("auth-sensitive")
@@ -225,9 +246,9 @@ export class AuthController {
       return;
     }
 
-    let user: AuthUser;
+    let grant: SessionGrant;
     try {
-      user = await this.google.authenticate({
+      grant = await this.google.authenticate({
         code,
         codeVerifier: transaction.codeVerifier,
         nonce: transaction.nonce,
@@ -244,10 +265,11 @@ export class AuthController {
       return;
     }
 
-    // Google sign-in ends in exactly the same session as password sign-in.
+    // Google sign-in ends in exactly the same session as password sign-in, at the version read on
+    // the row Google resolved to.
     response.cookie(
       this.config.cookieName,
-      await this.auth.issueToken(user.id),
+      await this.auth.issueToken(grant.user.id, grant.sessionVersion),
       authCookieOptions(this.config, true),
     );
     response.redirect(`${this.config.webBaseUrl}${POST_LOGIN_PATH}`);
@@ -269,7 +291,14 @@ export class AuthController {
     return decodeOAuthTransaction(raw);
   }
 
-  private redirectToLogin(response: Response, error: OAuthErrorCode): void {
+  private clearSessionCookie(response: Response): void {
+    response.clearCookie(
+      this.config.cookieName,
+      authCookieOptions(this.config, false),
+    );
+  }
+
+    private redirectToLogin(response: Response, error: OAuthErrorCode): void {
     response.redirect(
       `${this.config.webBaseUrl}${LOGIN_PATH}?error=${encodeURIComponent(error)}`,
     );

@@ -4,10 +4,25 @@ import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { normalizeEmail } from "./email";
 
+/**
+ * A resolved sign-in: the safe user for the response, and the session version read from the same
+ * row that authorised it, which the issued token must carry.
+ */
+export type SessionGrant = {
+  readonly user: AuthUser;
+  readonly sessionVersion: number;
+};
+
 type SafeUser = Pick<User, "id" | "email" | "role" | "plan">;
-type PasswordLoginUser = SafeUser &
+/**
+ * A user as a session sees it: the safe projection plus the version its tokens must carry.
+ * `sessionVersion` is authentication state, never a response field — `toAuthUser` drops it.
+ */
+type SessionUser = SafeUser & Pick<User, "sessionVersion">;
+type PasswordLoginUser = SessionUser &
   Pick<User, "passwordHash" | "emailVerifiedAt">;
-type IdentityUser = SafeUser & Pick<User, "passwordHash" | "emailVerifiedAt">;
+type IdentityUser = SessionUser &
+  Pick<User, "passwordHash" | "emailVerifiedAt">;
 
 /**
  * What a session may know about its own user.
@@ -22,8 +37,17 @@ const SAFE_USER_SELECT = {
   role: true,
   plan: true,
 } as const;
-const IDENTITY_USER_SELECT = {
+/**
+ * `SAFE_USER_SELECT` plus `sessionVersion`, for every read a session is issued or validated from.
+ * Kept separate so the version is read on the same row, in the same query, as the identity it
+ * authorises — a later second read could miss a concurrent revocation.
+ */
+const SESSION_USER_SELECT = {
   ...SAFE_USER_SELECT,
+  sessionVersion: true,
+} as const;
+const IDENTITY_USER_SELECT = {
+  ...SESSION_USER_SELECT,
   passwordHash: true,
   emailVerifiedAt: true,
 } as const;
@@ -52,11 +76,24 @@ export class UsersService {
     });
   }
 
-  findAuthUserById(id: string): Promise<SafeUser | null> {
+  findAuthUserById(id: string): Promise<SessionUser | null> {
     return this.prisma.user.findUnique({
       where: { id },
-      select: SAFE_USER_SELECT,
+      select: SESSION_USER_SELECT,
     });
+  }
+
+  /**
+   * Revokes every session of the account by bumping its version, atomically in PostgreSQL — never
+   * read, incremented and written back, so concurrent revocations only ever move it forward.
+   * Returns whether the account still existed.
+   */
+  async incrementSessionVersion(userId: string): Promise<boolean> {
+    const { count } = await this.prisma.user.updateMany({
+      where: { id: userId },
+      data: { sessionVersion: { increment: 1 } },
+    });
+    return count === 1;
   }
 
   /** Creates an unverified local-password user. Callers pass an already-hashed password. */
@@ -104,7 +141,7 @@ export class UsersService {
     userId: string;
     provider: OAuthProvider;
     providerAccountId: string;
-  }): Promise<{ user: SafeUser; discardedUnverifiedPassword: boolean }> {
+  }): Promise<{ user: SessionUser; discardedUnverifiedPassword: boolean }> {
     return this.prisma.$transaction(async (tx) => {
       // Decided here, not from the caller's earlier read: a verification redeemed in the meantime
       // makes the password the owner's. The conditional update is both the decision and the row
@@ -132,7 +169,7 @@ export class UsersService {
       const user = await tx.user.update({
         where: { id: input.userId },
         data: { emailVerifiedAt: new Date() },
-        select: SAFE_USER_SELECT,
+        select: SESSION_USER_SELECT,
       });
       // A pending local verification token is meaningless once the provider proved the address.
       await tx.emailVerificationToken.deleteMany({
@@ -148,7 +185,7 @@ export class UsersService {
     email: string;
     provider: OAuthProvider;
     providerAccountId: string;
-  }): Promise<SafeUser> {
+  }): Promise<SessionUser> {
     return this.prisma.user.create({
       data: {
         email: normalizeEmail(input.email),
@@ -160,16 +197,24 @@ export class UsersService {
           },
         },
       },
-      select: SAFE_USER_SELECT,
+      select: SESSION_USER_SELECT,
     });
   }
 
-  markEmailVerified(userId: string): Promise<SafeUser> {
+  markEmailVerified(userId: string): Promise<SessionUser> {
     return this.prisma.user.update({
       where: { id: userId },
       data: { emailVerifiedAt: new Date() },
-      select: SAFE_USER_SELECT,
+      select: SESSION_USER_SELECT,
     });
+  }
+
+  /** What a successful sign-in hands to `AuthService.issueToken`. */
+  toSessionGrant(user: SessionUser): SessionGrant {
+    return {
+      user: this.toAuthUser(user),
+      sessionVersion: user.sessionVersion,
+    };
   }
 
   toAuthUser(user: SafeUser): AuthUser {
