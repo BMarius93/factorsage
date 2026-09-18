@@ -106,7 +106,11 @@ describe("authentication and role authorization", () => {
     };
 
     expect(
-      getAuthConfig({ ...common, NODE_ENV: "production" }).cookieSecure,
+      getAuthConfig({
+        ...common,
+        NODE_ENV: "production",
+        WEB_BASE_URL: "https://app.example.test",
+      }).cookieSecure,
     ).toBe(true);
     expect(
       getAuthConfig({ ...common, NODE_ENV: "development" }).cookieSecure,

@@ -13,7 +13,7 @@ import {
   getSmtpConfig,
   getStripeBillingConfig,
   getWebBaseUrl,
-  getWebPublicConfig,
+  getWorkerConfig,
 } from "./index";
 
 const JWT_SECRET = "test-only-jwt-secret-that-is-at-least-32-characters";
@@ -307,40 +307,199 @@ describe("test persona credentials", () => {
   });
 });
 
-describe("browser-exposed configuration", () => {
-  it("never exposes a server secret", () => {
-    const publicConfig = getWebPublicConfig({
-      ...GOOGLE_ENV,
-      ...SMTP_ENV,
-      AUTH_JWT_SECRET: JWT_SECRET,
-      ADMIN_PASSWORD: "admin-password-value",
-      QA_USER_PASSWORD: "qa-user-password-value",
-      STRIPE_SECRET_KEY: "stripe-secret-key",
-      FMP_API_KEY: "fmp-api-key",
-      DATABASE_URL: "postgresql://user:password@localhost:5432/db",
-      NEXT_PUBLIC_API_BASE_URL: "https://api.example.test",
+/**
+ * PROD-001: a production API refuses to start with a localhost or missing public URL, or without
+ * outbound email, instead of booting healthy and failing each customer later.
+ */
+describe("production API configuration", () => {
+  const PRODUCTION_API_ENV: NodeJS.ProcessEnv = {
+    NODE_ENV: "production",
+    AUTH_JWT_SECRET: JWT_SECRET,
+    WEB_BASE_URL: "https://app.example.test",
+    CORS_ORIGINS: "https://app.example.test",
+    ...SMTP_ENV,
+  };
+
+  function production(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const env = { ...PRODUCTION_API_ENV, ...overrides };
+    for (const [name, value] of Object.entries(overrides)) {
+      if (value === undefined) {
+        delete env[name];
+      }
+    }
+    return env;
+  }
+
+  /** Every getter the API process resolves at startup. */
+  function startApi(env: NodeJS.ProcessEnv) {
+    return {
+      api: getApiConfig(env),
+      auth: getAuthConfig(env),
+      smtp: getSmtpConfig(env),
+    };
+  }
+
+  it("accepts a complete https configuration", () => {
+    const config = startApi(PRODUCTION_API_ENV);
+
+    expect(config.api.corsOrigins).toEqual(["https://app.example.test"]);
+    expect(config.auth.webBaseUrl).toBe("https://app.example.test");
+    expect(config.auth.cookieSecure).toBe(true);
+    expect(config.smtp?.host).toBe("smtp.example.test");
+  });
+
+  it("accepts an unauthenticated relay, keeping the credential pair all-or-nothing", () => {
+    expect(
+      getSmtpConfig(
+        production({ SMTP_USER: undefined, SMTP_PASSWORD: undefined }),
+      )?.auth,
+    ).toBeNull();
+    expect(() =>
+      getSmtpConfig(production({ SMTP_PASSWORD: undefined })),
+    ).toThrow("SMTP_USER and SMTP_PASSWORD must be set together");
+  });
+
+  it("requires WEB_BASE_URL", () => {
+    for (const value of [undefined, "", "   "]) {
+      expect(() => getWebBaseUrl(production({ WEB_BASE_URL: value }))).toThrow(
+        "WEB_BASE_URL is required in production",
+      );
+      expect(() => getAuthConfig(production({ WEB_BASE_URL: value }))).toThrow(
+        "WEB_BASE_URL is required in production",
+      );
+    }
+  });
+
+  it("refuses a malformed or non-https WEB_BASE_URL", () => {
+    expect(() =>
+      getWebBaseUrl(production({ WEB_BASE_URL: "app.example.test" })),
+    ).toThrow("WEB_BASE_URL must be an absolute URL");
+    expect(() =>
+      getWebBaseUrl(production({ WEB_BASE_URL: "http://app.example.test" })),
+    ).toThrow("WEB_BASE_URL must be an https URL in production");
+  });
+
+  it("refuses a localhost or loopback WEB_BASE_URL", () => {
+    for (const value of [
+      "https://localhost:3000",
+      "https://LOCALHOST",
+      "https://app.localhost",
+      "https://127.0.0.1",
+      "https://127.1",
+      "https://[::1]:3000",
+      "https://[0:0:0:0:0:0:0:1]",
+      "https://[::ffff:127.0.0.1]",
+      "https://0.0.0.0",
+    ]) {
+      expect(
+        () => getWebBaseUrl(production({ WEB_BASE_URL: value })),
+        value,
+      ).toThrow(
+        "WEB_BASE_URL must not point at localhost or a loopback address in production",
+      );
+    }
+  });
+
+  it("requires CORS_ORIGINS", () => {
+    for (const value of [undefined, "", " , "]) {
+      expect(() => getApiConfig(production({ CORS_ORIGINS: value }))).toThrow(
+        "CORS_ORIGINS is required in production",
+      );
+    }
+  });
+
+  it("refuses a localhost or loopback CORS origin anywhere in the list", () => {
+    for (const value of [
+      "http://localhost:3000",
+      "https://app.example.test,http://localhost:3000",
+      "https://127.0.0.1",
+      "https://[::1]",
+    ]) {
+      expect(
+        () => getApiConfig(production({ CORS_ORIGINS: value })),
+        value,
+      ).toThrow(
+        "CORS_ORIGINS must not contain a localhost or loopback origin in production",
+      );
+    }
+  });
+
+  it("requires outbound email", () => {
+    const withoutSmtp = production({
+      SMTP_HOST: undefined,
+      SMTP_PORT: undefined,
+      SMTP_USER: undefined,
+      SMTP_PASSWORD: undefined,
+      SMTP_FROM: undefined,
     });
 
-    const serialized = JSON.stringify(publicConfig);
-    const secrets = [
-      JWT_SECRET,
-      "google-client-secret-value",
-      "smtp-password-value",
-      "smtp-user",
-      "admin-password-value",
-      "qa-user-password-value",
-      "stripe-secret-key",
-      "fmp-api-key",
-      "postgresql://user:password@localhost:5432/db",
+    expect(() => getSmtpConfig(withoutSmtp)).toThrow(
+      "SMTP_HOST and SMTP_FROM are required in production",
+    );
+    expect(() => getSmtpConfig(production({ SMTP_FROM: undefined }))).toThrow(
+      "SMTP_HOST and SMTP_FROM are required when any SMTP_* variable is set",
+    );
+  });
+
+  it("names the variable in every refusal and never echoes a value", () => {
+    const secretish = "https://secret-token@127.0.0.1";
+    const failures = [
+      () => getWebBaseUrl(production({ WEB_BASE_URL: secretish })),
+      () =>
+        getWebBaseUrl(production({ WEB_BASE_URL: "http://app.example.test" })),
+      () => getApiConfig(production({ CORS_ORIGINS: undefined })),
+      () =>
+        getSmtpConfig(
+          production({
+            SMTP_HOST: undefined,
+            SMTP_PORT: undefined,
+            SMTP_USER: undefined,
+            SMTP_PASSWORD: undefined,
+            SMTP_FROM: undefined,
+          }),
+        ),
     ];
 
-    for (const secret of secrets) {
-      expect(serialized).not.toContain(secret);
+    for (const failure of failures) {
+      let message = "";
+      try {
+        failure();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toMatch(/^Invalid application configuration: [A-Z_]+/);
+      for (const value of [
+        secretish,
+        "secret-token",
+        "app.example.test",
+        JWT_SECRET,
+        SMTP_ENV.SMTP_PASSWORD,
+      ]) {
+        expect(message).not.toContain(value);
+      }
     }
-    expect(Object.keys(publicConfig).sort()).toEqual([
-      "apiBaseUrl",
-      "stripePublishableKey",
-    ]);
+  });
+
+  it("keeps the development and test defaults unchanged", () => {
+    for (const NODE_ENV of ["development", "test", undefined]) {
+      const env = { NODE_ENV, AUTH_JWT_SECRET: JWT_SECRET };
+
+      expect(getWebBaseUrl(env)).toBe("http://localhost:3000");
+      expect(getApiConfig(env).corsOrigins).toEqual(["http://localhost:3000"]);
+      expect(getSmtpConfig(env)).toBeNull();
+      expect(getAuthConfig(env).webBaseUrl).toBe("http://localhost:3000");
+    }
+  });
+
+  it("starts the worker in production without any API-only setting", () => {
+    // The worker reads none of WEB_BASE_URL, CORS_ORIGINS, SMTP_* or AUTH_*; requiring them
+    // there would couple a process that sends no email to the API's deployment surface.
+    const workerEnv = { NODE_ENV: "production", LOG_LEVEL: "info" };
+
+    expect(getWorkerConfig(workerEnv).environment).toBe("production");
+    expect(() => getBacktestWorkerConfig(workerEnv)).not.toThrow();
+    expect(() => getMonitorWorkerConfig(workerEnv)).not.toThrow();
+    expect(getBacktestDebugArchiveConfig(workerEnv).enabled).toBe(false);
   });
 });
 
@@ -655,7 +814,11 @@ describe("getStripeBillingConfig", () => {
 
   it("accepts a live configuration in production", () => {
     const config = getStripeBillingConfig(
-      sandbox({ NODE_ENV: "production", STRIPE_SECRET_KEY: "sk_live_abc123" }),
+      sandbox({
+        NODE_ENV: "production",
+        STRIPE_SECRET_KEY: "sk_live_abc123",
+        WEB_BASE_URL: "https://app.example.test",
+      }),
     );
     expect(config?.testMode).toBe(false);
   });

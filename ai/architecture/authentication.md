@@ -335,13 +335,17 @@ Until then, an attacker who already holds a live session cookie keeps it for up 
 ## Configuration and secrets
 
 All auth, Google, and SMTP configuration is parsed and validated in `packages/config/src/index.ts`.
-Auth, email, and Google business code never reads `process.env`. `getWebPublicConfig()` exposes no
-server secret.
+Auth, email, and Google business code never reads `process.env`. The web app's only configuration
+is the public `NEXT_PUBLIC_API_BASE_URL`, which carries no secret.
 
 Outbound email goes through an `EmailSender` port. The SMTP transport is the production
 implementation; deterministic tests replace the port entirely, so no automated test can send real
-mail. With no SMTP configured the API still boots and reports the verification email as
-undeliverable rather than pretending it was sent.
+mail. In development and test, with no SMTP configured, the API still boots and reports the
+verification email as undeliverable rather than pretending it was sent. **In production the API
+refuses to start without `SMTP_HOST` and `SMTP_FROM`**, and without an https, non-loopback
+`WEB_BASE_URL` and `CORS_ORIGINS` (PROD-001): without them registration, verification, recovery,
+the Google redirect and Stripe return URLs would all fail after a healthy-looking boot. The worker
+sends no email and requires none of these.
 
 ## Observability
 

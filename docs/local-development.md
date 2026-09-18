@@ -59,6 +59,20 @@ Local browser authentication runs from web `:3000` to API `:3001`. Keep
 development-only `AUTH_JWT_SECRET` of at least 32 characters. Production must supply a unique
 secret and uses a Secure auth cookie automatically.
 
+These localhost values are development defaults only. With `NODE_ENV=production` the API refuses
+to start unless `WEB_BASE_URL` and `CORS_ORIGINS` are https, non-localhost values and the SMTP group
+is set (`packages/config/README.md`). `NEXT_PUBLIC_API_BASE_URL` is compiled into the browser
+bundle, so a release image takes it as a build argument, and a release build refuses a missing or
+localhost value:
+
+```bash
+docker build -f docker/web.Dockerfile \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.com .
+```
+
+`pnpm stack:up` builds that image as a local, non-release stack (`FACTORSAGE_RELEASE_BUILD=false`
+in `docker-compose.yml`) so it can keep calling the API on `localhost`.
+
 Stop infrastructure:
 
 ```bash
