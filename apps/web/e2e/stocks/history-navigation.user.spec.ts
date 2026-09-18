@@ -1,5 +1,5 @@
 import type { StockDetailsResponse } from "@intrinsic/contracts";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * Viewport-driven history loading for PRO_USER, through the real Next + Nest + PostgreSQL + Redis
@@ -12,7 +12,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * cannot tell "loaded the missing years" from "drew nothing, again".
  *
  * Preconditions are the usual Stock Details ones: `pnpm test:users:seed` once, and
- * `pnpm test:securities:seed` shortly before the run, so the deterministic QA history is present
+ * `pnpm test:securities:seed` before the run, so the deterministic QA history is present
  * and the loader stays off any market-data provider.
  *
  * `QATEST1` is seeded with roughly three years of trading days inside a thirty-year permitted

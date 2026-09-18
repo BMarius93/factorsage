@@ -22,3 +22,6 @@ docker-data/
 
 # Local forensic backtest debug archives (docs/development/backtest-debug-archive.md).
 .debug/
+
+# Deterministic E2E stack runtime state (egress-guard log). See ai/workflows/auth-testing.md §7.
+.e2e-stack/

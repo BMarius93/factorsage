@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
+import { runIdFromUrl, waitForRunsToSettle } from "../utils/backtests";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 
 /**
@@ -6,11 +7,11 @@ import { chooseFromOverflowMenu } from "../utils/overflow-menu";
  *
  * Preconditions beyond the usual stack + `pnpm test:users:seed`:
  *
- * 1. `pnpm test:securities:seed` has run recently, which creates the deterministic QA security
- *    with its price history and derived state, and the `SP500` benchmark with its own history and
- *    freshness watermark. Both watermarks carry the seed's timestamp, so a seed from days ago makes
- *    the loader treat the tail as stale and reach for the provider.
- * 2. A worker process is running and claiming backtest jobs.
+ * 1. `pnpm test:securities:seed` has run, which creates the deterministic QA security with its
+ *    price history and derived state, and the `SP500` benchmark with its own history and freshness
+ *    watermark. The hermetic stack keeps both fresh for thirty days and answers anything else from
+ *    the fixture FMP server, so no run here depends on the wall clock or a provider.
+ * 2. A worker process is running and claiming backtest jobs (`pnpm dev:worker:e2e`).
  *
  * The suite provisions everything else itself — its strategy through the Builder and its stock
  * list through the Lists UI — and removes both afterwards, so it depends on no pre-existing
@@ -173,6 +174,12 @@ async function deleteListIfPresent(page: Page, name: string) {
  * Fills and submits the form, or skips the test when the environment cannot supply a benchmark.
  * Returns the submitted run's URL.
  */
+/**
+ * Every run this test submitted, so `afterEach` can wait for each one to settle whether the test
+ * passed or failed. Reset per test.
+ */
+let submittedRunIds: string[] = [];
+
 async function submitBacktest(
   page: Page,
   options: { startDate?: string } = {},
@@ -217,6 +224,7 @@ async function submitBacktest(
 
   await page.getByTestId("submit-backtest").click();
   await expect(page).toHaveURL(/\/backtests\/[0-9a-f-]{36}$/);
+  submittedRunIds.push(runIdFromUrl(page.url()));
   return page.url();
 }
 
@@ -296,6 +304,7 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
 
 test.describe("PRO_USER backtests", () => {
   test.beforeEach(async ({ page }) => {
+    submittedRunIds = [];
     await deleteStrategyIfPresent(page, STRATEGY_NAME);
     await deleteListIfPresent(page, LIST_NAME);
     await createStrategy(page, STRATEGY_NAME);
@@ -303,8 +312,15 @@ test.describe("PRO_USER backtests", () => {
   });
 
   test.afterEach(async ({ page }) => {
-    await deleteStrategyIfPresent(page, STRATEGY_NAME);
-    await deleteListIfPresent(page, LIST_NAME);
+    try {
+      // A run cannot be deleted, but it must not be left executing: it would hold one of the
+      // persona's two concurrency slots into whichever spec runs next (E2E-003). This runs after a
+      // failed assertion too, and fails on its own, naming the run, if the run never settles.
+      await waitForRunsToSettle(page, submittedRunIds);
+    } finally {
+      await deleteStrategyIfPresent(page, STRATEGY_NAME);
+      await deleteListIfPresent(page, LIST_NAME);
+    }
   });
 
   test("submits a run, watches it progress, and reaches its result without a reload", async ({
@@ -502,31 +518,58 @@ test.describe("PRO_USER backtests", () => {
     const run = page.getByTestId("backtest-run");
     const chart = page.getByTestId("backtest-chart");
 
-    // Wait for the run to have produced something worth resuming from.
+    // Wait for the run to have produced something worth resuming from: a curve with at least one
+    // point, or a failure. The chart mounts empty (`data-strategy-points="0"`) as soon as the run
+    // page renders — QUEUED and PREPARING_DATA included — so its mere presence proves nothing, and
+    // resolving on it is what made this test sample zero points and fail in milliseconds. The
+    // predicate is the drawn curve itself, and each sample records the status it was drawn under.
+    type Sample = { status: string; points: number };
+    let sample: Sample = { status: "", points: 0 };
     await expect
       .poll(
         async () => {
-          const status = await run.getAttribute("data-status");
-          if (status === "COMPLETED" || status === "FAILED") {
-            return "terminal";
-          }
-          return (await chart.count()) > 0 ? "drawing" : "waiting";
+          sample = await page.evaluate(() => {
+            const chartNode = document.querySelector(
+              '[data-testid="backtest-chart"]',
+            );
+            return {
+              status:
+                document
+                  .querySelector('[data-testid="backtest-run"]')
+                  ?.getAttribute("data-status") ?? "",
+              points: Number(
+                chartNode?.getAttribute("data-strategy-points") ?? "0",
+              ),
+            };
+          });
+          return sample.points > 0 || sample.status === "FAILED";
         },
-        { timeout: RUN_TIMEOUT_MS, intervals: [150] },
+        {
+          timeout: RUN_TIMEOUT_MS,
+          intervals: [150],
+          message: "The run never drew a curve and never failed",
+        },
       )
-      .not.toBe("waiting");
+      .toBe(true);
 
-    const statusBeforeReload = await run.getAttribute("data-status");
     test.skip(
-      statusBeforeReload === "FAILED",
+      sample.status === "FAILED",
       "The run failed before drawing a curve; this suite needs hydrated price history for " +
         "the list's securities and the benchmark.",
     );
-    // A reload after completion still exercises the same path — the page rebuilds entirely from
-    // persisted state — so it is asserted rather than skipped.
-    const pointsBeforeReload = Number(
-      await chart.getAttribute("data-strategy-points"),
-    );
+    if (sample.status === "COMPLETED") {
+      // The first sample with a curve was already the finished run. The reload below still
+      // exercises the same path — the page rebuilds entirely from persisted state — so it is
+      // asserted rather than skipped, but it is not a mid-flight resume and must not read as one.
+      test.info().annotations.push({
+        type: "environment",
+        description:
+          "The run completed before a mid-flight sample could be taken, so this reload resumed a " +
+          "finished run. A mid-flight sample needs an E2E-only slowdown (audit T-3), which is out " +
+          "of scope; BacktestRunView.test.tsx proves the in-flight rendering.",
+      });
+    }
+    const pointsBeforeReload = sample.points;
     expect(pointsBeforeReload).toBeGreaterThan(0);
 
     await page.reload();

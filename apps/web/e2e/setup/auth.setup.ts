@@ -1,4 +1,4 @@
-import { test as setup } from "@playwright/test";
+import { test as setup } from "../fixtures";
 import { TEST_PERSONA_NAMES } from "@intrinsic/testing/personas";
 import { STORAGE_STATE, qaPersona } from "../utils/env";
 import { signInThroughUi } from "../utils/sign-in";

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 import { qaPersona } from "../utils/env";
 import { openAccountMenu } from "../utils/sign-in";
 

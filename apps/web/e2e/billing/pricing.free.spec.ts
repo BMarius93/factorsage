@@ -1,5 +1,5 @@
 import { BILLING_CATALOG_ENTRIES } from "@intrinsic/contracts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 import { readBillingStatus } from "../utils/billing";
 
 /**

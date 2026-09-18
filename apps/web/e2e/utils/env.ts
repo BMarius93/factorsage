@@ -18,6 +18,21 @@ export type QaPersonaCredentials = TestPersona & {
 
 let loaded = false;
 
+/** The monorepo root: the nearest directory above the working directory with the workspace file. */
+export function repositoryRoot(): string | undefined {
+  let directory = resolve(process.cwd());
+  while (true) {
+    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
+      return directory;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      return undefined;
+    }
+    directory = parent;
+  }
+}
+
 /** Loads the repository-root `.env` once so a local run picks up the QA persona variables. */
 function loadRootEnv(): void {
   if (loaded) {
@@ -25,21 +40,10 @@ function loadRootEnv(): void {
   }
   loaded = true;
 
-  let directory = resolve(process.cwd());
-  while (true) {
-    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
-      const envFile = join(directory, ".env");
-      if (existsSync(envFile)) {
-        loadEnvFile(envFile);
-      }
-      return;
-    }
-
-    const parent = dirname(directory);
-    if (parent === directory) {
-      return;
-    }
-    directory = parent;
+  const root = repositoryRoot();
+  const envFile = root === undefined ? undefined : join(root, ".env");
+  if (envFile !== undefined && existsSync(envFile)) {
+    loadEnvFile(envFile);
   }
 }
 

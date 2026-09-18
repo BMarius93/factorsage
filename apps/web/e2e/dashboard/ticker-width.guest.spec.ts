@@ -1,5 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
-import { serveLogosAsMissing } from "../utils/logos";
+import { expect, test, type Page } from "../fixtures";
 
 /**
  * The column that identifies a signal stays legible at laptop widths (UX-007).
@@ -44,7 +43,6 @@ for (const viewport of [
   test(`shows every full ticker at ${viewport.width}px without page overflow`, async ({
     page,
   }) => {
-    await serveLogosAsMissing(page);
     await page.setViewportSize(viewport);
     await page.goto("/dashboard");
     const rows = page

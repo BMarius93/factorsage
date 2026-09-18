@@ -129,6 +129,32 @@ describe("backtests", () => {
     return response.body as BacktestRunDetailResponse;
   }
 
+  /**
+   * Failure-only diagnosis for a run read that did not answer 200 (TEST-001). Reads the row by id
+   * with no owner filter, and describes the response that came back — its body, and the address
+   * supertest sent it to, since an unlistened Nest app is bound on a fresh ephemeral port per
+   * request and a foreign listener on that port would answer instead of the API.
+   */
+  async function diagnoseRunRead(
+    runId: string,
+    response: request.Response,
+  ): Promise<string> {
+    const row = await prisma.backtestRun.findUnique({
+      where: { id: runId },
+      select: { userId: true, status: true },
+    });
+    const url = (response as unknown as { request?: { url?: string } }).request
+      ?.url;
+    return [
+      `GET /backtests/${runId} answered ${response.status}.`,
+      row
+        ? `The row exists: userId=${row.userId} (${row.userId === ownerUserId ? "the owner" : `NOT the owner ${ownerUserId}`}), status=${row.status}.`
+        : "The row does not exist.",
+      `Response body: ${JSON.stringify(response.body)}; content-type: ${response.headers["content-type"] ?? "none"}.`,
+      `Requested URL: ${url ?? "unknown"}.`,
+    ].join(" ");
+  }
+
   async function expectRejected(
     body: object,
     fragment: string,
@@ -164,7 +190,14 @@ describe("backtests", () => {
       ],
     }).compile();
     app = moduleRef.createNestApplication();
-    await app.init();
+    // Bound to loopback explicitly (TEST-001). Left unlistened, supertest binds a *wildcard*
+    // ephemeral port per request, and on macOS that bind succeeds even when another process holds
+    // the same port on 127.0.0.1 — which then receives the request instead. Two such listeners exist
+    // on the development machine: one answers `404` with an empty body (the intermittent
+    // `GET /backtests/:id` 404 this suite recorded), the other accepts and never answers (every
+    // later test in the file then times out at 5 s). A specific loopback bind is never handed an
+    // occupied port, so neither can happen.
+    await app.listen(0, "127.0.0.1");
 
     prisma = moduleRef.get(PrismaService);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
@@ -305,6 +338,14 @@ describe("backtests", () => {
 
   afterAll(async () => {
     if (prisma) {
+      // A test's own `finally` does not run when the test times out mid-request, so the benchmark
+      // fixtures this file names after its suffix are swept here too; a leaked one is a real,
+      // selectable catalog entry that fails the next run's "exactly S&P 500" assertion.
+      const fixtureBenchmarks = { code: `PINNED_${shortSuffix}` };
+      await prisma.backtestRun.deleteMany({
+        where: { benchmark: fixtureBenchmarks },
+      });
+      await prisma.benchmark.deleteMany({ where: fixtureBenchmarks });
       // Runs, jobs, progress, trades, equity and positions all cascade from the users. Trades and
       // positions hold `onDelete: Restrict` references to Security, so the users must go first.
       await prisma.user.deleteMany({
@@ -789,8 +830,17 @@ describe("backtests", () => {
         select: { snapshot: true, snapshotHash: true },
       });
       expect(after).toEqual(before);
-      const detail = (await owner.get(`/backtests/${run.id}`).expect(200))
-        .body as BacktestRunDetailResponse;
+      const response = await owner.get(`/backtests/${run.id}`);
+      // TEST-001: this read once answered 404 in one serial package run and never again (30/30
+      // alone). The assertion is unchanged; on a failure only, the message records what the
+      // database held at that moment, read by id *without* the owner filter `getRun` applies, and
+      // what actually answered — so the next occurrence says whether the row was gone, owned by
+      // someone else, or never reached the API at all.
+      expect(
+        response.status,
+        response.status === 200 ? undefined : await diagnoseRunRead(run.id, response),
+      ).toBe(200);
+      const detail = response.body as BacktestRunDetailResponse;
       expect(detail.configuration.stockListName).toBe("Built-in universe");
       expect(detail.configuration.strategyVersionNumber).toBe(1);
     });

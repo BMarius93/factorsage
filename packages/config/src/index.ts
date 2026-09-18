@@ -913,10 +913,44 @@ export function getFmpTrafficConfig(env: Environment = process.env) {
 }
 
 export function getFmpConfig(env: Environment = process.env) {
+  const baseUrl = fmpBaseUrl(env);
   return {
     apiKey: required(env, "FMP_API_KEY"),
+    ...(baseUrl === undefined ? {} : { baseUrl }),
     ...getFmpTrafficConfig(env),
   } as const;
+}
+
+/**
+ * Where the FMP client sends requests, when something other than the provider's own endpoint.
+ *
+ * Unset — the only production shape — leaves the client on its built-in
+ * `https://financialmodelingprep.com/stable/`, so nothing about production traffic changes. The
+ * deterministic E2E stack sets it to a local fixture server (`ai/workflows/auth-testing.md` §7), so
+ * no provider request can leave the machine however complete the seeded data turns out to be. It is
+ * a base URL rather than an "offline" switch: the whole application path, gate and client included,
+ * still runs.
+ *
+ * Production refuses anything but a public https URL, so an E2E value copied into a deployment
+ * fails at startup instead of silently pointing market data at a machine that does not exist.
+ * Always ends in `/`: the client resolves each endpoint relative to it, and a base without one would
+ * lose its last path segment.
+ */
+function fmpBaseUrl(env: Environment): string | undefined {
+  const raw = optional(env, "FMP_BASE_URL");
+  if (raw === undefined) {
+    return undefined;
+  }
+  const url = new URL(absoluteUrl(env, "FMP_BASE_URL"));
+  if (runtimeEnvironment(env) === "production") {
+    assertProductionPublicUrl("FMP_BASE_URL", url);
+  }
+  if (url.search !== "" || url.hash !== "") {
+    throw new Error(
+      "Invalid application configuration: FMP_BASE_URL must not carry a query or fragment",
+    );
+  }
+  return url.toString().endsWith("/") ? url.toString() : `${url.toString()}/`;
 }
 
 export function getStockDataConfig(env: Environment = process.env) {

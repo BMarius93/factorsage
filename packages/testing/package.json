@@ -18,6 +18,12 @@
       "require": "./dist/personas.js",
       "default": "./dist/personas.js"
     },
+    "./e2e-stack": {
+      "types": "./dist/e2e-stack.d.ts",
+      "import": "./dist/e2e-stack.js",
+      "require": "./dist/e2e-stack.js",
+      "default": "./dist/e2e-stack.js"
+    },
     "./return-path-corpus": {
       "types": "./dist/return-path-corpus.d.ts",
       "import": "./dist/return-path-corpus.js",

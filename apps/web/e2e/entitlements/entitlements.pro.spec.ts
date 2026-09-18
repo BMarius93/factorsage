@@ -1,7 +1,15 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
+import {
+  describeRuns,
+  inFlightRuns,
+  PINNED_FIXTURE_RUN_STRATEGY,
+  RUN_SETTLE_TIMEOUT_MS,
+  runIdFromUrl,
+  waitForOnlyPinnedRunsInFlight,
+  waitForRunsToSettle,
+} from "../utils/backtests";
 import {
   addStockToOpenList,
-  fixtureName,
   listItems,
   monitorCard,
   openFixtureList,
@@ -20,9 +28,33 @@ import {
  * the PRO plan itself granted nothing — which is exactly the class of bug that would then reach
  * every paying customer.
  *
- * No run is pinned in flight for this persona: it is the account every other E2E spec signs in as,
- * and a permanently running fixture would silently consume a concurrency slot those specs need.
+ * **Exactly one run is pinned in flight for this persona** by the entitlement fixtures
+ * (`ENT-In Flight`, held by a worker that does not exist on a lease that ends in 2099, so no real
+ * worker ever claims or recovers it). It is what makes "already running one" a state rather than a
+ * race, and it leaves PRO's second slot as the only free one — which is also the slot every other
+ * spec signing in as this persona uses. The concurrency tests therefore start by waiting until the
+ * pinned run is the only one in flight, and end by waiting until they have handed the second slot
+ * back.
+ *
+ * **Time budget.** A test that submits a run is bounded by: the pre-submit wait for a free slot
+ * (`RUN_SETTLE_TIMEOUT_MS`, only ever long if an earlier spec left a run executing), the submission
+ * itself (`SUBMIT_BUDGET_MS`), and the run settling (`RUN_SETTLE_TIMEOUT_MS` again). The test's own
+ * timeout is set to that sum plus the page loads around them, so a poll can never outlive the test
+ * that runs it. ENTF securities are declared complete and empty (E2E-005), so a run over them
+ * settles in seconds and these ceilings are rarely approached.
  */
+
+/** Opening the form, filling it and waiting for the API to accept or refuse the submission. */
+const SUBMIT_BUDGET_MS = 60_000;
+
+/** Page loads and assertions around the waits. */
+const PAGE_BUDGET_MS = 30_000;
+
+const SUBMITTING_TEST_TIMEOUT_MS =
+  RUN_SETTLE_TIMEOUT_MS +
+  SUBMIT_BUDGET_MS +
+  RUN_SETTLE_TIMEOUT_MS +
+  PAGE_BUDGET_MS;
 test.describe("PRO entitlements", () => {
   test("reports the PRO plan without administrative access", async ({
     page,
@@ -53,6 +85,9 @@ test.describe("PRO entitlements", () => {
   });
 
   test("accepts a thirty-year backtest", async ({ page }) => {
+    test.setTimeout(SUBMITTING_TEST_TIMEOUT_MS);
+    await waitForOnlyPinnedRunsInFlight(page);
+
     // The product's whole retention horizon, and a period no other plan may request.
     const outcome = await submitBacktest(page, {
       strategyName: "PRO_USER Strategy",
@@ -72,21 +107,23 @@ test.describe("PRO entitlements", () => {
     // one of PRO's two slots until it settles — and leaving it there would make the next test's
     // result depend on how fast this one's run finished, which is precisely the order dependency
     // these specs are built to avoid.
-    await waitForFreeSlot(page);
+    await waitForRunsToSettle(page, [runIdFromUrl(page.url())]);
+    await expectOnlyPinnedRunInFlight(page);
   });
 
   test("accepts a second concurrent backtest where a smaller plan is refused", async ({
     page,
   }) => {
+    test.setTimeout(SUBMITTING_TEST_TIMEOUT_MS);
     // One run is pinned mid-flight by the fixture, so "already running" is a state rather than a
     // race against a worker. On FREE and STARTER this same situation refuses the next submission;
-    // PRO's second slot is what this asserts, and it is the only thing that differs.
-    await page.goto("/backtests");
-    await expect(
-      page.getByText(fixtureName("In Flight")).first(),
-      "The pinned in-flight run is missing. Seed it with: pnpm test:personas:seed",
-    ).toBeVisible({ timeout: 20_000 });
-    expect(await countInFlight(page)).toBeGreaterThanOrEqual(1);
+    // PRO's second slot is what this asserts, and it is the only thing that differs. Start from
+    // exactly that state: the pinned run, and nothing a previous spec left executing.
+    const pinned = await waitForOnlyPinnedRunsInFlight(page);
+    expect(
+      pinned.length,
+      "Exactly one pinned in-flight run is expected. Seed it with: pnpm test:entitlements:seed",
+    ).toBe(1);
 
     const second = await submitBacktest(page, {
       strategyName: "PRO_USER Strategy",
@@ -100,8 +137,25 @@ test.describe("PRO entitlements", () => {
       "PRO runs two backtests at once, so a second submission must not be refused",
     ).toBeNull();
     expect(second.accepted).toBe(true);
+    const secondId = runIdFromUrl(page.url());
 
-    await waitForFreeSlot(page);
+    // Two at once, and only these two: the pinned run plus the one just accepted — unless the new
+    // one has already settled, which a run over empty fixture securities may do within a second.
+    const inFlight = await inFlightRuns(page);
+    const inFlightIds = new Set(inFlight.map((run) => run.id));
+    expect(
+      [...inFlightIds].every((id) => id === secondId || id === pinned[0]?.id),
+      `Unexpected runs in flight next to the pinned one: ${describeRuns(inFlight)}`,
+    ).toBe(true);
+    expect(inFlightIds.has(pinned[0]?.id ?? "")).toBe(true);
+    expect(inFlight.length).toBeLessThanOrEqual(2);
+    if (inFlightIds.has(secondId)) {
+      expect(inFlight).toHaveLength(2);
+    }
+
+    // The slot comes back: once the second run settles, the pinned run is the only one left.
+    await waitForRunsToSettle(page, [secondId]);
+    await expectOnlyPinnedRunInFlight(page);
   });
 
   test("keeps four monitors active, past what STARTER allows", async ({
@@ -123,40 +177,11 @@ test.describe("PRO entitlements", () => {
   });
 });
 
-/**
- * How many of this persona's runs have not reached a terminal status.
- *
- * Read from the server's own status rather than the label, so the count does not depend on
- * wording. This is also why the concurrency test reads the count instead of assuming one: other
- * specs sign in as this persona too, and a run one of them left executing is a legitimate part of
- * the state rather than something to be surprised by.
- */
-async function countInFlight(page: Page): Promise<number> {
-  await page.goto("/backtests");
-  // The page container renders immediately with a loading state; the runs arrive afterwards.
-  // Counting before the grid exists would read zero and call it "nothing in flight".
-  await expect(page.getByTestId("backtests-grid")).toBeVisible({
-    timeout: 30_000,
-  });
-  const statuses = await page
-    .getByTestId("backtest-card-status")
-    .evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute("data-status") ?? ""),
-    );
-  return statuses.filter((status) => !TERMINAL_STATUSES.has(status)).length;
-}
-
-const TERMINAL_STATUSES = new Set(["COMPLETED", "FAILED"]);
-
-/**
- * Waits until only the pinned fixture run is still in flight.
- *
- * The runs these specs submit have no market data behind them and fail within seconds, so this is
- * a short wait in practice. It exists so every test leaves the persona with a free concurrency
- * slot — the state it found — rather than handing the next one a capacity it did not expect.
- */
-async function waitForFreeSlot(page: Page): Promise<void> {
-  await expect
-    .poll(async () => countInFlight(page), { timeout: 120_000 })
-    .toBeLessThanOrEqual(1);
+/** The state every concurrency test must leave: PRO's second slot free again. */
+async function expectOnlyPinnedRunInFlight(page: Page): Promise<void> {
+  const inFlight = await inFlightRuns(page);
+  expect(
+    inFlight.map((run) => run.strategyName),
+    `Only the pinned fixture run may remain in flight: ${describeRuns(inFlight)}`,
+  ).toEqual([PINNED_FIXTURE_RUN_STRATEGY]);
 }

@@ -1,5 +1,6 @@
 export const TESTING_PACKAGE_NAME = "@intrinsic/testing" as const;
 
+export * from "./e2e-stack.js";
 export * from "./live-fmp.js";
 export * from "./persona-credentials.js";
 export * from "./personas.js";

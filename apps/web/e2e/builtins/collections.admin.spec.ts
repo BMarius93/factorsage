@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 

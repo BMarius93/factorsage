@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 /**
  * The administrator's entry point to built-in content, and the ordinary editors opening editable

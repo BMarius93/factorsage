@@ -71,14 +71,14 @@ document in the same commit as this plan.
 | UX-005      | A missing stock logo is a non-error response with graceful fallback               | P2       | 4   | No (E2E-006 needs it)                     | H-10 / §7 #2–5 |
 | UX-006      | Styled not-found page and application error boundaries                            | P1       | 4   | **Yes**                                   | H-4            |
 | UX-007      | Dashboard ticker is legible at 1280 px                                            | P1       | 4   | **Yes**                                   | H-5            |
-| E2E-001     | The E2E stack never reaches FMP and never depends on the wall clock for freshness | P1       | 5   | **Yes** (release gate)                    | H-10           |
-| E2E-002     | Re-seeding removes provider-written rows from fixture series                      | P1       | 5   | **Yes** (release gate)                    | H-10           |
-| E2E-003     | Resume test waits for a real drawing predicate and cleans up its run              | P1       | 5   | **Yes** (release gate)                    | §7 #1          |
-| E2E-004     | PRO concurrency spec: timeouts, waits and counting are internally consistent      | P1       | 5   | **Yes** (release gate)                    | §7 #6–7        |
-| E2E-005     | ENTF fixture securities declare complete empty coverage                           | P1       | 5   | **Yes** (release gate)                    | §7 #6          |
-| E2E-006     | Shared Playwright logo stub; one `watchForIssues` helper                          | P1       | 5   | **Yes** (release gate)                    | §7 #2–5        |
-| E2E-007     | Document the deterministic fixture boundaries                                     | P2       | 5   | No                                        | H-10           |
-| TEST-001    | Investigate the intermittent `GET /backtests/:id` 404 in the API suite            | P2       | 5   | No, unless it reproduces as a product bug | T-4            |
+| E2E-001     | The E2E stack never reaches FMP and never depends on the wall clock for freshness | P1       | 5   | **Yes** (release gate; implemented)        | H-10           |
+| E2E-002     | Re-seeding removes provider-written rows from fixture series                      | P1       | 5   | **Yes** (release gate; implemented)        | H-10           |
+| E2E-003     | Resume test waits for a real drawing predicate and cleans up its run              | P1       | 5   | **Yes** (release gate; implemented)        | §7 #1          |
+| E2E-004     | PRO concurrency spec: timeouts, waits and counting are internally consistent      | P1       | 5   | **Yes** (release gate; implemented)        | §7 #6–7        |
+| E2E-005     | ENTF fixture securities declare complete empty coverage                           | P1       | 5   | **Yes** (release gate; implemented)        | §7 #6          |
+| E2E-006     | Shared Playwright logo stub; one `watchForIssues` helper                          | P1       | 5   | **Yes** (release gate; implemented)        | §7 #2–5        |
+| E2E-007     | Document the deterministic fixture boundaries                                     | P2       | 5   | No (implemented)                          | H-10           |
+| TEST-001    | Investigate the intermittent `GET /backtests/:id` 404 in the API suite            | P2       | 5   | No; harness cause fixed, not a product bug | T-4            |
 | AUTH-002    | Verifying an email must not activate a password the verifier did not set          | P1       | own | **Yes** (classified 2026-09-18, DEC-005)  | B-1 ¶2         |
 | AUTH-003    | Registration does not reveal whether an account exists                            | P1       | own | **Yes** (DEC-004; specified 2026-09-18)   | S-2            |
 | PRICING-001 | Public `/pricing` page for guests                                                 | P1       | own | **Yes** (DEC-001; implemented 2026-09-18) | §2, §5         |
@@ -1390,6 +1390,32 @@ nor trustworthy.
 
 **Dependencies:** E2E-002 (data repair) lands with or before it.
 
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- **Egress:** `packages/config` gained an optional `FMP_BASE_URL` (unset = the client's own FMP
+  endpoint, so production is unchanged; production refuses a loopback or non-https value). The E2E
+  API and worker point it at a **fixture FMP server** (`pnpm dev:fmp:e2e`, 127.0.0.1:3011,
+  `apps/api/src/e2e-stack/fake-fmp.ts`) with a placeholder key, instead of the planned
+  non-routable address: the loader's legitimate requests (Monitor quotes, the exchange calendar,
+  pre-window `SPY` bars) then get deterministic answers rather than errors, and anything outside the
+  fixture namespace gets a `404` naming the missing fixture and fails the run.
+- **Structural guard:** every E2E process runs under `packages/testing/egress-guard.cjs`
+  (`NODE_OPTIONS`), which refuses every non-loopback socket before DNS and logs it. The Playwright
+  global setup refuses a stack whose API/web listeners or backtest worker did not arm it; the
+  teardown fails on any unanswered fixture request, any blocked connection, or any stray in-flight
+  run. SMTP and Google are blanked, Stripe gets inert test-mode placeholders — no real provider
+  credential is in any E2E process.
+- **Freshness:** the launcher sets both freshness windows to thirty days for the E2E API and worker
+  only. No fake clock; the seeds keep anchoring to their own date.
+- **Root cause of the audit's contaminated `SP500`:** the six-hour stale-tail refresh reaching real
+  FMP (the only provider write path); both halves are now closed (no real FMP, no stale tail).
+- **Evidence:** two full runs from a clean seed, 193/193 each; fixture-server traffic 3 requests
+  (2 `batch-quote`, 1 `SPY` pre-window) then 4 (`batch-quote`); 0 unanswered; the guard blocked one
+  connection in total, `next dev`'s npm version check (tolerated by name, still reported). Tests:
+  `packages/config/src/index.test.ts` (FMP), `apps/api/src/e2e-stack/fake-fmp.test.ts`,
+  `e2e-stack-boundary.test.ts` (environment, guard in a child process, namespace).
+
 ### E2E-002: Re-seeding removes provider-written rows from fixture series
 
 **Severity:** P1 (audit H-10).
@@ -1432,6 +1458,23 @@ seeded end, and there are no values near 750.
 **Release-blocking:** yes, as a release gate.
 
 **Dependencies:** none.
+
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- Reseeding is reset → write → evict (`apps/api/src/e2e-stack/seed-market-fixtures.ts`): the fixture
+  securities' prices, weekly bars, derived state, statements, profile, coverage and dataset state,
+  and the current `SP500`/market-reference series' bars, coverage and state, are deleted in one
+  transaction per scope before the seeds write; Redis projections are evicted. Scope comes from
+  `fixture-boundary.ts` (derived from the seeds); `resetE2eFixtureSecurityData` /
+  `resetE2eFixtureBenchmarkSeries` refuse anything outside it before any statement. Deviation: the
+  delete and the re-write are separate transactions (the store's writes open their own), so a crash
+  between them leaves the scope empty, never contaminated; rerunning restores it.
+- `fixture-reseed.integration.test.ts`: seeding twice is identical; staged contamination (757.39 /
+  760.88 after the window, an overwritten close, pre-window coverage, provider rows and profiles on
+  `QATEST1`/`QATEST2`/`ENTF`) is gone after a reseed and the scope equals the clean snapshot; a
+  security outside the namespace keeps its rows; eviction covers every fixture id. The test fails
+  with the reset removed (checked).
 
 ### E2E-003: Resume test waits for a real drawing predicate and cleans up its run
 
@@ -1483,6 +1526,17 @@ on the test DB.
 
 **Dependencies:** E2E-001 (deterministic data), so run duration is predictable.
 
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- Root cause confirmed as described: the poll resolved on the chart's mere presence. It now waits
+  for `data-strategy-points > 0` (or `FAILED`), sampling status and points together; the
+  `> 0`/no-shrink assertions are unchanged, and a run that completed before a mid-flight sample is
+  annotated rather than passing silently.
+- Every submitted run id is recorded; `afterEach` waits for each to settle through `GET /backtests`
+  (`e2e/utils/backtests.ts`, 90 s bound, stragglers named) before deleting the strategy and list,
+  whether the test passed or failed. The global teardown independently fails on any stray run.
+
 ### E2E-004: PRO concurrency spec: timeouts, waits and counting are internally consistent
 
 **Severity:** P1 (audit §7 #6–7).
@@ -1530,6 +1584,19 @@ green.
 
 **Dependencies:** E2E-003 (no leftover run) and E2E-005 (fast ENTF runs).
 
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- In-flight state is read from `GET /backtests` (all runs, not grid page 1). Each submitting test
+  waits until only the pinned `ENT-In Flight` run is in flight before submitting, asserts that the
+  in-flight set is exactly {pinned, new} (two while the new one runs), waits for its own run to
+  settle, and asserts the slot is free again. Test timeouts are the sum of the bounds they contain
+  (pre-submit wait + submission + settle + page budget), each named. The header now describes the
+  pinned run truthfully. Worker concurrency is the default two backtest children; the spec never
+  has more than one run of its own in flight.
+- Observed: the thirty-year run over eighty ENTF securities settles in ~30 s, the one-year run in
+  ~3 s. The audit's 225-run PRO backlog cannot push the count off a page any more.
+
 ### E2E-005: ENTF fixture securities declare complete empty coverage
 
 **Severity:** P1 (audit §7 #6).
@@ -1572,6 +1639,18 @@ a terminal state within about 30 s, with no provider traffic.
 
 **Dependencies:** E2E-001.
 
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- The loader already treats "covered, zero rows" as settled (verified in `hydrateWithinLease`: no
+  missing ranges → no request; fundamentals and profile are gated by dataset state), so no loader
+  change. `seedEmptyStockCoverage` writes, for every `ENTF` security and now `QATEST2`, price and
+  derived coverage over the whole retention horizon, the tail watermark, every fundamentals state and
+  a `SECURITY_PROFILE` state (without it the loader re-asks for a profile on every cold hydration —
+  which `QATEST1` also did; it now gets the same state).
+- Evidence: the fixture server received no `ENTF`/`QATEST` bar, profile or statement request in any
+  of the full runs; the reseed test asserts the coverage for all 101 securities.
+
 ### E2E-006: Shared Playwright logo stub; one `watchForIssues` helper
 
 **Severity:** P1 (audit §7 #2–5).
@@ -1611,6 +1690,20 @@ logo-less ticker renders the monogram with no console error.
 
 **Dependencies:** UX-005 (PR 4) must merge first.
 
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- `apps/web/e2e/fixtures.ts` is the one `test`: every browser context answers `/api/logo/**` with
+  the route's exact UX-005 miss (`204`, its cache and security headers), records the symbols
+  (`logoRequests`), and aborts + records any direct request to a provider image host, failing the
+  test that made it. ESLint forbids importing `test` from `@playwright/test` in `e2e/`. The three
+  local `serveLogosAsMissing` uses and `utils/logos.ts` are gone.
+- One `watchForIssues` (`e2e/utils/page-issues.ts`): console errors, page errors (now also asserted
+  by the indicators suite) and failed requests, filtering only the page's own aborts.
+- `e2e/infra/hermetic-browser.guest.spec.ts` proves the stub (status, headers, recorded symbol,
+  monogram-triggering decode failure), the provider-host block, and that the watcher reports a
+  console error, a page error, a `404` and a reset connection but not a cancellation.
+
 ### E2E-007: Document the deterministic fixture boundaries
 
 **Severity:** P2.
@@ -1635,6 +1728,16 @@ Also correct the `validation.md` list of `useTestDatabase()` callers: it omits
 **Release-blocking:** no.
 
 **Dependencies:** E2E-001…006 (it documents their outcome).
+
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- `ai/workflows/auth-testing.md` §7 "The deterministic fixture boundary": real vs faked vs off,
+  where fixture responses live, time/freshness, what reseeding deletes, adding a fixture, running
+  the stack, the egress guard, databases/Redis namespaces/ports, and cleanup. `validation.md`
+  updated to match; its `useTestDatabase()` list is re-derived (it was missing seventeen suites,
+  including `monitors.integration.test.ts`). The repeat-run contract is stated: market data needs
+  no reseed between runs; the entitlement fixtures do (the downgraded spec is irreversible).
 
 ### TEST-001: Investigate the intermittent `GET /backtests/:id` 404 in the API suite
 
@@ -1686,6 +1789,34 @@ Also correct the `validation.md` list of `useTestDatabase()` callers: it omits
 In that case, raise it to P0 and stop the release.
 
 **Dependencies:** none.
+
+
+**Implemented (2026-09-19, PR 5, branch `fix/pr5-e2e-determinism`):**
+
+- **Root cause (mechanism reproduced; the original occurrence cannot be attributed with certainty):
+  the test harness, not the product.** The suite called `app.init()`, so supertest bound a
+  *wildcard* ephemeral port per request. On this Mac two editor-helper processes listen on
+  `127.0.0.1` inside the ephemeral range; a wildcard bind on the same port succeeds, and requests
+  to `127.0.0.1` reach the helper. Probed: `127.0.0.1:49632` answers `404` with an empty body (the
+  recorded symptom); `127.0.0.1:56333` accepts and never answers. Demonstrated with a two-server
+  probe (wildcard bind succeeds while the loopback port is held; the loopback listener answers).
+- **Reproduced during the investigation:** the first 20 serial runs (no stray process; one
+  connection in `pg_stat_activity`, the probe's) gave 6 green, then run 7 timed out in eight
+  consecutive tests (the hanging-port form) and leaked its `PINNED_…` benchmark because the test's
+  `finally` never ran — which then failed one assertion in each of runs 8–20. Independently, API
+  suite run 2 of 5 hit `404` on `POST /strategies` in `entitlements.integration.test.ts` (another
+  `app.init()` suite).
+- **No product path** deletes or re-owns a run (audited; `getRun` is `findFirst({ id, userId })`;
+  the only deleters are the fixture/matrix cleanups and this file's own user-scoped `afterEach`).
+  Not P0. No floating promises (type-aware `no-floating-promises` pass).
+- **Fix, in this file only:** `app.listen(0, "127.0.0.1")`, and an `afterAll` sweep of this run's
+  `PINNED_<suffix>` benchmark. **Diagnostics retained:** on a non-200, the assertion message reports
+  whether the row exists (read without the owner filter), its owner versus the test's owner, its
+  status, the response body/content type, and the requested URL — verified by a temporary probe.
+- **After the fix:** 20/20 serial runs green (600/600 tests); 5 API package runs with the file
+  green 5/5 (1192 tests each; the one failure in run 2 was the other suite above).
+- **Remaining:** 22 other API suites still use `app.init()` and stay exposed to the same rare
+  collision on a developer Mac (CI is unaffected). Converting them is a separate, mechanical change.
 
 ---
 
@@ -2410,13 +2541,13 @@ pnpm --filter @intrinsic/api exec vitest run src/rate-limit src/openapi
 pnpm --filter @intrinsic/web exec vitest run src/features/lists src/features/monitors src/features/strategies src/features/auth src/features/dashboard src/components/ui
 pnpm --filter @intrinsic/api exec vitest run src/auth/google-auth.integration.test.ts src/openapi   # UX-003 API half
 
-# PR 5 — E2E stack (deterministic; see E2E-007 once written)
-set -a && . ./.env && set +a
-pnpm dev:api:e2e        # terminal 1
-pnpm dev:worker:e2e     # terminal 2
-pnpm dev:web            # terminal 3 (must be :3000 — CORS allowlist is WEB_BASE_URL)
+# PR 5 — E2E stack (hermetic; runbook: ai/workflows/auth-testing.md §7)
+pnpm dev:fmp:e2e        # terminal 1: fixture FMP server
+pnpm dev:api:e2e        # terminal 2
+pnpm dev:worker:e2e     # terminal 3
+pnpm dev:web:e2e        # terminal 4 (must be :3000 — CORS allowlist is WEB_BASE_URL)
 pnpm test:personas:seed
-pnpm test:e2e           # run twice; both must be green
+pnpm test:e2e           # then `pnpm test:entitlements:seed && pnpm test:e2e`; both must be green
 pnpm --filter @intrinsic/api exec vitest run src/backtests/backtests.integration.test.ts   # TEST-001, repeat per its steps
 ```
 
@@ -2449,10 +2580,14 @@ suites. Run `pnpm build:packages` first, and never name those two excluded files
 **PR 5:**
 
 - **E2E-001:**
-  - the exact session in which live FMP rows entered the test DB;
-  - how to observe provider egress deterministically.
+  - the exact session in which live FMP rows entered the test DB (still unknown; the reseed now
+    removes them whatever their origin, and no E2E process can write new ones);
+  - resolved: provider egress is observed deterministically by the fixture server's journal and the
+    egress guard's log, both checked by the Playwright teardown.
   - Resolved during planning: the freshness window is configurable (one variable), and the FMP
     client has a `baseUrl` option that is not yet environment-wired.
-- **E2E-003:** mid-flight sampling needs an e2e-only slowdown (deferred, T-3).
-- **E2E-005:** whether "complete and empty" coverage is honoured by the stock loader.
-- **TEST-001:** root cause unknown.
+- **E2E-003:** mid-flight sampling needs an e2e-only slowdown (deferred, T-3); a run that completes
+  before a sample is now annotated.
+- **E2E-005:** resolved — the stock loader honours "complete and empty" (no loader change).
+- **TEST-001:** resolved as a harness mechanism (supertest's wildcard ephemeral bind colliding with
+  loopback listeners), reproduced and fixed in its file; 22 other `app.init()` suites stay exposed.

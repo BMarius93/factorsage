@@ -1,5 +1,5 @@
 import type { StockDetailsResponse } from "@intrinsic/contracts";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * What history Stock Details actually asks the API for, observed at the real network boundary.
@@ -18,7 +18,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * loaded and costs no request at all.
  *
  * Preconditions are the usual Stock Details ones: `pnpm test:users:seed` once and
- * `pnpm test:securities:seed` shortly before the run.
+ * `pnpm test:securities:seed` before the run.
  */
 
 const QA_SYMBOL = "QATEST1";

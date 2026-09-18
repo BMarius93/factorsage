@@ -10,17 +10,12 @@ import {
   RedisBenchmarkDataCache,
   RedisStockDataCache,
 } from "@intrinsic/stock-data";
-import {
-  pruneOrphanedFixtureBenchmarks,
-  seedQaBenchmarkData,
-  seedQaMarketReferenceData,
-} from "./benchmarks/seed-qa-benchmark-data";
+import { pruneOrphanedFixtureBenchmarks } from "./benchmarks/seed-qa-benchmark-data";
+import { seedQaMarketFixtures } from "./e2e-stack/seed-market-fixtures";
 import {
   assertQaSecuritySeedingAllowed,
   qaSeedDatabaseUrl,
-  seedQaSecurities,
 } from "./stocks/seed-qa-securities";
-import { seedQaStockData } from "./stocks/seed-qa-stock-data";
 
 /**
  * Seeds the deterministic fictional QA catalog rows the E2E suites use, plus the market data the
@@ -34,6 +29,9 @@ import { seedQaStockData } from "./stocks/seed-qa-stock-data";
  * letting them reach the development database would leave a normal manual backtest comparing
  * against invented history. The deterministic Playwright stack points at the same test database
  * (`pnpm dev:api:e2e`, `pnpm dev:worker:e2e`). Refuses outright when NODE_ENV is production.
+ *
+ * Rerunning is the reset: every fixture security and series is emptied first — whatever a provider
+ * or an earlier run wrote there — and then holds exactly the seeded rows again.
  */
 async function seed(): Promise<void> {
   loadRootEnv();
@@ -53,24 +51,6 @@ async function seed(): Promise<void> {
 
   try {
     await prisma.$connect();
-    const seeded = await seedQaSecurities(prisma);
-    for (const security of seeded) {
-      console.log(`${security.symbol} ready.`);
-    }
-    // Only the first QA security carries market data; the second stays identity-only so the lists
-    // suite still exercises a catalog row with nothing hydrated behind it.
-    const withMarketData = seeded[0];
-    if (withMarketData) {
-      const seededData = await seedQaStockData(prisma, withMarketData.id);
-      // The seed writes PostgreSQL directly, so any Redis projection left by an earlier run of the
-      // integration suites — which share this database — would still be served in preference to it.
-      // Evicting is what makes "re-seed, then run Playwright" mean what it looks like it means.
-      await cache.evict(withMarketData.id);
-      console.log(
-        `${withMarketData.symbol} stock data ready: ${seededData.tradingDays} trading days, ` +
-          `${seededData.from} to ${seededData.to}.`,
-      );
-    }
     // Before seeding: leftover fixture benchmarks from integration suites are real catalog rows,
     // and the Backtest picker must offer exactly the product catalog in a seeded environment.
     const pruned = await pruneOrphanedFixtureBenchmarks(prisma);
@@ -79,20 +59,23 @@ async function seed(): Promise<void> {
         ? "Benchmark catalog clean: no orphaned fixture benchmarks."
         : `Removed ${pruned.length} orphaned fixture benchmark(s) not in the product catalog.`,
     );
-    const benchmark = await seedQaBenchmarkData(prisma);
-    await benchmarkCache.invalidateManifest(benchmark.seriesId);
+    // Reset, write, evict — see `seedQaMarketFixtures`. Rows a provider wrote into a fixture series
+    // since the last seed are removed rather than left beside the synthetic ones (E2E-002).
+    const seeded = await seedQaMarketFixtures({
+      prisma,
+      cache,
+      benchmarkCache,
+    });
+    for (const security of seeded.securities) {
+      console.log(`${security.symbol} ready.`);
+    }
     console.log(
-      `${benchmark.code} benchmark data ready: ${benchmark.tradingDays} trading days, ` +
-        `${benchmark.from} to ${benchmark.to}.`,
+      `${seeded.stockData.symbol} stock data ready: ${seeded.stockData.tradingDays} trading days, ` +
+        `${seeded.stockData.from} to ${seeded.stockData.to}.`,
     );
-    // The Dashboard's market references, through the same store and the same invalidation. Without
-    // them the overview would reach FMP for `^GSPC`, `^DJI` and `^VIX` during an E2E run, and the
-    // numbers a screenshot recorded would change with the real market.
-    for (const reference of await seedQaMarketReferenceData(prisma)) {
-      await benchmarkCache.invalidateManifest(reference.seriesId);
+    for (const series of [seeded.benchmark, ...seeded.marketReferences]) {
       console.log(
-        `${reference.code} market reference ready: ${reference.tradingDays} sessions, ` +
-          `${reference.from} to ${reference.to}.`,
+        `${series.code} ready: ${series.tradingDays} sessions, ${series.from} to ${series.to}.`,
       );
     }
   } finally {

@@ -198,8 +198,9 @@ export function qaTradingDays(securityId: string, today: string): DailyPrice[] {
  *
  * Coverage and dataset-state rows are written with `syncedAt = now`, which is what keeps the
  * canonical loader from deciding the tail is stale and reaching for the provider. That freshness
- * expires, so the seed is a documented precondition of an E2E run rather than a permanent fixture;
- * rerunning it is safe and produces the same data for the same day.
+ * expires — after thirty days on the E2E stack, which overrides the six-hour product window — so the
+ * seed is a documented precondition of an E2E run rather than a permanent fixture; rerunning it is
+ * safe and produces the same data for the same day.
  */
 export async function seedQaStockData(
   prisma: PrismaClient,
@@ -281,20 +282,108 @@ export async function seedQaStockData(
     syncedAt,
   });
 
-  // Fundamentals are not seeded, but their dataset state is: without it the loader would try to
-  // backfill statements for a symbol no provider knows.
-  // Fundamentals stay on the product horizon: their variant encodes it, and their own warm-up is
-  // a separate policy that must not compound with the price-retention warm-up above.
-  for (const operation of fundamentalsDatasetOperations(productHistoryYears)) {
+  await recordFixtureDatasetStates(store, securityId, {
+    productHistoryYears,
+    retentionStart,
+    today,
+    syncedAt,
+  });
+
+  return { from: first.date, to: last.date, tradingDays: prices.length };
+}
+
+/**
+ * The dataset state a fictional security needs so the loader never asks a provider about the
+ * datasets the fixture does not seed: every fundamentals operation, and the descriptive profile.
+ *
+ * Fundamentals are not seeded, but their dataset state is: without it the loader would try to
+ * backfill statements for a symbol no provider knows. They stay on the product horizon: their
+ * variant encodes it, and their own warm-up is a separate policy that must not compound with the
+ * price-retention warm-up.
+ *
+ * The profile is recorded as synced with nothing saved. The loader records a profile sync only
+ * when the provider returned one, so a fictional security without this state is re-asked on every
+ * cold hydration — the one provider request a fully seeded fixture used to keep making. The claim
+ * is true for the same reason the coverage claims are: the fixture is the only provider these
+ * securities have, and it has no profile for them.
+ */
+export async function recordFixtureDatasetStates(
+  store: Pick<PrismaStockDataStore, "upsertDatasetState">,
+  securityId: string,
+  input: {
+    productHistoryYears: number;
+    retentionStart: string;
+    today: string;
+    syncedAt: string;
+  },
+): Promise<void> {
+  for (const operation of fundamentalsDatasetOperations(
+    input.productHistoryYears,
+  )) {
     await store.upsertDatasetState({
       securityId,
       dataset: operation.dataset,
       variant: operation.variant,
-      syncedAt,
-      earliestDate: retentionStart,
-      latestDate: today,
+      syncedAt: input.syncedAt,
+      earliestDate: input.retentionStart,
+      latestDate: input.today,
     });
   }
+  await store.upsertDatasetState({
+    securityId,
+    dataset: "SECURITY_PROFILE",
+    variant: "",
+    syncedAt: input.syncedAt,
+  });
+}
 
-  return { from: first.date, to: last.date, tradingDays: prices.length };
+/**
+ * Declares one fictional security **complete and empty** over the whole retention horizon
+ * (E2E-005).
+ *
+ * The same claims `seedQaStockData` makes for `QATEST1` — price and derived-state coverage from the
+ * retention start to today, the tail freshness watermark, the fundamentals and profile state — but
+ * over no rows at all. That is what the canonical loader reads as "the provider was asked for all
+ * of it and has nothing": a backtest or a Monitor scan over the security settles immediately with
+ * no data and no provider request. No loader change is involved; "covered, zero rows" is already a
+ * settled state in production, reached whenever a real provider answers an empty window.
+ *
+ * True for the entitlement universe for the same reason it is true for `QATEST1`: these tickers are
+ * fictional and the fixture is their only provider.
+ */
+export async function seedEmptyStockCoverage(
+  prisma: PrismaClient,
+  securityId: string,
+  today = new Date().toISOString().slice(0, 10),
+): Promise<void> {
+  assertQaSecuritySeedingAllowed();
+  const { productHistoryYears } = getStockDataConfig();
+  const store = new PrismaStockDataStore(prisma);
+  const retentionStart = subtractYears(
+    today,
+    priceRetentionYears(productHistoryYears),
+  );
+  const syncedAt = new Date().toISOString();
+
+  await store.saveDailyPriceSync({
+    securityId,
+    prices: [],
+    successfulCoverage: [{ from: retentionStart, to: today }],
+    syncedAt,
+    tailDate: today,
+    freshThrough: today,
+  });
+  await store.saveDailyDerivedState({
+    securityId,
+    rows: [],
+    weeklyPrices: [],
+    successfulCoverage: { from: retentionStart, to: today },
+    syncedAt,
+  });
+  await recordFixtureDatasetStates(store, securityId, {
+    productHistoryYears,
+    retentionStart,
+    today,
+    syncedAt,
+  });
 }

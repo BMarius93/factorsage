@@ -1,4 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  expectNoProviderRequests,
+  installBrowserStubs,
+  test,
+  type Page,
+} from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 
 /**
@@ -127,6 +133,8 @@ test.describe("PRO_USER built-in collections", () => {
       const guest = await browser.newContext({
         storageState: { cookies: [], origins: [] },
       });
+      // A context opened by hand gets the same hermetic browser as the fixture's own.
+      const guestStubs = await installBrowserStubs(guest);
       const guestPage = await guest.newPage();
       await guestPage.goto("/dashboard");
       await expect(
@@ -134,6 +142,7 @@ test.describe("PRO_USER built-in collections", () => {
           .getByTestId("dashboard-signal-row")
           .filter({ hasText: QA_MONITOR }),
       ).not.toHaveCount(0);
+      expectNoProviderRequests(guestStubs);
       await guest.close();
     } finally {
       await page.goto("/monitors");

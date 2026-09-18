@@ -1,38 +1,23 @@
-import { expect, test } from "@playwright/test";
-import { serveLogosAsMissing } from "../utils/logos";
+import { expect, test } from "../fixtures";
+import { watchForIssues } from "../utils/page-issues";
 
 /**
  * A security with no upstream mark is a quiet monogram, not a console error (UX-005).
  *
- * The logo endpoint answers a miss with `204 No Content`; this spec serves exactly that response
- * in the browser (no provider traffic) and proves the browser reports nothing and the component
- * falls back — on a first load and again when the miss comes from the HTTP cache. It runs signed
- * in, so the console carries nothing but what the page itself produces (a Guest's session probe
- * answers `401` by design).
+ * The logo endpoint answers a miss with `204 No Content`; the shared stub in `fixtures.ts` serves
+ * exactly that response in the browser for every spec (no provider traffic), and this spec proves
+ * the stub is really what answered, that the browser reports nothing, and that the component falls
+ * back — on a first load and again when the miss comes from the HTTP cache. It runs signed in, so
+ * the console carries nothing but what the page itself produces (a Guest's session probe answers
+ * `401` by design).
  *
  * Needs `pnpm test:securities:seed && pnpm test:builtins:seed`.
  */
 test("renders a monogram for a missing logo with a clean console, cold and cached", async ({
   page,
+  logoRequests,
 }) => {
-  const consoleErrors: string[] = [];
-  const failures: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") {
-      consoleErrors.push(message.text());
-    }
-  });
-  page.on("requestfailed", (request) => {
-    if (request.failure()?.errorText !== "net::ERR_ABORTED") {
-      failures.push(`${request.method()} ${request.url()}`);
-    }
-  });
-  page.on("response", (response) => {
-    if (response.status() >= 400) {
-      failures.push(`${response.status()} ${response.url()}`);
-    }
-  });
-  await serveLogosAsMissing(page);
+  const issues = watchForIssues(page);
 
   for (const pass of ["first load", "reload"]) {
     if (pass === "first load") {
@@ -53,6 +38,9 @@ test("renders a monogram for a missing logo with a clean console, cold and cache
     );
   }
 
-  expect(consoleErrors).toEqual([]);
-  expect(failures).toEqual([]);
+  // The monogram came from the shared stub's 204, not from a request that never happened.
+  expect(logoRequests).toContain("QATEST1");
+  expect(issues.consoleErrors).toEqual([]);
+  expect(issues.pageErrors).toEqual([]);
+  expect(issues.failedRequests).toEqual([]);
 });

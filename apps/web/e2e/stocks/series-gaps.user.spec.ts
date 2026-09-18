@@ -1,5 +1,5 @@
 import { MOVING_AVERAGE_SERIES } from "@intrinsic/contracts";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * Genuinely unavailable intervals stay gaps, through the real Next + Nest + PostgreSQL + Redis
@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * `data-visible-range` and the oscillator suite asserts `data-oscillator-levels`.
  *
  * Preconditions are the usual Stock Details ones: `pnpm test:users:seed` once and
- * `pnpm test:securities:seed` shortly before the run. `QATEST1` is seeded with a deliberate
+ * `pnpm test:securities:seed` before the run. `QATEST1` is seeded with a deliberate
  * interior window where every intrinsic model is not calculable, between two stretches where they
  * are, which is what makes an *interior* gap assertable rather than only a leading warm-up.
  */
