@@ -12,6 +12,28 @@ pnpm openapi:validate
 
 Do not suppress failing type checks.
 
+## What CI adds to the gate
+
+`.github/workflows/ci.yml` runs the gate above plus three checks worth running locally when they
+apply:
+
+- **Frozen install.** `pnpm install --frozen-lockfile`, under the pnpm version `packageManager` pins
+  in `package.json` (the same version Corepack gives developers and the Docker images). It fails
+  when `pnpm-lock.yaml` is out of step with any `package.json`; commit the lockfile with every
+  dependency change.
+- **Migration drift.** `pnpm db:check-drift` replays every committed migration into a throwaway
+  database it creates, with a unique generated name, on the server `DATABASE_URL` (or
+  `MIGRATION_DRIFT_DATABASE_URL`) points at, diffs the result against `schema.prisma` with
+  `prisma migrate diff --exit-code`, prints the missing SQL on a mismatch, and drops the database.
+  The configured database is only used to issue `CREATE`/`DROP DATABASE` for that name — it is
+  never the shadow, so the check is safe against the development database; the role needs
+  `CREATEDB`. It catches a schema edit without its migration, a migration without its schema edit,
+  and a hand-edited migration whose end state no longer matches the schema. It does **not** catch
+  an edit to an already-applied migration that leaves the end state unchanged (that is
+  `prisma migrate status`/checksum territory on a real database), data correctness inside a
+  migration, or whether a migration can apply to a database holding real rows.
+- `pnpm --filter @intrinsic/stock-data test:redis`.
+
 ## Package builds are incremental
 
 `pnpm test` runs every workspace suite concurrently, and several test scripts rebuild the shared

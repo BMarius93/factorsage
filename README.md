@@ -81,7 +81,8 @@ docker/         Container definitions
 - nvm
 - Node.js 22.23.2 (via `.nvmrc`)
 - Corepack
-- pnpm
+- pnpm — the exact version is pinned by `packageManager` in `package.json` and is the one
+  developers (through Corepack), CI and the Docker images all run
 - Docker Desktop
 
 Enable pnpm if needed:
@@ -176,7 +177,9 @@ pnpm dev:worker
 pnpm --version
 ```
 
-After dependency changes, keep `pnpm-lock.yaml` committed.
+After dependency changes, keep `pnpm-lock.yaml` committed. CI and every Dockerfile install with
+`pnpm install --frozen-lockfile`, which fails when the lockfile is out of step with any
+`package.json`.
 
 ## Local development
 

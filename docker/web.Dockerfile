@@ -4,7 +4,9 @@ RUN corepack enable
 WORKDIR /repo
 
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+# Corepack runs the pnpm version pinned by `packageManager`; the install fails if pnpm-lock.yaml is
+# out of step with any package.json, so the image carries exactly the reviewed dependency graph.
+RUN pnpm install --frozen-lockfile
 
 # The public API URL is compiled into the browser bundle, so it is a build argument, not runtime
 # configuration: `docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.com`.
