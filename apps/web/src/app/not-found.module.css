@@ -1,0 +1,30 @@
+/* A standalone branded page: an unmatched URL renders inside the root layout only, outside the
+   product shell, so it brings its own brand link and centring rather than a second shell. */
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 24px;
+  padding: 24px 16px calc(24px + var(--safe-area-bottom));
+  background: var(--color-background);
+}
+
+.brandLink {
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+}
+
+.brandLink:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.wordmark {
+  width: auto;
+  height: 26px;
+}
+
+.panel {
+  width: min(520px, 100%);
+}

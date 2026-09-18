@@ -55,10 +55,9 @@ import {
 } from "./google/oauth-transaction";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { RegistrationService } from "./registration.service";
+import { DEFAULT_RETURN_PATH, safeReturnPath } from "./return-path";
 import type { SessionGrant } from "./users.service";
 
-/** Where the web app takes over after a successful external sign-in. */
-const POST_LOGIN_PATH = "/dashboard";
 const LOGIN_PATH = "/login";
 
 @Controller("auth")
@@ -197,15 +196,24 @@ export class AuthController {
 
   @RateLimit("auth-sensitive")
   @Get("google")
-  googleAuthorize(@Res() response: Response): void {
+  googleAuthorize(
+    @Query("next") next: unknown,
+    @Res() response: Response,
+  ): void {
     if (!this.google.isEnabled) {
       this.redirectToLogin(response, "oauth_unavailable");
       return;
     }
 
+    // Where the web app lands afterwards (UX-003), validated here by the API's own rules — never
+    // the browser's — and only kept when it is something other than the default.
+    const returnPath = safeReturnPath(next);
+
     // State, PKCE verifier, and nonce are minted together and bound to this browser through one
     // short-lived HttpOnly cookie. Only the derived S256 challenge leaves the server.
-    const transaction = createOAuthTransaction();
+    const transaction = createOAuthTransaction(
+      returnPath === DEFAULT_RETURN_PATH ? undefined : returnPath,
+    );
     response.cookie(
       oauthTransactionCookieName(this.config),
       encodeOAuthTransaction(transaction),
@@ -281,7 +289,11 @@ export class AuthController {
       await this.auth.issueToken(grant.user.id, grant.sessionVersion),
       authCookieOptions(this.config, true),
     );
-    response.redirect(`${this.config.webBaseUrl}${POST_LOGIN_PATH}`);
+    // The transaction cookie is unsigned, so the stored destination is validated again rather than
+    // trusted: the redirect is always `WEB_BASE_URL` plus an app-relative path, never elsewhere.
+    response.redirect(
+      `${this.config.webBaseUrl}${safeReturnPath(transaction.returnPath)}`,
+    );
   }
 
   private readOAuthTransaction(request: Request): OAuthTransaction | null {

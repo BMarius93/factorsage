@@ -1,9 +1,6 @@
 "use client";
 
-import type {
-  MonitorBlockedReason,
-  MonitorSummaryResponse,
-} from "@intrinsic/contracts";
+import type { MonitorSummaryResponse } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
@@ -27,6 +24,7 @@ import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitors } from "../hooks/use-monitors";
+import { MonitorBlockedPill } from "../utils/blocked-status";
 import { activeSignalLabel, lastScanLabel } from "../utils/format";
 import { BuiltInMonitorVisibility } from "./BuiltInMonitorVisibility";
 import { MonitorFormDialog } from "./MonitorFormDialog";
@@ -42,20 +40,6 @@ const SIGN_IN_TO_CREATE = {
   title: "Sign in to create a monitor",
   body: "Built-in monitors are free to read. Your own monitors run against your strategies and lists, so creating one needs an account to own it.",
 };
-
-/**
- * Why an enabled monitor is not scanning, in the user's own terms.
- *
- * Both reasons are things the user can act on, and they need different actions — one is fixed by
- * editing a list, the other by disabling a monitor or upgrading — so they are never collapsed into
- * one message.
- */
-function blockedExplanation(reason: MonitorBlockedReason | undefined): string {
-  if (reason === "LIST_OVER_LIMIT") {
-    return "Its stock list holds more stocks than your plan allows, so it cannot scan until the list is smaller or your plan is larger.";
-  }
-  return "Your plan allows fewer active monitors than you have enabled, so this one is waiting for a slot.";
-}
 
 /**
  * The enable/disable control for one of the viewer's own monitors.
@@ -262,22 +246,7 @@ export function MonitorsPage() {
           >
             {monitor.enabled ? "Enabled" : "Disabled"}
           </StatusBadge>
-          {monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT" ? (
-            <StatusBadge
-              tone="blocked"
-              testId="monitor-blocked-pill"
-              title={blockedExplanation(monitor.blockedReason)}
-              {...(monitor.blockedReason
-                ? {
-                    dataAttributes: {
-                      "data-blocked-reason": monitor.blockedReason,
-                    },
-                  }
-                : {})}
-            >
-              Not scanning
-            </StatusBadge>
-          ) : null}
+          <MonitorBlockedPill monitor={monitor} />
         </span>
       ),
     },

@@ -18,6 +18,14 @@ The user does **not** configure the monitoring interval/cadence. Cadence is an a
 
 Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations using the persisted Monitor state required for correct trigger semantics.
 
+`enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
+Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
+(`MONITOR_CAPACITY`) or watching a List over the plan's symbol limit (`LIST_OVER_LIMIT`) — and then
+it is not evaluated. Both the collection and the Monitor's own page show the configured state
+("Enabled") **and** the effective one ("Not scanning", with the reason in the user's terms), from
+one web helper (`features/monitors/utils/blocked-status.tsx`, UX-004). Neither surface ever
+rewrites one into the other.
+
 ## Signals
 
 `Signal` is the product term for a Monitor result. It is deliberately not the Monitor: a Monitor is

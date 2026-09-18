@@ -820,6 +820,18 @@ unchanged.
 
 **Dependencies:** none.
 
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- All six sites (`ListFormDialog`, `MonitorDetail` enable toggle, `ConfirmDialog`,
+  `StrategyRenameDialog`, `MembershipEditor`, `StrategyBuilder` save) now word failures through
+  `requestFailureMessage`; each keeps its own fallback for unexpected failures, `StrategyBuilder`
+  keeps its issue and `404` handling first, and `ConfirmDialog` passes a `409` through before
+  delegating. No API code or message changed; no `/billing` link was added.
+- Enabling a monitor over the cap now reads identically on the collection and the detail page.
+- Tests: a component test per site for an entitlement code (`ENTITLEMENT_LIST_SYMBOL_LIMIT` on
+  `ListFormDialog`, `ENTITLEMENT_MONITOR_LIMIT` on `MonitorDetail`), `429` on every path,
+  `ConfirmDialog` `409` unchanged, and the local fallback for unexpected failures.
+
 ### UX-002: Guest "Backtest this …" actions open the in-context prompt
 
 **Severity:** P1 (audit H-2, part 1).
@@ -876,6 +888,16 @@ currently breaks the agreed guest behaviour.
 **Release-blocking:** yes.
 
 **Dependencies:** none. UX-003 builds on the prompt it opens.
+
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- Both actions render through a new `AccountActionLink` (`features/auth/components`): a prefilled
+  link when signed in, a button that opens `SignInPrompt` for a Guest, a disabled button while the
+  session is resolving. `SIGN_IN_TO_BACKTEST` moved to `features/auth/utils/sign-in-prompts.ts`
+  and is shared with the Dashboard card. `/backtests/new` stays a protected route.
+- Tests: component tests for both views (guest button + prompt + no router call + unchanged URL;
+  signed-in link with the exact prefill; unresolved session does nothing) and the guest E2E in
+  `e2e/builtins/collections.guest.spec.ts` (built-in strategy and built-in monitor).
 
 ### UX-003: Safe return destination through sign-in
 
@@ -990,6 +1012,25 @@ blocking requirement, but that deferral must be written into the PR description.
 - UX-002 (the prompt it extends).
 - Coordinate with PR 3 if both touch `auth.controller.ts`. They touch different handlers.
 
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- **Full implementation, no copy-only deferral.** `safeReturnPath` exists on both sides
+  (`apps/web/src/features/auth/utils/return-path.ts`, `apps/api/src/auth/return-path.ts`) and is
+  exercised against one shared corpus (`packages/testing/src/return-path-corpus.ts`). Rules and
+  threat model: `ai/architecture/authentication.md`, _Return destination after sign-in_.
+- `signInHref(next)` / `registerHref(next)`; `SignInPrompt` carries path + query; `RequireAuth`
+  keeps the attempted URL; `LoginPanel` → `LoginForm` → `router.replace(safeNext)`;
+  `GoogleSignInButton` forwards `next`; `GET /auth/google?next=` validates, stores it in the
+  transaction cookie (fourth element, only when not the default) and the callback re-validates.
+  OpenAPI documents the parameter. The post-login default and the error redirect are unchanged.
+- Registration (email-first since AUTH-003) keeps `next` on its sign-in and Google links only; the
+  verification email carries no destination (follow-up in §8 stands).
+- Tests: validator unit tests on both sides, Google integration (valid, nine invalid forms, five
+  tampered cookies, state/PKCE/nonce intact, provider failure), web component tests, and E2E
+  (prompt → sign in as `PRO_USER` → back on the strategy; protected-URL bounce → exact URL; six
+  hostile `next` values → `/dashboard`). The real-Google manual check is documented in
+  `ai/workflows/auth-testing.md` §10 and was **not** executed (no real Google client used).
+
 ### UX-004: Monitor detail shows effective scanning state, not only the configured switch
 
 **Severity:** P1 (audit H-3).
@@ -1044,6 +1085,15 @@ collection row.
 **Release-blocking:** yes.
 
 **Dependencies:** none.
+
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- `features/monitors/utils/blocked-status.tsx` holds `blockedExplanation` and
+  `MonitorBlockedPill`; the collection uses it unchanged in behaviour, and the detail header shows
+  the pill beside Enabled plus the explanation as a visible notice. Web only.
+- Tests: `MonitorDetail` for `MONITOR_CAPACITY`, `LIST_OVER_LIMIT` and an `ACTIVE` monitor; a
+  collection test on the shared helper; `entitlements.downgraded.spec.ts` opens both blocked
+  monitors' detail pages and compares pill and sentence with the collection.
 
 ### UX-005: A missing stock logo is a non-error response with graceful fallback
 
@@ -1109,6 +1159,21 @@ release gate.
 
 **Dependencies:** textual conflict with SEC-002 (PR 2).
 
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- **Chosen: `204 No Content`** with `MISSING_CACHE_CONTROL`, an empty body and SEC-002's image
+  headers. The uncertainty above is resolved with Chromium evidence: a `404` image logged "Failed
+  to load resource" on first load and again from cache; a `204` logged nothing, produced no failed
+  request, fired `onerror`, settled `complete && naturalWidth === 0`, and was served from the HTTP
+  cache on reload. Through the real route on the Dashboard: `204` on first load (300 B transferred),
+  `204` from cache on reload (0 B), monogram both times, no console error. A provider failure stays
+  `502 no-store` with the same headers.
+- `StockLogo` also treats `complete && naturalWidth === 0` at mount as missing.
+- Tests: route (miss status/body/cache/headers, `410`, non-image `200`, failures still `502`),
+  component (`onError`, pre-hydration miss, still-loading image) and
+  `e2e/stocks/logo-fallback.user.spec.ts` (monogram and a clean console, cold and cached; logos are
+  served in the browser, so no provider traffic). E2E-006's shared stub remains PR 5's.
+
 ### UX-006: Styled not-found page and application error boundaries
 
 **Severity:** P1 (audit H-4).
@@ -1165,6 +1230,18 @@ release gate.
 
 **Dependencies:** none.
 
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- `app/not-found.tsx` is **standalone and branded** (wordmark, `EmptyState`, Dashboard link): an
+  unmatched URL renders inside the root layout only, and rendering the product shell there would
+  double it for any future `notFound()` inside `(app)`. Verified at 1440 and 390 px.
+- `app/(app)/error.tsx` renders inside the shell (navigation stays usable), `reset()` once per
+  "Try again", error to the console only. `app/global-error.tsx` owns `<html>`/`<body>`, imports
+  only the token stylesheet, same rules. Next 16.1.6's boundary props (`error`, `reset`) are used.
+- Tests: component tests for all three (no message, digest or stack rendered; reset once) and
+  `e2e/app/not-found.guest.spec.ts` at both widths. The in-shell state was checked in the browser
+  with a temporary, uncommitted client-side throw.
+
 ### UX-007: Dashboard ticker is legible at 1280 px
 
 **Severity:** P1 (audit H-5).
@@ -1211,6 +1288,19 @@ layout is unchanged).
 **Release-blocking:** yes.
 
 **Dependencies:** none.
+
+**Implemented (2026-09-18, PR 4, branch `fix/user-facing-correctness`):**
+
+- The Stock cell gets a `7rem` floor (the mark plus a full seven-character ticker) and the Strategy,
+  List and Monitor chips sit in a `minmax(0, max-content)` track so they truncate first; both only
+  from 880 px. `DataTable` is unchanged; no column was removed or reordered; the phone card is
+  untouched.
+- Measured on the QA stack: before, the Stock column was 81 px at 880–1024 and 118 px at 1280, and
+  `QATEST1`/`QATEST2` rendered in 5–42 px; after, every ticker is unclipped at 880, 1024, 1280 and
+  1440 px with no document overflow. Between 880 and ~950 px the table still scrolls inside its own
+  card by up to 77 px (before: up to 277 px), because of fixed minimums this item does not touch.
+- Tests: `e2e/dashboard/ticker-width.guest.spec.ts` (880/1024/1280/1440), which fails on the
+  pre-change stylesheet.
 
 ---
 

@@ -183,6 +183,17 @@ so they size to their own content, and let the identity column absorb the remain
 chip caps its own width and truncates, so one long name cannot widen a column. If a table still
 exceeds the content width it scrolls inside its surface; the page body never scrolls sideways.
 
+**The identity column absorbs the remainder, but never its identifier** (UX-007). A column that
+absorbs everything can be squeezed to nothing: at 1280 px the Dashboard's Stock column once
+rendered "U." and "QATE…". Where a table is wide enough to squeeze its identity, give the identity
+cell a floor that fits the whole identifier — the Dashboard's is `7rem`, the mark plus a full
+seven-character ticker, with the company name truncating beneath it — and let the relationship
+chips give way instead: wrapping a chip in a `minmax(0, max-content)` grid track lets its cell
+shrink below the chip's natural width, and the chip already truncates with the full name in its
+title. Both rules live in the feature stylesheet at `min-width: 880px`; the phone card is
+untouched. `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880,
+1024, 1280 and 1440 px with no document overflow.
+
 When a table needs one column too many, **fold a fact into the cell it belongs to** rather than
 adding a column: the Monitors table carries the universe size beside the Stock List chip, and the
 Backtests table carries the benchmark's return beside the Benchmark chip. That keeps the
@@ -286,6 +297,18 @@ The route validates the ticker against the same pattern the browser does, times 
 refuses to pass a non-image `200` through as a logo, and never caches a `502`: a provider outage
 says nothing about the security.
 
+**A missing mark is `204 No Content`, not `404`** (UX-005). Most of the catalog has no upstream
+mark, and Chromium logs every `4xx` image as "Failed to load resource" — once per logo-less row,
+and again for each cached copy — which buried real errors and tripped the E2E console assertion.
+`204` is a success status, so the browser records no failed resource and no console error, yet an
+`<img>` cannot decode an empty body: it fires `error` and settles `complete` with `naturalWidth ===
+0`. `StockLogo` treats both as missing — `onError`, and the same condition checked at mount for a
+miss that settled from the HTTP cache before hydration — and shows the monogram. The miss keeps the
+one-hour `MISSING_CACHE_CONTROL` and SEC-002's image policy (`Content-Security-Policy`, `nosniff`);
+a real provider failure stays `502 no-store`. Verified in Chromium for the PR: a `404` image logged
+a console error on first load and on reload, a `204` logged nothing, fired `onerror`, and was served
+from cache on reload.
+
 **Backtest results are deliberately not part of the contract half.** `BacktestTradeResponse` and
 `BacktestHoldingResponse` carry denormalized `symbol`/`name` frozen at execution precisely so a
 completed run never joins the mutable catalog, and a decoration is not a reason to change that.
@@ -296,6 +319,14 @@ They render their marks from the ticker like every other row.
 Every "nothing here yet", "not found" and "could not be loaded" panel. `variant="error"` marks it as
 an alert; `variant="compact"` is for an empty region inside a section that already has a heading.
 `as="h1"` for a detail route whose entity is missing, so the page still has exactly one `<h1>`.
+
+It is also what the application's failure pages are made of (UX-006): `app/not-found.tsx` (any
+unmatched URL — standalone and branded, because the product shell belongs to the `(app)` layout an
+unmatched URL never reaches) and `app/(app)/error.tsx` (a render error inside a product page, shown
+in the shell so navigation keeps working, with a "Try again" that calls `reset()`).
+`app/global-error.tsx` is the last resort for a root-layout failure: it owns its `<html>`/`<body>`
+and depends on nothing but the token stylesheet. None of the three renders an error's message,
+digest or stack; the error is logged to the browser console only.
 
 ### `Skeleton` / `SkeletonList`
 

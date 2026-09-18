@@ -17,19 +17,12 @@ import {
   marketCardDescription,
 } from "../../market/utils/format";
 import { classifyVix, VIX_STATUS_LABELS } from "../../market/utils/vix";
-import {
-  useSignInPrompt,
-  type SignInPromptCopy,
-} from "../../auth/hooks/use-sign-in-prompt";
+import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
+import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import styles from "./DashboardOverview.module.css";
 
 /** The canonical New Backtest route. There is exactly one, and this is it. */
 const NEW_BACKTEST_HREF = "/backtests/new";
-
-const SIGN_IN_TO_BACKTEST: SignInPromptCopy = {
-  title: "Sign in to run a backtest",
-  body: "A backtest belongs to an account: it runs in the background, keeps its results and stays reproducible. Sign in or create an account to run one — you will come straight back here.",
-};
 
 type DashboardOverviewProps = {
   /**

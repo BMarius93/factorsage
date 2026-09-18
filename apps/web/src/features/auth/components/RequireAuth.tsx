@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
+import { signInHref } from "../utils/guest-routes";
+import { currentReturnPath } from "../utils/return-path";
 import styles from "./RequireAuth.module.css";
 
 type RequireAuthProps = {
@@ -25,7 +27,9 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
 
   useEffect(() => {
     if (state.status === "unauthenticated") {
-      router.replace("/login");
+      // Keep the URL they asked for — `/backtests/new?strategyId=…` included — so signing in
+      // lands them on it rather than on the Dashboard (UX-003).
+      router.replace(signInHref(currentReturnPath()));
     }
   }, [state.status, router]);
 

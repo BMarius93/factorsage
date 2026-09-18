@@ -9,22 +9,28 @@ const SECRET_BYTES = 32;
  * `state` is the anti-CSRF value echoed by the provider, `codeVerifier` is the PKCE secret proven
  * during the token exchange, and `nonce` binds the returned ID token to this one authorization
  * request. None of the three ever reaches browser JavaScript or a log line.
+ *
+ * `returnPath` is where the web app should land afterwards (UX-003). It is not a secret and it is
+ * not trusted: the cookie is unsigned, so the callback re-validates it before redirecting, and a
+ * tampered value can at worst name another page of the app.
  */
 export type OAuthTransaction = {
   readonly state: string;
   readonly codeVerifier: string;
   readonly nonce: string;
+  readonly returnPath?: string;
 };
 
 function randomSecret(): string {
   return randomBytes(SECRET_BYTES).toString("base64url");
 }
 
-export function createOAuthTransaction(): OAuthTransaction {
+export function createOAuthTransaction(returnPath?: string): OAuthTransaction {
   return {
     state: randomSecret(),
     codeVerifier: randomSecret(),
     nonce: randomSecret(),
+    ...(returnPath === undefined ? {} : { returnPath }),
   };
 }
 
@@ -42,17 +48,22 @@ export function codeChallengeFor(codeVerifier: string): string {
  * Serializes the transaction for its HttpOnly cookie.
  *
  * Tampering gains an attacker nothing: a modified transaction fails the state comparison, or
- * fails PKCE and nonce validation at Google. What matters is that a third party cannot set this
- * cookie on the victim's browser.
+ * fails PKCE and nonce validation at Google, and a modified return path is re-validated at the
+ * callback. What matters is that a third party cannot set this cookie on the victim's browser.
+ *
+ * Without a return path the cookie keeps its original three-element shape, so a transaction
+ * started before this field existed still completes.
  */
 export function encodeOAuthTransaction(transaction: OAuthTransaction): string {
-  return Buffer.from(
-    JSON.stringify([
-      transaction.state,
-      transaction.codeVerifier,
-      transaction.nonce,
-    ]),
-  ).toString("base64url");
+  const parts = [
+    transaction.state,
+    transaction.codeVerifier,
+    transaction.nonce,
+  ];
+  if (transaction.returnPath !== undefined) {
+    parts.push(transaction.returnPath);
+  }
+  return Buffer.from(JSON.stringify(parts)).toString("base64url");
 }
 
 export function decodeOAuthTransaction(
@@ -71,14 +82,26 @@ export function decodeOAuthTransaction(
 
   if (
     !Array.isArray(parsed) ||
-    parsed.length !== 3 ||
+    (parsed.length !== 3 && parsed.length !== 4) ||
     !parsed.every((part) => typeof part === "string" && part.length > 0)
   ) {
     return null;
   }
 
-  const [state, codeVerifier, nonce] = parsed as [string, string, string];
-  return { state, codeVerifier, nonce };
+  // The fourth element is carried as the raw string it is; `safeReturnPath` at the callback is
+  // what decides whether it may be used.
+  const [state, codeVerifier, nonce, returnPath] = parsed as [
+    string,
+    string,
+    string,
+    string | undefined,
+  ];
+  return {
+    state,
+    codeVerifier,
+    nonce,
+    ...(returnPath === undefined ? {} : { returnPath }),
+  };
 }
 
 /** Constant-time comparison for the per-transaction secrets. */

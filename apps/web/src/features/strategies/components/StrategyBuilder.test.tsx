@@ -7,6 +7,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { guardNavigation } from "../../../components/layout/unsaved-changes";
 import {
+  entitlementRefusal,
+  rateLimited,
+  RATE_LIMITED_COPY,
+  unexpectedFailure,
+} from "../../../lib/api/__testing__/request-failures";
+import {
   createStrategy,
   replaceStrategyDefinition,
   updateStrategy,
@@ -532,5 +538,41 @@ describe("StrategyBuilder final exit rules", () => {
     expect(rules[0]?.signal.conditions[0]?.operator).toBe("IS_ABOVE");
     expect(rules[1]?.signal.conditions[0]?.operator).toBe("IS_BELOW");
     expect(new Set(rules.map((rule) => rule.id)).size).toBe(2);
+  });
+});
+
+describe("StrategyBuilder save refusals (UX-001)", () => {
+  async function saveRenameWith(error: unknown) {
+    const user = userEvent.setup();
+    updateStrategyMock.mockRejectedValue(error);
+    render(<StrategyBuilder strategy={savedStrategy()} />);
+    await user.type(screen.getByLabelText("Name"), " 2");
+    await user.click(screen.getByTestId("save-strategy"));
+    return (await screen.findByRole("alert")).textContent;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows a plan refusal in the API's words", async () => {
+    expect(
+      await saveRenameWith(
+        entitlementRefusal(
+          "ENTITLEMENT_FEATURE_UNAVAILABLE",
+          "Your plan does not include this.",
+        ),
+      ),
+    ).toBe("Your plan does not include this.");
+  });
+
+  it("reads a 429 as a wait", async () => {
+    expect(await saveRenameWith(rateLimited())).toBe(RATE_LIMITED_COPY);
+  });
+
+  it("keeps its own fallback for anything unexpected", async () => {
+    expect(await saveRenameWith(unexpectedFailure())).toBe(
+      "The strategy could not be saved right now. Try again in a moment.",
+    );
   });
 });

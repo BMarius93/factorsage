@@ -31,7 +31,8 @@ test.describe("ADMIN_USER session @smoke", () => {
     // and the built-in collections are public, so a route that is only ever about the caller's own
     // work is what proves it.
     await page.goto("/backtests");
-    await expect(page).toHaveURL(/\/login$/);
+    // Bounced to sign-in, keeping the page it asked for (UX-003).
+    await expect(page).toHaveURL("/login?next=%2Fbacktests");
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);
   });
 });

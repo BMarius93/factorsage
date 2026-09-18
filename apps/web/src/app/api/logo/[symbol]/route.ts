@@ -104,10 +104,7 @@ export async function GET(
   const imageType = imageTypeOf(upstream);
   if (!upstream.ok || imageType === null) {
     discard(upstream);
-    return new Response("Logo not found", {
-      status: 404,
-      headers: { "Cache-Control": MISSING_CACHE_CONTROL },
-    });
+    return missingLogo();
   }
 
   const body = await readBounded(upstream, MAX_LOGO_BYTES);
@@ -121,6 +118,27 @@ export async function GET(
       "Content-Type": imageType,
       "Content-Length": String(body.byteLength),
       "Cache-Control": CACHE_CONTROL,
+      ...IMAGE_SECURITY_HEADERS,
+    },
+  });
+}
+
+/**
+ * "This security has no mark" (UX-005): `204 No Content`, cached like any miss.
+ *
+ * Not a `404`. Chromium logs every `4xx` image as "Failed to load resource" in the console — on
+ * every logo-less row of every page, and again for each cached copy — which buries real errors
+ * and trips error monitoring for something that is not an error. A `204` is a success status: the
+ * browser records no failed resource and no console error, yet an `<img>` still cannot decode an
+ * empty body, so it fires `error` and settles `complete` with `naturalWidth === 0` — exactly what
+ * `StockLogo` turns into the monogram, on a first load and from the HTTP cache alike. Verified in
+ * Chromium for the PR that introduced this.
+ */
+function missingLogo(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Cache-Control": MISSING_CACHE_CONTROL,
       ...IMAGE_SECURITY_HEADERS,
     },
   });

@@ -33,7 +33,8 @@ test.describe("guest authentication @smoke", () => {
     // caller's own work is not.
     await page.goto("/backtests");
 
-    await expect(page).toHaveURL(/\/login$/);
+    // The attempted page rides along, so signing in returns to it (UX-003).
+    await expect(page).toHaveURL("/login?next=%2Fbacktests");
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);
   });
 

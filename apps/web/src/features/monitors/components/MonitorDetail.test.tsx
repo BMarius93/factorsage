@@ -9,8 +9,13 @@ import type {
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { openOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
+import {
+  entitlementRefusal,
+  rateLimited,
+  RATE_LIMITED_COPY,
+} from "../../../lib/api/__testing__/request-failures";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
 import { fetchStrategies } from "../../strategies/api/strategies-api";
 import {
@@ -18,13 +23,28 @@ import {
   fetchMonitor,
   updateMonitor,
 } from "../api/monitors-api";
+import {
+  guestSession,
+  resolvingSession,
+  signedInSession,
+} from "../../auth/__testing__/auth-session";
+import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import { MonitorDetail } from "./MonitorDetail";
+import { blockedExplanation } from "../utils/blocked-status";
 
 const push = vi.fn();
+const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, replace }),
 }));
+
+vi.mock("../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: vi.fn(),
+}));
+
+const useAuthSessionMock = vi.mocked(useAuthSession);
 
 vi.mock("../api/monitors-api", () => ({
   fetchMonitor: vi.fn(),
@@ -162,6 +182,8 @@ async function detailReady() {
 
 beforeEach(() => {
   push.mockReset();
+  replace.mockReset();
+  useAuthSessionMock.mockReturnValue(signedInSession());
   fetchMonitorMock.mockReset();
   updateMonitorMock.mockReset();
   deleteMonitorMock.mockReset();
@@ -214,6 +236,67 @@ describe("MonitorDetail", () => {
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
       expect(screen.getByText("Waiting for trigger")).toBeDefined();
       expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
+    });
+
+    describe("backtest action for a Guest (UX-002)", () => {
+      const MONITOR_PATH = "/monitors/monitor-1";
+
+      beforeEach(() => {
+        window.history.replaceState(null, "", MONITOR_PATH);
+        fetchMonitorMock.mockResolvedValue(
+          detail({ ...builtIn, canEdit: false }),
+        );
+      });
+
+      afterEach(() => {
+        window.history.replaceState(null, "", "/");
+      });
+
+      it("opens the sign-in prompt in place, with no navigation", async () => {
+        useAuthSessionMock.mockReturnValue(guestSession());
+        render(<MonitorDetail monitorId="monitor-1" />);
+        await detailReady();
+
+        expect(
+          screen.queryByRole("link", { name: "Backtest this monitor" }),
+        ).toBeNull();
+        await userEvent.click(
+          screen.getByRole("button", { name: "Backtest this monitor" }),
+        );
+
+        const prompt = await screen.findByTestId("sign-in-prompt");
+        expect(prompt.getAttribute("aria-label")).toBe(
+          SIGN_IN_TO_BACKTEST.title,
+        );
+        expect(
+          within(prompt)
+            .getByRole("link", { name: "Sign in" })
+            .getAttribute("href"),
+        ).toBe(`/login?next=${encodeURIComponent(MONITOR_PATH)}`);
+        expect(
+          within(prompt)
+            .getByRole("link", { name: "Create an account" })
+            .getAttribute("href"),
+        ).toBe(`/register?next=${encodeURIComponent(MONITOR_PATH)}`);
+        expect(push).not.toHaveBeenCalled();
+        expect(replace).not.toHaveBeenCalled();
+        expect(window.location.pathname).toBe(MONITOR_PATH);
+      });
+
+      it("does nothing while the session is still resolving", async () => {
+        useAuthSessionMock.mockReturnValue(resolvingSession());
+        render(<MonitorDetail monitorId="monitor-1" />);
+        await detailReady();
+
+        const action = screen.getByRole("button", {
+          name: "Backtest this monitor",
+        });
+        expect(action.hasAttribute("disabled")).toBe(true);
+        await userEvent.click(action);
+        expect(screen.queryByTestId("sign-in-prompt")).toBeNull();
+        expect(push).not.toHaveBeenCalled();
+        expect(replace).not.toHaveBeenCalled();
+      });
     });
 
     it("lets an administrator pause and unpublish it, never delete it", async () => {
@@ -518,6 +601,99 @@ describe("MonitorDetail", () => {
     expect(screen.getByTestId("toggle-monitor").hasAttribute("disabled")).toBe(
       false,
     );
+  });
+
+  describe("effective scanning state (UX-004)", () => {
+    it("says a monitor over the active-monitor cap is not scanning, and why", async () => {
+      fetchMonitorMock.mockResolvedValue(
+        detail({
+          operationalStatus: "BLOCKED_BY_ENTITLEMENT",
+          blockedReason: "MONITOR_CAPACITY",
+        }),
+      );
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+        "Enabled",
+      );
+      const pill = screen.getByTestId("monitor-blocked-pill");
+      expect(pill.textContent).toBe("Not scanning");
+      expect(pill.getAttribute("data-blocked-reason")).toBe("MONITOR_CAPACITY");
+      // The same sentence the collection carries, from the same helper.
+      expect(pill.getAttribute("title")).toBe(
+        blockedExplanation("MONITOR_CAPACITY"),
+      );
+      expect(
+        screen.getByTestId("monitor-blocked-explanation").textContent,
+      ).toBe(blockedExplanation("MONITOR_CAPACITY"));
+    });
+
+    it("says a monitor over an oversized list is not scanning, and why", async () => {
+      fetchMonitorMock.mockResolvedValue(
+        detail({
+          operationalStatus: "BLOCKED_BY_ENTITLEMENT",
+          blockedReason: "LIST_OVER_LIMIT",
+        }),
+      );
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      expect(
+        screen
+          .getByTestId("monitor-blocked-pill")
+          .getAttribute("data-blocked-reason"),
+      ).toBe("LIST_OVER_LIMIT");
+      expect(
+        screen.getByTestId("monitor-blocked-explanation").textContent,
+      ).toBe(blockedExplanation("LIST_OVER_LIMIT"));
+      expect(blockedExplanation("LIST_OVER_LIMIT")).not.toBe(
+        blockedExplanation("MONITOR_CAPACITY"),
+      );
+    });
+
+    it("shows nothing extra for a monitor that is scanning", async () => {
+      fetchMonitorMock.mockResolvedValue(detail());
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+
+      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+        "Enabled",
+      );
+      expect(screen.queryByTestId("monitor-blocked-pill")).toBeNull();
+      expect(screen.queryByTestId("monitor-blocked-explanation")).toBeNull();
+      expect(screen.queryByText("Not scanning")).toBeNull();
+    });
+  });
+
+  describe("enable refusals (UX-001)", () => {
+    async function enableWith(error: unknown) {
+      fetchMonitorMock.mockResolvedValue(detail({ enabled: false }));
+      updateMonitorMock.mockRejectedValue(error);
+      render(<MonitorDetail monitorId="monitor-1" />);
+      await detailReady();
+      await openOverflowMenu(userEvent, "Value entries");
+      await userEvent.click(screen.getByTestId("toggle-monitor"));
+      return (await screen.findByRole("alert")).textContent;
+    }
+
+    it("shows the monitor-cap message the collection shows for the same action", async () => {
+      const message =
+        "Your plan allows 1 active monitor; enabling this one would make 2.";
+      expect(
+        await enableWith(
+          entitlementRefusal("ENTITLEMENT_MONITOR_LIMIT", message),
+        ),
+      ).toBe(message);
+      // The header still tells the truth about the configured state.
+      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+        "Disabled",
+      );
+    });
+
+    it("reads a 429 as a wait", async () => {
+      expect(await enableWith(rateLimited())).toBe(RATE_LIMITED_COPY);
+    });
   });
 
   it("re-reads the monitor after an edit rebinds it", async () => {

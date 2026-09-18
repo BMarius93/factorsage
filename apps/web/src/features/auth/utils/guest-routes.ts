@@ -1,3 +1,5 @@
+import { DEFAULT_RETURN_PATH, safeReturnPath } from "./return-path";
+
 /**
  * The product routes a Guest may open.
  *
@@ -25,7 +27,28 @@ export function isGuestReadableRoute(pathname: string): boolean {
   return GUEST_ROUTE_PATTERNS.some((pattern) => pattern.test(path));
 }
 
-/** Where a Guest goes to sign in, and back to the page they were on afterwards. */
-export function signInHref(): string {
-  return "/login";
+/**
+ * Where a Guest goes to sign in, carrying the page to come back to afterwards (UX-003).
+ *
+ * `next` is validated here as well as where it is read, so a link this app renders can never carry
+ * a destination the sign-in page would refuse. The Dashboard is the default either way, so it is
+ * left out rather than spelled as `?next=%2Fdashboard`.
+ */
+export function signInHref(next?: string): string {
+  return withReturnPath("/login", next);
+}
+
+/** The same, for creating an account instead. */
+export function registerHref(next?: string): string {
+  return withReturnPath("/register", next);
+}
+
+function withReturnPath(page: string, next: string | undefined): string {
+  if (next === undefined) {
+    return page;
+  }
+  const destination = safeReturnPath(next);
+  return destination === DEFAULT_RETURN_PATH
+    ? page
+    : `${page}?next=${encodeURIComponent(destination)}`;
 }

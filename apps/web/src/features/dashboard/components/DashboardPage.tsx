@@ -99,14 +99,19 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "stock",
     header: "Stock",
     cardRole: "identity",
+    // A floor under the column that identifies the row: at laptop widths the table's other
+    // columns used to squeeze it to "U." (UX-007). The company name still truncates.
     render: (row) => (
-      <StockIdentity
-        symbol={row.security.symbol}
-        name={row.security.name}
-        {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
-        href={stockDetailsHref(row.security.symbol)}
-        size="sm"
-      />
+      <span className={styles.stockCell}>
+        <StockIdentity
+          symbol={row.security.symbol}
+          name={row.security.name}
+          {...(row.security.logoUrl ? { logoUrl: row.security.logoUrl } : {})}
+          href={stockDetailsHref(row.security.symbol)}
+          size="sm"
+          testId="dashboard-stock"
+        />
+      </span>
     ),
   },
   {
@@ -156,11 +161,13 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Strategy",
     cardRole: "links",
     render: (row) => (
-      <EntityReferenceChip
-        kind="strategy"
-        name={row.strategy.name}
-        href={`/strategies/${row.strategy.id}`}
-      />
+      <span className={styles.entityCell}>
+        <EntityReferenceChip
+          kind="strategy"
+          name={row.strategy.name}
+          href={`/strategies/${row.strategy.id}`}
+        />
+      </span>
     ),
   },
   {
@@ -168,11 +175,13 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "List",
     cardRole: "links",
     render: (row) => (
-      <EntityReferenceChip
-        kind="list"
-        name={row.stockList.name}
-        href={`/lists/${row.stockList.id}`}
-      />
+      <span className={styles.entityCell}>
+        <EntityReferenceChip
+          kind="list"
+          name={row.stockList.name}
+          href={`/lists/${row.stockList.id}`}
+        />
+      </span>
     ),
   },
   {
@@ -180,11 +189,13 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Monitor",
     cardRole: "links",
     render: (row) => (
-      <EntityReferenceChip
-        kind="monitor"
-        name={row.monitor.name}
-        href={`/monitors/${row.monitor.id}`}
-      />
+      <span className={styles.entityCell}>
+        <EntityReferenceChip
+          kind="monitor"
+          name={row.monitor.name}
+          href={`/monitors/${row.monitor.id}`}
+        />
+      </span>
     ),
   },
 ];

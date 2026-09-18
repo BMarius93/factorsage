@@ -135,6 +135,8 @@ describe("ListsPage", () => {
   });
 
   it("asks a Guest for an account instead of sending them to the login page", async () => {
+    // The prompt carries the page being read, so signing in comes back to it (UX-003).
+    window.history.replaceState(null, "", "/lists");
     useAuthSessionMock.mockReturnValue(guestSession());
     fetchStockListsMock.mockResolvedValue([
       summary("builtin-1", "Nasdaq-100 Newcomers", {
@@ -155,12 +157,12 @@ describe("ListsPage", () => {
     const prompt = await screen.findByTestId("sign-in-prompt");
     expect(
       within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
-    ).toBe("/login");
+    ).toBe("/login?next=%2Flists");
     expect(
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe("/register");
+    ).toBe("/register?next=%2Flists");
     // They are still on the page they were reading, and nothing was created.
     expect(screen.getByTestId("lists-page")).toBeDefined();
     expect(push).not.toHaveBeenCalled();

@@ -17,6 +17,12 @@
       "import": "./dist/personas.js",
       "require": "./dist/personas.js",
       "default": "./dist/personas.js"
+    },
+    "./return-path-corpus": {
+      "types": "./dist/return-path-corpus.d.ts",
+      "import": "./dist/return-path-corpus.js",
+      "require": "./dist/return-path-corpus.js",
+      "default": "./dist/return-path-corpus.js"
     }
   },
   "scripts": {

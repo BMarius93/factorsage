@@ -119,6 +119,8 @@ describe("StrategiesPage", () => {
   });
 
   it("asks a Guest for an account instead of opening the builder", async () => {
+    // The prompt carries the page being read, so signing in comes back to it (UX-003).
+    window.history.replaceState(null, "", "/strategies");
     const user = userEvent.setup();
     useAuthSessionMock.mockReturnValue(guestSession());
     fetchStrategiesMock.mockResolvedValue([builtIn("b1", "Value & Trend")]);
@@ -135,12 +137,12 @@ describe("StrategiesPage", () => {
     const prompt = await screen.findByTestId("sign-in-prompt");
     expect(
       within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
-    ).toBe("/login");
+    ).toBe("/login?next=%2Fstrategies");
     expect(
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe("/register");
+    ).toBe("/register?next=%2Fstrategies");
     expect(push).not.toHaveBeenCalled();
     expect(screen.getByTestId("strategies-page")).toBeDefined();
   });

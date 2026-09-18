@@ -35,6 +35,7 @@ import {
 import {
   codeChallengeFor,
   decodeOAuthTransaction,
+  encodeOAuthTransaction,
 } from "./google/oauth-transaction";
 
 // Before PrismaService constructs its client during Nest module compilation.
@@ -214,10 +215,15 @@ describe("Google authentication", () => {
     readonly transactionCookie: string;
   };
 
-  /** Starts the flow the way a browser would: follow the redirect, keep the transaction cookie. */
-  async function startAuthorization(): Promise<StartedAuthorization> {
+  /**
+   * Starts the flow the way a browser would: follow the redirect, keep the transaction cookie.
+   * `query` is the raw query string the web app's button would carry, e.g. `next=%2Flists`.
+   */
+  async function startAuthorization(
+    query?: string,
+  ): Promise<StartedAuthorization> {
     const response = await request(app.getHttpServer())
-      .get("/auth/google")
+      .get(query === undefined ? "/auth/google" : `/auth/google?${query}`)
       .expect(302);
 
     const transactionCookie = cookieValue(response, TRANSACTION_COOKIE);
@@ -919,6 +925,139 @@ describe("Google authentication", () => {
    * never verifies it. When the real owner later signs in with Google, the account is adopted —
    * and nothing the attacker set may survive that adoption.
    */
+  describe("return destination (UX-003)", () => {
+    function signInIdentity(prefix: string) {
+      provider.identity = {
+        providerAccountId: `google-${randomUUID()}`,
+        email: uniqueEmail(prefix),
+        emailVerified: true,
+        hostedDomain: null,
+      };
+    }
+
+    it("returns to a valid app path, query included, after a successful sign-in", async () => {
+      signInIdentity("google-next");
+      const destination = "/backtests/new?strategyId=s-1&stockListId=l-2";
+
+      const started = await startAuthorization(
+        `next=${encodeURIComponent(destination)}`,
+      );
+      // The destination is held with the transaction, never sent to Google.
+      expect(
+        decodeOAuthTransaction(started.transactionCookie)?.returnPath,
+      ).toBe(destination);
+      expect(provider.lastRequest).not.toBeNull();
+      expect(JSON.stringify(provider.lastRequest)).not.toContain("strategyId");
+
+      const response = await completeCallback(started).expect(302);
+
+      expect(redirectLocation(response)).toBe(`${WEB_BASE_URL}${destination}`);
+      expect(
+        setCookies(response).some((value) => value.startsWith("test_auth=")),
+      ).toBe(true);
+    });
+
+    it.each([
+      ["a protocol-relative URL", "next=%2F%2Fevil.example"],
+      ["a slash-backslash", "next=%2F%5Cevil.example"],
+      ["an absolute URL", "next=https%3A%2F%2Fevil.example"],
+      ["a script URL", "next=javascript%3Aalert(1)"],
+      ["an encoded //", "next=%2F%252F%252Fevil.example"],
+      ["a header injection", "next=%2Fdashboard%0D%0ASet-Cookie%3A%20x%3D1"],
+      ["an over-length path", `next=%2F${"a".repeat(2048)}`],
+      ["a repeated parameter", "next=%2Flists&next=%2Fstrategies"],
+      ["an empty value", "next="],
+    ])("falls back to the Dashboard for %s", async (_label, query) => {
+      signInIdentity("google-next-refused");
+
+      const started = await startAuthorization(query);
+      // Refused at the start: nothing but the default reaches the cookie.
+      expect(
+        decodeOAuthTransaction(started.transactionCookie)?.returnPath,
+      ).toBeUndefined();
+
+      const response = await completeCallback(started).expect(302);
+      expect(redirectLocation(response)).toBe(`${WEB_BASE_URL}/dashboard`);
+    });
+
+    it.each([
+      "//evil.example",
+      "/\\evil.example",
+      "https://evil.example",
+      "/%2F%2Fevil.example",
+      "/dashboard\r\nSet-Cookie: x=1",
+    ])(
+      "re-validates a tampered transaction cookie carrying %j",
+      async (tampered) => {
+        signInIdentity("google-next-tampered");
+        const started = await startAuthorization(
+          `next=${encodeURIComponent("/lists/abc")}`,
+        );
+        const transaction = decodeOAuthTransaction(started.transactionCookie);
+        expect(transaction).not.toBeNull();
+
+        // The cookie is unsigned: rewrite its destination the way an attacker with access to the
+        // browser could, keeping state, verifier and nonce intact so the flow otherwise succeeds.
+        const forged = encodeOAuthTransaction({
+          ...transaction!,
+          returnPath: tampered,
+        });
+        const response = await callback({
+          code: "auth-code",
+          state: started.state,
+          transactionCookie: forged,
+        }).expect(302);
+
+        const location = redirectLocation(response);
+        expect(location).toBe(`${WEB_BASE_URL}/dashboard`);
+        expect(new URL(location).origin).toBe(WEB_BASE_URL);
+      },
+    );
+
+    it("keeps state, PKCE and nonce binding when a destination is carried", async () => {
+      signInIdentity("google-next-binding");
+      const started = await startAuthorization(
+        `next=${encodeURIComponent("/lists/abc")}`,
+      );
+      const authorizationRequest = provider.lastRequest;
+
+      // A mismatched state is still refused, destination or not, with the usual error redirect.
+      const refused = await callback({
+        code: "auth-code",
+        state: "not-the-state",
+        transactionCookie: started.transactionCookie,
+      }).expect(302);
+      expect(redirectLocation(refused)).toBe(
+        `${WEB_BASE_URL}/login?error=oauth_state`,
+      );
+      expect(
+        setCookies(refused).some((value) => value.startsWith("test_auth=")),
+      ).toBe(false);
+
+      const response = await completeCallback(started).expect(302);
+      expect(redirectLocation(response)).toBe(`${WEB_BASE_URL}/lists/abc`);
+      expect(codeChallengeFor(provider.lastExchange?.codeVerifier ?? "")).toBe(
+        authorizationRequest?.codeChallenge,
+      );
+      expect(provider.lastExchange?.nonce).toBe(authorizationRequest?.nonce);
+    });
+
+    it("sends a provider failure to the login error page, not to the destination", async () => {
+      provider.failWith = new GoogleAuthError(
+        "oauth_provider",
+        "provider exchange failed",
+      );
+      const started = await startAuthorization(
+        `next=${encodeURIComponent("/lists/abc")}`,
+      );
+
+      const response = await completeCallback(started).expect(302);
+      expect(redirectLocation(response)).toBe(
+        `${WEB_BASE_URL}/login?error=oauth_provider`,
+      );
+    });
+  });
+
   describe("adopting an account nobody has verified", () => {
     const attackerPassword = "Attacker-chosen-password-42";
 

@@ -77,9 +77,18 @@ export function StockLogo({
     // before React's listener is attached, and then no load event is ever delivered — which is
     // precisely the repeat-navigation case the long `Cache-Control` creates, so without this the
     // plate would appear on a cold visit and silently vanish on every one after it.
+    //
+    // The same is true of a miss. The logo endpoint answers a security with no mark with an empty
+    // `204` (UX-005), which an image settles as `complete` with no pixels; if that happened before
+    // hydration — a cached miss usually does — `onError` never arrives either, and without this the
+    // row would keep an empty box instead of the monogram.
     const image = imageRef.current;
-    if (image?.complete && image.naturalWidth > 0) {
-      setBright(isBrightLogo(image));
+    if (image?.complete) {
+      if (image.naturalWidth > 0) {
+        setBright(isBrightLogo(image));
+      } else {
+        setFailed(true);
+      }
     }
   }, [src]);
 
