@@ -47,11 +47,25 @@ export function AccountMenu() {
   }, [open]);
 
   if (state.status === "unauthenticated") {
-    // A Guest browsing the public pages needs a way in.
+    // A Guest browsing the public pages needs a way in, and a way to see what an account costs
+    // before making one (PRICING-001).
     return (
-      <Link className={styles.signIn} href="/login" data-testid="sign-in-link">
-        Sign in
-      </Link>
+      <div className={styles.guestLinks}>
+        <Link
+          className={styles.pricing}
+          href="/pricing"
+          data-testid="pricing-link"
+        >
+          Pricing
+        </Link>
+        <Link
+          className={styles.signIn}
+          href="/login"
+          data-testid="sign-in-link"
+        >
+          Sign in
+        </Link>
+      </div>
     );
   }
   if (state.status !== "authenticated") {

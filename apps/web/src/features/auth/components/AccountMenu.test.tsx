@@ -48,6 +48,19 @@ describe("AccountMenu", () => {
     state = authenticated("USER");
   });
 
+  it("offers a Guest pricing and sign-in, and nothing account-shaped", () => {
+    state = { status: "unauthenticated" };
+    render(<AccountMenu />);
+
+    expect(screen.getByTestId("pricing-link").getAttribute("href")).toBe(
+      "/pricing",
+    );
+    expect(screen.getByTestId("sign-in-link").getAttribute("href")).toBe(
+      "/login",
+    );
+    expect(screen.queryByTestId("account-menu-trigger")).toBeNull();
+  });
+
   it("renders nothing until a session exists", () => {
     state = { status: "loading" };
     const { container } = render(<AccountMenu />);

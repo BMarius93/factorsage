@@ -780,6 +780,22 @@ the browser:
 - The card's button carries `data-price-key`, so a test asserts the thing a bug would live in — a card
   showing "Yearly" while posting the monthly key — rather than the amount rendered beside it.
 
+### The public pricing page
+
+`/pricing` (PRICING-001, decision in `docs/decisions/stripe-billing-v1.md` section 19) is guest-readable
+and reuses the billing page's parts rather than copying them:
+
+- **`PlanCatalog`** is the plan comparison — caption, cadence toggle, three `PlanCard`s. `/billing`
+  and `/pricing` both render it, so they cannot quote different prices, limits or plan order.
+- **`usePlanActions`** is the one Checkout / change / Portal handler, moved out of `BillingPage`
+  unchanged. A signed-in viewer on `/pricing` gets it with `planCardState` over `GET /billing/status`,
+  exactly as on `/billing`.
+- **A Guest** never loads billing status. `guestPlanCardState` gives every card a `SIGN_IN` action,
+  which has no price key, and the page turns it into the shared `SignInPrompt`
+  (`SIGN_IN_TO_CHOOSE_PLAN`). Its links carry `next=/pricing` through the UX-003 helpers.
+- Actions render only when the answer is known: none while the session or status is loading, none
+  after a status failure, none when billing is not configured.
+
 ## Tests
 
 | Suite | What it proves |
@@ -792,8 +808,9 @@ the browser:
 | `apps/api/src/billing/stripe-cancellation.test.ts` | That a scheduled cancellation is recognised in **both** of Stripe's representations. |
 | `apps/web/src/features/billing/components/BillingPage.test.tsx` | What the page shows and refuses to show — three plan cards and never one per price, the cadence toggle re-pricing in place and carrying through to the price key the button sends, and that `?checkout=success` grants nothing. |
 | `apps/web/src/features/billing/utils/plan-presentation.test.ts` | That every capacity on a card is read from `PLAN_ENTITLEMENTS` and every amount from `BILLING_CATALOG`, so the pricing page cannot drift from the matrix. |
+| `apps/web/src/features/billing/components/PricingPage.test.tsx` | The public page: a Guest sees the catalog, calls no billing endpoint and gets the prompt with `next=/pricing` from every card; a signed-in viewer gets `/billing`'s Checkout and change calls and honest loading/error/unconfigured states; and `/pricing` and `/billing` render identical prices, notes and limits in both cadences. `PricingPage.invalid-catalog.test.tsx` proves a missing catalog entry fails into the error boundary rather than rendering a price. |
 | `apps/web/src/features/billing/utils/plan-actions.test.ts` | What each card's button offers per billing state: upgrade/downgrade/switch labels from the shared classifier, Free only ever through Portal, and no action claimed for an unpaid or already-scheduled change. |
-| `apps/web/e2e/billing/*.spec.ts` | The browser half, per persona: FREE sees the catalog, crafted requests are refused, returning from Checkout grants nothing, a paid-tier persona works with no Stripe subscription at all, and a guest is refused everywhere. |
+| `apps/web/e2e/billing/*.spec.ts` | The browser half, per persona: FREE sees the catalog, crafted requests are refused, returning from Checkout grants nothing, a paid-tier persona works with no Stripe subscription at all, and a guest is refused everywhere. `pricing.guest.spec.ts` / `pricing.free.spec.ts` cover `/pricing`: no redirect, no billing request and no external request for a Guest, the prompt and the return through sign-in, 1280/390 px layout, and (with status and Checkout stubbed in the browser) the signed-in Checkout call. |
 
 `FakeStripeGateway` (`stripe-gateway.test-helper.ts`) models Stripe's observable behaviour — statuses,
 current price versus held `pending_update`, schedules, idempotency keys, and real HMAC webhook

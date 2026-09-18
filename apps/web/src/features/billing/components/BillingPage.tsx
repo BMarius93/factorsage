@@ -14,27 +14,16 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
-import {
-  changeBillingPlan,
-  openBillingPortal,
-  startCheckout,
-} from "../api/billing-api";
 import { useBillingStatus } from "../hooks/use-billing-status";
+import { usePlanActions } from "../hooks/use-plan-actions";
 import {
   INTERVAL_LABEL,
   PLAN_LABEL,
-  billingFailureMessage,
   formatBillingDate,
   statusNotice,
 } from "../utils/format";
-import {
-  currentPriceKeyOf,
-  planCardState,
-  type PlanCardAction,
-} from "../utils/plan-actions";
-import { PLAN_CARD_ORDER } from "../utils/plan-presentation";
-import { BillingIntervalToggle } from "./BillingIntervalToggle";
-import { PlanCard } from "./PlanCard";
+import { currentPriceKeyOf, planCardState } from "../utils/plan-actions";
+import { BillingUnavailableNote, PlanCatalog } from "./PlanCatalog";
 import styles from "./BillingPage.module.css";
 
 /**
@@ -155,69 +144,10 @@ function BillingContent({
   const [interval, setInterval] = useState<BillingInterval>(
     subscription?.interval ?? "MONTH",
   );
-  const [pendingPlan, setPendingPlan] = useState<UserPlan | null>(null);
-  const [portalPending, setPortalPending] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-
-  const busy = pendingPlan !== null || portalPending;
+  const { pendingPlan, portalPending, busy, failure, act, openPortal } =
+    usePlanActions({ onChanged });
   const notice = subscription ? statusNotice(subscription.status) : null;
   const currentPriceKey = currentPriceKeyOf(billing);
-
-  /** Customer Portal, from either entry point: the header action or the Free card's cancel. */
-  async function openPortal() {
-    if (busy) {
-      return;
-    }
-    setPortalPending(true);
-    setFailure(null);
-    try {
-      const { portalUrl } = await openBillingPortal();
-      window.location.assign(portalUrl);
-    } catch (error: unknown) {
-      setFailure(
-        billingFailureMessage(
-          error,
-          "Billing management is unavailable right now. Please try again.",
-        ),
-      );
-      setPortalPending(false);
-    }
-  }
-
-  async function act(plan: UserPlan, action: PlanCardAction) {
-    if (busy || action.kind === "NONE" || action.kind === "CURRENT") {
-      return;
-    }
-    if (action.kind === "PORTAL") {
-      await openPortal();
-      return;
-    }
-
-    setPendingPlan(plan);
-    setFailure(null);
-    try {
-      // One decision, made from server state: a user without a live subscription buys, and one with
-      // a live subscription changes. The API re-decides both; this only picks which call to make.
-      if (action.kind === "CHANGE") {
-        await changeBillingPlan(action.priceKey);
-        onChanged();
-      } else {
-        const { checkoutUrl } = await startCheckout(action.priceKey);
-        // Stripe-hosted Checkout. Nothing is granted by arriving there or by coming back.
-        window.location.assign(checkoutUrl);
-        return;
-      }
-    } catch (error: unknown) {
-      setFailure(
-        billingFailureMessage(
-          error,
-          "That change could not be completed. Please try again.",
-        ),
-      );
-    } finally {
-      setPendingPlan(null);
-    }
-  }
 
   return (
     <div className={styles.page}>
@@ -269,36 +199,16 @@ function BillingContent({
         without buttons. Only the *actions* are gated — which is also what lets the Playwright suite
         assert this surface without any Stripe secret.
       */}
-      <section className={styles.plans} aria-label="Plans">
-        <div className={styles.plansHead}>
-          <p className={styles.plansCaption}>
-            Every plan includes every indicator, valuation model and strategy feature. Plans differ
-            by capacity.
-          </p>
-          <BillingIntervalToggle value={interval} onChange={setInterval} />
-        </div>
-
-        <ul className={styles.grid} data-testid="billing-catalog">
-          {PLAN_CARD_ORDER.map((plan) => (
-            <PlanCard
-              key={plan}
-              plan={plan}
-              interval={interval}
-              state={planCardState({ plan, interval, billing })}
-              pending={pendingPlan === plan}
-              busy={busy}
-              onAct={(action) => void act(plan, action)}
-            />
-          ))}
-        </ul>
-
-        {billing.billingEnabled ? null : (
-          <p className={styles.lead} data-testid="billing-unavailable">
-            Subscriptions are not available in this environment, so no plan can be purchased or
-            changed here.
-          </p>
-        )}
-      </section>
+      <PlanCatalog
+        interval={interval}
+        onIntervalChange={setInterval}
+        cardState={(plan) => planCardState({ plan, interval, billing })}
+        pendingPlan={pendingPlan}
+        busy={busy}
+        onAct={(plan, action) => void act(plan, action)}
+      >
+        {billing.billingEnabled ? null : <BillingUnavailableNote />}
+      </PlanCatalog>
 
       {failure ? (
         <p className={styles.error} role="alert" data-testid="billing-action-error">

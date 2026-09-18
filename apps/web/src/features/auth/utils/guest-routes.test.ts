@@ -14,6 +14,9 @@ describe("isGuestReadableRoute", () => {
       "/strategies/3f1b",
       "/monitors",
       "/monitors/3f1b?tab=signals",
+      "/pricing",
+      "/pricing/",
+      "/pricing?next=x",
     ]) {
       expect(isGuestReadableRoute(path), path).toBe(true);
     }
@@ -26,6 +29,8 @@ describe("isGuestReadableRoute", () => {
       "/backtests/new",
       "/backtests/abc",
       "/billing",
+      "/billing?checkout=success",
+      "/pricing/pro",
       "/admin",
       "/lists/abc/edit",
     ]) {

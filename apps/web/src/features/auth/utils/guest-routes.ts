@@ -11,6 +11,9 @@ import { DEFAULT_RETURN_PATH, safeReturnPath } from "./return-path";
  * the built-in sections alone and ask for an account at the point of action, which is what
  * `SignInPrompt` is for — a Guest is never bounced to `/login` for navigating.
  *
+ * `/pricing` is public too: a visitor deciding whether to sign up is entitled to see what it costs
+ * (DEC-001). Its plan buttons ask for an account in place, like every other action here.
+ *
  * Everything else in the application needs a session. A detail route is readable because it may
  * name a built-in; the API still answers `404` for anybody else's content.
  */
@@ -20,6 +23,8 @@ const GUEST_ROUTE_PATTERNS: readonly RegExp[] = [
   /^\/lists(\/[^/]+)?$/,
   /^\/strategies(\/(?!new$)[^/]+)?$/,
   /^\/monitors(\/[^/]+)?$/,
+  // The public price list (PRICING-001, DEC-001). `/billing`, which acts on a subscription, is not.
+  /^\/pricing$/,
 ];
 
 export function isGuestReadableRoute(pathname: string): boolean {

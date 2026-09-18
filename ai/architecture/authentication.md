@@ -395,8 +395,9 @@ reaches the browser.
 
 ### Return destination after sign-in (UX-003)
 
-A Guest asked to sign in from a page — a built-in strategy's "Backtest this strategy", or a bounce
-from a protected URL such as `/backtests/new?strategyId=…` — returns to that page afterwards. The
+A Guest asked to sign in from a page — a built-in strategy's "Backtest this strategy", a plan button
+on the public `/pricing` page (PRICING-001), or a bounce from a protected URL such as
+`/backtests/new?strategyId=…` — returns to that page afterwards. The
 destination travels as `?next=<path+query>`:
 
 ```text
