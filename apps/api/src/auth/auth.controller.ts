@@ -89,6 +89,10 @@ export class AuthController {
     return { status: "verification_sent" };
   }
 
+  /**
+   * Redeems a verification token once and installs the password chosen by its holder (AUTH-002).
+   * Issues no session: the owner signs in with that password afterwards.
+   */
   @RateLimit("auth-sensitive")
   @Post("verify-email")
   @HttpCode(HttpStatus.OK)

@@ -16,6 +16,10 @@ Supported ways to sign in, and nothing else:
 | Google (OIDC, PKCE)          | A fully verified Google ID token                  |
 | Password recovery            | A single-use emailed reset token                  |
 
+A local password only ever becomes usable when it was chosen by someone who proved control of the
+mailbox — by redeeming a verification link or a reset link. See *Local registration and email
+verification* for why (AUTH-002).
+
 There is no magic-link sign-in, no MFA, no passkey and no second external provider.
 
 ## Identity model
@@ -60,7 +64,7 @@ The model represents all four identity states:
 local password only      passwordHash set,  no OAuthAccount
 Google only              passwordHash null, one OAuthAccount
 both                     passwordHash set,  one OAuthAccount
-unverified local         passwordHash set,  emailVerifiedAt null
+unverified local         passwordHash set,  emailVerifiedAt null   (registration's password — never activated)
 ```
 
 ## Local registration and email verification
@@ -73,22 +77,99 @@ An address that already belongs to any account is rejected with the same `409` m
 existing account is local or external-only. Registration never attaches a password to an account
 the caller has not proven they own.
 
-Verification tokens:
+### The rule: verification sets the password (AUTH-002)
+
+> Possession or redemption of an email-verification link never activates a password that was
+> selected before control of the mailbox was proven.
+
+**The vulnerable sequence this closes.** Before AUTH-002, verification only set `emailVerifiedAt`:
+
+1. an attacker registers `victim@example.com` with a password of their choosing;
+2. the account is stored unverified with the attacker's password hash;
+3. the verification email goes to the real mailbox owner, who clicks it;
+4. the account becomes verified **with the attacker's password still on it**;
+5. the attacker signs in as the victim.
+
+PR #44 (AUTH-001) closed the same pre-account takeover on the Google-linking path; this closes it
+on the direct verification path.
+
+**The flow now.**
+
+1. Registration still takes a password (the contract is unchanged) and still stores its hash on
+   the unverified row. That hash is **never** activated: login refuses an unverified account, and
+   every path that verifies an address replaces or removes it in the same transaction —
+   verification installs the password its redeemer chooses, a reset installs the reset password,
+   and Google adoption clears it (AUTH-001). Its only remaining use is letting whoever typed it
+   receive the `403 EMAIL_NOT_VERIFIED` hint (and the resend button) instead of the generic `401`.
+2. The emailed link opens `/verify-email?token=…`. Opening it redeems nothing: the page asks for
+   **New password** and **Confirm password**.
+3. The browser posts `POST /auth/verify-email` with `{ token, password }` in the JSON body. The
+   password never appears in a URL. The request is parsed with the registration password policy;
+   a request without a password (the pre-AUTH-002 shape) is a `400` and redeems nothing.
+4. Redemption runs cheap-first, exactly like a reset (see *Password recovery*): an indexed
+   SHA-256 lookup refuses unknown and expired tokens before any Argon2id work; only then is the new
+   password hashed, outside any transaction.
+5. **One transaction** (`EmailVerificationService.redeemToken`) then:
+   - re-reads the token and re-checks its expiry;
+   - consumes exactly that token (`consumeRotatingToken`, the concurrency gate below);
+   - installs the new `passwordHash` and increments `sessionVersion` in one `UPDATE`;
+   - sets `emailVerifiedAt` with a conditional `updateMany … where emailVerifiedAt is null`,
+     evaluated on the row the previous statement locked, so an already-verified account keeps its
+     original instant;
+   - deletes any outstanding `PasswordResetToken`, which was issued against the credential being
+     replaced.
+
+   Any failure rolls all of it back: the token is still redeemable, the account is unverified with
+   its previous hash and version, and the reset link is still present.
+6. The response is `{ "status": "verified" }` and issues **no session**. The page offers
+   **Continue to sign in** (`/login`); the owner signs in with the password they just chose. The
+   registration password now fails with the ordinary generic `401`.
+
+**Tokens.**
 
 - 256 bits of cryptographic randomness, encoded base64url
 - only the SHA-256 hash is persisted; the plaintext exists solely inside the outbound email
 - expire after `AUTH_EMAIL_VERIFICATION_TTL_SECONDS`
-- single-use: redemption deletes the row and marks the address verified inside one database
-  transaction, so the two effects cannot come apart, and only the request whose delete removed
-  **this exact token** succeeds — see *Rotation and concurrency* below
+- single-use: only the request whose delete removed **this exact token** installs a password —
+  see *Rotation and concurrency* below. Two concurrent redemptions of one link with different
+  passwords produce exactly one `200` and one `401`; the account ends on the winner's password
+  with exactly one `sessionVersion` increment.
+- unknown, expired, already-used and superseded tokens all answer the same `401` with the same
+  message and change nothing on the account (an expired row is cleared, as before); a malformed
+  request (empty or over-long token, missing or
+  policy-violating password) is a `400` before any token is looked at
 - one outstanding token per user, so `POST /auth/resend-verification` rotates and invalidates the
-  previous link
+  previous link; a resent link goes through exactly the same flow
+
+**Session version.** Verification increments `sessionVersion` because it installs a credential,
+for the same reason a reset does. For a never-verified account this revokes nothing — login refuses
+unverified accounts, so no session was ever issued (0 → 1, no legacy token exists). It matters for
+a state that is reachable: `resend-verification` decides eligibility on a read taken before it
+issues, so a resend racing the redemption of the previous link can leave a live link on an account
+that is by then verified and signed in. Redeeming that link sets a new password, and every session
+issued before it gets the generic `401`, exactly as after a reset. A refused redemption revokes
+nothing.
+
+**Why registration still stores a hash.** Not storing it would remove the credential at the source,
+but it would also turn an unverified account's correct-password login from the `403` "verify your
+email" hint into a generic `401`, change what `resend-verification` treats as a local account, and
+make the registration password field meaningless without a contract change — all while AUTH-003
+(registration enumeration) is about to redesign what registering an existing address does. The
+invariant does not depend on the hash being absent: it holds because nothing can make an unverified
+row's hash usable without replacing it. AUTH-003 is the natural point to revisit dropping it.
+
+**Residual limitations.**
+
+- A victim who opens an unsolicited link and completes the form gains an account in their own name
+  with their own password; that is the intended outcome, not a takeover. A victim who ignores it
+  leaves an unverified row the attacker cannot use.
+- An attacker can still register someone else's address and cause one verification email to be
+  sent; that is registration enumeration and nuisance mail, tracked as AUTH-003.
+- A client (or tab) built before AUTH-002 posts `{ token }` only and receives a `400`; its link is
+  unspent and works once the page is reloaded on the new build.
 
 `POST /auth/resend-verification` always answers `202`. Unknown addresses, already-verified
 accounts, and external-only accounts are silent no-ops so the endpoint cannot enumerate accounts.
-
-The verification link points at the web application (`WEB_BASE_URL/verify-email?token=...`), which
-redeems the token through `POST /auth/verify-email`.
 
 ## Google authentication
 
@@ -223,7 +304,7 @@ carries the identity it intends to act on** (`id` + `tokenHash`, plus the expiry
 belongs there). The consuming delete is the concurrency gate:
 
 - exactly one row deleted — this request consumed *this* token, and may perform the effect the
-  token authorizes: set the password, or mark the address verified;
+  token authorizes: set the password (and, for either token, mark the address verified);
 - zero rows — the token was already consumed by a concurrent redemption, rotated away by a newer
   link, or expired since it was read. Reject, and perform no effect.
 
@@ -305,6 +386,7 @@ existing account starts at `0`, and:
 | R10 | AUTH-001 clears an attacker-set password            | Yes (PR #44)                                                   | Nothing to revoke: the attacker never had a session — login refuses unverified accounts              |
 | R11 | `AUTH_JWT_SECRET` rotated                           | Operational                                                    | Revoked for **all** users                                                                            |
 | R12 | Operator re-runs `pnpm db:seed` / `test:users:seed` | Operational; rewrites that account's `passwordHash` and `role` | Keep working — the seeds do not increment. See residual limitations.                                 |
+| R13 | Email verification installs the redeemer's password | Yes — `POST /auth/verify-email` (AUTH-002)                     | **Revoked**, in the same transaction that installs the password. A never-verified account has none. |
 
 **Ordinary logout vs. sign out everywhere.** "Sign out" in `AccountMenu` calls `POST
 /auth/logout`: this browser's cookie is cleared and the account's other sessions are untouched,
@@ -320,8 +402,8 @@ refuses it before anything is written. Both clients land on `/login`.
   incremented and written back. Concurrent "sign out everywhere" calls may increment more than
   once; that only moves the version further from every revoked token, so no older session can ever
   become valid again.
-- **A password reset increments in the same `UPDATE` that writes the new `passwordHash`**, inside
-  the redemption transaction whose token-consuming delete is its gate. The credential change, the
+- **A password reset — and an email verification — increments in the same `UPDATE` that writes the
+  new `passwordHash`**, inside the redemption transaction whose token-consuming delete is its gate. The credential change, the
   consumption and the revocation commit or roll back together: a failed, expired, unknown or
   already-used reset changes none of them.
 - **Issuers sign the version read on the row that authorised the sign-in** —
@@ -351,7 +433,8 @@ refuses it before anything is written. Both clients land on `/login`.
 - `GET /auth/providers`: non-secret capability probe (`{ google: boolean }`) so the UI only offers
   providers this deployment configured.
 - `POST /auth/register`: creates an unverified local user and sends a verification link.
-- `POST /auth/verify-email`: redeems a token once.
+- `POST /auth/verify-email`: redeems a token once and installs the password in the body as the
+  account's password (AUTH-002). No session is issued.
 - `POST /auth/resend-verification`: rotates and resends; always `202`.
 - `POST /auth/login`: validates and normalizes credentials, returns a safe `AuthUser`, and sets the
   auth cookie. Missing users, incorrect passwords, and users without a local password all receive
@@ -463,7 +546,10 @@ Auth emits stable structured events — `auth.login.succeeded`, `auth.login.fail
 `auth.google.callback.completed`, `auth.google.account.linked`,
 `auth.google.account.link.refused`, `auth.google.user.created`,
 `auth.password.reset.requested`, `auth.password.reset.completed`, `auth.sessions.revoked` (with
-`reason` `password_reset` or `sign_out_everywhere`), and their failure counterparts.
+`reason` `password_reset`, `email_verification` or `sign_out_everywhere`), and their failure
+counterparts. `auth.email.verification.rejected` and `auth.password.reset.rejected` carry `reason`
+`no_redeemable_token` (refused by the cheap pre-check) or `token_not_redeemed` (lost to the
+transaction).
 The Google events carry the resolved `emailAuthority`, so an operator can see *why* a link was
 allowed or refused without re-deriving it. Correlation uses the internal `actorUserId` once identity is
 established; email is not used as a correlation key. Tokens, passwords, cookies, JWTs, SMTP
@@ -495,6 +581,9 @@ ship without it stays visible.
    (`AGENTS.md` invariant 17): `apps/api/src/rate-limit`, described in `rate-limiting.md`. Every
    credential, registration and recovery route uses the IP-keyed, fail-closed `auth-sensitive`
    policy.
+   **Verification activating a password nobody proved — done (AUTH-002).** Redeeming a
+   verification link now installs the password its holder chooses; see *The rule: verification
+   sets the password*.
 3. **Registration is an enumeration oracle.** `POST /auth/register` answers `409` for an address
    that already exists, so anyone can test whether an address has an account. Recovery, resend and
    login are all careful not to leak this; registration undoes that. Closing it means answering

@@ -262,7 +262,14 @@ paths:
     post:
       tags: [Authentication]
       operationId: verifyEmail
-      summary: Redeem an email-verification token.
+      summary: Redeem an email-verification token and set the account's password.
+      description: |
+        The token is single-use. Redeeming it installs the password in the request body as the
+        account's password, marks the address verified and ends every earlier session of the
+        account, in one transaction (AUTH-002). A password given at registration is never activated
+        by verification: only the holder of the emailed link has proven control of the mailbox. The
+        new password must satisfy the current registration policy. No session is issued; the owner
+        signs in with the new password afterwards.
       x-rate-limit: { policy: auth-sensitive }
       requestBody:
         required: true
@@ -271,13 +278,22 @@ paths:
             schema: { $ref: "#/components/schemas/VerifyEmailRequest" }
       responses:
         "200":
-          description: The address is verified and the account may sign in.
+          description: The address is verified, the password is set, and the account may sign in.
           headers: *rateLimitHeaders
           content:
             application/json:
               schema: { $ref: "#/components/schemas/VerifyEmailResponse" }
         "400":
-          description: The token is malformed, expired, or already redeemed.
+          description: |
+            The request is malformed — the token is missing or out of bounds, or the password is
+            missing or fails the policy. Nothing is redeemed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: |
+            The token is unknown, expired, already used, or superseded by a newer link. One answer
+            for all of them; nothing changes.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2469,9 +2485,10 @@ components:
         status: { type: string, const: accepted }
     VerifyEmailRequest:
       type: object
-      required: [token]
+      required: [token, password]
       properties:
         token: { type: string, minLength: 1, maxLength: 512 }
+        password: { type: string, minLength: 12, maxLength: 1024 }
     VerifyEmailResponse:
       type: object
       required: [status]

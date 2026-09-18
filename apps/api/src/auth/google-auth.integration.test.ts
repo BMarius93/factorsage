@@ -1140,11 +1140,15 @@ describe("Google authentication", () => {
       const email = uniqueEmail("verified-first", GOOGLE_MAILBOX_DOMAIN);
       await register(email, "Owner-chosen-password-42").expect(201);
 
-      // The verification is redeemed first, so the password is proven to be the mailbox owner's
-      // by the time the link happens — the ordering the link decides inside its own transaction.
+      // The verification is redeemed first, and redeeming it is what sets the password (AUTH-002),
+      // so the password is the mailbox owner's by the time the link happens — the ordering the
+      // link decides inside its own transaction.
       await request(app.getHttpServer())
         .post("/auth/verify-email")
-        .send({ token: tokenFromLastEmail("verify-email") })
+        .send({
+          token: tokenFromLastEmail("verify-email"),
+          password: "Owner-chosen-password-42",
+        })
         .expect(200);
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
       const before = await identityState(id);

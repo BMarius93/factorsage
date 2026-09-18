@@ -30,7 +30,7 @@ export class AuthEmailService {
       text: [
         `Welcome to ${PRODUCT_NAME}.`,
         "",
-        "Confirm your email address to activate your account:",
+        "Confirm your email address and choose your password to activate your account:",
         url,
         "",
         `This link is valid for ${validFor} and can be used once.`,
@@ -38,7 +38,7 @@ export class AuthEmailService {
       ].join("\n"),
       html: [
         `<p>Welcome to ${PRODUCT_NAME}.</p>`,
-        "<p>Confirm your email address to activate your account:</p>",
+        "<p>Confirm your email address and choose your password to activate your account:</p>",
         `<p><a href="${url}">${url}</a></p>`,
         `<p>This link is valid for ${validFor} and can be used once.</p>`,
         "<p>If you did not create this account you can ignore this email.</p>",

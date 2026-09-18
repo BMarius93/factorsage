@@ -7,6 +7,7 @@ import type {
   RegisterResponse,
   ResendVerificationResponse,
   ResetPasswordResponse,
+  VerifyEmailRequest,
   VerifyEmailResponse,
 } from "@intrinsic/contracts";
 import { API_BASE_URL, ApiError, apiGet, apiPost } from "../../../lib/api/client";
@@ -42,8 +43,16 @@ export async function register(
   return { status: "verification_sent" };
 }
 
-export async function verifyEmail(token: string): Promise<VerifyEmailResponse> {
-  await apiPost<VerifyEmailResponse>("/auth/verify-email", { token });
+/**
+ * Redeems a verification link and sets the account's password (AUTH-002).
+ *
+ * Both travel in the POST body only; the token arrived in the link's query string, but the
+ * password never goes near a URL.
+ */
+export async function verifyEmail(
+  request: VerifyEmailRequest,
+): Promise<VerifyEmailResponse> {
+  await apiPost<VerifyEmailResponse>("/auth/verify-email", request);
   return { status: "verified" };
 }
 

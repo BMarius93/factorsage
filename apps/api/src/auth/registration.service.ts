@@ -34,7 +34,9 @@ export const VERIFICATION_EMAIL_FAILED_MESSAGE =
  * Local email/password registration and the email-verification lifecycle.
  *
  * A new local user always starts unverified and cannot password-login until a verification token
- * from their inbox is redeemed.
+ * from their inbox is redeemed. Redeeming it sets the account's password: the one given at
+ * registration only lets the registrant be told to verify, and never becomes a working credential
+ * (AUTH-002).
  */
 @Injectable()
 export class RegistrationService {
@@ -70,17 +72,49 @@ export class RegistrationService {
     await this.sendVerification(user.id, user.email);
   }
 
+  /**
+   * Redeems a verification link and installs the password its holder chose (AUTH-002).
+   *
+   * The password registration stored is never what this activates: anyone can register an
+   * address, and only the holder of the link has proven control of the mailbox.
+   */
   async verifyEmail(request: VerifyEmailRequest): Promise<void> {
-    // Consuming the token and marking the address verified is one atomic step.
-    const userId = await this.verification.redeemToken(request.token);
+    // Cheap first, expensive second, exactly as a reset: a SHA-256 and one indexed read keep
+    // invented tokens from costing a full Argon2id each. Not authoritative — the transaction
+    // re-checks everything, and both rejection paths answer identically.
+    if (!(await this.verification.hasRedeemableToken(request.token))) {
+      this.logger.info({
+        event: "auth.email.verification.rejected",
+        reason: "no_redeemable_token",
+      });
+      throw new UnauthorizedException(INVALID_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    // Hashed before the transaction, which must not be held open across Argon2id. A hash
+    // computed for a token that is consumed in the meantime is simply discarded.
+    const passwordHash = await this.passwords.hash(request.password);
+    // Consuming the token, installing the password, verifying the address and revoking earlier
+    // sessions are one atomic step.
+    const userId = await this.verification.redeemToken({
+      token: request.token,
+      passwordHash,
+    });
     if (!userId) {
-      this.logger.info({ event: "auth.email.verification.rejected" });
+      this.logger.info({
+        event: "auth.email.verification.rejected",
+        reason: "token_not_redeemed",
+      });
       throw new UnauthorizedException(INVALID_VERIFICATION_TOKEN_MESSAGE);
     }
 
     this.logger.info({
       event: "auth.email.verification.completed",
       actorUserId: userId,
+    });
+    this.logger.info({
+      event: "auth.sessions.revoked",
+      actorUserId: userId,
+      reason: "email_verification",
     });
   }
 

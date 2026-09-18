@@ -78,8 +78,16 @@ function requireToken(body: unknown, rejection: string): string {
   return token;
 }
 
+/**
+ * Verification sets the account's password (AUTH-002), so it takes the full registration policy,
+ * exactly like a reset. A request without a password — the pre-AUTH-002 shape — is refused here,
+ * before any token is looked at.
+ */
 export function parseVerifyEmailRequest(body: unknown): VerifyEmailRequest {
-  return { token: requireToken(body, "Invalid verification request") };
+  return {
+    token: requireToken(body, "Invalid verification request"),
+    password: requirePolicyPassword(body),
+  };
 }
 
 export function parseForgotPasswordRequest(
