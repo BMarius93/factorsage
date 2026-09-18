@@ -1,3 +1,4 @@
+import { LOGO_CONTENT_SECURITY_POLICY } from "../../../../lib/security-headers";
 import {
   isSafeLogoSymbol,
   normalizeLogoSymbol,
@@ -43,6 +44,25 @@ const MISSING_CACHE_CONTROL = "public, max-age=3600";
 /** Long enough for a cold provider CDN, short enough not to hold a connection open on a stall. */
 const UPSTREAM_TIMEOUT_MS = 8_000;
 
+/**
+ * The most a logo may weigh. Provider marks are a few kilobytes; anything near this is not a logo,
+ * and the proxy must not buffer an arbitrarily large body into server memory to find that out.
+ */
+export const MAX_LOGO_BYTES = 512 * 1024;
+
+/**
+ * Provider bytes on the session-holding origin must be inert and unframable; see
+ * `LOGO_CONTENT_SECURITY_POLICY`. `next.config` serves the same policy for this path, because a
+ * config header rule would otherwise replace the one set here.
+ */
+const IMAGE_SECURITY_HEADERS = {
+  "Content-Security-Policy": LOGO_CONTENT_SECURITY_POLICY,
+  "X-Content-Type-Options": "nosniff",
+} as const;
+
+/** Upstream answers that mean "this security has no mark", as opposed to "the provider failed". */
+const MISSING_UPSTREAM_STATUSES = new Set([404, 410]);
+
 /** Nothing about a logo depends on the request, so the handler must not be statically evaluated. */
 export const dynamic = "force-dynamic";
 
@@ -61,14 +81,21 @@ export async function GET(
   try {
     upstream = await fetch(providerLogoUrl(symbol), {
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      // The host is fixed; a redirect is the one way the provider could send the proxy elsewhere.
+      redirect: "error",
     });
   } catch {
-    // The provider is unreachable or slow. Never cached: this says nothing about the security,
-    // only about this moment, and a cached 502 would keep a mark missing long after it recovered.
-    return new Response("Failed to fetch logo", {
-      status: 502,
-      headers: { "Cache-Control": "no-store" },
-    });
+    // The provider is unreachable, slow, or redirected. Never cached: this says nothing about the
+    // security, only about this moment, and a cached 502 would keep a mark missing long after it
+    // recovered.
+    return upstreamFailure();
+  }
+
+  // Only a definite "not found" is a miss. A 5xx, a throttle or any other status is the provider
+  // failing, and caching it as a miss for an hour would hide a mark that exists.
+  if (!upstream.ok && !MISSING_UPSTREAM_STATUSES.has(upstream.status)) {
+    discard(upstream);
+    return upstreamFailure();
   }
 
   // A non-image 200 is a miss, not a success. The provider answers some unknown symbols with an
@@ -76,13 +103,17 @@ export async function GET(
   // `<img>` would fail to decode on every surface until it expired.
   const imageType = imageTypeOf(upstream);
   if (!upstream.ok || imageType === null) {
+    discard(upstream);
     return new Response("Logo not found", {
       status: 404,
       headers: { "Cache-Control": MISSING_CACHE_CONTROL },
     });
   }
 
-  const body = await upstream.arrayBuffer();
+  const body = await readBounded(upstream, MAX_LOGO_BYTES);
+  if (body === null) {
+    return upstreamFailure();
+  }
   return new Response(body, {
     status: 200,
     headers: {
@@ -90,12 +121,73 @@ export async function GET(
       "Content-Type": imageType,
       "Content-Length": String(body.byteLength),
       "Cache-Control": CACHE_CONTROL,
+      ...IMAGE_SECURITY_HEADERS,
     },
   });
+}
+
+function upstreamFailure(): Response {
+  return new Response("Failed to fetch logo", {
+    status: 502,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+/** Releases an upstream body the route will not read; a failure to do so changes nothing. */
+function discard(upstream: Response): void {
+  upstream.body?.cancel().catch(() => undefined);
 }
 
 /** The upstream content type, but only when it really is an image. */
 function imageTypeOf(upstream: Response): string | null {
   const type = upstream.headers.get("content-type");
   return type !== null && type.startsWith("image/") ? type : null;
+}
+
+/**
+ * The upstream body, or null once it exceeds `limit` bytes — refused from the declared length
+ * before reading anything, and otherwise by counting while streaming, so an oversized or
+ * mis-declared body is abandoned at the limit rather than buffered whole.
+ */
+async function readBounded(
+  upstream: Response,
+  limit: number,
+): Promise<Uint8Array<ArrayBuffer> | null> {
+  const declared = Number(upstream.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) {
+    discard(upstream);
+    return null;
+  }
+  if (upstream.body === null) {
+    return new Uint8Array(new ArrayBuffer(0));
+  }
+
+  const reader = upstream.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    // The stream failed mid-body (reset, timeout): the same "provider failed" outcome.
+    return null;
+  }
+
+  const body = new Uint8Array(new ArrayBuffer(total));
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
 }

@@ -9,6 +9,7 @@ import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { installHttpObservability } from "./observability/http-observability";
 import { NestStructuredLogger } from "./observability/nest-structured-logger";
+import { installSecurityHeaders } from "./security-headers";
 
 let logger: StructuredLogger = createLogger({
   service: "api",
@@ -37,6 +38,7 @@ async function bootstrap() {
     rawBody: true,
   });
   installHttpObservability(app, logger.child({ component: "http" }));
+  installSecurityHeaders(app, config.environment);
   app.enableShutdownHooks();
   app.enableCors({
     origin: config.corsOrigins,

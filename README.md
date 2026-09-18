@@ -81,7 +81,8 @@ docker/         Container definitions
 - nvm
 - Node.js 22.23.2 (via `.nvmrc`)
 - Corepack
-- pnpm
+- pnpm — the exact version is pinned by `packageManager` in `package.json` and is the one
+  developers (through Corepack), CI and the Docker images all run
 - Docker Desktop
 
 Enable pnpm if needed:
@@ -176,7 +177,9 @@ pnpm dev:worker
 pnpm --version
 ```
 
-After dependency changes, keep `pnpm-lock.yaml` committed.
+After dependency changes, keep `pnpm-lock.yaml` committed. CI and every Dockerfile install with
+`pnpm install --frozen-lockfile`, which fails when the lockfile is out of step with any
+`package.json`.
 
 ## Local development
 
@@ -237,9 +240,12 @@ address as verified, and it ends in exactly the same FactorSage session cookie a
 Settings are documented in `.env.example`: `AUTH_JWT_SECRET` (at least 32 characters),
 `AUTH_TOKEN_TTL_SECONDS`, `AUTH_COOKIE_NAME`, `AUTH_EMAIL_VERIFICATION_TTL_SECONDS`,
 `WEB_BASE_URL`, `CORS_ORIGINS`, the optional `GOOGLE_*` and `SMTP_*` groups, and `ADMIN_EMAIL` /
-`ADMIN_PASSWORD` for bootstrap seeding. Google and SMTP are optional and ship empty, so a fresh
-`.env` copied from the template runs with both simply not offered; each group is all-or-nothing,
-and a partially configured one is rejected rather than silently disabled.
+`ADMIN_PASSWORD` for bootstrap seeding. Google and SMTP are optional in development and ship
+empty, so a fresh `.env` copied from the template runs with both simply not offered; each group is
+all-or-nothing, and a partially configured one is rejected rather than silently disabled. With
+`NODE_ENV=production` the API instead requires the SMTP group and https, non-localhost
+`WEB_BASE_URL` and `CORS_ORIGINS`, and refuses to start without them (see
+`packages/config/README.md`).
 
 Create or update the first administrator explicitly:
 

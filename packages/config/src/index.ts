@@ -133,10 +133,59 @@ function absoluteUrl(
   return url.toString().replace(/\/$/, "");
 }
 
+/**
+ * Whether a URL host names this machine rather than a public service: `localhost` and its
+ * subdomains, the whole 127/8 block, `::1`, an IPv4-mapped loopback, or the unspecified address.
+ *
+ * Takes `URL.hostname`, so it relies on the WHATWG parser having already normalized alternative
+ * spellings (`127.1`, `0x7f.0.0.1`, `[0:0:0:0:0:0:0:1]`) to the canonical ones checked here.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    /^127\.\d+\.\d+\.\d+$/.test(host) ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host === "::" ||
+    /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host)
+  );
+}
+
+/**
+ * The production form of a public URL: required, https, and not this machine.
+ *
+ * A production API builds verification links, reset links, the post-OAuth redirect and Stripe
+ * return URLs from these values and accepts credentialed browser calls from them. A localhost
+ * default there does not fail — it boots healthy and sends every customer to their own machine —
+ * so production refuses to start instead. Messages name the variable, never its value.
+ */
+function assertProductionPublicUrl(name: string, url: URL): void {
+  if (url.protocol !== "https:") {
+    throw new Error(
+      `Invalid application configuration: ${name} must be an https URL in production`,
+    );
+  }
+  if (isLoopbackHost(url.hostname)) {
+    throw new Error(
+      `Invalid application configuration: ${name} must not point at localhost or a loopback ` +
+        "address in production",
+    );
+  }
+}
+
 function corsOrigins(env: Environment): string[] {
-  const values = commaSeparated(optional(env, "CORS_ORIGINS"), [
-    "http://localhost:3000",
-  ]);
+  const production = runtimeEnvironment(env) === "production";
+  const values = commaSeparated(
+    optional(env, "CORS_ORIGINS"),
+    production ? [] : ["http://localhost:3000"],
+  );
+  if (values.length === 0) {
+    throw new Error(
+      "Invalid application configuration: CORS_ORIGINS is required in production",
+    );
+  }
 
   return values.map((value) => {
     if (value === "*") {
@@ -164,6 +213,13 @@ function corsOrigins(env: Environment): string[] {
     ) {
       throw new Error(
         `Invalid application configuration: CORS_ORIGINS contains invalid origin '${value}'`,
+      );
+    }
+
+    if (production && isLoopbackHost(url.hostname)) {
+      throw new Error(
+        "Invalid application configuration: CORS_ORIGINS must not contain a localhost or " +
+          "loopback origin in production",
       );
     }
 
@@ -237,9 +293,22 @@ export function getApiConfig(env: Environment = process.env) {
  *
  * The API builds user-facing links (email-verification links, post-OAuth redirects) against
  * this value rather than trusting a request `Host` header.
+ *
+ * The localhost default is a development convenience only: in production the value is required,
+ * must be https and must not be loopback.
  */
 export function getWebBaseUrl(env: Environment = process.env): string {
-  return absoluteUrl(env, "WEB_BASE_URL", "http://localhost:3000");
+  if (runtimeEnvironment(env) !== "production") {
+    return absoluteUrl(env, "WEB_BASE_URL", "http://localhost:3000");
+  }
+  if (optional(env, "WEB_BASE_URL") === undefined) {
+    throw new Error(
+      "Invalid application configuration: WEB_BASE_URL is required in production",
+    );
+  }
+  const value = absoluteUrl(env, "WEB_BASE_URL");
+  assertProductionPublicUrl("WEB_BASE_URL", new URL(value));
+  return value;
 }
 
 export function getAuthConfig(env: Environment = process.env) {
@@ -324,10 +393,15 @@ export type SmtpConfig = {
 /**
  * Server-only SMTP configuration. Never expose this object to browser code.
  *
- * Outbound email is optional infrastructure: with nothing configured this returns `null` and the
- * API reports the email boundary as unavailable instead of failing at startup. When it is
- * configured, `SMTP_HOST` and `SMTP_FROM` are mandatory and credentials are all-or-nothing, so a
- * local unauthenticated relay stays valid while a half-configured production relay is rejected.
+ * Outside production, outbound email is optional infrastructure: with nothing configured this
+ * returns `null` and the API reports the email boundary as unavailable instead of failing at
+ * startup. In production it is required, because registration, email verification and password
+ * recovery all depend on it and a public API without it would boot healthy and then be unable to
+ * activate a single password account. When it is configured, `SMTP_HOST` and `SMTP_FROM` are
+ * mandatory and credentials are all-or-nothing, so a local unauthenticated relay stays valid while
+ * a half-configured production relay is rejected.
+ *
+ * Only the API calls this. The worker sends no email and never requires it.
  */
 export function getSmtpConfig(
   env: Environment = process.env,
@@ -343,6 +417,12 @@ export function getSmtpConfig(
     Boolean,
   );
   if (!anyProvided) {
+    if (runtimeEnvironment(env) === "production") {
+      throw new Error(
+        "Invalid application configuration: SMTP_HOST and SMTP_FROM are required in " +
+          "production; registration, email verification and password recovery send email",
+      );
+    }
     return null;
   }
 
@@ -880,17 +960,5 @@ export function getStripeConfig(env: Environment = process.env) {
   return {
     secretKey: required(env, "STRIPE_SECRET_KEY"),
     webhookSecret: required(env, "STRIPE_WEBHOOK_SECRET"),
-  } as const;
-}
-
-/**
- * The only configuration intended to cross the browser boundary.
- * Add public values deliberately; never spread process.env into this object.
- */
-export function getWebPublicConfig(env: Environment = process.env) {
-  return {
-    apiBaseUrl:
-      optional(env, "NEXT_PUBLIC_API_BASE_URL") ?? "http://localhost:3001",
-    stripePublishableKey: optional(env, "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY"),
   } as const;
 }

@@ -4,7 +4,9 @@ RUN corepack enable
 WORKDIR /repo
 
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+# Corepack runs the pnpm version pinned by `packageManager`; the install fails if pnpm-lock.yaml is
+# out of step with any package.json, so the image carries exactly the reviewed dependency graph.
+RUN pnpm install --frozen-lockfile
 
 RUN pnpm --filter @intrinsic/worker... build
 

@@ -5,8 +5,13 @@
  * credential handling, and error translation so those cannot drift per feature.
  */
 
+/**
+ * Inlined by `next build`. The localhost fallback is for local development only: a release build
+ * refuses to compile without a public https value (`lib/release-build.ts`), and an empty value is
+ * treated as unset rather than producing relative API calls against the web origin.
+ */
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 export class ApiError extends Error {
   constructor(

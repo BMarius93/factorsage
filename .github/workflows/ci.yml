@@ -43,20 +43,25 @@ jobs:
       AUTH_COOKIE_NAME: ci_auth
       CORS_ORIGINS: http://localhost:3000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+      # No `version:` — the action reads `packageManager` from package.json, the one pnpm version
+      # contract shared by developers (Corepack), CI and the Docker images.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
 
-      - run: pnpm install --no-frozen-lockfile
+      # Fails if pnpm-lock.yaml is out of step with any package.json, so CI tests exactly the
+      # dependency graph that was reviewed.
+      - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm db:validate
+      # Replays every committed migration into a throwaway database on the service above and fails
+      # when the result differs from schema.prisma. The CI database itself is never the shadow.
+      - run: pnpm db:check-drift
       - run: pnpm db:migrate:deploy
       - run: pnpm lint
       - run: pnpm typecheck

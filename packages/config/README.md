@@ -24,6 +24,24 @@ Use dedicated accessors for server-side integrations:
 
 Required integration secrets fail fast when the corresponding accessor is called.
 
+## Production refusals
+
+Every refusal is an `Invalid application configuration: …` startup error that names the variable
+and never echoes its value. With `NODE_ENV=production`:
+
+| Variable | Required by | Rule in production |
+| --- | --- | --- |
+| `WEB_BASE_URL` | API (`getWebBaseUrl`, via `getAuthConfig` and Stripe URLs) | required; `https:`; not `localhost`, `*.localhost`, 127/8, `::1` or `0.0.0.0` |
+| `CORS_ORIGINS` | API (`getApiConfig`) | required; no localhost or loopback origin |
+| `SMTP_HOST`, `SMTP_FROM` | API (`getSmtpConfig`) | required; `SMTP_USER`/`SMTP_PASSWORD` stay all-or-nothing |
+| `STRIPE_*` | API, when billing is on | live keys only (`getStripeBillingConfig`) |
+| `BACKTEST_DEBUG_ARCHIVE` | worker | must be `off` |
+
+Development and test keep their localhost defaults and may run without SMTP. The worker calls none
+of the API accessors, so it never needs `WEB_BASE_URL`, `CORS_ORIGINS`, `SMTP_*` or `AUTH_*`.
+API command-line tools that call `getApiConfig` (for example `pnpm billing:reconcile`) run with the
+API's environment and therefore need `CORS_ORIGINS` in production too.
+
 Stock-data coordination and provider traffic settings are deliberately separate:
 
 - `STOCK_DATA_LOAD_LOCK_MS` is the renewable hydration lease duration (30 seconds by default).
@@ -37,9 +55,14 @@ Stock-data coordination and provider traffic settings are deliberately separate:
 
 ## Browser-safe configuration
 
-Only `getWebPublicConfig()` is intended for values that may cross the browser boundary. Never expose server config objects or spread `process.env` into a browser response.
+The web app may not import this package (`AGENTS.md` dependency rules). Its one configuration value
+is `NEXT_PUBLIC_API_BASE_URL`, which `next build` compiles into the browser bundle, so it is a
+**build-time** value: a release build (`FACTORSAGE_RELEASE_BUILD=true`, the default in
+`docker/web.Dockerfile`) refuses to compile unless it is an https, non-loopback URL — see
+`apps/web/src/lib/release-build.ts`. Never expose server config objects, put a secret in a
+`NEXT_PUBLIC_*` variable, or spread `process.env` into a browser response.
 
-Stripe secret keys and webhook secrets are server-only. A Stripe publishable key may be exposed through the public web config.
+Stripe secret keys and webhook secrets are server-only.
 
 ## Domain boundary
 

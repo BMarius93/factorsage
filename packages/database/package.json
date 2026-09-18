@@ -21,6 +21,7 @@
     "prisma:migrate:dev": "node ./scripts/prisma-command.mjs migrate dev",
     "prisma:migrate:deploy": "node ./scripts/prisma-command.mjs migrate deploy",
     "prisma:migrate:status": "node ./scripts/prisma-command.mjs migrate status",
+    "prisma:check-drift": "node ./scripts/check-migration-drift.mjs",
     "prisma:db:pull": "node ./scripts/prisma-command.mjs db pull",
     "prisma:studio": "node ./scripts/prisma-command.mjs studio"
   },

@@ -1,28 +1,7 @@
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import process, { loadEnvFile } from "node:process";
+import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-
-function loadRootEnv(startDirectory = process.cwd()) {
-  let directory = resolve(startDirectory);
-
-  while (true) {
-    if (existsSync(join(directory, "pnpm-workspace.yaml"))) {
-      const envFile = join(directory, ".env");
-      if (existsSync(envFile)) {
-        loadEnvFile(envFile);
-      }
-      return;
-    }
-
-    const parent = dirname(directory);
-    if (parent === directory) {
-      return;
-    }
-    directory = parent;
-  }
-}
+import { loadRootEnv } from "./root-env.mjs";
 
 loadRootEnv();
 
