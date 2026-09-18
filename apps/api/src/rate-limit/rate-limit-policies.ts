@@ -201,7 +201,10 @@ export const RATE_LIMIT_POLICIES = {
     onRedisFailure: "allow",
   },
 
-  /** Writes to the caller's own lists, strategies and view history. */
+  /**
+   * Writes to the caller's own lists, strategies and view history, and to their own sessions
+   * ("sign out everywhere").
+   */
   mutation: {
     description: "Writes to the caller's own resources.",
     actor: "user",

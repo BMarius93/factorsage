@@ -164,7 +164,7 @@ number; changing a limit is one edit there.
 | `stock-read`         | 180 / min  | —                    | user→IP | allow            | the five `/stocks/{symbol}*` reads                                                |
 | `standard-read`      | 240 / min  | —                    | user→IP | allow            | reads of the caller's own rows, `/benchmarks`, `/billing/status`, `/admin/health` |
 | `progress-poll`      | 300 / min  | —                    | user→IP | allow            | `GET /backtests/{runId}/progress`                                                 |
-| `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes                                             |
+| `mutation`           | 60 / min   | —                    | user→IP | allow            | list, strategy and recent-view writes, `POST /auth/logout-all`                    |
 | `monitor-mutation`   | 30 / min   | —                    | user→IP | allow            | monitor create / update / delete                                                  |
 | `backtest-execution` | 60 / hr    | 180 / hr             | user→IP | allow            | `POST /backtests`                                                                 |
 | `billing-mutation`   | 20 / 5 min | 60 / 5 min           | user→IP | **deny**         | checkout, portal, change                                                          |

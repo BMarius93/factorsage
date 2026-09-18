@@ -95,7 +95,8 @@ export class PasswordResetService {
   }
 
   /**
-   * Redeems a plaintext token: consumes it and installs the already-hashed password atomically.
+   * Redeems a plaintext token: consumes it, installs the already-hashed password and revokes every
+   * existing session of the account, atomically.
    *
    * Returns the owning user ID, or `null` when the token is unknown, expired, or already used.
    * The caller hashes the password **before** calling, because Argon2id deliberately takes real
@@ -156,6 +157,10 @@ export class PasswordResetService {
         where: { id: record.userId },
         data: {
           passwordHash: input.passwordHash,
+          // Revokes every existing session in the same statement that replaces the credential, so
+          // the two commit or roll back together: a reset exists to evict whoever else holds the
+          // account. Atomic in PostgreSQL, never read-modify-written.
+          sessionVersion: { increment: 1 },
           // Only for an address that was never verified. An account that already verified keeps
           // the instant it actually did so; a reset is not a second verification event.
           ...(record.user.emailVerifiedAt

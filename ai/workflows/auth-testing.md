@@ -189,7 +189,30 @@ manual check with any HTTP client:
 2. `GET /auth/me` with that cookie — expect `200` and only `id`, `email`, `role`.
 3. `GET /admin/health` with that cookie — expect `403`.
 4. Repeat with the `QA_ADMIN` variables — expect `200` from `GET /admin/health`.
-5. `POST /auth/logout` — expect `204`, then `GET /auth/me` returns `401`.
+5. `POST /auth/logout` — expect `204`, then `GET /auth/me` **from that client** returns `401`
+   (its cookie was cleared). Ordinary logout revokes nothing: a second session of the same account,
+   or a copy of the cleared token, still answers `200`.
+6. Sign in twice (two cookie jars), then `POST /auth/logout-all` with one — expect `204` and a
+   cleared cookie; `GET /auth/me` with **either** saved token now returns `401` (SESSION-002).
+
+### Revocation check with two browser profiles
+
+Manual verification of SESSION-002 against a running stack (`ai/architecture/authentication.md`,
+*What a session is, and what ends it*):
+
+1. Sign in to the same account in browser profile A and browser profile B.
+2. **Sign out** (account menu) in A — B stays signed in on reload.
+3. Sign in again in A.
+4. **Sign out everywhere** (account menu) in A — A lands on `/login`; reloading any authenticated
+   page in B also ends on `/login`.
+5. Sign in again in both.
+6. Request a reset from `/forgot-password` and complete it from the emailed link.
+7. Reload an authenticated page in A and in B — both are signed out.
+8. Sign in with the new password (the old one is refused).
+9. Sign in with Google (where configured) — the session works, and "Sign out everywhere" ends it.
+
+The same flows over HTTP: `POST /auth/logout-all` needs only the session cookie and no body; a
+reset is `POST /auth/forgot-password` followed by `POST /auth/reset-password`.
 
 Never paste a real cookie, token, or password into a document, a commit message, or a log.
 

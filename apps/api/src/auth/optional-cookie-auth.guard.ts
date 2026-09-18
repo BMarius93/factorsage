@@ -18,9 +18,10 @@ import type { AuthenticatedRequest } from "./authenticated-request";
  * `docs/decisions/entitlements-v1.md` requires that to stay stateless — no anonymous `User` row,
  * no temporary account, nothing to merge or clean up.
  *
- * An invalid, expired or forged token is treated exactly like no token at all. It must not be an
- * error here — a stale cookie would otherwise make a public page fail instead of rendering the
- * signed-out view — and it must not be trusted either, so it resolves to Guest.
+ * An invalid, expired, forged or revoked (stale session version) token is treated exactly like no
+ * token at all. It must not be an error here — a stale cookie would otherwise make a public page
+ * fail instead of rendering the signed-out view — and it must not be trusted either, so it
+ * resolves to Guest.
  */
 @Injectable()
 export class OptionalCookieAuthGuard implements CanActivate {

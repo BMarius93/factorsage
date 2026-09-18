@@ -417,12 +417,33 @@ paths:
       tags: [Session]
       operationId: logout
       summary: Clear the session cookie.
-      description: Succeeds whether or not a session existed; there is nothing to discover from it.
+      description: |
+        Succeeds whether or not a session existed; there is nothing to discover from it. Signs out
+        this browser only: the session is not revoked, so the account's other sessions stay signed
+        in. `POST /auth/logout-all` ends every session.
       x-rate-limit: { policy: session-probe }
       responses:
         "204":
           description: The cookie has been cleared.
           headers: *rateLimitHeaders
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /auth/logout-all:
+    post:
+      tags: [Session]
+      operationId: logoutEverywhere
+      summary: Sign out everywhere.
+      description: |
+        Revokes every session of the signed-in account — every device, and any captured copy of a
+        session cookie — and clears this browser's cookie. Each revoked session receives the same
+        generic `401` as an expired one on its next request. Takes no request body.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      responses:
+        "204":
+          description: Every session of the account has been revoked and this browser's cookie cleared.
+          headers: *rateLimitHeaders
+        "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /auth/me:
@@ -1960,7 +1981,9 @@ components:
         `SameSite=Lax`, and `Secure` in production. Its name is deployment configuration
         (`AUTH_COOKIE_NAME`); `intrinsic_auth` is the default. A browser sends it automatically —
         cross-origin callers must send credentials explicitly, and the deployment's CORS allowlist
-        must contain their origin.
+        must contain their origin. A session stays valid until it expires or until the account's
+        sessions are revoked — by a password reset or `POST /auth/logout-all` — whichever comes
+        first.
     stripeSignature:
       type: apiKey
       in: header
@@ -2069,7 +2092,7 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     Unauthorized:
-      description: No session, or a session that is expired, forged or otherwise unusable.
+      description: No session, or a session that is expired, revoked, forged or otherwise unusable.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

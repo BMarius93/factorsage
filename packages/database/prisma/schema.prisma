@@ -139,6 +139,14 @@ model User {
   /// Null for every user who has never reached a billing surface, which is the normal state: this
   /// migration leaves every existing account FREE with no Stripe object at all.
   stripeCustomerId          String?                        @unique
+  /// Session revocation counter (`ai/architecture/authentication.md`, SESSION-002).
+  ///
+  /// Every session token carries the value it was issued under as its `sv` claim, and a token is
+  /// accepted only while that claim still equals this column. Incrementing it — password reset,
+  /// "sign out everywhere" — therefore ends every existing session of the account at once. Only
+  /// ever changed by an atomic `{ increment: 1 }`, never read-modify-written, and never exposed in
+  /// an API response.
+  sessionVersion            Int                            @default(0)
   createdAt                 DateTime                       @default(now())
   updatedAt                 DateTime                       @updatedAt
   oauthAccounts             OAuthAccount[]

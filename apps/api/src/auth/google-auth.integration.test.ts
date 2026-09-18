@@ -410,6 +410,76 @@ describe("Google authentication", () => {
     expect(Object.keys(me.body).sort()).toEqual(["email", "id", "plan", "role"]);
   });
 
+  it("issues a token carrying the account's current session version, revocable like any other", async () => {
+    const email = uniqueEmail("google-session-version");
+    const providerAccountId = `google-${randomUUID()}`;
+    provider.identity = {
+      providerAccountId,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+    const claimsOf = (token: string | undefined) =>
+      JSON.parse(
+        Buffer.from(token?.split(".")[1] ?? "", "base64url").toString("utf8"),
+      ) as Record<string, unknown>;
+    const me = (token: string | undefined) =>
+      request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Cookie", `test_auth=${token}`);
+
+    // First sign-in creates the account at version 0, and the claim says so explicitly.
+    const created = cookieValue(
+      await completeCallback(await startAuthorization()).expect(302),
+      "test_auth",
+    );
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(claimsOf(created)).toMatchObject({ sub: user.id, sv: 0 });
+
+    // A repeat sign-in for an account that has moved on carries the version it is at now.
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { sessionVersion: 2 },
+    });
+    await me(created).expect(401);
+    const current = cookieValue(
+      await completeCallback(await startAuthorization()).expect(302),
+      "test_auth",
+    );
+    expect(claimsOf(current)).toMatchObject({ sub: user.id, sv: 2 });
+    await me(current).expect(200);
+
+    // And "sign out everywhere" ends it like a password session.
+    await request(app.getHttpServer())
+      .post("/auth/logout-all")
+      .set("Cookie", `test_auth=${current}`)
+      .expect(204);
+    await me(current).expect(401);
+  });
+
+  it("issues the linked account's current version when Google adopts an existing account", async () => {
+    const email = uniqueEmail("google-link-version", GOOGLE_MAILBOX_DOMAIN);
+    const existing = await prisma.user.create({
+      data: { email, emailVerifiedAt: new Date(), sessionVersion: 4 },
+    });
+    provider.identity = {
+      providerAccountId: `google-${randomUUID()}`,
+      email,
+      emailVerified: true,
+      hostedDomain: null,
+    };
+
+    const token = cookieValue(
+      await completeCallback(await startAuthorization()).expect(302),
+      "test_auth",
+    );
+
+    const payload = JSON.parse(
+      Buffer.from(token?.split(".")[1] ?? "", "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(payload).toMatchObject({ sub: existing.id, sv: 4 });
+  });
+
   it("is idempotent for a repeat sign-in with the same Google identity", async () => {
     const email = uniqueEmail("google-repeat");
     const providerAccountId = `google-${randomUUID()}`;

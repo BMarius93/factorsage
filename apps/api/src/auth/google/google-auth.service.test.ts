@@ -57,6 +57,7 @@ type UserRow = {
   plan: "FREE";
   passwordHash: string | null;
   emailVerifiedAt: Date | null;
+  sessionVersion: number;
 };
 
 function userRow(overrides: Partial<UserRow> = {}): UserRow {
@@ -67,6 +68,7 @@ function userRow(overrides: Partial<UserRow> = {}): UserRow {
     plan: "FREE",
     passwordHash: null,
     emailVerifiedAt: new Date(),
+    sessionVersion: 0,
     ...overrides,
   };
 }
@@ -109,11 +111,14 @@ function stubUsers(script: {
     },
     markEmailVerified: (id: string) =>
       Promise.resolve(userRow({ id, emailVerifiedAt: new Date() })),
-    toAuthUser: (user: UserRow) => ({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      plan: user.plan,
+    toSessionGrant: (user: UserRow) => ({
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        plan: user.plan,
+      },
+      sessionVersion: user.sessionVersion,
     }),
   };
 
@@ -132,7 +137,7 @@ describe("GoogleAuthService identity resolution", () => {
     const linked = userRow({ id: "linked", email: "person@example.test" });
     const { users, calls } = stubUsers({ byOAuthAccount: [linked] });
 
-    const user = await service(
+    const { user } = await service(
       users,
       // External and unverified, and none of it matters: the subject is already linked.
       identity({ email: "person@example.test", emailVerified: false }),
@@ -142,6 +147,22 @@ describe("GoogleAuthService identity resolution", () => {
     expect(calls.byEmail).toBe(0);
     expect(calls.create).toBe(0);
     expect(calls.link).toBe(0);
+  });
+
+  it("grants the session version read on the row the identity resolved to", async () => {
+    const linked = userRow({ id: "linked", sessionVersion: 7 });
+    const { users } = stubUsers({ byOAuthAccount: [linked] });
+
+    const grant = await service(users, identity()).authenticate(EXCHANGE);
+
+    expect(grant.sessionVersion).toBe(7);
+    // The version is session state for the token, never part of the user the response carries.
+    expect(Object.keys(grant.user).sort()).toEqual([
+      "email",
+      "id",
+      "plan",
+      "role",
+    ]);
   });
 
   it("retries once when a concurrent sign-in wins the create race", async () => {
@@ -154,7 +175,7 @@ describe("GoogleAuthService identity resolution", () => {
       },
     });
 
-    const user = await service(users, identity()).authenticate(EXCHANGE);
+    const { user } = await service(users, identity()).authenticate(EXCHANGE);
 
     expect(user.id).toBe("winner");
     expect(calls.create).toBe(1);
@@ -171,7 +192,7 @@ describe("GoogleAuthService identity resolution", () => {
       },
     });
 
-    const user = await service(users, identity()).authenticate(EXCHANGE);
+    const { user } = await service(users, identity()).authenticate(EXCHANGE);
 
     expect(user.id).toBe("existing");
     expect(calls.link).toBe(1);

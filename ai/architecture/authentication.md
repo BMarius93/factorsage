@@ -28,6 +28,8 @@ There is no magic-link sign-in, no MFA, no passkey and no second external provid
 - nullable `emailVerifiedAt`
 - `USER` or `ADMIN` role
 - `FREE`, `STARTER` or `PRO` commercial plan
+- `sessionVersion`, a non-null integer (default `0`) that every session token must match — see
+  *What a session is, and what ends it*
 - creation and update timestamps
 
 Role and plan are orthogonal and both are authorization inputs: a user may be `plan=FREE` and
@@ -182,7 +184,8 @@ partial configuration is rejected by centralized configuration at startup.
 
 ## Browser authentication
 
-The API signs a short-lived HS256 JWT containing only the user ID. The JWT is stored only in the
+The API signs a short-lived HS256 JWT containing only the user ID and the account's session
+version (`sv`). The JWT is stored only in the
 `intrinsic_auth` HttpOnly cookie; browser JavaScript does not read it and auth is never stored in
 `localStorage` or `sessionStorage`.
 
@@ -230,50 +233,118 @@ id still matched — would have defeated the rotation the user asked for.
 
 ### What a session is, and what ends it
 
-A session is exactly the signed cookie. The API keeps no server-side session record: every
-request revalidates the token's signature and expiry, then **reloads `role` and `plan` from
-PostgreSQL**, which is what lets the entitlement resolver read persisted state rather than
-anything a client asserted. Deleting the user makes the next request `401`, because the reload
-finds nothing.
+A session is exactly the signed cookie. The API keeps **no server-side session registry** — no
+session table, no Redis entry, no refresh token. What makes a session revocable is one integer on
+the user row: **version-based stateless JWT revocation** (SESSION-002, DEC-003). Every request
+revalidates the token's signature and expiry, then reloads the user from PostgreSQL — `role`,
+`plan` and `sessionVersion` in one read — which is what lets the entitlement resolver read
+persisted state rather than anything a client asserted, and what lets a revocation take effect on
+the very next request.
 
-`POST /auth/logout` clears the cookie and returns `204`. That ends the session in *that browser*.
-It does not and cannot invalidate the token itself: a copy of the cookie captured beforehand stays
-valid until it expires. The same limitation is why a password reset does not end other sessions.
-Both follow from the stateless model; SESSION-002 (below) is the remedy.
+#### The session model
 
-#### The session model (SESSION-001)
+| Property           | Value                                                                                                                                                                                   |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Token              | HS256 JWT signed by `JwtService` with `AUTH_JWT_SECRET` (≥ 32 characters); `algorithms: ["HS256"]` pinned on verify (`auth.module.ts`)                                                    |
+| Claims             | `{ sub: userId, sv: sessionVersion }` plus the library's `iat` / `exp` (`AuthService.issueToken`). `sv` is always written, including `0`. No other user data is in the token.        |
+| TTL                | `AUTH_TOKEN_TTL_SECONDS`, default 8 h (`packages/config`), used both as JWT `exp` and cookie `Max-Age`. Unchanged by SESSION-002.                                                      |
+| Cookie             | `AUTH_COOKIE_NAME` (default `intrinsic_auth`), `HttpOnly`, `SameSite=Lax`, `Secure` only when `NODE_ENV=production`, path `/`, `Max-Age` = TTL (`auth-cookie.ts`)                       |
+| Issuers            | Exactly two, both through `AuthService.issueToken`: `POST /auth/login` and `GET /auth/google/callback`. Registration, verification and password reset issue no session.               |
+| Validation         | `AuthService.authenticateToken`: signature + expiry, claim parsing (`session-token.ts`), then **one** `User` read by id that also selects `sessionVersion`; the claim must match it     |
+| Guards             | `CookieAuthGuard` (required session; any failure → generic `401`) and `OptionalCookieAuthGuard` (any failure → Guest). Both call `authenticateToken`; nothing else parses the cookie.   |
+| Ordinary logout    | `POST /auth/logout` clears the cookie in the calling browser only; revokes nothing                                                                                                      |
+| Sign out everywhere | `POST /auth/logout-all` (authenticated): increments `sessionVersion`, clears the caller's cookie, `204`                                                                                |
+| Global kill switch | Rotating `AUTH_JWT_SECRET` invalidates every session of every user                                                                                                                      |
 
-| Property          | Value                                                                                                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Token             | HS256 JWT signed by `JwtService` with `AUTH_JWT_SECRET` (≥ 32 characters); `algorithms: ["HS256"]` pinned on verify (`auth.module.ts`)                                                  |
-| Claims            | `{ sub: userId }` plus the library's `iat` / `exp` (`AuthService.issueToken`)                                                                                                         |
-| TTL               | `AUTH_TOKEN_TTL_SECONDS`, default 8 h (`packages/config`), used both as JWT `exp` and cookie `Max-Age`                                                                               |
-| Cookie            | `AUTH_COOKIE_NAME` (default `intrinsic_auth`), `HttpOnly`, `SameSite=Lax`, `Secure` only when `NODE_ENV=production`, path `/`, `Max-Age` = TTL (`auth-cookie.ts`)                     |
-| Issuers           | Exactly two, both through `AuthService.issueToken`: `POST /auth/login` and `GET /auth/google/callback`. Registration, verification and password reset issue no session.             |
-| Validation        | `AuthService.authenticateToken`: signature + expiry, `sub` extraction, then **one** `User` read by id (`UsersService.findAuthUserById`) — no row → `401`                              |
-| Guards            | `CookieAuthGuard` (required session; any failure → generic `401`) and `OptionalCookieAuthGuard` (any failure → Guest). Both call `authenticateToken`; nothing else parses the cookie. |
-| Logout            | `POST /auth/logout` clears the cookie in the calling browser only                                                                                                                     |
-| Global kill switch | Rotating `AUTH_JWT_SECRET` invalidates every session of every user                                                                                                                   |
+`sessionVersion` is authentication state, never a response field: `/auth/me` and every other
+contract still return only `id`, `email`, `role` and `plan`. `UsersService` keeps it in a separate
+`SESSION_USER_SELECT`, and `toAuthUser` drops it.
 
-#### Revocation scenarios
+#### The comparison rule
 
-"Other copies" means any copy of the token other than the calling browser's cookie — a second
-device, or a cookie an attacker captured.
+`parseSessionClaims` and `isCurrentSession` in `apps/api/src/auth/session-token.ts` are the whole
+rule, and `authenticateToken` is its only caller:
 
-| #   | Scenario                                         | Exists today?                                               | Do other copies stop working today?                                                                  | Required (SESSION-002)                                                            |
-| --- | ------------------------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| R1  | User signs out in this browser                   | Yes — `POST /auth/logout`                                   | No. A copy works until expiry (≤ TTL).                                                               | Unchanged by design: ordinary logout is browser-local                             |
-| R2  | User signs out every device                      | **No action exists**                                        | n/a                                                                                                  | New `POST /auth/logout-all` revokes every session of the user                     |
-| R3  | User resets password via email link              | Yes — `POST /auth/reset-password`                           | **No.** A captured cookie survives the reset.                                                        | The reset revokes every session of the user, in the same transaction             |
-| R4  | Password change while signed in                  | **No endpoint exists**                                      | n/a                                                                                                  | Future: must revoke when built                                                    |
-| R5  | Role demoted (ADMIN → USER)                      | Only by direct DB edit or seed                              | Effectively yes: the role is reloaded per request                                                    | No revocation needed; future admin role management may choose to revoke          |
-| R6  | Plan change (Stripe)                             | Yes                                                         | Not a revocation: the plan is reloaded per request by design                                         | Must **not** revoke                                                               |
-| R7  | User row deleted                                 | No user-facing deletion exists                              | Yes: the reload finds no row → `401`                                                                 | Unchanged; future account deletion is already covered by the missing row          |
-| R8  | Google account unlinked / OAuth identity removed | **No such action exists**                                   | n/a                                                                                                  | Future: must revoke when built                                                    |
-| R9  | Administrator suspends an account                | **No such feature exists**                                  | n/a                                                                                                  | Future: must revoke when built                                                    |
-| R10 | AUTH-001 clears an attacker-set password         | Yes (PR #44)                                                | Not needed: the attacker never had a session — login refuses unverified accounts                     | No revocation needed                                                              |
-| R11 | `AUTH_JWT_SECRET` rotated                        | Operational                                                 | Yes, for **all** users; the only global kill switch today                                            | Unchanged                                                                         |
-| R12 | Operator re-runs `pnpm db:seed` / `test:users:seed` | Operational; rewrites `passwordHash` and `role` of that account | No                                                                                               | Not in scope; see residual limitations                                            |
+- **Equality, never ordering.** A token is current only while `sv` equals the row's
+  `sessionVersion`. A lower `sv` was revoked; a higher one was never issued for this account. Both
+  are refused.
+- **A malformed `sv` is refused**: present but not a non-negative safe integer (a string, a
+  fraction, a negative, `null`, a boolean, an array, ≥ 2^53).
+- **Every refusal is the same generic `401`** — revoked, expired, forged, malformed, or an account
+  that no longer exists are indistinguishable to the caller. `OptionalCookieAuthGuard` turns every
+  one of them into the Guest view.
+
+#### Rollout: tokens issued before the claim existed
+
+Tokens signed before SESSION-002 carry `{ sub }` only. The migration
+(`20260918120000_add_user_session_version`) adds the column as `NOT NULL DEFAULT 0`, so every
+existing account starts at `0`, and:
+
+- a correctly signed token **without** `sv` is accepted only while the account's
+  `sessionVersion` is `0`, so **deploying does not sign anybody out**;
+- the account's first increment (a password reset, or "sign out everywhere") revokes those legacy
+  tokens exactly like versioned ones;
+- once an account is past `0`, a missing claim is never treated as current again;
+- every token issued after the deploy carries an explicit `sv`, so once one `AUTH_TOKEN_TTL_SECONDS`
+  has passed since the deploy no legacy token can still be unexpired, and the legacy branch of
+  `isCurrentSession` can be deleted in a follow-up. There is deliberately no deployment flag.
+
+#### What revokes a session
+
+| #   | Scenario                                            | Exists?                                                        | Other copies of the token after it                                                                   |
+| --- | --------------------------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| R1  | User signs out in this browser                      | Yes — `POST /auth/logout`                                      | **Keep working** until expiry, by design. Ordinary logout is browser-local and never bumps the version. |
+| R2  | User signs out every device                         | Yes — `POST /auth/logout-all`, "Sign out everywhere" in `AccountMenu` | **Revoked** (version incremented)                                                               |
+| R3  | User resets password via email link                 | Yes — `POST /auth/reset-password`                              | **Revoked**, in the same transaction that replaces the password                                      |
+| R4  | Password change while signed in                     | No endpoint exists                                             | n/a — **must increment the version when built**                                                      |
+| R5  | Role demoted (ADMIN → USER)                         | Only by direct DB edit or seed                                 | Keep working with the new role: the role is reloaded per request. A future admin role-management flow should increment on demotion. |
+| R6  | Plan change (Stripe)                                | Yes                                                            | Keep working. The plan is reloaded per request; a plan change must **not** revoke.                   |
+| R7  | User row deleted                                    | No user-facing deletion exists                                 | Revoked: the reload finds no row → `401`. A future account deletion needs no increment.              |
+| R8  | Google account unlinked / OAuth identity removed    | No such action exists                                          | n/a — **must increment the version when built**                                                      |
+| R9  | Administrator suspends an account                   | No such feature exists                                         | n/a — **must increment the version when built** (and refuse sign-in while suspended)                 |
+| R10 | AUTH-001 clears an attacker-set password            | Yes (PR #44)                                                   | Nothing to revoke: the attacker never had a session — login refuses unverified accounts              |
+| R11 | `AUTH_JWT_SECRET` rotated                           | Operational                                                    | Revoked for **all** users                                                                            |
+| R12 | Operator re-runs `pnpm db:seed` / `test:users:seed` | Operational; rewrites that account's `passwordHash` and `role` | Keep working — the seeds do not increment. See residual limitations.                                 |
+
+**Ordinary logout vs. sign out everywhere.** "Sign out" in `AccountMenu` calls `POST
+/auth/logout`: this browser's cookie is cleared and the account's other sessions are untouched,
+which is what signing out of a shared machine should do. "Sign out everywhere" calls `POST
+/auth/logout-all`, which needs a live session (`CookieAuthGuard`, `mutation` rate-limit policy),
+takes no body, increments the version and clears the caller's cookie; every other device gets the
+generic `401` on its next request. A session that was already revoked cannot call it: the guard
+refuses it before anything is written. Both clients land on `/login`.
+
+#### Atomicity and concurrency
+
+- **The version is only ever changed by an atomic `{ increment: 1 }`** in PostgreSQL, never read,
+  incremented and written back. Concurrent "sign out everywhere" calls may increment more than
+  once; that only moves the version further from every revoked token, so no older session can ever
+  become valid again.
+- **A password reset increments in the same `UPDATE` that writes the new `passwordHash`**, inside
+  the redemption transaction whose token-consuming delete is its gate. The credential change, the
+  consumption and the revocation commit or roll back together: a failed, expired, unknown or
+  already-used reset changes none of them.
+- **Issuers sign the version read on the row that authorised the sign-in** —
+  `findForPasswordLogin` for a password, the resolved row for Google — never a later read. A reset
+  that commits while Argon2id is verifying the old password therefore leaves the new token already
+  revoked, rather than letting a later read pick up the new version for an old credential.
+- **Validation compares against the row read on that request.** A revocation committed before the
+  read fails the token; one committed after it takes effect from the next request. There is no
+  lock and no queue.
+
+#### Residual limitations
+
+- A revocation cannot interrupt a request that already passed the guard; it applies from the next
+  request.
+- Ordinary logout still leaves a captured copy of that browser's token valid until expiry; "sign
+  out everywhere" is the remedy.
+- Revocation is per account, all-or-nothing: there is no list of active sessions and no way to end
+  one device alone. That needs a server-side session store (optional-later item 11).
+- The operator seeds (R12) replace a password and role without incrementing the version; an
+  operator who needs to evict sessions afterwards uses "sign out everywhere" as that user, or
+  rotates `AUTH_JWT_SECRET`.
+- Until one TTL after the deploy, a legacy claimless token of an account still at `0` stays valid,
+  exactly as it was before the deploy.
 
 ## API surface
 
@@ -290,7 +361,9 @@ device, or a cookie an attacker captured.
 - `POST /auth/forgot-password`: requests a reset link; always `202`.
 - `POST /auth/reset-password`: redeems a reset token once and installs the new password.
 - `GET /auth/me`: requires the cookie guard and returns the current safe `AuthUser`.
-- `POST /auth/logout`: clears the auth cookie and returns `204`.
+- `POST /auth/logout`: clears this browser's auth cookie and returns `204`. Revokes nothing.
+- `POST /auth/logout-all`: requires the cookie guard; revokes every session of the account ("sign
+  out everywhere"), clears this browser's cookie and returns `204`.
 - `GET /auth/google`, `GET /auth/google/callback`: the Google flow described above.
 - `GET /admin/health`: proves ADMIN authorization (`401` anonymous, `403` USER, `200` ADMIN).
 
@@ -322,8 +395,9 @@ Reset tokens are the verification token's rules, applied to a stronger credentia
   verification link, because a reset link is a live credential for an account that already exists)
 - single-use, and one outstanding token per user, so requesting a new link invalidates the
   previous one
-- redemption consumes the token and writes the new password inside **one** transaction, so the
-  two cannot come apart and only the request that actually removed the row succeeds
+- redemption consumes the token, writes the new password and increments `sessionVersion` inside
+  **one** transaction, so none of the three can happen without the others and only the request
+  that actually removed the row succeeds
 
 `POST /auth/reset-password` applies the same password policy as registration — an old password
 that predates a policy change still authenticates, but a newly chosen one must satisfy today's
@@ -354,17 +428,18 @@ Redeeming also marks the address verified if it was not already, and drops any p
 verification token: holding the reset link proves exactly what a verification link proves. Without
 that, an account that never verified could reset its password and still be unable to sign in. An
 already-verified account keeps its original `emailVerifiedAt` — a reset is not a second
-verification event. Nothing else changes: not the role, not the plan, not a linked Google account.
+verification event. Apart from the session version, nothing else changes: not the role, not the
+plan, not a linked Google account.
 
 The link points at `WEB_BASE_URL/reset-password?token=...`. The web pages are `/forgot-password`
 and `/reset-password`, built from the same `AuthCard` and form styles as Login, Register and
 Verify Email, and reachable from a **Forgot your password?** link on the sign-in form.
 
-**A reset does not end existing sessions.** The session token is a stateless JWT that the API
-validates by signature and expiry, so there is nothing to revoke short of a session-version column
-or a server-side session store, and either one is a larger change than this feature justifies.
-Until then, an attacker who already holds a live session cookie keeps it for up to
-`AUTH_TOKEN_TTL_SECONDS` after the victim resets. This is the top production-hardening item below.
+**A reset ends every existing session.** The increment of `sessionVersion` is part of the same
+`UPDATE` that installs the new password, so every session the account had — a second device, or a
+cookie an attacker captured — gets the generic `401` on its next request, while a failed, expired,
+unknown or already-used token revokes nothing. The reset itself issues no session: the user signs
+in with the new password afterwards, and that token carries the incremented version.
 
 ## Configuration and secrets
 
@@ -387,7 +462,8 @@ Auth emits stable structured events — `auth.login.succeeded`, `auth.login.fail
 `auth.register.completed`, `auth.email.verification.sent`, `auth.email.verification.completed`,
 `auth.google.callback.completed`, `auth.google.account.linked`,
 `auth.google.account.link.refused`, `auth.google.user.created`,
-`auth.password.reset.requested`, `auth.password.reset.completed`, and their failure counterparts.
+`auth.password.reset.requested`, `auth.password.reset.completed`, `auth.sessions.revoked` (with
+`reason` `password_reset` or `sign_out_everywhere`), and their failure counterparts.
 The Google events carry the resolved `emailAuthority`, so an operator can see *why* a link was
 allowed or refused without re-deriving it. Correlation uses the internal `actorUserId` once identity is
 established; email is not used as a correlation key. Tokens, passwords, cookies, JWTs, SMTP
@@ -411,12 +487,10 @@ ship without it stays visible.
 
 ### Must do before public production
 
-1. **Session invalidation (SESSION-002, DEC-003: implement).** See *What a session is, and what
-   ends it* for the model and the revocation matrix: logout is browser-local and a password reset
-   does not end other sessions, so a captured cookie keeps access for up to
-   `AUTH_TOKEN_TTL_SECONDS`. The remedy is a `sessionVersion` integer on `User`, carried as a JWT
-   claim and compared during the guard's existing reload, bumped on password reset and on an
-   explicit "sign out everywhere".
+1. **Session invalidation — done (SESSION-002, DEC-003).** `User.sessionVersion` is carried as
+   the `sv` claim and compared during the guard's existing per-request reload; a password reset
+   and `POST /auth/logout-all` increment it. See *What a session is, and what ends it* for the
+   model, the rollout rule, the revocation matrix and the residual limitations.
 2. **Rate limiting — done.** It exists as one cross-application concern, never as an entitlement
    (`AGENTS.md` invariant 17): `apps/api/src/rate-limit`, described in `rate-limiting.md`. Every
    credential, registration and recovery route uses the IP-keyed, fail-closed `auth-sensitive`

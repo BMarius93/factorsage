@@ -164,6 +164,40 @@ describe("password recovery", () => {
     return request(app.getHttpServer()).post("/auth/login").send({ email, password });
   }
 
+  /** One independent browser: signs in and returns the raw session token its cookie holds. */
+  async function signIn(email: string, password: string): Promise<string> {
+    const response = await login(email, password).expect(200);
+    const header = (response.headers["set-cookie"] as unknown as string[]).find(
+      (value) => value.startsWith("test_auth="),
+    );
+    const token = decodeURIComponent(
+      header?.split(";", 1)[0]?.slice("test_auth=".length) ?? "",
+    );
+    expect(token).toBeTruthy();
+    return token;
+  }
+
+  function me(sessionToken: string) {
+    return request(app.getHttpServer())
+      .get("/auth/me")
+      .set("Cookie", `test_auth=${sessionToken}`);
+  }
+
+  function sessionVersionClaim(sessionToken: string): unknown {
+    const payload = JSON.parse(
+      Buffer.from(sessionToken.split(".")[1] ?? "", "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    return payload.sv;
+  }
+
+  async function storedSessionVersion(userId: string): Promise<number> {
+    const row = await prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { sessionVersion: true },
+    });
+    return row.sessionVersion;
+  }
+
   it("answers identically for an unknown address, a Google-only account, and a real one", async () => {
     const unknown = `absent-${suffix}@example.test`;
     const googleOnly = uniqueEmail("reset-google-only");
@@ -351,6 +385,8 @@ describe("password recovery", () => {
       200, 401,
     ]);
     await login(user.email, oldPassword).expect(401);
+    // Only the winning redemption bumped the version.
+    expect(await storedSessionVersion(user.id)).toBe(1);
   });
 
   type RotationRace = {
@@ -656,7 +692,7 @@ describe("password recovery", () => {
     expect(after.emailVerifiedAt?.getTime()).toBe(verifiedAt.getTime());
   });
 
-  it("changes nothing but the password", async () => {
+  it("changes nothing but the password and the session version", async () => {
     const email = uniqueEmail("reset-scope");
     const before = await prisma.user.create({
       data: {
@@ -683,6 +719,7 @@ describe("password recovery", () => {
     });
     expect(after.role).toBe("ADMIN");
     expect(after.plan).toBe("PRO");
+    expect(after.sessionVersion).toBe(before.sessionVersion + 1);
     expect(after.email).toBe(email);
     // A reset is not an identity change: the linked Google account stays linked.
     expect(after.oauthAccounts).toHaveLength(1);
@@ -706,6 +743,7 @@ describe("password recovery", () => {
 
     const output = logs.output();
     expect(output).toContain("auth.password.reset.completed");
+    expect(output).toContain('"reason":"password_reset"');
     expect(output).not.toContain(token);
     expect(output).not.toContain(newPassword);
     expect(output).not.toContain(oldPassword);
@@ -713,5 +751,105 @@ describe("password recovery", () => {
     // The internal user ID is the correlation key, never the address.
     expect(output).toContain(user.id);
     expect(output).not.toContain(user.email);
+  });
+  describe("revoking sessions", () => {
+    it("signs every existing session out and issues new ones at the next version", async () => {
+      const user = await localUser("reset-revokes");
+      const browserA = await signIn(user.email, oldPassword);
+      const browserB = await signIn(user.email, oldPassword);
+      await me(browserA).expect(200);
+      await me(browserB).expect(200);
+      expect(sessionVersionClaim(browserA)).toBe(0);
+
+      await forgot(user.email).expect(202);
+      const response = await reset(tokenFromLastEmail(sender), newPassword).expect(200);
+
+      // The reset issues no session of its own.
+      expect(response.headers["set-cookie"]).toBeUndefined();
+      await me(browserA).expect(401);
+      await me(browserB).expect(401);
+      await login(user.email, oldPassword).expect(401);
+      const fresh = await signIn(user.email, newPassword);
+      expect(sessionVersionClaim(fresh)).toBe(1);
+      expect(await storedSessionVersion(user.id)).toBe(1);
+      await me(fresh).expect(200);
+    });
+
+    it("revokes nothing when the token is unknown", async () => {
+      const user = await localUser("reset-unknown-keeps");
+      const session = await signIn(user.email, oldPassword);
+      await forgot(user.email).expect(202);
+
+      await reset("not-a-real-token", newPassword).expect(401);
+
+      await me(session).expect(200);
+      expect(await storedSessionVersion(user.id)).toBe(0);
+    });
+
+    it("revokes nothing when the token has expired", async () => {
+      const user = await localUser("reset-expired-keeps");
+      const session = await signIn(user.email, oldPassword);
+      await forgot(user.email).expect(202);
+      const token = tokenFromLastEmail(sender);
+      await prisma.passwordResetToken.update({
+        where: { userId: user.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+
+      await reset(token, newPassword).expect(401);
+
+      await me(session).expect(200);
+      expect(await storedSessionVersion(user.id)).toBe(0);
+    });
+
+    it("revokes nothing more when a used token is replayed", async () => {
+      const user = await localUser("reset-replay-keeps");
+      await forgot(user.email).expect(202);
+      const token = tokenFromLastEmail(sender);
+      await reset(token, newPassword).expect(200);
+      const session = await signIn(user.email, newPassword);
+
+      await reset(token, "Third-test-password-42").expect(401);
+
+      await me(session).expect(200);
+      expect(await storedSessionVersion(user.id)).toBe(1);
+    });
+
+    it("rolls the password and the revocation back together when the redemption fails", async () => {
+      const user = await localUser("reset-rollback");
+      const session = await signIn(user.email, oldPassword);
+      await forgot(user.email).expect(202);
+      const token = tokenFromLastEmail(sender);
+
+      // Fail the redemption's last statement, after the password and the version were written
+      // inside the same real PostgreSQL transaction.
+      const runTransaction = prisma.$transaction.bind(prisma) as (
+        callback: (tx: unknown) => Promise<unknown>,
+      ) => Promise<unknown>;
+      vi.spyOn(prisma, "$transaction").mockImplementation(((
+        callback: (tx: unknown) => Promise<unknown>,
+      ) =>
+        runTransaction((tx) => {
+          const scoped = tx as Record<string, unknown>;
+          return callback({
+            passwordResetToken: scoped.passwordResetToken,
+            user: scoped.user,
+            emailVerificationToken: {
+              deleteMany: () => Promise.reject(new Error("injected failure")),
+            },
+          });
+        })) as never);
+
+      await reset(token, newPassword).expect(500);
+      vi.restoreAllMocks();
+
+      expect(await storedSessionVersion(user.id)).toBe(0);
+      await me(session).expect(200);
+      await login(user.email, newPassword).expect(401);
+      await login(user.email, oldPassword).expect(200);
+      // The consume rolled back too, so the link still works once the failure is gone.
+      await reset(token, newPassword).expect(200);
+      await me(session).expect(401);
+    });
   });
 });

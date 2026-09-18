@@ -114,5 +114,12 @@ export class PasswordRecoveryService {
       event: "auth.password.reset.completed",
       actorUserId: userId,
     });
+    // The redemption transaction also bumped the session version: every session the account had,
+    // including one an attacker captured, ended with the old password.
+    this.logger.info({
+      event: "auth.sessions.revoked",
+      actorUserId: userId,
+      reason: "password_reset",
+    });
   }
 }
