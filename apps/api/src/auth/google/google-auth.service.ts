@@ -179,15 +179,17 @@ export class GoogleAuthService {
       );
     }
 
-    const user = await this.users.linkOAuthAccount({
-      userId: existing.id,
-      provider: OAuthProvider.GOOGLE,
-      providerAccountId: identity.providerAccountId,
-    });
+    const { user, discardedUnverifiedPassword } =
+      await this.users.linkOAuthAccount({
+        userId: existing.id,
+        provider: OAuthProvider.GOOGLE,
+        providerAccountId: identity.providerAccountId,
+      });
     this.logger.info({
       event: "auth.google.account.linked",
       actorUserId: user.id,
       emailAuthority: authority,
+      discardedUnverifiedPassword,
     });
     return this.users.toAuthUser(user);
   }

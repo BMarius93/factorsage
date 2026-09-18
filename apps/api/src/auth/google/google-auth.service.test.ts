@@ -102,7 +102,10 @@ function stubUsers(script: {
     },
     linkOAuthAccount: () => {
       calls.link += 1;
-      return Promise.resolve(script.onLink?.() ?? userRow());
+      return Promise.resolve({
+        user: script.onLink?.() ?? userRow(),
+        discardedUnverifiedPassword: false,
+      });
     },
     markEmailVerified: (id: string) =>
       Promise.resolve(userRow({ id, emailVerifiedAt: new Date() })),

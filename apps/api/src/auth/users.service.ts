@@ -93,32 +93,54 @@ export class UsersService {
    *
    * Callers must already have established that the provider is authoritative for the address —
    * `google-email-authority.ts` for Google. This service does not decide whether linking is safe.
+   *
+   * An account that was never verified loses its local password in the same transaction. Nobody
+   * proved that password belongs to the mailbox owner: anyone can register an address they do not
+   * control, and adopting that row as-is would let whoever chose the password sign in to the
+   * owner's account. The result is a verified, external-only account. An already-verified account
+   * keeps its password, because its owner proved control of both.
    */
-  async linkOAuthAccount(input: {
+  linkOAuthAccount(input: {
     userId: string;
     provider: OAuthProvider;
     providerAccountId: string;
-  }): Promise<SafeUser> {
-    const [, user] = await this.prisma.$transaction([
-      this.prisma.oAuthAccount.create({
+  }): Promise<{ user: SafeUser; discardedUnverifiedPassword: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      // Decided here, not from the caller's earlier read: a verification redeemed in the meantime
+      // makes the password the owner's. The conditional update is both the decision and the row
+      // lock, so a redemption cannot land between it and the verification below.
+      const { count } = await tx.user.updateMany({
+        where: { id: input.userId, emailVerifiedAt: null },
+        data: { passwordHash: null },
+      });
+      const discardedUnverifiedPassword = count === 1;
+      if (discardedUnverifiedPassword) {
+        // A reset link for a password that no longer exists would mint a new one for whoever
+        // holds the link, so it goes with the credential.
+        await tx.passwordResetToken.deleteMany({
+          where: { userId: input.userId },
+        });
+      }
+
+      await tx.oAuthAccount.create({
         data: {
           userId: input.userId,
           provider: input.provider,
           providerAccountId: input.providerAccountId,
         },
-      }),
-      this.prisma.user.update({
+      });
+      const user = await tx.user.update({
         where: { id: input.userId },
         data: { emailVerifiedAt: new Date() },
         select: SAFE_USER_SELECT,
-      }),
+      });
       // A pending local verification token is meaningless once the provider proved the address.
-      this.prisma.emailVerificationToken.deleteMany({
+      await tx.emailVerificationToken.deleteMany({
         where: { userId: input.userId },
-      }),
-    ]);
+      });
 
-    return user;
+      return { user, discardedUnverifiedPassword };
+    });
   }
 
   /** Creates an external-identity-only, already-verified user with no local password. */
