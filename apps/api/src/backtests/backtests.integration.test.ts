@@ -18,6 +18,10 @@ import {
   type BenchmarkResponse,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
+import {
+  EXECUTION_CALENDAR_REFERENCE_CODE,
+  MARKET_REFERENCE_SERIES,
+} from "@intrinsic/domain";
 import { PrismaBenchmarkDataStore } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import { useTestDatabase } from "@intrinsic/testing";
@@ -1531,68 +1535,79 @@ describe("backtests", () => {
       code,
       name: "Pinned Fixture",
       sourceKind: "FMP_SYMBOL" as const,
+      seriesType: "ETF_PROXY" as const,
       providerSymbol: "OLDSYM",
       currency: "USD",
       methodologyVersion: 1,
       isActive: true,
+      isBacktestSelectable: true,
       displayOrder: 50,
     };
-    await store.reconcileBenchmarkCatalog([definition]);
+    try {
+      await store.reconcileBenchmarkCatalog([definition]);
 
-    const run = await submit({ benchmarkCode: code });
-    const before = await prisma.backtestRun.findUniqueOrThrow({
-      where: { id: run.id },
-      select: { benchmarkSeriesId: true, snapshot: true },
-    });
+      const run = await submit({ benchmarkCode: code });
+      const before = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
 
-    // The catalog advances: re-sourced under a new methodology. This is the moment the old design
-    // lost reproducibility — the row every historical bar hung off was edited in place, and a run
-    // that had not started yet would have executed against a definition it never chose.
-    await store.reconcileBenchmarkCatalog([
-      { ...definition, providerSymbol: "NEWSYM", methodologyVersion: 2 },
-    ]);
-    const versions = await prisma.benchmarkSeries.findMany({
-      where: { benchmark: { code } },
-      orderBy: { version: "asc" },
-    });
-    expect(versions).toHaveLength(2);
-    expect(versions[1]?.providerSymbol).toBe("NEWSYM");
+      // The catalog advances: re-sourced under a new methodology. This is the moment the old design
+      // lost reproducibility — the row every historical bar hung off was edited in place, and a run
+      // that had not started yet would have executed against a definition it never chose.
+      await store.reconcileBenchmarkCatalog([
+        { ...definition, providerSymbol: "NEWSYM", methodologyVersion: 2 },
+      ]);
+      const versions = await prisma.benchmarkSeries.findMany({
+        where: { benchmark: { code } },
+        orderBy: { version: "asc" },
+      });
+      expect(versions).toHaveLength(2);
+      expect(versions[1]?.providerSymbol).toBe("NEWSYM");
 
-    // The run still points at v1, and its snapshot still describes v1.
-    const after = await prisma.backtestRun.findUniqueOrThrow({
-      where: { id: run.id },
-      select: { benchmarkSeriesId: true, snapshot: true },
-    });
-    expect(after.benchmarkSeriesId).toBe(before.benchmarkSeriesId);
-    expect(after.benchmarkSeriesId).toBe(versions[0]?.id);
-    const snapshot = after.snapshot as unknown as BacktestRunSnapshot;
-    expect(snapshot.benchmark.seriesId).toBe(versions[0]?.id);
-    expect(snapshot.benchmark.seriesVersion).toBe(1);
-    expect(snapshot.benchmark.providerSymbol).toBe("OLDSYM");
+      // The run still points at v1, and its snapshot still describes v1.
+      const after = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
+      expect(after.benchmarkSeriesId).toBe(before.benchmarkSeriesId);
+      expect(after.benchmarkSeriesId).toBe(versions[0]?.id);
+      const snapshot = after.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.benchmark.seriesId).toBe(versions[0]?.id);
+      expect(snapshot.benchmark.seriesVersion).toBe(1);
+      expect(snapshot.benchmark.providerSymbol).toBe("OLDSYM");
 
-    const detail = await owner.get(`/backtests/${run.id}`).expect(200);
-    const body = detail.body as BacktestRunDetailResponse;
-    expect(body.configuration.benchmark.methodologyVersion).toBe(1);
-    // And the browser still never learns which ticker backs the code.
-    expect(JSON.stringify(body)).not.toContain("NEWSYM");
-    expect(JSON.stringify(body)).not.toContain("OLDSYM");
+      const detail = await owner.get(`/backtests/${run.id}`).expect(200);
+      const body = detail.body as BacktestRunDetailResponse;
+      expect(body.configuration.benchmark.methodologyVersion).toBe(1);
+      // And the browser still never learns which ticker backs the code.
+      expect(JSON.stringify(body)).not.toContain("NEWSYM");
+      expect(JSON.stringify(body)).not.toContain("OLDSYM");
 
-    // Returning the catalog to its earlier definition is a *new* version, not a resurrection of
-    // the old one: its data would be fetched fresh, and v1 keeps everything already stored for it.
-    await store.reconcileBenchmarkCatalog([definition]);
-    const restored = await prisma.benchmarkSeries.findMany({
-      where: { benchmark: { code } },
-      orderBy: { version: "asc" },
-    });
-    expect(restored).toHaveLength(3);
-    expect(restored[2]?.providerSymbol).toBe("OLDSYM");
-    expect(restored[2]?.id).not.toBe(versions[0]?.id);
+      // Returning the catalog to its earlier definition is a *new* version, not a resurrection of
+      // the old one: its data would be fetched fresh, and v1 keeps everything already stored for it.
+      await store.reconcileBenchmarkCatalog([definition]);
+      const restored = await prisma.benchmarkSeries.findMany({
+        where: { benchmark: { code } },
+        orderBy: { version: "asc" },
+      });
+      expect(restored).toHaveLength(3);
+      expect(restored[2]?.providerSymbol).toBe("OLDSYM");
+      expect(restored[2]?.id).not.toBe(versions[0]?.id);
 
-    // Reconciling the same catalog twice appends nothing.
-    await store.reconcileBenchmarkCatalog([definition]);
-    expect(
-      await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
-    ).toBe(3);
+      // Reconciling the same catalog twice appends nothing.
+      await store.reconcileBenchmarkCatalog([definition]);
+      expect(
+        await prisma.benchmarkSeries.count({ where: { benchmark: { code } } }),
+      ).toBe(3);
+    } finally {
+      // This fixture is active and selectable while the test needs it, and it must not outlive the
+      // test: a leaked `PINNED_…` row is a real entry in `GET /benchmarks`, and 227 of them had
+      // accumulated in the shared test database before this cleanup existed. Runs first, because
+      // they hold the benchmark with `onDelete: Restrict`; series and bars cascade.
+      await prisma.backtestRun.deleteMany({ where: { benchmark: { code } } });
+      await prisma.benchmark.deleteMany({ where: { code } });
+    }
   });
 
   it("pins the system execution calendar on every submitted run", async () => {
@@ -1615,6 +1630,99 @@ describe("backtests", () => {
     expect(
       await prisma.benchmarkSeries.count({ where: { id: reference.id } }),
     ).toBe(1);
+  });
+
+  /**
+   * The backtest benchmark did not move when the Dashboard's market references arrived.
+   *
+   * `SP500` is `SPY`, an investable ETF proxy, and it stays that way: a funded comparison portfolio
+   * has to be able to buy what it is compared against, and every completed run pinned that meaning.
+   * `SP500_INDEX`/`^GSPC` is a *different* series for reporting the market, not a correction of
+   * this one — so none of it may leak into a submission, a picker or a pinned snapshot.
+   */
+  describe("market references never become the backtest benchmark", () => {
+    it("still resolves SP500 to the SPY-backed series and pins it", async () => {
+      const run = await submit();
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { benchmarkSeriesId: true, snapshot: true },
+      });
+      const series = await prisma.benchmarkSeries.findUniqueOrThrow({
+        where: { id: stored.benchmarkSeriesId ?? "" },
+      });
+
+      expect(series.providerSymbol).toBe("SPY");
+      expect(series.seriesType).toBe("ETF_PROXY");
+      const snapshot = stored.snapshot as unknown as BacktestRunSnapshot;
+      expect(snapshot.benchmark.code).toBe("SP500");
+      expect(snapshot.benchmark.providerSymbol).toBe("SPY");
+      expect(snapshot.benchmark.seriesId).toBe(series.id);
+    });
+
+    it("still runs the execution calendar off SP500/SPY", async () => {
+      const run = await submit();
+      const stored = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { executionCalendarSeriesId: true },
+      });
+      const calendar = await prisma.benchmarkSeries.findUniqueOrThrow({
+        where: { id: stored.executionCalendarSeriesId },
+        include: { benchmark: true },
+      });
+
+      expect(EXECUTION_CALENDAR_REFERENCE_CODE).toBe("SP500");
+      expect(calendar.benchmark.code).toBe("SP500");
+      expect(calendar.providerSymbol).toBe("SPY");
+      expect(calendar.seriesType).toBe("ETF_PROXY");
+    });
+
+    it("offers exactly S&P 500 in the selectable catalog", async () => {
+      const listed = (await owner.get("/benchmarks").expect(200))
+        .body as { code: string }[];
+
+      // Exactly, not "contains": the product exposes one benchmark to a user, and a fixture that
+      // leaks a selectable row out of another suite should fail here rather than be tolerated.
+      expect(listed.map((benchmark) => benchmark.code)).toEqual(["SP500"]);
+      // The market references are active and loaded — and still never offered.
+      for (const reference of MARKET_REFERENCE_SERIES) {
+        const row = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: reference.code },
+        });
+        expect(row.isActive).toBe(true);
+        expect(row.isBacktestSelectable).toBe(false);
+      }
+    });
+
+    it("refuses a submission that names an internal market reference", async () => {
+      const before = await prisma.backtestRun.count({
+        where: { userId: ownerUserId },
+      });
+
+      for (const reference of MARKET_REFERENCE_SERIES) {
+        // The row exists and is active — this is not a "not found"; it is a refusal to let a user
+        // compare a portfolio against something nothing can hold.
+        const registered = await prisma.benchmark.findUniqueOrThrow({
+          where: { code: reference.code },
+        });
+        expect(registered.isActive).toBe(true);
+        expect(registered.isBacktestSelectable).toBe(false);
+
+        // 400 with the catalog's existing wording, not a new error class: to a submitter, a
+        // benchmark that may not be selected and one that does not exist are the same refusal.
+        const response = await owner
+          .post("/backtests")
+          .send(submission({ benchmarkCode: reference.code }))
+          .expect(400);
+        expect((response.body as { message: string }).message).toContain(
+          "is not a selectable benchmark",
+        );
+      }
+
+      // And nothing was created on the way to those refusals.
+      expect(await prisma.backtestRun.count({ where: { userId: ownerUserId } })).toBe(
+        before,
+      );
+    });
   });
 
   it("refuses to accept a run when the system execution calendar is not registered", async () => {

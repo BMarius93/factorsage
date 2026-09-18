@@ -5,6 +5,7 @@ export {
   BacktestRunStatus,
   BacktestTradeAction,
   BenchmarkDataset,
+  BenchmarkSeriesType,
   BenchmarkSourceKind,
   BuyWindowMode,
   ContentOwnership,

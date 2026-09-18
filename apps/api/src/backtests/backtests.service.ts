@@ -733,8 +733,17 @@ export class BacktestsService {
     this.entitlements.assertBacktestSymbolLimit(user, stockList.items.length);
 
     const benchmarkCode = input.benchmarkCode ?? DEFAULT_BENCHMARK_CODE;
+    // `isBacktestSelectable` as well as `isActive`, and the same refusal for both. An internal
+    // market reference — `SP500_INDEX`, `DJIA_INDEX`, `VIX_INDEX` — is a perfectly live series that
+    // the Dashboard reads and the loader hydrates; it is simply not something a user may compare a
+    // portfolio against, so naming one here is rejected exactly like naming a benchmark that does
+    // not exist. Leaving it to the picker would have made the rule presentational.
     const benchmark = await this.prisma.benchmark.findFirst({
-      where: { code: benchmarkCode, isActive: true },
+      where: {
+        code: benchmarkCode,
+        isActive: true,
+        isBacktestSelectable: true,
+      },
       include: { series: { orderBy: { version: "desc" }, take: 1 } },
     });
     if (!benchmark) {

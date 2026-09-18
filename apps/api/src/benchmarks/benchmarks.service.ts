@@ -9,6 +9,12 @@ import { PrismaService } from "../database/prisma.service";
  * `providerSymbol` is deliberately absent from the projection. Which series backs `SP500` is a
  * server-side sourcing decision that may change without changing what the product means, and the
  * browser selects a code, never a ticker.
+ *
+ * This is the **backtest** catalog, so it is filtered by `isBacktestSelectable` as well as by
+ * `isActive`. The market-reference indices are active benchmarks that the system loads and stores
+ * like any other, and they are not something a portfolio can be compared against — nothing buys
+ * `^GSPC`, and `^VIX` is a level rather than a price. They are reported by `/market-overview`
+ * instead, and a Guest reads that without a session.
  */
 @Injectable()
 export class BenchmarksService {
@@ -16,7 +22,7 @@ export class BenchmarksService {
 
   async listBenchmarks(): Promise<BenchmarkResponse[]> {
     const rows = await this.prisma.benchmark.findMany({
-      where: { isActive: true },
+      where: { isActive: true, isBacktestSelectable: true },
       orderBy: [{ displayOrder: "asc" }, { code: "asc" }],
       select: {
         id: true,

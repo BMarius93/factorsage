@@ -135,6 +135,36 @@ behaviour, that is the point to generalise, with the shared thing modelling save
 New Backtest must use this phone action bar. Its summary should describe the current configuration
 or allocation state, never V1 credits.
 
+### The Dashboard overview strip
+
+The Dashboard opens with V1's own five-card row — `Run Backtest · S&P 500 · DJIA · VIX · Real-time
+Matches` — directly under the page header and above the signals table. It is a feature-owned
+composition, not a `SectionCard`: five small cards on the page canvas, measured against V1 at 76px
+on a phone and 120px from 880px, with the label/value/change hierarchy and the right-hand
+seven-session sparkline V1 uses. Two departures from V1 are deliberate:
+
+- **flat, not elevated.** V1 gives each card a soft drop shadow and the action card a blue gradient.
+  V2 surfaces use `--shadow-surface` (`none`) and a flat `--color-primary` fill, because a glow
+  under every panel is the single loudest thing that made V2 read as a different product.
+- **the session date, not `24h`.** V1's change pill says `24h`; these are end-of-day closes compared
+  session over session, so the pill carries the session the close belongs to instead. A market card
+  must not claim a freshness it does not have.
+
+**VIX is read as a gauge, not a trend.** It is a level, not a price, so its card keeps the family's
+size, border, radius and padding and swaps the sparkline for a segmented semicircular arc with a
+marker, the level set inside the arc and its zone underneath (`Very low · Normal · Elevated · High ·
+Extreme`, from `features/market/utils/vix.ts`, the one place the thresholds live). The number is
+always the real `^VIX` close. The arc is an explicitly clamped 0–80 display range — the marker pins
+to the end at 80 or more while the text keeps the real value — and runs green → amber → red because
+a low VIX is calm, the opposite of a fear/greed dial. Colours are the financial-state tokens and
+blends of adjacent ones, mapped once. The session-over-session change stays, secondary, beside the
+title. On a phone the card is `VIX · 15.43 · Normal`; an arc in 65px would not be legible. It is
+never called Fear & Greed or given a sentiment score.
+
+`Run Backtest` is a card in the same family, not a button beside cards, and it wears the product's
+one solid-blue action treatment because it is the only thing in the strip that does something. Do
+not add a sixth card: the metrics deliberately left out are listed in `benchmark-data.md`.
+
 ## Visual tokens and elevation
 
 Ordinary product surfaces use:

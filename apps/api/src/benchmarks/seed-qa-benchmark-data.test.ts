@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   qaBenchmarkTradingDays,
+  qaMarketReferenceTradingDays,
   seedQaBenchmarkDataWith,
+  seedQaMarketReferenceDataWith,
 } from "./seed-qa-benchmark-data";
 import { qaTradingDays } from "../stocks/seed-qa-stock-data";
 
@@ -86,5 +88,126 @@ describe("QA benchmark seed", () => {
       expect(row.low).toBeLessThanOrEqual(row.close);
       expect(row.volume).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The Dashboard's market cards are asserted on exact values in unit tests, Playwright and
+ * screenshots, so the fixture behind them has to be a fact rather than a tendency.
+ */
+describe("QA market-reference seed", () => {
+  const sp500 = qaMarketReferenceTradingDays(
+    "SP500_INDEX",
+    "series-sp500-index",
+    TODAY,
+  );
+  const vix = qaMarketReferenceTradingDays("VIX_INDEX", "series-vix", TODAY);
+
+  it("pins the latest session, the previous close and the seven-session trend", () => {
+    // These are the numbers a screenshot records and a Playwright assertion reads. They must not
+    // depend on what the real S&P 500 did today.
+    expect(sp500.at(-1)?.close).toBe(7637.05);
+    expect(sp500.at(-2)?.close).toBe(7551.81);
+    expect(sp500.slice(-7).map((row) => row.close)).toEqual([
+      7521.35, 7588.02, 7612.3, 7604.77, 7599.18, 7551.81, 7637.05,
+    ]);
+    expect(
+      qaMarketReferenceTradingDays("DJIA_INDEX", "series-djia", TODAY).at(-1)
+        ?.close,
+    ).toBe(51778.04);
+  });
+
+  it("gives VIX a fall, so the negative treatment is covered by data", () => {
+    const latest = vix.at(-1)?.close as number;
+    const previous = vix.at(-2)?.close as number;
+    expect(latest).toBe(15.43);
+    expect(previous).toBe(17.71);
+    expect(latest).toBeLessThan(previous);
+  });
+
+  it("produces weekday sessions only, none in the future, and reruns identically", () => {
+    expect(
+      qaMarketReferenceTradingDays("SP500_INDEX", "series-sp500-index", TODAY),
+    ).toEqual(sp500);
+    for (const row of sp500) {
+      const weekday = new Date(`${row.date}T00:00:00.000Z`).getUTCDay();
+      expect(weekday).toBeGreaterThanOrEqual(1);
+      expect(weekday).toBeLessThanOrEqual(5);
+      expect(row.date <= TODAY).toBe(true);
+    }
+    // Ascending and unique, so "the latest session" is unambiguous.
+    const dates = sp500.map((row) => row.date);
+    expect([...dates].sort()).toEqual(dates);
+    expect(new Set(dates).size).toBe(dates.length);
+  });
+
+  it("holds the same values whichever weekday it is generated on", () => {
+    // The dates slide with the calendar; the closes must not, or every screenshot would differ by
+    // the day of the week it was taken on.
+    for (const day of [
+      "2026-09-14",
+      "2026-09-17",
+      "2026-09-19",
+      "2026-09-20",
+    ]) {
+      const generated = qaMarketReferenceTradingDays(
+        "SP500_INDEX",
+        "series-sp500-index",
+        day,
+      );
+      expect(generated.slice(-7).map((row) => row.close)).toEqual(
+        sp500.slice(-7).map((row) => row.close),
+      );
+    }
+  });
+
+  it("says VIX has no traded volume rather than inventing one", () => {
+    for (const row of vix) {
+      expect(row.volume).toBe(0);
+      expect(row.close).toBeGreaterThan(0);
+      expect(row.high).toBeGreaterThanOrEqual(row.close);
+      expect(row.low).toBeLessThanOrEqual(row.close);
+    }
+  });
+
+  it("claims coverage over exactly what it generated, for each series independently", async () => {
+    const claimed: { seriesId: string; from: string; to: string }[] = [];
+    const store = {
+      reconcileBenchmarkCatalog: async (entries: readonly { code: string }[]) =>
+        entries.map((entry) => ({
+          code: entry.code,
+          series: { id: `series-${entry.code}` },
+        })),
+      saveDailyPriceSync: async (input: {
+        seriesId: string;
+        successfulCoverage: readonly { from: string; to: string }[];
+      }) => {
+        claimed.push(
+          ...input.successfulCoverage.map((range) => ({
+            seriesId: input.seriesId,
+            ...range,
+          })),
+        );
+      },
+    };
+
+    const seeded = await seedQaMarketReferenceDataWith(store as never, TODAY);
+
+    expect(seeded.map((entry) => entry.code)).toEqual([
+      "SP500_INDEX",
+      "DJIA_INDEX",
+      "VIX_INDEX",
+    ]);
+    expect(claimed).toHaveLength(3);
+    // One claim per series, each keyed by its own series id: no seed can write into another's rows.
+    expect(new Set(claimed.map((range) => range.seriesId)).size).toBe(3);
+    for (const range of claimed) {
+      expect(range.to).toBe(TODAY);
+      expect(range.from <= TODAY).toBe(true);
+    }
+    // And never into the backtest benchmark's series.
+    expect(claimed.map((range) => range.seriesId)).not.toContain(
+      "series-SP500",
+    );
   });
 });

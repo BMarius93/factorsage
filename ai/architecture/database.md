@@ -111,9 +111,9 @@ Migration `20260907195815_add_backtests_and_benchmarks` adds the Backtest V1 sli
 phase column.
 
 **Benchmarks.** `Benchmark` is system-owned product identity (`code` unique, `name`, `description`,
-`isActive`, `displayOrder`). Everything that decides what its numbers _are_ lives on
-`BenchmarkSeries` — an **append-only** definition (`sourceKind`, `providerSymbol`, `currency`,
-`methodologyVersion`) with `@@unique([benchmarkId, version])`. Reconciliation compares against the
+`isActive`, `isBacktestSelectable`, `displayOrder`). Everything that decides what its numbers _are_
+lives on `BenchmarkSeries` — an **append-only** definition (`sourceKind`, `seriesType`,
+`providerSymbol`, `currency`, `methodologyVersion`) with `@@unique([benchmarkId, version])`. Reconciliation compares against the
 version currently in force and appends when it differs, which is what makes it idempotent — there is
 deliberately no unique constraint over the definition itself, because that would make returning a
 benchmark to a source it used before impossible. `BenchmarkDailyPrice` is keyed `@@id([seriesId, date])`, and
@@ -130,6 +130,28 @@ deliberately **separate tables from `Security`/`DailyPrice`**: a benchmark is pa
 data with no fundamentals, no derived state and no position, and folding it into the security
 catalog would drag all of that along with it. `BenchmarkSourceKind` ships one member, `FMP_SYMBOL`;
 `BenchmarkDataset` ships one member, `DAILY_PRICE`. See `benchmark-data.md`.
+
+Migration `20260917203000_benchmark_series_type_and_backtest_selectable` adds the two columns that
+keep the Dashboard's market references apart from the backtest benchmark, and is additive in both
+directions:
+
+- `Benchmark.isBacktestSelectable` (`BOOLEAN NOT NULL DEFAULT true`) — whether a **user** may pick
+  it for a backtest, which is a different question from `isActive`, "does the system maintain it at
+  all". Every row that existed before the migration was selectable, so the default preserves its
+  behaviour exactly and `SP500` is untouched.
+- `BenchmarkSeries.seriesType` (`BenchmarkSeriesType`: `ETF_PROXY | INDEX`) — what the object behind
+  the series _is_, as opposed to `sourceKind`, which says how it is fetched. `SPY` and `^GSPC` are
+  both `FMP_SYMBOL`; only one of them is something a funded comparison portfolio could buy.
+
+  Added nullable, backfilled to `ETF_PROXY` — every series written before this migration is the
+  `SPY` proxy behind `SP500` — and only then made `NOT NULL`, with no column default left behind so
+  a new series must state what it is. It is part of the **immutable** definition: catalog
+  reconciliation compares it along with the provider symbol, so moving a code from a proxy to the
+  index itself appends a version rather than reinterpreting the bars already stored.
+
+The catalog gains three rows with it — `SP500_INDEX` (`^GSPC`), `DJIA_INDEX` (`^DJI`) and
+`VIX_INDEX` (`^VIX`) — all `isActive = true`, `isBacktestSelectable = false`, `seriesType = INDEX`.
+They are written by the ordinary boot-time reconciliation, not by the migration.
 
 **Backtests.** `BacktestRun` carries ownership, denormalized configuration columns for the
 collection page, and the immutable `snapshot` JSON plus its `snapshotHash`. Its

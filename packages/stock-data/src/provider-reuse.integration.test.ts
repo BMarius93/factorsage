@@ -229,10 +229,14 @@ describeReuse("provider reuse across repeated reads", () => {
         code: `REUSE${suffix.slice(0, 6).toUpperCase()}`,
         name: "Reuse Benchmark",
         sourceKind: "FMP_SYMBOL",
+        seriesType: "ETF_PROXY",
         providerSymbol: "REUSE",
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
+        // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+        // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+        isBacktestSelectable: false,
         displayOrder: 90,
       },
     ]);
@@ -243,10 +247,12 @@ describeReuse("provider reuse across repeated reads", () => {
         code: `BOUND${suffix.slice(0, 6).toUpperCase()}`,
         name: "Bounded Benchmark",
         sourceKind: "FMP_SYMBOL",
+        seriesType: "ETF_PROXY",
         providerSymbol: "BOUND",
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
+        isBacktestSelectable: false,
         displayOrder: 91,
       },
     ]);

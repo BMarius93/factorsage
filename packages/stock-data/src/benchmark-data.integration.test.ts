@@ -123,10 +123,14 @@ describeBenchmark("benchmark loading", () => {
         name: "Test Benchmark",
         description: "Fixture",
         sourceKind: "FMP_SYMBOL",
+        seriesType: "ETF_PROXY",
         providerSymbol: "TESTSPY",
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
+        // A loader fixture, never a user choice: selectable fixtures would leak into `GET /benchmarks`
+        // for whichever suite reads the product catalog concurrently (`pnpm -r test` runs packages in parallel).
+        isBacktestSelectable: false,
         displayOrder: 99,
       },
     ]);
@@ -163,10 +167,12 @@ describeBenchmark("benchmark loading", () => {
         code,
         name: "Test Benchmark",
         sourceKind: "FMP_SYMBOL",
+        seriesType: "ETF_PROXY",
         providerSymbol: "TESTSPY",
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
+        isBacktestSelectable: false,
         displayOrder: 99,
       },
     ]);
@@ -175,10 +181,12 @@ describeBenchmark("benchmark loading", () => {
         code,
         name: "Renamed Benchmark",
         sourceKind: "FMP_SYMBOL",
+        seriesType: "ETF_PROXY",
         providerSymbol: "TESTSPY",
         currency: "USD",
         methodologyVersion: 1,
         isActive: true,
+        isBacktestSelectable: false,
         displayOrder: 99,
       },
     ]);

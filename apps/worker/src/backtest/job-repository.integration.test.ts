@@ -3,6 +3,7 @@ import {
   BacktestJobStatus,
   BacktestRunStatus,
   type Prisma,
+  BenchmarkSeriesType,
   BenchmarkSourceKind,
   PrismaClient,
 } from "@intrinsic/database";
@@ -56,10 +57,13 @@ describe("backtest job claiming", () => {
       data: {
         code: `TEST_${suffix.toUpperCase()}`,
         name: "Worker Suite Benchmark",
+        // Referenced by id only; never offered to a user by `GET /benchmarks`.
+        isBacktestSelectable: false,
         series: {
           create: {
             version: 1,
             sourceKind: BenchmarkSourceKind.FMP_SYMBOL,
+            seriesType: BenchmarkSeriesType.ETF_PROXY,
             providerSymbol: "SPY",
             currency: "USD",
           },

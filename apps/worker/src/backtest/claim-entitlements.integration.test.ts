@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   BacktestJobStatus,
+  BenchmarkSeriesType,
   BenchmarkSourceKind,
   PrismaClient,
   type UserPlan,
@@ -118,10 +119,13 @@ describe("backtest claim entitlements", () => {
       data: {
         code: `CLAIM_${suffix.toUpperCase()}`,
         name: "Claim Entitlement Benchmark",
+        // Referenced by id only; never offered to a user by `GET /benchmarks`.
+        isBacktestSelectable: false,
         series: {
           create: {
             version: 1,
             sourceKind: BenchmarkSourceKind.FMP_SYMBOL,
+            seriesType: BenchmarkSeriesType.ETF_PROXY,
             providerSymbol: "SPY",
             currency: "USD",
             methodologyVersion: 1,

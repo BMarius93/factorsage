@@ -7,16 +7,22 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
+import { fetchMarketOverview } from "../../market/api/market-api";
 import { fetchDashboard } from "../api/dashboard-api";
 import { DashboardPage } from "./DashboardPage";
 
 vi.mock("../api/dashboard-api", () => ({ fetchDashboard: vi.fn() }));
+
+// The overview strip reads its own endpoint. Mocked here so the page's tests stay about the page,
+// and so the strip is exercised against a response rather than against a failed jsdom fetch.
+vi.mock("../../market/api/market-api", () => ({ fetchMarketOverview: vi.fn() }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
   useAuthSession: vi.fn(),
 }));
 
 const fetchDashboardMock = vi.mocked(fetchDashboard);
+const fetchMarketOverviewMock = vi.mocked(fetchMarketOverview);
 const useAuthSessionMock = vi.mocked(useAuthSession);
 
 const RECENT_SCAN = new Date(Date.now() - 3 * 60_000).toISOString();
@@ -172,9 +178,46 @@ function signedIn() {
   });
 }
 
+const MARKET_OVERVIEW = {
+  generatedAt: "2026-09-17T20:00:00.000Z",
+  basis: "END_OF_DAY" as const,
+  items: [
+    {
+      code: "SP500_INDEX",
+      label: "S&P 500",
+      status: "AVAILABLE" as const,
+      value: 7637.05,
+      previousClose: 7551.81,
+      changePercent: 1.1287,
+      sessionDate: "2026-09-17",
+      sparkline: [
+        { date: "2026-09-16", value: 7551.81 },
+        { date: "2026-09-17", value: 7637.05 },
+      ],
+    },
+    {
+      code: "DJIA_INDEX",
+      label: "DJIA",
+      status: "AVAILABLE" as const,
+      value: 51778.04,
+      sessionDate: "2026-09-17",
+      sparkline: [{ date: "2026-09-17", value: 51778.04 }],
+    },
+    {
+      code: "VIX_INDEX",
+      label: "VIX",
+      status: "AVAILABLE" as const,
+      value: 15.43,
+      sessionDate: "2026-09-17",
+      sparkline: [{ date: "2026-09-17", value: 15.43 }],
+    },
+  ],
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   signedOut();
+  fetchMarketOverviewMock.mockResolvedValue(MARKET_OVERVIEW);
 });
 
 describe("DashboardPage", () => {
@@ -333,6 +376,65 @@ describe("DashboardPage", () => {
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByTestId("dashboard-signals-empty")).toBeDefined();
     expect(screen.getByText("Nothing is matching right now")).toBeDefined();
+  });
+
+  it("puts the five-card overview above the signals, and keeps it out of the filters", async () => {
+    const user = userEvent.setup();
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const overview = await screen.findByTestId("dashboard-overview");
+    const signals = await screen.findByTestId("dashboard-signals");
+    // The cards are context for the table, so they precede it in the document.
+    expect(
+      overview.compareDocumentPosition(signals) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId("dashboard-matches-total").textContent).toBe("4");
+    expect(screen.getByTestId("dashboard-matches-breakdown").textContent).toBe(
+      "3 active · 1 waiting",
+    );
+
+    // Narrowing the table below is a view decision; it does not change what is matching, and the
+    // card must not restate the filter counts that are already on the filter buttons.
+    await user.click(
+      within(screen.getByTestId("dashboard-state-filter")).getByRole("button", {
+        name: /Active/,
+      }),
+    );
+    expect(
+      within(screen.getByTestId("dashboard-signals")).getAllByTestId(
+        "dashboard-signal-row",
+      ),
+    ).toHaveLength(3);
+    expect(screen.getByTestId("dashboard-matches-total").textContent).toBe("4");
+    expect(screen.getByTestId("dashboard-matches-breakdown").textContent).toBe(
+      "3 active · 1 waiting",
+    );
+  });
+
+  it("shows a Guest the market cards and asks for an account only at the action", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    await screen.findByTestId("dashboard-overview");
+    // Identical market data to a signed-in viewer's: the market is not a per-account fact.
+    expect(
+      screen.getByTestId("dashboard-market-value-SP500_INDEX").textContent,
+    ).toBe("7,637");
+    // And the Run Backtest card is the one thing that needs an account.
+    expect(screen.getByTestId("dashboard-run-backtest").tagName).toBe("BUTTON");
+  });
+
+  it("never describes VIX, or anything on the Dashboard, as fear and greed", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-signals");
+    await screen.findByTestId("dashboard-market-value-VIX_INDEX");
+
+    const page = screen.getByTestId("dashboard-page");
+    expect(page.textContent).not.toMatch(/fear|greed/i);
+    expect(page.textContent).not.toMatch(/24h/i);
   });
 
   it("sends a viewer who hid every monitor to the page that can bring one back", async () => {

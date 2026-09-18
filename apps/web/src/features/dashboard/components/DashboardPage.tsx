@@ -29,6 +29,7 @@ import {
 } from "../../monitors/utils/format";
 import { stockDetailsHref } from "../../stocks/search/utils/stock-routes";
 import { useDashboard } from "../hooks/use-dashboard";
+import { DashboardOverview } from "./DashboardOverview";
 import {
   FRESHNESS_TONES,
   LEVEL_TONES,
@@ -196,10 +197,12 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
  * A Guest sees the published built-in monitors; a signed-in user sees those they have not hidden,
  * plus their own. Freshness comes from real scan times and is never described as live when it is not.
  *
- * The page is **only** that table. Choosing which monitors feed it is a property of a monitor, so
- * it lives on the Monitors page beside the monitor it belongs to; a configuration panel under the
- * signals competed with them for the screen and made the product's home page look like a settings
- * screen.
+ * Above the table sits one strip of five cards — `Run Backtest`, the three market references and
+ * the current match count — which is V1's Dashboard opening and the shape a returning user
+ * recognises. It is context and one action, not a second information architecture: choosing which
+ * monitors feed the table is still a property of a monitor and still lives on the Monitors page,
+ * because a configuration panel under the signals competed with them for the screen and made the
+ * product's home page look like a settings screen.
  */
 export function DashboardPage() {
   const { status, dashboard, reload } = useDashboard();
@@ -232,6 +235,12 @@ export function DashboardPage() {
             ) : undefined
           }
         />
+
+        {/* The overview strip, directly under the header and above everything else — V1's own
+            placement, and the one that makes the market the context the signals are read in rather
+            than a footnote under them. It is given the *unfiltered* rows on purpose: narrowing the
+            table below must not change what is matching. */}
+        <DashboardOverview rows={rows} rowsReady={status === "ready"} />
 
         {guest && status === "ready" ? (
           <div className={styles.guestNotice} data-testid="dashboard-guest-notice">

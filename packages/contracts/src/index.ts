@@ -150,4 +150,5 @@ export * from "./backtests.js";
 export * from "./monitors.js";
 export * from "./builtins.js";
 export * from "./dashboard.js";
+export * from "./market.js";
 export * from "./rate-limits.js";

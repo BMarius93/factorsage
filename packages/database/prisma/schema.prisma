@@ -550,6 +550,16 @@ enum BenchmarkSourceKind {
   FMP_SYMBOL
 }
 
+/// What the financial object behind a series *is*, as opposed to how it is fetched. `SPY` and
+/// `^GSPC` are both `FMP_SYMBOL`; only one of them is something a funded comparison portfolio could
+/// buy. Immutable, like the rest of the series definition: changing it appends a version.
+enum BenchmarkSeriesType {
+  /// A tradable fund that tracks an index — a share price, with an expense ratio.
+  ETF_PROXY
+  /// The index itself. Not investable, and for `^VIX` not even a price.
+  INDEX
+}
+
 /// Datasets a benchmark materializes. Deliberately separate from `StockDataset`: a benchmark has
 /// no fundamentals, no derived technicals and no intrinsic values, and must never acquire them
 /// merely because it shares a provider with stocks.
@@ -565,19 +575,25 @@ enum BenchmarkDataset {
 /// are: source, provider identifier, currency and methodology live on `BenchmarkSeries`, because
 /// changing any of them produces a different series rather than a corrected one.
 model Benchmark {
-  id           String            @id @default(uuid())
+  id                   String            @id @default(uuid())
   /// Stable product code snapshotted by runs, e.g. `SP500`.
-  code         String            @unique
-  name         String
-  description  String?
-  isActive     Boolean           @default(true)
-  displayOrder Int               @default(0)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  series       BenchmarkSeries[]
-  backtestRuns BacktestRun[]
+  code                 String            @unique
+  name                 String
+  description          String?
+  /// Whether the system maintains this benchmark at all.
+  isActive             Boolean           @default(true)
+  /// Whether a **user** may pick it for a backtest. Deliberately separate from `isActive`: the
+  /// market-reference indices behind the Dashboard cards are active system series that hydrate and
+  /// are stored, and are still never something a customer compares a portfolio against.
+  isBacktestSelectable Boolean           @default(true)
+  displayOrder         Int               @default(0)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  series               BenchmarkSeries[]
+  backtestRuns         BacktestRun[]
 
   @@index([isActive, displayOrder])
+  @@index([isActive, isBacktestSelectable, displayOrder])
 }
 
 /// One immutable definition of a benchmark's series, and the identity its market data is stored
@@ -592,7 +608,10 @@ model BenchmarkSeries {
   /// 1-based, ascending. The highest version of a benchmark is its current definition.
   version               Int
   sourceKind            BenchmarkSourceKind
-  /// Provider identifier for `FMP_SYMBOL` benchmarks, e.g. `SPY`.
+  /// What the object behind this series is. Part of the immutable definition, so moving a code
+  /// from an ETF proxy to the index itself appends a version rather than restating history.
+  seriesType            BenchmarkSeriesType
+  /// Provider identifier for `FMP_SYMBOL` benchmarks, e.g. `SPY` or `^GSPC`.
   providerSymbol        String
   currency              String
   /// Revision of what this series *means*. Bumping it makes a new run incomparable to an older one

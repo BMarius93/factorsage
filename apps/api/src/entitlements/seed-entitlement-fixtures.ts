@@ -571,6 +571,7 @@ export async function seedEntitlementFixtures(
           create: {
             version: 1,
             sourceKind: "FMP_SYMBOL",
+            seriesType: "ETF_PROXY",
             providerSymbol: "SPY",
             currency: "USD",
             methodologyVersion: 1,

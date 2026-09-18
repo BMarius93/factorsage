@@ -1,0 +1,473 @@
+/* The Dashboard's overview strip: five cards, one family.
+ *
+ * The geometry here is local to this composition on purpose — a 76/120px card, a 5-up grid, a
+ * 44px microchart — and `ai/architecture/ui-system.md` allows exactly that. Everything that is
+ * design *language* still comes from a token: the border, the radius, the type scale, the
+ * financial-state colours and the page's own spacing.
+ *
+ * Calibrated against deployed V1 (`ai/architecture/v1-visual-parity.md`), with two deliberate
+ * departures. V1 gives each card a soft drop shadow and the action card a blue gradient; V2's
+ * surfaces are flat — `--shadow-surface` is `none` — because a glow under every panel is the single
+ * thing that made V2 read as a different product. The shape, the density and the hierarchy are V1's;
+ * the elevation is V2's. */
+
+.overview {
+  /* The strip is a group of cards, not a surface: no border and no background of its own, so the
+     five cards sit directly on the page canvas exactly as V1's do. */
+  display: block;
+}
+
+.grid {
+  display: grid;
+  /* Five equal columns at every width. `minmax(0, 1fr)` rather than `1fr` is load-bearing: a bare
+     `1fr` floors at the content's min-content width, and one long number would then push the grid
+     wider than the page and give the whole Dashboard a horizontal scrollbar on a phone. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-width: 0;
+  height: 76px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  overflow: hidden;
+  transition: border-color 120ms ease;
+}
+
+/* Only the two cards that do something are interactive, and they say so the same way. */
+a.card:hover,
+button.card:hover {
+  border-color: var(--color-primary-border);
+}
+
+a.card:focus-visible,
+button.card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Labels and figures ─────────────────────────────────────────────────────── */
+
+.label {
+  margin: 0;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* V1's own phone treatment: the card keeps its full name on a desktop and wears a short one where
+   five labels have to share 390px. The long form stays in the DOM and in the accessible name, so
+   nothing is lost — only the glyphs that would not have fitted. */
+.fullLabel {
+  display: none;
+}
+
+.shortLabel {
+  display: inline;
+}
+
+.value {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+.valueUnavailable {
+  margin: 4px 0 0;
+  font-size: 11px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* ── Market cards ───────────────────────────────────────────────────────────── */
+
+.marketBody {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 12px;
+}
+
+.marketFigures {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.marketMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 0;
+  min-width: 0;
+}
+
+.change {
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.change[data-tone="positive"] {
+  color: var(--color-positive);
+}
+
+.change[data-tone="negative"] {
+  color: var(--color-negative);
+}
+
+.change[data-tone="flat"],
+.changeFlat {
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+}
+
+/* The session the close belongs to, in V1's pill. It replaces V1's `24h`, which would have claimed
+   a rolling window nothing here computes. */
+.session {
+  display: none;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* The trend is desktop-only, exactly as in V1: at 65px of card there is no chart worth drawing, and
+   the number and its direction are what a phone reader needs. */
+.marketTrend {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.trendLabel {
+  margin: 0 0 2px;
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+  text-align: right;
+  color: var(--color-text-muted);
+}
+
+/* ── Run Backtest ───────────────────────────────────────────────────────────── */
+
+/* The product's one solid-blue action, and the Dashboard has exactly one. `v1-visual-parity.md`
+   names `Run backtest` as a `primaryButton` case, so this is the sanctioned treatment rather than a
+   card that decided to shout. Flat fill, not V1's gradient. */
+/* On a phone the label and the glyph stack, which is V1's own treatment and the only way both fit
+   in a fifth of 390px: side by side, a 22px icon left "Backtest" 16px of room and an ellipsis. */
+.actionCard {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 6px;
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-text-on-primary);
+  cursor: pointer;
+  font: inherit;
+}
+
+a.actionCard:hover,
+button.actionCard:hover {
+  border-color: var(--color-primary-hover);
+  background: var(--color-primary-hover);
+}
+
+.actionText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.actionTitle {
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actionLead {
+  display: none;
+  font-size: 11px;
+  line-height: 1.3;
+  color: rgb(255 255 255 / 0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actionGlyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: rgb(255 255 255 / 0.18);
+}
+
+/* ── Real-time Matches ──────────────────────────────────────────────────────── */
+
+.matchesCard {
+  cursor: pointer;
+}
+
+/* Two lines on a phone rather than one clipped one. `2 active · 1 waiting` needs 78px and has 49,
+   so an ellipsis would have thrown away the half of the breakdown that is not the active count —
+   and the waiting count is the half a reader cannot get from anywhere else on the card. */
+.matchesBreakdown {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 3px;
+  margin: auto 0 0;
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.25;
+  color: var(--color-text-secondary);
+}
+
+.matchesBreakdown span {
+  white-space: nowrap;
+}
+
+/* ── VIX ────────────────────────────────────────────────────────────────────── */
+
+/* The same card as its neighbours — border, radius, padding, height — read as a dial instead of a
+   trend: title, arc, level, zone. On a phone there is no room for an arc worth drawing in 65px, so
+   the card becomes the three words that matter — `VIX`, `15.43`, `Normal` — in the same rhythm as
+   the other cards' label, value and change. */
+
+.vixHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.vixMeta {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.vixDial {
+  min-width: 0;
+}
+
+.vixGauge {
+  display: none;
+}
+
+.vixValue {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+/* The zone, in its own colour from the gauge's single zone-to-colour map (`vixZoneToneClass`). On a
+   phone it is plain text in the slot where the other cards show their change. */
+.vixStatus {
+  margin: 4px 0 0;
+  min-width: 0;
+  font-size: 9px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  color: var(--vix-zone);
+  white-space: nowrap;
+}
+
+/* ── Desktop ────────────────────────────────────────────────────────────────── */
+
+/* 880px is the product's own desktop step — the breakpoint `--card-pad` and the page title already
+   move at — so the strip changes shape with the rest of the page rather than at a width of its own. */
+@media (min-width: 880px) {
+  .grid {
+    gap: 12px;
+  }
+
+  .card {
+    height: 120px;
+    padding: 12px 16px;
+    border-radius: var(--radius-lg);
+  }
+
+  .fullLabel {
+    display: inline;
+  }
+
+  .shortLabel {
+    display: none;
+  }
+
+  .label {
+    font-size: var(--text-small);
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  .value {
+    margin-top: 10px;
+    font-size: 22px;
+  }
+
+  .valueUnavailable {
+    margin-top: 10px;
+    font-size: var(--text-secondary);
+  }
+
+  .marketMeta {
+    margin-top: auto;
+    gap: 6px;
+  }
+
+  .change {
+    font-size: var(--text-secondary);
+  }
+
+  .change[data-tone="flat"],
+  .changeFlat {
+    font-size: var(--text-secondary);
+  }
+
+  .session {
+    display: inline;
+  }
+
+  .marketTrend {
+    display: flex;
+  }
+
+  .actionCard {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .actionTitle {
+    font-size: 15px;
+  }
+
+  .actionLead {
+    display: block;
+  }
+
+  .actionGlyph {
+    width: 28px;
+    height: 28px;
+  }
+
+  .matchesBreakdown {
+    flex-wrap: nowrap;
+    font-size: var(--text-small);
+  }
+
+  .vixCard {
+    align-items: stretch;
+  }
+
+  .vixMeta {
+    display: flex;
+  }
+
+  /* Secondary to the zone: the same session-over-session number the other cards show, one step
+     smaller, so the dial and its word are what a glance lands on. */
+  .vixMeta .change {
+    font-size: var(--text-label-size);
+  }
+
+  /* The dial: the arc with the level set inside its bowl, as on a gauge face. Sized so title, dial
+     and zone fit the card's 94px of content height without the row growing for one card. */
+  .vixDial {
+    position: relative;
+    width: 100px;
+    height: 54px;
+    margin: 0 auto;
+  }
+
+  .vixGauge {
+    display: block;
+    position: absolute;
+    inset: 0;
+  }
+
+  .vixValue {
+    position: absolute;
+    right: 0;
+    bottom: -1px;
+    left: 0;
+    margin: 0;
+    font-size: 20px;
+    text-align: center;
+  }
+
+  .vixStatus {
+    align-self: center;
+    margin-top: 3px;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--vix-zone) 12%, var(--color-surface));
+    font-size: var(--text-label-size);
+    line-height: 1.4;
+  }
+}
+
+/* Between the phone grid and the desktop one there is room for the label but not yet for a chart;
+   the trend appears with the taller card, so a card never holds a 44px chart in 76px of height. */
+@media (min-width: 600px) and (max-width: 879.98px) {
+  .grid {
+    gap: 8px;
+  }
+
+  .value {
+    font-size: 15px;
+  }
+}

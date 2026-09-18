@@ -15,6 +15,7 @@
     "builtins:reset": "tsx src/seed-builtins.ts --reset",
     "seed:qa-users": "tsx src/seed-qa-users.ts",
     "seed:entitlement-fixtures": "tsx src/seed-entitlement-fixtures.ts",
+    "prewarm:benchmark-data": "tsx src/benchmarks/prewarm-benchmark-data.ts",
     "reset:benchmark-data": "tsx src/reset-benchmark-data.ts",
     "seed:qa-securities": "tsx src/seed-qa-securities.ts",
     "seed:qa-builtins": "tsx src/seed-qa-builtins.ts",

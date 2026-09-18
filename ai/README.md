@@ -83,6 +83,12 @@ the first document records why they are deferred or rejected.
 revision, `PRICE_DATASET_VERSION`, documented in `../docs/decisions/complete-price-coverage.md`;
 bumping one does not invalidate the other.
 
+For the Dashboard's market-overview cards, the market-reference index series or anything that
+touches which benchmarks a user may select, read `architecture/benchmark-data.md`: it owns the
+`isActive` / `isBacktestSelectable` split, the `ETF_PROXY` / `INDEX` series semantics, why `SP500`
+stays `SPY` for backtests, the `GET /market-overview` contract and its end-of-day honesty rules, and
+the `pnpm benchmarks:prewarm` runbook for deeper history.
+
 For backtest work — the engine, the worker, benchmark data or the run surfaces — read
 `product/backtests.md` first, then `architecture/backtest-execution.md` (the built lifecycle,
 progress model, durable job protocol, worker process model and the versioned execution
