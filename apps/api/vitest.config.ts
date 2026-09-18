@@ -12,9 +12,13 @@ import { defineConfig } from "vitest/config";
  * affected assertion a longer deadline — widening a timeout would only move the point at which the
  * interference becomes visible. `packages/stock-data/vitest.config.ts` is the same decision for
  * the same reason.
+ *
+ * `no-real-email.setup.ts` replaces the SMTP library for every file, so no test can reach a real
+ * mail server whatever the developer's `.env` configures.
  */
 export default defineConfig({
   test: {
     fileParallelism: false,
+    setupFiles: ["./src/email/no-real-email.setup.ts"],
   },
 });

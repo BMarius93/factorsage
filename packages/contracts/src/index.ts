@@ -33,19 +33,22 @@ export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 1024;
 
 /**
- * Returned by `POST /auth/login` when the credentials are correct but the local email address
- * has not been verified yet. Correct credentials are required to reach this state, so it does
- * not reveal anything the caller does not already know.
+ * Email-first registration (AUTH-003): the address is the whole request.
+ *
+ * No password is taken here. The first usable password is chosen by whoever holds the emailed
+ * activation link, on `/verify-email` — the only person who has proven control of the mailbox.
  */
-export const EMAIL_NOT_VERIFIED_CODE = "EMAIL_NOT_VERIFIED" as const;
-
 export type RegisterRequest = {
   email: string;
-  password: string;
 };
 
+/**
+ * Always the same for a well-formed address. The API deliberately does not report whether the
+ * address was new, already registered, pending, signed in with Google, or recently submitted, or
+ * whether an email was sent, so registration cannot be used to enumerate accounts.
+ */
 export type RegisterResponse = {
-  status: "verification_sent";
+  status: "accepted";
 };
 
 /**

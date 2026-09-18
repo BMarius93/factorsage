@@ -4,39 +4,77 @@ import type {
   VerifyEmailRequest,
 } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  ServiceUnavailableException,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { AUTH_LOGGER } from "./auth.tokens";
 import { AuthEmailService } from "./auth-email.service";
+import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
 import { EmailVerificationService } from "./email-verification.service";
 import { PasswordService } from "./password.service";
-import { UsersService } from "./users.service";
-
-/**
- * Identical for an existing local account and for an existing external-identity-only account, so
- * registration never reveals which kind of account holds the address and never attaches a
- * password to an account the caller has not proven they own.
- */
-export const EMAIL_TAKEN_MESSAGE = "An account with this email already exists";
+import { type ActivationCandidate, UsersService } from "./users.service";
 
 export const INVALID_VERIFICATION_TOKEN_MESSAGE =
   "This verification link is invalid or has expired";
 
-export const VERIFICATION_EMAIL_FAILED_MESSAGE =
-  "The verification email could not be sent. Please request a new link.";
+/**
+ * How long one registration or resend email to an address blocks the next (AUTH-003).
+ *
+ * The bound on how much mail anybody can make FactorSage send to one address, whoever asks and
+ * from however many IPs: at most one message per window. Long enough that registering a stranger's
+ * address in a loop is useless as a mail bomb, short enough that an owner whose message went to
+ * spam can ask again in the same sitting. It never refuses a request — a request inside the window
+ * gets the same `202` and simply sends nothing, and the link already in the inbox stays valid.
+ */
+export const REGISTRATION_EMAIL_COOLDOWN_SECONDS = 5 * 60;
+
+/** Whether a claim taken at `previous` still blocks a new one at `now`. */
+export function isRegistrationEmailCoolingDown(
+  previous: Date | null,
+  now: Date,
+): boolean {
+  return (
+    previous !== null &&
+    now.getTime() - previous.getTime() <
+      REGISTRATION_EMAIL_COOLDOWN_SECONDS * 1000
+  );
+}
+
+type ActivationRequestSource = "register" | "resend";
 
 /**
- * Local email/password registration and the email-verification lifecycle.
+ * Internal outcome of an activation request. Logged, never returned: the public answer is the same
+ * `202` for every one of them.
+ */
+type ActivationOutcome =
+  | "account_created"
+  | "activation_claimed"
+  | "notice_claimed"
+  | "cooldown"
+  | "claim_lost"
+  | "not_eligible";
+
+/**
+ * Local registration and the email-verification lifecycle.
  *
- * A new local user always starts unverified and cannot password-login until a verification token
- * from their inbox is redeemed. Redeeming it sets the account's password: the one given at
- * registration only lets the registrant be told to verify, and never becomes a working credential
- * (AUTH-002).
+ * **Registration is email-first (AUTH-003).** `POST /auth/register` takes an address and nothing
+ * else, and answers the same `202` whether the address is new, pending, verified, signed in with
+ * Google, or was submitted a moment ago. What happens behind that answer depends on the account,
+ * and none of it is observable from the response:
+ *
+ * - no account — a pending, unverified user **without a password** is created and mailed an
+ *   activation link;
+ * - pending — a fresh activation link is mailed (rotating the old one);
+ * - verified (password, Google or both) — nothing about the account changes; the owner is mailed a
+ *   neutral "you already have an account" notice with no token in it;
+ * - any of those within `REGISTRATION_EMAIL_COOLDOWN_SECONDS` of the previous email — nothing is
+ *   written, issued or sent, so the link already in the inbox stays valid.
+ *
+ * Only the holder of an activation link ever sets the account's first password, on
+ * `/verify-email` (AUTH-002). Registration never reads or writes a verified account's credential,
+ * role, plan, session version or linked identities.
+ *
+ * The request path only decides and claims. Token issuance and delivery run after the response on
+ * `BackgroundEmailDispatcher`, so neither the transport's latency nor its failure can distinguish
+ * one state from another, and no transaction is ever held open across a send.
  */
 @Injectable()
 export class RegistrationService {
@@ -46,30 +84,14 @@ export class RegistrationService {
     @Inject(EmailVerificationService)
     private readonly verification: EmailVerificationService,
     @Inject(AuthEmailService) private readonly email: AuthEmailService,
+    @Inject(BackgroundEmailDispatcher)
+    private readonly background: BackgroundEmailDispatcher,
     @Inject(AUTH_LOGGER) private readonly logger: StructuredLogger,
   ) {}
 
+  /** Email-first registration. Always returns normally for a well-formed address. */
   async register(request: RegisterRequest): Promise<void> {
-    const existing = await this.users.findByEmail(request.email);
-    if (existing) {
-      this.logger.info({
-        event: "auth.register.rejected",
-        reason: existing.passwordHash ? "local_account_exists" : "external_account_exists",
-      });
-      throw new ConflictException(EMAIL_TAKEN_MESSAGE);
-    }
-
-    const passwordHash = await this.passwords.hash(request.password);
-    const user = await this.users.createLocalUser({
-      email: request.email,
-      passwordHash,
-    });
-    this.logger.info({
-      event: "auth.register.completed",
-      actorUserId: user.id,
-    });
-
-    await this.sendVerification(user.id, user.email);
+    await this.requestActivation(request.email, "register");
   }
 
   /**
@@ -119,42 +141,234 @@ export class RegistrationService {
   }
 
   /**
-   * Rotates and resends a verification token.
+   * Resends an activation link to a pending account.
    *
-   * Callers always receive the same accepted response: an unknown address, an already-verified
-   * account, and an external-identity-only account are all silently no-ops so this endpoint
-   * cannot be used to enumerate accounts.
+   * The same operation as registration — the same claim, cooldown and out-of-band delivery — minus
+   * creating an account and minus the existing-account notice: an unknown address and a verified
+   * account are silent no-ops, so this endpoint cannot be used to enumerate accounts either.
    */
   async resendVerification(request: ResendVerificationRequest): Promise<void> {
-    const user = await this.users.findByEmail(request.email);
-    if (!user || !user.passwordHash || user.emailVerifiedAt) {
-      this.logger.debug({ event: "auth.email.verification.resend.ignored" });
-      return;
-    }
-
-    await this.sendVerification(user.id, user.email);
+    await this.requestActivation(request.email, "resend");
   }
 
-  private async sendVerification(userId: string, email: string): Promise<void> {
-    // Issuing rotates the user's outstanding token, so a previously mailed link stops working.
-    const issued = await this.verification.issueToken(userId);
+  /**
+   * The one activation-request operation behind both register and resend.
+   *
+   * Every branch returns normally; what happened is logged under `auth.activation.requested` with
+   * an internal `outcome` and never reaches the caller.
+   */
+  private async requestActivation(
+    email: string,
+    source: ActivationRequestSource,
+  ): Promise<void> {
     const startedAt = Date.now();
+    const outcome = await this.decideActivation(email, source);
+    this.logger.info({
+      event: "auth.activation.requested",
+      source,
+      outcome: outcome.kind,
+      ...(outcome.userId ? { actorUserId: outcome.userId } : {}),
+      durationMs: Date.now() - startedAt,
+    });
+  }
 
+  private async decideActivation(
+    email: string,
+    source: ActivationRequestSource,
+  ): Promise<{ kind: ActivationOutcome; userId?: string }> {
+    const now = new Date();
+    let account = await this.users.findActivationCandidate(email);
+
+    if (!account) {
+      if (source !== "register") {
+        return { kind: "not_eligible" };
+      }
+      // Created already holding the claim, so a concurrent request for the same address — which
+      // loses the unique index and reads this row instead — finds it cooling down.
+      const created = await this.users.createPendingUser({
+        email,
+        claimedAt: now,
+      });
+      if (created) {
+        this.dispatchActivation(created.id, now, null);
+        return { kind: "account_created", userId: created.id };
+      }
+      account = await this.users.findActivationCandidate(email);
+      if (!account) {
+        // Created and removed again between two statements; there is nothing to act on.
+        return { kind: "not_eligible" };
+      }
+    }
+
+    return this.claimForExistingAccount(account, source, now);
+  }
+
+  private async claimForExistingAccount(
+    account: ActivationCandidate,
+    source: ActivationRequestSource,
+    now: Date,
+  ): Promise<{ kind: ActivationOutcome; userId: string }> {
+    const pending = account.emailVerifiedAt === null;
+    // Resend only ever re-sends an activation link; the existing-account notice answers
+    // registration alone.
+    if (!pending && source !== "register") {
+      return { kind: "not_eligible", userId: account.id };
+    }
+    if (
+      isRegistrationEmailCoolingDown(account.registrationEmailClaimedAt, now)
+    ) {
+      return { kind: "cooldown", userId: account.id };
+    }
+
+    const previous = account.registrationEmailClaimedAt;
+    const claimed = await this.users.claimRegistrationEmail({
+      userId: account.id,
+      previous,
+      claimedAt: now,
+      accountState: pending ? "pending" : "verified",
+    });
+    if (!claimed) {
+      // A concurrent request took the claim first, or the account was verified since the read.
+      return { kind: "claim_lost", userId: account.id };
+    }
+
+    if (pending) {
+      this.dispatchActivation(account.id, now, previous);
+      return { kind: "activation_claimed", userId: account.id };
+    }
+    this.dispatchExistingAccountNotice(account.id, now, previous);
+    return { kind: "notice_claimed", userId: account.id };
+  }
+
+  /**
+   * Issues a fresh activation token and mails it, after the response.
+   *
+   * Issuing rotates the account's outstanding link, which is why it happens only after a claim:
+   * a request inside the cooldown never invalidates the link already in the inbox. If the account
+   * was verified in the meantime — by the previous link, a reset or a Google link — the new token is
+   * withdrawn rather than mailed, so no live verification token is left on a verified account.
+   */
+  private dispatchActivation(
+    userId: string,
+    claimedAt: Date,
+    previous: Date | null,
+  ): void {
+    this.runReleasingOnError(
+      "auth.email.verification.dispatch",
+      { userId, claimedAt, previous },
+      async () => {
+        const issued = await this.verification.issueToken(userId);
+        if (!(await this.users.isPendingActivation(userId))) {
+          await this.verification.discardIssuedToken(userId, issued.token);
+          this.logger.info({
+            event: "auth.email.verification.withdrawn",
+            actorUserId: userId,
+            reason: "verified_meanwhile",
+          });
+          return;
+        }
+
+        const recipient = await this.users.findEmailRecipient(userId);
+        if (!recipient) {
+          return;
+        }
+        await this.deliver({
+          event: "auth.email.verification",
+          userId,
+          claimedAt,
+          previous,
+          send: () =>
+            this.email.sendVerificationEmail({
+              to: recipient.email,
+              token: issued.token,
+            }),
+        });
+      },
+    );
+  }
+
+  /** Mails a verified account's owner the neutral notice, after the response. No token exists. */
+  private dispatchExistingAccountNotice(
+    userId: string,
+    claimedAt: Date,
+    previous: Date | null,
+  ): void {
+    this.runReleasingOnError(
+      "auth.email.account_notice.dispatch",
+      { userId, claimedAt, previous },
+      async () => {
+        const recipient = await this.users.findEmailRecipient(userId);
+        if (!recipient) {
+          return;
+        }
+        await this.deliver({
+          event: "auth.email.account_notice",
+          userId,
+          claimedAt,
+          previous,
+          send: () =>
+            this.email.sendExistingAccountNotice({
+              to: recipient.email,
+              methods: recipient.methods,
+            }),
+        });
+      },
+    );
+  }
+
+  /**
+   * Runs a dispatch task in the background and, if it fails before its message could be handed to
+   * the transport (a database error while issuing, say), gives the claim back before the failure is
+   * logged — the same guarantee `deliver` gives for a transport failure.
+   */
+  private runReleasingOnError(
+    event: string,
+    claim: { userId: string; claimedAt: Date; previous: Date | null },
+    task: () => Promise<void>,
+  ): void {
+    this.background.run(event, async () => {
+      try {
+        await task();
+      } catch (err) {
+        await this.users.releaseRegistrationEmail(claim);
+        throw err;
+      }
+    });
+  }
+
+  /**
+   * Sends one message and records the outcome. A failure is logged with the original error and
+   * gives the claim back, so the owner's next request can send at once instead of waiting out a
+   * cooldown for a message that never left — a new account is never stranded by a transport error.
+   */
+  private async deliver(input: {
+    event: string;
+    userId: string;
+    claimedAt: Date;
+    previous: Date | null;
+    send: () => Promise<void>;
+  }): Promise<void> {
+    const startedAt = Date.now();
     try {
-      await this.email.sendVerificationEmail({ to: email, token: issued.token });
+      await input.send();
     } catch (err) {
       this.logger.error({
-        event: "auth.email.verification.send.failed",
-        actorUserId: userId,
+        event: `${input.event}.send.failed`,
+        actorUserId: input.userId,
         durationMs: Date.now() - startedAt,
         err,
       });
-      throw new ServiceUnavailableException(VERIFICATION_EMAIL_FAILED_MESSAGE);
+      await this.users.releaseRegistrationEmail({
+        userId: input.userId,
+        claimedAt: input.claimedAt,
+        previous: input.previous,
+      });
+      return;
     }
 
     this.logger.info({
-      event: "auth.email.verification.sent",
-      actorUserId: userId,
+      event: `${input.event}.sent`,
+      actorUserId: input.userId,
       durationMs: Date.now() - startedAt,
     });
   }

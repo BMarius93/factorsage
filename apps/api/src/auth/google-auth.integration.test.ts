@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
-import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
 import { OAuthProvider } from "@intrinsic/database";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
@@ -23,6 +22,8 @@ import { EMAIL_SENDER } from "../email/email-sender";
 import { InMemoryEmailSender } from "../email/in-memory-email-sender";
 import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
 import { AUTH_LOGGER } from "./auth.tokens";
+import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
+import { PasswordService } from "./password.service";
 import {
   GOOGLE_IDENTITY_PROVIDER,
   GoogleAuthError,
@@ -153,6 +154,8 @@ describe("Google authentication", () => {
 
   let app: INestApplication;
   let prisma: PrismaService;
+  let passwords: PasswordService;
+  let dispatcher: BackgroundEmailDispatcher;
   const provider = new FakeGoogleIdentityProvider();
   const logs = capturingLogger();
   // Registration and recovery run for real in the pre-account-takeover cases; their mail never
@@ -180,6 +183,10 @@ describe("Google authentication", () => {
     app = moduleRef.createNestApplication();
     await app.init();
     prisma = moduleRef.get(PrismaService);
+    passwords = moduleRef.get(PasswordService);
+    dispatcher = moduleRef.get(BackgroundEmailDispatcher);
+    // The guard that makes "no real email" true for this file, asserted rather than assumed.
+    expect(moduleRef.get(EMAIL_SENDER)).toBe(sender);
   });
 
   beforeEach(() => {
@@ -915,10 +922,22 @@ describe("Google authentication", () => {
   describe("adopting an account nobody has verified", () => {
     const attackerPassword = "Attacker-chosen-password-42";
 
-    function register(email: string, password = attackerPassword) {
-      return request(app.getHttpServer())
+    /**
+     * The unverified row an attacker could leave **before AUTH-003**: registration mailed the owner
+     * a link and stored the attacker's password. Registration no longer takes a password, so the
+     * inert hash is written directly after the real request — the state AUTH-001's adoption rule
+     * still has to defuse for rows that predate the deploy.
+     */
+    async function register(email: string, password = attackerPassword) {
+      await request(app.getHttpServer())
         .post("/auth/register")
-        .send({ email, password });
+        .send({ email, password })
+        .expect(202);
+      await dispatcher.drain();
+      await prisma.user.update({
+        where: { email: email.trim().toLowerCase() },
+        data: { passwordHash: await passwords.hash(password) },
+      });
     }
 
     function login(email: string, password = attackerPassword) {
@@ -1023,7 +1042,7 @@ describe("Google authentication", () => {
       const email = uniqueEmail("takeover", GOOGLE_MAILBOX_DOMAIN);
 
       // 1. The attacker registers the victim's Gmail address and never verifies it.
-      await register(email).expect(201);
+      await register(email);
       const registered = await prisma.user.findUniqueOrThrow({
         where: { email },
       });
@@ -1031,9 +1050,10 @@ describe("Google authentication", () => {
       expect(registered.emailVerifiedAt).toBeNull();
 
       // The pre-condition: the password is correct but unusable, and it never yields a session,
-      // so the attacker holds nothing a later link would need to revoke.
-      const beforeLink = await login(email).expect(403);
-      expect(beforeLink.body.code).toBe(EMAIL_NOT_VERIFIED_CODE);
+      // so the attacker holds nothing a later link would need to revoke. Since AUTH-003 it does
+      // not even tell the attacker the account is pending.
+      const beforeLink = await login(email).expect(401);
+      expect(beforeLink.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
       expectNoSession(beforeLink);
 
       // 2. The owner uses "Continue with Google".
@@ -1082,7 +1102,7 @@ describe("Google authentication", () => {
 
     it("also drops a password-reset link that was outstanding on the unverified account", async () => {
       const email = uniqueEmail("takeover-reset", GOOGLE_MAILBOX_DOMAIN);
-      await register(email).expect(201);
+      await register(email);
       await request(app.getHttpServer())
         .post("/auth/forgot-password")
         .send({ email })
@@ -1106,7 +1126,7 @@ describe("Google authentication", () => {
 
     it("applies the same rule when a matching Workspace hd claim authorizes the link", async () => {
       const email = uniqueEmail("takeover-workspace", WORKSPACE_DOMAIN);
-      await register(email).expect(201);
+      await register(email);
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
 
       const linked = await signInWithGoogle(
@@ -1124,7 +1144,7 @@ describe("Google authentication", () => {
     it("matches the registered address case-insensitively and still clears the password", async () => {
       const email = uniqueEmail("takeover-case", GOOGLE_MAILBOX_DOMAIN);
       // The attacker types the address in a different case than Google reports it.
-      await register(email.toUpperCase()).expect(201);
+      await register(email.toUpperCase());
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
 
       await signInWithGoogle(googleIdentity(email));
@@ -1138,7 +1158,7 @@ describe("Google authentication", () => {
 
     it("keeps the password of an account its owner verified before Google linked it", async () => {
       const email = uniqueEmail("verified-first", GOOGLE_MAILBOX_DOMAIN);
-      await register(email, "Owner-chosen-password-42").expect(201);
+      await register(email, "Owner-chosen-password-42");
 
       // The verification is redeemed first, and redeeming it is what sets the password (AUTH-002),
       // so the password is the mailbox owner's by the time the link happens — the ordering the
@@ -1163,7 +1183,7 @@ describe("Google authentication", () => {
 
     it("leaves an unverified account untouched when the link is refused", async () => {
       const email = uniqueEmail("takeover-external", EXTERNAL_DOMAIN);
-      await register(email).expect(201);
+      await register(email);
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
       const before = await identityState(id);
 
@@ -1194,7 +1214,7 @@ describe("Google authentication", () => {
         "takeover-other-subject",
         GOOGLE_MAILBOX_DOMAIN,
       );
-      await register(email).expect(201);
+      await register(email);
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
       const before = await identityState(id);
 
@@ -1211,9 +1231,98 @@ describe("Google authentication", () => {
       expect(await identityState(id)).toEqual(before);
     });
 
+    /** Email-first registration as it is since AUTH-003: an address and nothing else. */
+    function registerEmailOnly(email: string) {
+      return request(app.getHttpServer())
+        .post("/auth/register")
+        .send({ email });
+    }
+
+    /** Every activation link registration mailed must be dead once Google owns the account. */
+    async function expectNoLiveActivationLink() {
+      for (const message of sender.messages) {
+        const match = /\/verify-email\?token=([^\s"<]+)/.exec(message.text);
+        if (match?.[1]) {
+          await request(app.getHttpServer())
+            .post("/auth/verify-email")
+            .send({
+              token: decodeURIComponent(match[1]),
+              password: "Late-link-password-42",
+            })
+            .expect(401);
+        }
+      }
+    }
+
+    it("leaves a clean Google-only account when registration races the owner's Google link (AUTH-003)", async () => {
+      for (let round = 0; round < 5; round += 1) {
+        const email = uniqueEmail(`race-link-${round}`, GOOGLE_MAILBOX_DOMAIN);
+        await registerEmailOnly(email).expect(202);
+        await dispatcher.drain();
+        sender.reset();
+        // Outside the cooldown, so the racing registration really claims and issues.
+        await prisma.user.update({
+          where: { email },
+          data: { registrationEmailClaimedAt: new Date(0) },
+        });
+        const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
+        const identity = googleIdentity(email);
+
+        const [registered, linked] = await Promise.all([
+          registerEmailOnly(email),
+          signInWithGoogle(identity),
+        ]);
+        await dispatcher.drain();
+
+        expect(registered.status).toBe(202);
+        expect(linked.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+        expect(await prisma.user.count({ where: { email } })).toBe(1);
+        const state = await identityState(id);
+        expect(state.passwordHash).toBeNull();
+        expect(state.emailVerifiedAt).not.toBeNull();
+        expect(state.oauthAccounts).toEqual([
+          {
+            provider: OAuthProvider.GOOGLE,
+            providerAccountId: identity.providerAccountId,
+          },
+        ]);
+        // No verification token survives on the adopted account, whichever side won.
+        expect(state.verificationTokens).toBe(0);
+        await expectNoLiveActivationLink();
+        expect((await identityState(id)).passwordHash).toBeNull();
+        sender.reset();
+      }
+    });
+
+    it("creates exactly one account when registration races a first Google sign-in (AUTH-003)", async () => {
+      for (let round = 0; round < 5; round += 1) {
+        const email = uniqueEmail(`race-create-${round}`, GOOGLE_MAILBOX_DOMAIN);
+        const identity = googleIdentity(email);
+
+        const [registered, signedIn] = await Promise.all([
+          registerEmailOnly(email),
+          signInWithGoogle(identity),
+        ]);
+        await dispatcher.drain();
+
+        // Neither side surfaces the uniqueness race: no 500, no refused sign-in.
+        expect(registered.status).toBe(202);
+        expect(signedIn.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+        const users = await prisma.user.findMany({ where: { email } });
+        expect(users).toHaveLength(1);
+        const state = await identityState(users[0]?.id ?? "");
+        expect(state.passwordHash).toBeNull();
+        expect(state.emailVerifiedAt).not.toBeNull();
+        expect(state.oauthAccounts).toHaveLength(1);
+        expect(state.verificationTokens).toBe(0);
+        await expectNoLiveActivationLink();
+        sender.reset();
+      }
+    });
+
     it("rolls the whole adoption back when any part of it fails", async () => {
       const email = uniqueEmail("takeover-atomic", GOOGLE_MAILBOX_DOMAIN);
-      await register(email).expect(201);
+      await register(email);
       await request(app.getHttpServer())
         .post("/auth/forgot-password")
         .send({ email })

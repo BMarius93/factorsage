@@ -81,12 +81,17 @@ export class AuthController {
     return { google: this.google.isEnabled };
   }
 
+  /**
+   * Email-first registration (AUTH-003). Always `202 { status: "accepted" }` for a well-formed
+   * address — new, pending, verified, Google-only or recently submitted alike — so the endpoint
+   * cannot be used to discover who has an account. Issues no session.
+   */
   @RateLimit("auth-sensitive")
   @Post("register")
-  @HttpCode(HttpStatus.CREATED)
+  @HttpCode(HttpStatus.ACCEPTED)
   async register(@Body() body: unknown): Promise<RegisterResponse> {
     await this.registration.register(parseRegisterRequest(body));
-    return { status: "verification_sent" };
+    return { status: "accepted" };
   }
 
   /**

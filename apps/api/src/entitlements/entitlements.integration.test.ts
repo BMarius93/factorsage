@@ -16,12 +16,15 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AuthModule } from "../auth/auth.module";
+import { BackgroundEmailDispatcher } from "../auth/background-email-dispatcher";
 import { PasswordService } from "../auth/password.service";
 import { BacktestsModule } from "../backtests/backtests.module";
 import { BenchmarksModule } from "../benchmarks/benchmarks.module";
 import { ConfigurationModule } from "../config/configuration.module";
 import { DatabaseModule } from "../database/database.module";
 import { PrismaService } from "../database/prisma.service";
+import { EMAIL_SENDER } from "../email/email-sender";
+import { InMemoryEmailSender } from "../email/in-memory-email-sender";
 import { ListsModule } from "../lists/lists.module";
 import { MonitorsModule } from "../monitors/monitors.module";
 import { StrategiesModule } from "../strategies/strategies.module";
@@ -54,6 +57,7 @@ describe("entitlements", () => {
   };
 
   let app: INestApplication;
+  let emailDispatcher: BackgroundEmailDispatcher;
   let prisma: PrismaService;
   let anonymous: ReturnType<typeof request.agent>;
 
@@ -263,11 +267,16 @@ describe("entitlements", () => {
         BacktestsModule,
         BenchmarksModule,
       ],
-    }).compile();
+    })
+      // Registration runs for real in the role-escalation case; its mail never leaves the process.
+      .overrideProvider(EMAIL_SENDER)
+      .useValue(new InMemoryEmailSender())
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
 
     prisma = moduleRef.get(PrismaService);
+    emailDispatcher = moduleRef.get(BackgroundEmailDispatcher);
     const passwordHash = await moduleRef.get(PasswordService).hash(password);
     const emailVerifiedAt = new Date();
 
@@ -1219,11 +1228,11 @@ describe("entitlements", () => {
       await request(app.getHttpServer())
         .post("/auth/register")
         .send({ email, password, role: "ADMIN", plan: "PRO" })
-        // No SMTP is configured for the suite, so the verification mail is reported undeliverable.
-        // What matters here is the row that was written, not whether the email went out.
-        .expect((response) => {
-          expect([201, 202, 409, 503]).toContain(response.status);
-        });
+        // Email-first registration answers the same `202` whatever happens next (AUTH-003); what
+        // matters here is the row that was written, not the activation email.
+        .expect(202);
+      // The activation email is sent after the response; let it settle before the row goes.
+      await emailDispatcher.drain();
 
       const created = await prisma.user.findUnique({
         where: { email },

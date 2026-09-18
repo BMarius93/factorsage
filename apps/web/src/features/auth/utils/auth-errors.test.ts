@@ -1,7 +1,4 @@
-import {
-  EMAIL_NOT_VERIFIED_CODE,
-  OAUTH_ERROR_CODES,
-} from "@intrinsic/contracts";
+import { OAUTH_ERROR_CODES } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import {
@@ -13,37 +10,33 @@ import {
 } from "./auth-errors";
 
 describe("describeLoginFailure", () => {
-  it("recognizes the unverified-email code so the UI can offer a resend", () => {
-    expect(
-      describeLoginFailure(new ApiError(403, "…", EMAIL_NOT_VERIFIED_CODE)),
-    ).toEqual({ kind: "email_not_verified" });
-  });
-
   it("collapses every credential rejection into one message", () => {
     for (const status of [400, 401, 403]) {
-      expect(describeLoginFailure(new ApiError(status, "detail"))).toEqual({
-        kind: "message",
-        message: GENERIC_SIGN_IN_ERROR,
-      });
+      expect(describeLoginFailure(new ApiError(status, "detail"))).toBe(
+        GENERIC_SIGN_IN_ERROR,
+      );
     }
+    // A code that once meant "verify your email" is no longer special (AUTH-003).
+    expect(
+      describeLoginFailure(new ApiError(403, "…", "EMAIL_NOT_VERIFIED")),
+    ).toBe(GENERIC_SIGN_IN_ERROR);
   });
 
   it("does not present server-side detail as a credential problem", () => {
-    expect(describeLoginFailure(new ApiError(500, "Internal server error"))).toEqual(
-      { kind: "message", message: UNEXPECTED_ERROR },
+    expect(describeLoginFailure(new ApiError(500, "Internal server error"))).toBe(
+      UNEXPECTED_ERROR,
     );
-    expect(describeLoginFailure(new TypeError("Failed to fetch"))).toEqual({
-      kind: "message",
-      message: UNEXPECTED_ERROR,
-    });
+    expect(describeLoginFailure(new TypeError("Failed to fetch"))).toBe(
+      UNEXPECTED_ERROR,
+    );
   });
 });
 
 describe("describeRequestError", () => {
   it("surfaces an actionable 4xx message from the API", () => {
     expect(
-      describeRequestError(new ApiError(409, "An account with this email already exists")),
-    ).toBe("An account with this email already exists");
+      describeRequestError(new ApiError(400, "Enter a valid email address")),
+    ).toBe("Enter a valid email address");
   });
 
   it("hides 5xx and non-API failures behind a neutral message", () => {

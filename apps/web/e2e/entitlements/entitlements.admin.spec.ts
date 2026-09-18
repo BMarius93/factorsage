@@ -63,25 +63,30 @@ test.describe("ADMIN entitlements", () => {
 
   test("cannot be claimed by a client that asks for it", async ({ page }) => {
     // Registration is the obvious attempt: ask to be created as an administrator on the top plan.
+    // Registration is email-first (AUTH-003): everything but the address is ignored, the answer
+    // is the same neutral `202`, and no password — let alone a role — comes from the request.
+    // The activation email this triggers goes to the stack's configured mail transport; run this
+    // suite against a local capture relay or with SMTP unset (`ai/workflows/auth-testing.md`).
     const email = `escalation-${Date.now()}@example.test`;
-    await page.request.post(`${apiBaseUrl()}/auth/register`, {
-      data: {
-        email,
-        password: "escalation-attempt-password",
-        role: "ADMIN",
-        plan: "PRO",
+    const registered = await page.request.post(
+      `${apiBaseUrl()}/auth/register`,
+      {
+        data: {
+          email,
+          password: "escalation-attempt-password",
+          role: "ADMIN",
+          plan: "PRO",
+        },
       },
-    });
+    );
+    expect(registered.status()).toBe(202);
+    expect(await registered.json()).toEqual({ status: "accepted" });
 
-    // Whatever the registration answered, the account it may have created is not an administrator.
+    // Nothing the request carried is a credential: the account cannot sign in at all.
     const probe = await page.request.post(`${apiBaseUrl()}/auth/login`, {
       data: { email, password: "escalation-attempt-password" },
     });
-    if (probe.ok()) {
-      const user = (await probe.json()) as { role: string; plan: string };
-      expect(user.role).toBe("USER");
-      expect(user.plan).toBe("FREE");
-    }
+    expect(probe.status()).toBe(401);
   });
 
   test("cannot be granted to this session by forging the request", async ({

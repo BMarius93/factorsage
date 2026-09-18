@@ -76,12 +76,7 @@ describe("throttled responses in the browser", () => {
     // The specific harm: a throttled login is refused whether or not the password was right, so
     // the generic credential message would send the user to reset a password that works.
     const failure = describeLoginFailure(throttled(300));
-    expect(failure.kind).toBe("message");
-    expect(failure).toMatchObject({
-      message: expect.stringContaining("5 minutes"),
-    });
-    expect(failure).not.toMatchObject({
-      message: expect.stringContaining("credentials"),
-    });
+    expect(failure).toContain("5 minutes");
+    expect(failure).not.toContain("credentials");
   });
 });

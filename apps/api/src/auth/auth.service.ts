@@ -1,16 +1,6 @@
-import {
-  EMAIL_NOT_VERIFIED_CODE,
-  type AuthUser,
-  type LoginRequest,
-} from "@intrinsic/contracts";
+import type { AuthUser, LoginRequest } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
-import {
-  ForbiddenException,
-  HttpStatus,
-  Inject,
-  Injectable,
-  UnauthorizedException,
-} from "@nestjs/common";
+import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { AUTH_LOGGER } from "./auth.tokens";
 import { PasswordService } from "./password.service";
@@ -22,9 +12,6 @@ import {
 import { UsersService } from "./users.service";
 
 export const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
-
-export const EMAIL_NOT_VERIFIED_MESSAGE =
-  "Verify your email address before signing in";
 
 type LoginResult = {
   token: string;
@@ -47,29 +34,22 @@ export class AuthService {
       request.password,
     );
 
-    // A missing account, a wrong password, and an external-identity-only account without a
-    // local password all take the same constant-work path and produce the same failure.
-    if (!user || !passwordIsValid) {
+    // A missing account, a wrong password, an external-identity-only account without a local
+    // password, and an account that has never been verified all take the same constant-work path
+    // and produce the same failure (AUTH-003). An unverified account has no credential anybody
+    // proved: since AUTH-003 it has no password at all, and a row registered before it holds only
+    // a password chosen by whoever typed the address. Answering anything but the generic `401`
+    // would tell the caller a pending account exists.
+    if (!user || !passwordIsValid || !user.emailVerifiedAt) {
       this.logger.info({
         event: "auth.login.failed",
-        reason: "invalid_credentials",
+        reason:
+          user && passwordIsValid
+            ? "email_not_verified"
+            : "invalid_credentials",
+        ...(user && passwordIsValid ? { actorUserId: user.id } : {}),
       });
       throw new UnauthorizedException(INVALID_CREDENTIALS_MESSAGE);
-    }
-
-    if (!user.emailVerifiedAt) {
-      this.logger.info({
-        event: "auth.login.failed",
-        reason: "email_not_verified",
-        actorUserId: user.id,
-      });
-      // Reaching this branch already required the correct password, so naming the reason does
-      // not disclose anything the caller does not know, and it lets the UI offer a resend.
-      throw new ForbiddenException({
-        statusCode: HttpStatus.FORBIDDEN,
-        message: EMAIL_NOT_VERIFIED_MESSAGE,
-        code: EMAIL_NOT_VERIFIED_CODE,
-      });
     }
 
     this.logger.info({ event: "auth.login.succeeded", actorUserId: user.id });

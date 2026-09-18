@@ -36,11 +36,17 @@ export async function login(request: LoginRequest): Promise<AuthUser> {
   return assertAuthUser(await apiPost<AuthUser>("/auth/login", request));
 }
 
+/**
+ * Email-first registration (AUTH-003): only the address is sent.
+ *
+ * Always resolves for a well-formed address: the API answers the same way whether or not the
+ * address already has an account, so the UI must not treat success as proof of anything.
+ */
 export async function register(
   request: RegisterRequest,
 ): Promise<RegisterResponse> {
-  await apiPost<RegisterResponse>("/auth/register", request);
-  return { status: "verification_sent" };
+  await apiPost<RegisterResponse>("/auth/register", { email: request.email });
+  return { status: "accepted" };
 }
 
 /**

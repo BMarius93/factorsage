@@ -34,6 +34,8 @@ There is no magic-link sign-in, no MFA, no passkey and no second external provid
 - `FREE`, `STARTER` or `PRO` commercial plan
 - `sessionVersion`, a non-null integer (default `0`) that every session token must match — see
   *What a session is, and what ends it*
+- `registrationEmailClaimedAt`, nullable: when registration or resend last claimed the right to
+  email this account — the per-address cooldown of *Email-first registration (AUTH-003)*
 - creation and update timestamps
 
 Role and plan are orthogonal and both are authorization inputs: a user may be `plan=FREE` and
@@ -58,24 +60,155 @@ Two satellite models complete the identity picture:
   must not cancel a pending verification link, and "one outstanding token per user" only means
   something when it holds per purpose.
 
-The model represents all four identity states:
+The model represents these identity states:
 
 ```text
 local password only      passwordHash set,  no OAuthAccount
 Google only              passwordHash null, one OAuthAccount
 both                     passwordHash set,  one OAuthAccount
-unverified local         passwordHash set,  emailVerifiedAt null   (registration's password — never activated)
+pending (unverified)     passwordHash null, emailVerifiedAt null   (AUTH-003: registration sets no password)
+legacy pending           passwordHash set,  emailVerifiedAt null   (registered before AUTH-003 — inert, never activated)
 ```
 
 ## Local registration and email verification
 
-`POST /auth/register` normalizes the email, enforces the shared password policy
-(`PASSWORD_MIN_LENGTH` in `@intrinsic/contracts`), hashes with Argon2id, and creates the user with
-`emailVerifiedAt` null. It then issues a verification token and sends the link.
+Registration is **email-first** (AUTH-003). `POST /auth/register` takes an address and nothing
+else, answers the same `202 { "status": "accepted" }` for every well-formed address, and never
+establishes a password. The emailed activation link opens `/verify-email`, where the holder of the
+mailbox chooses the account's first password (AUTH-002). Registration never signs anybody in.
 
-An address that already belongs to any account is rejected with the same `409` message whether the
-existing account is local or external-only. Registration never attaches a password to an account
-the caller has not proven they own.
+### Email-first registration (AUTH-003)
+
+> For every syntactically valid address, `POST /auth/register` gives the same status, body and
+> headers, sets no cookie, and changes nothing about an existing account's credentials, verification,
+> sessions, role, plan or linked identities. Only the holder of an emailed activation link ever sets
+> an account's first password.
+
+**The enumeration this closes.** Before AUTH-003 registration took `{ email, password }`, answered
+`201 { "status": "verification_sent" }` for a new address and `409 "An account with this email
+already exists"` for **any** existing row — pending, verified, Google-only or linked — so anyone
+could test whether an address had an account. It stored the registrant's password on the unverified
+row (made inert by AUTH-002, but still a credential nobody proved), sent the email inside the
+request (a transport failure answered `503`, and only addresses that reached the transport paid for
+an SMTP round trip), and had no per-address bound: each request to a new address sent a message, and
+`resend-verification` rotated and re-mailed a pending account's link on every call.
+
+**The contract now.** The request is `{ email }`. Any other field — a `password` from a client built
+before AUTH-003, a `role`, a `plan` — is ignored and never read, logged or stored. A malformed
+address is still `400`. Every well-formed address gets `202 { "status": "accepted" }`, no
+`Set-Cookie`, and the same rate-limit headers; nothing in the response describes the account or
+whether mail was sent.
+
+**What happens behind the one answer:**
+
+| State of the address                   | Written by the request                                        | Email, after the response                  |
+| -------------------------------------- | ------------------------------------------------------------- | ------------------------------------------ |
+| No account                             | one pending user: no password, unverified, claim set          | activation link                            |
+| Pending (unverified)                   | the claim; an inert pre-AUTH-003 `passwordHash` is cleared     | a fresh activation link (rotates the old)  |
+| Verified password, Google-only, or both | the claim only                                                | neutral "you already have an account" notice — no token, no link that changes anything |
+| Any of these inside the cooldown       | nothing                                                       | none; no token is issued or rotated        |
+
+`POST /auth/resend-verification` is the same operation without the first and third rows: an
+unknown or verified address is a silent no-op, and a pending one is re-mailed under the same claim
+and cooldown. The two endpoints share one implementation (`RegistrationService.requestActivation`).
+
+**The existing-account notice** tells the mailbox owner that someone asked to create an account with
+their address, that nothing changed, and how to sign in: a sign-in link, plus a recovery link when
+the account has a password, or a "signs in with Google" line when it has a Google identity. It
+carries no token and no account detail beyond that, and only the mailbox owner reads it.
+
+**Per-address cooldown.** `User.registrationEmailClaimedAt` records when an email to the account
+was last claimed. A request takes the claim with **one conditional `UPDATE`** that carries the value
+it read (the `rotating-token.ts` idiom) and the state it decided on (`emailVerifiedAt IS NULL` or
+not), and only when that value is older than `REGISTRATION_EMAIL_COOLDOWN_SECONDS` (five minutes).
+So of any number of concurrent requests for one address exactly one sees a count of one and sends;
+the rest send nothing. A new address's row is **created already claimed**, so a request that loses
+the unique-index race reads a row that is cooling down.
+
+- The cooldown bounds what anyone can make FactorSage send to one address — one message per window
+  whoever asks and from however many IPs — on top of the per-IP `auth-sensitive` bucket.
+- It never refuses a request, and a suppressed request writes, issues and rotates nothing, so the
+  link already in the inbox stays valid.
+- It is keyed by the account row. Nothing derived from the address is stored, logged or sent to
+  Redis, and it is not a rate-limit counter: `AGENTS.md` invariant 19's rule that no counter is keyed
+  by a submitted address is untouched, because nothing here decides whether a request is allowed.
+- It is independent of account state: every row of the table above is suppressed alike.
+
+**Out-of-band delivery.** The request path only reads, creates or claims. Issuing the token and
+talking to the transport run afterwards on `BackgroundEmailDispatcher`, a tracked in-process task
+set that `app.close()` and shutdown drain. The transport's latency and failures therefore never
+reach the response, and no transaction is ever open across a send. The residual timing difference
+between states is a database round trip or two (an insert for a new address, an `UPDATE` for a
+claim, none inside the cooldown), not an SMTP exchange.
+
+**Failure.** A send that fails is logged with the original error (`auth.email.verification.send.failed`
+or `auth.email.account_notice.send.failed`) and **gives the claim back** — the column is restored to
+its previous value, conditionally on still holding this claim — so the owner's next request sends at
+once instead of waiting out a cooldown for a message that never left. The same happens if the task
+fails before reaching the transport (a database error while issuing). A new account is therefore
+never stranded: it is a pending row whose owner can simply ask again. What a failure cannot undo is
+the rotation of a pending account's previous link, which happened when the token was issued; the
+retry mails a new one.
+
+**Concurrency.**
+
+- *Simultaneous registrations of one new address* (including case and whitespace variants, which
+  are normalized before anything else): the unique index on `email` lets one `INSERT` win;
+  `createPendingUser` turns the loser's `P2002` into a re-read, and the re-read row is already
+  claimed. One user, one token, one message, and every request gets the same `202` — never a `500`.
+- *Registration racing verification*: the pending claim is conditional on `emailVerifiedAt IS NULL`
+  and is evaluated on the row the verification transaction locks, so a verification that commits
+  first makes the claim miss. A claim that commits first clears only an inert hash, and the
+  verification then installs the owner's password. If the claim won but the owner's link was
+  redeemed before the background task issued, the task re-checks the account after issuing and
+  **withdraws its own token** (`discardIssuedToken`, conditional on the hash) instead of mailing
+  it. Either the account ends verified with the owner's password and no verification token, or it
+  ends pending with exactly one live link — the one just mailed.
+- *Registration racing Google*: a Google link or first sign-in verifies the account inside its own
+  transaction and deletes verification tokens; the claim then misses, or the background task's
+  re-check withdraws its token, and a token issued before the link is deleted by it. A registration
+  that loses the create race to a Google sign-in reads a verified row and sends the notice. No
+  password or OAuth row is ever written by registration.
+
+**Old rows.** No destructive migration. A pending row registered before AUTH-003 may still carry an
+inert `passwordHash`: it never authenticates (login refuses every unverified account with the
+generic `401`), nothing needs it, verification replaces it, and the first claimed register or resend
+for that address clears it. The new column starts `NULL` everywhere, so the first request after the
+deploy for any account may send one email and the cooldown applies from then on. Verified accounts
+are untouched.
+
+**Residual risks.**
+
+- **Accepted residual risk — the existing-account notice** (decided 2026-09-18 by the product
+  owner, for the current release; recorded under AUTH-003 / DEC-004 in the remediation plan):
+  - an unauthenticated caller can make FactorSage send the neutral existing-account notice to the
+    owner of a verified account;
+  - at most one email per address per five-minute cooldown window, plus the per-IP
+    `auth-sensitive` rate limit;
+  - the email carries no verification token, password, session information or account data;
+  - the public response stays the same generic `202`, so account enumeration is not reopened;
+  - the risk is operational — nuisance email, mail-provider quota and cost, sender reputation —
+    and is **not** an account-takeover or credential-disclosure vulnerability.
+  Recommended follow-up, not implemented, before registration traffic becomes material:
+  - make registration for a verified account a silent no-op (no notice);
+  - lengthen the cooldown;
+  - add CAPTCHA or risk-based abuse protection in front of registration.
+- The same one-email-per-window bound applies to activation links for new and pending addresses;
+  CAPTCHA remains optional-later item 8.
+- Pending rows accumulate for addresses nobody activates; the per-IP bucket bounds the rate, and a
+  cleanup of old never-activated rows is future work.
+- An in-process task is lost if the process dies between the claim and the send; the claim then
+  expires with the cooldown and the owner asks again.
+- A few database round trips still differ between states; that is not an SMTP-sized signal, and no
+  test asserts wall-clock timing.
+- A client built before AUTH-003 still posts a password; it is ignored, and the email that follows
+  asks the holder to choose one.
+
+**Manual live-email verification — not executed in the AUTH-003 PR.** Deliberately deferred to
+preserve the Mailtrap sandbox quota; every automated test uses `InMemoryEmailSender` and no real
+message was sent while implementing it. The owner's steps are in
+[`../workflows/auth-testing.md`](../workflows/auth-testing.md), *Registration enumeration check
+(AUTH-003)*.
 
 ### The rule: verification sets the password (AUTH-002)
 
@@ -95,12 +228,12 @@ on the direct verification path.
 
 **The flow now.**
 
-1. Registration still takes a password (the contract is unchanged) and still stores its hash on
-   the unverified row. That hash is **never** activated: login refuses an unverified account, and
-   every path that verifies an address replaces or removes it in the same transaction —
-   verification installs the password its redeemer chooses, a reset installs the reset password,
-   and Google adoption clears it (AUTH-001). Its only remaining use is letting whoever typed it
-   receive the `403 EMAIL_NOT_VERIFIED` hint (and the resend button) instead of the generic `401`.
+1. Since AUTH-003 registration takes no password at all. A row registered before it may still
+   carry the registrant's hash; that hash is **never** activated: login refuses every unverified
+   account with the generic `401`, and every path that verifies an address replaces or removes it
+   in the same transaction — verification installs the password its redeemer chooses, a reset
+   installs the reset password, and Google adoption clears it (AUTH-001). A claimed register or
+   resend clears it too.
 2. The emailed link opens `/verify-email?token=…`. Opening it redeems nothing: the page asks for
    **New password** and **Confirm password**.
 3. The browser posts `POST /auth/verify-email` with `{ token, password }` in the JSON body. The
@@ -122,8 +255,8 @@ on the direct verification path.
    Any failure rolls all of it back: the token is still redeemable, the account is unverified with
    its previous hash and version, and the reset link is still present.
 6. The response is `{ "status": "verified" }` and issues **no session**. The page offers
-   **Continue to sign in** (`/login`); the owner signs in with the password they just chose. The
-   registration password now fails with the ordinary generic `401`.
+   **Continue to sign in** (`/login`); the owner signs in with the password they just chose. A
+   pre-AUTH-003 registration password fails with the ordinary generic `401`.
 
 **Tokens.**
 
@@ -150,26 +283,25 @@ that is by then verified and signed in. Redeeming that link sets a new password,
 issued before it gets the generic `401`, exactly as after a reset. A refused redemption revokes
 nothing.
 
-**Why registration still stores a hash.** Not storing it would remove the credential at the source,
-but it would also turn an unverified account's correct-password login from the `403` "verify your
-email" hint into a generic `401`, change what `resend-verification` treats as a local account, and
-make the registration password field meaningless without a contract change — all while AUTH-003
-(registration enumeration) is about to redesign what registering an existing address does. The
-invariant does not depend on the hash being absent: it holds because nothing can make an unverified
-row's hash usable without replacing it. AUTH-003 is the natural point to revisit dropping it.
+**Why registration no longer stores a hash.** AUTH-002 left the registration hash in place because
+removing it changed the contract; AUTH-003 was that contract change. With registration email-first
+there is no registration password to store, the `403 EMAIL_NOT_VERIFIED` hint it enabled is gone
+(it told a caller that a pending account existed), and the invariant above now holds at the source
+as well as at verification.
 
 **Residual limitations.**
 
 - A victim who opens an unsolicited link and completes the form gains an account in their own name
   with their own password; that is the intended outcome, not a takeover. A victim who ignores it
   leaves an unverified row the attacker cannot use.
-- An attacker can still register someone else's address and cause one verification email to be
-  sent; that is registration enumeration and nuisance mail, tracked as AUTH-003.
+- Anyone can still register someone else's address and cause an activation email to be sent — at
+  most one per address per cooldown window since AUTH-003, with a response that reveals nothing.
 - A client (or tab) built before AUTH-002 posts `{ token }` only and receives a `400`; its link is
   unspent and works once the page is reloaded on the new build.
 
 `POST /auth/resend-verification` always answers `202`. Unknown addresses, already-verified
-accounts, and external-only accounts are silent no-ops so the endpoint cannot enumerate accounts.
+accounts, and external-only accounts are silent no-ops so the endpoint cannot enumerate accounts. A
+pending account shares registration's claim and cooldown (AUTH-003).
 
 ## Google authentication
 
@@ -432,15 +564,18 @@ refuses it before anything is written. Both clients land on `/login`.
 
 - `GET /auth/providers`: non-secret capability probe (`{ google: boolean }`) so the UI only offers
   providers this deployment configured.
-- `POST /auth/register`: creates an unverified local user and sends a verification link.
+- `POST /auth/register`: email-first (AUTH-003). Always `202 { status: "accepted" }` for a
+  well-formed address; creates a pending account without a password, re-mails a pending one, or
+  mails a verified one's owner a neutral notice — at most once per address per cooldown window.
 - `POST /auth/verify-email`: redeems a token once and installs the password in the body as the
   account's password (AUTH-002). No session is issued.
-- `POST /auth/resend-verification`: rotates and resends; always `202`.
+- `POST /auth/resend-verification`: re-mails a pending account's activation link under the same
+  cooldown; always `202`.
 - `POST /auth/login`: validates and normalizes credentials, returns a safe `AuthUser`, and sets the
-  auth cookie. Missing users, incorrect passwords, and users without a local password all receive
-  the same generic `401`. Correct credentials on an unverified account receive `403` with
-  `EMAIL_NOT_VERIFIED_CODE`, which reveals nothing the caller does not already know and lets the UI
-  offer a resend.
+  auth cookie. Missing users, incorrect passwords, users without a local password, and unverified
+  accounts all receive the same generic `401` (AUTH-003 removed the `403 EMAIL_NOT_VERIFIED`
+  branch: no credential on an unverified row was ever proven, and the distinct answer revealed that
+  a pending account existed).
 - `POST /auth/forgot-password`: requests a reset link; always `202`.
 - `POST /auth/reset-password`: redeems a reset token once and installs the new password.
 - `GET /auth/me`: requires the cookie guard and returns the current safe `AuthUser`.
@@ -531,8 +666,10 @@ Auth, email, and Google business code never reads `process.env`. The web app's o
 is the public `NEXT_PUBLIC_API_BASE_URL`, which carries no secret.
 
 Outbound email goes through an `EmailSender` port. The SMTP transport is the production
-implementation; deterministic tests replace the port entirely, so no automated test can send real
-mail. In development and test, with no SMTP configured, the API still boots and reports the
+implementation; deterministic tests replace the port entirely with `InMemoryEmailSender`, and
+`apps/api/src/email/no-real-email.setup.ts` additionally replaces `nodemailer` for every API test
+file, so no automated test can send real mail even when a developer `.env` configures a relay
+(`no-real-email.guard.test.ts` proves it). In development and test, with no SMTP configured, the API still boots and reports the
 verification email as undeliverable rather than pretending it was sent. **In production the API
 refuses to start without `SMTP_HOST` and `SMTP_FROM`**, and without an https, non-loopback
 `WEB_BASE_URL` and `CORS_ORIGINS` (PROD-001): without them registration, verification, recovery,
@@ -542,7 +679,11 @@ sends no email and requires none of these.
 ## Observability
 
 Auth emits stable structured events — `auth.login.succeeded`, `auth.login.failed`,
-`auth.register.completed`, `auth.email.verification.sent`, `auth.email.verification.completed`,
+`auth.activation.requested` (register and resend, with `source` and an internal `outcome` of
+`account_created`, `activation_claimed`, `notice_claimed`, `cooldown`, `claim_lost` or
+`not_eligible` — never returned to the caller), `auth.email.verification.sent`,
+`auth.email.verification.withdrawn`, `auth.email.account_notice.sent`,
+`auth.email.verification.completed`,
 `auth.google.callback.completed`, `auth.google.account.linked`,
 `auth.google.account.link.refused`, `auth.google.user.created`,
 `auth.password.reset.requested`, `auth.password.reset.completed`, `auth.sessions.revoked` (with
@@ -584,11 +725,9 @@ ship without it stays visible.
    **Verification activating a password nobody proved — done (AUTH-002).** Redeeming a
    verification link now installs the password its holder chooses; see *The rule: verification
    sets the password*.
-3. **Registration is an enumeration oracle.** `POST /auth/register` answers `409` for an address
-   that already exists, so anyone can test whether an address has an account. Recovery, resend and
-   login are all careful not to leak this; registration undoes that. Closing it means answering
-   `202` and mailing "someone tried to register with your address" instead, which changes the
-   registration UX and is a product decision, not a code change.
+3. **Registration enumeration — done (AUTH-003, DEC-004).** Registration is email-first, answers
+   one `202` for every address, mails a verified account's owner a neutral notice instead of
+   returning `409`, and is bounded per address by a cooldown. See *Email-first registration*.
 
 ### Should do soon
 
@@ -597,9 +736,11 @@ ship without it stays visible.
    subdomain, or plain HTTP in a non-production deployment — can plant their own transaction and
    complete a login-CSRF: the victim ends up signed in to the *attacker's* account. Signing the
    cookie, or scoping it with a `__Host-` prefix, closes it.
-5. **Timing side channel on recovery and resend.** Both endpoints return one response, but an
-   address with an account performs an SMTP round trip and an address without one does not, so
-   elapsed time still distinguishes them. Sending mail out of band removes the difference.
+5. **Timing side channel on recovery.** `POST /auth/forgot-password` returns one response, but an
+   address with a local password performs an SMTP round trip and an address without one does not,
+   so elapsed time still distinguishes them. Registration and resend already send out of band
+   (AUTH-003, `BackgroundEmailDispatcher`); moving recovery onto the same dispatcher removes the
+   difference there too.
 6. **Argon2id parameters are the library defaults.** They should be pinned explicitly and chosen
    against the production instance's memory budget, and `PasswordService` should rehash on login
    when the stored parameters are below the current policy.
