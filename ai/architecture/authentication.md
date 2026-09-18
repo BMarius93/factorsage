@@ -179,8 +179,22 @@ are untouched.
 
 **Residual risks.**
 
-- One email per address per cooldown window is still mail a stranger can cause. The window bounds
-  it; CAPTCHA remains optional-later item 8.
+- **Accepted residual risk — the existing-account notice** (decided 2026-09-18 by the product
+  owner, for the current release; recorded under AUTH-003 / DEC-004 in the remediation plan):
+  - an unauthenticated caller can make FactorSage send the neutral existing-account notice to the
+    owner of a verified account;
+  - at most one email per address per five-minute cooldown window, plus the per-IP
+    `auth-sensitive` rate limit;
+  - the email carries no verification token, password, session information or account data;
+  - the public response stays the same generic `202`, so account enumeration is not reopened;
+  - the risk is operational — nuisance email, mail-provider quota and cost, sender reputation —
+    and is **not** an account-takeover or credential-disclosure vulnerability.
+  Recommended follow-up, not implemented, before registration traffic becomes material:
+  - make registration for a verified account a silent no-op (no notice);
+  - lengthen the cooldown;
+  - add CAPTCHA or risk-based abuse protection in front of registration.
+- The same one-email-per-window bound applies to activation links for new and pending addresses;
+  CAPTCHA remains optional-later item 8.
 - Pending rows accumulate for addresses nobody activates; the per-IP bucket bounds the rate, and a
   cleanup of old never-activated rows is future work.
 - An in-process task is lost if the process dies between the claim and the send; the claim then

@@ -1712,6 +1712,8 @@ In that case, raise it to P0 and stop the release.
 - **Canonical record:** `ai/architecture/authentication.md`, in the AUTH-003 PR.
 - **Release-blocking:** **yes**.
 - **Specified 2026-09-18** by the full item below, which is implemented in its own PR.
+- **Accepted residual risk (2026-09-18, product owner):** the existing-account notice. See
+  AUTH-003, *Accepted residual risk*.
 
 ### AUTH-003: Registration does not reveal whether an account exists
 
@@ -1840,6 +1842,25 @@ registration undid that. Registering someone else's address also cost them an em
 against a local capture relay or the sandbox, register a new, a pending and a verified address and
 confirm one identical page each, one activation or notice message per address, and silence inside
 the cooldown.
+
+**Accepted residual risk — existing-account notice.** Decided **2026-09-18** by the **product
+owner** for the current release:
+
+  - an unauthenticated caller can make FactorSage send the neutral existing-account notice to the
+    owner of a verified account;
+  - at most one email per address per five-minute cooldown window, plus the per-IP
+    `auth-sensitive` rate limit;
+  - the email carries no verification token, password, session information or account data;
+  - the public response stays the same generic `202`, so account enumeration is not reopened;
+  - the risk is operational — nuisance email, mail-provider quota and cost, sender reputation —
+    and is **not** an account-takeover or credential-disclosure vulnerability.
+
+Recommended follow-up, **not implemented** and to be decided before registration traffic becomes
+material:
+
+  - make registration for a verified account a silent no-op (no notice);
+  - lengthen the cooldown;
+  - add CAPTCHA or risk-based abuse protection in front of registration.
 
 **Release-blocking:** yes (DEC-004).
 
