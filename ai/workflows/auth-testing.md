@@ -154,6 +154,13 @@ Auth suites:
   single use, expiry, resend rotation, login gating, and the rotation races: a resend that reuses
   the row between the redemption transaction's read and its write must neither be consumed by the
   superseded link nor deleted by its cleanup
+- `apps/api/src/auth/email-verification.integration.test.ts` — AUTH-002: the full pre-account
+  takeover (an attacker registers the victim's address; the victim's verification installs the
+  victim's chosen password; the attacker's gets the generic `401`), unknown / malformed / expired /
+  used tokens changing nothing, the pre-AUTH-002 `{ token }` request refused, a rollback injected
+  after every write of the redemption, two concurrent redemptions with different passwords, a
+  pending reset link dropped, resent links, session revocation on a signed-in account holding a
+  late link, log-leak assertions and the response shape
 - `apps/api/src/auth/password-reset.integration.test.ts` — forgot/reset password: the
   indistinguishable response for unknown, Google-only and real addresses, hash-only storage,
   single use, rotation, expiry, concurrent redemption, the password policy, what a reset does and
@@ -213,6 +220,29 @@ Manual verification of SESSION-002 against a running stack (`ai/architecture/aut
 
 The same flows over HTTP: `POST /auth/logout-all` needs only the session cookie and no body; a
 reset is `POST /auth/forgot-password` followed by `POST /auth/reset-password`.
+
+### Email-verification takeover check (AUTH-002)
+
+Against a running stack with a local catch-all SMTP relay (section 11):
+
+1. Register a fresh address on `/register` with password **A** (playing the attacker).
+2. Sign in with that address and **A** — expect "Verify your email address before signing in".
+3. Open the verification link from the relay (playing the mailbox owner). The page shows **New
+   password** and **Confirm password** and has verified nothing yet; the address bar holds only
+   `?token=…`.
+4. Enter a mismatched confirmation — expect the inline mismatch error and no request in the
+   network panel. Then enter password **B** twice and submit — expect "Your email address is
+   verified and your password is set." and a **Continue to sign in** link to `/login`. The
+   network panel shows one `POST /auth/verify-email` whose JSON body carries `token` and
+   `password`, and no password in any URL.
+5. Sign in with **A** — expect the generic "Invalid email or password". Sign in with **B** —
+   expect the dashboard.
+6. Open the same link again and submit any password — expect "This verification link is invalid,
+   expired, or has already been used." with the resend form.
+7. Repeat steps 3–4 at 390 px width; the form must fit without horizontal scroll.
+
+Over HTTP, `POST /auth/verify-email` with `{ "token": "…" }` alone must answer `400` and leave the
+link redeemable.
 
 Never paste a real cookie, token, or password into a document, a commit message, or a log.
 

@@ -79,7 +79,7 @@ document in the same commit as this plan.
 | E2E-006     | Shared Playwright logo stub; one `watchForIssues` helper                          | P1       | 5   | **Yes** (release gate)                    | §7 #2–5        |
 | E2E-007     | Document the deterministic fixture boundaries                                     | P2       | 5   | No                                        | H-10           |
 | TEST-001    | Investigate the intermittent `GET /backtests/:id` 404 in the API suite            | P2       | 5   | No, unless it reproduces as a product bug | T-4            |
-| AUTH-002    | Verifying an email must not activate a password the verifier did not set          | TBD      | TBD | **Must be classified** (DEC-005)          | B-1 ¶2         |
+| AUTH-002    | Verifying an email must not activate a password the verifier did not set          | P1       | own | **Yes** (classified 2026-09-18, DEC-005)  | B-1 ¶2         |
 | AUTH-003    | Registration does not reveal whether an account exists                            | P1       | TBD | **Yes** (DEC-004)                         | S-2            |
 | PRICING-001 | Public `/pricing` page for guests                                                 | P1       | TBD | **Yes** (DEC-001)                         | §2, §5         |
 | DEMO-001    | Guest-viewable precomputed/static demo backtests                                  | P1       | TBD | **Yes** (DEC-002)                         | §2             |
@@ -1745,6 +1745,21 @@ an owner, before public production. That classification is a release-gate item i
 default to "deferred".
 
 **Canonical record:** `ai/architecture/authentication.md`.
+
+**Classification and design (2026-09-18, recorded in the AUTH-002 PR):**
+
+- **Classified release-blocking**, P1, and implemented in its own PR, separate from AUTH-001 and
+  AUTH-003. Before the fix a single click on the unsolicited email was enough.
+- **Chosen design: (c)** — verification sets the password. The verification page asks the holder of
+  the link for a new password; `POST /auth/verify-email` takes `{ token, password }` and, in one
+  transaction, consumes the token, installs that password, sets `emailVerifiedAt`, increments
+  `sessionVersion` and drops any outstanding reset token.
+- (a) alone was rejected because wording does not stop a click. (b) was rejected because it makes
+  the attacker's password the thing that unlocks verification, the opposite of the invariant.
+- The invariant it establishes: redeeming a verification link never activates a password chosen
+  before control of the mailbox was proven. `ai/architecture/authentication.md`, *The rule:
+  verification sets the password*, carries the flow, transaction boundaries, concurrency and
+  residual limitations.
 
 ### DEC-006: Google sign-in at launch. Decided: ENABLED
 

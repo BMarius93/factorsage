@@ -48,8 +48,16 @@ export type RegisterResponse = {
   status: "verification_sent";
 };
 
+/**
+ * Redeems a verification link **and sets the account's password**.
+ *
+ * The password is chosen by whoever holds the link, which is the only person who has proven
+ * control of the mailbox. A password entered at registration is never activated by verification
+ * (AUTH-002): anyone can register an address they do not own.
+ */
 export type VerifyEmailRequest = {
   token: string;
+  password: string;
 };
 
 export type VerifyEmailResponse = {

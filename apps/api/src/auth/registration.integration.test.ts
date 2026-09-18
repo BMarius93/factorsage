@@ -22,6 +22,7 @@ import {
   EmailVerificationService,
   hashVerificationToken,
 } from "./email-verification.service";
+import { PasswordService } from "./password.service";
 import {
   EMAIL_TAKEN_MESSAGE,
   INVALID_VERIFICATION_TOKEN_MESSAGE,
@@ -60,6 +61,7 @@ describe("registration and email verification", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let verification: EmailVerificationService;
+  let passwords: PasswordService;
   const sender = new InMemoryEmailSender();
 
   beforeAll(async () => {
@@ -82,6 +84,7 @@ describe("registration and email verification", () => {
     await app.init();
     prisma = moduleRef.get(PrismaService);
     verification = moduleRef.get(EmailVerificationService);
+    passwords = moduleRef.get(PasswordService);
   });
 
   afterEach(() => {
@@ -125,8 +128,11 @@ describe("registration and email verification", () => {
       )) as never);
   }
 
+  /** Verification sets the account's password (AUTH-002); here the registrant keeps theirs. */
   function verify(token: string) {
-    return request(app.getHttpServer()).post("/auth/verify-email").send({ token });
+    return request(app.getHttpServer())
+      .post("/auth/verify-email")
+      .send({ token, password });
   }
 
   /**
@@ -298,7 +304,7 @@ describe("registration and email verification", () => {
 
     const verified = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(200);
     expect(verified.body).toEqual({ status: "verified" });
 
@@ -312,7 +318,7 @@ describe("registration and email verification", () => {
 
     const replay = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(401);
     expect(replay.body.message).toBe(INVALID_VERIFICATION_TOKEN_MESSAGE);
   });
@@ -320,7 +326,7 @@ describe("registration and email verification", () => {
   it("rejects an unknown token", async () => {
     const response = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: "not-a-real-verification-token" })
+      .send({ token: "not-a-real-verification-token", password })
       .expect(401);
 
     expect(response.body.message).toBe(INVALID_VERIFICATION_TOKEN_MESSAGE);
@@ -338,7 +344,7 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(401);
 
     expect(
@@ -357,7 +363,12 @@ describe("registration and email verification", () => {
     const user = await prisma.user.findUniqueOrThrow({ where: { email } });
 
     failUserUpdateInsideTheTransaction();
-    await expect(verification.redeemToken(token)).rejects.toThrow("write failed");
+    await expect(
+      verification.redeemToken({
+        token,
+        passwordHash: await passwords.hash(password),
+      }),
+    ).rejects.toThrow("write failed");
     vi.restoreAllMocks();
 
     const stored = await prisma.emailVerificationToken.findUnique({
@@ -373,7 +384,7 @@ describe("registration and email verification", () => {
     // The rolled-back link is still usable, which is the point of the transaction.
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(200);
     expect(
       (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
@@ -416,7 +427,7 @@ describe("registration and email verification", () => {
     ).not.toBeNull();
   });
 
-  it("does not let stale expired-token cleanup delete a link the resend just issued", async () => {
+  it("does not let the cheap expired-token cleanup delete a link the resend just issued", async () => {
     const email = uniqueEmail("verify-cleanup-race");
     const stale = await register(email);
     const user = await prisma.user.findUniqueOrThrow({ where: { email } });
@@ -425,6 +436,63 @@ describe("registration and email verification", () => {
       data: { expiresAt: new Date(Date.now() - 1000) },
     });
 
+    // An expired token is refused and cleared by the cheap pre-check, before any transaction. The
+    // seam is the service's own reference to Prisma, swapped for a forwarder that issues a fresh
+    // link the first time the expired row is read — the same row, since issuance upserts.
+    let issued: string | null = null;
+    const holder = verification as unknown as { prisma: PrismaService };
+    const real = holder.prisma;
+    const tokens = real.emailVerificationToken;
+    holder.prisma = {
+      $transaction: real.$transaction.bind(real),
+      emailVerificationToken: {
+        upsert: (args: never) => tokens.upsert(args),
+        deleteMany: (args: never) => tokens.deleteMany(args),
+        findUnique: async (args: never) => {
+          const record = await tokens.findUnique(args);
+          if (record && issued === null) {
+            issued = (await verification.issueToken(user.id)).token;
+          }
+          return record;
+        },
+      },
+    } as unknown as PrismaService;
+    try {
+      await verify(stale).expect(401);
+    } finally {
+      holder.prisma = real;
+    }
+
+    // Cleaning up by row id alone would have thrown away the link the user was just emailed,
+    // leaving them with an address they could no longer verify.
+    expect(issued).toBeTruthy();
+    const survivor = await prisma.emailVerificationToken.findUnique({
+      where: { userId: user.id },
+    });
+    expect(survivor?.tokenHash).toBe(hashVerificationToken(issued ?? ""));
+
+    await verify(issued ?? "").expect(200);
+    expect(
+      (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
+        .emailVerifiedAt,
+    ).not.toBeNull();
+  });
+
+  it("does not let the transactional expired-token cleanup delete a link the resend just issued", async () => {
+    const email = uniqueEmail("verify-cleanup-race-tx");
+    const stale = await register(email);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+    // Valid at the cheap check, expired during the hash: the only way the transaction's own
+    // expired branch is ever reached.
+    const argon2id = passwords.hash.bind(passwords);
+    vi.spyOn(passwords, "hash").mockImplementation(async (value: string) => {
+      await prisma.emailVerificationToken.updateMany({
+        where: { userId: user.id },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      return argon2id(value);
+    });
     const resend = resendOnStaleRead(user.id);
     try {
       await verify(stale).expect(401);
@@ -432,8 +500,8 @@ describe("registration and email verification", () => {
       resend.restore();
     }
 
-    // Cleaning up by row id alone would have thrown away the link the user was just emailed,
-    // leaving them with an address they could no longer verify.
+    // A transaction is not a lock: at READ COMMITTED the delete would have re-read the row and
+    // removed the freshly issued link.
     const survivor = await prisma.emailVerificationToken.findUnique({
       where: { userId: user.id },
     });
@@ -452,8 +520,12 @@ describe("registration and email verification", () => {
     const token = await register(email);
 
     const responses = await Promise.all([
-      request(app.getHttpServer()).post("/auth/verify-email").send({ token }),
-      request(app.getHttpServer()).post("/auth/verify-email").send({ token }),
+      request(app.getHttpServer())
+        .post("/auth/verify-email")
+        .send({ token, password }),
+      request(app.getHttpServer())
+        .post("/auth/verify-email")
+        .send({ token, password }),
     ]);
     const statuses = responses.map((response) => response.status).sort();
 
@@ -483,11 +555,11 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: firstToken })
+      .send({ token: firstToken, password })
       .expect(401);
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: secondToken })
+      .send({ token: secondToken, password })
       .expect(200);
   });
 
@@ -496,7 +568,7 @@ describe("registration and email verification", () => {
     const token = await register(email);
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(200);
     sender.reset();
 
@@ -531,7 +603,7 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token })
+      .send({ token, password })
       .expect(200);
 
     const agent = request.agent(app.getHttpServer());

@@ -52,8 +52,8 @@ export function RegisterForm() {
           Check your inbox. We sent a verification link to {registeredEmail}.
         </p>
         <p className={styles.status}>
-          The link can be used once and expires. You can sign in as soon as your
-          address is verified.
+          Open it to verify your address and choose the password you will sign
+          in with. The link can be used once and expires.
         </p>
         <p className={styles.footerNote}>
           <Link className={styles.link} href="/login">
