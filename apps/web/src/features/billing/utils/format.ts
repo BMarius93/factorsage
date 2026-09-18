@@ -1,4 +1,5 @@
 import {
+  type BillingCatalogEntry,
   type BillingInterval,
   type BillingSubscriptionStatus,
   type UserPlan,
@@ -24,6 +25,11 @@ export const PLAN_LABEL: Readonly<Record<UserPlan, string>> = {
 export const INTERVAL_LABEL: Readonly<Record<BillingInterval, string>> = {
   MONTH: "Monthly",
   YEAR: "Yearly",
+};
+
+/** A catalog currency in words. Keyed by the catalog's own type, so a new currency is a compile error. */
+export const CURRENCY_LABEL: Readonly<Record<BillingCatalogEntry["currency"], string>> = {
+  usd: "US dollars",
 };
 
 export function formatBillingDate(iso: string | null): string | null {

@@ -180,6 +180,10 @@ surface and skip the checkout-initiation cases when billing is unconfigured:
 pnpm test:e2e:billing
 ```
 
+The public pricing specs (`pricing.guest.spec.ts`, `pricing.free.spec.ts`) are hermetic whatever the
+API's configuration: they abort any browser request that leaves the local stack and answer
+`/billing/status` and `/billing/checkout` in the browser for the Checkout case.
+
 ## Live FMP suites are opt-in at the suite level
 
 Two suites can call the real provider:

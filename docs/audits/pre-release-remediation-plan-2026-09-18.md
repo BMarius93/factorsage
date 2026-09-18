@@ -81,7 +81,7 @@ document in the same commit as this plan.
 | TEST-001    | Investigate the intermittent `GET /backtests/:id` 404 in the API suite            | P2       | 5   | No, unless it reproduces as a product bug | T-4            |
 | AUTH-002    | Verifying an email must not activate a password the verifier did not set          | P1       | own | **Yes** (classified 2026-09-18, DEC-005)  | B-1 ¶2         |
 | AUTH-003    | Registration does not reveal whether an account exists                            | P1       | own | **Yes** (DEC-004; specified 2026-09-18)   | S-2            |
-| PRICING-001 | Public `/pricing` page for guests                                                 | P1       | own | **Yes** (DEC-001; specified 2026-09-18)   | §2, §5         |
+| PRICING-001 | Public `/pricing` page for guests                                                 | P1       | own | **Yes** (DEC-001; implemented 2026-09-18) | §2, §5         |
 | DEMO-001    | Guest-viewable precomputed/static demo backtests                                  | P1       | TBD | **Yes** (DEC-002)                         | §2             |
 
 The last four rows were created by the product decisions in §8. Each is _specification pending_
@@ -1712,8 +1712,8 @@ In that case, raise it to P0 and stop the release.
   - `ai/architecture/v1-visual-parity.md:52` described a public pricing page as future work "if
     one is ever built". That wording is superseded by this decision.
   - V1 has a public `/pricing` (audit §5).
-- **New tracked item:** **PRICING-001, public `/pricing` page** (specified 2026-09-18; full item
-  below).
+- **New tracked item:** **PRICING-001, public `/pricing` page** (specified and implemented
+  2026-09-18; full item below).
 - **Constraints the specification must respect** (traced to existing documents):
   - **One pricing source.** Plan capacities come from `PLAN_ENTITLEMENTS` and amounts from
     `BILLING_CATALOG`, as the billing cards already do. `ai/architecture/billing.md:772,794` and
@@ -1864,6 +1864,34 @@ carrying the cadence through sign-in, `next` through the verification email, and
 - The cadence a guest picked is not carried through sign-in; they return to Monthly.
 
 **Release-blocking:** yes (DEC-001).
+
+**Implemented (2026-09-18, own PR, branch `feat/pricing-001-public-pricing`):**
+
+- `/pricing` is in `GUEST_ROUTE_PATTERNS`; `/billing` is not and still bounces a Guest to
+  `/login?next=%2Fbilling`. The route is `app/(app)/pricing/page.tsx` → `PricingPage`.
+- **One pricing source.** The plans section of `BillingPage` became `PlanCatalog` and its action
+  handler became `usePlanActions`, both moved without behaviour change (`BillingPage.test.tsx`
+  passes unedited). `/pricing` renders the same `PlanCatalog`; a drift test renders both pages and
+  requires identical price, note and feature text for every plan in both cadences.
+- **Guests:** `guestPlanCardState` (`plan-actions.ts`) gives each card a `SIGN_IN` action with no
+  price key; `PricingPage` turns it into `SignInPrompt` with `SIGN_IN_TO_CHOOSE_PLAN`, whose links
+  are `/login?next=%2Fpricing` and `/register?next=%2Fpricing`. No billing endpoint is called.
+  The guest topbar has a "Pricing" link.
+- **Signed-in:** `planCardState` over `GET /billing/status` and `usePlanActions` — the `/billing`
+  behaviour, one Checkout implementation. The header links to `/billing`.
+- **States:** no action while the session or status is loading, after a status failure (alert +
+  retry), or when billing is unconfigured (the shared "not available" note).
+- No API, schema, migration, OpenAPI or dependency change.
+- Canonical record: `docs/decisions/stripe-billing-v1.md` §19 _Public pricing page_, pointer in
+  `docs/decisions/entitlements-v1.md` §4; `ai/architecture/v1-visual-parity.md`, `billing.md`,
+  `authentication.md` and `ai/workflows/validation.md` updated.
+- Tests: `PricingPage.test.tsx` (15), `PricingPage.invalid-catalog.test.tsx` (1),
+  `plan-actions.test.ts` (+2), `guest-routes.test.ts`, `AccountMenu.test.tsx` (+1);
+  E2E `pricing.guest.spec.ts` (7) and `pricing.free.spec.ts` (2), all green against an API started
+  with Stripe, SMTP and Google configuration blanked and a non-key FMP value; a Redis `MONITOR`
+  capture of the run shows no `stock-data:v2:fmp` gate traffic.
+- Found, not fixed: `e2e/billing/billing.free.spec.ts` has three cases that **fail** rather than
+  skip when billing is unconfigured, contrary to `ai/workflows/validation.md`; identical on `main`.
 
 ### DEC-002: Guest precomputed/static demo backtests. Decided: YES, launch scope
 

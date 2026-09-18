@@ -1,0 +1,17 @@
+/* The public price list. Everything about the plans themselves — the cadence toggle, the grid, the
+   card — comes from `PlanCatalog` and `BillingPage.module.css`, shared with `/billing`; this file
+   holds only what the pricing page adds around it. */
+
+.page {
+  composes: stack from "../../../components/ui/page.module.css";
+}
+
+.facts {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--color-text-body);
+  font-size: 14px;
+  line-height: 1.55;
+}

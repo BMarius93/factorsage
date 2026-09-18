@@ -122,6 +122,36 @@
 }
 
 /* A Guest's way in: the same pill geometry as the account trigger, as a labelled link. */
+.guestLinks {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+/* A quiet text link beside the one bordered call to action, so "Sign in" stays the obvious way in. */
+.pricing {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: var(--weight-emphasis);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.pricing:hover {
+  color: var(--color-primary-ink);
+}
+
+.pricing:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .signIn {
   display: inline-flex;
   flex: none;

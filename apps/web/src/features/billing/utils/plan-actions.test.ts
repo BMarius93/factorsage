@@ -6,7 +6,11 @@ import {
   type UserPlan,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { currentPriceKeyOf, planCardState } from "./plan-actions";
+import {
+  currentPriceKeyOf,
+  guestPlanCardState,
+  planCardState,
+} from "./plan-actions";
 
 /**
  * What each plan card's button offers, per billing state.
@@ -280,5 +284,32 @@ describe("plan card actions", () => {
   it("reads the live price key from the mirrored subscription", () => {
     expect(currentPriceKeyOf(status())).toBeNull();
     expect(currentPriceKeyOf(subscribed("PRO", "YEAR"))).toBe("PRO_YEARLY");
+  });
+});
+
+describe("guest plan card state", () => {
+  it("asks a Guest for an account on every card and never offers a purchase", () => {
+    for (const plan of ["FREE", "STARTER", "PRO"] as const) {
+      const card = guestPlanCardState(plan);
+      expect(card.current).toBe(false);
+      expect(card.action.kind).toBe("SIGN_IN");
+      // No price key: nothing a Guest clicks can name a catalog price, let alone reach Checkout.
+      expect(card.action).not.toHaveProperty("priceKey");
+    }
+  });
+
+  it("labels each card by plan", () => {
+    expect(guestPlanCardState("FREE").action).toEqual({
+      kind: "SIGN_IN",
+      label: "Start for free",
+    });
+    expect(guestPlanCardState("STARTER").action).toEqual({
+      kind: "SIGN_IN",
+      label: "Choose Starter",
+    });
+    expect(guestPlanCardState("PRO").action).toEqual({
+      kind: "SIGN_IN",
+      label: "Choose Pro",
+    });
   });
 });

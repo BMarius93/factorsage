@@ -45,6 +45,11 @@ export type PlanCardAction =
     }
   /** Customer Portal, which owns cancellation and therefore the route to Free. */
   | { readonly kind: "PORTAL"; readonly label: string }
+  /**
+   * A Guest on the public pricing page: an account comes first, so the button asks for one in
+   * place. It carries no price key on purpose — nothing a Guest clicks can reach Checkout.
+   */
+  | { readonly kind: "SIGN_IN"; readonly label: string }
   /** Nothing this user can do from this card right now. */
   | { readonly kind: "NONE" };
 
@@ -162,6 +167,28 @@ export function planCardState(input: {
   }
 
   return { current, action: { kind: "NONE" }, effectHint: null };
+}
+
+/**
+ * What each card offers a Guest on `/pricing` (PRICING-001).
+ *
+ * A Guest has no billing state to classify — `GET /billing/status` is authenticated — so every card
+ * offers the one thing that is true for all of them: an account first. The hint says so without
+ * promising anything about Checkout, which the signed-in page decides from server state.
+ */
+export function guestPlanCardState(plan: UserPlan): PlanCardState {
+  if (!isPaidPlan(plan)) {
+    return {
+      current: false,
+      action: { kind: "SIGN_IN", label: "Start for free" },
+      effectHint: "No payment details needed",
+    };
+  }
+  return {
+    current: false,
+    action: { kind: "SIGN_IN", label: `Choose ${PLAN_LABEL[plan]}` },
+    effectHint: "Requires a FactorSage account",
+  };
 }
 
 function freeCardState(input: {

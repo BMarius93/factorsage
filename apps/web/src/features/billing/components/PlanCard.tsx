@@ -157,7 +157,8 @@ function PlanCardButton({
     );
   }
 
-  const priceKey = action.kind === "PORTAL" ? null : action.priceKey;
+  const priceKey =
+    action.kind === "CHECKOUT" || action.kind === "CHANGE" ? action.priceKey : null;
 
   return (
     <button

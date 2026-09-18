@@ -48,9 +48,13 @@ There are four page types:
 Billing is a **product page of the first type's family**, not a marketing surface. `/billing` is
 reached only from an authenticated session, and a returning customer opens it to see what they are on
 and what it costs — so it uses the ordinary `PageHeader` + section composition, with three plan cards
-(Free, Starter, Pro) and one billing-cadence toggle as its only feature-owned composition. A
-conversion hero belongs to a future _public_ pricing page, if one is ever built; it does not belong
-behind the sign-in.
+(Free, Starter, Pro) and one billing-cadence toggle as its only feature-owned composition.
+
+The public `/pricing` page (DEC-001, PRICING-001) is the same family, not a marketing surface: an
+ordinary `PageHeader`, the **same** plan comparison component `/billing` renders (`PlanCatalog`),
+and one `SectionCard` of billing facts. It gets no conversion hero and no second card design, so the
+two pages cannot drift apart visually or in what they quote. A Guest reads it inside the normal
+shell, with a quiet "Pricing" link beside "Sign in" in the topbar.
 
 ### Page header
 
@@ -69,8 +73,8 @@ display title; that size is `--text-page-title-hero` and belongs to the backtest
 
 `PageHeader` also takes an `aside`: a page-level _fact_ aligned to the right of the identity — a
 stock's quote, a run's progress. It sits where actions sit but is something the page reports, not
-something the user can do. A marketing variant is deliberately **not** implemented: no authenticated
-route needs one, and `/billing` is an ordinary product page.
+something the user can do. A marketing variant is deliberately **not** implemented: no route needs
+one — `/billing` and the public `/pricing` are ordinary product pages.
 
 There must be exactly one visible page title and one accessible `<h1>`. Do not follow a collection
 header with a second card titled “Your lists”, “Your strategies”, “Your monitors” or “Run history”.

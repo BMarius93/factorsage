@@ -666,6 +666,17 @@ Do not optimistically show a higher plan as active before server-side billing re
 
 After returning from Stripe, the UI should refresh/poll the application's billing status for a bounded period if necessary rather than mutating the plan from URL parameters.
 
+### Public pricing page
+
+Decided 2026-09-18 (DEC-001 in `docs/audits/pre-release-remediation-plan-2026-09-18.md`), implemented by PRICING-001.
+
+- `/pricing` is public: a Guest can read it without signing in. `/billing` stays authenticated, and a Guest who opens it is sent to sign in.
+- `/pricing` presents the existing catalog and nothing else: Free plus the four logical prices of Section 1, with the capacities of `docs/decisions/entitlements-v1.md`. It introduces no trial, credit, top-up, discount, coupon or plan.
+- There is one pricing source. `/pricing` and `/billing` render the same plan comparison, which reads amounts from `BILLING_CATALOG` and capacities from `PLAN_ENTITLEMENTS`; no page writes an amount or a limit down.
+- A Guest's plan button opens the in-context sign-in prompt. It never calls Checkout, or any billing endpoint, because Checkout requires an authenticated user (Section 5). The prompt's sign-in and registration links carry `/pricing` as the return destination, and password or Google sign-in returns there.
+- A signed-in viewer gets exactly the `/billing` behaviour on the plan cards: the same state from `GET /billing/status` and the same Checkout, change and Portal calls. There is no second checkout implementation. Checkout's server-configured success and cancel URLs are unchanged and still return to `/billing`.
+- Prices are shown in every state because they are published information. Purchase actions appear only when the server's billing status for the viewer is known, and never where billing is not configured.
+
 ## 20. Error semantics
 
 Billing failures are distinct from entitlement failures.

@@ -90,7 +90,8 @@ Guests may:
 - view stock details;
 - access system built-in Lists;
 - access system built-in Strategies;
-- view demo Backtests that are precomputed/static.
+- view demo Backtests that are precomputed/static;
+- read the public price list at `/pricing`, which presents this document's capacities and the Stripe catalog without changing either (`docs/decisions/stripe-billing-v1.md` section 19, _Public pricing page_). Choosing a plan requires an account.
 
 Guests may not:
 
