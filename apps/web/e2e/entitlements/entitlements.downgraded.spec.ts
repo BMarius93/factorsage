@@ -172,6 +172,40 @@ test.describe.serial("entitlements after a downgrade", () => {
     await expect(disabled.getByTestId("monitor-blocked-pill")).toHaveCount(0);
   });
 
+  test("explains on a blocked monitor's own page that it is not scanning (UX-004)", async ({
+    page,
+  }) => {
+    await page.goto("/monitors");
+    for (const [name, reason] of [
+      ["Downgraded Monitor 3", "MONITOR_CAPACITY"],
+      ["Downgraded Monitor 1", "LIST_OVER_LIMIT"],
+    ] as const) {
+      const card = monitorCard(page, name);
+      const cardPill = card.getByTestId("monitor-blocked-pill");
+      await expect(cardPill).toHaveAttribute("data-blocked-reason", reason, {
+        timeout: 20_000,
+      });
+      const explanation = await cardPill.getAttribute("title");
+
+      await card.getByRole("link", { name: "Open" }).click();
+      const detail = page.getByTestId("monitor-detail");
+      await expect(detail).toBeVisible();
+      // The configured switch is unchanged, and the effective state sits beside it — the same
+      // pill and the same sentence the collection shows for the same monitor.
+      await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
+        "Enabled",
+      );
+      const detailPill = page.getByTestId("monitor-blocked-pill");
+      await expect(detailPill).toHaveText("Not scanning");
+      await expect(detailPill).toHaveAttribute("data-blocked-reason", reason);
+      await expect(detailPill).toHaveAttribute("title", explanation ?? "");
+      await expect(page.getByTestId("monitor-blocked-explanation")).toHaveText(
+        explanation ?? "",
+      );
+      await page.goBack();
+    }
+  });
+
   test("hands the slot to the next monitor as soon as one frees, and will not take a second", async ({
     page,
   }) => {

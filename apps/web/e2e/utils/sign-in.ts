@@ -12,12 +12,25 @@ export async function signInThroughUi(
   persona: QaPersonaCredentials,
 ): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Email").fill(persona.email);
-  await page.getByLabel("Password").fill(persona.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await submitSignInForm(page, persona);
 
   // The account control only renders once the API has confirmed the session.
   await expect(page.getByTestId("account-menu-trigger")).toBeVisible();
+}
+
+/**
+ * Fills and submits the sign-in form already on screen, wherever the browser is.
+ *
+ * For the return-destination journeys (UX-003): the page was reached through a prompt or a
+ * route-gate bounce and carries `?next=`, so it must not be reloaded as a bare `/login`.
+ */
+export async function submitSignInForm(
+  page: Page,
+  persona: QaPersonaCredentials,
+): Promise<void> {
+  await page.getByLabel("Email").fill(persona.email);
+  await page.getByLabel("Password").fill(persona.password);
+  await page.getByRole("button", { name: "Sign in" }).click();
 }
 
 export async function openAccountMenu(page: Page): Promise<void> {

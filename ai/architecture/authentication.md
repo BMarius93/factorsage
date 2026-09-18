@@ -388,9 +388,55 @@ loser resolves again and finds the row the winner wrote. The retry is bounded at
 second pass reads state that already exists.
 
 Success issues the same HttpOnly session cookie as password login and redirects to
-`WEB_BASE_URL/dashboard`. Every failure redirects to `WEB_BASE_URL/login?error=<code>` using the
-stable `OAUTH_ERROR_CODES` contract and sets no session cookie. Provider detail never reaches the
-browser.
+`WEB_BASE_URL` followed by the validated return path the flow started with, or `/dashboard` (see
+_Return destination after sign-in_). Every failure redirects to `WEB_BASE_URL/login?error=<code>`
+using the stable `OAUTH_ERROR_CODES` contract and sets no session cookie. Provider detail never
+reaches the browser.
+
+### Return destination after sign-in (UX-003)
+
+A Guest asked to sign in from a page — a built-in strategy's "Backtest this strategy", or a bounce
+from a protected URL such as `/backtests/new?strategyId=…` — returns to that page afterwards. The
+destination travels as `?next=<path+query>`:
+
+```text
+SignInPrompt / RequireAuth ── /login?next=… ──┬─ password: LoginForm → router.replace(next)
+                              /register?next=… ┘  Google:   GET /auth/google?next=… → cookie
+                                                            → callback → WEB_BASE_URL + next
+```
+
+**Threat model.** `next` is attacker-controlled — anyone can send a victim
+`/login?next=//evil.example` — and it ends in a browser navigation after a successful sign-in, and
+for Google in a `302 Location` from the API. Unvalidated, that is an open redirect straight out of a
+trusted sign-in, the classic phishing hand-off. So `next` is only ever an **app-relative path**,
+decided by `safeReturnPath` — a pure function implemented twice, once per trust boundary, neither
+trusting the other: `apps/web/src/features/auth/utils/return-path.ts` (before the browser
+navigates) and `apps/api/src/auth/return-path.ts` (before the API redirects). One corpus,
+`@intrinsic/testing/return-path-corpus`, drives both test suites so they cannot drift.
+
+A value is accepted only when it is a string of 1–2048 characters that starts with exactly one `/`,
+contains no backslash and no control character (C0, DEL, C1), and still satisfies all of that after
+each of up to three rounds of percent-decoding (so `/%2F%2Fevil`, `/%5Cevil` and double-encoded
+forms are refused, as are malformed escapes), and a real URL parser resolves it to the same origin.
+Anything else — absent, empty, repeated, `//host`, `/\host`, `https:`, `javascript:`, CR/LF, tab,
+over-length — is `/dashboard`. An accepted value is used verbatim, never re-encoded.
+
+- **Password sign-in.** `LoginPanel` validates `next`; `LoginForm` validates it again and
+  `router.replace`s to it on success. A refused sign-in navigates nowhere.
+- **Google.** `GET /auth/google?next=…` validates `next` itself and stores it as a fourth element
+  of the OAuth transaction cookie only when it is not the default; nothing about it is sent to
+  Google. The callback validates the stored value **again** before redirecting, because that cookie
+  is not signed (item 4 below): a tampered cookie can at worst choose another page of the app, and
+  the redirect is always `WEB_BASE_URL` + a validated path. State, PKCE, nonce, single-use
+  clearing and every failure redirect are unchanged; a transaction cookie written before this
+  field existed (three elements) still completes, to `/dashboard`.
+- **Registration.** The register page keeps `next` on its links back to sign-in and to Google, so
+  a same-tab sign-in returns correctly. It is **not** put into the activation email: verification
+  only activates the account and sets its password (AUTH-002/003); carrying a destination through
+  email is a separate follow-up.
+- **What is not covered.** The topbar's plain "Sign in" link and the post-sign-out redirect do not
+  carry a destination. `next` is not restricted to known route prefixes: an unknown app path lands
+  on the not-found page, which is harmless.
 
 Google is optional. With all three `GOOGLE_*` variables unset the provider is simply not offered;
 partial configuration is rejected by centralized configuration at startup.

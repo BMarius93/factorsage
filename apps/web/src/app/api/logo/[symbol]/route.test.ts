@@ -34,6 +34,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * A miss is `204 No Content` with an empty body, cached for an hour, and carries the same inert
+ * image policy as a served mark (UX-005, SEC-002).
+ */
+async function expectMissingLogo(response: Response): Promise<void> {
+  expect(response.status).toBe(204);
+  expect(response.ok).toBe(true);
+  expect(await response.text()).toBe("");
+  expect(response.headers.get("Content-Type")).toBeNull();
+  expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+  expect(response.headers.get("Content-Security-Policy")).toBe(IMAGE_CSP);
+  expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+}
+
 describe("GET /api/logo/[symbol]", () => {
   it("normalizes the ticker before asking upstream", async () => {
     const fetchStub = stubUpstream(() => pngResponse([1, 2, 3]));
@@ -139,8 +153,7 @@ describe("GET /api/logo/[symbol]", () => {
 
     const response = await call("ZZZZ");
 
-    expect(response.status).toBe(404);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    await expectMissingLogo(response);
   });
 
   it("refuses an oversized body from its declared length without reading it", async () => {
@@ -235,15 +248,15 @@ describe("GET /api/logo/[symbol]", () => {
     expect(fetchStub).not.toHaveBeenCalled();
   });
 
-  it("reports an unknown logo as a miss, and caches the miss", async () => {
+  it("reports an unknown logo as a cacheable non-error miss (UX-005)", async () => {
     stubUpstream(() => new Response("nope", { status: 404 }));
 
     const response = await call("ZZZZ");
 
-    expect(response.status).toBe(404);
-    // Most of the catalog has no mark upstream. Without this, every logo-less row would re-ask
-    // on every render of every screen.
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    // Most of the catalog has no mark upstream. Without the cache, every logo-less row would
+    // re-ask on every render of every screen; with a 4xx, every one of them would log a console
+    // error in the browser.
+    await expectMissingLogo(response);
   });
 
   it("treats a non-image 200 as a miss rather than caching an error page as a logo", async () => {
@@ -257,8 +270,7 @@ describe("GET /api/logo/[symbol]", () => {
 
     const response = await call("ZZZZ");
 
-    expect(response.status).toBe(404);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=3600");
+    await expectMissingLogo(response);
   });
 
   it("does not cache an upstream failure", async () => {

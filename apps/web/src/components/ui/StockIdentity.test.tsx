@@ -137,6 +137,38 @@ describe("StockLogo", () => {
     ).toBe("true");
   });
 
+  it("shows the monogram for a miss that settled before hydration (UX-005)", () => {
+    // A cached `204` miss: the image finished — with no pixels — before React attached `onError`,
+    // so no error event will ever arrive. `complete` with a zero natural width is the only signal.
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      true,
+    );
+    vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(
+      0,
+    );
+
+    const { container } = render(<StockLogo symbol="QATEST1" name="QA Test" />);
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(
+      container.querySelector("[data-monogram]")?.getAttribute("data-monogram"),
+    ).toBe("QA");
+  });
+
+  it("keeps waiting for an image that has not finished loading", () => {
+    // Neither complete nor failed yet: a lazily deferred mark must not be written off early.
+    vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(
+      false,
+    );
+
+    const { container } = render(<StockLogo symbol="AAPL" />);
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/logo/AAPL",
+    );
+    expect(container.querySelector("[data-monogram]")).toBeNull();
+  });
+
   it("reserves its box before anything loads, so a row cannot jump", () => {
     const { container } = render(<StockLogo symbol="AAPL" size="md" />);
     const box = container.querySelector("[data-size]");

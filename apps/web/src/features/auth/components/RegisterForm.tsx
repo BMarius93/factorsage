@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { register } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
+import { signInHref } from "../utils/guest-routes";
+import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
 import styles from "./auth-form.module.css";
 import { GoogleSignInButton } from "./GoogleSignInButton";
 
@@ -23,8 +25,17 @@ export const REGISTRATION_ACCEPTED_MESSAGE =
  *
  * No password is asked for here. The activation email's link opens `/verify-email`, where the
  * person who actually holds the mailbox chooses the password the account will use.
+ *
+ * `returnPath` is only carried on the links back to sign-in and to Google, so a visitor who signs
+ * in from here in the same tab still returns to where they started. It is deliberately **not**
+ * put into the activation email: verification activates an account and nothing else.
  */
-export function RegisterForm() {
+export function RegisterForm({
+  returnPath = DEFAULT_RETURN_PATH,
+}: {
+  readonly returnPath?: string;
+} = {}) {
+  const destination = safeReturnPath(returnPath);
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +77,7 @@ export function RegisterForm() {
         </p>
         <p className={styles.footerNote}>
           Already have an account?{" "}
-          <Link className={styles.link} href="/login">
+          <Link className={styles.link} href={signInHref(destination)}>
             Sign in
           </Link>
         </p>
@@ -130,11 +141,11 @@ export function RegisterForm() {
         </button>
       </form>
 
-      <GoogleSignInButton />
+      <GoogleSignInButton returnPath={destination} />
 
       <p className={styles.footerNote}>
         Already have an account?{" "}
-        <Link className={styles.link} href="/login">
+        <Link className={styles.link} href={signInHref(destination)}>
           Sign in
         </Link>
       </p>

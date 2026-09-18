@@ -5,18 +5,27 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { login } from "../api/auth-api";
 import { describeLoginFailure } from "../utils/auth-errors";
+import { registerHref } from "../utils/guest-routes";
+import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
 import styles from "./auth-form.module.css";
 import { GoogleSignInButton } from "./GoogleSignInButton";
-
-/** Where a signed-in browser lands; the API decides what that user may actually see. */
-const POST_LOGIN_PATH = "/dashboard";
 
 type LoginFormProps = {
   /** Message produced by a failed provider redirect back from the API. */
   readonly providerError?: string | null;
+  /**
+   * Where a successful sign-in lands: the page the visitor came from, or the Dashboard. The API
+   * decides what that user may actually see there. Validated again here, so an unchecked value
+   * can never reach the router.
+   */
+  readonly returnPath?: string;
 };
 
-export function LoginForm({ providerError = null }: LoginFormProps) {
+export function LoginForm({
+  providerError = null,
+  returnPath = DEFAULT_RETURN_PATH,
+}: LoginFormProps) {
+  const destination = safeReturnPath(returnPath);
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,7 +39,7 @@ export function LoginForm({ providerError = null }: LoginFormProps) {
 
     try {
       await login({ email, password });
-      router.replace(POST_LOGIN_PATH);
+      router.replace(destination);
       router.refresh();
     } catch (caught) {
       setError(describeLoginFailure(caught));
@@ -96,7 +105,7 @@ export function LoginForm({ providerError = null }: LoginFormProps) {
         </button>
       </form>
 
-      <GoogleSignInButton />
+      <GoogleSignInButton returnPath={destination} />
 
       <p className={styles.footerNote}>
         <Link className={styles.link} href="/forgot-password">
@@ -106,7 +115,7 @@ export function LoginForm({ providerError = null }: LoginFormProps) {
 
       <p className={styles.footerNote}>
         New to FactorSage?{" "}
-        <Link className={styles.link} href="/register">
+        <Link className={styles.link} href={registerHref(destination)}>
           Create an account
         </Link>
       </p>

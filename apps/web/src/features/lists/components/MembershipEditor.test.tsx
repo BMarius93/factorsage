@@ -3,6 +3,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
+import {
+  entitlementRefusal,
+  rateLimited,
+  RATE_LIMITED_COPY,
+  unexpectedFailure,
+} from "../../../lib/api/__testing__/request-failures";
 import { replaceBuyWindows } from "../api/stock-lists-api";
 import { MembershipEditor } from "./MembershipEditor";
 
@@ -215,6 +221,36 @@ describe("MembershipEditor", () => {
       expect(
         screen.getByText("A buy window cannot end before it starts"),
       ).toBeDefined();
+    });
+  });
+
+  describe("refusals that are not validation (UX-001)", () => {
+    async function saveWith(error: unknown) {
+      replaceBuyWindowsMock.mockRejectedValue(error);
+      mount(withWindows([{ startDate: "2020-01-01", endDate: null }]));
+      await userEvent.click(screen.getByTestId("save-membership"));
+      return (await screen.findByRole("alert")).textContent;
+    }
+
+    it("shows a plan refusal in the API's words", async () => {
+      expect(
+        await saveWith(
+          entitlementRefusal(
+            "ENTITLEMENT_RESOURCE_OVER_LIMIT",
+            "This list holds more stocks than your plan allows.",
+          ),
+        ),
+      ).toBe("This list holds more stocks than your plan allows.");
+    });
+
+    it("reads a 429 as a wait", async () => {
+      expect(await saveWith(rateLimited())).toBe(RATE_LIMITED_COPY);
+    });
+
+    it("keeps its own fallback for anything unexpected", async () => {
+      expect(await saveWith(unexpectedFailure())).toBe(
+        "The membership could not be saved right now. Try again in a moment.",
+      );
     });
   });
 

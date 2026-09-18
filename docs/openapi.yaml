@@ -516,7 +516,23 @@ paths:
         Browser redirect, not a JSON endpoint. Mints a state/PKCE/nonce transaction bound to one
         short-lived `HttpOnly` cookie and redirects to Google. When Google sign-in is not configured
         it redirects back to the web app's login page with `error=oauth_unavailable`.
+
+        An optional `next` names the web-app page to return to after a successful sign-in. It is
+        validated server-side (an app-relative path: a single leading `/`, no `//`, no backslash,
+        no scheme or host, no control characters at any level of percent-decoding, at most 2048
+        characters), kept in the transaction cookie, and validated again at the callback because
+        that cookie is not signed. An absent or invalid value means `/dashboard`. The callback only
+        ever redirects to `WEB_BASE_URL` followed by that path.
       x-rate-limit: { policy: auth-sensitive }
+      parameters:
+        - name: next
+          in: query
+          required: false
+          description: |
+            App-relative path (with its query string) to land on after sign-in, for example
+            `/backtests/new?strategyId=…`. Anything that is not a safe app-relative path is ignored
+            and the sign-in lands on `/dashboard`.
+          schema: { type: string, maxLength: 2048 }
       responses:
         "302":
           description: Redirect to Google, or back to the login page when the provider is unavailable.
@@ -535,8 +551,10 @@ paths:
       summary: Google's redirect back from the authorization page.
       description: |
         Browser redirect, not a JSON endpoint, and not called directly by any client. Always
-        redirects: to the dashboard on success with the session cookie set, or to the login page
-        with a stable `error` code. Failure detail from the provider never reaches the browser.
+        redirects: on success, with the session cookie set, to the return path recorded by
+        `GET /auth/google` after re-validating it (or to the dashboard when there is none or it is
+        invalid), always on `WEB_BASE_URL`; on failure, to the login page with a stable `error`
+        code. Failure detail from the provider never reaches the browser.
       x-rate-limit: { policy: auth-sensitive }
       parameters:
         - name: code

@@ -202,4 +202,43 @@ describe("RegisterForm (email-first, AUTH-003)", () => {
       UNEXPECTED_ERROR,
     );
   });
+
+  it("keeps the return destination on its links back to sign-in and Google (UX-003)", async () => {
+    const destination = "/strategies/s-1?from=prompt";
+    getAuthProviders.mockResolvedValue({ google: true });
+    registerRequest.mockResolvedValue({ status: "accepted" });
+    render(<RegisterForm returnPath={destination} />);
+
+    const signInLinks = () =>
+      screen
+        .getAllByRole("link", { name: "Sign in" })
+        .map((link) => link.getAttribute("href"));
+    expect(signInLinks()).toEqual([
+      `/login?next=${encodeURIComponent(destination)}`,
+    ]);
+    expect(
+      (await screen.findByTestId("google-sign-in")).getAttribute("href"),
+    ).toBe(
+      `http://api.test/auth/google?next=${encodeURIComponent(destination)}`,
+    );
+
+    // Still there after submitting: a same-tab sign-in comes back to where the visitor started.
+    // The destination is never sent with the registration request, so it cannot reach the email.
+    await submitEmail("person@example.com");
+    await screen.findByTestId("register-accepted");
+    expect(signInLinks()).toEqual([
+      `/login?next=${encodeURIComponent(destination)}`,
+    ]);
+    expect(registerRequest).toHaveBeenCalledWith({
+      email: "person@example.com",
+    });
+  });
+
+  it("drops a destination it would refuse from its links (UX-003)", () => {
+    render(<RegisterForm returnPath="https://evil.example" />);
+
+    expect(
+      screen.getByRole("link", { name: "Sign in" }).getAttribute("href"),
+    ).toBe("/login");
+  });
 });

@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ApiError } from "../../lib/api/client";
+import { requestFailureMessage } from "../../lib/api/entitlement-errors";
 import forms from "./forms.module.css";
 import { Modal } from "./Modal";
 
@@ -21,13 +22,17 @@ type ConfirmDialogProps = {
  * Deleting a strategy or a stock list a monitor still references is refused with 409 and the
  * product's own explanation — "This strategy is used by a monitor. Delete the monitor first."
  * Reporting that as a connection problem would send the user to retry something that can never
- * succeed, so the API's message is shown when it has one.
+ * succeed, so the API's message is shown when it has one. A plan limit or a `429` is not a
+ * connection problem either, and the canonical translator words those.
  */
 function failureMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 409) {
     return error.message;
   }
-  return "That did not work. Check your connection and try again.";
+  return requestFailureMessage(
+    error,
+    "That did not work. Check your connection and try again.",
+  );
 }
 
 /** Confirmation gate for a destructive action: deleting a list, a strategy, or a member row. */

@@ -52,12 +52,20 @@ describe("RequireAuth", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("sends an anonymous browser to the sign-in page", async () => {
+  it("sends an anonymous browser to the sign-in page, keeping the URL it asked for (UX-003)", async () => {
+    const attempted = "/backtests/new?strategyId=s-1&stockListId=l-2";
+    window.history.replaceState(null, "", attempted);
     state = { status: "unauthenticated" };
     renderGate();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith(
+        `/login?next=${encodeURIComponent(attempted)}`,
+      ),
+    );
+    expect(replace).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Protected content")).toBeNull();
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders the route for an authenticated user", () => {

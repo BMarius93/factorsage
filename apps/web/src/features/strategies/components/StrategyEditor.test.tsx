@@ -1,6 +1,7 @@
 import type { StrategyDetailResponse } from "@intrinsic/contracts";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { signedInSession } from "../../auth/__testing__/auth-session";
 import { fetchStrategy } from "../api/strategies-api";
 import { StrategyEditor } from "./StrategyEditor";
 
@@ -10,6 +11,12 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("../api/strategies-api", () => ({
   fetchStrategy: vi.fn(),
+}));
+
+// The read-only view's backtest action asks the session who is looking; this suite reads as a
+// signed-in customer. The Guest side is `StrategyReadOnlyView.test.tsx`.
+vi.mock("../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: () => signedInSession(),
 }));
 
 vi.mock("./StrategyBuilder", () => ({

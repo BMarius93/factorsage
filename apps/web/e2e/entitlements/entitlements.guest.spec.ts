@@ -88,7 +88,8 @@ test.describe("guest entitlements", () => {
     // point of action instead (`e2e/builtins/collections.guest.spec.ts`).
     for (const path of ["/backtests", "/backtests/new", "/billing"]) {
       await page.goto(path);
-      await expect(page).toHaveURL(/\/login$/);
+      // Bounced to sign-in with the attempted page kept for afterwards (UX-003).
+      await expect(page).toHaveURL(`/login?next=${encodeURIComponent(path)}`);
       await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
       await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);
     }
@@ -99,7 +100,7 @@ test.describe("guest entitlements", () => {
   }) => {
     await page.goto("/backtests");
 
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL("/login?next=%2Fbacktests");
     // The remedy for ENTITLEMENT_AUTH_REQUIRED is to sign in or register, and both are reachable.
     await expect(page.getByLabel("Email")).toBeVisible();
     await expect(

@@ -225,6 +225,37 @@ one they are sent to. `useSignInPrompt` (`features/auth/hooks/use-sign-in-prompt
 way a page asks: it answers whether the viewer is signed in, runs the action or opens the prompt,
 and hands back the element to render. Do not build a second auth modal.
 
+A link to a protected page on a guest-readable page — "Backtest this strategy", "Backtest this
+monitor" — is an `AccountActionLink` (UX-002): a real, prefilled link for a signed-in viewer, a
+button that opens the prompt for a Guest, and a disabled button while the session is still
+resolving. Prompt copy that more than one surface uses lives once in
+`features/auth/utils/sign-in-prompts.ts` (`SIGN_IN_TO_BACKTEST`).
+
+**Signing in comes back to the page** (UX-003). The prompt's Sign in and Create an account links
+carry the current path and query as `?next=`, `RequireAuth` keeps the attempted URL the same way
+when it bounces a Guest from a protected route, and the sign-in and register pages hand it on to
+password sign-in, Google and each other. Every hop validates it with `safeReturnPath`
+(`features/auth/utils/return-path.ts`) — see `authentication.md`, _Return destination after sign-in_.
+Build these links with `signInHref(next)` / `registerHref(next)`, never by concatenating a query.
+
+## Request failures
+
+A failed mutation is worded by `requestFailureMessage(error, fallback)`
+(`lib/api/entitlement-errors.ts`) and nothing else (UX-001). It shows the rate-limit copy for `429`
+and `503 RATE_LIMIT_UNAVAILABLE`, the API's own message for an entitlement refusal and for a `400`,
+and the surface's `fallback` only for a genuinely unexpected failure. A plan limit is not an outage
+and a `429` is not an invitation to retry, so no surface keeps its own "try again in a moment"
+translator. A surface with a domain refusal of its own handles that first and delegates the rest —
+`ConfirmDialog` passes a `409` dependency refusal through before calling the translator. The same
+action therefore reads the same on a collection and on a detail page. A `/billing` link, if one is
+ever added, belongs to the translator's callers in one place, not to each surface.
+
+## Failure pages
+
+`app/not-found.tsx`, `app/(app)/error.tsx` and `app/global-error.tsx` are the product's own
+not-found and error states (UX-006); `ui-system.md` (`EmptyState`) describes them. Never render an
+error's message or stack. Do not add a route or flag whose purpose is to throw.
+
 Built-in content renders through the ordinary feature pages. The response's `canEdit` decides the
 presentation: a customer sees a built-in List, Strategy or Monitor read-only (the Strategy through
 `StrategyReadOnlyView`, the same `LogicPreview` the Builder uses), an administrator sees the ordinary

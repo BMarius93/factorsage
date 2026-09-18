@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { GOOGLE_SIGN_IN_URL, getAuthProviders } from "../api/auth-api";
+import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
 import styles from "./auth-form.module.css";
 
 /**
@@ -10,8 +11,15 @@ import styles from "./auth-form.module.css";
  *
  * The button is only rendered once the API confirms this deployment has Google configured, so a
  * local stack without Google credentials does not offer a link that can only fail.
+ *
+ * The return destination rides along as `?next=`. The API validates it again on its own — it never
+ * trusts this one — keeps it in the OAuth transaction cookie and re-validates it at the callback.
  */
-export function GoogleSignInButton() {
+export function GoogleSignInButton({
+  returnPath = DEFAULT_RETURN_PATH,
+}: {
+  readonly returnPath?: string;
+}) {
   const [available, setAvailable] = useState(false);
 
   useEffect(() => {
@@ -35,12 +43,18 @@ export function GoogleSignInButton() {
     return null;
   }
 
+  const destination = safeReturnPath(returnPath);
+  const href =
+    destination === DEFAULT_RETURN_PATH
+      ? GOOGLE_SIGN_IN_URL
+      : `${GOOGLE_SIGN_IN_URL}?next=${encodeURIComponent(destination)}`;
+
   return (
     <>
       <p className={styles.divider}>or</p>
       <a
         className={styles.secondaryButton}
-        href={GOOGLE_SIGN_IN_URL}
+        href={href}
         data-testid="google-sign-in"
       >
         <GoogleGlyph />

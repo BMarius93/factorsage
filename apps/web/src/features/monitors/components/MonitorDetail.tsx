@@ -26,9 +26,17 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { AccountActionLink } from "../../auth/components/AccountActionLink";
+import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitor } from "../hooks/use-monitor";
+import {
+  blockedExplanation,
+  isBlockedByEntitlement,
+  MonitorBlockedPill,
+} from "../utils/blocked-status";
 import {
   activeSignalLabel,
   formatMonitorTimestamp,
@@ -88,7 +96,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const { status, monitor, reload } = useMonitor(monitorId);
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
   const [togglePending, setTogglePending] = useState(false);
-  const [toggleFailed, setToggleFailed] = useState(false);
+  const [toggleFailure, setToggleFailure] = useState<string | null>(null);
   const [local, setLocal] = useState<MonitorSummaryResponse | null>(null);
 
   const closeDialog = () => setDialog({ kind: "closed" });
@@ -167,11 +175,18 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       return;
     }
     setTogglePending(true);
-    setToggleFailed(false);
+    setToggleFailure(null);
     try {
       setLocal(await updateMonitor(view.id, patch));
-    } catch {
-      setToggleFailed(true);
+    } catch (error) {
+      // Enabling one monitor too many is a plan limit, not a failed save — the same refusal the
+      // collection shows for the same action, in the API's own words.
+      setToggleFailure(
+        requestFailureMessage(
+          error,
+          "That change did not save. This monitor is unchanged.",
+        ),
+      );
     } finally {
       setTogglePending(false);
     }
@@ -370,6 +385,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                     ? "Enabled"
                     : "Disabled"}
               </StatusBadge>
+              {/* The configured switch alone would say "Enabled" for a monitor a downgrade has
+                  stopped; the effective state sits beside it, exactly as on the collection. */}
+              <MonitorBlockedPill monitor={view} />
               {builtIn && view.canEdit ? (
                 <StatusBadge
                   tone={view.isPublished ? "positive" : "warning"}
@@ -382,12 +400,14 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
           actions={
             !view.canEdit ? (
-              <Link
+              <AccountActionLink
                 className={forms.tintedButton}
                 href={`/backtests/new?strategyId=${encodeURIComponent(view.strategyId)}&stockListId=${encodeURIComponent(view.stockListId)}`}
+                prompt={SIGN_IN_TO_BACKTEST}
+                testId="backtest-this-monitor"
               >
                 Backtest this monitor
-              </Link>
+              </AccountActionLink>
             ) : builtIn ? (
               <>
                 <button
@@ -460,9 +480,18 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
         />
 
-        {toggleFailed ? (
+        {isBlockedByEntitlement(view) ? (
+          <p
+            className={styles.blockedNotice}
+            data-testid="monitor-blocked-explanation"
+          >
+            {blockedExplanation(view.blockedReason)}
+          </p>
+        ) : null}
+
+        {toggleFailure ? (
           <p className={forms.error} role="alert">
-            That change did not save. This monitor is unchanged.
+            {toggleFailure}
           </p>
         ) : null}
 

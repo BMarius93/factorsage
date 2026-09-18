@@ -8,7 +8,7 @@ import {
   type StockListSummaryResponse,
 } from "@intrinsic/contracts";
 import { useState } from "react";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createStockList, updateStockList } from "../api/stock-lists-api";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
@@ -29,11 +29,16 @@ type RenameProps = {
 
 type ListFormDialogProps = CreateProps | RenameProps;
 
+/**
+ * A plan limit — eleven stocks on a ten-stock plan — or a `429` is not an outage, so it goes
+ * through the canonical translator and reads in the API's own words; only a genuinely unexpected
+ * failure says "try again".
+ */
 function requestMessage(error: unknown): string {
-  if (error instanceof ApiError && error.status === 400) {
-    return error.message;
-  }
-  return "The list could not be saved right now. Try again in a moment.";
+  return requestFailureMessage(
+    error,
+    "The list could not be saved right now. Try again in a moment.",
+  );
 }
 
 /**

@@ -348,6 +348,8 @@ describe("DashboardOverview", () => {
   });
 
   it("asks a Guest for an account in place, without navigating", async () => {
+    // The Dashboard is already where sign-in lands by default, so its links carry no `next`.
+    window.history.replaceState(null, "", "/dashboard");
     signedIn(false);
     await renderOverview();
 

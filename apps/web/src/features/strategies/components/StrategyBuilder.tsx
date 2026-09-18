@@ -13,6 +13,7 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import forms from "../../../components/ui/forms.module.css";
 import { useUnsavedChangesGuard } from "../../../components/layout/unsaved-changes";
 import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import {
   createStrategy,
   replaceStrategyDefinition,
@@ -137,7 +138,10 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
               "The strategy was rejected. Check the highlighted rows.")
           : error instanceof ApiError && error.status === 404
             ? "This strategy no longer exists."
-            : "The strategy could not be saved right now. Try again in a moment.",
+            : requestFailureMessage(
+                error,
+                "The strategy could not be saved right now. Try again in a moment.",
+              ),
       );
       setPending(false);
       return;

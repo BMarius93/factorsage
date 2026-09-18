@@ -8,7 +8,7 @@ import {
 import { useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { updateStrategy } from "../api/strategies-api";
 
 type StrategyRenameDialogProps = {
@@ -21,10 +21,10 @@ type StrategyRenameDialogProps = {
 };
 
 function requestMessage(error: unknown): string {
-  if (error instanceof ApiError && error.status === 400) {
-    return error.message;
-  }
-  return "The strategy could not be saved right now. Try again in a moment.";
+  return requestFailureMessage(
+    error,
+    "The strategy could not be saved right now. Try again in a moment.",
+  );
 }
 
 /**

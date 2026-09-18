@@ -115,4 +115,79 @@ describe("LoginForm", () => {
     await waitFor(() => expect(getAuthProviders).toHaveBeenCalled());
     expect(screen.queryByTestId("google-sign-in")).toBeNull();
   });
+
+  describe("return destination (UX-003)", () => {
+    const DESTINATION = "/backtests/new?strategyId=s-1&stockListId=l-2";
+
+    it("returns to a valid destination after password sign-in", async () => {
+      login.mockResolvedValue({
+        id: "1",
+        email: "user@example.test",
+        role: "USER",
+      });
+      render(<LoginForm returnPath={DESTINATION} />);
+
+      await submitCredentials("user@example.test", "Local-test-password-42");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith(DESTINATION));
+      expect(replace).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      "//evil.example",
+      "/\\evil.example",
+      "https://evil.example",
+      "javascript:alert(1)",
+      "",
+    ])("lands on the Dashboard instead of %j", async (hostile) => {
+      login.mockResolvedValue({
+        id: "1",
+        email: "user@example.test",
+        role: "USER",
+      });
+      render(<LoginForm returnPath={hostile} />);
+
+      await submitCredentials("user@example.test", "Local-test-password-42");
+
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    });
+
+    it("does not move the browser when sign-in is refused", async () => {
+      login.mockRejectedValue(new ApiError(401, "Invalid email or password"));
+      render(<LoginForm returnPath={DESTINATION} />);
+
+      await submitCredentials("user@example.test", "wrong-password");
+
+      await screen.findByTestId("login-error");
+      expect(replace).not.toHaveBeenCalled();
+    });
+
+    it("hands the destination to Google and to account creation", async () => {
+      getAuthProviders.mockResolvedValue({ google: true });
+      render(<LoginForm returnPath={DESTINATION} />);
+
+      const google = await screen.findByTestId("google-sign-in");
+      expect(google.getAttribute("href")).toBe(
+        `http://api.test/auth/google?next=${encodeURIComponent(DESTINATION)}`,
+      );
+      expect(
+        screen
+          .getByRole("link", { name: "Create an account" })
+          .getAttribute("href"),
+      ).toBe(`/register?next=${encodeURIComponent(DESTINATION)}`);
+    });
+
+    it("never hands Google a destination it would refuse", async () => {
+      getAuthProviders.mockResolvedValue({ google: true });
+      render(<LoginForm returnPath="//evil.example" />);
+
+      const google = await screen.findByTestId("google-sign-in");
+      expect(google.getAttribute("href")).toBe("http://api.test/auth/google");
+      expect(
+        screen
+          .getByRole("link", { name: "Create an account" })
+          .getAttribute("href"),
+      ).toBe("/register");
+    });
+  });
 });

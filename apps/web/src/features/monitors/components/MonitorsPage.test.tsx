@@ -26,6 +26,7 @@ import {
   updateMonitor,
 } from "../api/monitors-api";
 import { MonitorsPage } from "./MonitorsPage";
+import { blockedExplanation } from "../utils/blocked-status";
 
 vi.mock("../api/monitors-api", () => ({
   fetchMonitors: vi.fn(),
@@ -293,6 +294,8 @@ describe("MonitorsPage", () => {
   });
 
   it("asks a Guest for an account rather than storing a preference or redirecting", async () => {
+    // The prompt carries the page being read, so signing in comes back to it (UX-003).
+    window.history.replaceState(null, "", "/monitors");
     const user = userEvent.setup();
     useAuthSessionMock.mockReturnValue(guestSession());
     fetchMonitorsMock.mockResolvedValue([builtIn()]);
@@ -306,7 +309,7 @@ describe("MonitorsPage", () => {
     let prompt = await screen.findByTestId("sign-in-prompt");
     expect(
       within(prompt).getByRole("link", { name: "Sign in" }).getAttribute("href"),
-    ).toBe("/login");
+    ).toBe("/login?next=%2Fmonitors");
     expect(setVisibilityMock).not.toHaveBeenCalled();
     await user.click(within(prompt).getByRole("button", { name: "Close dialog" }));
 
@@ -316,7 +319,7 @@ describe("MonitorsPage", () => {
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe("/register");
+    ).toBe("/register?next=%2Fmonitors");
     expect(screen.queryByTestId("monitor-form")).toBeNull();
     // Still on the monitors page throughout.
     expect(screen.getByTestId("monitors-page")).toBeDefined();
@@ -364,6 +367,37 @@ describe("MonitorsPage", () => {
         .getByRole("link", { name: "Quality compounders" })
         .getAttribute("href"),
     ).toBe("/lists/list-1");
+  });
+
+  it("shows the effective scanning state beside the configured one (UX-004)", async () => {
+    fetchMonitorsMock.mockResolvedValue([
+      summary({
+        operationalStatus: "BLOCKED_BY_ENTITLEMENT",
+        blockedReason: "MONITOR_CAPACITY",
+      }),
+      summary({
+        id: "monitor-2",
+        name: "Exit watch",
+        operationalStatus: "BLOCKED_BY_ENTITLEMENT",
+        blockedReason: "LIST_OVER_LIMIT",
+      }),
+      summary({ id: "monitor-3", name: "Scanning fine" }),
+    ]);
+
+    render(<MonitorsPage />);
+
+    const pills = await screen.findAllByTestId("monitor-blocked-pill");
+    expect(pills).toHaveLength(2);
+    expect(pills.map((pill) => pill.textContent)).toEqual([
+      "Not scanning",
+      "Not scanning",
+    ]);
+    expect(pills.map((pill) => pill.getAttribute("title"))).toEqual([
+      blockedExplanation("MONITOR_CAPACITY"),
+      blockedExplanation("LIST_OVER_LIMIT"),
+    ]);
+    // Still enabled: the configured switch is never rewritten by the operational state.
+    expect(screen.getAllByTestId("monitor-enabled-pill")).toHaveLength(3);
   });
 
   it("reports a load failure and recovers through retry", async () => {

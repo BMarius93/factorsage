@@ -5,7 +5,7 @@ import type {
   StockListItemResponse,
 } from "@intrinsic/contracts";
 import { useId, useState } from "react";
-import { ApiError } from "../../../lib/api/client";
+import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { replaceBuyWindows } from "../api/stock-lists-api";
 import {
   formatMembershipPeriod,
@@ -97,9 +97,10 @@ export function MembershipEditor({
       onSaved(saved);
     } catch (caught) {
       setError(
-        caught instanceof ApiError && caught.status === 400
-          ? caught.message
-          : "The membership could not be saved right now. Try again in a moment.",
+        requestFailureMessage(
+          caught,
+          "The membership could not be saved right now. Try again in a moment.",
+        ),
       );
       setPending(false);
     }

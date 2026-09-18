@@ -181,7 +181,13 @@ Auth suites:
   authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under
   concurrent first sign-in, registration racing a Google link or a first Google sign-in (AUTH-003),
-  and log-leak assertions
+  log-leak assertions, and the return destination (UX-003): a valid `next` returns to
+  `WEB_BASE_URL` + that path, every hostile or malformed `next` lands on `/dashboard`, a
+  transaction cookie rewritten to carry a hostile destination is re-validated at the callback, and
+  state/PKCE/nonce binding and failure redirects are unchanged when a destination is carried
+- `apps/api/src/auth/return-path.test.ts` and `apps/web/src/features/auth/utils/return-path.test.ts`
+  — the two `safeReturnPath` validators against the one shared corpus in
+  `packages/testing/src/return-path-corpus.ts`
 - `apps/api/src/email/no-real-email.guard.test.ts` — proves the package-wide `nodemailer`
   replacement is live, so no API test can reach a real mail server
 - `apps/api/src/auth/google/google-email-authority.test.ts` — the pure authority rule on its own:
@@ -364,6 +370,14 @@ seed's own timestamp and the loader treats a price tail older than
 Stock Details suite** rather than relying on a seed from a previous day. Rerunning is safe and
 produces the same data for the same day. `QATEST2` deliberately stays identity-only.
 
+Return-destination coverage (UX-003) signs in as an existing persona through the real form and
+creates nothing: `e2e/builtins/collections.guest.spec.ts` (a built-in strategy's prompt, then
+signing in returns to the strategy with the backtest link prefilled) and
+`e2e/auth/return-path.guest.spec.ts` (a bounce from `/backtests/new?strategyId=…` returns to that
+exact URL; hostile `next` values land on `/dashboard` and the browser never contacts the hostile
+host). `submitSignInForm` in `e2e/utils/sign-in.ts` fills the form already on screen so a
+`?next=` URL is not replaced by a bare `/login`.
+
 Current coverage: guest reaches sign-in, registration and password recovery — including the
 neutral response for an address with no account, and both ways a reset link can be unusable
 (`e2e/auth/password-recovery.guest.spec.ts`; the redeemable half needs the inbox and lives in the
@@ -433,6 +447,11 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
      `OAuthAccount` row.
   8. Record only the outcome. Never record the account's password, the authorization code, the
      PKCE verifier, the ID token, or the session cookie.
+  9. Return destination (UX-003): as a Guest open a built-in Monitor, click **Backtest this
+     monitor**, choose **Sign in** in the prompt, then **Continue with Google** — expect to land back
+     on the same Monitor. Then open `/login?next=//example.com` directly and continue with Google —
+     expect `/dashboard` on this site. Neither step was executed in the UX-003 PR, which had no real
+     Google client; the automated suite above covers both through the fake identity provider.
 
 ## 11. Email test policy
 

@@ -1,13 +1,14 @@
 "use client";
 
 import type { StrategyDetailResponse } from "@intrinsic/contracts";
-import Link from "next/link";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import page from "../../../components/ui/page.module.css";
+import { AccountActionLink } from "../../auth/components/AccountActionLink";
+import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import { LogicPreview } from "./LogicPreview";
 
 /**
@@ -15,7 +16,7 @@ import { LogicPreview } from "./LogicPreview";
  *
  * The logic is shown with the same `LogicPreview` the Builder uses, so a built-in reads exactly
  * like a strategy the user wrote. The one action offered is the product's primary flow for it:
- * backtest the strategy.
+ * backtest the strategy — a prefilled link when signed in, an in-place sign-in prompt for a Guest.
  */
 export function StrategyReadOnlyView({
   strategy,
@@ -41,12 +42,14 @@ export function StrategyReadOnlyView({
             ) : undefined
           }
           actions={
-            <Link
+            <AccountActionLink
               className={forms.tintedButton}
               href={`/backtests/new?strategyId=${encodeURIComponent(strategy.id)}`}
+              prompt={SIGN_IN_TO_BACKTEST}
+              testId="backtest-this-strategy"
             >
               Backtest this strategy
-            </Link>
+            </AccountActionLink>
           }
         />
         <SectionCard
