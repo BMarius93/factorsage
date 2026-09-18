@@ -60,6 +60,20 @@ export class EmailVerificationService {
   }
 
   /**
+   * Removes a token this process just issued, if the row still holds exactly it.
+   *
+   * Used when the account turned out to be verified by the time its activation email was about to
+   * go out (AUTH-003): a live verification token on a verified account would let its holder
+   * install a new password, so the link is withdrawn instead of mailed. Conditional on the hash,
+   * like every other write here, so it can never remove a link issued by somebody else.
+   */
+  async discardIssuedToken(userId: string, token: string): Promise<void> {
+    await this.prisma.emailVerificationToken.deleteMany({
+      where: { userId, tokenHash: hashVerificationToken(token) },
+    });
+  }
+
+  /**
    * Whether a redeemable token exists for this plaintext **right now**.
    *
    * A SHA-256 and one indexed lookup, so invented tokens cannot make the unauthenticated

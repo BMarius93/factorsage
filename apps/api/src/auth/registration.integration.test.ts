@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
-import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
 import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -23,10 +22,9 @@ import {
   hashVerificationToken,
 } from "./email-verification.service";
 import { PasswordService } from "./password.service";
-import {
-  EMAIL_TAKEN_MESSAGE,
-  INVALID_VERIFICATION_TOKEN_MESSAGE,
-} from "./registration.service";
+import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
+import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
+import { INVALID_VERIFICATION_TOKEN_MESSAGE } from "./registration.service";
 
 // Before PrismaService constructs its client during Nest module compilation.
 useTestDatabase();
@@ -62,6 +60,7 @@ describe("registration and email verification", () => {
   let prisma: PrismaService;
   let verification: EmailVerificationService;
   let passwords: PasswordService;
+  let dispatcher: BackgroundEmailDispatcher;
   const sender = new InMemoryEmailSender();
 
   beforeAll(async () => {
@@ -85,9 +84,13 @@ describe("registration and email verification", () => {
     prisma = moduleRef.get(PrismaService);
     verification = moduleRef.get(EmailVerificationService);
     passwords = moduleRef.get(PasswordService);
+    dispatcher = moduleRef.get(BackgroundEmailDispatcher);
+    // The guard that makes "no real email" true for this file, asserted rather than assumed.
+    expect(moduleRef.get(EMAIL_SENDER)).toBe(sender);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await dispatcher.drain();
     sender.reset();
     vi.restoreAllMocks();
   });
@@ -193,23 +196,34 @@ describe("registration and email verification", () => {
     };
   }
 
+  /** Email-first registration (AUTH-003), returning the activation link it mailed. */
   async function register(email: string): Promise<string> {
     await request(app.getHttpServer())
       .post("/auth/register")
-      .send({ email, password })
-      .expect(201);
+      .send({ email })
+      .expect(202);
+    await dispatcher.drain();
     return tokenFromLastEmail(sender);
   }
 
-  it("creates an unverified user with a normalized email and an Argon2id hash", async () => {
+  /** Moves the address's last registration email outside the cooldown, deterministically. */
+  async function expireRegistrationCooldown(email: string): Promise<void> {
+    await prisma.user.update({
+      where: { email },
+      data: { registrationEmailClaimedAt: new Date(0) },
+    });
+  }
+
+  it("creates an unverified user with a normalized email and no password (AUTH-003)", async () => {
     const email = uniqueEmail("register");
 
     const response = await request(app.getHttpServer())
       .post("/auth/register")
+      // A client built before AUTH-003 still sends a password; it is ignored, never stored.
       .send({ email: `  ${email.toUpperCase()}  `, password })
-      .expect(201);
+      .expect(202);
 
-    expect(response.body).toEqual({ status: "verification_sent" });
+    expect(response.body).toEqual({ status: "accepted" });
     // Registration establishes an identity but never a session.
     expect(response.headers["set-cookie"]).toBeUndefined();
 
@@ -217,8 +231,7 @@ describe("registration and email verification", () => {
     expect(user).not.toBeNull();
     expect(user?.emailVerifiedAt).toBeNull();
     expect(user?.role).toBe("USER");
-    expect(user?.passwordHash).toMatch(/^\$argon2id\$/);
-    expect(user?.passwordHash).not.toContain(password);
+    expect(user?.passwordHash).toBeNull();
   });
 
   it("requests the verification email through the email boundary", async () => {
@@ -247,28 +260,15 @@ describe("registration and email verification", () => {
     expect(JSON.stringify(stored)).not.toContain(token);
   });
 
-  it("rejects a password that is shorter than the policy minimum", async () => {
-    const email = uniqueEmail("short-password");
-
-    await request(app.getHttpServer())
-      .post("/auth/register")
-      .send({ email, password: "short" })
-      .expect(400);
-
-    expect(await prisma.user.findUnique({ where: { email } })).toBeNull();
-  });
-
-  it("rejects a duplicate registration for an existing local account", async () => {
-    const email = uniqueEmail("duplicate");
-    await register(email);
-    sender.reset();
-
-    const response = await request(app.getHttpServer())
-      .post("/auth/register")
-      .send({ email, password: "A-different-password-42" })
-      .expect(409);
-
-    expect(response.body.message).toBe(EMAIL_TAKEN_MESSAGE);
+  it("rejects a malformed address before touching the database", async () => {
+    for (const email of ["", "not-an-address", "two@@example.test", 42]) {
+      await request(app.getHttpServer())
+        .post("/auth/register")
+        .send({ email })
+        .expect(400);
+    }
+    await request(app.getHttpServer()).post("/auth/register").send({}).expect(400);
+    await dispatcher.drain();
     expect(sender.messages).toHaveLength(0);
   });
 
@@ -278,14 +278,11 @@ describe("registration and email verification", () => {
       data: { email, passwordHash: null, emailVerifiedAt: new Date() },
     });
 
-    const response = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .post("/auth/register")
       .send({ email, password })
-      .expect(409);
-
-    // The response is identical to the local-duplicate case, so registration cannot be used to
-    // discover which kind of account holds an address.
-    expect(response.body.message).toBe(EMAIL_TAKEN_MESSAGE);
+      .expect(202);
+    await dispatcher.drain();
 
     const after = await prisma.user.findUniqueOrThrow({
       where: { id: created.id },
@@ -543,12 +540,14 @@ describe("registration and email verification", () => {
   it("rotates the token on resend and invalidates the previous link", async () => {
     const email = uniqueEmail("resend");
     const firstToken = await register(email);
+    await expireRegistrationCooldown(email);
 
     const response = await request(app.getHttpServer())
       .post("/auth/resend-verification")
       .send({ email })
       .expect(202);
     expect(response.body).toEqual({ status: "accepted" });
+    await dispatcher.drain();
 
     const secondToken = tokenFromLastEmail(sender);
     expect(secondToken).not.toBe(firstToken);
@@ -580,6 +579,7 @@ describe("registration and email verification", () => {
       .post("/auth/resend-verification")
       .send({ email: `unknown-${suffix}@example.test` })
       .expect(202);
+    await dispatcher.drain();
 
     // Identical accepted responses, and nothing was actually sent in either case.
     expect(sender.messages).toHaveLength(0);
@@ -595,11 +595,12 @@ describe("registration and email verification", () => {
     const email = uniqueEmail("login-gate");
     const token = await register(email);
 
+    // A pending account has no password at all, and gets the generic failure (AUTH-003).
     const blocked = await request(app.getHttpServer())
       .post("/auth/login")
       .send({ email, password })
-      .expect(403);
-    expect(blocked.body.code).toBe(EMAIL_NOT_VERIFIED_CODE);
+      .expect(401);
+    expect(blocked.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
@@ -617,17 +618,25 @@ describe("registration and email verification", () => {
     expect(me.body).toMatchObject({ email, role: "USER" });
   });
 
-  it("reports the account as unusable when the verification email cannot be sent", async () => {
+  it("answers the same when the activation email cannot be sent, and the retry succeeds", async () => {
     const email = uniqueEmail("send-failure");
-    sender.failWith = new Error("smtp unavailable");
+    sender.failWith = new Error("simulated transport failure");
 
-    await request(app.getHttpServer())
+    const failed = await request(app.getHttpServer())
       .post("/auth/register")
-      .send({ email, password })
-      .expect(503);
+      .send({ email })
+      .expect(202);
+    expect(failed.body).toEqual({ status: "accepted" });
+    await dispatcher.drain();
 
-    // The account exists but stays unverified, so the user can ask for a new link later.
+    // The account exists, unverified, and the failed send gave its claim back.
     const user = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(user.emailVerifiedAt).toBeNull();
+    expect(user.registrationEmailClaimedAt).toBeNull();
+    expect(sender.messages).toHaveLength(0);
+
+    sender.failWith = null;
+    const token = await register(email);
+    await verify(token).expect(200);
   });
 });

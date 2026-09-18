@@ -1,5 +1,5 @@
 import type { AuthUser } from "@intrinsic/contracts";
-import { OAuthProvider, type User } from "@intrinsic/database";
+import { OAuthProvider, type Prisma, type User } from "@intrinsic/database";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
 import { normalizeEmail } from "./email";
@@ -25,6 +25,22 @@ type IdentityUser = SessionUser &
   Pick<User, "passwordHash" | "emailVerifiedAt">;
 
 /**
+ * What an unauthenticated activation request (register, resend) may know about an address's
+ * account: whether it is verified, and when it last claimed a registration email (AUTH-003).
+ * Deliberately no credential: registration never reads or writes a verified account's password.
+ */
+export type ActivationCandidate = Pick<
+  User,
+  "id" | "emailVerifiedAt" | "registrationEmailClaimedAt"
+>;
+
+/** Which ways an existing account signs in, for the wording of the existing-account notice. */
+export type SignInMethods = {
+  readonly password: boolean;
+  readonly google: boolean;
+};
+
+/**
  * What a session may know about its own user.
  *
  * `role` and `plan` are both here because both are authorization inputs that must come from
@@ -45,6 +61,11 @@ const SAFE_USER_SELECT = {
 const SESSION_USER_SELECT = {
   ...SAFE_USER_SELECT,
   sessionVersion: true,
+} as const;
+const ACTIVATION_CANDIDATE_SELECT = {
+  id: true,
+  emailVerifiedAt: true,
+  registrationEmailClaimedAt: true,
 } as const;
 const IDENTITY_USER_SELECT = {
   ...SESSION_USER_SELECT,
@@ -96,18 +117,130 @@ export class UsersService {
     return count === 1;
   }
 
-  /** Creates an unverified local-password user. Callers pass an already-hashed password. */
-  createLocalUser(input: {
-    email: string;
-    passwordHash: string;
-  }): Promise<SafeUser> {
-    return this.prisma.user.create({
-      data: {
-        email: normalizeEmail(input.email),
-        passwordHash: input.passwordHash,
-      },
-      select: SAFE_USER_SELECT,
+  findActivationCandidate(email: string): Promise<ActivationCandidate | null> {
+    return this.prisma.user.findUnique({
+      where: { email: normalizeEmail(email) },
+      select: ACTIVATION_CANDIDATE_SELECT,
     });
+  }
+
+  /**
+   * Creates a pending account for an address nobody holds yet: unverified, **no password**, and
+   * already holding the registration-email claim its creator is about to use (AUTH-003).
+   *
+   * Returns `null` when a concurrent request created the address first — the unique index on
+   * `email` decides, and the caller re-reads the winner's row rather than failing the request.
+   */
+  async createPendingUser(input: {
+    email: string;
+    claimedAt: Date;
+  }): Promise<ActivationCandidate | null> {
+    try {
+      return await this.prisma.user.create({
+        data: {
+          email: normalizeEmail(input.email),
+          registrationEmailClaimedAt: input.claimedAt,
+        },
+        select: ACTIVATION_CANDIDATE_SELECT,
+      });
+    } catch (error) {
+      if (
+        (error as Prisma.PrismaClientKnownRequestError | undefined)?.code ===
+        "P2002"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Takes the registration-email claim for an account, or reports that somebody else holds it.
+   *
+   * One conditional `UPDATE`, so it is the concurrency gate: it matches only while the column still
+   * holds the value the caller read (`previous`), and only while the account is still in the state
+   * the caller decided on. Of any number of concurrent requests for one address exactly one sees a
+   * count of one; the others — and a request racing a verification, a reset or a Google link that
+   * verified the account first — see zero and send nothing. The cooldown itself is decided by the
+   * caller against `previous`; this statement makes that decision atomic.
+   *
+   * Claiming for a **pending** account also clears an inert password left by registration before
+   * AUTH-003. Nobody proved that password; verification replaces it anyway, and clearing it here
+   * means an old row stops carrying a credential the moment its owner asks for a new link. The
+   * `emailVerifiedAt: null` predicate is re-evaluated on the locked row, so a verification that
+   * commits first keeps the owner's password.
+   */
+  async claimRegistrationEmail(input: {
+    userId: string;
+    previous: Date | null;
+    claimedAt: Date;
+    accountState: "pending" | "verified";
+  }): Promise<boolean> {
+    const pending = input.accountState === "pending";
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: input.userId,
+        registrationEmailClaimedAt: input.previous,
+        emailVerifiedAt: pending ? null : { not: null },
+      },
+      data: pending
+        ? { registrationEmailClaimedAt: input.claimedAt, passwordHash: null }
+        : { registrationEmailClaimedAt: input.claimedAt },
+    });
+    return count === 1;
+  }
+
+  /**
+   * Gives a claim back after its email could not be sent, so the owner can retry at once instead
+   * of waiting out a cooldown for a message that never left. Conditional on still holding exactly
+   * this claim; a newer one is never overwritten.
+   */
+  async releaseRegistrationEmail(input: {
+    userId: string;
+    claimedAt: Date;
+    previous: Date | null;
+  }): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id: input.userId, registrationEmailClaimedAt: input.claimedAt },
+      data: { registrationEmailClaimedAt: input.previous },
+    });
+  }
+
+  /** Whether the account still exists and is unverified, read now rather than trusted from earlier. */
+  async isPendingActivation(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerifiedAt: true },
+    });
+    return user !== null && user.emailVerifiedAt === null;
+  }
+
+  /** Address and sign-in methods, read only by the out-of-band email task. */
+  async findEmailRecipient(
+    userId: string,
+  ): Promise<{ email: string; methods: SignInMethods } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        passwordHash: true,
+        oauthAccounts: {
+          where: { provider: OAuthProvider.GOOGLE },
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+    if (!user) {
+      return null;
+    }
+    return {
+      email: user.email,
+      methods: {
+        password: user.passwordHash !== null,
+        google: user.oauthAccounts.length > 0,
+      },
+    };
   }
 
   /** The product user behind an already-linked external identity, if any. */

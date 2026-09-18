@@ -118,16 +118,16 @@ enum ContentOwnership {
 /// Product identity. `passwordHash` is null for external-identity-only users and
 /// `emailVerifiedAt` is null until a local registration proves the address.
 model User {
-  id                        String                         @id @default(uuid())
-  email                     String                         @unique
-  passwordHash              String?
-  emailVerifiedAt           DateTime?
-  role                      UserRole                       @default(USER)
+  id                         String                         @id @default(uuid())
+  email                      String                         @unique
+  passwordHash               String?
+  emailVerifiedAt            DateTime?
+  role                       UserRole                       @default(USER)
   /// Commercial plan. Orthogonal to `role`: a user may be `plan=FREE` and `role=ADMIN`.
   ///
   /// New accounts start on `FREE`, which is why the column is defaulted rather than nullable —
   /// "no plan" is not an access state the entitlement resolver has to consider.
-  plan                      UserPlan                       @default(FREE)
+  plan                       UserPlan                       @default(FREE)
   /// This user's canonical Stripe Customer, created lazily the first time billing is needed.
   ///
   /// Server-managed and never accepted from a client. Unique in both directions: one FactorSage
@@ -138,7 +138,7 @@ model User {
   ///
   /// Null for every user who has never reached a billing surface, which is the normal state: this
   /// migration leaves every existing account FREE with no Stripe object at all.
-  stripeCustomerId          String?                        @unique
+  stripeCustomerId           String?                        @unique
   /// Session revocation counter (`ai/architecture/authentication.md`, SESSION-002).
   ///
   /// Every session token carries the value it was issued under as its `sv` claim, and a token is
@@ -146,22 +146,31 @@ model User {
   /// "sign out everywhere" — therefore ends every existing session of the account at once. Only
   /// ever changed by an atomic `{ increment: 1 }`, never read-modify-written, and never exposed in
   /// an API response.
-  sessionVersion            Int                            @default(0)
-  createdAt                 DateTime                       @default(now())
-  updatedAt                 DateTime                       @updatedAt
-  oauthAccounts             OAuthAccount[]
-  verificationTokens        EmailVerificationToken[]
-  resetTokens               PasswordResetToken[]
-  stockLists                StockList[]
-  strategies                Strategy[]
-  backtestRuns              BacktestRun[]
-  monitors                  Monitor[]
-  billingSubscription       BillingSubscription?
-  recentSecurityViews       RecentSecurityView[]
-  builtInMonitorPreferences UserBuiltInMonitorPreference[]
-  updatedStockLists         StockList[]                    @relation("StockListUpdatedBy")
-  updatedStrategies         Strategy[]                     @relation("StrategyUpdatedBy")
-  updatedMonitors           Monitor[]                      @relation("MonitorUpdatedBy")
+  sessionVersion             Int                            @default(0)
+  /// When registration or resend last claimed the right to email this account
+  /// (`ai/architecture/authentication.md`, AUTH-003).
+  ///
+  /// The per-address cooldown: a new claim is taken with one conditional `UPDATE` that carries
+  /// the value it read, and only while that value is older than the cooldown, so of any number of
+  /// concurrent requests for one address at most one sends mail. A failed send restores the
+  /// previous value. Keyed by the row, so nothing derived from the address is stored anywhere
+  /// else; null for an account nobody has requested an email for since AUTH-003.
+  registrationEmailClaimedAt DateTime?
+  createdAt                  DateTime                       @default(now())
+  updatedAt                  DateTime                       @updatedAt
+  oauthAccounts              OAuthAccount[]
+  verificationTokens         EmailVerificationToken[]
+  resetTokens                PasswordResetToken[]
+  stockLists                 StockList[]
+  strategies                 Strategy[]
+  backtestRuns               BacktestRun[]
+  monitors                   Monitor[]
+  billingSubscription        BillingSubscription?
+  recentSecurityViews        RecentSecurityView[]
+  builtInMonitorPreferences  UserBuiltInMonitorPreference[]
+  updatedStockLists          StockList[]                    @relation("StockListUpdatedBy")
+  updatedStrategies          Strategy[]                     @relation("StrategyUpdatedBy")
+  updatedMonitors            Monitor[]                      @relation("MonitorUpdatedBy")
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for

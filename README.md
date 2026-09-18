@@ -230,8 +230,11 @@ Endpoints:
 - `GET /auth/google`, `GET /auth/google/callback`
 - `GET /admin/health` (ADMIN authorization proof only)
 
-A new local user starts unverified and cannot sign in until the emailed link is redeemed;
-redeeming consumes the one-time token and marks the address verified in a single transaction.
+Registration is email-first: `POST /auth/register` takes only an address and answers the same
+`202` whether or not it already has an account, so it cannot be used to discover who does. A new
+local user starts unverified and without a password; the holder of the emailed link chooses the
+password on `/verify-email`, which consumes the one-time token, sets the password and marks the
+address verified in a single transaction. See `ai/architecture/authentication.md`.
 Google sign-in uses the authorization-code flow with `state`, PKCE S256, and an OIDC `nonce`, and
 accepts identity only from an ID token whose signature, audience, issuer, and expiry
 `google-auth-library` has verified. It creates or links an account only when Google reports the

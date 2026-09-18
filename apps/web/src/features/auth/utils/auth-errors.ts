@@ -1,4 +1,4 @@
-import { EMAIL_NOT_VERIFIED_CODE, OAUTH_ERROR_CODES } from "@intrinsic/contracts";
+import { OAUTH_ERROR_CODES } from "@intrinsic/contracts";
 import { ApiError } from "../../../lib/api/client";
 import { rateLimitMessage } from "../../../lib/api/rate-limit-errors";
 
@@ -8,38 +8,30 @@ export const GENERIC_SIGN_IN_ERROR = "Unable to sign in with those credentials."
 export const UNEXPECTED_ERROR =
   "Something went wrong. Please check your connection and try again.";
 
-export type LoginFailure =
-  | { kind: "email_not_verified" }
-  | { kind: "message"; message: string };
-
-export function describeLoginFailure(error: unknown): LoginFailure {
-  if (error instanceof ApiError && error.code === EMAIL_NOT_VERIFIED_CODE) {
-    return { kind: "email_not_verified" };
-  }
-
+/**
+ * One message for every refused sign-in. An account whose address was never verified is refused
+ * exactly like an unknown one (AUTH-003), so there is no separate "verify your email" state.
+ */
+export function describeLoginFailure(error: unknown): string {
   // Checked before the generic credential message, which would otherwise be a lie with real
   // consequences: a throttled sign-in is refused whether or not the password was right, and
   // telling the user their credentials are wrong sends them to reset a password that works.
   const throttled = rateLimitMessage(error);
   if (throttled) {
-    return { kind: "message", message: throttled };
+    return throttled;
   }
 
   if (error instanceof ApiError) {
-    // 4xx responses are safe to surface verbatim; a 5xx message is server detail the user
-    // cannot act on.
-    return {
-      kind: "message",
-      message:
-        error.status >= 500 ? UNEXPECTED_ERROR : GENERIC_SIGN_IN_ERROR,
-    };
+    // A 4xx is a refused credential, reported generically; a 5xx message is server detail the
+    // user cannot act on.
+    return error.status >= 500 ? UNEXPECTED_ERROR : GENERIC_SIGN_IN_ERROR;
   }
 
-  return { kind: "message", message: UNEXPECTED_ERROR };
+  return UNEXPECTED_ERROR;
 }
 
 /**
- * Surfaces the API's own 4xx message (duplicate email, weak password) when there is one.
+ * Surfaces the API's own 4xx message (a malformed address, a weak password) when there is one.
  *
  * Registration and recovery are `auth-sensitive`, so they can be throttled too; that message is
  * preferred because it names the wait, while the API's own 429 text does not have to.

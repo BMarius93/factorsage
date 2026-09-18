@@ -230,10 +230,26 @@ paths:
     post:
       tags: [Authentication]
       operationId: register
-      summary: Create an account and send a verification email.
+      summary: Ask for an account — email first, no password.
       description: |
-        Always answers `201` when the request is well-formed, whether or not the address was already
-        registered. The account cannot sign in until the emailed link is redeemed.
+        Email-first registration (AUTH-003). The body is the address and nothing else; any other
+        field, including a `password`, is ignored. For every well-formed address the answer is the
+        same `202 { "status": "accepted" }` with no cookie — whether the address is new, has a
+        pending registration, belongs to a verified password account, a Google-only account or
+        both, or was submitted a moment ago — so this cannot be used to discover who has an
+        account. Only a malformed address is refused (`400`).
+
+        What happens next is decided by the account and is never reported. A new address becomes
+        a pending account with no password and is mailed an activation link; a pending account is
+        mailed a fresh link; a verified account is left untouched and its owner is mailed a
+        neutral notice with no link that changes anything. At most one such email goes to an
+        address per cooldown window (`REGISTRATION_EMAIL_COOLDOWN_SECONDS` in the API), however
+        many requests arrive; requests inside the window change nothing, so a link already
+        delivered stays valid. Email is sent after the
+        response, so a slow or failing mail provider does not change it either.
+
+        The first usable password is set only by the holder of the activation link, through
+        `POST /auth/verify-email`. Registration never signs anybody in.
       x-rate-limit: { policy: auth-sensitive }
       requestBody:
         required: true
@@ -242,14 +258,12 @@ paths:
             schema: { $ref: "#/components/schemas/RegisterRequest" }
             examples:
               default:
-                value:
-                  {
-                    email: "trader@example.com",
-                    password: "correct-horse-battery",
-                  }
+                value: { email: "trader@example.com" }
       responses:
-        "201":
-          description: Registration accepted; a verification email has been sent.
+        "202":
+          description: |
+            Accepted. Identical for every account state; says nothing about whether an account
+            exists or whether an email was sent.
           headers: *rateLimitHeaders
           content:
             application/json:
@@ -308,7 +322,9 @@ paths:
       description: |
         Always `202`, for any address. An unknown address, an already-verified account and a real
         pending one are indistinguishable from the response, so this cannot be used to enumerate
-        accounts.
+        accounts. Only a pending account is mailed, and it shares registration's per-address
+        cooldown (AUTH-003): a request inside the window neither sends nor invalidates the link
+        already delivered.
       x-rate-limit: { policy: auth-sensitive }
       requestBody:
         required: true
@@ -414,17 +430,13 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401":
           description: |
-            The credentials were rejected, or the local address is not verified yet — the latter
-            carries `code: EMAIL_NOT_VERIFIED`, which is the only case a client can act on.
+            The credentials were rejected. One generic answer for an unknown address, a wrong
+            password, an account without a local password, and an account whose address has never
+            been verified (AUTH-003) — a pending account has no credential anybody proved, so it
+            is indistinguishable from no account at all.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-              examples:
-                unverified:
-                  value:
-                    statusCode: 401
-                    message: "Verify your email address before signing in."
-                    code: EMAIL_NOT_VERIFIED
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
 
@@ -2447,19 +2459,17 @@ components:
 
     RegisterRequest:
       type: object
-      required: [email, password]
+      required: [email]
+      description: |
+        Email-first registration (AUTH-003). No password: the first password is chosen by the
+        holder of the emailed activation link.
       properties:
         email: { type: string, format: email }
-        password:
-          type: string
-          minLength: 12
-          maxLength: 1024
-          description: The product's registration policy. Applied whenever a password is *set*.
     RegisterResponse:
       type: object
       required: [status]
       properties:
-        status: { type: string, const: verification_sent }
+        status: { type: string, const: accepted }
 
     LoginRequest:
       type: object

@@ -116,8 +116,7 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
   return (
     <>
       <p className={styles.status} data-testid="verify-intro">
-        Choose the password you will use to sign in. It replaces any password
-        entered when the account was created.
+        Choose the password you will use to sign in to FactorSage.
       </p>
 
       <form

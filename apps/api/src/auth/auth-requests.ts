@@ -65,9 +65,13 @@ function requirePolicyPassword(body: unknown): string {
   return password;
 }
 
+/**
+ * Email-first registration (AUTH-003): only the address is read. Anything else in the body — a
+ * `password` from a client built before AUTH-003, a `role` or `plan` somebody hoped would stick —
+ * is ignored and never reaches a log or the database.
+ */
 export function parseRegisterRequest(body: unknown): RegisterRequest {
-  const email = requireEmail(body);
-  return { email, password: requirePolicyPassword(body) };
+  return { email: requireEmail(body) };
 }
 
 function requireToken(body: unknown, rejection: string): string {

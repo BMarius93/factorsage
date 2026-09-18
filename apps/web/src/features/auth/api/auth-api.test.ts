@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { verifyEmail } from "./auth-api";
+import { register, verifyEmail } from "./auth-api";
 
 const apiPost = vi.fn();
 
@@ -29,5 +29,38 @@ describe("verifyEmail", () => {
     expect(path).not.toContain("?");
     expect(path).not.toContain(password);
     expect(body).toEqual({ token: "link-token", password });
+  });
+});
+
+describe("register", () => {
+  beforeEach(() => {
+    apiPost.mockReset();
+    apiPost.mockResolvedValue({ status: "accepted" });
+  });
+
+  it("sends the email address and nothing else (AUTH-003)", async () => {
+    await expect(register({ email: "person@example.com" })).resolves.toEqual({
+      status: "accepted",
+    });
+
+    expect(apiPost).toHaveBeenCalledTimes(1);
+    const [path, body] = apiPost.mock.calls[0] as [string, unknown];
+    expect(path).toBe("/auth/register");
+    expect(body).toEqual({ email: "person@example.com" });
+  });
+
+  it("never forwards a password even if a caller passes one", async () => {
+    const legacy = {
+      email: "person@example.com",
+      password: "Should-never-leave-the-page-42",
+    } as unknown as Parameters<typeof register>[0];
+
+    await register(legacy);
+
+    const [, body] = apiPost.mock.calls[0] as [string, unknown];
+    expect(body).toEqual({ email: "person@example.com" });
+    expect(JSON.stringify(body)).not.toContain(
+      "Should-never-leave-the-page-42",
+    );
   });
 });

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
-import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
 import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -20,6 +19,7 @@ import { PrismaService } from "../database/prisma.service";
 import { EMAIL_SENDER } from "../email/email-sender";
 import { InMemoryEmailSender } from "../email/in-memory-email-sender";
 import { AUTH_LOGGER } from "./auth.tokens";
+import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
 import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
 import {
   EmailVerificationService,
@@ -111,6 +111,7 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
   let prisma: PrismaService;
   let passwords: PasswordService;
   let verification: EmailVerificationService;
+  let dispatcher: BackgroundEmailDispatcher;
   const sender = new InMemoryEmailSender();
   const logs = capturingLogger();
 
@@ -137,6 +138,9 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
     prisma = moduleRef.get(PrismaService);
     passwords = moduleRef.get(PasswordService);
     verification = moduleRef.get(EmailVerificationService);
+    dispatcher = moduleRef.get(BackgroundEmailDispatcher);
+    // The guard that makes "no real email" true for this file, asserted rather than assumed.
+    expect(moduleRef.get(EMAIL_SENDER)).toBe(sender);
   });
 
   afterEach(() => {
@@ -153,13 +157,40 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
     }
   });
 
-  /** `POST /auth/register` as anybody may call it, returning the link mailed to the address. */
+  /**
+   * A pending account as registration left it **before AUTH-003**: somebody's chosen password stored
+   * on the unverified row, and the link mailed to the address.
+   *
+   * Registration no longer takes a password, so the only way such a hash still exists is a row
+   * created before the deploy. The request here is the real one — including a `password` field an
+   * old client would send, which is ignored — and the inert hash is then written directly, which is
+   * exactly the state AUTH-002 has to keep defusing.
+   */
   async function register(email: string, password: string): Promise<string> {
     await request(app.getHttpServer())
       .post("/auth/register")
       .send({ email, password })
-      .expect(201);
-    return tokenFromLastEmail(sender);
+      .expect(202);
+    await dispatcher.drain();
+    const token = tokenFromLastEmail(sender);
+    const { passwordHash } = await prisma.user.findUniqueOrThrow({
+      where: { email },
+    });
+    // AUTH-003: the password in the request was never stored.
+    expect(passwordHash).toBeNull();
+    await prisma.user.update({
+      where: { email },
+      data: { passwordHash: await passwords.hash(password) },
+    });
+    return token;
+  }
+
+  /** Moves the address's last registration email outside the cooldown, deterministically. */
+  async function expireRegistrationCooldown(email: string): Promise<void> {
+    await prisma.user.update({
+      where: { email },
+      data: { registrationEmailClaimedAt: new Date(0) },
+    });
   }
 
   function verify(token: string, password: string) {
@@ -238,9 +269,10 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
     expect(registered.emailVerifiedAt).toBeNull();
     expect(registered.sessionVersion).toBe(0);
 
-    // 2. While unverified, that password yields no session.
-    const beforeVerification = await login(email, attackerPassword).expect(403);
-    expect(beforeVerification.body.code).toBe(EMAIL_NOT_VERIFIED_CODE);
+    // 2. While unverified, that password yields no session — and, since AUTH-003, not even a
+    //    hint that the account exists: the generic failure an unknown address gets.
+    const beforeVerification = await login(email, attackerPassword).expect(401);
+    expect(beforeVerification.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
     expect(sessionCookie(beforeVerification)).toBeUndefined();
 
     // 3. The mailbox owner opens the link and chooses their own password.
@@ -459,7 +491,7 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
     // original hash and version, and the reset link is still there.
     expect(await accountState(email)).toEqual(before);
     await login(email, ownerPassword).expect(401);
-    await login(email, attackerPassword).expect(403);
+    await login(email, attackerPassword).expect(401);
 
     // A normal attempt afterwards completes every effect.
     await verify(token, ownerPassword).expect(200);
@@ -516,11 +548,13 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
   it("uses the same flow for a resent link", async () => {
     const email = uniqueEmail("resend");
     const firstToken = await register(email, attackerPassword);
+    await expireRegistrationCooldown(email);
 
     await request(app.getHttpServer())
       .post("/auth/resend-verification")
       .send({ email })
       .expect(202);
+    await dispatcher.drain();
     const secondToken = tokenFromLastEmail(sender);
     expect(secondToken).not.toBe(firstToken);
 

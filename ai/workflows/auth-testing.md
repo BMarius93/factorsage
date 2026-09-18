@@ -154,6 +154,15 @@ Auth suites:
   single use, expiry, resend rotation, login gating, and the rotation races: a resend that reuses
   the row between the redemption transaction's read and its write must neither be consumed by the
   superseded link nor deleted by its cleanup
+- `apps/api/src/auth/registration-enumeration.integration.test.ts` — AUTH-003: the response matrix
+  (new, pending, verified password, Google-only, password + Google and cooling-down addresses get an
+  identical status, body, content type, header set and no cookie), the protected state of every
+  existing account (credential, verification, session version, role, plan, OAuth rows, reset link,
+  live session), the new-address flow from captured link to sign-in, pending and pre-AUTH-003
+  pending rows, the per-address cooldown (every state, normalization, neighbours, re-opening, shared
+  with resend, no rotation inside it), simulated provider failure / delay / recovery, repeated
+  concurrent registrations and registration racing verification, non-enumerating login and
+  recovery for pending accounts, and log-leak assertions
 - `apps/api/src/auth/email-verification.integration.test.ts` — AUTH-002: the full pre-account
   takeover (an attacker registers the victim's address; the victim's verification installs the
   victim's chosen password; the attacker's gets the generic `401`), unknown / malformed / expired /
@@ -171,7 +180,10 @@ Auth suites:
 - `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, the
   authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under
-  concurrent first sign-in, and log-leak assertions
+  concurrent first sign-in, registration racing a Google link or a first Google sign-in (AUTH-003),
+  and log-leak assertions
+- `apps/api/src/email/no-real-email.guard.test.ts` — proves the package-wide `nodemailer`
+  replacement is live, so no API test can reach a real mail server
 - `apps/api/src/auth/google/google-email-authority.test.ts` — the pure authority rule on its own:
   Google-operated mailboxes, `hd` matching, casing and trailing-dot normalization, malformed
   addresses, and the refusal to promote an unverified address
@@ -223,10 +235,13 @@ reset is `POST /auth/forgot-password` followed by `POST /auth/reset-password`.
 
 ### Email-verification takeover check (AUTH-002)
 
-Against a running stack with a local catch-all SMTP relay (section 11):
+Against a running stack with a local catch-all SMTP relay (section 11). Since AUTH-003 the
+registration form takes no password, so there is no attacker password left to activate; the check
+now confirms that only the link holder's password exists:
 
-1. Register a fresh address on `/register` with password **A** (playing the attacker).
-2. Sign in with that address and **A** — expect "Verify your email address before signing in".
+1. Register a fresh address on `/register` (email only, playing the attacker).
+2. Sign in with that address and any password **A** — expect the generic "Unable to sign in with
+   those credentials.", exactly as for an unknown address.
 3. Open the verification link from the relay (playing the mailbox owner). The page shows **New
    password** and **Confirm password** and has verified nothing yet; the address bar holds only
    `?token=…`.
@@ -235,14 +250,40 @@ Against a running stack with a local catch-all SMTP relay (section 11):
    verified and your password is set." and a **Continue to sign in** link to `/login`. The
    network panel shows one `POST /auth/verify-email` whose JSON body carries `token` and
    `password`, and no password in any URL.
-5. Sign in with **A** — expect the generic "Invalid email or password". Sign in with **B** —
-   expect the dashboard.
+5. Sign in with **A** — expect the generic failure. Sign in with **B** — expect the dashboard.
 6. Open the same link again and submit any password — expect "This verification link is invalid,
    expired, or has already been used." with the resend form.
 7. Repeat steps 3–4 at 390 px width; the form must fit without horizontal scroll.
 
 Over HTTP, `POST /auth/verify-email` with `{ "token": "…" }` alone must answer `400` and leave the
 link redeemable.
+
+### Registration enumeration check (AUTH-003)
+
+**Not executed in the AUTH-003 PR.** It was deferred on purpose to preserve the Mailtrap sandbox's
+message quota; every automated check used the in-memory mailer. Run it once, by hand, against a
+local capture relay (preferred) or the sandbox, with synthetic addresses on a domain you control in
+that relay:
+
+1. Pick three addresses: **N** (never used), **P** (register it once and leave it unverified) and
+   **V** (an account that is verified — sign in with it once to be sure). Wait five minutes after
+   creating **P** so its cooldown has passed.
+2. On `/register`, submit **N**, then **P**, then **V**. Each time expect the identical page — "If
+   this address can be used, you'll receive an email with the next step." — and, in the network
+   panel, `202 {"status":"accepted"}` with no `Set-Cookie`.
+3. In the relay: **N** and **P** each received one "Finish creating your FactorSage account" email
+   whose only link is `WEB_BASE_URL/verify-email?token=…`; **V** received one "You already have a
+   FactorSage account" email with sign-in (and, for a password account, recovery) links and no
+   `token=` anywhere. No email contains a password.
+4. Submit **N**, **P** and **V** again immediately. Expect the same page and **no** new email for any
+   of them; **P**'s link from step 3 still works.
+5. Open **N**'s link, choose a password, sign in with it. Sign in as **V** and confirm nothing
+   changed (same password, same sessions on another browser).
+6. Sign in with **P** and any password before activating it — expect "Unable to sign in with those
+   credentials.", exactly as for an unknown address.
+7. Repeat step 2 at 390 px width; the form and the confirmation fit without horizontal scroll.
+
+Record only outcomes. Never paste a token, link, password or cookie into a document or log.
 
 Never paste a real cookie, token, or password into a document, a commit message, or a log.
 
@@ -395,12 +436,24 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 
 ## 11. Email test policy
 
-- Automated tests never send real email. `EMAIL_SENDER` is replaced with
-  `apps/api/src/email/in-memory-email-sender.ts`, and tests read the verification link out of the
-  captured message.
+- Automated tests never send real email. Two layers make that structural:
+  - every suite that sends mail replaces `EMAIL_SENDER` with
+    `apps/api/src/email/in-memory-email-sender.ts` and asserts in `beforeAll` that the application
+    resolved that instance; tests read links out of the captured message and simulate failure with
+    `failWith` (or a held `send` for delay);
+  - `apps/api/vitest.config.ts` loads `src/email/no-real-email.setup.ts` before every API test file,
+    which replaces `nodemailer` so a `SmtpEmailSender` built from a developer `.env` rejects every
+    send before opening a socket. `no-real-email.guard.test.ts` fails if that ever stops being true.
+- Registration and resend send **after** the response (`BackgroundEmailDispatcher`, AUTH-003). A
+  test that inspects captured mail or token rows calls `dispatcher.drain()` first; `app.close()`
+  drains too.
 - Never configure real SMTP credentials for a test run.
 - For manual local testing, point `SMTP_HOST`/`SMTP_PORT` at a local catch-all relay such as
   Mailpit. `SMTP_USER`/`SMTP_PASSWORD` may stay empty for an unauthenticated local relay.
+- The Playwright stack is a real API: `e2e/entitlements/entitlements.admin.spec.ts` registers an
+  `example.test` address, which dispatches an activation email through whatever transport that API
+  is configured with. Run E2E with the `SMTP_*` group empty or pointed at a local capture relay,
+  never at a hosted sandbox with a message quota.
 - Verification and password-reset tokens are single-use and only their SHA-256 hash is stored.
   Never log, print, or paste a plaintext token.
 - Playwright cannot read an inbox, so no browser test redeems a real reset or verification link.

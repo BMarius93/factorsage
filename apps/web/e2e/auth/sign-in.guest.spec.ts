@@ -23,7 +23,9 @@ test.describe("guest authentication @smoke", () => {
     await expect(
       page.getByRole("heading", { name: "Create your account" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Confirm password")).toBeVisible();
+    // Email-first registration (AUTH-003): the address is the whole form.
+    await expect(page.getByLabel("Email")).toBeVisible();
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
   });
 
   test("is sent to sign-in when opening a product route", async ({ page }) => {

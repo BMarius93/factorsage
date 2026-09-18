@@ -9,7 +9,7 @@ export default function RegisterPage() {
   return (
     <AuthCard
       title="Create your account"
-      subtitle="We will email you a link to confirm your address before your first sign-in."
+      subtitle="Start with your email address. We'll send a link to confirm it and choose your password."
     >
       <RegisterForm />
     </AuthCard>

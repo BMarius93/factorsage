@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getApiConfig, getAuthConfig, loadRootEnv } from "@intrinsic/config";
-import {
-  EMAIL_NOT_VERIFIED_CODE,
-  RATE_LIMIT_HEADERS,
-} from "@intrinsic/contracts";
+import { RATE_LIMIT_HEADERS } from "@intrinsic/contracts";
 import { UserRole } from "@intrinsic/database";
 import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
@@ -13,10 +10,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
-import {
-  EMAIL_NOT_VERIFIED_MESSAGE,
-  INVALID_CREDENTIALS_MESSAGE,
-} from "./auth.service";
+import { INVALID_CREDENTIALS_MESSAGE } from "./auth.service";
 import { PasswordService } from "./password.service";
 import { seedInitialAdmin } from "./seed-admin";
 
@@ -199,14 +193,22 @@ describe("authentication and role authorization", () => {
     expect(response.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
   });
 
-  it("does not allow password login before the email address is verified", async () => {
+  it("refuses an unverified account with the generic failure even for its stored password (AUTH-003)", async () => {
+    // The row carries a password hash, as a registration from before AUTH-003 left it. Nobody
+    // proved that password belongs to the mailbox owner, so knowing it is not a credential, and
+    // answering differently from an unknown address would reveal that a pending account exists.
     const response = await request(app.getHttpServer())
       .post("/auth/login")
       .send({ email: unverifiedEmail, password })
-      .expect(403);
+      .expect(401);
+    const unknown = await request(app.getHttpServer())
+      .post("/auth/login")
+      .send({ email: `unknown-pending-${suffix}@example.test`, password })
+      .expect(401);
 
-    expect(response.body.code).toBe(EMAIL_NOT_VERIFIED_CODE);
-    expect(response.body.message).toBe(EMAIL_NOT_VERIFIED_MESSAGE);
+    expect(response.body).toEqual(unknown.body);
+    expect(response.body.message).toBe(INVALID_CREDENTIALS_MESSAGE);
+    expect(response.body.code).toBeUndefined();
     expect(response.headers["set-cookie"]).toBeUndefined();
   });
 

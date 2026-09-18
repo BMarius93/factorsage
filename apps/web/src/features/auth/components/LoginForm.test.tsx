@@ -1,4 +1,3 @@
-import { EMAIL_NOT_VERIFIED_CODE } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,13 +28,11 @@ vi.mock("next/link", () => ({
 }));
 
 const login = vi.fn();
-const resendVerification = vi.fn();
 const getAuthProviders = vi.fn();
 
 vi.mock("../api/auth-api", () => ({
   GOOGLE_SIGN_IN_URL: "http://api.test/auth/google",
   login: (...args: unknown[]) => login(...args),
-  resendVerification: (...args: unknown[]) => resendVerification(...args),
   getAuthProviders: () => getAuthProviders(),
 }));
 
@@ -80,29 +77,19 @@ describe("LoginForm", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("offers a resend when the account exists but is not verified", async () => {
-    login.mockRejectedValue(
-      new ApiError(403, "Verify your email address before signing in", EMAIL_NOT_VERIFIED_CODE),
-    );
-    resendVerification.mockResolvedValue({ status: "accepted" });
+  it("answers a pending account exactly like wrong credentials (AUTH-003)", async () => {
+    // The API refuses an unverified account with the same generic 401; the page adds no
+    // "verify your email" state that would reveal the account exists.
+    login.mockRejectedValue(new ApiError(401, "Invalid email or password"));
     render(<LoginForm />);
 
-    const user = await submitCredentials(
-      "pending@example.test",
-      "Local-test-password-42",
-    );
+    await submitCredentials("pending@example.test", "Local-test-password-42");
 
-    expect(await screen.findByTestId("login-unverified")).toBeDefined();
-    await user.click(
-      screen.getByRole("button", { name: "Send a new verification link" }),
+    expect((await screen.findByTestId("login-error")).textContent).toBe(
+      GENERIC_SIGN_IN_ERROR,
     );
-
-    // The address the user just typed is reused, so no second email field appears.
-    await waitFor(() => {
-      expect(resendVerification).toHaveBeenCalledWith("pending@example.test");
-    });
-    expect(await screen.findByTestId("resend-confirmation")).toBeDefined();
-    expect(screen.getAllByLabelText("Email")).toHaveLength(1);
+    expect(screen.queryByText(/verify your email/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /verification/i })).toBeNull();
   });
 
   it("surfaces a failed Google redirect without blocking password sign-in", () => {

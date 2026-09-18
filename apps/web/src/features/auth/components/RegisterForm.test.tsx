@@ -1,14 +1,10 @@
-import { PASSWORD_MIN_LENGTH } from "@intrinsic/contracts";
+import { RATE_LIMITED_CODE } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import { UNEXPECTED_ERROR } from "../utils/auth-errors";
-import {
-  PASSWORD_MISMATCH_MESSAGE,
-  PASSWORD_TOO_SHORT_MESSAGE,
-  RegisterForm,
-} from "./RegisterForm";
+import { REGISTRATION_ACCEPTED_MESSAGE, RegisterForm } from "./RegisterForm";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -34,96 +30,174 @@ vi.mock("../api/auth-api", () => ({
   getAuthProviders: () => getAuthProviders(),
 }));
 
-const VALID_PASSWORD = "Local-test-password-42";
-
-async function fillForm(options: {
-  email: string;
-  password: string;
-  confirmPassword?: string;
-}) {
+async function submitEmail(email: string) {
   const user = userEvent.setup();
-  await user.type(screen.getByLabelText("Email"), options.email);
-  await user.type(screen.getByLabelText("Password"), options.password);
-  await user.type(
-    screen.getByLabelText("Confirm password"),
-    options.confirmPassword ?? options.password,
-  );
-  await user.click(screen.getByRole("button", { name: "Create account" }));
+  await user.type(screen.getByLabelText("Email"), email);
+  await user.click(screen.getByRole("button", { name: "Continue" }));
   return user;
 }
 
-describe("RegisterForm", () => {
+/** Everything a person could read on the confirmation, so two renders can be compared exactly. */
+function acceptedCopy(): string {
+  return screen.getByTestId("register-accepted").textContent ?? "";
+}
+
+describe("RegisterForm (email-first, AUTH-003)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getAuthProviders.mockResolvedValue({ google: false });
   });
 
-  it("registers and tells the user to check their inbox", async () => {
-    registerRequest.mockResolvedValue({ status: "verification_sent" });
+  it("asks for an email address and nothing else", () => {
     render(<RegisterForm />);
 
-    await fillForm({ email: "new@example.test", password: VALID_PASSWORD });
+    expect(screen.getByLabelText("Email")).toBeDefined();
+    expect(screen.queryByLabelText(/password/i)).toBeNull();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
+  });
+
+  it("sends only the address and shows the neutral confirmation", async () => {
+    registerRequest.mockResolvedValue({ status: "accepted" });
+    render(<RegisterForm />);
+
+    await submitEmail("person@example.com");
 
     await waitFor(() => {
       expect(registerRequest).toHaveBeenCalledWith({
-        email: "new@example.test",
-        password: VALID_PASSWORD,
+        email: "person@example.com",
       });
     });
-
-    const success = await screen.findByTestId("register-success");
-    expect(success.textContent).toContain("new@example.test");
-    // Registration must not look like a completed sign-in.
-    expect(screen.queryByRole("button", { name: "Create account" })).toBeNull();
+    const accepted = await screen.findByTestId("register-accepted");
+    expect(screen.getByRole("status").textContent).toBe(
+      REGISTRATION_ACCEPTED_MESSAGE,
+    );
+    // Nothing that claims an account was created, already existed, or that mail was sent.
+    expect(accepted.textContent).not.toMatch(
+      /already (exists|registered)|account (was )?created|we sent|has been sent/i,
+    );
+    // Registration must not look like a completed sign-in, and the form is gone.
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(screen.queryByLabelText("Email")).toBeNull();
   });
 
-  it("rejects a password that is shorter than the shared policy minimum", async () => {
+  it("renders exactly the same confirmation whatever account the address belongs to", async () => {
+    // The API gives one answer for new, pending, verified, Google-only and cooling-down
+    // addresses; the page must too. Two different addresses stand in for two different states.
+    registerRequest.mockResolvedValue({ status: "accepted" });
+    const first = render(<RegisterForm />);
+    await submitEmail("new-person@example.com");
+    await screen.findByTestId("register-accepted");
+    const newCopy = acceptedCopy();
+    first.unmount();
+
+    render(<RegisterForm />);
+    await submitEmail("existing-person@example.com");
+    await screen.findByTestId("register-accepted");
+
+    expect(acceptedCopy()).toBe(newCopy);
+    expect(newCopy).not.toContain("new-person@example.com");
+  });
+
+  it("links to sign in and to password recovery, before and after submitting", async () => {
+    registerRequest.mockResolvedValue({ status: "accepted" });
     render(<RegisterForm />);
 
-    await fillForm({ email: "new@example.test", password: "a".repeat(PASSWORD_MIN_LENGTH - 1) });
+    const hrefs = () =>
+      screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+    expect(hrefs()).toEqual(
+      expect.arrayContaining(["/login", "/forgot-password"]),
+    );
+
+    await submitEmail("person@example.com");
+    await screen.findByTestId("register-accepted");
+    expect(hrefs()).toEqual(
+      expect.arrayContaining(["/login", "/forgot-password"]),
+    );
+  });
+
+  it("shows a loading state and submits once however often the button is pressed", async () => {
+    let resolve!: (value: unknown) => void;
+    registerRequest.mockImplementation(
+      () =>
+        new Promise((settle) => {
+          resolve = settle;
+        }),
+    );
+    render(<RegisterForm />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Email"), "person@example.com");
+
+    const button = screen.getByRole("button", { name: "Continue" });
+    await user.click(button);
+    await user.click(button);
+    await user.dblClick(button);
+
+    const busy = await screen.findByRole("button", { name: "Sending..." });
+    expect((busy as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Email") as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect(
+      document.querySelector("form")?.getAttribute("aria-busy"),
+    ).toBe("true");
+    expect(registerRequest).toHaveBeenCalledTimes(1);
+
+    resolve({ status: "accepted" });
+    await screen.findByTestId("register-accepted");
+    expect(registerRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the API's message for a malformed address and keeps the form", async () => {
+    registerRequest.mockRejectedValue(
+      new ApiError(400, "Enter a valid email address"),
+    );
+    render(<RegisterForm />);
+
+    await submitEmail("not-an-address");
+
+    const error = await screen.findByTestId("register-error");
+    expect(error.textContent).toBe("Enter a valid email address");
+    expect(error.getAttribute("role")).toBe("alert");
+    const input = screen.getByLabelText("Email");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(input.getAttribute("aria-describedby")).toBe("register-error");
+    // The user can correct it and try again.
+    expect(
+      (screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
+  it("names the wait when registration is throttled", async () => {
+    registerRequest.mockRejectedValue(
+      new ApiError(429, "Too many requests", RATE_LIMITED_CODE, undefined, 120),
+    );
+    render(<RegisterForm />);
+
+    await submitEmail("person@example.com");
 
     expect((await screen.findByTestId("register-error")).textContent).toBe(
-      PASSWORD_TOO_SHORT_MESSAGE,
+      "Too many requests. Please try again in 2 minutes.",
     );
-    expect(registerRequest).not.toHaveBeenCalled();
   });
 
-  it("rejects a mismatched confirmation without calling the API", async () => {
+  it("hides server detail for a server or network failure", async () => {
+    registerRequest.mockRejectedValueOnce(
+      new ApiError(500, "Internal server error"),
+    );
     render(<RegisterForm />);
 
-    await fillForm({
-      email: "new@example.test",
-      password: VALID_PASSWORD,
-      confirmPassword: `${VALID_PASSWORD}-other`,
+    const user = await submitEmail("person@example.com");
+    expect((await screen.findByTestId("register-error")).textContent).toBe(
+      UNEXPECTED_ERROR,
+    );
+
+    registerRequest.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => {
+      expect(registerRequest).toHaveBeenCalledTimes(2);
     });
-
-    expect((await screen.findByTestId("register-error")).textContent).toBe(
-      PASSWORD_MISMATCH_MESSAGE,
-    );
-    expect(registerRequest).not.toHaveBeenCalled();
-  });
-
-  it("surfaces the API's message when the address is already taken", async () => {
-    registerRequest.mockRejectedValue(
-      new ApiError(409, "An account with this email already exists"),
-    );
-    render(<RegisterForm />);
-
-    await fillForm({ email: "taken@example.test", password: VALID_PASSWORD });
-
-    expect((await screen.findByTestId("register-error")).textContent).toBe(
-      "An account with this email already exists",
-    );
-  });
-
-  it("does not surface server detail for a failure the user cannot act on", async () => {
-    registerRequest.mockRejectedValue(
-      new ApiError(503, "The verification email could not be sent."),
-    );
-    render(<RegisterForm />);
-
-    await fillForm({ email: "new@example.test", password: VALID_PASSWORD });
-
     expect((await screen.findByTestId("register-error")).textContent).toBe(
       UNEXPECTED_ERROR,
     );

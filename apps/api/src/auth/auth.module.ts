@@ -18,6 +18,7 @@ import { AuthEmailService } from "./auth-email.service";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { AUTH_LOGGER } from "./auth.tokens";
+import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
 import { CookieAuthGuard } from "./cookie-auth.guard";
 import { EmailVerificationService } from "./email-verification.service";
 import { GoogleAuthService } from "./google/google-auth.service";
@@ -79,6 +80,7 @@ import { UsersService } from "./users.service";
     },
     AuthEmailService,
     AuthService,
+    BackgroundEmailDispatcher,
     CookieAuthGuard,
     EmailVerificationService,
     GoogleAuthService,
@@ -91,6 +93,7 @@ import { UsersService } from "./users.service";
   ],
   exports: [
     AuthService,
+    BackgroundEmailDispatcher,
     CookieAuthGuard,
     EmailVerificationService,
     PasswordResetService,
