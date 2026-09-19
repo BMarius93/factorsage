@@ -330,23 +330,18 @@ test.describe("PRO_USER monitors", () => {
 
     // 9. Disable and re-enable from the detail page; both survive a reload.
     await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Disable");
-    await expect(page.getByTestId("monitor-state-pill")).toHaveText(
-      "Disabled",
-    );
+    await expect(page.getByTestId("monitor-state-pill")).toHaveText("Disabled");
     await page.reload();
     await expect(page.getByTestId("monitor-state-pill")).toHaveText(
       "Disabled",
       { timeout: 20_000 },
     );
     await chooseFromOverflowMenu(page, RENAMED_MONITOR, "Enable");
-    await expect(page.getByTestId("monitor-state-pill")).toHaveText(
-      "Enabled",
-    );
+    await expect(page.getByTestId("monitor-state-pill")).toHaveText("Enabled");
     await page.reload();
-    await expect(page.getByTestId("monitor-state-pill")).toHaveText(
-      "Enabled",
-      { timeout: 20_000 },
-    );
+    await expect(page.getByTestId("monitor-state-pill")).toHaveText("Enabled", {
+      timeout: 20_000,
+    });
 
     // 10. The detail page is usable on a phone.
     await expectNoHorizontalScroll(page);
