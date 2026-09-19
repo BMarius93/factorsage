@@ -40,7 +40,9 @@ describe("backtest prefill", () => {
   it("drops malformed values instead of half-applying them", () => {
     expect(
       readBacktestPrefill(
-        new URLSearchParams("start=yesterday&capital=-5&positions=abc&end=2024-01-31"),
+        new URLSearchParams(
+          "start=yesterday&capital=-5&positions=abc&end=2024-01-31",
+        ),
       ),
     ).toEqual({ endDate: "2024-01-31" });
   });

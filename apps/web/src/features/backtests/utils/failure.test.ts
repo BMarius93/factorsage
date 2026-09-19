@@ -17,8 +17,11 @@ describe("failureGuidance", () => {
 
   it("asks for a different period when there are no trading days", () => {
     expect(
-      failureGuidance({ code: "NO_TRADING_DAYS", phase: "RUNNING", message: "x" })
-        .recovery,
+      failureGuidance({
+        code: "NO_TRADING_DAYS",
+        phase: "RUNNING",
+        message: "x",
+      }).recovery,
     ).toBe("edit");
   });
 
@@ -37,7 +40,8 @@ describe("failureGuidance", () => {
       const guidance = failureGuidance({
         code: "EXECUTION_FAILED",
         phase,
-        message: "The backtest could not be completed. Please try running it again.",
+        message:
+          "The backtest could not be completed. Please try running it again.",
       });
       expect(guidance.cause).not.toContain("EXECUTION_FAILED");
       expect(guidance.cause).not.toContain("Please try running it again");

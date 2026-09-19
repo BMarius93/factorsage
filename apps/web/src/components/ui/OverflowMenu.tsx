@@ -182,7 +182,10 @@ const EDGE_MARGIN = 8;
 /** The popup's distance from its trigger, matching the stylesheet. */
 const TRIGGER_GAP = 6;
 
-type Box = Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width" | "height">;
+type Box = Pick<
+  DOMRect,
+  "top" | "bottom" | "left" | "right" | "width" | "height"
+>;
 
 type ViewportBounds = { readonly width: number; readonly bottom: number };
 

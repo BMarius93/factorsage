@@ -58,7 +58,9 @@ export function rerunHref(
   configuration: BacktestRunConfigurationResponse,
 ): string {
   return newBacktestHref({
-    ...(configuration.strategyId ? { strategyId: configuration.strategyId } : {}),
+    ...(configuration.strategyId
+      ? { strategyId: configuration.strategyId }
+      : {}),
     ...(configuration.stockListId
       ? { stockListId: configuration.stockListId }
       : {}),
@@ -96,7 +98,10 @@ export function readBacktestPrefill(
     return value !== undefined && ISO_DATE.test(value) ? value : undefined;
   };
   const prefill: Record<string, string | number> = {};
-  const assign = (key: keyof BacktestPrefill, value: string | number | undefined) => {
+  const assign = (
+    key: keyof BacktestPrefill,
+    value: string | number | undefined,
+  ) => {
     if (value !== undefined) {
       prefill[key] = value;
     }
@@ -111,7 +116,10 @@ export function readBacktestPrefill(
     "monthlyContribution",
     positiveNumber(params.get(PARAMS.monthlyContribution)),
   );
-  assign("maximumPositions", positiveNumber(params.get(PARAMS.maximumPositions)));
+  assign(
+    "maximumPositions",
+    positiveNumber(params.get(PARAMS.maximumPositions)),
+  );
   assign("fromRunId", text(PARAMS.fromRunId));
   return prefill as BacktestPrefill;
 }

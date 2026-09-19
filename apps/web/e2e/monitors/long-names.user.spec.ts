@@ -29,8 +29,13 @@ type Created = { monitorId: string; strategyId: string; listId: string };
 
 async function arrange(page: Page): Promise<Created> {
   const securityId = await findSecurityId(page, "QATEST1");
-  expect(securityId, "QATEST1 is seeded by pnpm test:securities:seed").not.toBeNull();
-  const list = await createList(page, `List ${LONG}`.slice(0, 120), [securityId!]);
+  expect(
+    securityId,
+    "QATEST1 is seeded by pnpm test:securities:seed",
+  ).not.toBeNull();
+  const list = await createList(page, `List ${LONG}`.slice(0, 120), [
+    securityId!,
+  ]);
   const strategy = await page.request.post(`${apiBaseUrl()}/strategies`, {
     data: {
       name: `Strategy ${LONG}`.slice(0, 120),
@@ -83,7 +88,9 @@ test.describe("long entity names", () => {
     }
     // Monitor first: a strategy or list a monitor references cannot be deleted.
     await page.request.delete(`${apiBaseUrl()}/monitors/${created.monitorId}`);
-    await page.request.delete(`${apiBaseUrl()}/strategies/${created.strategyId}`);
+    await page.request.delete(
+      `${apiBaseUrl()}/strategies/${created.strategyId}`,
+    );
     await page.request.delete(`${apiBaseUrl()}/lists/${created.listId}`);
     created = undefined;
   });
@@ -104,7 +111,10 @@ test.describe("long entity names", () => {
       const layout = await page.evaluate(() => ({
         overflow: document.documentElement.scrollWidth - window.innerWidth,
       }));
-      expect(layout.overflow, `document overflow at ${width}px`).toBeLessThanOrEqual(0);
+      expect(
+        layout.overflow,
+        `document overflow at ${width}px`,
+      ).toBeLessThanOrEqual(0);
 
       const open = row.getByRole("link", { name: `Open ${MONITOR_NAME}` });
       const trigger = row.getByRole("button", {
@@ -118,7 +128,8 @@ test.describe("long entity names", () => {
         expect(box!.x + box!.width).toBeLessThanOrEqual(width);
         const surfaceRight = await control.evaluate(
           (element) =>
-            element.closest("table")!.parentElement!.getBoundingClientRect().right,
+            element.closest("table")!.parentElement!.getBoundingClientRect()
+              .right,
         );
         expect(box!.x + box!.width).toBeLessThanOrEqual(surfaceRight + 1);
       }
@@ -129,7 +140,9 @@ test.describe("long entity names", () => {
       const menuId = await trigger.getAttribute("aria-controls");
       const menu = page.locator(`[id="${menuId}"]`);
       const menuBox = await menu.boundingBox();
-      expect(menuBox!.x, `${width}px: menu left edge`).toBeGreaterThanOrEqual(0);
+      expect(menuBox!.x, `${width}px: menu left edge`).toBeGreaterThanOrEqual(
+        0,
+      );
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();

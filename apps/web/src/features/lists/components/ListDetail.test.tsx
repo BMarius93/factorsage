@@ -141,7 +141,9 @@ describe("ListDetail", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByTestId("list-detail-actions")).toBeNull();
     expect(screen.queryByTestId("add-stocks-button")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Membership for / })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /^Membership for / }),
+    ).toBeNull();
   });
 
   it("lets an administrator edit a built-in list but never offers to delete it", async () => {
@@ -157,7 +159,9 @@ describe("ListDetail", () => {
     await screen.findByTestId("list-detail");
     expect(screen.getByRole("button", { name: "Edit" })).toBeDefined();
     expect(screen.getByTestId("add-stocks-button")).toBeDefined();
-    expect(screen.getByRole("button", { name: /^Membership for / })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /^Membership for / }),
+    ).toBeDefined();
     expect(screen.queryByTestId("list-detail-actions")).toBeNull();
   });
 
@@ -351,7 +355,9 @@ describe("ListDetail", () => {
 
     // "Membership" is also the column header and each card's label, so the row action is
     // addressed by role rather than by text.
-    await userEvent.click(screen.getByRole("button", { name: /^Membership for / }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /^Membership for / }),
+    );
     expect(screen.getByTestId("membership-editor")).toBeDefined();
 
     await userEvent.click(

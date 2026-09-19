@@ -317,9 +317,9 @@ describe("placeMenu", () => {
   });
 
   it("stays below when there is no room above either", () => {
-    expect(placeMenu(box(340, 60, 38, 38), box(0, 0, 160, 760), viewport).side).toBe(
-      "below",
-    );
+    expect(
+      placeMenu(box(340, 60, 38, 38), box(0, 0, 160, 760), viewport).side,
+    ).toBe("below");
   });
 
   it("keeps the default when nothing has been laid out", () => {
@@ -336,4 +336,3 @@ describe("OverflowMenu placement", () => {
     expect(trigger().closest("[data-overflow-menu]")).not.toBeNull();
   });
 });
-
