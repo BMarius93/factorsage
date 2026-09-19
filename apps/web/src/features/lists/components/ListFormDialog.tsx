@@ -166,8 +166,8 @@ export function ListFormDialog(props: ListFormDialogProps) {
               />
             ) : null}
             <p className={forms.hint}>
-              Every stock starts with full buy eligibility. You can restrict
-              buy windows per stock after saving.
+              Every stock starts always eligible. You can set a stock&apos;s
+              membership period on the list after saving.
             </p>
           </div>
         ) : null}

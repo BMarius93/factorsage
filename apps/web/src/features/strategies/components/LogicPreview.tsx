@@ -102,7 +102,7 @@ function PreviewLines({
                   <span>{line.connector}</span>
                 </li>
               ) : null}
-              <li className={styles.previewExitRule}>Rule {line.index}</li>
+              <li className={styles.previewExitRule}>Exit rule {line.index}</li>
             </Fragment>
           );
         }

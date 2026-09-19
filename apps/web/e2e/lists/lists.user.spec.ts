@@ -260,7 +260,7 @@ test.describe("PRO_USER stock lists", () => {
 
       const message = editor.getByTestId("membership-validation");
       await expect(message).toHaveText(
-        "Membership cannot end before it starts",
+        "Membership cannot end before it starts.",
       );
       // The message belongs to the field it is about, for assistive technology too.
       await expect(editor.getByLabel("To", { exact: true })).toHaveAttribute(

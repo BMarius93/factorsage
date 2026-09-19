@@ -64,7 +64,7 @@ function row(
     reasons: [
       {
         conditions: [
-          "Margin of Safety (Balanced) is above 5%",
+          "Margin of Safety · Balanced is above 5%",
           "Price is above SMA 200D",
         ],
         waitingForTrigger: false,

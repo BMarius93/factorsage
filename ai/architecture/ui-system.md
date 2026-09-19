@@ -436,7 +436,8 @@ list" links go to `/lists?new=1`, which opens the create dialog.
 
 One stock-search behaviour for the topbar (`StockSearch`, `single` mode) and the list picker
 (`SecurityMultiSelect`, `multi` mode). The hook owns the debounced catalog search, what a blank
-field offers (recently viewed stocks; `single` mode adds the popular shortcuts, which have no catalog
+field offers ("Recently Viewed" stocks — named for what they are, since viewing a stock from anywhere
+records it; `single` mode adds "Popular Stocks", static shortcuts with no catalog
 row and so cannot become list members), arrow-key wrap, Enter (highlighted option, else the first;
 never free text), Escape (closes an open list without closing the surrounding dialog; a closed list
 lets Escape through), Backspace on an empty field, blur-to-close, and the status line. Throttling
@@ -480,6 +481,17 @@ Page-level buttons stay in `forms.module.css`, and there are three:
 | `dangerButton`    | **only** inside `ConfirmDialog`                                              |
 
 One solid-blue action per page, and it is never a link to a form.
+
+**Button order by context (UI-056).** Order is fixed per context, not per screen:
+
+| Context                                                            | Order (desktop, left → right)                                              | Phone                                      |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------------ |
+| Dialogs, prompts, form footers (`forms.actions`, `WorkflowFooter`) | quiet/Cancel, then the primary                                             | stacked, primary on top (`column-reverse`) |
+| Entity headers (`PageHeader` actions)                              | secondary (Run backtest, Add to list), then tinted Edit, then the overflow | wraps in the same order                    |
+| Error and not-found panels (`EmptyState`)                          | the way out (Back to …), then **Try again**                                | stacked in the same order                  |
+
+"Try again" is always `secondaryButton`: it is a recovery, not a commit, so it never takes the
+page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-error.tsx` alike.
 
 ## Tokens
 

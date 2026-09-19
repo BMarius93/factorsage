@@ -85,7 +85,7 @@ describe("StockSearch", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
     const listbox = screen.getByRole("listbox");
     const options = within(listbox).getAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
@@ -105,7 +105,7 @@ describe("StockSearch", () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
   });
 
   it("replaces the popular searches with real results once a query is typed", async () => {
@@ -125,7 +125,7 @@ describe("StockSearch", () => {
         "AAPAdvance Auto PartsNASDAQ",
       ]);
     });
-    expect(screen.queryByText("Popular Searches")).toBeNull();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
 
     const requestedUrl = String(fetchMock.mock.calls[0]?.[0]);
     expect(requestedUrl).toContain("/stocks/search");
@@ -471,7 +471,7 @@ describe("StockSearch recent searches", () => {
 
   function sectionLabels(): string[] {
     return screen
-      .getAllByText(/Recent Searches|Popular Searches|Results/)
+      .getAllByText(/Recently Viewed|Popular Stocks|Results/)
       .map((element) => element.textContent ?? "");
   }
 
@@ -483,7 +483,7 @@ describe("StockSearch recent searches", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    expect(sectionLabels()).toEqual(["Recently Viewed", "Popular Stocks"]);
     // Recent rows carry the same ticker/company treatment as the popular rows below them, with no
     // exchange badge and no extra controls.
     expect(optionTexts()).toEqual([
@@ -503,8 +503,8 @@ describe("StockSearch recent searches", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(screen.queryByText("Recent Searches")).toBeNull();
-    expect(sectionLabels()).toEqual(["Popular Searches"]);
+    expect(screen.queryByText("Recently Viewed")).toBeNull();
+    expect(sectionLabels()).toEqual(["Popular Stocks"]);
   });
 
   it("never repeats a stock that is already in the recent section", async () => {
@@ -543,7 +543,7 @@ describe("StockSearch recent searches", () => {
       "DCompany D",
       "ECompany E",
     ]);
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
   });
 
   it("hides both shortcut sections while a query is being typed, and restores them when it is cleared", async () => {
@@ -558,12 +558,12 @@ describe("StockSearch recent searches", () => {
     await waitFor(() =>
       expect(optionTexts()).toEqual(["MSFTMicrosoft CorporationNASDAQ"]),
     );
-    expect(screen.queryByText("Recent Searches")).toBeNull();
-    expect(screen.queryByText("Popular Searches")).toBeNull();
+    expect(screen.queryByText("Recently Viewed")).toBeNull();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Clear search" }));
 
-    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    expect(sectionLabels()).toEqual(["Recently Viewed", "Popular Stocks"]);
     expect(optionTexts()[0]).toBe("AAPLApple");
   });
 

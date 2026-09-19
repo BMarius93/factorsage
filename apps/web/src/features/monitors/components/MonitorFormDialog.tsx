@@ -205,7 +205,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             </button>
             <button
               type="button"
-              className={forms.primaryButton}
+              className={forms.secondaryButton}
               onClick={retry}
             >
               Try again

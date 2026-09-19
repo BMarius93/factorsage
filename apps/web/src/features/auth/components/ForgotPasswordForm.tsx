@@ -91,7 +91,7 @@ export function ForgotPasswordForm() {
           type="submit"
           disabled={submitting}
         >
-          {submitting ? "Sending..." : "Send reset link"}
+          {submitting ? "Sending…" : "Send reset link"}
         </button>
       </form>
 

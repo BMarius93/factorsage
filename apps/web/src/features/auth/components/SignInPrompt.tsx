@@ -33,12 +33,14 @@ export function SignInPrompt({
   return (
     <Modal title={title} onClose={onClose} testId="sign-in-prompt">
       <p className={styles.body}>{body}</p>
-      <div className={styles.actions}>
-        <Link className={forms.primaryButton} href={signInHref(next)}>
-          Sign in
-        </Link>
+      {/* The dialog rule (UI-056): secondary then primary, and on a phone the primary stacks on
+          top — the same `forms.actions` row every dialog uses. */}
+      <div className={forms.actions}>
         <Link className={forms.secondaryButton} href={registerHref(next)}>
           Create an account
+        </Link>
+        <Link className={forms.primaryButton} href={signInHref(next)}>
+          Sign in
         </Link>
       </div>
     </Modal>

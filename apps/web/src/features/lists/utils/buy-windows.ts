@@ -188,7 +188,7 @@ export function membershipError(
   membership: EditableMembership,
 ): MembershipError | null {
   if (membership.startDate === "") {
-    return { field: "startDate", message: "Pick the date membership starts" };
+    return { field: "startDate", message: "Pick the date membership starts." };
   }
   if (membership.present) {
     return null;
@@ -196,13 +196,13 @@ export function membershipError(
   if (membership.endDate === "") {
     return {
       field: "endDate",
-      message: "Pick the date membership ends, or choose Present",
+      message: "Pick the date membership ends, or choose Present.",
     };
   }
   if (membership.endDate < membership.startDate) {
     return {
       field: "endDate",
-      message: "Membership cannot end before it starts",
+      message: "Membership cannot end before it starts.",
     };
   }
   return null;

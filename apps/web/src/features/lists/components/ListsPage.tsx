@@ -27,7 +27,7 @@ import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
-import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import styles from "./ListsPage.module.css";
@@ -358,16 +358,8 @@ export function ListsPage() {
       ) : null}
 
       {dialog.kind === "delete" ? (
-        <ConfirmDialog
-          title="Delete list"
-          body={
-            <p className={styles.confirmBody}>
-              Delete <strong>{dialog.list.name}</strong> and its buy-window
-              configuration? This cannot be undone.
-            </p>
-          }
-          confirmLabel="Delete list"
-          pendingLabel="Deleting…"
+        <DeleteListDialog
+          name={dialog.list.name}
           onClose={closeDialog}
           onConfirm={async () => {
             await deleteStockList(dialog.list.id);

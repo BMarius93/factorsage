@@ -70,7 +70,7 @@ function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
       {row.reasons.map((reason, index) => (
         <p key={index} className={styles.reason}>
           {reason.exitRule !== undefined ? (
-            <span className={styles.reasonRule}>Rule {reason.exitRule}: </span>
+            <span className={styles.reasonRule}>Exit rule {reason.exitRule}: </span>
           ) : null}
           {reason.conditions.join(" and ")}
           {reason.trigger ? (

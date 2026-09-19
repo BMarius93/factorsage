@@ -113,7 +113,7 @@ describe("built-in catalog", () => {
             100,
             {
               conditions: [
-                "Margin of Safety (Balanced) is above 5%",
+                "Margin of Safety · Balanced is above 5%",
                 "Price is above SMA 200D",
               ],
               trigger: null,
@@ -125,7 +125,7 @@ describe("built-in catalog", () => {
             50,
             {
               conditions: [
-                "Margin of Safety (Balanced) is below -15%",
+                "Margin of Safety · Balanced is below -15%",
                 "Price is above SMA 200D",
               ],
               trigger: null,

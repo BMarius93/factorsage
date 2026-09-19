@@ -170,7 +170,7 @@ export function AccountMenu() {
             data-testid="sign-out"
             onClick={() => void handleSignOut("here")}
           >
-            {signingOut === "here" ? "Signing out..." : "Sign out"}
+            {signingOut === "here" ? "Signing out…" : "Sign out"}
           </button>
 
           {/* Ends every session of the account, on every device — the step after a lost device. */}
@@ -183,7 +183,7 @@ export function AccountMenu() {
             onClick={() => void handleSignOut("everywhere")}
           >
             {signingOut === "everywhere"
-              ? "Signing out everywhere..."
+              ? "Signing out everywhere…"
               : "Sign out everywhere"}
           </button>
 

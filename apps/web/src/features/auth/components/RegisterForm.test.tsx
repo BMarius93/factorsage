@@ -133,7 +133,7 @@ describe("RegisterForm (email-first, AUTH-003)", () => {
     await user.click(button);
     await user.dblClick(button);
 
-    const busy = await screen.findByRole("button", { name: "Sending..." });
+    const busy = await screen.findByRole("button", { name: "Sending…" });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByLabelText("Email") as HTMLInputElement).disabled).toBe(
       true,

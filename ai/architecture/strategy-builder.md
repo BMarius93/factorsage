@@ -262,8 +262,9 @@ triggerOperatorLabel(op): string     // "crosses above" | "crosses below"
 ```
 
 **Label rule.** For every catalog-backed identity the label is `findSelectableSeries(id).label` and
-nothing else. `Margin of Safety (DCF (FCFF))` reads poorly, so `strategyMetricLabel` composes
-`Margin of Safety (<catalog label>)` in **one** function — a composition, not a second label map.
+nothing else. A source label can carry its own parentheses, so `strategyMetricLabel` composes
+`Margin of Safety · <catalog label>` (`Margin of Safety · DCF (FCFF)`, never a nested pair; UI-058)
+in **one** function — a composition, not a second label map.
 A parity test (§ 11) asserts this, which is what keeps invariant 9 true.
 
 **Ordering.** Metric options are grouped
@@ -529,7 +530,7 @@ apps/web/src/features/strategies/
     StrategyDetailsCard.tsx  # name, description
     LevelSection.tsx         # "BUY levels" / "SELL levels" container + add button
     LevelCard.tsx            # one BUY/SELL level: tone, ordinal, percentage, remove, reorder
-    FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add OR rule
+    FinalExitCard.tsx        # FINAL EXIT: one card, its Exit Rules, the OR dividers, + Add exit rule
     SignalEditor.tsx         # Conditions block + optional Trigger block
     PredicateRow.tsx         # Metric / operator / Value — one component, two modes
     MetricSelect.tsx  OperatorSelect.tsx  ValueControl.tsx

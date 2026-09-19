@@ -40,13 +40,6 @@
   white-space: nowrap;
 }
 
-.confirmBody {
-  margin: 0;
-  color: var(--color-text-body);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .overLimit {
   display: inline-grid;
   justify-items: start;

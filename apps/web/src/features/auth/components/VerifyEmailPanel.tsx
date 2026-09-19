@@ -174,7 +174,7 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           type="submit"
           disabled={submitting}
         >
-          {submitting ? "Verifying..." : "Verify and set password"}
+          {submitting ? "Verifying…" : "Verify and set password"}
         </button>
       </form>
 

@@ -137,7 +137,7 @@ export function RegisterForm({
           type="submit"
           disabled={submitting}
         >
-          {submitting ? "Sending..." : "Continue"}
+          {submitting ? "Sending…" : "Continue"}
         </button>
       </form>
 

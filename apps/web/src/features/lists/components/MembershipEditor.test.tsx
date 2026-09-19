@@ -122,7 +122,7 @@ describe("MembershipEditor", () => {
     await userEvent.click(screen.getByTestId("save-membership"));
 
     const message = screen.getByTestId("membership-validation");
-    expect(message.textContent).toBe("Membership cannot end before it starts");
+    expect(message.textContent).toBe("Membership cannot end before it starts.");
     expect(screen.getByLabelText("To").getAttribute("aria-invalid")).toBe(
       "true",
     );
@@ -142,7 +142,7 @@ describe("MembershipEditor", () => {
     await userEvent.click(screen.getByTestId("save-membership"));
 
     expect(screen.getByTestId("membership-validation").textContent).toBe(
-      "Pick the date membership starts",
+      "Pick the date membership starts.",
     );
     expect(replaceBuyWindowsMock).not.toHaveBeenCalled();
   });
@@ -158,7 +158,7 @@ describe("MembershipEditor", () => {
     await userEvent.click(screen.getByTestId("save-membership"));
 
     expect(screen.getByTestId("membership-validation").textContent).toBe(
-      "Pick the date membership ends, or choose Present",
+      "Pick the date membership ends, or choose Present.",
     );
     expect(replaceBuyWindowsMock).not.toHaveBeenCalled();
   });

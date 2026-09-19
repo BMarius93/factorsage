@@ -36,7 +36,7 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
   if (state.status === "loading" || state.status === "unauthenticated") {
     return (
       <div className={styles.gate} role="status" data-testid="auth-checking">
-        Checking your session...
+        Checking your session…
       </div>
     );
   }

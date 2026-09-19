@@ -3,13 +3,3 @@
   color: var(--color-text-secondary);
   line-height: 1.5;
 }
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.actions a {
-  text-decoration: none;
-}

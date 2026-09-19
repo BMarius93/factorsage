@@ -484,7 +484,7 @@ describe("StrategyBuilder final exit rules", () => {
     expect(exitCard().queryByText("Exit rule 1")).toBeNull();
     // The control that makes the alternative reachable is there from the start.
     expect(exitCard().getByTestId("add-exit-rule").textContent).toBe(
-      "+ Add OR rule",
+      "+ Add exit rule",
     );
   });
 
@@ -576,8 +576,8 @@ describe("StrategyBuilder final exit rules", () => {
     );
 
     const preview = within(screen.getByTestId("logic-preview"));
-    expect(preview.getByText("Rule 1")).toBeTruthy();
-    expect(preview.getByText("Rule 2")).toBeTruthy();
+    expect(preview.getByText("Exit rule 1")).toBeTruthy();
+    expect(preview.getByText("Exit rule 2")).toBeTruthy();
     expect(preview.getAllByTestId("preview-exit-rule-or")).toHaveLength(1);
     // One FINAL EXIT heading, not one per rule.
     expect(preview.getAllByText("FINAL EXIT")).toHaveLength(1);

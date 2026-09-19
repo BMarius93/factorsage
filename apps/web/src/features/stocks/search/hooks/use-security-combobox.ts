@@ -124,10 +124,10 @@ export function useSecurityCombobox({
     return [
       // An empty set contributes no section at all, never a heading over nothing.
       ...(recentOptions.length > 0
-        ? [{ key: "recent", label: "Recent Searches", options: recentOptions }]
+        ? [{ key: "recent", label: "Recently Viewed", options: recentOptions }]
         : []),
       ...(popular.length > 0
-        ? [{ key: "popular", label: "Popular Searches", options: popular }]
+        ? [{ key: "popular", label: "Popular Stocks", options: popular }]
         : []),
     ];
   }, [showingShortcuts, search.results, recent, mode]);

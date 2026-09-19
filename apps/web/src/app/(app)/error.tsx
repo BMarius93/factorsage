@@ -41,16 +41,16 @@ export default function AppError({
         }
         actions={
           <>
+            <Link className={forms.secondaryButton} href="/dashboard">
+              Go to the Dashboard
+            </Link>
             <button
               type="button"
-              className={forms.primaryButton}
+              className={forms.secondaryButton}
               onClick={() => reset()}
             >
               Try again
             </button>
-            <Link className={forms.secondaryButton} href="/dashboard">
-              Go to the Dashboard
-            </Link>
           </>
         }
       />

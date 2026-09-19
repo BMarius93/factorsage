@@ -101,7 +101,7 @@ export function LoginForm({
           type="submit"
           disabled={submitting}
         >
-          {submitting ? "Signing in..." : "Sign in"}
+          {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
 

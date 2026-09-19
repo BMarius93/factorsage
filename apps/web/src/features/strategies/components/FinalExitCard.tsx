@@ -156,7 +156,7 @@ export function FinalExitCard({
         disabled={rules.length >= STRATEGY_MAX_EXIT_RULES}
         onClick={() => dispatch({ type: "addExitRule" })}
       >
-        + Add OR rule
+        + Add exit rule
       </button>
     </li>
   );

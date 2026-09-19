@@ -251,8 +251,8 @@ describe("SecurityMultiSelect", () => {
     render(<Harness />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(screen.getByText("Recent Searches")).toBeDefined();
-    expect(screen.queryByText("Popular Searches")).toBeNull();
+    expect(screen.getByText("Recently Viewed")).toBeDefined();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
     await user.keyboard("{Enter}");
     expect(screen.getByLabelText("Remove MSFT")).toBeDefined();
     expect(fetchMock).not.toHaveBeenCalled();

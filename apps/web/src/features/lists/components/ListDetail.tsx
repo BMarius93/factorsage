@@ -46,6 +46,7 @@ import {
 import { formatMembershipDate, stockCountLabel } from "../utils/format";
 import { MembershipEditor } from "./MembershipEditor";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
@@ -552,16 +553,8 @@ export function ListDetail({ listId }: ListDetailProps) {
       ) : null}
 
       {dialog.kind === "delete-list" ? (
-        <ConfirmDialog
-          title="Delete list"
-          body={
-            <p className={styles.confirmBody}>
-              Delete <strong>{detail.name}</strong> and every stock&apos;s
-              membership configuration? This cannot be undone.
-            </p>
-          }
-          confirmLabel="Delete list"
-          pendingLabel="Deleting…"
+        <DeleteListDialog
+          name={detail.name}
           onClose={closeDialog}
           onConfirm={async () => {
             await deleteStockList(detail.id);

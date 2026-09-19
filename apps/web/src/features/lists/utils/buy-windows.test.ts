@@ -151,7 +151,7 @@ describe("membershipError", () => {
       membershipError({ startDate: "", endDate: "", present: true }),
     ).toEqual({
       field: "startDate",
-      message: "Pick the date membership starts",
+      message: "Pick the date membership starts.",
     });
   });
 
@@ -164,7 +164,7 @@ describe("membershipError", () => {
       }),
     ).toEqual({
       field: "endDate",
-      message: "Pick the date membership ends, or choose Present",
+      message: "Pick the date membership ends, or choose Present.",
     });
   });
 
@@ -177,7 +177,7 @@ describe("membershipError", () => {
       }),
     ).toEqual({
       field: "endDate",
-      message: "Membership cannot end before it starts",
+      message: "Membership cannot end before it starts.",
     });
   });
 

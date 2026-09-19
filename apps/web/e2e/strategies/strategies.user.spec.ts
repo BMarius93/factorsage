@@ -124,7 +124,7 @@ test.describe("strategy builder", () => {
       .selectOption("IS_ABOVE");
     await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
 
-    // ... AND Margin of Safety (DCF) is above 25%.
+    // ... AND Margin of Safety · DCF is above 25%.
     await buyCard.getByTestId("add-condition").click();
     const second = buyCard.getByTestId("predicate-row").nth(1);
     await second
@@ -135,7 +135,7 @@ test.describe("strategy builder", () => {
     // The explanation panel must explain Margin of Safety correctly.
     await second.getByTestId("metric-select").click();
     const panel = page.getByTestId("explanation-panel");
-    await expect(panel).toContainText("Margin of Safety (DCF (FCFF))");
+    await expect(panel).toContainText("Margin of Safety · DCF (FCFF)");
     await expect(panel.getByTestId("help-formula")).toHaveText(
       "Margin of Safety = (Intrinsic Value - Price) / Intrinsic Value * 100",
     );
@@ -173,7 +173,7 @@ test.describe("strategy builder", () => {
     await page.reload();
     await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
     await expect(page.getByTestId("logic-preview")).toContainText(
-      "Margin of Safety (DCF (FCFF)) is above 25%",
+      "Margin of Safety · DCF (FCFF) is above 25%",
     );
     await expect(page.getByTestId("logic-preview")).toContainText(
       "Gain is above 25%",
@@ -303,10 +303,10 @@ test.describe("strategy builder final exit rules", () => {
 
     // The Strategy Logic panel must read as (rule 1) OR (rule 2), under one FINAL EXIT.
     const preview = page.getByTestId("logic-preview");
-    await expect(preview).toContainText("Rule 1");
+    await expect(preview).toContainText("Exit rule 1");
     await expect(preview).toContainText("Price is below SMA 200D");
     await expect(preview).toContainText("SMA 50D is below SMA 200D");
-    await expect(preview).toContainText("Rule 2");
+    await expect(preview).toContainText("Exit rule 2");
     await expect(preview).toContainText("RSI 14D is above 80");
     await expect(preview.getByTestId("preview-exit-rule-or")).toHaveCount(1);
     await expect(preview.getByText("FINAL EXIT")).toHaveCount(1);

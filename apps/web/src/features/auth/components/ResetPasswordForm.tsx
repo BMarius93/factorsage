@@ -144,7 +144,7 @@ export function ResetPasswordForm({
           type="submit"
           disabled={submitting}
         >
-          {submitting ? "Changing password..." : "Change password"}
+          {submitting ? "Changing password…" : "Change password"}
         </button>
       </form>
 
