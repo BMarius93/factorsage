@@ -41,6 +41,8 @@ import { LogicPreview } from "./LogicPreview";
 import panel from "./ExplanationPanel.module.css";
 import { FinalExitCard } from "./FinalExitCard";
 import { LevelSection } from "./LevelSection";
+import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./StrategyBuilder.module.css";
 import { StrategyDetailsCard } from "./StrategyDetailsCard";
 
@@ -65,6 +67,7 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
   const [saved, setSaved] = useState<StrategyDetailResponse | undefined>(
     strategy,
   );
+  useDocumentTitle(saved?.name);
   const [pending, setPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [focus, setFocus] = useState<HelpFocus>(null);
@@ -252,6 +255,9 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
                   }
                 : {})}
             />
+            {strategy?.ownership === "SYSTEM" ? (
+              <BuiltInEditNotice thing="strategy" />
+            ) : null}
 
             <StrategyDetailsCard
               name={draft.name}

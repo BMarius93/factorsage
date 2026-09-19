@@ -1,51 +1,9 @@
-"use client";
+import type { Metadata } from "next";
+import { AdminPage } from "../../../features/admin/components/AdminPage";
 
-import { PageContainer } from "../../../components/layout/PageContainer";
-import { BuiltInContentPanel } from "../../../features/admin/components/BuiltInContentPanel";
-import { RequireAuth } from "../../../features/auth/components/RequireAuth";
-import { useAuthSession } from "../../../features/auth/hooks/use-auth-session";
-import styles from "./admin.module.css";
+export const metadata: Metadata = { title: "Admin · FactorSage" };
 
-/** ADMIN-only surface. The API enforces the same boundary on every administrative endpoint. */
-export default function AdminPage() {
-  return (
-    <RequireAuth role="ADMIN">
-      <PageContainer>
-        <div className={styles.stack}>
-          <AdminOverview />
-          <BuiltInContentPanel />
-        </div>
-      </PageContainer>
-    </RequireAuth>
-  );
-}
-
-function AdminOverview() {
-  const { state } = useAuthSession();
-  if (state.status !== "authenticated") {
-    return null;
-  }
-
-  return (
-    <section className={styles.page} data-testid="admin-page">
-      <p className={styles.label}>Account access</p>
-      <h1 className={styles.title}>Admin</h1>
-      <p className={styles.lead}>
-        You are signed in with administrator access.
-      </p>
-
-      <dl className={styles.identity}>
-        <div>
-          <dt>Email</dt>
-          <dd>{state.user.email}</dd>
-        </div>
-        <div>
-          <dt>Role</dt>
-          <dd>
-            <span className={styles.roleBadge}>{state.user.role}</span>
-          </dd>
-        </div>
-      </dl>
-    </section>
-  );
+/** Thin route boundary; the page lives in the admin feature. */
+export default function AdminRoute() {
+  return <AdminPage />;
 }

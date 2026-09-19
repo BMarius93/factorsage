@@ -23,6 +23,7 @@ export function StockSearch() {
 
   const combobox = useSecurityCombobox({
     mode: "single",
+    id: "topbar-stock-search",
     onPick: (option) => {
       // Search sits in the shared topbar, so it leaves a page exactly like a navigation link does:
       // a page holding unsaved work gets to ask first, and staying leaves the search as it was.

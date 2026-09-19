@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { guardNavigation } from "../layout/unsaved-changes";
 import type { ReactNode } from "react";
 import styles from "./PageHeader.module.css";
 
@@ -60,7 +61,13 @@ export function PageHeader({
     >
       {back ? (
         <nav className={styles.breadcrumb} aria-label="Breadcrumb">
-          <Link className={styles.backLink} href={back.href}>
+          <Link
+            className={styles.backLink}
+            href={back.href}
+            // A back link leaves the page like the shell's navigation does, so a page with
+            // unsaved work gets to ask first (UI-053).
+            onNavigate={guardNavigation}
+          >
             <span aria-hidden="true">←</span> {back.label}
           </Link>
         </nav>

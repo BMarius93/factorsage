@@ -58,6 +58,8 @@ import {
   SIGNAL_KIND_LABELS,
 } from "../utils/format";
 import { MonitorFormDialog } from "./MonitorFormDialog";
+import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./MonitorDetail.module.css";
 
 /** What the newest-first Signal window the API returns is capped at. */
@@ -112,6 +114,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     "ALL" | MonitorSecurityStatus
   >("ALL");
   const now = useNow(30_000);
+  useDocumentTitle(local?.name ?? monitor?.name);
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
@@ -527,6 +530,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             )
           }
         />
+        {builtIn && view.canEdit ? <BuiltInEditNotice thing="monitor" /> : null}
 
         {!builtIn && view.enabled && isBlockedByEntitlement(view) ? (
           <EntitlementNotice

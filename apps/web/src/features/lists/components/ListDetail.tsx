@@ -50,6 +50,8 @@ import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
+import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./ListDetail.module.css";
 
 type ListDetailProps = {
@@ -163,6 +165,7 @@ export function ListDetail({ listId }: ListDetailProps) {
     applyMeta,
   } = useStockList(listId);
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
+  useDocumentTitle(detail?.name);
   const [pendingAdd, setPendingAdd] = useState<StockListSecurityResponse[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
@@ -400,6 +403,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             )
           }
         />
+        {builtIn && editable ? <BuiltInEditNotice thing="list" /> : null}
 
         {detail.compliance.compliant ? null : (
           // The explanation lives on the page, not in a tooltip a phone cannot open (UI-021).

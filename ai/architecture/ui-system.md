@@ -508,6 +508,32 @@ One solid-blue action per page, and it is never a link to a form.
 "Try again" is always `secondaryButton`: it is a recovery, not a commit, so it never takes the
 page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-error.tsx` alike.
 
+## Shell and metadata (UI-051…UI-055)
+
+- **Account menu** is a disclosure, modelled as one: the trigger carries `aria-expanded` and
+  `aria-controls`, and the panel is a labelled `group` of ordinary links and buttons that Tab walks
+  through. There is no `role="menu"`, because the panel has no arrow-key model. Escape closes it and
+  returns focus to the trigger, and so does an outside press or tabbing past the last item.
+- **Navigation guard.** Every shell link — primary navigation, brand, `PageHeader` back links,
+  account-menu links, Sign in and Pricing — passes through `guardNavigation`, and Sign out calls
+  `canNavigate()` first, so a page with unsaved work (the Strategy Builder) is asked before any of
+  them leave it. Browser Back and reload keep the documented limits of `unsaved-changes.ts`.
+- **Active item.** The brand link carries `aria-current="page"` on the Dashboard, which has no nav
+  item of its own. Routes that are not navigation items (Stock Details, Billing) claim no active
+  item rather than a false one.
+- **`/stocks`** redirects to the Dashboard: a stock is reached through search or a record, and a
+  research landing is a separate product decision.
+- **Tab titles** are `{Page} · FactorSage` on every route (Dashboard, collections, New …, Billing,
+  Pricing, Admin, auth, not-found; the `|` separator is gone). Entity pages start from the route's
+  generic title and switch to the entity's own name once it loads (`useDocumentTitle`): "Blue chips
+  · FactorSage", "Value ladder backtest · FactorSage".
+- **Hydration.** The topbar search, a singleton, uses a fixed id base (`topbar-stock-search`) rather
+  than `useId`, so its `aria-controls` can never hydrate differently. A Guest's `401` from
+  `/auth/me` is the expected session probe, not an error.
+- **Admin** is built from `PageHeader`, `SectionCard`, `FactGrid` and `DataTable`, and says that
+  changes apply to everyone. Every built-in page an administrator can edit shows a
+  `BuiltInEditNotice` saying the same.
+
 ## Tokens
 
 `apps/web/src/styles/tokens.css` holds the product's **shared visual language**, so a screen cannot

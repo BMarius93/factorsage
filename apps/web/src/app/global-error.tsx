@@ -28,7 +28,7 @@ export default function GlobalError({
   return (
     <html lang="en">
       <head>
-        <title>Something went wrong | FactorSage</title>
+        <title>Something went wrong · FactorSage</title>
       </head>
       <body>
         <main className={styles.shell}>

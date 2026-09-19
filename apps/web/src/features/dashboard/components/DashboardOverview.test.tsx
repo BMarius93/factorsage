@@ -481,7 +481,13 @@ describe("DashboardOverview VIX gauge", () => {
     withVix({ value });
     await renderOverview();
 
-    expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(label);
+    // `renderOverview` returns once the request is made; the zone is read once its answer has
+    // rendered, not in the same tick (this raced under a loaded full-suite run).
+    await waitFor(() =>
+      expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(
+        label,
+      ),
+    );
     expect(
       screen.getByTestId("dashboard-vix-gauge").getAttribute("data-status"),
     ).toBe(zone);

@@ -5,6 +5,7 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import page from "../../../components/ui/page.module.css";
 import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import { LogicPreview } from "./LogicPreview";
@@ -21,6 +22,7 @@ export function StrategyReadOnlyView({
 }: {
   readonly strategy: StrategyDetailResponse;
 }) {
+  useDocumentTitle(strategy.name);
   return (
     <PageContainer>
       <div className={page.stack} data-testid="strategy-read-only">

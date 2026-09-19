@@ -4,6 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
+import {
+  canNavigate,
+  guardNavigation,
+} from "../../../components/layout/unsaved-changes";
 import { signInHref } from "../utils/guest-routes";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PLAN_LABEL } from "../../billing/utils/format";
@@ -23,6 +27,7 @@ export function AccountMenu() {
   );
   const [error, setError] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -37,6 +42,7 @@ export function AccountMenu() {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setOpen(false);
+        trigger.current?.focus();
       }
     }
 
@@ -59,6 +65,7 @@ export function AccountMenu() {
           className={styles.pricing}
           href="/pricing"
           data-testid="pricing-link"
+          onNavigate={guardNavigation}
         >
           Pricing
         </Link>
@@ -68,6 +75,7 @@ export function AccountMenu() {
           // on the server and the client, so the link never causes a hydration mismatch.
           href={signInHref(pathname ?? undefined)}
           data-testid="sign-in-link"
+          onNavigate={guardNavigation}
         >
           Sign in
         </Link>
@@ -85,6 +93,10 @@ export function AccountMenu() {
   const monogram = (user.email.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
 
   async function handleSignOut(scope: "here" | "everywhere") {
+    // Signing out leaves the page too, so unsaved work gets the same say as any navigation.
+    if (!canNavigate()) {
+      return;
+    }
     setSigningOut(scope);
     setError(false);
 
@@ -100,12 +112,27 @@ export function AccountMenu() {
   }
 
   return (
-    <div className={styles.wrapper} ref={wrapper}>
+    <div
+      className={styles.wrapper}
+      ref={wrapper}
+      // Tabbing past the last item closes the panel, as the other dropdowns do, so it never stays
+      // open over the page the keyboard has moved on to.
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (
+          open &&
+          !(next instanceof Node && wrapper.current?.contains(next))
+        ) {
+          setOpen(false);
+        }
+      }}
+    >
       <button
+        ref={trigger}
         className={styles.trigger}
         type="button"
         aria-expanded={open}
-        aria-haspopup="menu"
+        aria-controls="account-panel"
         aria-label={`Account: ${user.email}`}
         data-testid="account-menu-trigger"
         onClick={() => setOpen((current) => !current)}
@@ -116,7 +143,15 @@ export function AccountMenu() {
       </button>
 
       {open ? (
-        <div className={styles.menu} role="menu" data-testid="account-menu">
+        // A disclosure, modelled as one (UI-053): a labelled group of ordinary links and buttons
+        // that Tab walks through, not a `role="menu"` that promises arrow keys it does not have.
+        <div
+          className={styles.menu}
+          id="account-panel"
+          role="group"
+          aria-label="Account"
+          data-testid="account-menu"
+        >
           <div className={styles.identity}>
             <span className={styles.email} data-testid="account-email">
               {user.email}
@@ -148,8 +183,8 @@ export function AccountMenu() {
           <Link
             className={styles.menuLink}
             href="/billing"
-            role="menuitem"
             data-testid="account-billing-link"
+            onNavigate={guardNavigation}
             onClick={() => setOpen(false)}
           >
             Plan and billing
@@ -159,7 +194,6 @@ export function AccountMenu() {
             <Link
               className={styles.menuLink}
               href="/admin"
-              role="menuitem"
               onClick={() => setOpen(false)}
             >
               Admin
@@ -169,7 +203,6 @@ export function AccountMenu() {
           <button
             className={styles.signOut}
             type="button"
-            role="menuitem"
             disabled={signingOut !== null}
             data-testid="sign-out"
             onClick={() => void handleSignOut("here")}
@@ -181,7 +214,6 @@ export function AccountMenu() {
           <button
             className={styles.signOut}
             type="button"
-            role="menuitem"
             disabled={signingOut !== null}
             data-testid="sign-out-everywhere"
             onClick={() => void handleSignOut("everywhere")}

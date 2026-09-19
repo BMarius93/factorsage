@@ -3,7 +3,7 @@ import { AuthCard } from "../../features/auth/components/AuthCard";
 import { ResetPasswordRoute } from "./ResetPasswordRoute";
 
 export const metadata = {
-  title: "Choose a new password | FactorSage",
+  title: "Choose a new password · FactorSage",
 };
 
 export default function ResetPasswordPage() {

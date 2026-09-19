@@ -49,6 +49,7 @@ import { BacktestComparisonChart } from "./BacktestComparisonChart";
 import { BacktestHoldings } from "./BacktestHoldings";
 import { BacktestMetricsRow } from "./BacktestMetricsRow";
 import { BacktestTrades } from "./BacktestTrades";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./BacktestRunView.module.css";
 
 /** Everything the result surfaces render, from the live snapshot or the durable result alike. */
@@ -342,6 +343,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     failure,
     retry,
   } = useBacktestRun(runId);
+  useDocumentTitle(run ? `${run.configuration.strategyName} backtest` : null);
   // The terminal checkpoint arrives one request before the refetched detail that carries the
   // durable result. Retaining the last snapshot is what keeps the chart, KPIs, holdings and trade
   // log on screen across that gap instead of blinking back to their empty states.

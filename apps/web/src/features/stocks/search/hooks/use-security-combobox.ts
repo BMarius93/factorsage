@@ -51,6 +51,13 @@ type UseSecurityComboboxOptions = {
   readonly onPick: (option: SecurityOption) => void;
   /** Backspace in an empty field (multi: remove the last chip). */
   readonly onBackspaceEmpty?: () => void;
+  /**
+   * A fixed id base for a surface that exists once per page (the topbar search). Its listbox id is
+   * then the same on the server and the client whatever the surrounding tree renders, which is
+   * what keeps `aria-controls` from ever hydrating differently (UI-054). Other surfaces use
+   * `useId`.
+   */
+  readonly id?: string;
 };
 
 function fromSecurity(
@@ -82,13 +89,15 @@ export function useSecurityCombobox({
   mode,
   onPick,
   onBackspaceEmpty,
+  id,
 }: UseSecurityComboboxOptions) {
   const [query, setQueryState] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const baseId = useId();
+  const generatedId = useId();
+  const baseId = id ?? generatedId;
   const listboxId = `${baseId}-listbox`;
   const labelId = `${baseId}-label`;
 

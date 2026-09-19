@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { ForgotPasswordPanel } from "./ForgotPasswordPanel";
 
 export const metadata = {
-  title: "Reset your password | FactorSage",
+  title: "Reset your password · FactorSage",
 };
 
 export default function ForgotPasswordPage() {
