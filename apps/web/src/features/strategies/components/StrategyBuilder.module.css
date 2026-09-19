@@ -69,7 +69,6 @@
 
 .textInput:focus,
 .textArea:focus,
-.select:focus,
 .numberInput:focus {
   border-color: var(--color-primary);
   box-shadow: var(--focus-ring-inset);
@@ -77,7 +76,6 @@
 
 .textInput[aria-invalid="true"],
 .textArea[aria-invalid="true"],
-.select[aria-invalid="true"],
 .numberInput[aria-invalid="true"] {
   border-color: var(--color-negative);
 }
@@ -218,8 +216,14 @@
   opacity: 0.35;
 }
 
+/* Remove is neutral at rest (UI-014): red means a loss in this product, and a removal of authored
+   logic can be undone from the save bar, so nothing here needs to shout. */
 .levelRemove {
-  color: var(--color-negative);
+  color: var(--color-text-secondary);
+}
+
+.levelRemove:hover {
+  color: var(--color-text-primary);
 }
 
 /* --- Percentage segmented control --- */
@@ -342,8 +346,8 @@
 }
 
 .exitRuleRemove:hover {
-  color: var(--color-negative);
-  background: var(--color-negative-soft);
+  color: var(--color-text-primary);
+  background: var(--color-surface-soft);
 }
 
 /* --- Signal --- */
@@ -401,23 +405,6 @@
   grid-template-columns: 1fr;
   gap: 6px;
   min-width: 0;
-}
-
-.select {
-  width: 100%;
-  min-height: 38px;
-  padding: 0 30px 0 10px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7f8c' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E")
-    no-repeat right 10px center;
-  background-color: var(--color-surface);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  appearance: none;
-  cursor: pointer;
 }
 
 .numberField {
@@ -592,7 +579,7 @@
 
 /* --- Wider viewports --- */
 
-@media (min-width: 620px) {
+@media (min-width: 600px) {
   .predicateFields {
     /* Metric / operator / Value read as one sentence once there is room for it. */
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
@@ -628,4 +615,59 @@
     /* Spans both columns so the save surface is never hidden behind the panel. */
     grid-column: 1 / -1;
   }
+}
+
+/* A row waiting for its Metric: the Condition and Value fields are held back until there is a
+   Metric for them to describe (UI-013). */
+.unsetHint {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-height-compact);
+  color: var(--color-text-muted);
+  font-size: var(--text-secondary);
+  font-style: italic;
+}
+
+/* The issue count before anything was touched: a neutral count of what is left, not an error. */
+.saveIssues[data-tone="neutral"] {
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+}
+
+.undo {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-body);
+}
+
+.undoButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary-ink);
+  font: inherit;
+  font-weight: var(--weight-emphasis);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.undoButton:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
+@media (min-width: 600px) {
+  .unsetHint {
+    grid-column: 2 / -1;
+  }
+}
+
+.confirmBody {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
 }

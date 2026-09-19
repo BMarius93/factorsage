@@ -149,27 +149,40 @@ test.describe.serial("entitlements after a downgrade", () => {
 
     // The oldest enabled monitor holds the single FREE slot — but its list is over the limit, so
     // it is blocked for compliance rather than for capacity.
+    // Each card carries ONE effective state (UI-021): "Paused — plan limit", with its reason as
+    // text on the card rather than in a tooltip, never "Enabled" beside "Not scanning".
     const onOversized = monitorCard(page, "Downgraded Monitor 1");
-    await expect(onOversized).toContainText("Enabled");
-    await expect(
-      onOversized.getByTestId("monitor-blocked-pill"),
-    ).toHaveAttribute("data-blocked-reason", "LIST_OVER_LIMIT");
+    const oversizedState = onOversized.getByTestId("monitor-state-pill");
+    await expect(oversizedState).toHaveText("Paused — plan limit");
+    await expect(oversizedState).toHaveAttribute(
+      "data-blocked-reason",
+      "LIST_OVER_LIMIT",
+    );
+    await expect(onOversized.getByTestId("monitor-state-reason")).toBeVisible();
 
-    // The rest are enabled too, and blocked for the other reason.
+    // The rest are paused for the other reason.
     for (const name of ["Downgraded Monitor 2", "Downgraded Monitor 3"]) {
-      const card = monitorCard(page, name);
-      await expect(card).toContainText("Enabled");
-      await expect(card.getByTestId("monitor-blocked-pill")).toHaveAttribute(
+      const state = monitorCard(page, name).getByTestId("monitor-state-pill");
+      await expect(state).toHaveText("Paused — plan limit");
+      await expect(state).toHaveAttribute(
         "data-blocked-reason",
         "MONITOR_CAPACITY",
       );
     }
 
-    // The one the user turned off reads as disabled, not as blocked: intent and eligibility are
+    // The one the user turned off reads as disabled, not as paused: intent and eligibility are
     // different facts and the card never conflates them.
     const disabled = monitorCard(page, "Downgraded Monitor 4 (off)");
-    await expect(disabled).toContainText("Disabled");
-    await expect(disabled.getByTestId("monitor-blocked-pill")).toHaveCount(0);
+    await expect(disabled.getByTestId("monitor-state-pill")).toHaveText(
+      "Disabled",
+    );
+
+    // And the page says, once and with numbers, what happened and what to do.
+    const notice = page.getByTestId("monitors-compliance-notice");
+    await expect(notice).toContainText("paused by your plan");
+    await expect(
+      notice.getByRole("link", { name: "See plans" }),
+    ).toHaveAttribute("href", "/billing");
   });
 
   test("explains on a blocked monitor's own page that it is not scanning (UX-004)", async ({
@@ -181,26 +194,27 @@ test.describe.serial("entitlements after a downgrade", () => {
       ["Downgraded Monitor 1", "LIST_OVER_LIMIT"],
     ] as const) {
       const card = monitorCard(page, name);
-      const cardPill = card.getByTestId("monitor-blocked-pill");
-      await expect(cardPill).toHaveAttribute("data-blocked-reason", reason, {
-        timeout: 20_000,
-      });
-      const explanation = await cardPill.getAttribute("title");
+      await expect(card.getByTestId("monitor-state-pill")).toHaveAttribute(
+        "data-blocked-reason",
+        reason,
+        { timeout: 20_000 },
+      );
 
-      await card.getByRole("link", { name: "Open" }).click();
+      await card.getByRole("link", { name: /^Open / }).click();
       const detail = page.getByTestId("monitor-detail");
       await expect(detail).toBeVisible();
-      // The configured switch is unchanged, and the effective state sits beside it — the same
-      // pill and the same sentence the collection shows for the same monitor.
-      await expect(page.getByTestId("monitor-enabled-pill")).toHaveText(
-        "Enabled",
-      );
-      const detailPill = page.getByTestId("monitor-blocked-pill");
-      await expect(detailPill).toHaveText("Not scanning");
+      // The same single effective state as the card, the full reason spelled out on the page,
+      // and the configured intent kept as a secondary fact.
+      const detailPill = page.getByTestId("monitor-state-pill");
+      await expect(detailPill).toHaveText("Paused — plan limit");
       await expect(detailPill).toHaveAttribute("data-blocked-reason", reason);
-      await expect(detailPill).toHaveAttribute("title", explanation ?? "");
-      await expect(page.getByTestId("monitor-blocked-explanation")).toHaveText(
-        explanation ?? "",
+      await expect(
+        page.getByTestId("monitor-blocked-explanation"),
+      ).toContainText(
+        reason === "LIST_OVER_LIMIT" ? "stock list" : "active monitors",
+      );
+      await expect(page.getByTestId("monitor-configured-intent")).toContainText(
+        "Switched on",
       );
       await page.goBack();
     }
@@ -212,9 +226,11 @@ test.describe.serial("entitlements after a downgrade", () => {
     await page.goto("/monitors");
     const slotHolder = monitorCard(page, "Downgraded Monitor 1");
     const next = monitorCard(page, "Downgraded Monitor 2");
-    await expect(next.getByTestId("monitor-blocked-pill")).toHaveCount(1, {
-      timeout: 20_000,
-    });
+    await expect(next.getByTestId("monitor-state-pill")).toHaveAttribute(
+      "data-state",
+      "BLOCKED",
+      { timeout: 20_000 },
+    );
 
     // Disabling is always allowed — it is how a user over capacity reduces their active set — and
     // the slot passes to the next enabled monitor. Nothing was written to that monitor: its status
@@ -226,7 +242,10 @@ test.describe.serial("entitlements after a downgrade", () => {
       slotHolder,
     );
     await expect(slotHolder).toContainText("Disabled", { timeout: 20_000 });
-    await expect(next.getByTestId("monitor-blocked-pill")).toHaveCount(0);
+    await expect(next.getByTestId("monitor-state-pill")).toHaveAttribute(
+      "data-state",
+      "ENABLED",
+    );
 
     // And turning it back on is refused, which is the half of this rule that is easy to miss.
     // Enabling is capacity-gated on *intent*, so a FREE account that already has two monitors

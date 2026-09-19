@@ -28,7 +28,7 @@ export default function GlobalError({
   return (
     <html lang="en">
       <head>
-        <title>Something went wrong | FactorSage</title>
+        <title>Something went wrong · FactorSage</title>
       </head>
       <body>
         <main className={styles.shell}>
@@ -40,16 +40,16 @@ export default function GlobalError({
               Try again, or reload from the Dashboard.
             </p>
             <div className={styles.actions}>
+              <a className={forms.secondaryButton} href="/dashboard">
+                Go to the Dashboard
+              </a>
               <button
                 type="button"
-                className={forms.primaryButton}
+                className={forms.secondaryButton}
                 onClick={() => reset()}
               >
                 Try again
               </button>
-              <a className={forms.secondaryButton} href="/dashboard">
-                Go to the Dashboard
-              </a>
             </div>
           </div>
         </main>

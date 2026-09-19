@@ -85,7 +85,10 @@ test.describe("STARTER entitlements", () => {
       const card = monitorCard(page, name);
       await expect(card).toHaveCount(1, { timeout: 20_000 });
       // All three are genuinely active, not merely stored: none carries the blocked pill.
-      await expect(card.getByTestId("monitor-blocked-pill")).toHaveCount(0);
+      await expect(card.getByTestId("monitor-state-pill")).toHaveAttribute(
+        "data-state",
+        "ENABLED",
+      );
     }
 
     await page.getByTestId("new-monitor-button").first().click();
@@ -102,6 +105,10 @@ test.describe("STARTER entitlements", () => {
     await page
       .getByTestId("monitor-list")
       .selectOption({ label: fixtureName("Starter Small") });
+    // Offered switched off at capacity (UI-022); forcing it on is refused by the server.
+    const startNow = dialog.getByLabel(/Start monitoring now/);
+    await expect(startNow).not.toBeChecked();
+    await startNow.check();
     await page.getByTestId("submit-monitor").click();
 
     const error = dialog.getByRole("alert");

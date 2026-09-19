@@ -95,7 +95,7 @@ describe("VerifyEmailPanel", () => {
     render(<VerifyEmailPanel token={TOKEN} />);
 
     const user = await submit({ password: OWNER_PASSWORD });
-    const button = screen.getByRole("button", { name: "Verifying..." });
+    const button = screen.getByRole("button", { name: "Verifying…" });
     expect((button as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByTestId("verify-success")).toBeNull();
 

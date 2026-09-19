@@ -2,10 +2,10 @@
 
 import type { ContentOwnership } from "@intrinsic/contracts";
 import type { ReactNode } from "react";
+import { useCollection, type CollectionSort } from "./Collection";
 import { CollectionFooter } from "./CollectionFooter";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { SectionCard } from "./SectionCard";
-import { usePagination } from "./use-pagination";
 
 /**
  * Anything the product owns twice over: a customer's own record, or platform built-in content.
@@ -41,6 +41,13 @@ type CollectionSectionProps<TRow> = {
   readonly columns: readonly DataTableColumn<TRow>[];
   readonly rows: readonly TRow[];
   readonly getRowKey: (row: TRow) => string;
+  /** What a search matches (usually the name); the field appears from ten records. */
+  readonly searchText?: (row: TRow) => string;
+  /**
+   * Orders offered in the Sort control, the API's own first. Leave out where order carries no
+   * meaning — a two-row built-in section needs no controls at all.
+   */
+  readonly sorts?: readonly CollectionSort<TRow>[];
   /**
    * Shown in place of the table when the section holds nothing. A section that is empty is one
    * empty section, never a full-page dead end that hides the sections under it.
@@ -77,6 +84,8 @@ export function CollectionSection<TRow>({
   columns,
   rows,
   getRowKey,
+  searchText,
+  sorts,
   emptyState,
   clickableRows,
   id,
@@ -85,8 +94,16 @@ export function CollectionSection<TRow>({
   rowTestId,
   footerTestId,
 }: CollectionSectionProps<TRow>) {
-  const paging = usePagination(rows);
+  const collection = useCollection(rows, {
+    noun,
+    ...(testId === undefined ? {} : { testId }),
+    ...(searchText ? { searchText } : {}),
+    ...(sorts ? { sorts } : {}),
+  });
+  const { paging } = collection;
   const empty = rows.length === 0;
+  // An empty section shows its own empty state; one filtered to nothing shows the way back.
+  const showTable = !empty && collection.filteredEmpty === null;
 
   return (
     <SectionCard
@@ -94,11 +111,12 @@ export function CollectionSection<TRow>({
       {...(caption === undefined ? {} : { caption })}
       {...(id === undefined ? {} : { id })}
       {...(testId === undefined ? {} : { testId })}
-      flush={!empty}
+      {...(empty ? {} : { toolbar: collection.toolbar })}
+      flush={showTable}
     >
-      {empty ? (
-        emptyState
-      ) : (
+      {empty ? emptyState : null}
+      {!empty && !showTable ? collection.filteredEmpty : null}
+      {showTable ? (
         <>
           <DataTable
             label={label}
@@ -119,7 +137,7 @@ export function CollectionSection<TRow>({
             onPageSizeChange={paging.setPageSize}
           />
         </>
-      )}
+      ) : null}
     </SectionCard>
   );
 }

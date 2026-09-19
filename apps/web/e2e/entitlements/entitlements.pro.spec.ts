@@ -172,7 +172,10 @@ test.describe("PRO entitlements", () => {
       await expect(card).toHaveCount(1, { timeout: 20_000 });
       await expect(card).toContainText("Enabled");
       // None is waiting for a slot: four is inside PRO's ten and past STARTER's three.
-      await expect(card.getByTestId("monitor-blocked-pill")).toHaveCount(0);
+      await expect(card.getByTestId("monitor-state-pill")).toHaveAttribute(
+        "data-state",
+        "ENABLED",
+      );
     }
   });
 });

@@ -87,9 +87,7 @@ describe("StrategyEditor", () => {
     expect(screen.getByTestId("built-in-badge")).toBeDefined();
     expect(screen.getByText("Price crosses above SMA 20D")).toBeDefined();
     expect(
-      screen
-        .getByRole("link", { name: "Backtest this strategy" })
-        .getAttribute("href"),
+      screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
     ).toBe("/backtests/new?strategyId=strategy-b");
   });
 

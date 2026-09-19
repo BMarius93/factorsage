@@ -108,6 +108,12 @@
   }
 }
 
+/* The Stock list cell; between 880 and 1,279px it also carries the folded benchmark. */
+.listCell {
+  display: block;
+  min-width: 0;
+}
+
 /* The benchmark and what it returned, as one cell. */
 .benchmarkCell {
   display: inline-flex;

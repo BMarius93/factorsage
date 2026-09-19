@@ -8,8 +8,16 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
+import { EntitySelect } from "../../../components/ui/EntitySelect";
 import { Modal } from "../../../components/ui/Modal";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { Notice } from "../../../components/ui/Notice";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import {
+  entitlementReason,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { PLAN_LABEL } from "../../billing/utils/format";
 import { createMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitorOptions } from "../hooks/use-monitor-options";
 import styles from "./MonitorFormDialog.module.css";
@@ -18,6 +26,12 @@ type CreateProps = {
   readonly mode: "create";
   readonly onSaved: (detail: MonitorDetailResponse) => void;
   readonly onClose: () => void;
+  /**
+   * How many of the viewer's own monitors are switched on right now. With the plan's allowance it
+   * decides whether "Start monitoring now" can be offered switched on (UI-022). Advisory: the API
+   * re-checks inside its own transaction.
+   */
+  readonly activeCount?: number;
 };
 
 type EditProps = {
@@ -28,6 +42,7 @@ type EditProps = {
   >;
   readonly onSaved: (summary: MonitorSummaryResponse) => void;
   readonly onClose: () => void;
+  readonly activeCount?: number;
 };
 
 type MonitorFormDialogProps = CreateProps | EditProps;
@@ -37,6 +52,13 @@ type FieldErrors = {
   readonly strategyId?: string;
   readonly stockListId?: string;
 };
+
+/**
+ * Why the pickers hold only the caller's own content. Said wherever that shows, so an account whose
+ * only content is built-in is not told it has nothing: built-ins exist, they just are not watched.
+ */
+export const OWNERSHIP_RULE =
+  "Monitors watch your own strategies and lists. Built-in ones can be backtested, but not monitored.";
 
 function requestMessage(error: unknown, mode: "create" | "edit"): string {
   // The API parses the same request again, re-checks that both references are the caller's, and
@@ -69,9 +91,23 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
   const [name, setName] = useState(editing?.name ?? "");
   const [strategyId, setStrategyId] = useState(editing?.strategyId ?? "");
   const [stockListId, setStockListId] = useState(editing?.stockListId ?? "");
-  const [enabled, setEnabled] = useState(editing?.enabled ?? true);
+  const plan = useEntitlements();
+  const maxActive =
+    plan.status === "ready" ? plan.entitlements.monitors.maxActive : null;
+  // Switching this monitor on would take a slot the plan does not have. An existing monitor that
+  // is already on holds its own slot, so only a new or switched-off one can hit the limit.
+  const atCapacity =
+    !builtIn &&
+    maxActive !== null &&
+    props.activeCount !== undefined &&
+    !(editing?.enabled ?? false) &&
+    props.activeCount >= maxActive;
+  // At capacity a new monitor starts switched off, so saving it succeeds instead of being refused
+  // after the whole form is filled.
+  const [enabled, setEnabled] = useState(editing?.enabled ?? !atCapacity);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [capacityRefused, setCapacityRefused] = useState(false);
   const [pending, setPending] = useState(false);
 
   // Only creation can be blocked: an existing monitor already references a strategy and a list, so
@@ -88,6 +124,10 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    await save(enabled);
+  };
+
+  const save = async (enabledValue: boolean) => {
     if (pending) {
       return;
     }
@@ -100,9 +140,11 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
     };
     setErrors(found);
     setSubmitError(null);
+    setCapacityRefused(false);
     if (Object.keys(found).length > 0) {
       return;
     }
+    setEnabled(enabledValue);
 
     setPending(true);
     try {
@@ -112,7 +154,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             name: trimmedName,
             strategyId,
             stockListId,
-            enabled,
+            enabled: enabledValue,
           }),
         );
       } else {
@@ -124,12 +166,15 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             strategyId,
             stockListId,
             // A built-in's switch is its global enable, which the monitor page owns.
-            ...(builtIn ? {} : { enabled }),
+            ...(builtIn ? {} : { enabled: enabledValue }),
           }),
         );
       }
     } catch (caught) {
       setSubmitError(requestMessage(caught, props.mode));
+      setCapacityRefused(
+        entitlementReason(caught) === "ENTITLEMENT_MONITOR_LIMIT",
+      );
       setPending(false);
     }
   };
@@ -160,7 +205,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             </button>
             <button
               type="button"
-              className={forms.primaryButton}
+              className={forms.secondaryButton}
               onClick={retry}
             >
               Try again
@@ -173,18 +218,19 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
           missing and link to where it is made instead. */}
       {blocked ? (
         <div className={forms.form} data-testid="monitor-prerequisites">
-          <div className={styles.notice}>
-            <p className={styles.noticeTitle}>
-              A monitor watches one strategy over one stock list
-            </p>
-            <p className={styles.noticeBody}>
+          <Notice
+            tone="warning"
+            title="A monitor watches one of your strategies over one of your stock lists"
+          >
+            <p>
               {missingStrategy && missingList
-                ? "You do not have a strategy or a stock list yet. Create both, then come back to start monitoring."
+                ? "You do not have a strategy or a stock list of your own yet. Create both, then come back to start monitoring."
                 : missingStrategy
-                  ? "You have a stock list, but no strategy yet. Create the buy, sell and final-exit logic you want watched."
-                  : "You have a strategy, but no stock list yet. Create the universe of stocks you want it watched against."}
+                  ? "You have a stock list, but no strategy of your own yet. Create the buy, sell and final-exit logic you want watched."
+                  : "You have a strategy, but no stock list of your own yet. Create the universe of stocks you want it watched against."}
             </p>
-          </div>
+            <p>{OWNERSHIP_RULE}</p>
+          </Notice>
           <div className={styles.noticeLinks}>
             {missingStrategy ? (
               <Link className={forms.primaryButton} href="/strategies/new">
@@ -196,7 +242,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
                 className={
                   missingStrategy ? forms.secondaryButton : forms.primaryButton
                 }
-                href="/lists"
+                href="/lists?new=1"
               >
                 Create a stock list
               </Link>
@@ -237,28 +283,28 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             ) : null}
           </div>
 
+          {builtIn ? null : (
+            <p className={forms.hint} data-testid="monitor-ownership-note">
+              {OWNERSHIP_RULE}
+            </p>
+          )}
+
           <div className={forms.field}>
             <label className={forms.label} htmlFor="monitor-strategy">
               Strategy
             </label>
-            <select
+            <EntitySelect
               id="monitor-strategy"
-              className={styles.select}
-              data-testid="monitor-strategy"
+              kind="strategy"
+              testId="monitor-strategy"
+              items={strategies}
               value={strategyId}
-              aria-invalid={errors.strategyId !== undefined}
-              onChange={(event) => {
-                setStrategyId(event.target.value);
+              invalid={errors.strategyId !== undefined}
+              onValueChange={(id) => {
+                setStrategyId(id);
                 setErrors((current) => ({ ...current, strategyId: undefined }));
               }}
-            >
-              <option value="">Select a strategy…</option>
-              {strategies.map((strategy) => (
-                <option key={strategy.id} value={strategy.id}>
-                  {strategy.name}
-                </option>
-              ))}
-            </select>
+            />
             {errors.strategyId ? (
               <p className={forms.hint} role="alert">
                 {errors.strategyId}
@@ -281,27 +327,21 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             <label className={forms.label} htmlFor="monitor-list">
               Stock list
             </label>
-            <select
+            <EntitySelect
               id="monitor-list"
-              className={styles.select}
-              data-testid="monitor-list"
+              kind="list"
+              testId="monitor-list"
+              items={lists}
               value={stockListId}
-              aria-invalid={errors.stockListId !== undefined}
-              onChange={(event) => {
-                setStockListId(event.target.value);
+              invalid={errors.stockListId !== undefined}
+              onValueChange={(id) => {
+                setStockListId(id);
                 setErrors((current) => ({
                   ...current,
                   stockListId: undefined,
                 }));
               }}
-            >
-              <option value="">Select a stock list…</option>
-              {lists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name}
-                </option>
-              ))}
-            </select>
+            />
             {errors.stockListId ? (
               <p className={forms.hint} role="alert">
                 {errors.stockListId}
@@ -330,6 +370,20 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
                   ? "Leave this off to save the monitor without evaluating it yet. You can enable it at any time."
                   : "A disabled monitor keeps its signals and resumes from where it left off when you enable it again."}
               </span>
+              {atCapacity ? (
+                <span
+                  className={styles.capacityHint}
+                  data-testid="monitor-capacity-hint"
+                >
+                  {plan.status === "ready" && plan.plan
+                    ? PLAN_LABEL[plan.plan]
+                    : "Your plan"}{" "}
+                  allows {maxActive} active monitor{maxActive === 1 ? "" : "s"}{" "}
+                  and {props.activeCount} {props.activeCount === 1 ? "is" : "are"}{" "}
+                  switched on, so this one is saved switched off. Switch another
+                  monitor off to start it.
+                </span>
+              ) : null}
             </label>
           </div>
           )}
@@ -342,7 +396,25 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             </p>
           ) : null}
 
-          {submitError ? (
+          {submitError && capacityRefused ? (
+            // The obvious alternative, offered rather than hidden (UI-022): the same monitor, saved
+            // switched off, which the plan always allows.
+            <EntitlementNotice
+              testId="monitor-form-error"
+              message={submitError}
+              recovery={
+                <button
+                  type="button"
+                  className={forms.primaryButton}
+                  data-testid="monitor-save-without-monitoring"
+                  disabled={pending}
+                  onClick={() => void save(false)}
+                >
+                  Save without monitoring
+                </button>
+              }
+            />
+          ) : submitError ? (
             <p
               className={forms.error}
               role="alert"

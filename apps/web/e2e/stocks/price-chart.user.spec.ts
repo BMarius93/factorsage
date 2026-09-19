@@ -117,8 +117,14 @@ test.describe("PRO_USER Stock Details price chart navigation", () => {
     await openStock(page);
     const before = await visibleRange(page);
 
-    // Dragging the plot to the right pulls older history into view.
+    // Dragging the plot to the right pulls older history into view. The loaded window starts at
+    // the range's own first day, so the older bars arrive with the history request the drag makes;
+    // the window is read once that load has settled, never while it is in flight.
     await dragChart(page, 240);
+    await expect
+      .poll(async () => Date.parse((await visibleRange(page)).from))
+      .toBeLessThan(Date.parse(before.from));
+    await settleHistoryLoad(page);
     const after = await visibleRange(page);
 
     expect(after.from < before.from).toBe(true);
@@ -129,6 +135,7 @@ test.describe("PRO_USER Stock Details price chart navigation", () => {
 
     // And it works in the other direction, back towards the latest close.
     await dragChart(page, -240);
+    await settleHistoryLoad(page);
     const returned = await visibleRange(page);
     expect(returned.from > after.from).toBe(true);
     expect(Math.abs(width(returned) - width(after))).toBeLessThan(10);

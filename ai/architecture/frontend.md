@@ -89,10 +89,14 @@ The application shell and dense feature content have different constraints. Reus
 breakpoints unless a feature's own content demonstrates a different need. The full visual-parity
 composition and acceptance contract is in `v1-visual-parity.md`:
 
-- `600px` — tablet padding and the fuller brand treatment.
-- `768px` — dense collection tables replace their phone-card composition.
-- `1024px` — persistent topbar navigation replaces the fixed bottom navigation.
-- `1280px` — wide desktop padding.
+- `600px` — tablet padding, the fuller brand treatment and the four-column KPI band.
+- `880px` — the canonical dense/compact switch: topbar navigation replaces the fixed bottom
+  navigation, and `DataTable` switches from its fluid one/two-column card grid to the dense table
+  (UI-004). The earlier `768px`/`1024px` pair never existed in CSS and is withdrawn.
+- `1280px` — wide desktop padding; 880–1,279px is the intermediate band where wide tables fold.
+
+Component-local breakpoints are allowed only for a component's own content and are listed in
+`ui-system.md` (Breakpoints).
 
 ## Frontend structure
 
@@ -225,11 +229,20 @@ one they are sent to. `useSignInPrompt` (`features/auth/hooks/use-sign-in-prompt
 way a page asks: it answers whether the viewer is signed in, runs the action or opens the prompt,
 and hands back the element to render. Do not build a second auth modal.
 
-A link to a protected page on a guest-readable page — "Backtest this strategy", "Backtest this
-monitor" — is an `AccountActionLink` (UX-002): a real, prefilled link for a signed-in viewer, a
+A link to a protected page on a guest-readable page — "Run backtest" on a List, Strategy or
+Monitor — is an `AccountActionLink` (UX-002): a real, prefilled link for a signed-in viewer, a
 button that opens the prompt for a Guest, and a disabled button while the session is still
 resolving. Prompt copy that more than one surface uses lives once in
-`features/auth/utils/sign-in-prompts.ts` (`SIGN_IN_TO_BACKTEST`).
+`features/auth/utils/sign-in-prompts.ts` (`SIGN_IN_TO_BACKTEST`). For such an action the prompt's
+`?next=` is the action's **own destination** — the prefilled New Backtest — not the page being
+read (UI-042): the Guest asked to run a backtest, so signing in lands there.
+
+**Run backtest on every entity** (UI-008). `features/backtests/components/RunBacktestLink.tsx` is
+the one "Run backtest" action: a quiet secondary button in the header of every List, Strategy and
+Monitor page, owned or built-in, prefilled through `features/backtests/utils/prefill.ts` with
+exactly what the entity knows (a List itself, a Strategy itself, a Monitor both). Collection rows
+keep their single "Open"; a stock alone is not a backtest configuration, so Stock Details offers
+"Add to list" instead. A built-in's back link is its owning collection, never the Dashboard.
 
 **Signing in comes back to the page** (UX-003). The prompt's Sign in and Create an account links
 carry the current path and query as `?next=`, `RequireAuth` keeps the attempted URL the same way
@@ -276,9 +289,10 @@ empty "Your …" section for someone who cannot own one.
 
 An empty "Your …" section is a **compact** `EmptyState` inside its own section, not a full-page one:
 a signed-in user with no monitors of their own must still see the built-ins under it, rather than a
-page that claims the whole product is empty. Exactly one create call to action exists in every
-state — the page header carries it when the viewer has content of their own (or is a Guest), the
-empty section carries it otherwise.
+page that claims the whole product is empty. The create action lives in the **page header in every
+state** — loading, empty, error and populated — in the same place and weight (UI-030); while the
+session resolves it is disabled rather than absent. The empty section explains the next step in
+words ("Start with **New list** above") and repeats no button.
 
 ## Charts
 

@@ -5,6 +5,7 @@ import type {
 } from "@intrinsic/contracts";
 import type { StatusTone } from "../../../components/ui/StatusBadge";
 import { LEVEL_KIND_LABELS } from "../../monitors/utils/format";
+import { formatRelative } from "../../../lib/dates";
 
 /** The two states a Dashboard row can be in, as the product says them. */
 export const ROW_STATE_LABELS: Record<DashboardRowState, string> = {
@@ -45,24 +46,9 @@ export function levelLabel(
     : `${kind} ${row.levelPercentage}%`;
 }
 
-/** `just now`, `4 min ago`, `3 h ago`, `2 days ago`. */
+/** `just now`, `4 min ago`, `3 h ago`, `2 days ago`, through the product's one date module. */
 export function formatAge(iso: string, now: Date): string {
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) {
-    return iso;
-  }
-  const minutes = Math.max(0, Math.round((now.getTime() - then) / 60_000));
-  if (minutes < 1) {
-    return "just now";
-  }
-  if (minutes < 60) {
-    return `${minutes} min ago`;
-  }
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) {
-    return `${hours} h ago`;
-  }
-  return `${Math.round(hours / 24)} days ago`;
+  return formatRelative(iso, now);
 }
 
 export const FRESHNESS_TONES: Record<DashboardFreshness, StatusTone> = {

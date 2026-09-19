@@ -11,7 +11,7 @@ import { ApiError } from "../../../lib/api/client";
 import { fetchStockLists } from "../../lists/api/stock-lists-api";
 import { fetchStrategies } from "../../strategies/api/strategies-api";
 import { createMonitor, updateMonitor } from "../api/monitors-api";
-import { MonitorFormDialog } from "./MonitorFormDialog";
+import { MonitorFormDialog, OWNERSHIP_RULE } from "./MonitorFormDialog";
 
 vi.mock("../api/monitors-api", () => ({
   createMonitor: vi.fn(),
@@ -312,7 +312,7 @@ describe("MonitorFormDialog — create", () => {
       expect(screen.getByTestId("monitor-prerequisites")).toBeDefined();
     });
     expect(screen.queryByTestId("monitor-form")).toBeNull();
-    expect(screen.getByText(/no strategy yet/)).toBeDefined();
+    expect(screen.getByText(/no strategy of your own yet/)).toBeDefined();
     expect(
       screen
         .getByRole("link", { name: "Create a strategy" })
@@ -327,12 +327,31 @@ describe("MonitorFormDialog — create", () => {
     await waitFor(() => {
       expect(screen.getByTestId("monitor-prerequisites")).toBeDefined();
     });
-    expect(screen.getByText(/no stock list yet/)).toBeDefined();
+    expect(screen.getByText(/no stock list of your own yet/)).toBeDefined();
     expect(
       screen
         .getByRole("link", { name: "Create a stock list" })
         .getAttribute("href"),
-    ).toBe("/lists");
+    ).toBe("/lists?new=1");
+  });
+
+  it("says built-ins exist but are not monitored, rather than that there is nothing (UI-009)", async () => {
+    fetchStrategiesMock.mockResolvedValue([
+      { ...strategy("builtin-strategy", "Quality"), ownership: "SYSTEM" },
+    ]);
+    renderCreate();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("monitor-prerequisites")).toBeDefined();
+    });
+    expect(screen.getByText(OWNERSHIP_RULE)).toBeDefined();
+  });
+
+  it("states the ownership rule beside the pickers", async () => {
+    renderCreate();
+    expect(
+      (await screen.findByTestId("monitor-ownership-note")).textContent,
+    ).toBe(OWNERSHIP_RULE);
   });
 
   it("recovers through retry when the choices could not be loaded", async () => {
@@ -491,6 +510,17 @@ describe("MonitorFormDialog — edit", () => {
       "strategy-1",
     );
     expect(screen.queryByTestId("monitor-rebind-note")).toBeNull();
+  });
+
+  it("keeps a reference that is no longer choosable visible as unavailable (UI-045)", async () => {
+    renderEdit({ strategyId: "strategy-deleted" });
+    await formReady();
+
+    const select = screen.getByLabelText("Strategy") as HTMLSelectElement;
+    expect(select.value).toBe("strategy-deleted");
+    expect(select.selectedOptions[0]?.textContent).toBe(
+      "Unavailable strategy (deleted or not yours)",
+    );
   });
 
   it("is never blocked by prerequisites", async () => {

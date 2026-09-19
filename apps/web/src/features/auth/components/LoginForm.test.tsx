@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import { GENERIC_SIGN_IN_ERROR } from "../utils/auth-errors";
-import { LoginForm } from "./LoginForm";
+import {
+  EMAIL_REQUIRED_MESSAGE,
+  LoginForm,
+  PASSWORD_REQUIRED_MESSAGE,
+} from "./LoginForm";
 
 const replace = vi.fn();
 const refresh = vi.fn();
@@ -34,7 +38,10 @@ vi.mock("../api/auth-api", () => ({
   GOOGLE_SIGN_IN_URL: "http://api.test/auth/google",
   login: (...args: unknown[]) => login(...args),
   getAuthProviders: () => getAuthProviders(),
+  getAuthUser: () => getAuthUser(),
 }));
+
+const getAuthUser = vi.fn(() => Promise.resolve(null as unknown));
 
 async function submitCredentials(email: string, password: string) {
   const user = userEvent.setup();
@@ -189,5 +196,41 @@ describe("LoginForm", () => {
           .getAttribute("href"),
       ).toBe("/register");
     });
+  });
+
+  it("answers an empty submit beside the fields and sends nothing (UI-041)", async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+
+    expect(screen.getByText(EMAIL_REQUIRED_MESSAGE)).toBeDefined();
+    expect(screen.getByText(PASSWORD_REQUIRED_MESSAGE)).toBeDefined();
+    expect(screen.getByLabelText("Email").getAttribute("aria-invalid")).toBe(
+      "true",
+    );
+    expect(document.activeElement).toBe(screen.getByLabelText("Email"));
+    expect(login).not.toHaveBeenCalled();
+  });
+
+  it("sends a visitor who is already signed in on to where they were going (UI-040)", async () => {
+    getAuthUser.mockResolvedValueOnce({
+      id: "1",
+      email: "user@example.test",
+      role: "USER",
+    });
+    render(<LoginForm returnPath="/backtests/new?strategyId=s1" />);
+
+    expect(await screen.findByTestId("auth-already-signed-in")).toBeDefined();
+    expect(replace).toHaveBeenCalledWith("/backtests/new?strategyId=s1");
+  });
+
+  it("keeps the destination through the password-recovery detour (UI-042)", () => {
+    render(<LoginForm returnPath="/monitors" />);
+    expect(
+      screen
+        .getByRole("link", { name: "Forgot your password?" })
+        .getAttribute("href"),
+    ).toBe("/forgot-password?next=%2Fmonitors");
   });
 });

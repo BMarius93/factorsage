@@ -136,12 +136,16 @@ describe("the entitlement matrix", () => {
     }
   });
 
-  it("lets every access state read built-in content and demo backtests", () => {
+  it("lets every access state read built-in content", () => {
     for (const entitlements of [GUEST, ...USER_PLANS.map(plan)]) {
       expect(entitlements.builtInContent.canViewLists).toBe(true);
       expect(entitlements.builtInContent.canViewStrategies).toBe(true);
-      expect(entitlements.backtests.canViewDemo).toBe(true);
     }
+  });
+
+  it("keeps every Backtest, demo included, behind a session", () => {
+    expect(GUEST.backtests.canViewDemo).toBe(false);
+    expect(GUEST.backtests.canRunLive).toBe(false);
   });
 
   it("denies a Guest everything that persists content or executes work", () => {

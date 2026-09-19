@@ -43,6 +43,17 @@ export type StrategyDraftState = {
   /** Always a string so the textarea stays controlled; trimmed to `undefined` when saved. */
   readonly description: string;
   readonly definition: StrategyDefinition;
+  /**
+   * Rows the user added but has not chosen a Metric for yet (UI-013).
+   *
+   * The canonical document has no "no metric" value — every Condition and Trigger names one — so a
+   * freshly added row carries a placeholder there, and its id is listed here until the user picks
+   * a Metric. A listed row authors no logic: validation asks for its Metric instead of judging the
+   * placeholder, the logic preview leaves it out, and the draft cannot be saved while one remains.
+   * The persisted document, its semantics and its fingerprint are untouched by this, because an
+   * unset row can never be saved.
+   */
+  readonly unset: readonly string[];
 };
 
 /**
@@ -126,18 +137,94 @@ function newTrigger(levelKind: StrategyLevelKind): StrategyTrigger {
   };
 }
 
-/** A new level opens with one usable Condition rather than an empty, already-invalid signal. */
+/**
+ * A new level opens with one Condition row waiting for its Metric — a place to start, not a rule
+ * the user did not choose. It used to open as the complete rule "Price is above SMA 20D", so every
+ * "+ Add" authored real, and often duplicate, logic (UI-013).
+ */
 function newSignal(levelKind: StrategyLevelKind): StrategySignal {
   return { conditions: [newCondition(levelKind)] };
 }
 
-/** A new Exit Rule: its own identity and one usable Condition, like any new level. */
+/** A new Exit Rule: its own identity and one Condition row waiting for its Metric. */
 function newExitRule(): StrategyExitRule {
   return { id: newRowId("exit-rule"), signal: newSignal("FINAL_EXIT") };
 }
 
+/** Every Condition and Trigger row id in a signal. */
+function rowIdsOf(signal: StrategySignal): string[] {
+  return [
+    ...signal.conditions.map((row) => row.id),
+    ...(signal.trigger ? [signal.trigger.id] : []),
+  ];
+}
+
+/** The row a predicate ref points at, if it exists. */
+export function rowAt(
+  definition: StrategyDefinition,
+  ref: PredicateRef,
+): StrategyCondition | StrategyTrigger | undefined {
+  const signal =
+    ref.levelKind === "FINAL_EXIT"
+      ? definition.finalExit?.rules[ref.ruleIndex ?? 0]?.signal
+      : levelsOf(definition, ref.levelKind)[ref.levelIndex ?? -1]?.signal;
+  if (!signal) {
+    return undefined;
+  }
+  return ref.part === "TRIGGER"
+    ? signal.trigger
+    : signal.conditions[ref.conditionIndex ?? -1];
+}
+
+/**
+ * The document with every unset row left out: what the user has actually authored so far. The
+ * logic preview reads this, so a row waiting for its Metric is never described as a rule.
+ */
+export function authoredDefinition(
+  state: Pick<StrategyDraftState, "definition" | "unset">,
+): StrategyDefinition {
+  if (state.unset.length === 0) {
+    return state.definition;
+  }
+  const unset = new Set(state.unset);
+  const strip = (signal: StrategySignal): StrategySignal => ({
+    conditions: signal.conditions.filter((row) => !unset.has(row.id)),
+    ...(signal.trigger && !unset.has(signal.trigger.id)
+      ? { trigger: signal.trigger }
+      : {}),
+  });
+  const definition = state.definition;
+  return {
+    ...definition,
+    buyLevels: definition.buyLevels.map((level) => ({
+      ...level,
+      signal: strip(level.signal),
+    })),
+    sellLevels: definition.sellLevels.map((level) => ({
+      ...level,
+      signal: strip(level.signal),
+    })),
+    ...(definition.finalExit
+      ? {
+          finalExit: {
+            ...definition.finalExit,
+            rules: definition.finalExit.rules.map((rule) => ({
+              ...rule,
+              signal: strip(rule.signal),
+            })),
+          },
+        }
+      : {}),
+  };
+}
+
 export function emptyDraft(): StrategyDraftState {
-  return { name: "", description: "", definition: emptyStrategyDefinition() };
+  return {
+    name: "",
+    description: "",
+    definition: emptyStrategyDefinition(),
+    unset: [],
+  };
 }
 
 /** The draft a saved strategy is edited from. */
@@ -148,6 +235,7 @@ export function draftFrom(
     name: strategy.name,
     description: strategy.description ?? "",
     definition: strategy.definition,
+    unset: [],
   };
 }
 
@@ -259,7 +347,45 @@ function withSignal(
   } as StrategyDefinition;
 }
 
+/**
+ * The draft reducer: the document edit, plus the bookkeeping of which rows are still unset.
+ *
+ * A row becomes unset when an "+ Add" action creates it and stops being unset when the user picks
+ * its Metric. Ids of rows that were removed simply fall out of the list.
+ */
 export function strategyDraftReducer(
+  state: StrategyDraftState,
+  action: StrategyDraftAction,
+): StrategyDraftState {
+  if (action.type === "reset") {
+    return action.draft;
+  }
+  const next = documentReducer(state, action);
+  if (next === state) {
+    return state;
+  }
+  const before = new Set(allRowIds(state.definition));
+  const after = allRowIds(next.definition);
+  const created = after.filter((id) => !before.has(id));
+  const present = new Set(after);
+  let unset = [...state.unset, ...created].filter((id) => present.has(id));
+  if (action.type === "setMetric") {
+    const chosen = rowAt(next.definition, action.ref)?.id;
+    unset = unset.filter((id) => id !== chosen);
+  }
+  return { ...next, unset };
+}
+
+function allRowIds(definition: StrategyDefinition): string[] {
+  return [
+    ...definition.buyLevels.flatMap((level) => rowIdsOf(level.signal)),
+    ...definition.sellLevels.flatMap((level) => rowIdsOf(level.signal)),
+    ...(definition.finalExit?.rules.flatMap((rule) => rowIdsOf(rule.signal)) ??
+      []),
+  ];
+}
+
+function documentReducer(
   state: StrategyDraftState,
   action: StrategyDraftAction,
 ): StrategyDraftState {

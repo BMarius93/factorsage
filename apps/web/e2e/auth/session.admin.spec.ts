@@ -17,7 +17,9 @@ test.describe("ADMIN_USER session @smoke", () => {
     await expect(page.getByTestId("account-email")).toHaveText(
       qaPersona("ADMIN_USER").email,
     );
-    await expect(page.getByTestId("account-role")).toHaveText("ADMIN");
+    // ADMIN_USER is plan=FREE, role=ADMIN: both are stated.
+    await expect(page.getByTestId("account-plan")).toHaveText("Free");
+    await expect(page.getByTestId("account-role")).toHaveText("Admin");
   });
 
   test("signing out clears the authenticated state", async ({ page }) => {

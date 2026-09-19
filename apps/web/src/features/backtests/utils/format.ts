@@ -1,3 +1,8 @@
+import {
+  formatDateTime,
+  formatDay as formatCalendarDay,
+} from "../../../lib/dates";
+
 /**
  * Shared display formatting for backtests.
  *
@@ -94,19 +99,9 @@ export function formatShares(value: number): string {
   return numberFormat("shares", { maximumFractionDigits: 4 }).format(value);
 }
 
-const dayFormat = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  // Canonical dates are plain `YYYY-MM-DD` values; parsing them lands on UTC midnight, so the
-  // formatter must stay in UTC or western timezones would render the previous day.
-  timeZone: "UTC",
-});
-
-/** `"2026-08-28"` → `"Aug 28, 2026"`. Returns the raw value when it is not a parseable date. */
+/** `"2026-08-28"` → `"Aug 28, 2026"`: a calendar day, through the product's one date module. */
 export function formatDay(date: string): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  return Number.isNaN(parsed.valueOf()) ? date : dayFormat.format(parsed);
+  return formatCalendarDay(date);
 }
 
 /** `"2026-01-02"`, `"2026-12-31"` → `"Jan 2, 2026 – Dec 31, 2026"`. */
@@ -116,17 +111,7 @@ export function formatPeriod(startDate: string, endDate: string): string {
 
 /** An ISO timestamp as a local date and time, for "queued" / "completed" metadata. */
 export function formatTimestamp(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.valueOf())) {
-    return iso;
-  }
-  return parsed.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 /**

@@ -20,6 +20,7 @@ import { ValueControl } from "./ValueControl";
 import { ExplanationPanel } from "./ExplanationPanel";
 import panel from "./ExplanationPanel.module.css";
 import { rowOriginKey, type HelpFocus } from "./help-focus";
+import { useIsUnsetRow } from "./unset-rows";
 
 type PredicateRowProps = {
   readonly levelKind: StrategyLevelKind;
@@ -60,6 +61,9 @@ export function PredicateRow({
   removeLabel,
   focus,
 }: PredicateRowProps) {
+  // A row the user has not chosen a Metric for authors nothing yet (UI-013): it asks for the Metric
+  // and holds back the Condition and Value, which would only describe a placeholder.
+  const unset = useIsUnsetRow(row.id);
   const origin = rowOriginKey(
     ref_.levelKind,
     ref_.levelIndex,
@@ -78,7 +82,8 @@ export function PredicateRow({
     messageAt(issues, pathFor(field), isRevealed(pathFor(field)));
   const rowMessage = messageAt(issues, rowPath, isRevealed(rowPath));
 
-  const errorId = `${ref_.levelKind}-${ref_.levelIndex ?? "x"}-${ref_.part}-${ref_.conditionIndex ?? "x"}-error`;
+  // Unique per row: an Exit Rule index is part of the address, or two rules' rows share an id.
+  const errorId = `${ref_.levelKind}-${ref_.levelIndex ?? "x"}-${ref_.ruleIndex ?? "x"}-${ref_.part}-${ref_.conditionIndex ?? "x"}-error`;
   const message =
     fieldMessage("METRIC") ??
     fieldMessage("OPERATOR") ??
@@ -97,6 +102,7 @@ export function PredicateRow({
         <MetricSelect
           levelKind={levelKind}
           metric={row.metric}
+          unset={unset}
           label="Metric"
           invalid={fieldMessage("METRIC") !== null}
           {...(message ? { describedBy: errorId } : {})}
@@ -107,31 +113,39 @@ export function PredicateRow({
           onFocus={(metric) => onFocusHelp({ kind: "METRIC", metric, origin })}
           onBlur={() => touch(pathFor("METRIC"))}
         />
-        <OperatorSelect
-          part={ref_.part}
-          metric={row.metric}
-          operator={row.operator}
-          label={ref_.part === "TRIGGER" ? "Trigger" : "Condition"}
-          invalid={fieldMessage("OPERATOR") !== null}
-          {...(message ? { describedBy: errorId } : {})}
-          onChange={(operator) => {
-            touch(pathFor("OPERATOR"));
-            onSetOperator(operator);
-          }}
-          onFocus={(operator: ConditionOperator | TriggerOperator) =>
-            onFocusHelp({ kind: "OPERATOR", operator, origin })
-          }
-          onBlur={() => touch(pathFor("OPERATOR"))}
-        />
-        <ValueControl
-          metric={row.metric}
-          value={row.value}
-          label="Value"
-          invalid={fieldMessage("VALUE") !== null}
-          {...(message ? { describedBy: errorId } : {})}
-          onChange={(value) => onSetValue(value)}
-          onBlur={() => touch(pathFor("VALUE"))}
-        />
+        {unset ? (
+          <span className={styles.unsetHint} data-testid="predicate-unset-hint">
+            Choose a metric first
+          </span>
+        ) : (
+          <>
+            <OperatorSelect
+              part={ref_.part}
+              metric={row.metric}
+              operator={row.operator}
+              label={ref_.part === "TRIGGER" ? "Trigger" : "Condition"}
+              invalid={fieldMessage("OPERATOR") !== null}
+              {...(message ? { describedBy: errorId } : {})}
+              onChange={(operator) => {
+                touch(pathFor("OPERATOR"));
+                onSetOperator(operator);
+              }}
+              onFocus={(operator: ConditionOperator | TriggerOperator) =>
+                onFocusHelp({ kind: "OPERATOR", operator, origin })
+              }
+              onBlur={() => touch(pathFor("OPERATOR"))}
+            />
+            <ValueControl
+              metric={row.metric}
+              value={row.value}
+              label="Value"
+              invalid={fieldMessage("VALUE") !== null}
+              {...(message ? { describedBy: errorId } : {})}
+              onChange={(value) => onSetValue(value)}
+              onBlur={() => touch(pathFor("VALUE"))}
+            />
+          </>
+        )}
       </div>
       <button
         type="button"

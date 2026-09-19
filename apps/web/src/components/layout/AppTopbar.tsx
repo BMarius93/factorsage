@@ -31,6 +31,9 @@ export function AppTopbar({ actions }: AppTopbarProps) {
         href={APP_HOME_HREF}
         className={styles.brandLink}
         aria-label={`${BRAND_NAME} home`}
+        // The brand is the Dashboard's only link, so it is what says "you are here" there (UI-053).
+        // Routes that are not navigation items (Stock Details, Billing) claim no active item.
+        aria-current={pathname === APP_HOME_HREF ? "page" : undefined}
         onNavigate={guardNavigation}
       >
         <BrandMark />

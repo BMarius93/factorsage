@@ -92,7 +92,7 @@ describe("explanation panel", () => {
     const panel = screen.getByTestId("explanation-panel");
 
     expect(
-      within(panel).getByText(/Margin of Safety \(DCF \(FCFF\)\)/),
+      within(panel).getByText(/Margin of Safety · DCF \(FCFF\)/),
     ).toBeDefined();
     expect(within(panel).getByTestId("help-formula").textContent).toBe(
       "Margin of Safety = (Intrinsic Value - Price) / Intrinsic Value * 100",
@@ -161,7 +161,7 @@ describe("explanation panel", () => {
 
     expect(lines).toEqual([
       "BUY 1 · 25% of a full position",
-      "Margin of Safety (DCF (FCFF)) is above 25%",
+      "Margin of Safety · DCF (FCFF) is above 25%",
       "AND Price crosses above EMA 50D (trigger)",
       "SELL 1 · 50% of the remaining position",
       "Gain is above 25%",
@@ -201,8 +201,8 @@ describe("explanation panel", () => {
     // One explanation, two placements. The row copy puts the formula and examples behind a
     // disclosure so it does not bury the rest of the level on a phone, but says the same things.
     const side = screen.getByTestId("explanation-panel").textContent ?? "";
-    expect(inline.textContent).toContain("Margin of Safety (DCF (FCFF))");
-    expect(side).toContain("Margin of Safety (DCF (FCFF))");
+    expect(inline.textContent).toContain("Margin of Safety · DCF (FCFF)");
+    expect(side).toContain("Margin of Safety · DCF (FCFF)");
     // The formula reaches both placements; only the row copy hides it behind a tap.
     expect(inline.textContent).toContain("Intrinsic Value * 100");
     expect(side).toContain("Intrinsic Value * 100");

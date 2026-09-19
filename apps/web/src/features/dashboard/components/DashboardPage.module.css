@@ -37,58 +37,6 @@
   gap: 10px 16px;
 }
 
-/* A pill per view with the count it would show. */
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-pill);
-  color: var(--color-text-secondary);
-  background: var(--color-surface);
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
-}
-
-.filter:hover {
-  border-color: var(--color-primary-border);
-  color: var(--color-primary);
-}
-
-.filter[data-active="true"] {
-  border-color: var(--color-primary);
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-}
-
-.filter:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.filterCount {
-  padding: 1px 7px;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-soft);
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.filter[data-active="true"] .filterCount {
-  background: var(--color-surface);
-  color: var(--color-primary);
-}
-
 .badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -129,21 +77,36 @@
   }
 }
 
-/* Laptop widths (UX-007). Between the table breakpoint and a wide desktop the table has more
-   content than room, and something has to give. It must never be the ticker: the Stock cell gets
-   a floor wide enough for the mark and a full seven-character symbol, while the company name
-   under it truncates. The Strategy, List and Monitor chips are what give instead — the
-   `minmax(0, max-content)` track lets a chip's cell shrink below the chip's natural width, and
-   the chip itself already truncates its label with the full name in its title. The mobile card
-   composition is untouched. */
-@media (min-width: 880px) {
-  .stockCell {
-    display: block;
-    min-width: 7rem;
-  }
+/* The identity floor for the Stock column comes from `DataTable` (`minWidth: 7rem`, UX-007) and
+   relationship chips contain themselves, so the table needs no local sizing rules. */
+.stockCell {
+  display: block;
+  min-width: 0;
+}
 
-  .entityCell {
-    display: grid;
-    grid-template-columns: minmax(0, max-content);
-  }
+.entityCell {
+  display: block;
+  min-width: 0;
+}
+
+/* How long a signal's state has held (UI-025). */
+.since {
+  display: inline-grid;
+  gap: 2px;
+  color: var(--color-text-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.sinceNote {
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

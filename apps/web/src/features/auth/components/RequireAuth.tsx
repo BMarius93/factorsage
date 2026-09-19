@@ -7,6 +7,9 @@ import { useEffect, type ReactNode } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
 import { signInHref } from "../utils/guest-routes";
 import { currentReturnPath } from "../utils/return-path";
+import { PageContainer } from "../../../components/layout/PageContainer";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import forms from "../../../components/ui/forms.module.css";
 import styles from "./RequireAuth.module.css";
 
 type RequireAuthProps = {
@@ -23,7 +26,7 @@ type RequireAuthProps = {
  */
 export function RequireAuth({ children, role }: RequireAuthProps) {
   const router = useRouter();
-  const { state } = useAuthSession();
+  const { state, retry } = useAuthSession();
 
   useEffect(() => {
     if (state.status === "unauthenticated") {
@@ -35,33 +38,79 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
 
   if (state.status === "loading" || state.status === "unauthenticated") {
     return (
-      <div className={styles.gate} role="status" data-testid="auth-checking">
-        Checking your session...
-      </div>
+      <PageContainer>
+        <p
+          className={styles.checking}
+          role="status"
+          data-testid="auth-checking"
+        >
+          Checking your session…
+        </p>
+      </PageContainer>
     );
   }
 
+  // Gate states are ordinary page states (UI-028, UI-029): the shared panel, inside the page's
+  // gutters, with one h1 and a way forward.
   if (state.status === "error") {
     return (
-      <div className={styles.gate} data-testid="auth-error">
-        <h1 className={styles.title}>Unable to verify your session</h1>
-        <p>The API could not be reached. Check your connection and retry.</p>
-        <Link className={styles.link} href="/login">
-          Return to sign in
-        </Link>
-      </div>
+      <PageContainer>
+        <EmptyState
+          as="h1"
+          variant="error"
+          testId="auth-error"
+          title="Your session could not be checked"
+          body={
+            <p>
+              {state.reason === "unreachable"
+                ? "FactorSage could not be reached. Check your connection, then try again."
+                : "FactorSage could not check your session right now. This is usually temporary — try again in a moment."}
+            </p>
+          }
+          actions={
+            <>
+              <Link
+                className={forms.secondaryButton}
+                href={signInHref(currentReturnPath())}
+              >
+                Return to sign in
+              </Link>
+              {retry ? (
+                <button
+                  type="button"
+                  className={forms.secondaryButton}
+                  onClick={retry}
+                >
+                  Try again
+                </button>
+              ) : null}
+            </>
+          }
+        />
+      </PageContainer>
     );
   }
 
   if (role && state.user.role !== role) {
     return (
-      <div className={styles.gate} data-testid="auth-forbidden">
-        <h1 className={styles.title}>Access denied</h1>
-        <p>This account does not have {role.toLowerCase()} access.</p>
-        <Link className={styles.link} href="/dashboard">
-          Back to dashboard
-        </Link>
-      </div>
+      <PageContainer>
+        <EmptyState
+          as="h1"
+          testId="auth-forbidden"
+          title="This page is not available to your account"
+          body={
+            <p>
+              It needs {role.toLowerCase()} access, which this account does not
+              have.
+            </p>
+          }
+          actions={
+            <Link className={forms.secondaryButton} href="/dashboard">
+              Back to Dashboard
+            </Link>
+          }
+        />
+      </PageContainer>
     );
   }
 

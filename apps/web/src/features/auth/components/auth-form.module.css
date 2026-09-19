@@ -10,88 +10,42 @@
 }
 
 .label {
-  color: var(--color-text-body);
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
+  composes: label from "../../../components/ui/forms.module.css";
 }
 
 .input {
-  width: 100%;
-  min-height: 46px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  outline: none;
-}
-
-.input:focus {
-  border-color: var(--color-primary);
-  box-shadow: var(--focus-ring-inset);
-}
-
-.input[aria-invalid="true"] {
-  border-color: var(--color-negative);
+  composes: input from "../../../components/ui/forms.module.css";
 }
 
 .hint {
-  color: var(--color-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
+  composes: hint from "../../../components/ui/forms.module.css";
 }
 
 .primaryButton {
-  min-height: 46px;
+  composes: primaryButton from "../../../components/ui/forms.module.css";
+  /* Auth is a single-column, touch-first surface: its buttons keep the touch height everywhere. */
+  min-height: var(--control-height);
   margin-top: 6px;
-  padding: 0 16px;
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  color: var(--color-text-on-primary);
-  background: var(--color-primary);
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
-}
-
-.primaryButton:hover:not(:disabled) {
-  background: var(--color-primary-hover);
 }
 
 .secondaryButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  composes: secondaryButton from "../../../components/ui/forms.module.css";
   gap: 10px;
   width: 100%;
-  min-height: 46px;
-  padding: 0 16px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
-}
-
-.secondaryButton:hover:not(:disabled) {
-  background: var(--color-surface-soft);
-}
-
-.primaryButton:disabled,
-.secondaryButton:disabled {
-  cursor: wait;
-  opacity: 0.62;
+  min-height: var(--control-height);
 }
 
 .error {
+  composes: error from "../../../components/ui/forms.module.css";
   margin: 4px 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-negative);
-  border-radius: var(--radius-md);
+}
+
+/* A field's own message, under the field it is about. */
+.fieldError {
+  margin: 0;
   color: var(--color-negative);
-  background: var(--color-negative-soft);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .success {

@@ -142,7 +142,9 @@ Built-in Strategies are system content and remain available independently of cus
 
 Guests may not view a Backtest configuration, run or result and may not initiate Backtest
 execution. Every Backtest surface requires an authenticated session. Guest actions from public
-built-in content open the sign-in prompt rather than submitting work.
+built-in content open the sign-in prompt rather than submitting work. The public entitlement
+response says the same: a Guest resolves `backtests.canRunLive: false` and
+`backtests.canViewDemo: false`.
 
 ### Symbol limits
 

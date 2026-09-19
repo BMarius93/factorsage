@@ -106,3 +106,14 @@
   margin: 4px 0;
   background: var(--color-border-subtle);
 }
+
+/* Collision-aware placement, decided by measurement in the component (UI-006). */
+.menu[data-align="start"] {
+  right: auto;
+  left: 0;
+}
+
+.menu[data-side="above"] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}

@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import forms from "../../../components/ui/forms.module.css";
 import { useStrategy } from "../hooks/use-strategy";
 import { StrategyBuilder } from "./StrategyBuilder";
@@ -26,9 +25,10 @@ export function StrategyEditor({
   if (status === "loading") {
     return (
       <PageContainer>
-        <SectionCard ariaLabel="Loading strategy">
-          <SkeletonList rows={5} />
-        </SectionCard>
+        <DetailSkeleton
+          thing="strategy"
+          back={{ href: "/strategies", label: "Strategies" }}
+        />
       </PageContainer>
     );
   }
@@ -41,14 +41,11 @@ export function StrategyEditor({
           testId="strategy-not-found"
           title="Strategy not found"
           body={
-            <p>
-              It may have been deleted, or the link may point at someone
-              else&apos;s strategy. If it is yours, sign in to open it.
-            </p>
+            <p>It may have been deleted, or it belongs to another account.</p>
           }
           actions={
             <Link className={forms.secondaryButton} href="/strategies">
-              Back to strategies
+              Back to Strategies
             </Link>
           }
         />

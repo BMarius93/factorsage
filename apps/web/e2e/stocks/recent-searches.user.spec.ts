@@ -35,7 +35,7 @@ async function openStockDetails(page: Page, symbol: string): Promise<void> {
 /** Opens the dropdown on an empty query and waits for its shortcut sections. */
 async function openShortcuts(page: Page): Promise<void> {
   await globalSearch(page).click();
-  await expect(page.getByText("Recent Searches")).toBeVisible();
+  await expect(page.getByText("Recently Viewed")).toBeVisible();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -55,7 +55,7 @@ test("a stock opened by URL becomes the first recent search @smoke", async ({
   const options = dropdown(page).getByRole("option");
   await expect(options.first()).toContainText(QA_SYMBOL);
   // Recents sit above the popular shortcuts, which are still there below them.
-  await expect(page.getByText("Popular Searches")).toBeVisible();
+  await expect(page.getByText("Popular Stocks")).toBeVisible();
 });
 
 test("a recent row navigates exactly like any other search row", async ({
@@ -99,11 +99,11 @@ test("typing hides both shortcut sections and clearing the query brings them bac
   await globalSearch(page).fill(QA_SYMBOL.slice(0, 4));
 
   await expect(page.getByText("Results")).toBeVisible();
-  await expect(page.getByText("Recent Searches")).toBeHidden();
-  await expect(page.getByText("Popular Searches")).toBeHidden();
+  await expect(page.getByText("Recently Viewed")).toBeHidden();
+  await expect(page.getByText("Popular Stocks")).toBeHidden();
 
   await page.getByRole("button", { name: "Clear search" }).click();
 
-  await expect(page.getByText("Recent Searches")).toBeVisible();
-  await expect(page.getByText("Popular Searches")).toBeVisible();
+  await expect(page.getByText("Recently Viewed")).toBeVisible();
+  await expect(page.getByText("Popular Stocks")).toBeVisible();
 });

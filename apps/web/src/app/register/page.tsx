@@ -3,7 +3,7 @@ import { AuthCard } from "../../features/auth/components/AuthCard";
 import { RegisterPanel } from "./RegisterPanel";
 
 export const metadata = {
-  title: "Create an account | FactorSage",
+  title: "Create an account · FactorSage",
 };
 
 export default function RegisterPage() {

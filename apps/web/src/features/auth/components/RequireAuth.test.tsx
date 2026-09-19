@@ -25,9 +25,10 @@ vi.mock("next/link", () => ({
 }));
 
 let state: AuthState = { status: "loading" };
+const retry = vi.fn();
 
 vi.mock("../hooks/use-auth-session", () => ({
-  useAuthSession: () => ({ state, signOut: vi.fn() }),
+  useAuthSession: () => ({ state, signOut: vi.fn(), retry }),
 }));
 
 function renderGate(role?: "USER" | "ADMIN") {
@@ -106,5 +107,36 @@ describe("RequireAuth", () => {
 
     expect(screen.getByTestId("auth-error")).toBeDefined();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("words a failure by its cause and offers a retry, inside the page gutters (UI-029)", async () => {
+    state = { status: "error", reason: "server" };
+    const { unmount } = renderGate();
+    const panel = screen.getByTestId("auth-error");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(panel.textContent).toContain("usually temporary");
+    expect(panel.textContent).not.toContain("connection");
+    screen.getByRole("button", { name: "Try again" }).click();
+    expect(retry).toHaveBeenCalled();
+    unmount();
+
+    state = { status: "error", reason: "unreachable" };
+    renderGate();
+    expect(screen.getByTestId("auth-error").textContent).toContain(
+      "Check your connection",
+    );
+  });
+
+  it("gives an account without the role one heading and a way back", () => {
+    state = {
+      status: "authenticated",
+      user: { id: "1", email: "user@example.test", role: "USER", plan: "FREE" },
+    };
+    renderGate("ADMIN");
+    const panel = screen.getByTestId("auth-forbidden");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(
+      panel.querySelector("a")?.getAttribute("href"),
+    ).toBe("/dashboard");
   });
 });

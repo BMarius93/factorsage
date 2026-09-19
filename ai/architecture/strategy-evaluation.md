@@ -345,7 +345,7 @@ resolvers cover the whole V1 vocabulary:
 | Catalog moving average / oscillator | `DailyDerivedState[source.field]`                                       | absent = warm-up not complete. Weekly fields are already carried forward under `WEEKLY_TECHNICAL_BACKTEST_POLICY`           |
 | Catalog intrinsic **model**         | `row.intrinsicValues[model]`                                            | present **and** `intrinsicModelSourceAsOf(row, model) !== undefined`                                                        |
 | Catalog intrinsic **blend**         | `row.intrinsicValueBlends[blendId]`                                     | present **and** `blendSourceDataAsOf(row, blendId) !== undefined`                                                           |
-| `Margin of Safety (source)`         | `(iv - close) / iv * 100` — denominator is intrinsic value, never price | requires the gated `iv` **and** `close`; `iv <= 0` is `NOT_EVALUABLE`, now stated canonically in `ai/product/strategies.md` |
+| `Margin of Safety · source`         | `(iv - close) / iv * 100` — denominator is intrinsic value, never price | requires the gated `iv` **and** `close`; `iv <= 0` is `NOT_EVALUABLE`, now stated canonically in `ai/product/strategies.md` |
 
 The provenance gate is not optional. `getDailyDerivedState` returns the raw row without applying
 it (Phase 1, fact 3), so the evaluator must call `intrinsicModelSourceAsOf` /

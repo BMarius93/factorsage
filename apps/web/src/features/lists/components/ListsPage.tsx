@@ -3,9 +3,14 @@
 import type { StockListSummaryResponse } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actions from "../../../components/ui/actions.module.css";
+import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
@@ -17,11 +22,12 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
-import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import styles from "./ListsPage.module.css";
@@ -46,6 +52,46 @@ const SIGN_IN_TO_CREATE = {
  * asked for an account at the point of action rather than redirected on arrival. Rendering needs
  * only list metadata — never stock data hydration.
  */
+/**
+ * What a downgrade means for the viewer's lists, said once, with a way forward (UI-021). A list
+ * over its plan's stock limit stays whole and readable; it only stops accepting new stocks.
+ */
+function ListComplianceNotice({
+  own,
+}: {
+  readonly own: readonly StockListSummaryResponse[];
+}) {
+  const over = own.filter((list) => !list.compliance.compliant);
+  if (over.length === 0) {
+    return null;
+  }
+  const limit = over[0]?.compliance.symbolLimit;
+  return (
+    <EntitlementNotice
+      announce="status"
+      testId="lists-compliance-notice"
+      title={`${over.length} ${over.length === 1 ? "list is" : "lists are"} over your plan's stock limit`}
+      message={`${limit === null || limit === undefined ? "Your plan" : `Your plan allows ${limit} stocks per list`}. Nothing was removed and every list stays readable, but a monitor watching one of these lists pauses and a backtest over it is refused until it is within the limit. Remove stocks to bring a list back within the limit.`}
+    />
+  );
+}
+
+/** The orders a customer's own lists can be read in; the API's newest-first comes first. */
+const LIST_SORTS: readonly CollectionSort<StockListSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((list) => list.updatedAt),
+  },
+  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "size",
+    label: "Most stocks",
+    compare: (a, b) => b.itemCount - a.itemCount,
+  },
+];
+
 export function ListsPage() {
   const router = useRouter();
   const { status, lists, retry, applyCreated, applyUpdated, applyDeleted } =
@@ -56,6 +102,21 @@ export function ListsPage() {
   const closeDialog = () => setDialog({ kind: "closed" });
   const create = () =>
     gate.attempt(SIGN_IN_TO_CREATE, () => setDialog({ kind: "create" }));
+
+  // `/lists?new=1` is the "Create a stock list" destination for other surfaces (a monitor with no
+  // list to watch), so that link lands on the create dialog rather than on a page to search.
+  // Read once, after the session resolves, and removed from the URL so a reload does not reopen it.
+  const newRequestHandled = useRef(false);
+  useEffect(() => {
+    if (!gate.resolved || newRequestHandled.current) {
+      return;
+    }
+    newRequestHandled.current = true;
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      router.replace("/lists");
+      create();
+    }
+  });
 
   const { own, builtIn } = partitionByOwnership(lists);
 
@@ -75,14 +136,6 @@ export function ListsPage() {
           <Link className={styles.nameLink} href={`/lists/${list.id}`}>
             <span className={styles.name}>
               {list.name}
-              {list.ownership === "SYSTEM" ? (
-                <>
-                  {" "}
-                  <StatusBadge tone="neutral" variant="outline">
-                    Built-in
-                  </StatusBadge>
-                </>
-              ) : null}
             </span>
             {list.description ? (
               <span className={styles.description}>{list.description}</span>
@@ -98,20 +151,23 @@ export function ListsPage() {
           // A list over the plan's symbol limit stays fully readable — the flag is derived on
           // every read, so nothing here claims the list was changed or truncated.
           list.compliance.compliant ? null : (
-            <StatusBadge
-              tone="warning"
-              title={
-                list.compliance.symbolLimit === null
-                  ? "This list exceeds your plan's symbol limit."
-                  : `This list holds ${list.compliance.symbolCount} stocks; your plan allows ${list.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
-              }
-            >
-              Over plan limit
-            </StatusBadge>
+            // The reason is text beside the badge, readable on a phone, not a tooltip (UI-021).
+            <span className={styles.overLimit}>
+              <StatusBadge tone="warning" testId="list-over-limit-badge">
+                Over plan limit
+              </StatusBadge>
+              {list.compliance.symbolLimit === null ? null : (
+                <span className={styles.overLimitReason}>
+                  {list.compliance.symbolCount} of{" "}
+                  {list.compliance.symbolLimit} stocks allowed
+                </span>
+              )}
+            </span>
           ),
       },
       {
         key: "stocks",
+        width: "8rem",
         header: "Stocks",
         align: "right",
         numeric: true,
@@ -120,19 +176,25 @@ export function ListsPage() {
       },
       {
         key: "updated",
+        width: "9rem",
         header: "Updated",
         nowrap: true,
         render: (list) => formatListDate(list.updatedAt),
       },
       {
         key: "actions",
+        width: "9rem",
         header: "Actions",
         cardRole: "actions",
         align: "right",
         nowrap: true,
         render: (list) => (
           <span className={actions.group}>
-            <Link className={actions.action} href={`/lists/${list.id}`}>
+            <Link
+              className={actions.action}
+              href={`/lists/${list.id}`}
+              aria-label={`Open ${list.name}`}
+            >
               Open
             </Link>
             {list.canEdit ? (
@@ -167,20 +229,20 @@ export function ListsPage() {
     return all.filter((column) => column.key !== "compliance" || showCompliance);
   };
 
-  // Exactly one "New list" affordance in every state: the header carries it once the viewer has
-  // lists of their own (or is a Guest, who will never have a "Your lists" section), and the empty
-  // section carries it otherwise.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
-      <button
-        type="button"
-        className={forms.tintedButton}
-        data-testid="new-list-button"
-        onClick={create}
-      >
-        New list
-      </button>
-    ) : null;
+  // "New list" lives in the header in every state — loading, empty, error, populated — so it
+  // never moves or changes weight (UI-030). It waits only for the session to resolve, because a
+  // Guest's click asks for an account instead.
+  const headerAction = (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-list-button"
+      disabled={!gate.resolved}
+      onClick={create}
+    >
+      New list
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -188,8 +250,12 @@ export function ListsPage() {
         <PageHeader
           title="Lists"
           lead="Reusable stock universes for strategies, backtests, and monitors."
-          {...(headerAction ? { actions: headerAction } : {})}
+          actions={headerAction}
         />
+
+        {status === "ready" && gate.signedIn ? (
+          <ListComplianceNotice own={own} />
+        ) : null}
 
         {status === "loading" ? (
           <SectionCard ariaLabel="Loading lists">
@@ -226,6 +292,8 @@ export function ListsPage() {
             columns={columnsFor("own")}
             rows={own}
             getRowKey={(list) => list.id}
+            searchText={(list) => list.name}
+            sorts={LIST_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -235,19 +303,9 @@ export function ListsPage() {
                 body={
                   <p>
                     Group the stocks you care about into a named list, then
-                    restrict per-stock buy windows whenever a universe needs
-                    them.
+                    set each stock&apos;s membership whenever a universe needs
+                    it. Start with <strong>New list</strong> above.
                   </p>
-                }
-                actions={
-                  <button
-                    type="button"
-                    className={forms.primaryButton}
-                    data-testid="new-list-button"
-                    onClick={create}
-                  >
-                    New list
-                  </button>
                 }
               />
             }
@@ -267,6 +325,7 @@ export function ListsPage() {
             columns={columnsFor("built-in")}
             rows={builtIn}
             getRowKey={(list) => list.id}
+            searchText={(list) => list.name}
             clickableRows
           />
         ) : null}
@@ -299,16 +358,8 @@ export function ListsPage() {
       ) : null}
 
       {dialog.kind === "delete" ? (
-        <ConfirmDialog
-          title="Delete list"
-          body={
-            <p className={styles.confirmBody}>
-              Delete <strong>{dialog.list.name}</strong> and its buy-window
-              configuration? This cannot be undone.
-            </p>
-          }
-          confirmLabel="Delete list"
-          pendingLabel="Deleting…"
+        <DeleteListDialog
+          name={dialog.list.name}
           onClose={closeDialog}
           onConfirm={async () => {
             await deleteStockList(dialog.list.id);

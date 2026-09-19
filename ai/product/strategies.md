@@ -213,7 +213,7 @@ Price is above EMA 50D
 RSI 14D is below 30
 -> logical daily result series
 
-Margin of Safety (DCF) is above 25%
+Margin of Safety · DCF is above 25%
 -> logical daily result series
 ```
 
@@ -385,7 +385,7 @@ intrinsic-value source. It is not exposed as a special comparison operator.
 Example:
 
 ```text
-Metric -> Margin of Safety (DCF)
+Metric -> Margin of Safety · DCF
 Condition -> is above
 Value -> 25%
 ```
@@ -393,7 +393,7 @@ Value -> 25%
 or:
 
 ```text
-Metric -> Margin of Safety (Balanced)
+Metric -> Margin of Safety · Balanced
 Trigger -> crosses above
 Value -> 25%
 ```
@@ -437,7 +437,7 @@ undefined at zero and sign-inverted below it, so a negative intrinsic value woul
 a large positive margin of safety for a stock trading far above it.
 
 Each MOS metric uses the point-in-time series of **its own explicitly selected** intrinsic-value
-source: `Margin of Safety (DCF)`, `Margin of Safety (Graham)` and `Margin of Safety (Balanced)` are
+source: `Margin of Safety · DCF`, `Margin of Safety · Graham` and `Margin of Safety · Balanced` are
 different metrics over different series. Never substitute zero, future data, a current-day
 intrinsic value applied to a historical date, or another intrinsic-value model. Every existing
 point-in-time and no-look-ahead rule continues to apply unchanged.
@@ -536,7 +536,7 @@ above is what the metric means and does not depend on that answer.
 | Price                                           | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | compatible price-valued canonical series                                                | BUY, SELL, FINAL EXIT |
 | Moving average (any of the 14 canonical series) | `is above`, `is below`, `is close to` | `crosses above`, `crosses below` | the canonical compatible moving averages for that series — same timeframe, never itself | BUY, SELL, FINAL EXIT |
 | RSI 7D / 14D / 21D                              | `is above`, `is below`                | `crosses above`, `crosses below` | user-entered numeric threshold `1..100`                                                 | BUY, SELL, FINAL EXIT |
-| Margin of Safety (selected IV source)           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
+| Margin of Safety · selected IV source           | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `<= 100`, decimals allowed                                                   | BUY, SELL, FINAL EXIT |
 | Gain                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `>= -100`, decimals allowed                                                  | SELL, FINAL EXIT      |
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
 
@@ -727,7 +727,7 @@ Each Signal visually separates:
 - **Trigger (optional)** — zero or one row.
 
 FINAL EXIT stays **one card**. Its Exit Rules appear inside it, separated by an unmistakable `OR`
-divider and labelled `Exit rule 1`, `Exit rule 2`, … with a `+ Add OR rule` control beneath them.
+divider and labelled `Exit rule 1`, `Exit rule 2`, … with a `+ Add exit rule` control beneath them. The logic preview and the Dashboard use the same `Exit rule N` name (UI-058).
 They are alternatives within one action, so they are grouped by a divider rather than nested in
 cards of their own: a card inside a card would read as a second tier of levels, which is what an
 Exit Rule is not.
@@ -756,7 +756,7 @@ inputs to it.
 `Margin of Safety` is the clearest case. Its row stays exactly three fields:
 
 ```text
-Metric -> Margin of Safety (DCF)
+Metric -> Margin of Safety · DCF
 Condition -> is above
 Value -> 25%
 ```

@@ -8,6 +8,16 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
 
+/** Recently viewed stocks are provider state in the application; the suite drives them directly. */
+let recentSecurities: StockSearchResultResponse[] = [];
+
+vi.mock("../../stocks/recent/hooks/use-recent-securities", () => ({
+  useRecentSecurities: () => ({
+    securities: recentSecurities,
+    record: vi.fn(),
+  }),
+}));
+
 function result(
   symbol: string,
   name: string,
@@ -67,6 +77,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  recentSecurities = [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -230,5 +241,137 @@ describe("SecurityMultiSelect", () => {
     await user.keyboard("{Enter}");
 
     expect(screen.queryByLabelText("Remove AAPL")).toBeNull();
+  });
+
+  it("offers recently viewed stocks on a blank field, like the topbar, but no uncatalogued shortcuts (UI-035)", async () => {
+    const fetchMock = respondWith([]);
+    recentSecurities = [result("MSFT", "Microsoft")];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<Harness />);
+    await user.click(screen.getByRole("combobox"));
+
+    expect(screen.getByText("Recently Viewed")).toBeDefined();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Remove MSFT")).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the multi-select model: a labelled, multiselectable listbox where selected means chosen", async () => {
+    respondWith([result("AAPL", "Apple Inc."), result("AMZN", "Amazon")]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<Harness />);
+    await typeQuery(user, "a");
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(2));
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(listbox.getAttribute("aria-multiselectable")).toBe("true");
+
+    // Highlighting is not choosing.
+    await user.keyboard("{ArrowDown}");
+    expect(
+      screen.getAllByRole("option").map((o) => o.getAttribute("aria-selected")),
+    ).toEqual(["false", "false"]);
+  });
+
+  it("says why a throttled search failed, in the API's words, and hides retry inside the wait (UI-036)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: async () => ({ code: "RATE_LIMITED", retryAfterSeconds: 42 }),
+      }),
+    );
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(<Harness />);
+    await typeQuery(user, "aapl");
+
+    expect((await screen.findByRole("status")).textContent).toBe(
+      "Too many requests. Please try again in 42 seconds.",
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("closes an open list on Escape without closing the dialog around it, and lets Escape through once closed", async () => {
+    respondWith([result("AAPL", "Apple Inc.")]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onParentEscape = vi.fn();
+
+    render(
+      <div
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            onParentEscape();
+          }
+        }}
+      >
+        <Harness />
+      </div>,
+    );
+    await typeQuery(user, "aapl");
+    await waitFor(() => expect(screen.getByRole("listbox")).toBeDefined());
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(onParentEscape).not.toHaveBeenCalled();
+    // Focus stays in the field.
+    expect(document.activeElement).toBe(screen.getByRole("combobox"));
+
+    await user.keyboard("{Escape}");
+    expect(onParentEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the list after a pick and when focus leaves, so it never covers the dialog's buttons", async () => {
+    respondWith([result("AAPL", "Apple Inc.")]);
+    recentSecurities = [result("MSFT", "Microsoft")];
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    render(
+      <>
+        <Harness />
+        <button type="button">Create list</button>
+      </>,
+    );
+    await typeQuery(user, "aapl");
+    await waitFor(() => expect(screen.getByRole("option")).toBeDefined());
+    await user.keyboard("{Enter}");
+    expect(screen.getByLabelText("Remove AAPL")).toBeDefined();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("combobox"));
+
+    // Clicking the field again offers the recents; tabbing on closes them.
+    await user.click(screen.getByRole("combobox"));
+    expect(screen.getByRole("listbox")).toBeDefined();
+    await user.tab();
+    await user.tab();
+    expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  it("is not expanded on a blank field with nothing to offer, so Escape reaches the dialog", async () => {
+    respondWith([]);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onParentEscape = vi.fn();
+    render(
+      <div
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            onParentEscape();
+          }
+        }}
+      >
+        <Harness />
+      </div>,
+    );
+    await user.click(screen.getByRole("combobox"));
+    expect(screen.getByRole("combobox").getAttribute("aria-expanded")).toBe(
+      "false",
+    );
+    await user.keyboard("{Escape}");
+    expect(onParentEscape).toHaveBeenCalledTimes(1);
   });
 });

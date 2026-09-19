@@ -230,6 +230,12 @@ describe("StockDetails", () => {
       name: /AAPL/,
     });
     expect(heading.textContent).toContain("Apple Inc.");
+    // Research leads somewhere (UI-018): the header offers adding the stock to a list.
+    expect(screen.getByRole("button", { name: "Add to list" })).toBeDefined();
+    // The persistent key names the close even before any indicator is on (UI-018).
+    expect(
+      screen.getByRole("list", { name: "Chart key" }).textContent,
+    ).toContain("Close");
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
     expect(fetchStockDetailsMock).toHaveBeenCalledWith(
       "AAPL",
@@ -259,8 +265,10 @@ describe("StockDetails", () => {
       .closest("section")!;
     expect(within(valuation).getByText("Balanced")).toBeDefined();
     expect(within(valuation).getByText("$290.00")).toBeDefined();
-    // (290 - 232) / 232 = +25% upside against the latest close.
-    expect(within(valuation).getByText("+25.00% vs price")).toBeDefined();
+    // One sign convention (UI-018): the price against the value, (232 - 290) / 290 = -20%.
+    expect(
+      within(valuation).getByText("Price vs value: -20.00%"),
+    ).toBeDefined();
     expect(within(valuation).getByText("DCF (FCFF)")).toBeDefined();
     expect(
       within(valuation).getByText(/Valuation as of Aug 28, 2026/),
@@ -273,7 +281,9 @@ describe("StockDetails", () => {
     expect(within(technicals).getByText("SMA 200D")).toBeDefined();
     expect(within(technicals).getByText("SMA 20W")).toBeDefined();
     // Close 232 vs SMA 50D of 220 → price sits 5.45% above.
-    expect(within(technicals).getByText("price +5.45%")).toBeDefined();
+    expect(
+      within(technicals).getByText("Price vs average: +5.45%"),
+    ).toBeDefined();
 
     expect(screen.getByText("Sector")).toBeDefined();
     expect(screen.getByText("Technology")).toBeDefined();
@@ -1007,8 +1017,13 @@ describe("StockDetails", () => {
     render(<StockDetails symbol="AAPL" />);
 
     expect(
-      await screen.findByRole("heading", { name: "Something went wrong" }),
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "AAPL could not be loaded",
+      }),
     ).toBeDefined();
+    // The shared error panel (UI-017): an alert, like every other page's load failure.
+    expect(screen.getByRole("alert")).toBeDefined();
 
     await user.click(screen.getByRole("button", { name: "Try again" }));
 

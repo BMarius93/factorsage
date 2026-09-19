@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../lib/api/client";
 import { UNEXPECTED_ERROR } from "../utils/auth-errors";
 import {
+  INVALID_LINK_MESSAGE,
   MISSING_TOKEN_MESSAGE,
   PASSWORD_MISMATCH_MESSAGE,
   PASSWORD_TOO_SHORT_MESSAGE,
@@ -107,7 +108,7 @@ describe("ResetPasswordForm", () => {
     expect(resetPassword).not.toHaveBeenCalled();
   });
 
-  it("surfaces the API's message for a spent or expired link", async () => {
+  it("switches a spent or expired link to a recovery state with a new-link form (UI-043)", async () => {
     resetPassword.mockRejectedValue(
       new ApiError(401, "This password reset link is invalid or has expired"),
     );
@@ -115,9 +116,13 @@ describe("ResetPasswordForm", () => {
 
     await fillForm({ password: VALID_PASSWORD });
 
+    const invalid = await screen.findByTestId("reset-password-invalid");
+    expect(invalid.textContent).toContain(INVALID_LINK_MESSAGE);
+    // The dead form is gone; the recovery form takes its place.
+    expect(screen.queryByLabelText("New password")).toBeNull();
     expect(
-      (await screen.findByTestId("reset-password-error")).textContent,
-    ).toBe("This password reset link is invalid or has expired");
+      screen.getByRole("button", { name: "Send reset link" }),
+    ).toBeDefined();
     expect(screen.queryByTestId("reset-password-success")).toBeNull();
   });
 

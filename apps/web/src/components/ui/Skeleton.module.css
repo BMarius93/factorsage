@@ -26,6 +26,29 @@
   gap: 10px;
 }
 
+.detail {
+  composes: stack from "./page.module.css";
+}
+
+.titleBar {
+  display: block;
+  padding: 4px 0;
+}
+
+.actionBars {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @keyframes shimmer {
   from {
     background-position: 200% 0;

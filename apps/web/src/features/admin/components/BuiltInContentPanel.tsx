@@ -12,9 +12,11 @@ import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import actionStyles from "../../../components/ui/actions.module.css";
+import forms from "../../../components/ui/forms.module.css";
 import { lastScanLabel } from "../../monitors/utils/format";
 import { fetchBuiltInContent } from "../api/admin-api";
 import styles from "./BuiltInContentPanel.module.css";
+import { formatDate } from "../../../lib/dates";
 
 type Row = {
   readonly kind: "list" | "strategy" | "monitor";
@@ -40,7 +42,7 @@ const KIND_LABELS = {
 
 function rowsOf(content: BuiltInContentAdminResponse): Row[] {
   const updated = (at: string, by?: string) =>
-    `${new Date(at).toLocaleDateString()}${by ? ` · ${by}` : ""}`;
+    `${formatDate(at)}${by ? ` · ${by}` : ""}`;
   return [
     ...content.monitors.map((monitor) => ({
       kind: "monitor" as const,
@@ -115,7 +117,11 @@ const COLUMNS: readonly DataTableColumn<Row>[] = [
     cardRole: "actions",
     align: "right",
     render: (row) => (
-      <Link className={actionStyles.action} href={HREF[row.kind](row.id)}>
+      <Link
+        className={actionStyles.action}
+        href={HREF[row.kind](row.id)}
+        aria-label={`Edit ${row.name}`}
+      >
         Edit
       </Link>
     ),
@@ -131,6 +137,7 @@ export function BuiltInContentPanel() {
     null,
   );
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -142,7 +149,7 @@ export function BuiltInContentPanel() {
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [attempt]);
 
   return (
     <SectionCard
@@ -154,7 +161,21 @@ export function BuiltInContentPanel() {
       {failed ? (
         <EmptyState
           variant="error"
+          testId="admin-built-ins-error"
           title="Built-in content could not be loaded"
+          body={<p>This is usually temporary — try again in a moment.</p>}
+          actions={
+            <button
+              type="button"
+              className={forms.secondaryButton}
+              onClick={() => {
+                setFailed(false);
+                setAttempt((current) => current + 1);
+              }}
+            >
+              Try again
+            </button>
+          }
         />
       ) : content === null ? (
         <SkeletonList rows={4} />

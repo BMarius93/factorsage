@@ -7,21 +7,26 @@ import type {
   MonitorLevelKind,
 } from "@intrinsic/contracts";
 import Link from "next/link";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   DataTable,
+  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
+import { signInHref } from "../../auth/utils/guest-routes";
 import forms from "../../../components/ui/forms.module.css";
+import { formatDateTime } from "../../../lib/dates";
+import { useNow } from "../../../lib/use-now";
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import {
   formatObservationPrice,
@@ -36,6 +41,7 @@ import {
   ROW_STATE_FILTER_LABELS,
   ROW_STATE_LABELS,
   ROW_STATE_TONES,
+  formatAge,
   freshnessLabel,
   levelLabel,
 } from "../utils/format";
@@ -65,7 +71,7 @@ function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
       {row.reasons.map((reason, index) => (
         <p key={index} className={styles.reason}>
           {reason.exitRule !== undefined ? (
-            <span className={styles.reasonRule}>Rule {reason.exitRule}: </span>
+            <span className={styles.reasonRule}>Exit rule {reason.exitRule}: </span>
           ) : null}
           {reason.conditions.join(" and ")}
           {reason.trigger ? (
@@ -80,6 +86,75 @@ function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
     </div>
   );
 }
+
+/**
+ * Strategy, List and Monitor as one line under the stock, for the intermediate desktop band
+ * (880–1,279px) only (UI-003). There, three chip columns beside the reason and the price were
+ * squeezed to "QA Bu…" and a lone "("; the three columns step out (`foldIntermediate`) and the
+ * same references read here in full width instead. Outside that band this block is not
+ * displayed, so the references are never exposed twice.
+ */
+function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
+  return (
+    <IntermediateOnly testId="dashboard-folded-relationships">
+      <EntityReferenceChip
+        kind="strategy"
+        name={row.strategy.name}
+        href={`/strategies/${row.strategy.id}`}
+      />
+      <EntityReferenceChip
+        kind="list"
+        name={row.stockList.name}
+        href={`/lists/${row.stockList.id}`}
+      />
+      <EntityReferenceChip
+        kind="monitor"
+        name={row.monitor.name}
+        href={`/monitors/${row.monitor.id}`}
+      />
+    </IntermediateOnly>
+  );
+}
+
+/** How long the row's state has held, from `since`; the reconstruction marker when it applies. */
+function SinceCell({ row }: { readonly row: DashboardRowResponse }) {
+  const now = useContext(NowContext);
+  return (
+    <span className={styles.since} data-testid="dashboard-since">
+      <time dateTime={row.since}>
+        {formatAge(row.since, now)}
+        <span className={styles.srOnly}> ({formatDateTime(row.since)})</span>
+      </time>
+      {row.reconstructed ? (
+        <span className={styles.sinceNote}>from history</span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The table's default order (UI-025): what is actionable first — active signals before setups
+ * still waiting for a trigger — then by action (BUY, SELL, FINAL EXIT, then level order), then the
+ * newest state change first. The API sends newest-first; that stays the final tie-break, and the
+ * same security under two monitors is still two rows.
+ */
+const STATE_ORDER: Record<DashboardRowState, number> = { ACTIVE: 0, PENDING_TRIGGER: 1 };
+const LEVEL_ORDER: Record<MonitorLevelKind, number> = { BUY: 0, SELL: 1, FINAL_EXIT: 2 };
+
+export function sortDashboardRows(
+  rows: readonly DashboardRowResponse[],
+): DashboardRowResponse[] {
+  return [...rows].sort(
+    (a, b) =>
+      STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
+      LEVEL_ORDER[a.levelKind] - LEVEL_ORDER[b.levelKind] ||
+      (a.levelIndex ?? 0) - (b.levelIndex ?? 0) ||
+      b.since.localeCompare(a.since),
+  );
+}
+
+/** The ticking clock every relative label on the page reads (`useNow`). */
+const NowContext = createContext<Date>(new Date(0));
 
 /**
  * The signal table's columns.
@@ -100,7 +175,9 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Stock",
     cardRole: "identity",
     // A floor under the column that identifies the row: at laptop widths the table's other
-    // columns used to squeeze it to "U." (UX-007). The company name still truncates.
+    // columns used to squeeze it to "U." (UX-007). The mark plus a full seven-character ticker;
+    // the company name still truncates.
+    minWidth: "7rem",
     render: (row) => (
       <span className={styles.stockCell}>
         <StockIdentity
@@ -111,6 +188,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
           size="sm"
           testId="dashboard-stock"
         />
+        <FoldedRelationships row={row} />
       </span>
     ),
   },
@@ -138,9 +216,18 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     ),
   },
   {
+    // When the present state began (UI-025): a signal says how long it has held, not just that it
+    // holds. Relative and ticking, with the exact time beside it for keyboard and screen readers.
+    key: "since",
+    header: "Since",
+    nowrap: true,
+    render: (row) => <SinceCell row={row} />,
+  },
+  {
     key: "reason",
     header: "Why",
     cardLabel: "Why",
+    stacked: true,
     render: (row) => <ReasonCell row={row} />,
   },
   {
@@ -158,6 +245,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "strategy",
+    foldIntermediate: true,
     header: "Strategy",
     cardRole: "links",
     render: (row) => (
@@ -172,6 +260,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "list",
+    foldIntermediate: true,
     header: "List",
     cardRole: "links",
     render: (row) => (
@@ -186,6 +275,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "monitor",
+    foldIntermediate: true,
     header: "Monitor",
     cardRole: "links",
     render: (row) => (
@@ -220,9 +310,11 @@ export function DashboardPage() {
   const { state: session } = useAuthSession();
   const [stateFilter, setStateFilter] = useState<StateFilter>("ALL");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
-  const now = new Date();
+  // One clock for the page, ticking while it stays open, so "Updated 12 min ago" and every row's
+  // age stay true without refetching (UI-048).
+  const now = useNow(30_000);
 
-  const rows = dashboard?.rows ?? [];
+  const rows = sortDashboardRows(dashboard?.rows ?? []);
   const byLevel = rows.filter(
     (row) => levelFilter === "ALL" || row.levelKind === levelFilter,
   );
@@ -260,7 +352,10 @@ export function DashboardPage() {
               choose which ones appear here, create your own, and backtest any
               of them.
             </p>
-            <Link className={forms.tintedButton} href="/login">
+            <Link
+              className={forms.tintedButton}
+              href={signInHref("/dashboard")}
+            >
               Sign in
             </Link>
           </div>
@@ -304,13 +399,18 @@ export function DashboardPage() {
                     whatever is on screen and takes a dropdown. Rendering both as pill groups made
                     them look like two competing tab bars.
                   */}
-                  <StateFilterGroup
+                  <SegmentedControl
+                    label="Filter by state"
+                    testId="dashboard-state-filter"
                     value={stateFilter}
                     onChange={setStateFilter}
-                    count={(id) =>
-                      byLevel.filter((row) => id === "ALL" || row.state === id)
-                        .length
-                    }
+                    options={STATE_FILTERS.map((option) => ({
+                      value: option.id,
+                      label: option.label,
+                      count: byLevel.filter(
+                        (row) => option.id === "ALL" || row.state === option.id,
+                      ).length,
+                    }))}
                   />
                   <SelectControl
                     id="dashboard-action-filter"
@@ -353,8 +453,21 @@ export function DashboardPage() {
                 variant="compact"
                 testId="dashboard-signals-filtered-empty"
                 title="No signals match these filters"
+                actions={
+                  <button
+                    type="button"
+                    className={forms.secondaryButton}
+                    onClick={() => {
+                      setStateFilter("ALL");
+                      setLevelFilter("ALL");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                }
               />
             ) : (
+              <NowContext.Provider value={now}>
               <DataTable
                 label="Current signals"
                 testId="dashboard-signals"
@@ -364,50 +477,12 @@ export function DashboardPage() {
                 rows={visibleRows}
                 getRowKey={(row) => row.id}
               />
+              </NowContext.Provider>
             )}
           </SectionCard>
         ) : null}
       </div>
     </PageContainer>
-  );
-}
-
-/**
- * The primary view switch: every current row, the active ones, or the setups still waiting.
- *
- * Each option carries the count it would show, so the user can see there is nothing behind a view
- * before opening it.
- */
-function StateFilterGroup({
-  value,
-  onChange,
-  count,
-}: {
-  readonly value: StateFilter;
-  readonly onChange: (next: StateFilter) => void;
-  readonly count: (id: StateFilter) => number;
-}) {
-  return (
-    <div
-      className={styles.filters}
-      role="group"
-      aria-label="Filter by state"
-      data-testid="dashboard-state-filter"
-    >
-      {STATE_FILTERS.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          className={styles.filter}
-          data-active={value === option.id ? "true" : undefined}
-          aria-pressed={value === option.id}
-          onClick={() => onChange(option.id)}
-        >
-          {option.label}
-          <span className={styles.filterCount}>{count(option.id)}</span>
-        </button>
-      ))}
-    </div>
   );
 }
 

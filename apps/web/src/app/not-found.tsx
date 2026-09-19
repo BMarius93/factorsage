@@ -6,7 +6,7 @@ import forms from "../components/ui/forms.module.css";
 import styles from "./not-found.module.css";
 
 export const metadata = {
-  title: "Page not found | FactorSage",
+  title: "Page not found · FactorSage",
 };
 
 /**

@@ -6,14 +6,16 @@
  *
  * Three scenarios, one hierarchy. The Strategy takes the brand blue because it is the result under
  * examination; the benchmark takes a neutral cool grey because it is the reference the result is
- * read against; Cash takes a lighter, quieter grey because it is the floor both are measured over,
- * not a competitor. Deliberately not green/red — the colours must not imply an outcome before the
- * numbers do.
+ * read against; Cash is a warm neutral grey drawn **dashed**, because it is the floor both are
+ * measured over, not a competitor. It used to be a pale blue, and where it overlapped the Strategy
+ * the two blues merged into one line (UI-032); a different hue *and* a different stroke keep them
+ * apart even in greyscale. Deliberately not green/red — the colours must not imply an outcome
+ * before the numbers do.
  */
 export const BACKTEST_CHART_COLORS = {
   strategy: "#4882ff",
   benchmark: "#8a94ad",
-  cash: "#b9c6e8",
+  cash: "#a3a3a3",
   grid: "#eff2fa",
   axisBorder: "#e6eaf5",
   crosshair: "#b9c6e8",

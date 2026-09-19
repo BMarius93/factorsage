@@ -1,0 +1,12 @@
+.relative {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  color: var(--color-text-body);
+  background: var(--color-surface-soft);
+  font-size: 12px;
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

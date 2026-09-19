@@ -863,7 +863,11 @@ describe("backtests", () => {
     expect(ids.indexOf(second.id)).toBeLessThan(ids.indexOf(first.id));
     expect(rows.every((row) => row.status === "QUEUED")).toBe(true);
     expect(rows[0]).toMatchObject({
+      // The collection links its chips while the entities exist (UI-034); the ids are the run's
+      // own nullable foreign keys, the same ones its configuration reports.
+      strategyId,
       strategyName: "Discount accumulator",
+      stockListId,
       stockListName: "Core universe",
       benchmarkCode: "SP500",
       benchmarkName: "S&P 500",

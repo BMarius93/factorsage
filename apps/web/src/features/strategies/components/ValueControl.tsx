@@ -6,6 +6,7 @@ import {
   type StrategyMetric,
   type StrategyValue,
 } from "@intrinsic/contracts";
+import { Select } from "../../../components/ui/Select";
 import styles from "./StrategyBuilder.module.css";
 
 type ValueControlProps = {
@@ -40,34 +41,31 @@ export function ValueControl({
   if (spec.kind === "SERIES") {
     const selected = value.kind === "SERIES" ? value.seriesId : "";
     return (
-      <select
-        className={styles.select}
-        data-testid="value-control"
+      <Select
+        density="compact"
+        testId="value-control"
         aria-label={label}
-        aria-invalid={invalid || undefined}
+        invalid={invalid}
         {...(describedBy ? { "aria-describedby": describedBy } : {})}
         value={selected}
         onBlur={onBlur}
-        onChange={(event) =>
+        onValueChange={(seriesId) =>
           onChange({
             kind: "SERIES",
-            seriesId: event.target.value as (typeof spec.seriesIds)[number],
+            seriesId: seriesId as (typeof spec.seriesIds)[number],
           })
         }
-      >
-        {spec.seriesIds.includes(
-          selected as (typeof spec.seriesIds)[number],
-        ) ? null : (
-          <option value={selected}>
-            {value.kind === "SERIES" ? strategyValueLabel(value) : "Choose"}
-          </option>
-        )}
-        {spec.seriesIds.map((seriesId) => (
-          <option key={seriesId} value={seriesId}>
-            {strategyValueLabel({ kind: "SERIES", seriesId })}
-          </option>
-        ))}
-      </select>
+        {...(selected === ""
+          ? { placeholder: "Choose", placeholderDisabled: true }
+          : {})}
+        unavailableLabel={
+          value.kind === "SERIES" ? strategyValueLabel(value) : "Choose"
+        }
+        options={spec.seriesIds.map((seriesId) => ({
+          value: seriesId,
+          label: strategyValueLabel({ kind: "SERIES", seriesId }),
+        }))}
+      />
     );
   }
 

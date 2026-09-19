@@ -3,7 +3,7 @@ import { AuthCard } from "../../features/auth/components/AuthCard";
 import { LoginPanel } from "./LoginPanel";
 
 export const metadata = {
-  title: "Sign in | FactorSage",
+  title: "Sign in · FactorSage",
 };
 
 export default function LoginPage() {

@@ -108,7 +108,28 @@ point; card-inside-card is the noise this replaced.
 Page size, the visible range and page navigation, under every collection. Paging is applied in the
 browser over rows the page already holds — every collection endpoint returns the caller's own records
 in one response — so this is presentation, not a data-loading concern. If a collection ever outgrows
-one response, `usePagination` is the seam to replace.
+one response, `usePagination` is the seam to replace. A new `resetKey` (a new query or order)
+returns to the first page.
+
+### `useCollection` — search and sort (UI-010, UI-011)
+
+Client-side search and sort over the same in-memory rows, feeding `usePagination`, used by
+`CollectionSection` (Lists, Strategies, Monitors), the Backtests history and a list's members. The
+**search field appears from 10 records** (`COLLECTION_SEARCH_THRESHOLD`) and stays while a query is
+active; the **Sort control** appears where the feature offers more than one order and there is more
+than one record — built-in sections pass no orders, so a two-row section carries no chrome. The
+Sort control is also the phone's only ordering control, since card layouts hide table headers. The
+API's order is always the first ("Newest"), so the default never re-sorts what the server decided.
+A query announces "N of M {noun} match “q”." through a `role="status"` region; filtered to nothing,
+the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. No
+server pagination is introduced: endpoints still return the whole owned collection. A list's
+members are searchable and sortable but stay one scroll, so a stock just added never lands on a
+later page.
+
+**One empty-collection composition (UI-012):** a titled `SectionCard` ("Your lists", "Your
+backtests") holding a compact `EmptyState`; the page's create action stays in the `PageHeader`.
+Every filtered-empty state offers the reset — Clear search on collections, Clear filters on the
+Dashboard.
 
 ### `OverflowMenu`
 
@@ -124,6 +145,13 @@ no danger variant at all, and `forms.dangerButton` is reachable only from `Confi
 
 Give each row one visible contextual action — `Open`, `View results` — beside the trigger. A record
 with no maintenance actions renders no trigger: `OverflowMenu` returns `null` for an empty list.
+Name the visible action after its record (`aria-label="Open {name}"`), as the trigger already is:
+"Open" read 158 times down a page tells a screen-reader user nothing (UI-050).
+
+**Placement is collision-aware** (UI-006). The popup right-aligns under its trigger; where that
+would cross the left edge it left-aligns, and where it would fall under the bottom edge or the phone
+bottom navigation it opens upwards. `placeMenu` is the pure rule and is unit-tested. On a phone card
+the trigger sits at the card's **top-right** (see `DataTable`), never beside the bottom action.
 
 ### `WorkflowFooter`
 
@@ -134,6 +162,14 @@ long form is never a scroll away. Its optional `summary` describes what is about
 
 It models a workflow that ends in one decision: cancel, or commit. Reach for it whenever that is the
 shape of the screen.
+
+**It owns submit feedback** (UI-005). A refusal of the submit — a server validation, a plan limit —
+goes in its `error` slot, not in a paragraph somewhere above it: on a phone that is the sticky bar
+the user just tapped, so the answer is on screen without scrolling. The slot is an always-mounted
+`aria-live="assertive"` region, so the message is announced, and on desktop the footer scrolls
+itself into view when a message appears. Field-level validation stays beside each field; on a
+failed client validation the form moves focus to the **first invalid field** in reading order,
+never back to the submit button. What the user entered is kept either way.
 
 **Strategy Builder is a deliberate exception, and is not to be "cleaned up" into this.** Its
 persistent save bar is not a Cancel/Submit pair — it carries editor state this component does not
@@ -170,6 +206,15 @@ Each column declares a `cardRole` that says where its cell goes on a phone:
 | `actions`  | cell    | a full-width action row under a divider                  |
 | `hidden`   | cell    | omitted                                                  |
 
+The `OverflowMenu` in an `actions` cell is pinned to the card's top-right, in the same row as the
+identity and status; the contextual action stays at the bottom. It is one DOM node positioned by
+the stylesheet, so the tab order and the desktop cell are unchanged. A column marked `stacked`
+(long prose — a signal's "why") puts its label above a left-aligned value instead of beside it.
+
+Below 880px the cards form a **fluid grid**, `repeat(auto-fit, minmax(min(100%, 20rem), 1fr))`: one
+card per row on a phone, two where the content area genuinely fits two readable cards (roughly
+680–879px), never a single card stretched to 850px with its values far from their labels.
+
 Card regions are ordered by role, not by declaration order, so a card's hierarchy cannot drift when
 someone reorders columns. Three desktop columns — Strategy, Stock list, Benchmark — become the
 legacy "LINKED" block on a card with no second component and no second markup.
@@ -183,16 +228,31 @@ so they size to their own content, and let the identity column absorb the remain
 chip caps its own width and truncates, so one long name cannot widen a column. If a table still
 exceeds the content width it scrolls inside its surface; the page body never scrolls sideways.
 
+**Why the chip contains itself** (UI-001, UI-002). The chip is an `inline-grid` with one
+`minmax(2.5rem, max-content)` track and an **absolute** `max-width: 12rem`. A percentage cap looks
+equivalent but is cyclic while an auto-layout table computes its column widths and is ignored
+there — which is how a visibly truncated chip once kept its 700px label width, widened the
+Backtests table to 1,735px and pushed `View results` off-screen, and made the phone Dashboard
+scroll sideways. No feature needs a wrapper rule for this any more.
+
 **The identity column absorbs the remainder, but never its identifier** (UX-007). A column that
 absorbs everything can be squeezed to nothing: at 1280 px the Dashboard's Stock column once
 rendered "U." and "QATE…". Where a table is wide enough to squeeze its identity, give the identity
-cell a floor that fits the whole identifier — the Dashboard's is `7rem`, the mark plus a full
-seven-character ticker, with the company name truncating beneath it — and let the relationship
-chips give way instead: wrapping a chip in a `minmax(0, max-content)` grid track lets its cell
-shrink below the chip's natural width, and the chip already truncates with the full name in its
-title. Both rules live in the feature stylesheet at `min-width: 880px`; the phone card is
-untouched. `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880,
-1024, 1280 and 1440 px with no document overflow.
+cell a floor that fits the whole identifier and let the relationship chips give way instead.
+`DataTable` gives every `identity` column a `12rem` floor in the desktop layout (and lets a single
+unbroken token wrap rather than widen the table); a column overrides it with `minWidth` — the
+Dashboard's ticker column is `7rem`, the mark plus a full seven-character symbol. Width hints travel
+as custom properties that only the desktop layout reads, so they never constrain a phone card.
+`e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880, 1024, 1280
+and 1440 px with no document overflow.
+
+**Fold before scrolling.** In the intermediate desktop band (880–1,279px) a wide table has more
+columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
+same facts inside a cell that stays, wrapped in `IntermediateOnly` (displayed only in that band, so
+a fact is never exposed twice): the Dashboard folds Strategy · List · Monitor under the stock, the
+Monitors collection folds Strategy and Stock list under the monitor's name, and Backtests folds the
+Benchmark under the Stock list and drops the low-priority Queued column. Every collection then fits
+its surface at 880, 1,024, 1,280 and 1,440px with its actions visible.
 
 When a table needs one column too many, **fold a fact into the cell it belongs to** rather than
 adding a column: the Monitors table carries the universe size beside the Stock List chip, and the
@@ -328,6 +388,94 @@ in the shell so navigation keeps working, with a "Try again" that calls `reset()
 and depends on nothing but the token stylesheet. None of the three renders an error's message,
 digest or stack; the error is logged to the browser console only.
 
+**Page states (UI-027…UI-029, UI-057).**
+
+- **Loading an entity page:** `DetailSkeleton` — the real `PageHeader` frame with its back link, a
+  placeholder title and actions, and a section of rows, so nothing jumps when the entity lands. The
+  page keeps exactly one `h1` ("Loading list…", for assistive technology) and reports `aria-busy`.
+- **Not found:** one pattern for every owned entity — "{Thing} not found", "It may have been deleted,
+  or it belongs to another account.", and "Back to {Collection}". Another account's object and a
+  deleted one are deliberately indistinguishable: no access-control detail is leaked.
+- **Load failures:** "{Thing} could not be loaded", with "Try again" (secondary) always present.
+- **Session gates** (`RequireAuth`) render inside `PageContainer` as `EmptyState`s, never bespoke
+  markup against the viewport edge. A failed session check is worded by cause — the API answered
+  with a failure ("usually temporary") versus no answer at all ("check your connection") — and
+  offers Try again beside Return to sign in. A missing role reads "This page is not available to
+  your account", with a way back.
+
+### `Notice`
+
+One inline message about the state of what the user is looking at — `info`, `warning`, `success`
+or `error` — with an optional title and at most one or two next steps (cleanup plan §3.7). It is
+not an empty state (`EmptyState` owns nothing / not found / could not be loaded) and not a field
+error. `announce="alert"` is for an operational failure the user must not miss, such as a failed
+backtest; a static notice announces nothing. Tone is a left rule and a tint, and the words always
+say what happened, so colour is never the only signal.
+
+### `LimitMeter` / `EntitlementNotice`
+
+`LimitMeter` is "N of LIMIT" for a quantity the plan caps, shown wherever that quantity is edited;
+the words carry the state ("· at your plan's limit", "· 1 over your plan's limit") and the bar only
+echoes them. `EntitlementNotice` is a plan refusal or a plan-imposed pause told with a way forward:
+the API's own sentence, an optional recovery that fits the case, and "See plans". Neither holds a
+number of its own — the feature passes usage it already has and limits from `useEntitlements()`
+or a server-derived `compliance` (see `ai/architecture/entitlements.md`).
+
+### `SegmentedControl`
+
+One row of mutually exclusive view choices — `aria-pressed` toggle buttons in a labelled group,
+each showing the count it would reveal. The chosen option is tinted (`--color-surface-selected`,
+primary ink), never a solid slab: a page keeps one solid-blue commit action. The Dashboard's state
+filter and the Monitor page's status filter use it (UI-009 … UI-012 build on the same control).
+
+### `Select` / `SelectControl` / `EntitySelect`
+
+`Select` is the product's one native select; nothing renders a bare `<select>`. It owns three
+densities from the control scale — `default` (`--control-height`, 44 px: forms and dialogs),
+`compact` (`--control-height-compact`, 38 px: Strategy Builder predicate rows) and `toolbar`
+(`--action-height`: beside row actions and segmented filters) — the chevron, focus, the invalid
+border and the **stale-value rule**: a value that is not among the options renders as an explicit
+"Unavailable …" option instead of the browser silently showing the placeholder while state still
+holds the old id. `SelectControl` is `Select` at toolbar density with its label beside it.
+
+`EntitySelect` chooses a Strategy or a Stock List the same way on every surface: the caller's own
+content first, then built-ins, in groups named like the collection pages' two sections ("Your
+strategies" / "Built-in strategies"), ungrouped when only one kind exists; disabled with "Loading …"
+in place while options load; and "Unavailable strategy (deleted or not yours)" for a stale id. A
+surface that cannot use built-ins passes only the caller's own items **and says so** beside the
+control — a user's monitor shows "Monitors watch your own strategies and lists. Built-in ones can be
+backtested, but not monitored." — rather than pretending built-ins do not exist. "Create a stock
+list" links go to `/lists?new=1`, which opens the create dialog.
+
+### Stock search — `useSecurityCombobox` / `SecurityListbox`
+
+One stock-search behaviour for the topbar (`StockSearch`, `single` mode) and the list picker
+(`SecurityMultiSelect`, `multi` mode). The hook owns the debounced catalog search, what a blank
+field offers ("Recently Viewed" stocks — named for what they are, since viewing a stock from anywhere
+records it; `single` mode adds "Popular Stocks", static shortcuts with no catalog
+row and so cannot become list members), arrow-key wrap, Enter (highlighted option, else the first;
+never free text), Escape (closes an open list without closing the surrounding dialog; a closed list
+lets Escape through), Backspace on an empty field, blur-to-close, and the status line. Throttling
+follows `lib/api/rate-limit-errors.ts`: a `429` names the wait from `Retry-After`, no "Try again"
+is offered inside it, a new query inside it says how long is left without sending a request, and
+the retry returns when the wait is over. `SecurityListbox` renders the one labelled listbox with a
+documented `aria-selected` meaning per mode:
+
+| Mode     | `aria-selected` means | Listbox                          | Highlight carried by    |
+| -------- | --------------------- | -------------------------------- | ----------------------- |
+| `single` | highlighted           | labelled                         | `aria-activedescendant` |
+| `multi`  | chosen                | labelled, `aria-multiselectable` | `aria-activedescendant` |
+
+### Dates and relative time — `lib/dates.ts`, `lib/use-now.ts`
+
+Every rendered date goes through `lib/dates.ts` in one product locale (UI-049): `formatDay` for a
+calendar day (`"2026-08-28"`, in UTC so no timezone moves it), `formatDate` / `formatDateTime`
+for an instant, `formatRelative` for "12 min ago". A relative label reads the page clock from
+`useNow()`, so it keeps ticking while the page is open (UI-048), and the absolute value is always
+in text a keyboard or screen-reader user can reach — never only a tooltip. Feature formatters
+(`formatListDate`, `formatDay`, `formatMonitorTimestamp`, …) delegate here; do not add another
+`Intl.DateTimeFormat`. Native date **inputs** keep the platform's own locale on purpose.
+
 ### `Skeleton` / `SkeletonList`
 
 The one loading language. Always `aria-hidden`: a placeholder is not content.
@@ -348,6 +496,43 @@ Page-level buttons stay in `forms.module.css`, and there are three:
 | `dangerButton`    | **only** inside `ConfirmDialog`                                              |
 
 One solid-blue action per page, and it is never a link to a form.
+
+**Button order by context (UI-056).** Order is fixed per context, not per screen:
+
+| Context                                                            | Order (desktop, left → right)                                              | Phone                                      |
+| ------------------------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------------ |
+| Dialogs, prompts, form footers (`forms.actions`, `WorkflowFooter`) | quiet/Cancel, then the primary                                             | stacked, primary on top (`column-reverse`) |
+| Entity headers (`PageHeader` actions)                              | secondary (Run backtest, Add to list), then tinted Edit, then the overflow | wraps in the same order                    |
+| Error and not-found panels (`EmptyState`)                          | the way out (Back to …), then **Try again**                                | stacked in the same order                  |
+
+"Try again" is always `secondaryButton`: it is a recovery, not a commit, so it never takes the
+page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-error.tsx` alike.
+
+## Shell and metadata (UI-051…UI-055)
+
+- **Account menu** is a disclosure, modelled as one: the trigger carries `aria-expanded` and
+  `aria-controls`, and the panel is a labelled `group` of ordinary links and buttons that Tab walks
+  through. There is no `role="menu"`, because the panel has no arrow-key model. Escape closes it and
+  returns focus to the trigger, and so does an outside press or tabbing past the last item.
+- **Navigation guard.** Every shell link — primary navigation, brand, `PageHeader` back links,
+  account-menu links, Sign in and Pricing — passes through `guardNavigation`, and Sign out calls
+  `canNavigate()` first, so a page with unsaved work (the Strategy Builder) is asked before any of
+  them leave it. Browser Back and reload keep the documented limits of `unsaved-changes.ts`.
+- **Active item.** The brand link carries `aria-current="page"` on the Dashboard, which has no nav
+  item of its own. Routes that are not navigation items (Stock Details, Billing) claim no active
+  item rather than a false one.
+- **`/stocks`** redirects to the Dashboard: a stock is reached through search or a record, and a
+  research landing is a separate product decision.
+- **Tab titles** are `{Page} · FactorSage` on every route (Dashboard, collections, New …, Billing,
+  Pricing, Admin, auth, not-found; the `|` separator is gone). Entity pages start from the route's
+  generic title and switch to the entity's own name once it loads (`useDocumentTitle`): "Blue chips
+  · FactorSage", "Value ladder backtest · FactorSage".
+- **Hydration.** The topbar search, a singleton, uses a fixed id base (`topbar-stock-search`) rather
+  than `useId`, so its `aria-controls` can never hydrate differently. A Guest's `401` from
+  `/auth/me` is the expected session probe, not an error.
+- **Admin** is built from `PageHeader`, `SectionCard`, `FactGrid` and `DataTable`, and says that
+  changes apply to everyone. Every built-in page an administrator can edit shows a
+  `BuiltInEditNotice` saying the same.
 
 ## Tokens
 
@@ -417,17 +602,33 @@ system is meant to stay small enough to hold in your head.
 
 ## Breakpoints
 
-The target breakpoints are:
+**880px is the canonical dense/compact switch** (UI-004). It is what the code has always shipped,
+and one switch drives everything that changes between the two modes: the topbar navigation and the
+phone bottom navigation, the table/card switch in `DataTable`, the dissolving flush `SectionCard`,
+`WorkflowFooter`'s sticky bar and the responsive tokens in `tokens.css`. The earlier documented
+`768px`/`1024px` pair never existed in CSS and is withdrawn.
 
-- `600px` — tablet padding and fuller brand treatment
-- `768px` — the collection table/card switch
-- `1024px` — persistent topbar navigation replaces the fixed bottom navigation
+- `600px` — tablet padding and the fuller brand treatment
+- `880px` — dense desktop ↔ compact phone/tablet, as above
+- `880–1,279px` — the intermediate desktop band, where wide tables fold (`foldIntermediate`)
 - `1280px` — wide desktop padding
 
-`DataTable` scopes its two layouts to explicitly non-overlapping `max-width: 767px` and
-`min-width: 768px` blocks rather than layering them by specificity, so a per-role rule in one layout
-can never leak into the other. Shell navigation intentionally uses a different switch because its
-content constraint is different. See `v1-visual-parity.md`.
+Below 880px the compact layout is not one stretched column: `DataTable` cards form a fluid
+one/two-column grid (see `DataTable`), so there is no second hard breakpoint for tablets.
+
+`DataTable` scopes its two layouts to explicitly non-overlapping `max-width: 879px` and
+`min-width: 880px` blocks rather than layering them by specificity, so a per-role rule in one layout
+can never leak into the other. A component-local breakpoint is allowed only where it is about that
+component's own content, not the page's mode, and every one is listed here (UI-004):
+
+| Width | Where                                             | Why it is not 600/880/1280                                                                      |
+| ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
+| 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
+
+Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
+two-up predicate fields at 600px, and the plan cards three abreast at 880px. See
+`v1-visual-parity.md`.
 
 ## Known read-model gaps
 
@@ -439,10 +640,10 @@ addition, not something to work around in the browser.
    `PENDING_TRIGGER` row of the monitors the viewer can see, with security, level, reason, monitor,
    strategy, list, price and freshness, in one request.
 
-2. **Clickable entities in the Backtests collection.** `BacktestRunSummaryResponse` carries
-   `strategyName` and `stockListName` but no ids, so the collection's chips are static while the
-   run's own page links them. _Needed:_ the nullable `strategyId` / `stockListId` the detail
-   configuration already exposes.
+2. ~~**Clickable entities in the Backtests collection.**~~ Closed (UI-034):
+   `BacktestRunSummaryResponse` now carries the run's nullable `strategyId` / `stockListId`, the
+   same foreign keys its configuration reports, so a chip links while the entity exists and stays
+   a static pill after it is deleted. Names still come from the immutable snapshot.
 
 3. **Reverse usage on Strategy and List.** "Which monitors and backtests use this?" has no
    contract. _Needed:_ a usage count or reference list on the Strategy and Stock List summaries. The
@@ -452,3 +653,9 @@ addition, not something to work around in the browser.
 4. **Benchmark quotes.** The legacy dashboard showed S&P 500 and DJIA quote cards. `GET /benchmarks`
    returns catalog metadata only, with no price or change, so those tiles are not built. _Needed:_ a
    latest-close projection on the benchmark catalog.
+
+5. **Why a stock is "Not evaluable".** The Monitor page explains what the state means in words
+   (UI-026), but the specific cause for one security — warm-up, missing history, no quote — is
+   recorded only as the outcome `NOT_EVALUABLE` (`MonitorSignalState.lastOutcome`). _Needed:_ an
+   evaluation-reason code persisted with the outcome and projected on
+   `MonitorSecurityEvaluationResponse`.

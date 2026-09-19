@@ -1,11 +1,13 @@
 "use client";
 
-import type {
-  MonitorDetailResponse,
-  MonitorSecurityEvaluationResponse,
-  MonitorSignalResponse,
-  UpdateMonitorRequest,
-  MonitorSummaryResponse,
+import {
+  MONITOR_SECURITY_STATUSES,
+  type MonitorDetailResponse,
+  type MonitorSecurityEvaluationResponse,
+  type MonitorSecurityStatus,
+  type MonitorSignalResponse,
+  type UpdateMonitorRequest,
+  type MonitorSummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -22,32 +24,42 @@ import { FactGrid } from "../../../components/ui/FactGrid";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "../../../components/ui/SegmentedControl";
+import { formatDay, formatRelative } from "../../../lib/dates";
+import { useNow } from "../../../lib/use-now";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
-import { AccountActionLink } from "../../auth/components/AccountActionLink";
-import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitor } from "../hooks/use-monitor";
 import {
   blockedExplanation,
   isBlockedByEntitlement,
-  MonitorBlockedPill,
+  MonitorStateBadge,
 } from "../utils/blocked-status";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import {
   activeSignalLabel,
   formatMonitorTimestamp,
   formatObservationPrice,
   lastScanLabel,
   LEVEL_KIND_LABELS,
+  RESOLUTION_REASON_LABELS,
   SECURITY_STATUS_LABELS,
+  SECURITY_STATUS_ORDER,
   SECURITY_STATUS_TONES,
   SIGNAL_KIND_LABELS,
 } from "../utils/format";
 import { MonitorFormDialog } from "./MonitorFormDialog";
+import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./MonitorDetail.module.css";
 
 /** What the newest-first Signal window the API returns is capped at. */
@@ -98,17 +110,21 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const [togglePending, setTogglePending] = useState(false);
   const [toggleFailure, setToggleFailure] = useState<string | null>(null);
   const [local, setLocal] = useState<MonitorSummaryResponse | null>(null);
+  const [statusFilter, setStatusFilter] = useState<
+    "ALL" | MonitorSecurityStatus
+  >("ALL");
+  const now = useNow(30_000);
+  useDocumentTitle(local?.name ?? monitor?.name);
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page}>
-          <SectionCard ariaLabel="Loading monitor">
-            <SkeletonList rows={5} />
-          </SectionCard>
-        </div>
+        <DetailSkeleton
+          thing="monitor"
+          back={{ href: "/monitors", label: "Monitors" }}
+        />
       </PageContainer>
     );
   }
@@ -120,15 +136,13 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           <EmptyState
             as="h1"
             testId="monitor-missing"
-            title="This monitor no longer exists"
+            title="Monitor not found"
             body={
-              <p>
-                It may have been deleted. Your other monitors are unaffected.
-              </p>
+              <p>It may have been deleted, or it belongs to another account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/monitors">
-                Back to monitors
+                Back to Monitors
               </Link>
             }
           />
@@ -199,6 +213,39 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     );
 
   const signalsAtWindow = view.signals.length >= SIGNAL_WINDOW;
+
+  // Matched first, then waiting, then undecided, no match and unchecked (UI-026).
+  const sortedSecurities = [...view.securities].sort(
+    (a, b) => SECURITY_STATUS_ORDER[a.status] - SECURITY_STATUS_ORDER[b.status],
+  );
+  const statusCounts = Object.fromEntries(
+    MONITOR_SECURITY_STATUSES.map((status) => [
+      status,
+      view.securities.filter((entry) => entry.status === status).length,
+    ]),
+  ) as Record<MonitorSecurityStatus, number>;
+  const statusFilterOptions: readonly SegmentedOption<
+    "ALL" | MonitorSecurityStatus
+  >[] = [
+    { value: "ALL", label: "All", count: view.securities.length },
+    ...MONITOR_SECURITY_STATUSES.filter(
+      (status) => statusCounts[status] > 0,
+    ).map((status) => ({
+      value: status,
+      label: SECURITY_STATUS_LABELS[status],
+      count: statusCounts[status],
+    })),
+  ];
+  // A refresh can empty the status being filtered on; the filter then falls back to All rather than
+  // showing an empty table under a "no stocks" message that is not true.
+  const activeStatusFilter =
+    statusFilter !== "ALL" && (statusCounts[statusFilter] ?? 0) === 0
+      ? "ALL"
+      : statusFilter;
+  const visibleSecurities =
+    activeStatusFilter === "ALL"
+      ? sortedSecurities
+      : sortedSecurities.filter((entry) => entry.status === activeStatusFilter);
 
   const securityColumns: readonly DataTableColumn<MonitorSecurityEvaluationResponse>[] =
     [
@@ -313,15 +360,22 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       header: "State",
       cardRole: "status",
       nowrap: true,
-      render: (signal) => (
-        <StatusBadge
-          tone={signal.resolvedAt === undefined ? "positive" : "pending"}
-        >
-          {signal.resolvedAt === undefined
-            ? "Active"
-            : `Ended ${formatMonitorTimestamp(signal.resolvedAt)}`}
-        </StatusBadge>
-      ),
+      render: (signal) =>
+        signal.resolvedAt === undefined ? (
+          <StatusBadge tone="positive">Active</StatusBadge>
+        ) : (
+          // Ended, when, and why — the reason is text, not a hover (UI-026).
+          <span className={styles.ended} data-testid="monitor-signal-ended">
+            <StatusBadge tone="pending">Ended</StatusBadge>
+            <span className={styles.endedDetail}>
+              {formatMonitorTimestamp(signal.resolvedAt)}
+              {signal.resolutionReason &&
+              RESOLUTION_REASON_LABELS[signal.resolutionReason] !== "ended"
+                ? ` · ${RESOLUTION_REASON_LABELS[signal.resolutionReason]}`
+                : ""}
+            </span>
+          </span>
+        ),
     },
     {
       key: "level",
@@ -343,9 +397,11 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       key: "detected",
       header: "Detected",
       nowrap: true,
+      // One date format either way (UI-049): a session day for a reconstructed signal, a moment
+      // for one observed live.
       render: (signal) =>
         signal.reconstructed
-          ? `${signal.observationDate} · from history`
+          ? `${formatDay(signal.observationDate)} · from history`
           : formatMonitorTimestamp(signal.detectedAt),
     },
   ];
@@ -354,13 +410,8 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     <PageContainer>
       <div className={styles.page} data-testid="monitor-detail">
         <PageHeader
-          back={
-            builtIn && !view.canEdit
-              ? { href: "/dashboard", label: "Dashboard" }
-              : builtIn
-                ? { href: "/admin", label: "Admin" }
-                : { href: "/monitors", label: "Monitors" }
-          }
+          // Always the owning collection (UI-016), for a built-in too: that is where it was found.
+          back={{ href: "/monitors", label: "Monitors" }}
           title={view.name}
           badges={
             <>
@@ -373,21 +424,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   Built-in
                 </StatusBadge>
               ) : null}
-              <StatusBadge
-                tone={view.enabled ? "positive" : "pending"}
-                testId="monitor-enabled-pill"
-              >
-                {builtIn
-                  ? view.enabled
-                    ? "Running"
-                    : "Paused"
-                  : view.enabled
-                    ? "Enabled"
-                    : "Disabled"}
-              </StatusBadge>
-              {/* The configured switch alone would say "Enabled" for a monitor a downgrade has
-                  stopped; the effective state sits beside it, exactly as on the collection. */}
-              <MonitorBlockedPill monitor={view} />
+              {/* One effective state, exactly as on the collection (UI-021). The configured
+                  switch is a secondary fact under Configuration. */}
+              <MonitorStateBadge monitor={view} builtIn={builtIn} />
               {builtIn && view.canEdit ? (
                 <StatusBadge
                   tone={view.isPublished ? "positive" : "warning"}
@@ -400,16 +439,21 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
           actions={
             !view.canEdit ? (
-              <AccountActionLink
-                className={forms.tintedButton}
-                href={`/backtests/new?strategyId=${encodeURIComponent(view.strategyId)}&stockListId=${encodeURIComponent(view.stockListId)}`}
-                prompt={SIGN_IN_TO_BACKTEST}
+              <RunBacktestLink
+                prefill={{
+                  strategyId: view.strategyId,
+                  stockListId: view.stockListId,
+                }}
                 testId="backtest-this-monitor"
-              >
-                Backtest this monitor
-              </AccountActionLink>
+              />
             ) : builtIn ? (
               <>
+                <RunBacktestLink
+                  prefill={{
+                    strategyId: view.strategyId,
+                    stockListId: view.stockListId,
+                  }}
+                />
                 <button
                   type="button"
                   className={forms.tintedButton}
@@ -442,6 +486,13 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               </>
             ) : (
               <>
+                {/* The owner's monitor offers the same next step a built-in does (UI-008). */}
+                <RunBacktestLink
+                  prefill={{
+                    strategyId: view.strategyId,
+                    stockListId: view.stockListId,
+                  }}
+                />
                 <button
                   type="button"
                   className={forms.tintedButton}
@@ -479,14 +530,27 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             )
           }
         />
+        {builtIn && view.canEdit ? <BuiltInEditNotice thing="monitor" /> : null}
 
-        {isBlockedByEntitlement(view) ? (
-          <p
-            className={styles.blockedNotice}
-            data-testid="monitor-blocked-explanation"
-          >
-            {blockedExplanation(view.blockedReason)}
-          </p>
+        {!builtIn && view.enabled && isBlockedByEntitlement(view) ? (
+          <EntitlementNotice
+            announce="status"
+            testId="monitor-blocked-explanation"
+            title="Paused by your plan"
+            message={blockedExplanation(view.blockedReason)}
+            {...(view.blockedReason === "LIST_OVER_LIMIT"
+              ? {
+                  recovery: (
+                    <Link
+                      className={forms.secondaryButton}
+                      href={`/lists/${view.stockListId}`}
+                    >
+                      Open the list
+                    </Link>
+                  ),
+                }
+              : {})}
+          />
         ) : null}
 
         {toggleFailure ? (
@@ -522,13 +586,28 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             <FactGrid
               facts={[
                 { label: "Stocks", value: stockCountLabel(view.securityCount) },
+                ...(builtIn
+                  ? []
+                  : [
+                      {
+                        // What the user asked for, which a plan limit never changes; the badge
+                        // above is what the system is doing with it.
+                        label: "Monitoring",
+                        value: view.enabled ? "Switched on" : "Switched off",
+                        testId: "monitor-configured-intent",
+                      },
+                    ]),
                 {
                   label: "Active signals",
                   value: activeSignalLabel(view.activeSignalCount),
                 },
                 {
                   label: "Last checked",
-                  value: lastScanLabel(view.lastScanAt),
+                  // The exact time, and how long ago — kept ticking while the page is open (UI-048).
+                  value:
+                    view.lastScanAt === undefined
+                      ? lastScanLabel(view.lastScanAt)
+                      : `${lastScanLabel(view.lastScanAt)} · ${formatRelative(view.lastScanAt, now)}`,
                   testId: "monitor-last-checked",
                 },
               ]}
@@ -541,13 +620,40 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           title="Monitored stocks"
           aside={`${view.securities.length}`}
           flush={view.securities.length > 0}
+          {...(view.securities.length > 0
+            ? {
+                toolbar: (
+                  <SegmentedControl
+                    label="Filter by status"
+                    testId="monitor-status-filter"
+                    value={activeStatusFilter}
+                    onChange={setStatusFilter}
+                    options={statusFilterOptions}
+                  />
+                ),
+              }
+            : {})}
         >
+          {statusCounts.NOT_EVALUABLE > 0 ? (
+            // What "Not evaluable" means, once, in words (UI-026). The per-stock cause is not
+            // recorded yet — see ui-system.md, known read-model gaps.
+            <p
+              className={styles.sectionNote}
+              data-testid="monitor-not-evaluable-note"
+            >
+              <strong>Not evaluable</strong> means the last check could not
+              decide the rule for that stock — for example its price history is
+              too short for a metric, a value such as intrinsic value is not
+              available, or no current quote arrived. It is not the same as
+              &ldquo;No match&rdquo;, and it is checked again on the next scan.
+            </p>
+          ) : null}
           <DataTable
             label="Monitored stocks"
             testId="monitor-securities"
             rowTestId="monitor-security-row"
             columns={securityColumns}
-            rows={view.securities}
+            rows={visibleSecurities}
             getRowKey={(entry) => entry.security.id}
             emptyState={
               <EmptyState

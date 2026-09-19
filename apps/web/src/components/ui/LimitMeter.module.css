@@ -1,0 +1,47 @@
+/* Label and value share a line when they fit and wrap onto two when they do not, so a long
+   "2 of 1 active monitor · 1 over your plan's limit" never pushes a phone page sideways. */
+.meter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  min-width: 0;
+  font-size: var(--text-secondary);
+}
+
+.label {
+  color: var(--color-text-secondary);
+}
+
+.value {
+  min-width: 0;
+  color: var(--color-text-primary);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter[data-state="full"] .value,
+.meter[data-state="over"] .value {
+  color: var(--color-warning);
+}
+
+.track {
+  flex: 1 0 100%;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+.meter[data-state="full"] .fill,
+.meter[data-state="over"] .fill {
+  background: var(--color-warning);
+}

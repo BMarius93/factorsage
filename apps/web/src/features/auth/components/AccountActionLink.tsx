@@ -56,7 +56,9 @@ export function AccountActionLink({
         disabled={!gate.resolved}
         onClick={() => {
           if (gate.resolved) {
-            gate.attempt(prompt, () => {});
+            // Signing in lands on the action's own destination (the prefilled form), which is
+            // what the Guest asked for; `signInHref` validates it like any other `next`.
+            gate.attempt({ ...prompt, next: href }, () => {});
           }
         }}
       >

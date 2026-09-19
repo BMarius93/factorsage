@@ -1,16 +1,9 @@
 import type { StrategySummaryResponse } from "@intrinsic/contracts";
+import { formatDate } from "../../../lib/dates";
 
-/** Matches the lists feature's date presentation so two collections read the same way. */
+/** The product's one date format (`lib/dates`), so every collection reads the same way. */
 export function formatStrategyDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.valueOf())) {
-    return "—";
-  }
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return Number.isNaN(Date.parse(iso)) ? "—" : formatDate(iso);
 }
 
 /**

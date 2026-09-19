@@ -2,11 +2,17 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { SignInPrompt } from "../components/SignInPrompt";
-import { useAuthSession } from "./use-auth-session";
+import { useSessionStateIfProvided } from "./session-state";
 
 export type SignInPromptCopy = {
   readonly title: string;
   readonly body: string;
+  /**
+   * Where signing in should land, when that is not the page being read — "Run backtest" from a
+   * strategy returns to the prefilled New Backtest, not to the strategy (UI-042). Validated by
+   * the same safe-return rules as every `next`.
+   */
+  readonly next?: string;
 };
 
 export type SignInGate = {
@@ -37,7 +43,7 @@ export type SignInGate = {
  * through the existing `SignInPrompt` modal rather than a second implementation of it.
  */
 export function useSignInPrompt(): SignInGate {
-  const { state } = useAuthSession();
+  const state = useSessionStateIfProvided() ?? { status: "loading" as const };
   const [copy, setCopy] = useState<SignInPromptCopy | null>(null);
 
   const signedIn = state.status === "authenticated";
@@ -58,7 +64,12 @@ export function useSignInPrompt(): SignInGate {
   const prompt = useMemo(
     () =>
       copy ? (
-        <SignInPrompt title={copy.title} body={copy.body} onClose={close} />
+        <SignInPrompt
+          title={copy.title}
+          body={copy.body}
+          {...(copy.next ? { next: copy.next } : {})}
+          onClose={close}
+        />
       ) : null,
     [copy, close],
   );

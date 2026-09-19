@@ -62,13 +62,15 @@ test.describe("guest dashboard", () => {
     await expect(table.getByRole("columnheader")).toHaveText([
       "Stock",
       "Action",
+      "Since",
       "Why",
       "Price",
       "Strategy",
       "List",
       "Monitor",
     ]);
-    // Removed deliberately: a "Since" column, and a Backtest button on every single row.
+    // "Since" says when each signal's state began (UI-025). Still removed deliberately: a Backtest
+    // button on every single row.
     await expect(table.getByRole("link", { name: "Backtest" })).toHaveCount(0);
     // And no monitor configuration: that lives on the Monitors page now.
     await expect(page.getByTestId("dashboard-monitor")).toHaveCount(0);

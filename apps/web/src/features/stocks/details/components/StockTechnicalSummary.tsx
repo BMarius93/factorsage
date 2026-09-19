@@ -1,5 +1,7 @@
-import { formatLocalDate, formatMoney, formatSignedPercent } from "../utils/format";
+import { formatLocalDate, formatMoney } from "../utils/format";
 import { priceVersusAverage, type TechnicalSnapshot } from "../utils/technicals";
+import { PriceRelative } from "./PriceRelative";
+import { SectionCard } from "../../../../components/ui/SectionCard";
 import styles from "./StockTechnicalSummary.module.css";
 
 type StockTechnicalSummaryProps = {
@@ -21,15 +23,11 @@ export function StockTechnicalSummary({
   currency,
 }: StockTechnicalSummaryProps) {
   return (
-    <section className={styles.card} aria-labelledby="technicals-title">
-      <div className={styles.heading}>
-        <h2 className={styles.title} id="technicals-title">
-          Technicals
-        </h2>
-        <p className={styles.caption}>
-          Moving averages as of {formatLocalDate(snapshot.date)}
-        </p>
-      </div>
+    <SectionCard
+      id="technicals"
+      title="Technicals"
+      caption={`Moving averages as of ${formatLocalDate(snapshot.date)}`}
+    >
       <dl className={styles.list}>
         {snapshot.readings.map((reading) => {
           const relative =
@@ -42,18 +40,13 @@ export function StockTechnicalSummary({
               <dd className={styles.value}>
                 <span>{formatMoney(reading.value, currency)}</span>
                 {relative === undefined ? null : (
-                  <span
-                    className={styles.relative}
-                    data-direction={relative >= 0 ? "above" : "below"}
-                  >
-                    price {formatSignedPercent(relative)}
-                  </span>
+                  <PriceRelative reference="average" fraction={relative} />
                 )}
               </dd>
             </div>
           );
         })}
       </dl>
-    </section>
+    </SectionCard>
   );
 }

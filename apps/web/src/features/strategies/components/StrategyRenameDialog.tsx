@@ -69,7 +69,7 @@ export function StrategyRenameDialog({
 
   return (
     <Modal
-      title="Edit strategy"
+      title="Rename strategy"
       onClose={onClose}
       testId="strategy-rename-dialog"
     >

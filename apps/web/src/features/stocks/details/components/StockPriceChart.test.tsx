@@ -382,6 +382,7 @@ describe("StockPriceChart", () => {
     expect(legend.textContent).toContain("SMA 50D$220.00");
     expect(legend.textContent).toContain("SMA 20W$216.00");
     expect(legend.textContent).toContain("Balanced$290.00");
+
   });
 
   it("repaints a reused overlay when the selection shifts its colour position", () => {

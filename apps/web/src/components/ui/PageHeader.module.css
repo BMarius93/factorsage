@@ -100,6 +100,8 @@
   align-items: flex-start;
   gap: 2px;
   min-width: 0;
+  /* Never wider than the header, so a long fact wraps instead of widening a phone page. */
+  max-width: 100%;
 }
 
 @media (min-width: 600px) {
