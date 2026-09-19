@@ -232,6 +232,10 @@ describe("StockDetails", () => {
     expect(heading.textContent).toContain("Apple Inc.");
     // Research leads somewhere (UI-018): the header offers adding the stock to a list.
     expect(screen.getByRole("button", { name: "Add to list" })).toBeDefined();
+    // The persistent key names the close even before any indicator is on (UI-018).
+    expect(
+      screen.getByRole("list", { name: "Chart key" }).textContent,
+    ).toContain("Close");
     expect(fetchStockDetailsMock).toHaveBeenCalledTimes(1);
     expect(fetchStockDetailsMock).toHaveBeenCalledWith(
       "AAPL",

@@ -32,6 +32,7 @@ import {
 import { summarizePrices } from "../utils/price-summary";
 import { selectLatestTechnicals } from "../utils/technicals";
 import { selectLatestValuations } from "../utils/valuation";
+import { ChartKey } from "./ChartKey";
 import { IndicatorsMenu } from "./IndicatorsMenu";
 import { StockDetailsSkeleton } from "./StockDetailsSkeleton";
 import { StockHeader } from "./StockHeader";
@@ -316,6 +317,7 @@ function StockDetailsContent({
             onReachHistoryEdge={onReachHistoryEdge}
             ariaLabel={`${security.symbol} daily closing price chart, ${range} range`}
           />
+          <ChartKey overlays={chartOverlays} />
 
           {loaded.status === "error" ? (
             <p className={styles.chartError} role="alert">
