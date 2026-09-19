@@ -2,20 +2,6 @@
   composes: stack from "../../../components/ui/page.module.css";
 }
 
-.notice {
-  padding: 14px 16px;
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: var(--color-warning-soft);
-}
-
-.noticeBody {
-  margin: 0;
-  color: var(--color-text-body);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .noticeLink {
   color: var(--color-primary);
   font-weight: var(--weight-emphasis);
@@ -67,33 +53,6 @@
    than the two beside it. */
 .grid > * {
   align-content: start;
-}
-
-.select {
-  width: 100%;
-  min-height: var(--control-height);
-  padding: 10px 12px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: var(--color-surface);
-  font: inherit;
-  font-size: 14px;
-  outline: none;
-}
-
-.select:focus {
-  border-color: var(--color-primary);
-  box-shadow: var(--focus-ring-inset);
-}
-
-.select[aria-invalid="true"] {
-  border-color: var(--color-negative);
-}
-
-.select:disabled {
-  color: var(--color-text-muted);
-  background: var(--color-surface-soft);
 }
 
 /* The derived full-position size. Presented as a consequence of `maximum positions`, never as a

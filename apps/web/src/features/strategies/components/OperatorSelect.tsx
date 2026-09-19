@@ -9,7 +9,7 @@ import {
   type StrategyMetric,
   type TriggerOperator,
 } from "@intrinsic/contracts";
-import styles from "./StrategyBuilder.module.css";
+import { Select } from "../../../components/ui/Select";
 
 type OperatorSelectProps = {
   readonly part: "CONDITION" | "TRIGGER";
@@ -52,28 +52,23 @@ export function OperatorSelect({
       : conditionOperatorLabel(candidate as ConditionOperator);
 
   return (
-    <select
-      className={styles.select}
-      data-testid="operator-select"
+    <Select
+      density="compact"
+      testId="operator-select"
       aria-label={label}
-      aria-invalid={invalid || undefined}
+      invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={operator}
       onFocus={() => onFocus(operator as ConditionOperator | TriggerOperator)}
       onBlur={onBlur}
-      onChange={(event) => {
-        onChange(event.target.value);
-        onFocus(event.target.value as ConditionOperator | TriggerOperator);
+      onValueChange={(value) => {
+        onChange(value);
+        onFocus(value as ConditionOperator | TriggerOperator);
       }}
-    >
-      {options.includes(operator) ? null : (
-        <option value={operator}>Unavailable</option>
-      )}
-      {options.map((candidate) => (
-        <option key={candidate} value={candidate}>
-          {labelFor(candidate)}
-        </option>
-      ))}
-    </select>
+      options={options.map((candidate) => ({
+        value: candidate,
+        label: labelFor(candidate),
+      }))}
+    />
   );
 }

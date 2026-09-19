@@ -57,6 +57,7 @@
   margin-top: 4px;
 }
 
+.body a:not([class]),
 .actions a:not([class]) {
   color: var(--color-primary-ink);
   font-weight: var(--weight-emphasis);

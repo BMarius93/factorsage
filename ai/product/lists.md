@@ -146,9 +146,10 @@ Structured events (`component: stock-lists`, `actorUserId` from the request cont
 ## Frontend
 
 `apps/web/src/features/lists/` with routes `/lists` and `/lists/[id]`. The membership picker
-(`SecurityMultiSelect`) is a chips combobox built on the same `useStockSearch` hook as the global
-topbar search — one search behavior, catalog-only, and Enter can only select a real result, never
-free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
+(`SecurityMultiSelect`) is the `multi` mode of the shared stock combobox (`useSecurityCombobox`,
+see `ai/architecture/ui-system.md`) that also drives the topbar search — one search behavior,
+catalog-only, recently viewed stocks on a blank field, the same throttling copy, and Enter can only
+select a real result, never free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
 list page through a per-stock editor dialog.
 
 ### The V1 membership editor exposes one period

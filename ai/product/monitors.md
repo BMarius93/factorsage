@@ -479,6 +479,8 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
 - **A customer's own Monitor** keeps its real `enabled` lifecycle: disabled (or plan-blocked)
   Monitors contribute no Dashboard rows, whatever their frozen state says. A customer's Monitor
   watches only the customer's own Lists and Strategies; a built-in Monitor watches only built-ins.
+  The New/Edit Monitor dialog says so beside its pickers (UI-009), and its create-first notice
+  says "of your own", so an account holding only built-ins is never told it has nothing.
 - **Administrators** (`role = ADMIN`) change built-ins through the ordinary routes and editors;
   everybody else reads them. Changing a display name never changes the `systemKey`.
 

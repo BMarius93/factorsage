@@ -38,7 +38,36 @@ export function rateLimitMessage(error: unknown): string | undefined {
   const seconds = (error as ApiError).retryAfterSeconds;
   return seconds === undefined
     ? "Too many requests. Please slow down and try again shortly."
-    : `Too many requests. Please try again in ${describeWait(seconds)}.`;
+    : rateLimitWaitMessage(seconds);
+}
+
+/** The throttled copy for a known wait — also what a surface says while it is still waiting. */
+export function rateLimitWaitMessage(seconds: number): string {
+  return `Too many requests. Please try again in ${describeWait(seconds)}.`;
+}
+
+/** Waits assumed when a throttled answer does not say how long; long enough not to be refused again. */
+const DEFAULT_RATE_LIMIT_WAIT_SECONDS = 30;
+const DEFAULT_THROTTLING_UNAVAILABLE_WAIT_SECONDS = 5;
+
+/**
+ * How long a surface must hold off before asking again, in milliseconds, or `0` when the failure
+ * says nothing about waiting. Honours the server's `Retry-After` whenever it sent one.
+ */
+export function retryWaitMs(error: unknown): number {
+  if (isRateLimitError(error)) {
+    return (
+      ((error as ApiError).retryAfterSeconds ??
+        DEFAULT_RATE_LIMIT_WAIT_SECONDS) * 1000
+    );
+  }
+  if (isThrottlingUnavailableError(error)) {
+    return (
+      ((error as ApiError).retryAfterSeconds ??
+        DEFAULT_THROTTLING_UNAVAILABLE_WAIT_SECONDS) * 1000
+    );
+  }
+  return 0;
 }
 
 /**

@@ -31,7 +31,6 @@ import {
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
 import { readBacktestPrefill } from "../utils/prefill";
-import { OwnershipOptions } from "./OwnershipOptions";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
@@ -42,6 +41,8 @@ import {
   type BacktestFormErrors,
   type BacktestFormValues,
 } from "../utils/submission";
+import { EntitySelect } from "../../../components/ui/EntitySelect";
+import { Select } from "../../../components/ui/Select";
 import styles from "./NewBacktestForm.module.css";
 
 /**
@@ -366,29 +367,23 @@ export function NewBacktestForm() {
         ) : null}
 
         {missingPrerequisite ? (
-          <div className={styles.notice} data-testid="backtest-prerequisites">
-            <p className={styles.noticeBody}>
+          <Notice tone="warning" testId="backtest-prerequisites">
+            <p>
               A backtest needs both a strategy and a stock list.
               {strategies.length === 0 ? (
                 <>
                   {" "}
-                  <Link className={styles.noticeLink} href="/strategies/new">
-                    Create a strategy
-                  </Link>{" "}
-                  first.
+                  <Link href="/strategies/new">Create a strategy</Link> first.
                 </>
               ) : null}
               {lists.length === 0 ? (
                 <>
                   {" "}
-                  <Link className={styles.noticeLink} href="/lists">
-                    Create a stock list
-                  </Link>{" "}
-                  first.
+                  <Link href="/lists?new=1">Create a stock list</Link> first.
                 </>
               ) : null}
             </p>
-          </div>
+          </Notice>
         ) : null}
 
         {atConcurrency ? (
@@ -432,23 +427,16 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-strategy">
                     Strategy
                   </label>
-                  <select
+                  <EntitySelect
                     id="backtest-strategy"
-                    className={styles.select}
-                    data-testid="backtest-strategy"
+                    kind="strategy"
+                    testId="backtest-strategy"
+                    items={strategies}
                     value={values.strategyId}
-                    disabled={loading}
-                    aria-invalid={errors.strategyId !== undefined}
-                    onChange={(event) =>
-                      update("strategyId", event.target.value)
-                    }
-                  >
-                    <option value="">Select a strategy…</option>
-                    <OwnershipOptions
-                      items={strategies}
-                      ownLabel="Your strategies"
-                    />
-                  </select>
+                    loading={loading}
+                    invalid={errors.strategyId !== undefined}
+                    onValueChange={(id) => update("strategyId", id)}
+                  />
                   {errors.strategyId ? (
                     <p className={forms.hint} role="alert">
                       {errors.strategyId}
@@ -460,20 +448,16 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-list">
                     Stock list
                   </label>
-                  <select
+                  <EntitySelect
                     id="backtest-list"
-                    className={styles.select}
-                    data-testid="backtest-list"
+                    kind="list"
+                    testId="backtest-list"
+                    items={lists}
                     value={values.stockListId}
-                    disabled={loading}
-                    aria-invalid={errors.stockListId !== undefined}
-                    onChange={(event) =>
-                      update("stockListId", event.target.value)
-                    }
-                  >
-                    <option value="">Select a stock list…</option>
-                    <OwnershipOptions items={lists} ownLabel="Your lists" />
-                  </select>
+                    loading={loading}
+                    invalid={errors.stockListId !== undefined}
+                    onValueChange={(id) => update("stockListId", id)}
+                  />
                   {errors.stockListId ? (
                     <p className={forms.hint} role="alert">
                       {errors.stockListId}
@@ -494,24 +478,19 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-benchmark">
                     Benchmark
                   </label>
-                  <select
+                  <Select
                     id="backtest-benchmark"
-                    className={styles.select}
-                    data-testid="backtest-benchmark"
+                    testId="backtest-benchmark"
                     value={values.benchmarkCode}
                     disabled={loading}
-                    aria-invalid={errors.benchmarkCode !== undefined}
-                    onChange={(event) =>
-                      update("benchmarkCode", event.target.value)
-                    }
-                  >
-                    <option value="">Select a benchmark…</option>
-                    {benchmarks.map((benchmark) => (
-                      <option key={benchmark.code} value={benchmark.code}>
-                        {benchmark.name}
-                      </option>
-                    ))}
-                  </select>
+                    invalid={errors.benchmarkCode !== undefined}
+                    onValueChange={(code) => update("benchmarkCode", code)}
+                    placeholder="Select a benchmark…"
+                    options={benchmarks.map((benchmark) => ({
+                      value: benchmark.code,
+                      label: benchmark.name,
+                    }))}
+                  />
                   {errors.benchmarkCode ? (
                     <p className={forms.hint} role="alert">
                       {errors.benchmarkCode}

@@ -392,6 +392,43 @@ each showing the count it would reveal. The chosen option is tinted (`--color-su
 primary ink), never a solid slab: a page keeps one solid-blue commit action. The Dashboard's state
 filter and the Monitor page's status filter use it (UI-009 … UI-012 build on the same control).
 
+### `Select` / `SelectControl` / `EntitySelect`
+
+`Select` is the product's one native select; nothing renders a bare `<select>`. It owns three
+densities from the control scale — `default` (`--control-height`, 44 px: forms and dialogs),
+`compact` (`--control-height-compact`, 38 px: Strategy Builder predicate rows) and `toolbar`
+(`--action-height`: beside row actions and segmented filters) — the chevron, focus, the invalid
+border and the **stale-value rule**: a value that is not among the options renders as an explicit
+"Unavailable …" option instead of the browser silently showing the placeholder while state still
+holds the old id. `SelectControl` is `Select` at toolbar density with its label beside it.
+
+`EntitySelect` chooses a Strategy or a Stock List the same way on every surface: the caller's own
+content first, then built-ins, in groups named like the collection pages' two sections ("Your
+strategies" / "Built-in strategies"), ungrouped when only one kind exists; disabled with "Loading …"
+in place while options load; and "Unavailable strategy (deleted or not yours)" for a stale id. A
+surface that cannot use built-ins passes only the caller's own items **and says so** beside the
+control — a user's monitor shows "Monitors watch your own strategies and lists. Built-in ones can be
+backtested, but not monitored." — rather than pretending built-ins do not exist. "Create a stock
+list" links go to `/lists?new=1`, which opens the create dialog.
+
+### Stock search — `useSecurityCombobox` / `SecurityListbox`
+
+One stock-search behaviour for the topbar (`StockSearch`, `single` mode) and the list picker
+(`SecurityMultiSelect`, `multi` mode). The hook owns the debounced catalog search, what a blank
+field offers (recently viewed stocks; `single` mode adds the popular shortcuts, which have no catalog
+row and so cannot become list members), arrow-key wrap, Enter (highlighted option, else the first;
+never free text), Escape (closes an open list without closing the surrounding dialog; a closed list
+lets Escape through), Backspace on an empty field, blur-to-close, and the status line. Throttling
+follows `lib/api/rate-limit-errors.ts`: a `429` names the wait from `Retry-After`, no "Try again"
+is offered inside it, a new query inside it says how long is left without sending a request, and
+the retry returns when the wait is over. `SecurityListbox` renders the one labelled listbox with a
+documented `aria-selected` meaning per mode:
+
+| Mode     | `aria-selected` means | Listbox                          | Highlight carried by    |
+| -------- | --------------------- | -------------------------------- | ----------------------- |
+| `single` | highlighted           | labelled                         | `aria-activedescendant` |
+| `multi`  | chosen                | labelled, `aria-multiselectable` | `aria-activedescendant` |
+
 ### Dates and relative time — `lib/dates.ts`, `lib/use-now.ts`
 
 Every rendered date goes through `lib/dates.ts` in one product locale (UI-049): `formatDay` for a

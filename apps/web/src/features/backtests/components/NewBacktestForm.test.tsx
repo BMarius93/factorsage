@@ -125,7 +125,7 @@ describe("NewBacktestForm", () => {
     const groups = Array.from(strategy.querySelectorAll("optgroup")).map(
       (group) => group.label,
     );
-    expect(groups).toEqual(["Built-in", "Your strategies"]);
+    expect(groups).toEqual(["Your strategies", "Built-in strategies"]);
   });
 
   it("ignores a linked id the caller cannot choose", async () => {

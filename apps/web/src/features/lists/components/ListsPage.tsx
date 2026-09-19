@@ -3,7 +3,7 @@
 import type { StockListSummaryResponse } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actions from "../../../components/ui/actions.module.css";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
@@ -81,6 +81,21 @@ export function ListsPage() {
   const closeDialog = () => setDialog({ kind: "closed" });
   const create = () =>
     gate.attempt(SIGN_IN_TO_CREATE, () => setDialog({ kind: "create" }));
+
+  // `/lists?new=1` is the "Create a stock list" destination for other surfaces (a monitor with no
+  // list to watch), so that link lands on the create dialog rather than on a page to search.
+  // Read once, after the session resolves, and removed from the URL so a reload does not reopen it.
+  const newRequestHandled = useRef(false);
+  useEffect(() => {
+    if (!gate.resolved || newRequestHandled.current) {
+      return;
+    }
+    newRequestHandled.current = true;
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      router.replace("/lists");
+      create();
+    }
+  });
 
   const { own, builtIn } = partitionByOwnership(lists);
 

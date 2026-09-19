@@ -69,7 +69,6 @@
 
 .textInput:focus,
 .textArea:focus,
-.select:focus,
 .numberInput:focus {
   border-color: var(--color-primary);
   box-shadow: var(--focus-ring-inset);
@@ -77,7 +76,6 @@
 
 .textInput[aria-invalid="true"],
 .textArea[aria-invalid="true"],
-.select[aria-invalid="true"],
 .numberInput[aria-invalid="true"] {
   border-color: var(--color-negative);
 }
@@ -407,23 +405,6 @@
   grid-template-columns: 1fr;
   gap: 6px;
   min-width: 0;
-}
-
-.select {
-  width: 100%;
-  min-height: 38px;
-  padding: 0 30px 0 10px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7f8c' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E")
-    no-repeat right 10px center;
-  background-color: var(--color-surface);
-  font: inherit;
-  font-size: 13px;
-  outline: none;
-  appearance: none;
-  cursor: pointer;
 }
 
 .numberField {

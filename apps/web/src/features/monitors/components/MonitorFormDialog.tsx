@@ -8,7 +8,9 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
+import { EntitySelect } from "../../../components/ui/EntitySelect";
 import { Modal } from "../../../components/ui/Modal";
+import { Notice } from "../../../components/ui/Notice";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import {
   entitlementReason,
@@ -50,6 +52,13 @@ type FieldErrors = {
   readonly strategyId?: string;
   readonly stockListId?: string;
 };
+
+/**
+ * Why the pickers hold only the caller's own content. Said wherever that shows, so an account whose
+ * only content is built-in is not told it has nothing: built-ins exist, they just are not watched.
+ */
+export const OWNERSHIP_RULE =
+  "Monitors watch your own strategies and lists. Built-in ones can be backtested, but not monitored.";
 
 function requestMessage(error: unknown, mode: "create" | "edit"): string {
   // The API parses the same request again, re-checks that both references are the caller's, and
@@ -209,18 +218,19 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
           missing and link to where it is made instead. */}
       {blocked ? (
         <div className={forms.form} data-testid="monitor-prerequisites">
-          <div className={styles.notice}>
-            <p className={styles.noticeTitle}>
-              A monitor watches one strategy over one stock list
-            </p>
-            <p className={styles.noticeBody}>
+          <Notice
+            tone="warning"
+            title="A monitor watches one of your strategies over one of your stock lists"
+          >
+            <p>
               {missingStrategy && missingList
-                ? "You do not have a strategy or a stock list yet. Create both, then come back to start monitoring."
+                ? "You do not have a strategy or a stock list of your own yet. Create both, then come back to start monitoring."
                 : missingStrategy
-                  ? "You have a stock list, but no strategy yet. Create the buy, sell and final-exit logic you want watched."
-                  : "You have a strategy, but no stock list yet. Create the universe of stocks you want it watched against."}
+                  ? "You have a stock list, but no strategy of your own yet. Create the buy, sell and final-exit logic you want watched."
+                  : "You have a strategy, but no stock list of your own yet. Create the universe of stocks you want it watched against."}
             </p>
-          </div>
+            <p>{OWNERSHIP_RULE}</p>
+          </Notice>
           <div className={styles.noticeLinks}>
             {missingStrategy ? (
               <Link className={forms.primaryButton} href="/strategies/new">
@@ -232,7 +242,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
                 className={
                   missingStrategy ? forms.secondaryButton : forms.primaryButton
                 }
-                href="/lists"
+                href="/lists?new=1"
               >
                 Create a stock list
               </Link>
@@ -273,28 +283,28 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             ) : null}
           </div>
 
+          {builtIn ? null : (
+            <p className={forms.hint} data-testid="monitor-ownership-note">
+              {OWNERSHIP_RULE}
+            </p>
+          )}
+
           <div className={forms.field}>
             <label className={forms.label} htmlFor="monitor-strategy">
               Strategy
             </label>
-            <select
+            <EntitySelect
               id="monitor-strategy"
-              className={styles.select}
-              data-testid="monitor-strategy"
+              kind="strategy"
+              testId="monitor-strategy"
+              items={strategies}
               value={strategyId}
-              aria-invalid={errors.strategyId !== undefined}
-              onChange={(event) => {
-                setStrategyId(event.target.value);
+              invalid={errors.strategyId !== undefined}
+              onValueChange={(id) => {
+                setStrategyId(id);
                 setErrors((current) => ({ ...current, strategyId: undefined }));
               }}
-            >
-              <option value="">Select a strategy…</option>
-              {strategies.map((strategy) => (
-                <option key={strategy.id} value={strategy.id}>
-                  {strategy.name}
-                </option>
-              ))}
-            </select>
+            />
             {errors.strategyId ? (
               <p className={forms.hint} role="alert">
                 {errors.strategyId}
@@ -317,27 +327,21 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             <label className={forms.label} htmlFor="monitor-list">
               Stock list
             </label>
-            <select
+            <EntitySelect
               id="monitor-list"
-              className={styles.select}
-              data-testid="monitor-list"
+              kind="list"
+              testId="monitor-list"
+              items={lists}
               value={stockListId}
-              aria-invalid={errors.stockListId !== undefined}
-              onChange={(event) => {
-                setStockListId(event.target.value);
+              invalid={errors.stockListId !== undefined}
+              onValueChange={(id) => {
+                setStockListId(id);
                 setErrors((current) => ({
                   ...current,
                   stockListId: undefined,
                 }));
               }}
-            >
-              <option value="">Select a stock list…</option>
-              {lists.map((list) => (
-                <option key={list.id} value={list.id}>
-                  {list.name}
-                </option>
-              ))}
-            </select>
+            />
             {errors.stockListId ? (
               <p className={forms.hint} role="alert">
                 {errors.stockListId}

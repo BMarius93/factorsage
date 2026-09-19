@@ -9,6 +9,7 @@ import {
   isRateLimitError,
   isThrottlingUnavailableError,
   rateLimitMessage,
+  retryWaitMs,
 } from "./rate-limit-errors";
 import { describeLoginFailure } from "../../features/auth/utils/auth-errors";
 
@@ -78,5 +79,23 @@ describe("throttled responses in the browser", () => {
     const failure = describeLoginFailure(throttled(300));
     expect(failure).toContain("5 minutes");
     expect(failure).not.toContain("credentials");
+  });
+});
+
+describe("retryWaitMs", () => {
+  it("honours the server's Retry-After for a throttled request", () => {
+    expect(retryWaitMs(throttled(42))).toBe(42_000);
+  });
+
+  it("assumes a wait when a throttled answer names none, so retry is never immediate", () => {
+    expect(retryWaitMs(throttled())).toBe(30_000);
+    expect(
+      retryWaitMs(new ApiError(503, "busy", RATE_LIMIT_UNAVAILABLE_CODE)),
+    ).toBe(5_000);
+  });
+
+  it("imposes no wait on any other failure", () => {
+    expect(retryWaitMs(new ApiError(500, "boom"))).toBe(0);
+    expect(retryWaitMs(new Error("network"))).toBe(0);
   });
 });
