@@ -8,6 +8,7 @@
 | Product baseline | `25b0461f`                                                                              |
 | Date             | 2026-09-19                                                                              |
 | Audience         | Engineers and designers planning the cleanup, including people new to FactorSage        |
+| Delivery         | One implementation branch, one PR to `main`, thematic commits and work-package gates    |
 
 ---
 
@@ -30,9 +31,9 @@ The cleanup should therefore proceed in this order:
 5. improve signal freshness and dense-data navigation;
 6. consolidate styles and low-risk polish.
 
-The 13 P1 findings are release blockers. P2/P3 work should be pulled into a release PR only when it
-shares the same root component and materially lowers regression risk. Do not turn the launch gate
-into a general rewrite.
+The 13 P1 findings are release blockers. P2/P3 work should be pulled into the implementation scope
+only when it shares the same root component and materially lowers regression risk. Do not turn the
+launch gate into a general rewrite.
 
 ---
 
@@ -80,7 +81,8 @@ currently consumes the flag, so it does not expose a route, but it contradicts D
 future regression trap.
 
 Before feature cleanup begins, set it to `false` (or remove it through an explicit contract change)
-and update the contract, API and E2E assertions. This is a small correctness PR, not a UI redesign.
+and update the contract, API and E2E assertions. This is the first small correctness commit, not a
+UI redesign.
 
 ---
 
@@ -118,7 +120,7 @@ labels or genuinely local ornaments, but not another page-title or button type s
 
 Add a lightweight repository policy test: outside `tokens.css` and an explicit allow-list for chart
 rendering/ornaments, new literal `font-size: Npx` declarations fail. Migrate existing literals when
-their owning surface is touched; do not create a 226-declaration formatting-only PR.
+their owning surface is touched; do not create a 226-declaration formatting-only commit.
 
 ### 3.3 Surface hierarchy
 
@@ -246,17 +248,66 @@ even though no current route reads it.
 - all Backtest surfaces and the guest entitlement contract agree that authentication is required;
 - the hermetic provider/email/Stripe constraints from the audit remain in place.
 
-### 4.3 Post-release work
+### 4.3 Deferral policy
 
-P2/P3 work may follow release when it is not already part of a shared-component fix. Deferral must
-mean an explicit backlog entry with an owner, not disappearance from the audit.
+The planned P2/P3 work remains in the same implementation PR. A finding moves to post-release work
+only when the product owner explicitly defers it. Deferral means a dated backlog entry with an owner
+and rationale, not disappearance from the audit or an undocumented reduction of scope.
 
 ---
 
-## 5. Sequenced PR plan
+## 5. One-PR implementation plan
 
-Each PR below has one primary concern and should be reviewable independently. “Size” is relative
-engineering/review risk, not a time estimate.
+Implement the cleanup on one branch created from an up-to-date `main` (recommended name:
+`fix/full-ui-cleanup`) and open one PR back to `main`. Keep that PR in draft while the work is in
+progress and make it reviewable through thematic commits, a maintained checklist and checkpoint
+results in the PR description.
+
+The `UI-00…UI-15` sections below are **work packages**, not separate PRs. Each package has one
+primary concern, explicit acceptance criteria and an owner in the finding matrix. A package may be
+one commit or a short adjacent series of commits when separating production code, tests and docs
+materially improves review. “Size” is relative engineering/review risk, not a time estimate.
+
+### 5.1 Delivery rules for the single PR
+
+- create the implementation branch from clean, current `main`, not from `UI-audit`;
+- do not copy the 642 screenshots into the implementation branch;
+- keep every commit thematic and leave the branch buildable; do not mix unrelated formatting or
+  opportunistic refactors into a finding fix;
+- run focused tests after every work package and record the result in the PR checklist;
+- run the full repository gate at the release-blocker checkpoint and again on the final commit;
+- update the architecture/product documentation in the same thematic commit that establishes its
+  rule;
+- use fixup commits while iterating if useful, then consolidate obvious review noise without
+  collapsing distinct themes into one opaque commit;
+- do not merge until all release-blocking acceptance criteria pass and every remaining finding is
+  fixed or explicitly deferred/accepted by the product owner.
+
+### 5.2 Recommended commit sequence
+
+This is the default history for the one PR. It is a review structure, not a requirement to force
+unrelated files into exactly 13 commits.
+
+| Commit theme                         | Work packages | Required checkpoint                                      |
+| ------------------------------------ | ------------- | -------------------------------------------------------- |
+| Guest Backtest entitlement contract  | UI-00         | contract, API and guest E2E                              |
+| Shared containment and mobile action | UI-01         | long-name matrix and menu keyboard/collision tests       |
+| Submit feedback and focus            | UI-02         | form/unit tests and 390 px refusal check                 |
+| Backtest progress and failure        | UI-03         | progress/failure/result tests                            |
+| Billing lifecycle truth              | UI-04         | mocked lifecycle and checkout-return tests               |
+| Limits and downgraded guidance       | UI-05         | canonical-entitlement fixtures                           |
+| Strategy and membership semantics    | UI-06, UI-07  | builder round trips and membership-period fixtures       |
+| Entity workflow and return paths     | UI-08         | owned/built-in/guest navigation tests                    |
+| Dashboard and Monitor hierarchy      | UI-09         | signal-state, freshness and polling tests                |
+| Pickers and collection scale         | UI-10, UI-11  | ARIA/keyboard/rate-limit and 0–60 record fixtures        |
+| Visual-system convergence            | UI-12         | token policy and representative responsive captures      |
+| Loading, auth, shell and Admin       | UI-13–UI-15   | access-safe errors, return paths, hydration and metadata |
+| Documentation and final regression   | all           | full gate and final hermetic audit matrix                |
+
+If one row becomes too large to review safely, split it into consecutive thematic commits inside
+the same branch and PR. The solution is a clearer history, not another PR.
+
+The sequenced work packages are:
 
 ### UI-00 — Align the guest Backtest entitlement contract
 
@@ -609,75 +660,76 @@ collection search at 10+ records, while sort remains available where order carri
 
 ---
 
-## 6. Finding-to-PR coverage
+## 6. Finding-to-work-package coverage
 
-Every audit finding has one primary owner below. A PR may improve adjacent behaviour, but the
-finding is closed only by its primary PR's acceptance criteria.
+Every audit finding has one primary work package below. A commit may improve adjacent behaviour,
+but the finding is closed only by its primary package's acceptance criteria. All packages land
+together through the single implementation PR.
 
-| Finding | Primary PR | Release disposition                             |
-| ------- | ---------- | ----------------------------------------------- |
-| UI-001  | UI-01      | blocker                                         |
-| UI-002  | UI-01      | blocker                                         |
-| UI-003  | UI-01      | ships with root fix                             |
-| UI-004  | UI-12      | document 880; improve compact grid in UI-01     |
-| UI-005  | UI-02      | blocker                                         |
-| UI-006  | UI-01      | blocker                                         |
-| UI-007  | UI-12      | follow-up; keep ownership groups                |
-| UI-008  | UI-08      | blocker                                         |
-| UI-009  | UI-10      | follow-up/shared picker                         |
-| UI-010  | UI-11      | follow-up                                       |
-| UI-011  | UI-01      | ships with card fix                             |
-| UI-012  | UI-11      | follow-up                                       |
-| UI-013  | UI-06      | blocker                                         |
-| UI-014  | UI-06      | ships with Builder fix                          |
-| UI-015  | UI-06      | ships with Builder fix                          |
-| UI-016  | UI-08      | ships with workflow fix                         |
-| UI-017  | UI-12      | follow-up; partial convergence only             |
-| UI-018  | UI-12      | follow-up; Add to list, legend, sign convention |
-| UI-019  | UI-07      | blocker                                         |
-| UI-020  | UI-05      | blocker                                         |
-| UI-021  | UI-05      | blocker                                         |
-| UI-022  | UI-05      | ships with entitlement guidance                 |
-| UI-023  | UI-05      | ships with entitlement guidance                 |
-| UI-024  | UI-05      | ships with entitlement guidance                 |
-| UI-025  | UI-09      | blocker                                         |
-| UI-026  | UI-09      | ships with signal hierarchy                     |
-| UI-027  | UI-13      | follow-up                                       |
-| UI-028  | UI-13      | follow-up                                       |
-| UI-029  | UI-13      | follow-up                                       |
-| UI-030  | UI-08      | ships with workflow fix                         |
-| UI-031  | UI-03      | blocker                                         |
-| UI-032  | UI-03      | ships with result fix                           |
-| UI-033  | UI-03      | spec corrected; retain two columns at 390       |
-| UI-034  | UI-03      | ships with result fix where contract permits    |
-| UI-035  | UI-10      | follow-up                                       |
-| UI-036  | UI-10      | follow-up                                       |
-| UI-037  | UI-04      | blocker                                         |
-| UI-038  | UI-04      | ships with billing fix                          |
-| UI-039  | UI-04      | ships with billing fix                          |
-| UI-040  | UI-14      | follow-up                                       |
-| UI-041  | UI-14      | follow-up                                       |
-| UI-042  | UI-14      | contract portion required                       |
-| UI-043  | UI-14      | follow-up                                       |
-| UI-044  | UI-12      | follow-up                                       |
-| UI-045  | UI-10      | follow-up                                       |
-| UI-046  | UI-04      | blocker                                         |
-| UI-047  | UI-04      | ships with billing fix                          |
-| UI-048  | UI-09      | follow-up                                       |
-| UI-049  | UI-09      | rendered dates only; native inputs accepted     |
-| UI-050  | UI-01      | ships with row-action fix                       |
-| UI-051  | UI-15      | follow-up                                       |
-| UI-052  | UI-15      | follow-up                                       |
-| UI-053  | UI-15      | follow-up/partially accepted                    |
-| UI-054  | UI-15      | fix hydration; accept expected guest 401        |
-| UI-055  | UI-15      | follow-up                                       |
-| UI-056  | UI-12      | document per-context ordering                   |
-| UI-057  | UI-13      | follow-up                                       |
-| UI-058  | UI-12      | follow-up                                       |
+| Finding | Primary package | Release disposition                             |
+| ------- | --------------- | ----------------------------------------------- |
+| UI-001  | UI-01           | blocker                                         |
+| UI-002  | UI-01           | blocker                                         |
+| UI-003  | UI-01           | ships with root fix                             |
+| UI-004  | UI-12           | document 880; improve compact grid in UI-01     |
+| UI-005  | UI-02           | blocker                                         |
+| UI-006  | UI-01           | blocker                                         |
+| UI-007  | UI-12           | follow-up; keep ownership groups                |
+| UI-008  | UI-08           | blocker                                         |
+| UI-009  | UI-10           | follow-up/shared picker                         |
+| UI-010  | UI-11           | follow-up                                       |
+| UI-011  | UI-01           | ships with card fix                             |
+| UI-012  | UI-11           | follow-up                                       |
+| UI-013  | UI-06           | blocker                                         |
+| UI-014  | UI-06           | ships with Builder fix                          |
+| UI-015  | UI-06           | ships with Builder fix                          |
+| UI-016  | UI-08           | ships with workflow fix                         |
+| UI-017  | UI-12           | follow-up; partial convergence only             |
+| UI-018  | UI-12           | follow-up; Add to list, legend, sign convention |
+| UI-019  | UI-07           | blocker                                         |
+| UI-020  | UI-05           | blocker                                         |
+| UI-021  | UI-05           | blocker                                         |
+| UI-022  | UI-05           | ships with entitlement guidance                 |
+| UI-023  | UI-05           | ships with entitlement guidance                 |
+| UI-024  | UI-05           | ships with entitlement guidance                 |
+| UI-025  | UI-09           | blocker                                         |
+| UI-026  | UI-09           | ships with signal hierarchy                     |
+| UI-027  | UI-13           | follow-up                                       |
+| UI-028  | UI-13           | follow-up                                       |
+| UI-029  | UI-13           | follow-up                                       |
+| UI-030  | UI-08           | ships with workflow fix                         |
+| UI-031  | UI-03           | blocker                                         |
+| UI-032  | UI-03           | ships with result fix                           |
+| UI-033  | UI-03           | spec corrected; retain two columns at 390       |
+| UI-034  | UI-03           | ships with result fix where contract permits    |
+| UI-035  | UI-10           | follow-up                                       |
+| UI-036  | UI-10           | follow-up                                       |
+| UI-037  | UI-04           | blocker                                         |
+| UI-038  | UI-04           | ships with billing fix                          |
+| UI-039  | UI-04           | ships with billing fix                          |
+| UI-040  | UI-14           | follow-up                                       |
+| UI-041  | UI-14           | follow-up                                       |
+| UI-042  | UI-14           | contract portion required                       |
+| UI-043  | UI-14           | follow-up                                       |
+| UI-044  | UI-12           | follow-up                                       |
+| UI-045  | UI-10           | follow-up                                       |
+| UI-046  | UI-04           | blocker                                         |
+| UI-047  | UI-04           | ships with billing fix                          |
+| UI-048  | UI-09           | follow-up                                       |
+| UI-049  | UI-09           | rendered dates only; native inputs accepted     |
+| UI-050  | UI-01           | ships with row-action fix                       |
+| UI-051  | UI-15           | follow-up                                       |
+| UI-052  | UI-15           | follow-up                                       |
+| UI-053  | UI-15           | follow-up/partially accepted                    |
+| UI-054  | UI-15           | fix hydration; accept expected guest 401        |
+| UI-055  | UI-15           | follow-up                                       |
+| UI-056  | UI-12           | document per-context ordering                   |
+| UI-057  | UI-13           | follow-up                                       |
+| UI-058  | UI-12           | follow-up                                       |
 
 ---
 
-## 7. Dependency order and safe parallelism
+## 7. Dependency and commit order
 
 ```text
 UI-00 ────────────────→ UI-14
@@ -695,7 +747,7 @@ UI-04 ─→ UI-05
 UI-06        UI-07
 ```
 
-Safe initial parallel work:
+Independent early work packages:
 
 - UI-00 contract alignment;
 - UI-01 containment;
@@ -704,7 +756,8 @@ Safe initial parallel work:
 - UI-06 Strategy Builder;
 - UI-07 membership periods.
 
-Avoid concurrent edits to the same shared primitives. In particular:
+Within the single branch, apply dependent packages in the order above. If several agents contribute
+to the same PR, avoid concurrent edits to the same shared primitives. In particular:
 
 - UI-01 owns `DataTable`, `EntityReferenceChip` and `OverflowMenu` while active;
 - UI-02 owns `WorkflowFooter` error/focus behaviour;
@@ -715,21 +768,25 @@ Avoid concurrent edits to the same shared primitives. In particular:
 
 ## 8. Verification strategy
 
-### 8.1 Per-PR checks
+### 8.1 Per-work-package checks
 
-Every PR runs:
+Every work package runs:
 
 - focused component/feature tests;
 - `pnpm lint` and `pnpm typecheck`;
 - the relevant hermetic browser specs at the affected widths/personas;
-- the normal repository gate before handoff.
+- its relevant package-level gate before the next dependent work package.
+
+The one implementation PR runs the complete repository gate after the release-blocking wave and
+again at final handoff.
 
 No UI cleanup test may contact real FMP, SMTP, Google or Stripe. Billing and email states remain
 mocked; plan-limit refusals continue to use the real local API.
 
 ### 8.2 Small visual regression matrix
 
-Do not regenerate/review all 642 screenshots on every PR. Maintain a small mandatory matrix:
+Do not regenerate/review all 642 screenshots after every work package. Maintain a small mandatory
+matrix:
 
 | Persona/state                | 390 | 879 | 880 | 1,024 | 1,440 |
 | ---------------------------- | --: | --: | --: | ----: | ----: |
@@ -761,7 +818,8 @@ release-blocking wave and again after the consolidation wave.
 
 ## 9. Documentation changes required as work lands
 
-Update documentation in the PR that establishes the rule, not in one final cleanup commit:
+Update documentation in the thematic commit that establishes the rule, not in one final cleanup
+commit:
 
 - `ai/architecture/ui-system.md`
   - allow grouped Your/Built-in collections;
