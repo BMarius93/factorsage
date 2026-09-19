@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { register } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
-import { signInHref } from "../utils/guest-routes";
+import { useRedirectIfSignedIn } from "../hooks/use-redirect-if-signed-in";
+import { forgotPasswordHref, signInHref } from "../utils/guest-routes";
 import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
 import styles from "./auth-form.module.css";
 import { GoogleSignInButton } from "./GoogleSignInButton";
@@ -36,6 +37,7 @@ export function RegisterForm({
   readonly returnPath?: string;
 } = {}) {
   const destination = safeReturnPath(returnPath);
+  const redirecting = useRedirectIfSignedIn(destination);
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,11 +84,23 @@ export function RegisterForm({
           </Link>
         </p>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/forgot-password">
+          <Link className={styles.link} href={forgotPasswordHref(destination)}>
             Forgot your password?
           </Link>
         </p>
       </div>
+    );
+  }
+
+  if (redirecting) {
+    return (
+      <p
+        className={styles.status}
+        role="status"
+        data-testid="auth-already-signed-in"
+      >
+        You are already signed in. Taking you back…
+      </p>
     );
   }
 
@@ -150,7 +164,7 @@ export function RegisterForm({
         </Link>
       </p>
       <p className={styles.footerNote}>
-        <Link className={styles.link} href="/forgot-password">
+        <Link className={styles.link} href={forgotPasswordHref(destination)}>
           Forgot your password?
         </Link>
       </p>

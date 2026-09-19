@@ -4,11 +4,16 @@ import { PASSWORD_MIN_LENGTH } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { resetPassword } from "../api/auth-api";
+import { ApiError } from "../../../lib/api/client";
 import { describeRequestError } from "../utils/auth-errors";
+import { forgotPasswordHref, signInHref } from "../utils/guest-routes";
+import { ForgotPasswordForm } from "./ForgotPasswordForm";
 import styles from "./auth-form.module.css";
 
 export const PASSWORD_MISMATCH_MESSAGE = "Both passwords must match.";
 export const PASSWORD_TOO_SHORT_MESSAGE = `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+export const INVALID_LINK_MESSAGE =
+  "This password reset link is invalid, expired, or has already been used.";
 export const MISSING_TOKEN_MESSAGE =
   "This page needs a password reset link. Open the most recent link from your inbox.";
 
@@ -28,6 +33,9 @@ export function ResetPasswordForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // The API refused the link itself — unknown, expired, used or superseded. It does not say which,
+  // and neither does this page (UI-043).
+  const [invalid, setInvalid] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,7 +61,11 @@ export function ResetPasswordForm({
       await resetPassword({ token, password });
       setDone(true);
     } catch (caught) {
-      setError(describeRequestError(caught));
+      if (caught instanceof ApiError && caught.status === 401) {
+        setInvalid(true);
+      } else {
+        setError(describeRequestError(caught));
+      }
       setSubmitting(false);
     }
   }
@@ -65,10 +77,26 @@ export function ResetPasswordForm({
           {MISSING_TOKEN_MESSAGE}
         </p>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/forgot-password">
+          <Link className={styles.link} href={forgotPasswordHref()}>
             Request a new link
           </Link>
         </p>
+      </div>
+    );
+  }
+
+  if (invalid) {
+    return (
+      <div data-testid="reset-password-invalid">
+        <p className={styles.error} role="alert">
+          {INVALID_LINK_MESSAGE}
+        </p>
+        <p className={styles.status}>
+          Enter your email address and we will send a new link.
+        </p>
+        <div className={styles.inlineAction}>
+          <ForgotPasswordForm />
+        </div>
       </div>
     );
   }
@@ -80,7 +108,7 @@ export function ResetPasswordForm({
           Your password has been changed.
         </p>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/login">
+          <Link className={styles.link} href={signInHref()}>
             Continue to sign in
           </Link>
         </p>
@@ -150,7 +178,7 @@ export function ResetPasswordForm({
 
       <p className={styles.footerNote}>
         Link expired?{" "}
-        <Link className={styles.link} href="/forgot-password">
+        <Link className={styles.link} href={forgotPasswordHref()}>
           Request a new one
         </Link>
       </p>

@@ -24,7 +24,12 @@ vi.mock("next/link", () => ({
 const registerRequest = vi.fn();
 const getAuthProviders = vi.fn();
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
+}));
+
 vi.mock("../api/auth-api", () => ({
+  getAuthUser: () => Promise.resolve(null),
   GOOGLE_SIGN_IN_URL: "http://api.test/auth/google",
   register: (...args: unknown[]) => registerRequest(...args),
   getAuthProviders: () => getAuthProviders(),

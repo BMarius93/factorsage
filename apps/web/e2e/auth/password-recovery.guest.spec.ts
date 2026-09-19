@@ -69,7 +69,17 @@ test.describe("guest password recovery @smoke", () => {
     await page.getByLabel("Confirm new password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Change password" }).click();
 
-    await expect(page.getByTestId("reset-password-error")).toBeVisible();
+    // The dead form is replaced by a recovery state with its own new-link form (UI-043), like an
+    // invalid verification link. No email is sent: the test stops before submitting it.
+    const invalid = page.getByTestId("reset-password-invalid");
+    await expect(invalid).toBeVisible();
+    await expect(invalid).toContainText(
+      "This password reset link is invalid, expired, or has already been used.",
+    );
+    await expect(
+      invalid.getByRole("button", { name: "Send reset link" }),
+    ).toBeVisible();
+    await expect(newPasswordField(page)).toHaveCount(0);
     await expect(page.getByTestId("reset-password-success")).toHaveCount(0);
     // A failed reset is not a sign-in.
     await expect(page.getByTestId("account-menu-trigger")).toHaveCount(0);

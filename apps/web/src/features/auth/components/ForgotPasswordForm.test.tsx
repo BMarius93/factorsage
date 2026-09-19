@@ -93,4 +93,13 @@ describe("ForgotPasswordForm", () => {
       (await screen.findByTestId("forgot-password-error")).textContent,
     ).toBe(UNEXPECTED_ERROR);
   });
+
+  it("returns to sign in with the destination it was given (UI-042)", () => {
+    render(<ForgotPasswordForm returnPath="/lists/abc" />);
+    expect(
+      screen
+        .getByRole("link", { name: "Back to sign in" })
+        .getAttribute("href"),
+    ).toBe("/login?next=%2Flists%2Fabc");
+  });
 });

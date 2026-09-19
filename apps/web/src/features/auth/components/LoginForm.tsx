@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { login } from "../api/auth-api";
 import { describeLoginFailure } from "../utils/auth-errors";
-import { registerHref } from "../utils/guest-routes";
+import { useRedirectIfSignedIn } from "../hooks/use-redirect-if-signed-in";
+import { forgotPasswordHref, registerHref } from "../utils/guest-routes";
 import { DEFAULT_RETURN_PATH, safeReturnPath } from "../utils/return-path";
 import styles from "./auth-form.module.css";
 import { GoogleSignInButton } from "./GoogleSignInButton";
@@ -21,6 +22,9 @@ type LoginFormProps = {
   readonly returnPath?: string;
 };
 
+export const EMAIL_REQUIRED_MESSAGE = "Enter your email address.";
+export const PASSWORD_REQUIRED_MESSAGE = "Enter your password.";
+
 export function LoginForm({
   providerError = null,
   returnPath = DEFAULT_RETURN_PATH,
@@ -31,9 +35,26 @@ export function LoginForm({
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    readonly email?: string;
+    readonly password?: string;
+  }>({});
+  const redirecting = useRedirectIfSignedIn(destination);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // An empty field is answered here, beside the field, rather than by a request that could only
+    // come back as "those credentials" (UI-041).
+    const missing = {
+      ...(email.trim() === "" ? { email: EMAIL_REQUIRED_MESSAGE } : {}),
+      ...(password === "" ? { password: PASSWORD_REQUIRED_MESSAGE } : {}),
+    };
+    setFieldErrors(missing);
+    if (missing.email || missing.password) {
+      setError(null);
+      document.getElementById(missing.email ? "email" : "password")?.focus();
+      return;
+    }
     setSubmitting(true);
     setError(null);
 
@@ -45,6 +66,18 @@ export function LoginForm({
       setError(describeLoginFailure(caught));
       setSubmitting(false);
     }
+  }
+
+  if (redirecting) {
+    return (
+      <p
+        className={styles.status}
+        role="status"
+        data-testid="auth-already-signed-in"
+      >
+        You are already signed in. Taking you back…
+      </p>
+    );
   }
 
   return (
@@ -61,10 +94,22 @@ export function LoginForm({
             type="email"
             autoComplete="email"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldErrors((current) => ({ ...current, email: undefined }));
+            }}
             disabled={submitting}
             required
+            aria-invalid={fieldErrors.email ? true : undefined}
+            {...(fieldErrors.email
+              ? { "aria-describedby": "email-error" }
+              : {})}
           />
+          {fieldErrors.email ? (
+            <p className={styles.fieldError} id="email-error">
+              {fieldErrors.email}
+            </p>
+          ) : null}
         </div>
 
         <div className={styles.field}>
@@ -78,10 +123,25 @@ export function LoginForm({
             type="password"
             autoComplete="current-password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setFieldErrors((current) => ({
+                ...current,
+                password: undefined,
+              }));
+            }}
             disabled={submitting}
             required
+            aria-invalid={fieldErrors.password ? true : undefined}
+            {...(fieldErrors.password
+              ? { "aria-describedby": "password-error" }
+              : {})}
           />
+          {fieldErrors.password ? (
+            <p className={styles.fieldError} id="password-error">
+              {fieldErrors.password}
+            </p>
+          ) : null}
         </div>
 
         {providerError ? (
@@ -108,7 +168,7 @@ export function LoginForm({
       <GoogleSignInButton returnPath={destination} />
 
       <p className={styles.footerNote}>
-        <Link className={styles.link} href="/forgot-password">
+        <Link className={styles.link} href={forgotPasswordHref(destination)}>
           Forgot your password?
         </Link>
       </p>

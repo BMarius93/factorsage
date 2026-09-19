@@ -11,7 +11,10 @@ const signOut = vi.fn();
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, refresh }),
+  usePathname: () => pathname,
 }));
+
+let pathname = "/dashboard";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -59,6 +62,16 @@ describe("AccountMenu", () => {
       "/login",
     );
     expect(screen.queryByTestId("account-menu-trigger")).toBeNull();
+  });
+
+  it("returns a Guest who signs in from the topbar to the page they were on (UI-042)", () => {
+    state = { status: "unauthenticated" };
+    pathname = "/strategies/abc";
+    render(<AccountMenu />);
+    expect(screen.getByTestId("sign-in-link").getAttribute("href")).toBe(
+      "/login?next=%2Fstrategies%2Fabc",
+    );
+    pathname = "/dashboard";
   });
 
   it("renders nothing until a session exists", () => {

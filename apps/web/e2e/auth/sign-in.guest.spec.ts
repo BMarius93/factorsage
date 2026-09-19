@@ -5,6 +5,34 @@ import { expect, test } from "../fixtures";
  * storage state and never signs in.
  */
 test.describe("guest authentication @smoke", () => {
+  test("answers an empty sign-in beside the fields without asking the API (UI-041)", async ({
+    page,
+  }) => {
+    let loginRequests = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && request.url().endsWith("/auth/login")) {
+        loginRequests += 1;
+      }
+    });
+    await page.goto("/login");
+    await page.getByRole("button", { name: "Sign in" }).click();
+
+    await expect(page.getByText("Enter your email address.")).toBeVisible();
+    await expect(page.getByText("Enter your password.")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeFocused();
+    expect(loginRequests).toBe(0);
+  });
+
+  test("returns from the topbar sign-in to the page it was used on (UI-042)", async ({
+    page,
+  }) => {
+    await page.goto("/lists");
+    await expect(page.getByTestId("sign-in-link")).toHaveAttribute(
+      "href",
+      "/login?next=%2Flists",
+    );
+  });
+
   test("can reach the sign-in page", async ({ page }) => {
     await page.goto("/login");
 

@@ -3,6 +3,20 @@ import { qaPersona } from "../utils/env";
 import { openAccountMenu } from "../utils/sign-in";
 
 test.describe("PRO_USER session @smoke", () => {
+  test("is sent on from the sign-in and register pages instead of seeing a form (UI-040)", async ({
+    page,
+  }) => {
+    await page.goto("/login?next=%2Flists");
+    await expect(page).toHaveURL(/\/lists$/);
+
+    await page.goto("/register");
+    await expect(page).toHaveURL(/\/dashboard$/);
+
+    // An external destination is never followed, even for a signed-in visitor.
+    await page.goto("/login?next=https%3A%2F%2Fevil.example");
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
+
   test("keeps an authenticated session across navigations", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByTestId("account-menu-trigger")).toBeVisible();

@@ -69,7 +69,10 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
           }
           actions={
             <>
-              <Link className={forms.secondaryButton} href="/login">
+              <Link
+                className={forms.secondaryButton}
+                href={signInHref(currentReturnPath())}
+              >
                 Return to sign in
               </Link>
               {retry ? (

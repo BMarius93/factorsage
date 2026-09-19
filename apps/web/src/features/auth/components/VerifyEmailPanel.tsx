@@ -7,6 +7,7 @@ import { ApiError } from "../../../lib/api/client";
 import { verifyEmail } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
 import styles from "./auth-form.module.css";
+import { signInHref } from "../utils/guest-routes";
 import { ResendVerificationForm } from "./ResendVerificationForm";
 import {
   PASSWORD_MISMATCH_MESSAGE,
@@ -82,7 +83,7 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           Your email address is verified and your password is set.
         </p>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/login">
+          <Link className={styles.link} href={signInHref()}>
             Continue to sign in
           </Link>
         </p>
@@ -105,7 +106,7 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           <ResendVerificationForm />
         </div>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/login">
+          <Link className={styles.link} href={signInHref()}>
             Back to sign in
           </Link>
         </p>

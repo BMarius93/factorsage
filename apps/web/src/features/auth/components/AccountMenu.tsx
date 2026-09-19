@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
+import { signInHref } from "../utils/guest-routes";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PLAN_LABEL } from "../../billing/utils/format";
 import styles from "./AccountMenu.module.css";
@@ -14,6 +15,7 @@ import styles from "./AccountMenu.module.css";
  */
 export function AccountMenu() {
   const router = useRouter();
+  const pathname = usePathname();
   const { state, signOut } = useAuthSession();
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState<"here" | "everywhere" | null>(
@@ -62,7 +64,9 @@ export function AccountMenu() {
         </Link>
         <Link
           className={styles.signIn}
-          href="/login"
+          // The page being read is where signing in returns to (UI-042). The pathname is the same
+          // on the server and the client, so the link never causes a hydration mismatch.
+          href={signInHref(pathname ?? undefined)}
           data-testid="sign-in-link"
         >
           Sign in

@@ -18,6 +18,7 @@ vi.mock("../../features/auth/api/auth-api", () => ({
   GOOGLE_SIGN_IN_URL: "http://api.test/auth/google",
   login: (...args: unknown[]) => login(...args),
   getAuthProviders: () => Promise.resolve({ google: false }),
+  getAuthUser: () => Promise.resolve(null),
 }));
 
 async function signIn() {

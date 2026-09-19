@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { requestPasswordReset } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
+import { signInHref } from "../utils/guest-routes";
 import styles from "./auth-form.module.css";
 
 /**
@@ -16,7 +17,12 @@ import styles from "./auth-form.module.css";
 export const RESET_REQUESTED_MESSAGE =
   "If that address has a FactorSage account with a password, a reset link is on its way. Check your inbox and spam folder.";
 
-export function ForgotPasswordForm() {
+export function ForgotPasswordForm({
+  returnPath,
+}: {
+  /** Where "Back to sign in" returns to, carried from the sign-in page (UI-042). */
+  readonly returnPath?: string;
+} = {}) {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
@@ -48,7 +54,7 @@ export function ForgotPasswordForm() {
           it.
         </p>
         <p className={styles.footerNote}>
-          <Link className={styles.link} href="/login">
+          <Link className={styles.link} href={signInHref(returnPath)}>
             Back to sign in
           </Link>
         </p>
@@ -97,7 +103,7 @@ export function ForgotPasswordForm() {
 
       <p className={styles.footerNote}>
         Remembered it?{" "}
-        <Link className={styles.link} href="/login">
+        <Link className={styles.link} href={signInHref(returnPath)}>
           Back to sign in
         </Link>
       </p>

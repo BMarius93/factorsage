@@ -23,6 +23,7 @@ import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
+import { signInHref } from "../../auth/utils/guest-routes";
 import forms from "../../../components/ui/forms.module.css";
 import { formatDateTime } from "../../../lib/dates";
 import { useNow } from "../../../lib/use-now";
@@ -351,7 +352,10 @@ export function DashboardPage() {
               choose which ones appear here, create your own, and backtest any
               of them.
             </p>
-            <Link className={forms.tintedButton} href="/login">
+            <Link
+              className={forms.tintedButton}
+              href={signInHref("/dashboard")}
+            >
               Sign in
             </Link>
           </div>
