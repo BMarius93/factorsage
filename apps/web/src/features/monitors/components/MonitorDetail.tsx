@@ -27,8 +27,6 @@ import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
-import { AccountActionLink } from "../../auth/components/AccountActionLink";
-import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitor } from "../hooks/use-monitor";
@@ -38,6 +36,7 @@ import {
   MonitorStateBadge,
 } from "../utils/blocked-status";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import {
   activeSignalLabel,
   formatMonitorTimestamp,
@@ -355,13 +354,8 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     <PageContainer>
       <div className={styles.page} data-testid="monitor-detail">
         <PageHeader
-          back={
-            builtIn && !view.canEdit
-              ? { href: "/dashboard", label: "Dashboard" }
-              : builtIn
-                ? { href: "/admin", label: "Admin" }
-                : { href: "/monitors", label: "Monitors" }
-          }
+          // Always the owning collection (UI-016), for a built-in too: that is where it was found.
+          back={{ href: "/monitors", label: "Monitors" }}
           title={view.name}
           badges={
             <>
@@ -389,16 +383,21 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
           actions={
             !view.canEdit ? (
-              <AccountActionLink
-                className={forms.tintedButton}
-                href={`/backtests/new?strategyId=${encodeURIComponent(view.strategyId)}&stockListId=${encodeURIComponent(view.stockListId)}`}
-                prompt={SIGN_IN_TO_BACKTEST}
+              <RunBacktestLink
+                prefill={{
+                  strategyId: view.strategyId,
+                  stockListId: view.stockListId,
+                }}
                 testId="backtest-this-monitor"
-              >
-                Backtest this monitor
-              </AccountActionLink>
+              />
             ) : builtIn ? (
               <>
+                <RunBacktestLink
+                  prefill={{
+                    strategyId: view.strategyId,
+                    stockListId: view.stockListId,
+                  }}
+                />
                 <button
                   type="button"
                   className={forms.tintedButton}
@@ -431,6 +430,13 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               </>
             ) : (
               <>
+                {/* The owner's monitor offers the same next step a built-in does (UI-008). */}
+                <RunBacktestLink
+                  prefill={{
+                    strategyId: view.strategyId,
+                    stockListId: view.stockListId,
+                  }}
+                />
                 <button
                   type="button"
                   className={forms.tintedButton}

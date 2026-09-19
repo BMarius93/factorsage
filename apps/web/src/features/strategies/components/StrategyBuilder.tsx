@@ -8,11 +8,10 @@ import {
   type StrategySignal,
 } from "@intrinsic/contracts";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
-import { newBacktestHref } from "../../backtests/utils/prefill";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import forms from "../../../components/ui/forms.module.css";
@@ -220,19 +219,11 @@ export function StrategyBuilder({ strategy }: StrategyBuilderProps) {
                 ? {
                     actions: (
                       <>
-                        <Link
-                          className={forms.secondaryButton}
-                          href={newBacktestHref({ strategyId: saved.id })}
-                          data-testid="strategy-run-backtest"
-                          {...(dirty
-                            ? {
-                                title:
-                                  "Runs the saved version of this strategy. Save first to backtest your changes.",
-                              }
-                            : {})}
-                        >
-                          Run backtest
-                        </Link>
+                        {/* Runs the saved version: unsaved edits are not part of any backtest. */}
+                        <RunBacktestLink
+                          prefill={{ strategyId: saved.id }}
+                          testId="strategy-run-backtest"
+                        />
                         <OverflowMenu
                           label={saved.name}
                           testId="strategy-editor-actions"

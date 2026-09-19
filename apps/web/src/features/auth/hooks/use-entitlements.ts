@@ -9,21 +9,7 @@ import {
   type UserRole,
 } from "@intrinsic/contracts";
 import { useMemo } from "react";
-import { useAuthSession, type AuthState } from "./use-auth-session";
-
-/**
- * The session state, or `null` where no `AuthSessionProvider` is mounted. The application always
- * mounts one (`(app)/layout.tsx`); a component rendered in isolation — a unit test of a dialog —
- * does not, and a limit it cannot resolve is simply not shown. `useContext` is called either way,
- * so the hook order never changes.
- */
-function useSessionStateIfProvided(): AuthState | null {
-  try {
-    return useAuthSession().state;
-  } catch {
-    return null;
-  }
-}
+import { useSessionStateIfProvided } from "./session-state";
 
 export type EntitlementsView =
   | { readonly status: "loading" }

@@ -267,7 +267,13 @@ DataTable on desktop / standalone record cards on phone
 ```
 
 Do not add a second generic `SectionCard` merely to wrap the collection. An empty state occupies the
-same collection region without moving `New …` away from the header.
+same collection region without moving `New …` away from the header: `New …` is in the header in
+loading, empty, error and populated states alike (disabled while the session resolves), and the
+empty state points at it in words rather than repeating it as a second, differently styled button
+(UI-030).
+
+Every List, Strategy and Monitor detail header offers **Run backtest** (secondary), owned or
+built-in, before the page's own Edit and overflow; see `frontend.md` (UI-008).
 
 Every mobile record card uses this order:
 

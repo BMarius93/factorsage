@@ -189,11 +189,20 @@ export function StrategiesPage() {
       </button>
     );
 
-  // Exactly one "New strategy" affordance in every state.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0)
-      ? newStrategyAction(forms.tintedButton)
-      : null;
+  // "New strategy" lives in the header in every state (UI-030). Until the session resolves it is a
+  // disabled button, because it is a link for a customer and a question for a Guest.
+  const headerAction = gate.resolved ? (
+    newStrategyAction(forms.tintedButton)
+  ) : (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-strategy-button"
+      disabled
+    >
+      New strategy
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -201,7 +210,7 @@ export function StrategiesPage() {
         <PageHeader
           title="Strategies"
           lead="Reusable buy, sell and final-exit logic for backtests and monitors."
-          {...(headerAction ? { actions: headerAction } : {})}
+          actions={headerAction}
         />
 
         {status === "loading" ? (
@@ -250,9 +259,9 @@ export function StrategiesPage() {
                     A strategy is the reusable logic that decides when to buy
                     and when to sell — conditions such as{" "}
                     <em>{EXAMPLE_CONDITION}</em>, and the event that fires them.
+                    Start with <strong>New strategy</strong> above.
                   </p>
                 }
-                actions={newStrategyAction(forms.primaryButton)}
               />
             }
           />

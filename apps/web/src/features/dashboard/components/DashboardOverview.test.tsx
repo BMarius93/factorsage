@@ -365,12 +365,13 @@ describe("DashboardOverview", () => {
       within(prompt)
         .getByRole("link", { name: "Sign in" })
         .getAttribute("href"),
-    ).toBe("/login");
+      // Signing in goes straight to New Backtest, the thing the Guest asked for (UI-042).
+    ).toBe("/login?next=%2Fbacktests%2Fnew");
     expect(
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe("/register");
+    ).toBe("/register?next=%2Fbacktests%2Fnew");
     // And the Dashboard is still underneath it: no redirect to /login for a click.
     expect(screen.queryByTestId("dashboard-overview")).not.toBeNull();
     expect(

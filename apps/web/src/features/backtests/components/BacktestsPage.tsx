@@ -233,16 +233,15 @@ export function BacktestsPage() {
         <PageHeader
           title="Backtests"
           lead="Run a strategy over a stock list and a historical period, and compare it against a benchmark."
+          // In the header in every state, never swapped for an empty state's own button (UI-030).
           actions={
-            status === "ready" && runs.length > 0 ? (
-              <Link
-                className={forms.tintedButton}
-                href="/backtests/new"
-                data-testid="new-backtest-button"
-              >
-                New backtest
-              </Link>
-            ) : null
+            <Link
+              className={forms.tintedButton}
+              href="/backtests/new"
+              data-testid="new-backtest-button"
+            >
+              New backtest
+            </Link>
           }
         />
 
@@ -277,17 +276,9 @@ export function BacktestsPage() {
               <p>
                 A backtest executes one strategy over one stock list across a
                 historical period, with your capital, contributions and position
-                limit. Results appear while it runs.
+                limit. Results appear while it runs. Start with{" "}
+                <strong>New backtest</strong> above.
               </p>
-            }
-            actions={
-              <Link
-                className={forms.primaryButton}
-                href="/backtests/new"
-                data-testid="new-backtest-button"
-              >
-                Run your first backtest
-              </Link>
             }
           />
         ) : null}

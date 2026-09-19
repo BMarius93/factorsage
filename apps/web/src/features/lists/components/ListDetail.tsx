@@ -21,6 +21,7 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import { LimitMeter } from "../../../components/ui/LimitMeter";
 import {
   isEntitlementError,
@@ -310,11 +311,8 @@ export function ListDetail({ listId }: ListDetailProps) {
     <PageContainer>
       <div className={styles.page} data-testid="list-detail">
         <PageHeader
-          back={
-            builtIn && !editable
-              ? { href: "/dashboard", label: "Dashboard" }
-              : { href: "/lists", label: "Lists" }
-          }
+          // The owning collection (UI-016), for a built-in too.
+          back={{ href: "/lists", label: "Lists" }}
           title={detail.name}
           {...(detail.description ? { lead: detail.description } : {})}
           badges={
@@ -341,6 +339,8 @@ export function ListDetail({ listId }: ListDetailProps) {
           actions={
             editable ? (
               <>
+                {/* The list's next step, the same on a built-in and on the owner's list (UI-008). */}
+                <RunBacktestLink prefill={{ stockListId: detail.id }} />
                 <button
                   type="button"
                   className={forms.tintedButton}
@@ -362,7 +362,9 @@ export function ListDetail({ listId }: ListDetailProps) {
                   />
                 )}
               </>
-            ) : undefined
+            ) : (
+              <RunBacktestLink prefill={{ stockListId: detail.id }} />
+            )
           }
         />
 

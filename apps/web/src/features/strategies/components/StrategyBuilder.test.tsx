@@ -21,6 +21,17 @@ import { StrategyBuilder } from "./StrategyBuilder";
 
 const replace = vi.fn();
 
+// The editor is only ever reached signed in; its header's account-dependent links need to know.
+vi.mock("../../auth/hooks/use-auth-session", () => ({
+  useAuthSession: () => ({
+    state: {
+      status: "authenticated",
+      user: { id: "u1", email: "u@example.test", role: "USER", plan: "PRO" },
+    },
+    signOut: vi.fn(),
+  }),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
 }));

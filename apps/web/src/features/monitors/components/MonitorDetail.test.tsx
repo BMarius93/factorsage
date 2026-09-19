@@ -230,9 +230,7 @@ describe("MonitorDetail", () => {
       expect(screen.queryByTestId("edit-monitor")).toBeNull();
       expect(screen.queryByTestId("monitor-detail-actions")).toBeNull();
       expect(
-        screen
-          .getByRole("link", { name: "Backtest this monitor" })
-          .getAttribute("href"),
+        screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
       expect(screen.getByText("Waiting for trigger")).toBeDefined();
       expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
@@ -240,6 +238,9 @@ describe("MonitorDetail", () => {
 
     describe("backtest action for a Guest (UX-002)", () => {
       const MONITOR_PATH = "/monitors/monitor-1";
+      // Signing in leads to the prefilled New Backtest the Guest asked for (UI-042).
+      const INTENDED =
+        "/backtests/new?strategyId=strategy-1&stockListId=list-1";
 
       beforeEach(() => {
         window.history.replaceState(null, "", MONITOR_PATH);
@@ -257,11 +258,9 @@ describe("MonitorDetail", () => {
         render(<MonitorDetail monitorId="monitor-1" />);
         await detailReady();
 
-        expect(
-          screen.queryByRole("link", { name: "Backtest this monitor" }),
-        ).toBeNull();
+        expect(screen.queryByRole("link", { name: "Run backtest" })).toBeNull();
         await userEvent.click(
-          screen.getByRole("button", { name: "Backtest this monitor" }),
+          screen.getByRole("button", { name: "Run backtest" }),
         );
 
         const prompt = await screen.findByTestId("sign-in-prompt");
@@ -272,12 +271,12 @@ describe("MonitorDetail", () => {
           within(prompt)
             .getByRole("link", { name: "Sign in" })
             .getAttribute("href"),
-        ).toBe(`/login?next=${encodeURIComponent(MONITOR_PATH)}`);
+        ).toBe(`/login?next=${encodeURIComponent(INTENDED)}`);
         expect(
           within(prompt)
             .getByRole("link", { name: "Create an account" })
             .getAttribute("href"),
-        ).toBe(`/register?next=${encodeURIComponent(MONITOR_PATH)}`);
+        ).toBe(`/register?next=${encodeURIComponent(INTENDED)}`);
         expect(push).not.toHaveBeenCalled();
         expect(replace).not.toHaveBeenCalled();
         expect(window.location.pathname).toBe(MONITOR_PATH);
@@ -289,7 +288,7 @@ describe("MonitorDetail", () => {
         await detailReady();
 
         const action = screen.getByRole("button", {
-          name: "Backtest this monitor",
+          name: "Run backtest",
         });
         expect(action.hasAttribute("disabled")).toBe(true);
         await userEvent.click(action);
@@ -326,6 +325,22 @@ describe("MonitorDetail", () => {
         ),
       );
     });
+  });
+
+  it("offers the owner the same Run backtest a built-in has, prefilled (UI-008)", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    expect(
+      screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
+    ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
+    // Secondary, then the owner's Edit, then the overflow: the canonical header order.
+    expect(screen.getByTestId("edit-monitor")).toBeDefined();
+    // The back link is the owning collection.
+    expect(
+      screen.getByRole("link", { name: /Monitors/ }).getAttribute("href"),
+    ).toBe("/monitors");
   });
 
   it("shows what the monitor watches, with its state and last checked time", async () => {

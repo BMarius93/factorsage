@@ -413,20 +413,18 @@ export function MonitorsPage() {
       />
     ) : null;
 
-  // Exactly one "New monitor" affordance in every state: the header carries it once the viewer has
-  // monitors of their own (or is a Guest, who will never have a "Your monitors" section), and the
-  // empty section carries it otherwise.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
-      <button
-        type="button"
-        className={forms.tintedButton}
-        data-testid="new-monitor-button"
-        onClick={create}
-      >
-        New monitor
-      </button>
-    ) : null;
+  // "New monitor" lives in the header in every state (UI-030); it waits only for the session.
+  const headerAction = (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-monitor-button"
+      disabled={!gate.resolved}
+      onClick={create}
+    >
+      New monitor
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -435,7 +433,7 @@ export function MonitorsPage() {
           title="Monitors"
           lead="Watch a strategy against current market data and collect the signals it produces."
           {...(activeMeter ? { aside: activeMeter } : {})}
-          {...(headerAction ? { actions: headerAction } : {})}
+          actions={headerAction}
         />
 
         {status === "ready" && gate.signedIn ? (
@@ -490,18 +488,8 @@ export function MonitorsPage() {
                     matches one of the strategy&apos;s levels. Scanning runs in
                     the background on a fixed schedule, so there is nothing to
                     time yourself — you choose what is watched and whether it is
-                    running.
+                    running. Start with <strong>New monitor</strong> above.
                   </p>
-                }
-                actions={
-                  <button
-                    type="button"
-                    className={forms.primaryButton}
-                    data-testid="new-monitor-button"
-                    onClick={create}
-                  >
-                    New monitor
-                  </button>
                 }
               />
             }

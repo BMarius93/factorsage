@@ -153,7 +153,12 @@ function RunBacktestCard({
       type="button"
       className={`${styles.card} ${styles.actionCard}`}
       data-testid="dashboard-run-backtest"
-      onClick={() => gate.attempt(SIGN_IN_TO_BACKTEST, () => {})}
+      onClick={() =>
+        gate.attempt(
+          { ...SIGN_IN_TO_BACKTEST, next: NEW_BACKTEST_HREF },
+          () => {},
+        )
+      }
     >
       {content}
     </button>

@@ -76,7 +76,7 @@ describe("StrategyReadOnlyView backtest action (UX-002)", () => {
     useAuthSessionMock.mockReturnValue(signedInSession());
     render(<StrategyReadOnlyView strategy={builtInStrategy()} />);
 
-    const link = screen.getByRole("link", { name: "Backtest this strategy" });
+    const link = screen.getByRole("link", { name: "Run backtest" });
     expect(link.getAttribute("href")).toBe(
       "/backtests/new?strategyId=strategy-b",
     );
@@ -87,27 +87,25 @@ describe("StrategyReadOnlyView backtest action (UX-002)", () => {
     render(<StrategyReadOnlyView strategy={builtInStrategy()} />);
 
     // A button, never a link a Guest would follow into a protected route.
-    expect(
-      screen.queryByRole("link", { name: "Backtest this strategy" }),
-    ).toBeNull();
-    await userEvent.click(
-      screen.getByRole("button", { name: "Backtest this strategy" }),
-    );
+    expect(screen.queryByRole("link", { name: "Run backtest" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Run backtest" }));
 
     const prompt = await screen.findByTestId("sign-in-prompt");
     expect(prompt.getAttribute("aria-label")).toBe(SIGN_IN_TO_BACKTEST.title);
     expect(prompt.textContent).toContain(SIGN_IN_TO_BACKTEST.body);
-    // Both answers come back to exactly this page, query included (UX-003).
+    // Both answers lead to what was asked for — New Backtest with this strategy chosen (UI-042) —
+    // rather than back to the strategy the Guest was reading.
+    const intended = "/backtests/new?strategyId=strategy-b";
     expect(
       within(prompt)
         .getByRole("link", { name: "Sign in" })
         .getAttribute("href"),
-    ).toBe(`/login?next=${encodeURIComponent(STRATEGY_PATH)}`);
+    ).toBe(`/login?next=${encodeURIComponent(intended)}`);
     expect(
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe(`/register?next=${encodeURIComponent(STRATEGY_PATH)}`);
+    ).toBe(`/register?next=${encodeURIComponent(intended)}`);
 
     // Nothing navigated: the router was not touched and the address is unchanged.
     expect(push).not.toHaveBeenCalled();
@@ -123,15 +121,13 @@ describe("StrategyReadOnlyView backtest action (UX-002)", () => {
     render(<StrategyReadOnlyView strategy={builtInStrategy()} />);
 
     const action = screen.getByRole("button", {
-      name: "Backtest this strategy",
+      name: "Run backtest",
     });
     expect(action.hasAttribute("disabled")).toBe(true);
     await userEvent.click(action);
 
     expect(screen.queryByTestId("sign-in-prompt")).toBeNull();
-    expect(
-      screen.queryByRole("link", { name: "Backtest this strategy" }),
-    ).toBeNull();
+    expect(screen.queryByRole("link", { name: "Run backtest" })).toBeNull();
     expect(push).not.toHaveBeenCalled();
     expect(replace).not.toHaveBeenCalled();
   });

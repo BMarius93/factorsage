@@ -198,20 +198,20 @@ export function ListsPage() {
     return all.filter((column) => column.key !== "compliance" || showCompliance);
   };
 
-  // Exactly one "New list" affordance in every state: the header carries it once the viewer has
-  // lists of their own (or is a Guest, who will never have a "Your lists" section), and the empty
-  // section carries it otherwise.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
-      <button
-        type="button"
-        className={forms.tintedButton}
-        data-testid="new-list-button"
-        onClick={create}
-      >
-        New list
-      </button>
-    ) : null;
+  // "New list" lives in the header in every state — loading, empty, error, populated — so it
+  // never moves or changes weight (UI-030). It waits only for the session to resolve, because a
+  // Guest's click asks for an account instead.
+  const headerAction = (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-list-button"
+      disabled={!gate.resolved}
+      onClick={create}
+    >
+      New list
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -219,7 +219,7 @@ export function ListsPage() {
         <PageHeader
           title="Lists"
           lead="Reusable stock universes for strategies, backtests, and monitors."
-          {...(headerAction ? { actions: headerAction } : {})}
+          actions={headerAction}
         />
 
         {status === "ready" && gate.signedIn ? (
@@ -270,19 +270,9 @@ export function ListsPage() {
                 body={
                   <p>
                     Group the stocks you care about into a named list, then
-                    restrict per-stock buy windows whenever a universe needs
-                    them.
+                    set each stock&apos;s membership whenever a universe needs
+                    it. Start with <strong>New list</strong> above.
                   </p>
-                }
-                actions={
-                  <button
-                    type="button"
-                    className={forms.primaryButton}
-                    data-testid="new-list-button"
-                    onClick={create}
-                  >
-                    New list
-                  </button>
                 }
               />
             }
