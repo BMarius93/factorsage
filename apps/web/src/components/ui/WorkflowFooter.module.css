@@ -13,6 +13,19 @@
   gap: 10px;
 }
 
+.error {
+  flex: 1 0 100%;
+  min-width: 0;
+}
+
+.error:empty {
+  display: contents;
+}
+
+.errorMessage {
+  composes: error from "./forms.module.css";
+}
+
 .summary {
   flex: 1 1 auto;
   min-width: 0;

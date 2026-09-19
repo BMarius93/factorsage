@@ -142,6 +142,14 @@ long form is never a scroll away. Its optional `summary` describes what is about
 It models a workflow that ends in one decision: cancel, or commit. Reach for it whenever that is the
 shape of the screen.
 
+**It owns submit feedback** (UI-005). A refusal of the submit — a server validation, a plan limit —
+goes in its `error` slot, not in a paragraph somewhere above it: on a phone that is the sticky bar
+the user just tapped, so the answer is on screen without scrolling. The slot is an always-mounted
+`aria-live="assertive"` region, so the message is announced, and on desktop the footer scrolls
+itself into view when a message appears. Field-level validation stays beside each field; on a
+failed client validation the form moves focus to the **first invalid field** in reading order,
+never back to the submit button. What the user entered is kept either way.
+
 **Strategy Builder is a deliberate exception, and is not to be "cleaned up" into this.** Its
 persistent save bar is not a Cancel/Submit pair — it carries editor state this component does not
 model and should not grow: live save status, dirty state, a count of validation issues that is also

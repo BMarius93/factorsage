@@ -32,6 +32,21 @@ import {
 } from "../utils/submission";
 import styles from "./NewBacktestForm.module.css";
 
+/**
+ * The form's fields in reading order, with the control each error belongs to. Client validation
+ * moves focus to the first invalid one (UI-005) instead of leaving it on "Run backtest".
+ */
+const FIELD_CONTROLS: readonly (readonly [keyof BacktestFormValues, string])[] = [
+  ["strategyId", "backtest-strategy"],
+  ["stockListId", "backtest-list"],
+  ["benchmarkCode", "backtest-benchmark"],
+  ["startDate", "backtest-start"],
+  ["endDate", "backtest-end"],
+  ["initialCapital", "backtest-capital"],
+  ["monthlyContribution", "backtest-contribution"],
+  ["maximumPositions", "backtest-max-positions"],
+];
+
 const DEFAULT_INITIAL_CAPITAL = "10000";
 const DEFAULT_MAXIMUM_POSITIONS = "10";
 
@@ -143,6 +158,10 @@ export function NewBacktestForm() {
     setErrors(found);
     setSubmitError(null);
     if (request === null) {
+      const first = FIELD_CONTROLS.find(([key]) => found[key] !== undefined);
+      if (first) {
+        document.getElementById(first[1])?.focus();
+      }
       return;
     }
 
@@ -512,18 +531,10 @@ export function NewBacktestForm() {
             </fieldset>
           </SectionCard>
 
-          {submitError ? (
-            <p
-              className={forms.error}
-              role="alert"
-              data-testid="backtest-submit-error"
-            >
-              {submitError}
-            </p>
-          ) : null}
-
           <WorkflowFooter
             testId="new-backtest-actions"
+            error={submitError}
+            errorTestId="backtest-submit-error"
             summary={
               summary ? (
                 <span data-testid="backtest-summary">{summary}</span>

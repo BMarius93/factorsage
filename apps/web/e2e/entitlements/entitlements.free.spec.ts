@@ -117,6 +117,28 @@ test.describe("FREE entitlements", () => {
     expect(outcome.message?.toLowerCase()).toContain("one backtest at a time");
   });
 
+  test("shows the refusal in the phone's sticky action bar, not below the fold (UI-005)", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const outcome = await submitBacktest(page, {
+      strategyName: "FREE_USER Strategy",
+      listName: "Free Small",
+      startDate: yearsBefore(today(), 1),
+      endDate: today(),
+    });
+
+    expect(outcome.accepted).toBe(false);
+    // The tap on the sticky bar is answered where the user is looking: the message is on screen
+    // immediately, without scrolling, inside the bar that holds the button.
+    const error = page.getByTestId("backtest-submit-error");
+    await expect(error).toBeInViewport();
+    await expect(
+      page.getByTestId("new-backtest-actions").getByTestId("backtest-submit-error"),
+    ).toHaveCount(1);
+    await expect(page.getByTestId("submit-backtest")).toBeInViewport();
+  });
+
   test("refuses a second active monitor, and says why on the card", async ({
     page,
   }) => {

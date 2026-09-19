@@ -180,6 +180,22 @@ describe("NewBacktestForm", () => {
       screen.getByText("Choose the stock list this backtest should trade."),
     ).toBeTruthy();
     expect(createBacktestRunMock).not.toHaveBeenCalled();
+    // Focus moves to the first invalid field, not back onto the submit button (UI-005).
+    expect(document.activeElement).toBe(screen.getByLabelText("Strategy"));
+  });
+
+  it("focuses the first invalid field in reading order", async () => {
+    const user = userEvent.setup();
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+
+    await user.selectOptions(screen.getByLabelText("Strategy"), "strategy-1");
+    await user.selectOptions(screen.getByLabelText("Stock list"), "list-1");
+    await user.clear(screen.getByTestId("backtest-capital"));
+    await user.click(screen.getByTestId("submit-backtest"));
+
+    expect(document.activeElement).toBe(screen.getByTestId("backtest-capital"));
+    expect(createBacktestRunMock).not.toHaveBeenCalled();
   });
 
   it("submits the run and opens its page", async () => {
@@ -226,9 +242,20 @@ describe("NewBacktestForm", () => {
     await user.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await user.click(screen.getByTestId("submit-backtest"));
 
+    const message = await screen.findByTestId("backtest-submit-error");
+    expect(message.textContent).toBe(
+      "A backtest cannot start before the stock list has any buy window.",
+    );
+    // The refusal lives in the action footer — on a phone, the sticky bar the user just tapped —
+    // inside a live region that was mounted before the message arrived (UI-005).
     expect(
-      (await screen.findByTestId("backtest-submit-error")).textContent,
-    ).toBe("A backtest cannot start before the stock list has any buy window.");
+      screen.getByTestId("new-backtest-actions").contains(message),
+    ).toBe(true);
+    expect(message.parentElement?.getAttribute("aria-live")).toBe("assertive");
+    // What the user entered is kept.
+    expect(
+      (screen.getByLabelText("Strategy") as HTMLSelectElement).value,
+    ).toBe("strategy-1");
     expect(push).not.toHaveBeenCalled();
   });
 });
