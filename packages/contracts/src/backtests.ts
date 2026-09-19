@@ -182,7 +182,13 @@ export type BacktestRunConfigurationResponse = {
 export type BacktestRunSummaryResponse = {
   id: string;
   status: BacktestRunStatus;
+  /**
+   * The strategy and stock list the run was submitted with, exactly as on the run's
+   * configuration: null once that entity has been deleted. Names always come from the snapshot.
+   */
+  strategyId: string | null;
   strategyName: string;
+  stockListId: string | null;
   stockListName: string;
   benchmarkCode: string;
   benchmarkName: string;

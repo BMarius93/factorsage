@@ -1,0 +1,63 @@
+/* The one inline notice. Four tones, one shape: a hairline border, a tinted fill and a stronger
+   left rule in the tone's colour. The words carry the meaning; the tint only groups them. */
+.notice {
+  display: grid;
+  gap: 6px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}
+
+.notice[data-tone="info"] {
+  border-color: var(--color-primary-border);
+  border-left-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.notice[data-tone="warning"] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.notice[data-tone="success"] {
+  border-color: var(--color-positive-border);
+  border-left-color: var(--color-positive);
+  background: var(--color-positive-soft);
+}
+
+.notice[data-tone="error"] {
+  border-color: var(--color-negative);
+  background: var(--color-negative-soft);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-weight: var(--weight-emphasis);
+}
+
+.body {
+  display: grid;
+  gap: 6px;
+}
+
+.body > p {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.actions a:not([class]) {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+}

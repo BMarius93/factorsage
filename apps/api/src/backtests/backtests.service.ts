@@ -425,7 +425,11 @@ function summaryRowOf(row: RunListRow): BacktestRunSummaryResponse {
   return {
     id: row.id,
     status: row.status,
+    // The nullable foreign keys, as `configurationOf` reads them: an id links while the entity
+    // exists and becomes null after it is deleted, while the snapshot's name keeps describing it.
+    strategyId: row.strategyId,
     strategyName: snapshot.strategy.name,
+    stockListId: row.stockListId,
     stockListName: snapshot.stockList.name,
     benchmarkCode: snapshot.benchmark.code,
     benchmarkName: snapshot.benchmark.name,

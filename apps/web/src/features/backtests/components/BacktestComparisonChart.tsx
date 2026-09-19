@@ -4,6 +4,7 @@ import type { BacktestCurvePointResponse } from "@intrinsic/contracts";
 import {
   createChart,
   LineSeries,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type MouseEventParams,
@@ -46,13 +47,22 @@ export type BacktestComparisonChartProps = {
   readonly monthlyContribution: number;
 };
 
-function legendRow(label: string, value: string, color?: string): HTMLElement {
+function legendRow(
+  label: string,
+  value: string,
+  color?: string,
+  dashed = false,
+): HTMLElement {
   const row = document.createElement("span");
   row.className = styles.legendItem as string;
   if (color) {
     const dot = document.createElement("span");
     dot.className = styles.legendDot as string;
-    dot.style.backgroundColor = color;
+    dot.style.color = color;
+    dot.style.backgroundColor = dashed ? "transparent" : color;
+    if (dashed) {
+      dot.dataset.shape = "dashed";
+    }
     row.append(dot);
   }
   const name = document.createElement("span");
@@ -249,6 +259,7 @@ export function BacktestComparisonChart({
     const cash = chart.addSeries(LineSeries, {
       color: BACKTEST_CHART_COLORS.cash,
       ...scenarioOptions,
+      lineStyle: LineStyle.Dashed,
     });
     const anchor = chart.addSeries(LineSeries, {
       color: "rgba(0,0,0,0)",
@@ -295,6 +306,7 @@ export function BacktestComparisonChart({
           CASH_SCENARIO_LABEL,
           cashValue === undefined ? "—" : formatMoney(cashValue),
           BACKTEST_CHART_COLORS.cash,
+          true,
         ),
       );
       legend.hidden = false;
@@ -458,7 +470,8 @@ export function BacktestComparisonChart({
         <span className={styles.seriesItem}>
           <span
             className={styles.legendDot}
-            style={{ backgroundColor: BACKTEST_CHART_COLORS.cash }}
+            data-shape="dashed"
+            style={{ color: BACKTEST_CHART_COLORS.cash }}
             aria-hidden="true"
           />
           {CASH_SCENARIO_LABEL}

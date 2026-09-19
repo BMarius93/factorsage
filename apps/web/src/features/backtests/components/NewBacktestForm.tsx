@@ -11,9 +11,10 @@ import {
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { Notice } from "../../../components/ui/Notice";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { WorkflowFooter } from "../../../components/ui/WorkflowFooter";
@@ -21,6 +22,7 @@ import forms from "../../../components/ui/forms.module.css";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
+import { readBacktestPrefill } from "../utils/prefill";
 import { OwnershipOptions } from "./OwnershipOptions";
 import {
   defaultBacktestPeriod,
@@ -120,26 +122,52 @@ export function NewBacktestForm() {
     });
   }, [status, benchmarks]);
 
+  const prefill = useMemo(
+    () => readBacktestPrefill(searchParams),
+    [searchParams],
+  );
+  const prefillApplied = useRef(false);
+
   useEffect(() => {
-    if (status !== "ready") {
+    if (status !== "ready" || prefillApplied.current) {
       return;
     }
-    // A link from the Dashboard names the Strategy and List it wants backtested. Only ids the
-    // caller can actually choose are applied; anything else leaves the form as it was.
-    const strategyId = searchParams?.get("strategyId") ?? "";
-    const stockListId = searchParams?.get("stockListId") ?? "";
+    prefillApplied.current = true;
+    // A link names what it wants backtested — an entity header, a Guest's return from sign-in,
+    // "Edit and run again" from a finished run. Only choices the caller can actually make are
+    // applied: an unknown id or benchmark is ignored and leaves that field as it was.
     setValues((current) => ({
       ...current,
-      ...(current.strategyId === "" &&
-      strategies.some((strategy) => strategy.id === strategyId)
-        ? { strategyId }
+      ...(prefill.strategyId &&
+      strategies.some((strategy) => strategy.id === prefill.strategyId)
+        ? { strategyId: prefill.strategyId }
         : {}),
-      ...(current.stockListId === "" &&
-      lists.some((list) => list.id === stockListId)
-        ? { stockListId }
+      ...(prefill.stockListId &&
+      lists.some((list) => list.id === prefill.stockListId)
+        ? { stockListId: prefill.stockListId }
+        : {}),
+      ...(prefill.benchmarkCode &&
+      benchmarks.some((benchmark) => benchmark.code === prefill.benchmarkCode)
+        ? { benchmarkCode: prefill.benchmarkCode }
+        : {}),
+      ...(prefill.startDate ? { startDate: prefill.startDate } : {}),
+      ...(prefill.endDate ? { endDate: prefill.endDate } : {}),
+      ...(prefill.initialCapital !== undefined
+        ? { initialCapital: String(prefill.initialCapital) }
+        : {}),
+      ...(prefill.monthlyContribution !== undefined
+        ? {
+            monthlyContribution:
+              prefill.monthlyContribution > 0
+                ? String(prefill.monthlyContribution)
+                : "",
+          }
+        : {}),
+      ...(prefill.maximumPositions !== undefined
+        ? { maximumPositions: String(prefill.maximumPositions) }
         : {}),
     }));
-  }, [status, strategies, lists, searchParams]);
+  }, [status, strategies, lists, benchmarks, prefill]);
 
   const update = <Key extends keyof BacktestFormValues>(
     key: Key,
@@ -236,6 +264,22 @@ export function NewBacktestForm() {
           title="New backtest"
           lead="One strategy, one stock list, one historical period. The run executes in the background and its results appear while it progresses."
         />
+
+        {prefill.fromRunId && status === "ready" ? (
+          <Notice tone="info" testId="backtest-prefilled-from-run">
+            <p>
+              Prefilled from{" "}
+              <Link
+                className={styles.noticeLink}
+                href={`/backtests/${encodeURIComponent(prefill.fromRunId)}`}
+              >
+                an earlier run
+              </Link>
+              , which stays unchanged. The strategy runs as it is now, and a
+              strategy or list deleted since is not preselected.
+            </p>
+          </Notice>
+        ) : null}
 
         {missingPrerequisite ? (
           <div className={styles.notice} data-testid="backtest-prerequisites">

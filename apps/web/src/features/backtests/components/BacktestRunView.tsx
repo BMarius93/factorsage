@@ -5,6 +5,7 @@ import {
   BACKTEST_RUN_STATUS_LABELS,
   isTerminalBacktestStatus,
   type BacktestCurvePointResponse,
+  type BacktestFailureResponse,
   type BacktestHoldingResponse,
   type BacktestMilestoneResponse,
   type BacktestRunConfigurationResponse,
@@ -15,6 +16,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { Notice } from "../../../components/ui/Notice";
 import { LinkedEntities } from "../../../components/ui/EntityReference";
 import { FactGrid } from "../../../components/ui/FactGrid";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -26,6 +28,8 @@ import {
 } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useBacktestRun } from "../hooks/use-backtest-run";
+import { failureGuidance } from "../utils/failure";
+import { rerunHref } from "../utils/prefill";
 import {
   formatCount,
   formatDay,
@@ -252,6 +256,80 @@ function RunIdentifier({ runId }: { readonly runId: string }) {
   );
 }
 
+/**
+ * A failed run, told as cause and recovery (UI-031).
+ *
+ * The explanation comes from `failureGuidance`, never from the raw code; the code, the phase and
+ * the run id are still one click away under "Details for support", which is what someone quoting
+ * the failure back to support needs. The recovery opens New Backtest prefilled from this run's
+ * immutable snapshot — the run itself is never changed.
+ */
+function FailurePanel({
+  runId,
+  failure,
+  configuration,
+}: {
+  readonly runId: string;
+  readonly failure: BacktestFailureResponse | null;
+  readonly configuration: BacktestRunConfigurationResponse;
+}) {
+  const guidance = failureGuidance(failure);
+  return (
+    <Notice
+      tone="error"
+      announce="alert"
+      testId="backtest-failure"
+      title={guidance.title}
+      actions={
+        <>
+          <Link
+            className={forms.primaryButton}
+            href={rerunHref(runId, configuration)}
+            data-testid="backtest-failure-rerun"
+          >
+            {guidance.recovery === "edit"
+              ? "Edit and run again"
+              : "Run again with these settings"}
+          </Link>
+          <Link className={forms.secondaryButton} href="/backtests">
+            Back to backtests
+          </Link>
+        </>
+      }
+    >
+      <p data-testid="backtest-failure-cause">{guidance.cause}</p>
+      <p data-testid="backtest-failure-next">{guidance.next}</p>
+      <details className={styles.support} data-testid="backtest-failure-facts">
+        <summary>Details for support</summary>
+        <dl className={styles.failureFacts}>
+          {failure?.phase ? (
+            <div className={styles.failureFact}>
+              <dt>Stopped while</dt>
+              <dd data-testid="backtest-failure-phase">
+                {BACKTEST_FAILURE_PHASE_LABELS[failure.phase]}
+              </dd>
+            </div>
+          ) : null}
+          {failure?.code ? (
+            <div className={styles.failureFact}>
+              <dt>Failure code</dt>
+              <dd data-testid="backtest-failure-code">
+                <code>{failure.code}</code>
+              </dd>
+            </div>
+          ) : null}
+          <div className={styles.failureFact}>
+            <dt>Run ID</dt>
+            <dd>
+              <RunIdentifier runId={runId} />
+            </dd>
+          </div>
+        </dl>
+      </details>
+    </Notice>
+  );
+}
+
 export function BacktestRunView({ runId }: BacktestRunViewProps) {
   const {
     loadStatus,
@@ -392,6 +470,21 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 {BACKTEST_RUN_STATUS_LABELS[status]}
               </StatusBadge>
             }
+            // A finished run's natural next step is a variation of it (UI-032). The failure panel
+            // carries its own recovery, so the hero offers this only for a completed run.
+            {...(completed
+              ? {
+                  actions: (
+                    <Link
+                      className={forms.secondaryButton}
+                      href={rerunHref(runId, configuration)}
+                      data-testid="backtest-edit-and-rerun"
+                    >
+                      Edit and run again
+                    </Link>
+                  ),
+                }
+              : {})}
           />
 
           {terminal && milestones.length > 0 ? (
@@ -447,89 +540,56 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
             </div>
           )}
 
-          {status === "FAILED" ? (
-            <div
-              className={styles.failure}
-              role="alert"
-              data-testid="backtest-failure"
-            >
-              <h2 className={styles.failureTitle}>Backtest failed</h2>
-              <p className={styles.failureBody}>
-                {failure?.message ??
-                  "The run stopped before it produced a result."}
-              </p>
-              {/* Enough to act on, and enough to report: which phase failed, the stable code, and
-                the run's own id. Nothing here is internal — provider detail and stack traces stay
-                on the server. */}
-              <dl
-                className={styles.failureFacts}
-                data-testid="backtest-failure-facts"
-              >
-                {failure?.phase ? (
-                  <div className={styles.failureFact}>
-                    <dt>Phase</dt>
-                    <dd data-testid="backtest-failure-phase">
-                      {BACKTEST_FAILURE_PHASE_LABELS[failure.phase]}
-                    </dd>
-                  </div>
-                ) : null}
-                {failure?.code ? (
-                  <div className={styles.failureFact}>
-                    <dt>Failure code</dt>
-                    <dd data-testid="backtest-failure-code">
-                      <code>{failure.code}</code>
-                    </dd>
-                  </div>
-                ) : null}
-                <div className={styles.failureFact}>
-                  <dt>Run ID</dt>
-                  <dd>
-                    <RunIdentifier runId={runId} />
-                  </dd>
-                </div>
-              </dl>
-              <Link className={forms.primaryButton} href="/backtests/new">
-                Start a new backtest
-              </Link>
-            </div>
+          {failed ? (
+            <FailurePanel
+              runId={runId}
+              failure={failure}
+              configuration={configuration}
+            />
           ) : null}
 
-          <p className={styles.chartCaption}>
-            {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
-          </p>
-          {/* One frame, one height. The chart is mounted as soon as the run exists, curve or not:
+          {failed ? null : (
+            <>
+              <p className={styles.chartCaption}>
+                {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
+              </p>
+              {/* One frame, one height. The chart is mounted as soon as the run exists, curve or not:
               its horizontal domain is the configured period, which is known before the first day
               is simulated, so the axis a user watches fill in is the axis the finished run will
               have. Only a run that ended with nothing to draw falls back to a message. */}
-          <div className={styles.chartFrame}>
-            {terminal && curve.length === 0 ? (
-              <p
-                className={styles.chartPlaceholder}
-                data-testid="backtest-chart-placeholder"
-              >
-                {/* A run that ended without a curve has nothing still to come, so promising
+              <div className={styles.chartFrame}>
+                {terminal && curve.length === 0 ? (
+                  <p
+                    className={styles.chartPlaceholder}
+                    data-testid="backtest-chart-placeholder"
+                  >
+                    {/* A run that ended without a curve has nothing still to come, so promising
                     progress would be false. */}
-                This run produced no comparison curve.
-              </p>
-            ) : (
-              <BacktestComparisonChart
-                points={curve}
-                benchmarkName={configuration.benchmark.name}
-                ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
-                periodStart={configuration.startDate}
-                periodEnd={configuration.endDate}
-                populating={populating}
-                initialCapital={configuration.initialCapital}
-                monthlyContribution={configuration.monthlyContribution}
-              />
-            )}
-          </div>
+                    This run produced no comparison curve.
+                  </p>
+                ) : (
+                  <BacktestComparisonChart
+                    points={curve}
+                    benchmarkName={configuration.benchmark.name}
+                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
+                    periodStart={configuration.startDate}
+                    periodEnd={configuration.endDate}
+                    populating={populating}
+                    initialCapital={configuration.initialCapital}
+                    monthlyContribution={configuration.monthlyContribution}
+                  />
+                )}
+              </div>
 
-          <BacktestMetricsRow
-            metrics={snapshot?.metrics ?? EMPTY_METRICS}
-            benchmarkName={configuration.benchmark.name}
-            caption={terminal ? undefined : "Updating as the run progresses"}
-          />
+              <BacktestMetricsRow
+                metrics={snapshot?.metrics ?? EMPTY_METRICS}
+                benchmarkName={configuration.benchmark.name}
+                caption={
+                  terminal ? undefined : "Updating as the run progresses"
+                }
+              />
+            </>
+          )}
         </SectionCard>
 
         {/* The inputs follow the outcome, and stay out of the way until asked for. */}
@@ -551,28 +611,32 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           />
         </details>
 
-        <div className={styles.columns}>
-          <BacktestHoldings
-            holdings={snapshot?.holdings ?? []}
-            {...(snapshot ? { asOf: snapshot.asOf } : {})}
-            title={completed ? "Final holdings" : "Holdings"}
-            emptyMessage={
-              completed
-                ? "The run ended holding nothing."
-                : "No positions have been opened yet."
-            }
-          />
-          <BacktestTrades
-            trades={snapshot?.trades ?? []}
-            title={terminal ? "Trade log" : "Recent trades"}
-            emptyMessage={
-              terminal
-                ? "This run made no trades."
-                : "No trades have been executed yet."
-            }
-            {...(snapshot ? { truncatedFrom: snapshot.tradeCount } : {})}
-          />
-        </div>
+        {/* A failed run never produced holdings or trades. Showing "No positions" and "Trade log
+            0" under a failure read as if the run had executed and simply bought nothing (UI-031). */}
+        {failed ? null : (
+          <div className={styles.columns}>
+            <BacktestHoldings
+              holdings={snapshot?.holdings ?? []}
+              {...(snapshot ? { asOf: snapshot.asOf } : {})}
+              title={completed ? "Final holdings" : "Holdings"}
+              emptyMessage={
+                completed
+                  ? "The run ended holding nothing."
+                  : "No positions have been opened yet."
+              }
+            />
+            <BacktestTrades
+              trades={snapshot?.trades ?? []}
+              title={terminal ? "Trade log" : "Recent trades"}
+              emptyMessage={
+                terminal
+                  ? "This run made no trades."
+                  : "No trades have been executed yet."
+              }
+              {...(snapshot ? { truncatedFrom: snapshot.tradeCount } : {})}
+            />
+          </div>
+        )}
       </div>
     </PageContainer>
   );

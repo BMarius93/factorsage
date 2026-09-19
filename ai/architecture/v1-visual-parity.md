@@ -318,8 +318,21 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 - Use an outcome hero containing run identity/context, status/progress, the absolute-value Strategy,
   Benchmark and Cash chart, legend and primary KPIs.
 - Configuration follows the result and may be collapsible.
-- On phones, primary KPIs remain compact; target four columns when labels/values fit and split the
-  eight core values over two rows. Do not default to a long two-column dashboard.
+- Primary KPIs: **two columns below 600px, four from 600px, eight from 1,280px** (UI-033). The
+  earlier four-columns-on-phones target is withdrawn: a value such as `$137,426.91` does not fit a
+  ~90px cell at 390px, and a clipped financial figure is worse than a taller card.
+- The chart keeps a persistent legend under it (hover only adds the crosshair readout). Strategy is
+  the brand blue, the Benchmark a cool neutral, and Cash a warm neutral **dashed** line, so the
+  Strategy and Cash lines stay distinguishable where they overlap (UI-032).
+- A completed run's hero offers **Edit and run again**: New Backtest prefilled from the run's
+  immutable snapshot. The original run is never changed.
+- A failed run shows cause and recovery, not an implementation code (UI-031): the message is mapped
+  from the failure code and phase (`features/backtests/utils/failure.ts`); a data problem asks for
+  a different list or period instead of recommending a futile retry; the code, phase and run id sit
+  in a collapsed "Details for support". A run that never produced a result renders **no** result
+  sections — no empty chart, no KPIs of "—", no "No positions"/"no trades" copy.
+- The collection gives every row a contextual action: "View results" for a finished run, "View
+  progress" for a queued or running one (UI-034). Its Stock list chip links while the list exists.
 - Preserve V2 chart correctness and unavailable-data gaps.
 - Add human-readable frozen Strategy logic and per-security breakdown only when supported by a
   truthful run snapshot/read model.

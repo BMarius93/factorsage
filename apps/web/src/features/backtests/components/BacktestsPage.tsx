@@ -148,11 +148,15 @@ export function BacktestsPage() {
       key: "list",
       header: "Stock list",
       cardRole: "links",
-      // The runs collection carries names but no ids, so these identify without linking.
-      // The run's own page reads the snapshot, which does carry them.
+      // Linked while the list still exists; a list deleted since the run keeps its snapshotted
+      // name as a static chip rather than a link that would 404 (UI-034).
       render: (run) => (
         <span className={styles.listCell}>
-          <EntityReferenceChip kind="list" name={run.stockListName} />
+          <EntityReferenceChip
+            kind="list"
+            name={run.stockListName}
+            {...(run.stockListId ? { href: `/lists/${run.stockListId}` } : {})}
+          />
           {/* The Benchmark column folds in here between 880 and 1,279px. */}
           <IntermediateOnly testId="backtest-folded-benchmark">
             <BenchmarkFact run={run} />
@@ -203,18 +207,22 @@ export function BacktestsPage() {
       align: "right",
       nowrap: true,
       // A run has no maintenance actions — there is no rename and no delete in the
-      // contract — so the column carries only the contextual one, and a run still
-      // executing has nothing to show yet.
-      render: (run) =>
-        isTerminalBacktestStatus(run.status) ? (
+      // contract — so the column carries only the contextual one. A run still executing
+      // opens the same page, where its progress is live (UI-034).
+      render: (run) => {
+        const label = isTerminalBacktestStatus(run.status)
+          ? "View results"
+          : "View progress";
+        return (
           <Link
             className={actionStyles.action}
             href={`/backtests/${run.id}`}
-            aria-label={`View results for ${run.strategyName}`}
+            aria-label={`${label} for ${run.strategyName}`}
           >
-            View results
+            {label}
           </Link>
-        ) : null,
+        );
+      },
     },
   ];
   const paging = usePagination(runs);

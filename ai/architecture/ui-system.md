@@ -367,6 +367,15 @@ in the shell so navigation keeps working, with a "Try again" that calls `reset()
 and depends on nothing but the token stylesheet. None of the three renders an error's message,
 digest or stack; the error is logged to the browser console only.
 
+### `Notice`
+
+One inline message about the state of what the user is looking at — `info`, `warning`, `success`
+or `error` — with an optional title and at most one or two next steps (cleanup plan §3.7). It is
+not an empty state (`EmptyState` owns nothing / not found / could not be loaded) and not a field
+error. `announce="alert"` is for an operational failure the user must not miss, such as a failed
+backtest; a static notice announces nothing. Tone is a left rule and a tint, and the words always
+say what happened, so colour is never the only signal.
+
 ### `Skeleton` / `SkeletonList`
 
 The one loading language. Always `aria-hidden`: a placeholder is not content.
@@ -486,10 +495,10 @@ addition, not something to work around in the browser.
    `PENDING_TRIGGER` row of the monitors the viewer can see, with security, level, reason, monitor,
    strategy, list, price and freshness, in one request.
 
-2. **Clickable entities in the Backtests collection.** `BacktestRunSummaryResponse` carries
-   `strategyName` and `stockListName` but no ids, so the collection's chips are static while the
-   run's own page links them. _Needed:_ the nullable `strategyId` / `stockListId` the detail
-   configuration already exposes.
+2. ~~**Clickable entities in the Backtests collection.**~~ Closed (UI-034):
+   `BacktestRunSummaryResponse` now carries the run's nullable `strategyId` / `stockListId`, the
+   same foreign keys its configuration reports, so a chip links while the entity exists and stays
+   a static pill after it is deleted. Names still come from the immutable snapshot.
 
 3. **Reverse usage on Strategy and List.** "Which monitors and backtests use this?" has no
    contract. _Needed:_ a usage count or reference list on the Strategy and Stock List summaries. The

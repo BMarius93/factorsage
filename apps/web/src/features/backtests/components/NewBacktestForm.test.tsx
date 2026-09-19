@@ -135,6 +135,52 @@ describe("NewBacktestForm", () => {
     );
   });
 
+  it("restores a whole configuration from an earlier run, and says where it came from", async () => {
+    searchParams = new URLSearchParams({
+      strategyId: "strategy-1",
+      stockListId: "list-1",
+      benchmark: "SP500",
+      start: "2019-03-01",
+      end: "2023-03-01",
+      capital: "25000",
+      contribution: "0",
+      positions: "4",
+      from: "run-42",
+    });
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+
+    await waitFor(() =>
+      expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
+        "strategy-1",
+      ),
+    );
+    expect((screen.getByLabelText("Stock list") as HTMLSelectElement).value).toBe(
+      "list-1",
+    );
+    expect((screen.getByTestId("backtest-start") as HTMLInputElement).value).toBe(
+      "2019-03-01",
+    );
+    expect((screen.getByTestId("backtest-end") as HTMLInputElement).value).toBe(
+      "2023-03-01",
+    );
+    expect((screen.getByTestId("backtest-capital") as HTMLInputElement).value).toBe(
+      "25000",
+    );
+    expect(
+      (screen.getByTestId("backtest-contribution") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (screen.getByTestId("backtest-max-positions") as HTMLInputElement).value,
+    ).toBe("4");
+    expect(
+      screen
+        .getByTestId("backtest-prefilled-from-run")
+        .querySelector("a")
+        ?.getAttribute("href"),
+    ).toBe("/backtests/run-42");
+  });
+
   it("offers the catalog's benchmarks and preselects the canonical default", async () => {
     render(<NewBacktestForm />);
 
