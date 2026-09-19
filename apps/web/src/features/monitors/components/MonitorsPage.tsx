@@ -20,14 +20,20 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { SkeletonList } from "../../../components/ui/Skeleton";
-import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { stockCountLabel } from "../../lists/utils/format";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitors } from "../hooks/use-monitors";
-import { MonitorBlockedPill } from "../utils/blocked-status";
+import {
+  isBlockedByEntitlement,
+  MonitorStateBadge,
+} from "../utils/blocked-status";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { LimitMeter } from "../../../components/ui/LimitMeter";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { PLAN_LABEL } from "../../billing/utils/format";
 import { activeSignalLabel, lastScanLabel } from "../utils/format";
 import { BuiltInMonitorVisibility } from "./BuiltInMonitorVisibility";
 import { MonitorFormDialog } from "./MonitorFormDialog";
@@ -180,6 +186,49 @@ function MonitorReferences({
   );
 }
 
+/**
+ * What a plan limit has stopped, said once at the top of the page with a way forward (UI-021).
+ *
+ * A downgrade never deletes or switches anything off: an over-capacity account keeps its monitors
+ * switched on and the system pauses the ones outside the allowance. The rows each say "Paused —
+ * plan limit"; this says why, in numbers, and what to do.
+ */
+function MonitorComplianceNotice({
+  own,
+}: {
+  readonly own: readonly MonitorSummaryResponse[];
+}) {
+  const plan = useEntitlements();
+  const paused = own.filter(
+    (monitor) => monitor.enabled && isBlockedByEntitlement(monitor),
+  );
+  if (paused.length === 0 || plan.status !== "ready") {
+    return null;
+  }
+  const byCapacity = paused.some((m) => m.blockedReason !== "LIST_OVER_LIMIT");
+  const byList = paused.some((m) => m.blockedReason === "LIST_OVER_LIMIT");
+  const limit = plan.entitlements.monitors.maxActive;
+  const planName = plan.plan ? PLAN_LABEL[plan.plan] : "Your plan";
+  const switchedOn = own.filter((monitor) => monitor.enabled).length;
+  return (
+    <EntitlementNotice
+      announce="status"
+      testId="monitors-compliance-notice"
+      title={`${paused.length} ${paused.length === 1 ? "monitor is" : "monitors are"} paused by your plan`}
+      message={
+        <>
+          {byCapacity && limit !== null
+            ? `${planName} allows ${limit} active monitor${limit === 1 ? "" : "s"} and ${switchedOn} are switched on, so the ones outside the allowance wait. Disable the monitors you do not need — the next one takes the free slot. `
+            : null}
+          {byList
+            ? "A monitor whose stock list holds more stocks than your plan allows waits until the list is smaller. Nothing was deleted or switched off."
+            : "Nothing was deleted or switched off."}
+        </>
+      }
+    />
+  );
+}
+
 export function MonitorsPage() {
   const { status, monitors, retry, applyCreated, applyUpdated, applyDeleted } =
     useMonitors();
@@ -274,20 +323,8 @@ export function MonitorsPage() {
       cardRole: "status",
       render: (monitor) => (
         <span className={styles.stateCell}>
-          {/*
-            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
-            for and never changes on its own; the operational status is what the system will
-            actually do with that intent right now. A monitor left over capacity by a downgrade is
-            still enabled — collapsing the two would either claim it is scanning when it is not, or
-            claim the user turned it off when they did not.
-          */}
-          <StatusBadge
-            tone={monitor.enabled ? "positive" : "pending"}
-            testId="monitor-enabled-pill"
-          >
-            {monitor.enabled ? "Enabled" : "Disabled"}
-          </StatusBadge>
-          <MonitorBlockedPill monitor={monitor} />
+          {/* One effective state, with its reason as text (UI-021). */}
+          <MonitorStateBadge monitor={monitor} showReason />
         </span>
       ),
     },
@@ -360,6 +397,22 @@ export function MonitorsPage() {
     },
   ];
 
+  // How many of the viewer's own monitors are switched on, against the plan's allowance — shown
+  // before anything is created or enabled (UI-020). Enabling is gated on this intent count.
+  const plan = useEntitlements();
+  const maxActive =
+    plan.status === "ready" ? plan.entitlements.monitors.maxActive : null;
+  const activeMeter =
+    status === "ready" && gate.signedIn && plan.status === "ready" ? (
+      <LimitMeter
+        label="Active monitors"
+        usage={own.filter((monitor) => monitor.enabled).length}
+        limit={maxActive}
+        unit={["active monitor", "active monitors"]}
+        testId="monitors-active-meter"
+      />
+    ) : null;
+
   // Exactly one "New monitor" affordance in every state: the header carries it once the viewer has
   // monitors of their own (or is a Guest, who will never have a "Your monitors" section), and the
   // empty section carries it otherwise.
@@ -381,8 +434,13 @@ export function MonitorsPage() {
         <PageHeader
           title="Monitors"
           lead="Watch a strategy against current market data and collect the signals it produces."
+          {...(activeMeter ? { aside: activeMeter } : {})}
           {...(headerAction ? { actions: headerAction } : {})}
         />
+
+        {status === "ready" && gate.signedIn ? (
+          <MonitorComplianceNotice own={own} />
+        ) : null}
 
         {status === "loading" ? (
           <SectionCard ariaLabel="Loading monitors">
@@ -473,6 +531,7 @@ export function MonitorsPage() {
       {dialog.kind === "create" ? (
         <MonitorFormDialog
           mode="create"
+          activeCount={own.filter((monitor) => monitor.enabled).length}
           onClose={closeDialog}
           onSaved={(detail) => {
             applyCreated(detail);
@@ -485,6 +544,7 @@ export function MonitorsPage() {
         <MonitorFormDialog
           mode="edit"
           monitor={dialog.monitor}
+          activeCount={own.filter((monitor) => monitor.enabled).length}
           onClose={closeDialog}
           onSaved={(summary) => {
             applyUpdated(summary);

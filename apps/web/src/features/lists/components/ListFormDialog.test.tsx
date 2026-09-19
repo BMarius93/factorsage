@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -51,9 +51,15 @@ describe("ListFormDialog failures (UX-001)", () => {
 
     const alert = await submitCreate();
 
-    expect(alert.textContent).toBe(
+    // The plan's own sentence, with a way forward rather than a dead end (UI-020).
+    expect(alert.textContent).toContain(
       "Your plan allows 10 stocks per list; this list would have 11.",
     );
+    expect(
+      within(alert)
+        .getByRole("link", { name: "See plans" })
+        .getAttribute("href"),
+    ).toBe("/billing");
     expect(alert.textContent).not.toContain("Try again in a moment");
     // The dialog stays open with the input intact, so the user can remove a stock and retry.
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
@@ -88,8 +94,9 @@ describe("ListFormDialog failures (UX-001)", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Over your plan.",
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Over your plan.");
+    // Renaming cannot be fixed by removing stocks, so no such advice is offered here.
+    expect(alert.textContent).not.toContain("Remove stocks");
   });
 });

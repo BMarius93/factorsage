@@ -26,7 +26,7 @@ import {
   updateMonitor,
 } from "../api/monitors-api";
 import { MonitorsPage } from "./MonitorsPage";
-import { blockedExplanation } from "../utils/blocked-status";
+import { blockedShortReason } from "../utils/blocked-status";
 
 /**
  * Between 880 and 1,279px the Strategy and Stock list columns fold under the monitor's name
@@ -395,18 +395,27 @@ describe("MonitorsPage", () => {
 
     render(<MonitorsPage />);
 
-    const pills = await screen.findAllByTestId("monitor-blocked-pill");
-    expect(pills).toHaveLength(2);
+    // One effective state per row (UI-021): a monitor the plan stopped reads "Paused — plan
+    // limit", with its reason as text rather than a tooltip, never "Enabled" + "Not scanning".
+    const pills = await screen.findAllByTestId("monitor-state-pill");
     expect(pills.map((pill) => pill.textContent)).toEqual([
-      "Not scanning",
-      "Not scanning",
+      "Paused — plan limit",
+      "Paused — plan limit",
+      "Enabled",
     ]);
-    expect(pills.map((pill) => pill.getAttribute("title"))).toEqual([
-      blockedExplanation("MONITOR_CAPACITY"),
-      blockedExplanation("LIST_OVER_LIMIT"),
+    expect(pills.map((pill) => pill.getAttribute("data-blocked-reason"))).toEqual([
+      "MONITOR_CAPACITY",
+      "LIST_OVER_LIMIT",
+      null,
     ]);
-    // Still enabled: the configured switch is never rewritten by the operational state.
-    expect(screen.getAllByTestId("monitor-enabled-pill")).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("monitor-state-reason").map((reason) => reason.textContent),
+    ).toEqual([
+      blockedShortReason("MONITOR_CAPACITY"),
+      blockedShortReason("LIST_OVER_LIMIT"),
+    ]);
+    expect(screen.queryByText("Not scanning")).toBeNull();
+    expect(pills.some((pill) => pill.hasAttribute("title"))).toBe(false);
   });
 
   it("reports a load failure and recovers through retry", async () => {

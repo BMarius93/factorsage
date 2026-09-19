@@ -63,13 +63,18 @@ export function WorkflowFooter({
       {/* Always mounted: a live region inserted together with its message is often not
           announced. It takes no space while it is empty. */}
       <div className={styles.error} aria-live="assertive" aria-atomic="true">
-        {error ? (
+        {typeof error === "string" && error !== "" ? (
           <p
             className={styles.errorMessage}
             {...(errorTestId ? { "data-testid": errorTestId } : {})}
           >
             {error}
           </p>
+        ) : error ? (
+          // A composed refusal — a plan limit with its recovery — brings its own surface.
+          <div {...(errorTestId ? { "data-testid": errorTestId } : {})}>
+            {error}
+          </div>
         ) : null}
       </div>
       {summary ? (

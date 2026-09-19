@@ -8,6 +8,8 @@ import {
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   DEFAULT_BENCHMARK_CODE,
+  isTerminalBacktestStatus,
+  type EntitlementReasonCode,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -15,11 +17,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Notice } from "../../../components/ui/Notice";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { useBacktestRuns } from "../hooks/use-backtest-runs";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { WorkflowFooter } from "../../../components/ui/WorkflowFooter";
 import forms from "../../../components/ui/forms.module.css";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import {
+  entitlementReason,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
 import { readBacktestPrefill } from "../utils/prefill";
@@ -27,7 +35,9 @@ import { OwnershipOptions } from "./OwnershipOptions";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
+  exceedsPeriodYears,
   maximumBacktestStart,
+  startForPeriodYears,
   validateBacktestForm,
   type BacktestFormErrors,
   type BacktestFormValues,
@@ -38,16 +48,17 @@ import styles from "./NewBacktestForm.module.css";
  * The form's fields in reading order, with the control each error belongs to. Client validation
  * moves focus to the first invalid one (UI-005) instead of leaving it on "Run backtest".
  */
-const FIELD_CONTROLS: readonly (readonly [keyof BacktestFormValues, string])[] = [
-  ["strategyId", "backtest-strategy"],
-  ["stockListId", "backtest-list"],
-  ["benchmarkCode", "backtest-benchmark"],
-  ["startDate", "backtest-start"],
-  ["endDate", "backtest-end"],
-  ["initialCapital", "backtest-capital"],
-  ["monthlyContribution", "backtest-contribution"],
-  ["maximumPositions", "backtest-max-positions"],
-];
+const FIELD_CONTROLS: readonly (readonly [keyof BacktestFormValues, string])[] =
+  [
+    ["strategyId", "backtest-strategy"],
+    ["stockListId", "backtest-list"],
+    ["benchmarkCode", "backtest-benchmark"],
+    ["startDate", "backtest-start"],
+    ["endDate", "backtest-end"],
+    ["initialCapital", "backtest-capital"],
+    ["monthlyContribution", "backtest-contribution"],
+    ["maximumPositions", "backtest-max-positions"],
+  ];
 
 const DEFAULT_INITIAL_CAPITAL = "10000";
 const DEFAULT_MAXIMUM_POSITIONS = "10";
@@ -89,7 +100,17 @@ export function NewBacktestForm() {
   const { status, strategies, lists, benchmarks, retry } = useBacktestOptions();
   const [values, setValues] = useState<BacktestFormValues>(EMPTY_VALUES);
   const [errors, setErrors] = useState<BacktestFormErrors>({});
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<{
+    readonly message: string;
+    readonly reason: EntitlementReasonCode | undefined;
+  } | null>(null);
+  const plan = useEntitlements();
+  const limits = plan.status === "ready" ? plan.entitlements.backtests : null;
+  const runs = useBacktestRuns();
+  // Runs still holding a concurrency slot, so the limit can be seen before submitting (UI-020).
+  const inFlight = runs.runs.filter(
+    (run) => !isTerminalBacktestStatus(run.status),
+  );
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -198,8 +219,71 @@ export function NewBacktestForm() {
       const run = await createBacktestRun(request);
       router.push(`/backtests/${run.id}`);
     } catch (caught) {
-      setSubmitError(submissionMessage(caught));
+      setSubmitError({
+        message: submissionMessage(caught),
+        reason: entitlementReason(caught),
+      });
       setPending(false);
+    }
+  };
+
+  const planYears = limits?.maxHistoricalYears ?? null;
+  const maxSymbols = limits?.maxSymbols ?? null;
+  const maxConcurrent = limits?.maxConcurrentRuns ?? null;
+  const periodTooLong = exceedsPeriodYears(
+    values.startDate,
+    values.endDate,
+    planYears,
+  );
+  const fitPeriodToPlan = () => {
+    if (planYears !== null && values.endDate !== "") {
+      update("startDate", startForPeriodYears(values.endDate, planYears));
+    }
+  };
+  const chosenListSize = lists.find(
+    (list) => list.id === values.stockListId,
+  )?.itemCount;
+  const listTooLarge =
+    maxSymbols !== null &&
+    chosenListSize !== undefined &&
+    chosenListSize > maxSymbols;
+  const atConcurrency =
+    maxConcurrent !== null &&
+    runs.status === "ready" &&
+    inFlight.length >= maxConcurrent;
+
+  /** The next step that fits each refusal, beside "See plans" (UI-020). */
+  const refusalRecovery = (reason: EntitlementReasonCode) => {
+    switch (reason) {
+      case "ENTITLEMENT_BACKTEST_HISTORY_LIMIT":
+        return planYears === null ? null : (
+          <button
+            type="button"
+            className={forms.primaryButton}
+            data-testid="backtest-fit-period"
+            onClick={fitPeriodToPlan}
+          >
+            Set the period to {planYears} years
+          </button>
+        );
+      case "ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT":
+        return inFlight[0] ? (
+          <Link
+            className={forms.primaryButton}
+            href={`/backtests/${inFlight[0].id}`}
+            data-testid="backtest-open-running"
+          >
+            View the running backtest
+          </Link>
+        ) : null;
+      case "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT":
+        return (
+          <span className={styles.recoveryHint}>
+            Choose a smaller list, or remove stocks from this one.
+          </span>
+        );
+      default:
+        return null;
     }
   };
 
@@ -307,6 +391,30 @@ export function NewBacktestForm() {
           </div>
         ) : null}
 
+        {atConcurrency ? (
+          // The concurrency limit, before the form is filled in (UI-020).
+          <EntitlementNotice
+            announce="status"
+            testId="backtest-concurrency-notice"
+            title={
+              maxConcurrent === 1
+                ? "A backtest is already running"
+                : `${inFlight.length} backtests are already running`
+            }
+            message={`Your plan runs ${maxConcurrent} backtest${maxConcurrent === 1 ? "" : "s"} at a time. You can prepare this one now and run it when a slot frees.`}
+            recovery={
+              inFlight[0] ? (
+                <Link
+                  className={forms.secondaryButton}
+                  href={`/backtests/${inFlight[0].id}`}
+                >
+                  View progress
+                </Link>
+              ) : null
+            }
+          />
+        ) : null}
+
         <form
           className={styles.form}
           onSubmit={submit}
@@ -369,6 +477,15 @@ export function NewBacktestForm() {
                   {errors.stockListId ? (
                     <p className={forms.hint} role="alert">
                       {errors.stockListId}
+                    </p>
+                  ) : listTooLarge ? (
+                    <p
+                      className={styles.limitText}
+                      data-state="over"
+                      data-testid="backtest-list-over-limit"
+                    >
+                      This list has {chosenListSize} stocks; your plan runs up
+                      to {maxSymbols} per backtest.
                     </p>
                   ) : null}
                 </div>
@@ -434,9 +551,15 @@ export function NewBacktestForm() {
                       className={styles.maxButton}
                       data-testid="backtest-start-max"
                       onClick={() =>
-                        update("startDate", maximumBacktestStart(new Date()))
+                        update(
+                          "startDate",
+                          maximumBacktestStart(new Date(), planYears),
+                        )
                       }
-                      title={`Earliest available start — ${BACKTEST_MAX_PERIOD_YEARS} years back`}
+                      title={`The longest period your plan allows — ${Math.min(
+                        planYears ?? BACKTEST_MAX_PERIOD_YEARS,
+                        BACKTEST_MAX_PERIOD_YEARS,
+                      )} years back`}
                     >
                       MAX
                     </button>
@@ -468,6 +591,31 @@ export function NewBacktestForm() {
                   ) : null}
                 </div>
               </div>
+              {planYears !== null && planYears < BACKTEST_MAX_PERIOD_YEARS ? (
+                // The plan's period allowance, before submit (UI-023): a period-length limit,
+                // not a look-back — any start date is fine if the period fits.
+                <div
+                  className={styles.limitRow}
+                  data-state={periodTooLong ? "over" : "ok"}
+                  data-testid="backtest-period-limit"
+                >
+                  <p className={styles.limitText}>
+                    {periodTooLong
+                      ? `This period is longer than your plan allows. Backtest periods can be up to ${planYears} years long.`
+                      : `Your plan allows backtest periods up to ${planYears} years long. MAX sets the longest it allows.`}
+                  </p>
+                  {periodTooLong ? (
+                    <button
+                      type="button"
+                      className={styles.maxButton}
+                      data-testid="backtest-period-fit"
+                      onClick={fitPeriodToPlan}
+                    >
+                      Set to {planYears} years
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </fieldset>
 
             <fieldset className={styles.group}>
@@ -577,7 +725,16 @@ export function NewBacktestForm() {
 
           <WorkflowFooter
             testId="new-backtest-actions"
-            error={submitError}
+            error={
+              submitError === null ? null : submitError.reason ? (
+                <EntitlementNotice
+                  message={submitError.message}
+                  recovery={refusalRecovery(submitError.reason)}
+                />
+              ) : (
+                submitError.message
+              )
+            }
             errorTestId="backtest-submit-error"
             summary={
               summary ? (

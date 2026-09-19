@@ -160,3 +160,29 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* A plan allowance stated beside the field it limits (UI-020, UI-023). */
+.limitRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+
+.limitText {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.limitRow[data-state="over"] .limitText,
+.limitText[data-state="over"] {
+  color: var(--color-warning);
+}
+
+.recoveryHint {
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}

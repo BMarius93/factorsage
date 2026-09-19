@@ -21,10 +21,18 @@ Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations
 `enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
 Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
 (`MONITOR_CAPACITY`) or watching a List over the plan's symbol limit (`LIST_OVER_LIMIT`) — and then
-it is not evaluated. Both the collection and the Monitor's own page show the configured state
-("Enabled") **and** the effective one ("Not scanning", with the reason in the user's terms), from
-one web helper (`features/monitors/utils/blocked-status.tsx`, UX-004). Neither surface ever
-rewrites one into the other.
+it is not evaluated. The UI shows **one effective state** per Monitor (UI-021): an enabled
+Monitor the plan has stopped reads "Paused — plan limit", with its reason as text beside it (never
+only a tooltip), and the configured intent stays visible as a secondary "Monitoring: Switched on"
+fact on the Monitor's own page. Showing "Enabled" and "Not scanning" side by side read as a
+contradiction. Collection and detail share one web helper
+(`features/monitors/utils/blocked-status.tsx`), the Monitors page states the account-level
+consequence once ("N monitors are paused by your plan") with a route to the plans, and nothing
+ever rewrites `enabled`.
+
+At capacity, the New Monitor dialog offers "Start monitoring now" switched **off** and says why,
+and a capacity refusal offers "Save without monitoring" (UI-022) — the plan always allows a
+switched-off Monitor.
 
 ## Signals
 

@@ -8,7 +8,13 @@ import {
   type StockListSummaryResponse,
 } from "@intrinsic/contracts";
 import { useState } from "react";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { LimitMeter } from "../../../components/ui/LimitMeter";
+import {
+  isEntitlementError,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
 import { createStockList, updateStockList } from "../api/stock-lists-api";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
@@ -55,6 +61,10 @@ export function ListFormDialog(props: ListFormDialogProps) {
   const [selected, setSelected] = useState<StockListSecurityResponse[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refusedByPlan, setRefusedByPlan] = useState(false);
+  const plan = useEntitlements();
+  const symbolLimit =
+    plan.status === "ready" ? plan.entitlements.lists.maxSymbols : null;
   const [nameMissing, setNameMissing] = useState(false);
 
   const submit = async (event: React.FormEvent) => {
@@ -87,6 +97,7 @@ export function ListFormDialog(props: ListFormDialogProps) {
         props.onUpdated(summary);
       }
     } catch (caught) {
+      setRefusedByPlan(isEntitlementError(caught));
       setError(requestMessage(caught));
       setPending(false);
     }
@@ -145,6 +156,15 @@ export function ListFormDialog(props: ListFormDialogProps) {
               onChange={setSelected}
               inputLabel="Search stocks to add to the new list"
             />
+            {symbolLimit !== null ? (
+              <LimitMeter
+                label="Stocks per list on your plan"
+                usage={selected.length}
+                limit={symbolLimit}
+                unit={["stock", "stocks"]}
+                testId="new-list-symbol-meter"
+              />
+            ) : null}
             <p className={forms.hint}>
               Every stock starts with full buy eligibility. You can restrict
               buy windows per stock after saving.
@@ -152,7 +172,20 @@ export function ListFormDialog(props: ListFormDialogProps) {
           </div>
         ) : null}
 
-        {error ? (
+        {error && refusedByPlan ? (
+          <EntitlementNotice
+            message={error}
+            {...(props.mode === "create"
+              ? {
+                  recovery: (
+                    <span className={forms.hint}>
+                      Remove stocks from the selection to fit your plan.
+                    </span>
+                  ),
+                }
+              : {})}
+          />
+        ) : error ? (
           <p className={forms.error} role="alert">
             {error}
           </p>

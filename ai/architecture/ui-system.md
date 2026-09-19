@@ -376,6 +376,15 @@ error. `announce="alert"` is for an operational failure the user must not miss, 
 backtest; a static notice announces nothing. Tone is a left rule and a tint, and the words always
 say what happened, so colour is never the only signal.
 
+### `LimitMeter` / `EntitlementNotice`
+
+`LimitMeter` is "N of LIMIT" for a quantity the plan caps, shown wherever that quantity is edited;
+the words carry the state ("· at your plan's limit", "· 1 over your plan's limit") and the bar only
+echoes them. `EntitlementNotice` is a plan refusal or a plan-imposed pause told with a way forward:
+the API's own sentence, an optional recovery that fits the case, and "See plans". Neither holds a
+number of its own — the feature passes usage it already has and limits from `useEntitlements()`
+or a server-derived `compliance` (see `ai/architecture/entitlements.md`).
+
 ### `Skeleton` / `SkeletonList`
 
 The one loading language. Always `aria-hidden`: a placeholder is not content.

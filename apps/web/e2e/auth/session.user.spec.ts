@@ -12,14 +12,15 @@ test.describe("PRO_USER session @smoke", () => {
     await expect(page.getByTestId("account-menu-trigger")).toBeVisible();
   });
 
-  test("shows the signed-in identity and USER role", async ({ page }) => {
+  test("shows the signed-in identity and plan, and no internal role", async ({ page }) => {
     await page.goto("/dashboard");
     await openAccountMenu(page);
 
     await expect(page.getByTestId("account-email")).toHaveText(
       qaPersona("PRO_USER").email,
     );
-    await expect(page.getByTestId("account-role")).toHaveText("USER");
+    await expect(page.getByTestId("account-plan")).toHaveText("Pro");
+    await expect(page.getByTestId("account-role")).toHaveCount(0);
   });
 
   test("cannot reach the ADMIN-only route", async ({ page }) => {

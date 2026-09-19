@@ -17,6 +17,7 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
@@ -46,6 +47,30 @@ const SIGN_IN_TO_CREATE = {
  * asked for an account at the point of action rather than redirected on arrival. Rendering needs
  * only list metadata — never stock data hydration.
  */
+/**
+ * What a downgrade means for the viewer's lists, said once, with a way forward (UI-021). A list
+ * over its plan's stock limit stays whole and readable; it only stops accepting new stocks.
+ */
+function ListComplianceNotice({
+  own,
+}: {
+  readonly own: readonly StockListSummaryResponse[];
+}) {
+  const over = own.filter((list) => !list.compliance.compliant);
+  if (over.length === 0) {
+    return null;
+  }
+  const limit = over[0]?.compliance.symbolLimit;
+  return (
+    <EntitlementNotice
+      announce="status"
+      testId="lists-compliance-notice"
+      title={`${over.length} ${over.length === 1 ? "list is" : "lists are"} over your plan's stock limit`}
+      message={`${limit === null || limit === undefined ? "Your plan" : `Your plan allows ${limit} stocks per list`}. Nothing was removed and every list stays readable, but a monitor watching one of these lists pauses and a backtest over it is refused until it is within the limit. Remove stocks to bring a list back within the limit.`}
+    />
+  );
+}
+
 export function ListsPage() {
   const router = useRouter();
   const { status, lists, retry, applyCreated, applyUpdated, applyDeleted } =
@@ -98,16 +123,18 @@ export function ListsPage() {
           // A list over the plan's symbol limit stays fully readable — the flag is derived on
           // every read, so nothing here claims the list was changed or truncated.
           list.compliance.compliant ? null : (
-            <StatusBadge
-              tone="warning"
-              title={
-                list.compliance.symbolLimit === null
-                  ? "This list exceeds your plan's symbol limit."
-                  : `This list holds ${list.compliance.symbolCount} stocks; your plan allows ${list.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
-              }
-            >
-              Over plan limit
-            </StatusBadge>
+            // The reason is text beside the badge, readable on a phone, not a tooltip (UI-021).
+            <span className={styles.overLimit}>
+              <StatusBadge tone="warning" testId="list-over-limit-badge">
+                Over plan limit
+              </StatusBadge>
+              {list.compliance.symbolLimit === null ? null : (
+                <span className={styles.overLimitReason}>
+                  {list.compliance.symbolCount} of{" "}
+                  {list.compliance.symbolLimit} stocks allowed
+                </span>
+              )}
+            </span>
           ),
       },
       {
@@ -194,6 +221,10 @@ export function ListsPage() {
           lead="Reusable stock universes for strategies, backtests, and monitors."
           {...(headerAction ? { actions: headerAction } : {})}
         />
+
+        {status === "ready" && gate.signedIn ? (
+          <ListComplianceNotice own={own} />
+        ) : null}
 
         {status === "loading" ? (
           <SectionCard ariaLabel="Loading lists">

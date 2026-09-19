@@ -224,7 +224,7 @@ describe("MonitorDetail", () => {
       await detailReady();
 
       expect(screen.getByTestId("built-in-badge")).toBeDefined();
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Running",
       );
       expect(screen.queryByTestId("edit-monitor")).toBeNull();
@@ -337,7 +337,7 @@ describe("MonitorDetail", () => {
     expect(
       screen.getByRole("heading", { name: "Value entries" }),
     ).toBeDefined();
-    expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+    expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
       "Enabled",
     );
     // Scoped to the configuration panel: the list is also linked from the empty-state sentence
@@ -573,7 +573,7 @@ describe("MonitorDetail", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Disabled",
       );
     });
@@ -594,7 +594,7 @@ describe("MonitorDetail", () => {
     await waitFor(() => {
       expect(screen.getByText(/That change did not save/)).toBeDefined();
     });
-    expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+    expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
       "Enabled",
     );
     await openOverflowMenu(userEvent, "Value entries");
@@ -614,19 +614,17 @@ describe("MonitorDetail", () => {
       render(<MonitorDetail monitorId="monitor-1" />);
       await detailReady();
 
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
-        "Enabled",
-      );
-      const pill = screen.getByTestId("monitor-blocked-pill");
-      expect(pill.textContent).toBe("Not scanning");
+      // One effective state, with the full explanation on the page (UI-021).
+      const pill = screen.getByTestId("monitor-state-pill");
+      expect(pill.textContent).toBe("Paused — plan limit");
       expect(pill.getAttribute("data-blocked-reason")).toBe("MONITOR_CAPACITY");
-      // The same sentence the collection carries, from the same helper.
-      expect(pill.getAttribute("title")).toBe(
-        blockedExplanation("MONITOR_CAPACITY"),
-      );
       expect(
         screen.getByTestId("monitor-blocked-explanation").textContent,
-      ).toBe(blockedExplanation("MONITOR_CAPACITY"));
+      ).toContain(blockedExplanation("MONITOR_CAPACITY"));
+      // The configured intent is still stated, as a secondary fact.
+      expect(
+        screen.getByTestId("monitor-configured-intent").textContent,
+      ).toContain("Switched on");
     });
 
     it("says a monitor over an oversized list is not scanning, and why", async () => {
@@ -641,12 +639,12 @@ describe("MonitorDetail", () => {
 
       expect(
         screen
-          .getByTestId("monitor-blocked-pill")
+          .getByTestId("monitor-state-pill")
           .getAttribute("data-blocked-reason"),
       ).toBe("LIST_OVER_LIMIT");
       expect(
         screen.getByTestId("monitor-blocked-explanation").textContent,
-      ).toBe(blockedExplanation("LIST_OVER_LIMIT"));
+      ).toContain(blockedExplanation("LIST_OVER_LIMIT"));
       expect(blockedExplanation("LIST_OVER_LIMIT")).not.toBe(
         blockedExplanation("MONITOR_CAPACITY"),
       );
@@ -657,10 +655,12 @@ describe("MonitorDetail", () => {
       render(<MonitorDetail monitorId="monitor-1" />);
       await detailReady();
 
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Enabled",
       );
-      expect(screen.queryByTestId("monitor-blocked-pill")).toBeNull();
+      expect(
+        screen.getByTestId("monitor-state-pill").getAttribute("data-state"),
+      ).toBe("ENABLED");
       expect(screen.queryByTestId("monitor-blocked-explanation")).toBeNull();
       expect(screen.queryByText("Not scanning")).toBeNull();
     });
@@ -686,7 +686,7 @@ describe("MonitorDetail", () => {
         ),
       ).toBe(message);
       // The header still tells the truth about the configured state.
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Disabled",
       );
     });

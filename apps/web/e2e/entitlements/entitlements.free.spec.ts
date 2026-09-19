@@ -134,7 +134,9 @@ test.describe("FREE entitlements", () => {
     const error = page.getByTestId("backtest-submit-error");
     await expect(error).toBeInViewport();
     await expect(
-      page.getByTestId("new-backtest-actions").getByTestId("backtest-submit-error"),
+      page
+        .getByTestId("new-backtest-actions")
+        .getByTestId("backtest-submit-error"),
     ).toHaveCount(1);
     await expect(page.getByTestId("submit-backtest")).toBeInViewport();
   });
@@ -163,14 +165,29 @@ test.describe("FREE entitlements", () => {
     await page
       .getByTestId("monitor-list")
       .selectOption({ label: fixtureName("Free Small") });
-    await page.getByTestId("submit-monitor").click();
 
-    // Refused, and the dialog stays open holding what was typed: the user is told the limit rather
-    // than losing their work to a closed dialog and a silent no-op.
+    // At capacity the dialog says so before submit and offers the monitor switched off (UI-022).
+    const startNow = dialog.getByLabel(/Start monitoring now/);
+    await expect(startNow).not.toBeChecked();
+    await expect(page.getByTestId("monitor-capacity-hint")).toContainText(
+      "allows 1 active monitor",
+    );
+
+    // Insisting is still refused by the server, and the dialog stays open holding what was typed,
+    // with the obvious alternative offered rather than a dead end.
+    await startNow.check();
+    await page.getByTestId("submit-monitor").click();
     const error = dialog.getByRole("alert");
     await expect(error).toBeVisible({ timeout: 20_000 });
     await expect(error).toContainText("1");
     await expect(error).toContainText(/monitor/i);
+    await expect(
+      dialog.getByTestId("monitor-save-without-monitoring"),
+    ).toBeVisible();
+    await expect(dialog.getByTestId("entitlement-see-plans")).toHaveAttribute(
+      "href",
+      "/billing",
+    );
     await expect(dialog).toBeVisible();
   });
 });

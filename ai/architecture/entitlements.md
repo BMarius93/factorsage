@@ -100,6 +100,26 @@ plan's symbol limit keeps its slot but cannot scan. The API projects the same fu
 `operationalStatus` / `blockedReason`, so what the worker executes and what the user is shown
 cannot disagree.
 
+## Showing limits before they are hit (web)
+
+The API is the authority; the web shows the same numbers **before** the user does the work
+(UI-020 … UI-024):
+
+- `features/auth/hooks/use-entitlements.ts` resolves the viewer's entitlements with the canonical
+  `resolveEntitlements` over the plan and role the session already carries. No capacity is
+  re-declared in feature code and no extra request is made.
+- `LimitMeter` ("10 of 10 stocks · at your plan's limit") appears wherever a capped quantity is
+  edited: list detail (from the list's own server-derived `compliance`), New list, the Monitors
+  header (switched-on monitors against `maxActive`), and New Backtest (period length, stocks per
+  backtest against the chosen list's size, and a notice when the concurrency slots are taken).
+- MAX on New Backtest sets the plan's period allowance, never a guaranteed refusal.
+- Every refusal renders as `EntitlementNotice`: the API's sentence, a recovery that fits the code
+  (set the period to N years, open the running backtest, choose a smaller list, save the monitor
+  switched off), and "See plans".
+- A downgraded account sees one effective state per Monitor and a page-level notice on Monitors
+  and Lists saying what is paused or over the limit, in numbers, and what to do.
+- The account menu shows the **plan**; the role appears only for an administrator.
+
 ## The billing boundary
 
 `apps/api/src/entitlements/user-plan.ts` is the only writer of `User.plan`, and no route reaches

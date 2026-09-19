@@ -35,8 +35,9 @@ import { useMonitor } from "../hooks/use-monitor";
 import {
   blockedExplanation,
   isBlockedByEntitlement,
-  MonitorBlockedPill,
+  MonitorStateBadge,
 } from "../utils/blocked-status";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import {
   activeSignalLabel,
   formatMonitorTimestamp,
@@ -373,21 +374,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   Built-in
                 </StatusBadge>
               ) : null}
-              <StatusBadge
-                tone={view.enabled ? "positive" : "pending"}
-                testId="monitor-enabled-pill"
-              >
-                {builtIn
-                  ? view.enabled
-                    ? "Running"
-                    : "Paused"
-                  : view.enabled
-                    ? "Enabled"
-                    : "Disabled"}
-              </StatusBadge>
-              {/* The configured switch alone would say "Enabled" for a monitor a downgrade has
-                  stopped; the effective state sits beside it, exactly as on the collection. */}
-              <MonitorBlockedPill monitor={view} />
+              {/* One effective state, exactly as on the collection (UI-021). The configured
+                  switch is a secondary fact under Configuration. */}
+              <MonitorStateBadge monitor={view} builtIn={builtIn} />
               {builtIn && view.canEdit ? (
                 <StatusBadge
                   tone={view.isPublished ? "positive" : "warning"}
@@ -480,13 +469,25 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           }
         />
 
-        {isBlockedByEntitlement(view) ? (
-          <p
-            className={styles.blockedNotice}
-            data-testid="monitor-blocked-explanation"
-          >
-            {blockedExplanation(view.blockedReason)}
-          </p>
+        {!builtIn && view.enabled && isBlockedByEntitlement(view) ? (
+          <EntitlementNotice
+            announce="status"
+            testId="monitor-blocked-explanation"
+            title="Paused by your plan"
+            message={blockedExplanation(view.blockedReason)}
+            {...(view.blockedReason === "LIST_OVER_LIMIT"
+              ? {
+                  recovery: (
+                    <Link
+                      className={forms.secondaryButton}
+                      href={`/lists/${view.stockListId}`}
+                    >
+                      Open the list
+                    </Link>
+                  ),
+                }
+              : {})}
+          />
         ) : null}
 
         {toggleFailure ? (
@@ -522,6 +523,17 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
             <FactGrid
               facts={[
                 { label: "Stocks", value: stockCountLabel(view.securityCount) },
+                ...(builtIn
+                  ? []
+                  : [
+                      {
+                        // What the user asked for, which a plan limit never changes; the badge
+                        // above is what the system is doing with it.
+                        label: "Monitoring",
+                        value: view.enabled ? "Switched on" : "Switched off",
+                        testId: "monitor-configured-intent",
+                      },
+                    ]),
                 {
                   label: "Active signals",
                   value: activeSignalLabel(view.activeSignalCount),

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useAuthSession } from "../hooks/use-auth-session";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
+import { PLAN_LABEL } from "../../billing/utils/format";
 import styles from "./AccountMenu.module.css";
 
 /**
@@ -115,11 +117,22 @@ export function AccountMenu() {
             <span className={styles.email} data-testid="account-email">
               {user.email}
             </span>
-            <span
-              className={`${styles.roleBadge} ${isAdmin ? styles.roleAdmin : styles.roleUser}`}
-              data-testid="account-role"
-            >
-              {user.role}
+            {/* The plan is what a customer bought and what every limit follows from, so it is the
+                badge here (UI-024). The role is internal, and only an administrator's adds
+                meaning. */}
+            <span className={styles.badges}>
+              <StatusBadge tone="active" testId="account-plan">
+                {PLAN_LABEL[user.plan]}
+              </StatusBadge>
+              {isAdmin ? (
+                <StatusBadge
+                  tone="neutral"
+                  variant="outline"
+                  testId="account-role"
+                >
+                  Admin
+                </StatusBadge>
+              ) : null}
             </span>
           </div>
 

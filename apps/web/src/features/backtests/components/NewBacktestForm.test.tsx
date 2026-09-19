@@ -24,6 +24,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("../api/backtests-api", () => ({
   fetchBenchmarks: vi.fn(),
   createBacktestRun: vi.fn(),
+  // The form reads the caller's runs to show a concurrency limit before submit (UI-020).
+  fetchBacktestRuns: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../strategies/api/strategies-api", () => ({
@@ -151,22 +153,22 @@ describe("NewBacktestForm", () => {
     await screen.findByLabelText("Benchmark");
 
     await waitFor(() =>
-      expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
-        "strategy-1",
-      ),
+      expect(
+        (screen.getByLabelText("Strategy") as HTMLSelectElement).value,
+      ).toBe("strategy-1"),
     );
-    expect((screen.getByLabelText("Stock list") as HTMLSelectElement).value).toBe(
-      "list-1",
-    );
-    expect((screen.getByTestId("backtest-start") as HTMLInputElement).value).toBe(
-      "2019-03-01",
-    );
+    expect(
+      (screen.getByLabelText("Stock list") as HTMLSelectElement).value,
+    ).toBe("list-1");
+    expect(
+      (screen.getByTestId("backtest-start") as HTMLInputElement).value,
+    ).toBe("2019-03-01");
     expect((screen.getByTestId("backtest-end") as HTMLInputElement).value).toBe(
       "2023-03-01",
     );
-    expect((screen.getByTestId("backtest-capital") as HTMLInputElement).value).toBe(
-      "25000",
-    );
+    expect(
+      (screen.getByTestId("backtest-capital") as HTMLInputElement).value,
+    ).toBe("25000");
     expect(
       (screen.getByTestId("backtest-contribution") as HTMLInputElement).value,
     ).toBe("");
@@ -294,14 +296,14 @@ describe("NewBacktestForm", () => {
     );
     // The refusal lives in the action footer — on a phone, the sticky bar the user just tapped —
     // inside a live region that was mounted before the message arrived (UI-005).
-    expect(
-      screen.getByTestId("new-backtest-actions").contains(message),
-    ).toBe(true);
+    expect(screen.getByTestId("new-backtest-actions").contains(message)).toBe(
+      true,
+    );
     expect(message.parentElement?.getAttribute("aria-live")).toBe("assertive");
     // What the user entered is kept.
-    expect(
-      (screen.getByLabelText("Strategy") as HTMLSelectElement).value,
-    ).toBe("strategy-1");
+    expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
+      "strategy-1",
+    );
     expect(push).not.toHaveBeenCalled();
   });
 });

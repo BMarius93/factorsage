@@ -9,7 +9,13 @@ import Link from "next/link";
 import { useState } from "react";
 import forms from "../../../components/ui/forms.module.css";
 import { Modal } from "../../../components/ui/Modal";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import {
+  entitlementReason,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { PLAN_LABEL } from "../../billing/utils/format";
 import { createMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitorOptions } from "../hooks/use-monitor-options";
 import styles from "./MonitorFormDialog.module.css";
@@ -18,6 +24,12 @@ type CreateProps = {
   readonly mode: "create";
   readonly onSaved: (detail: MonitorDetailResponse) => void;
   readonly onClose: () => void;
+  /**
+   * How many of the viewer's own monitors are switched on right now. With the plan's allowance it
+   * decides whether "Start monitoring now" can be offered switched on (UI-022). Advisory: the API
+   * re-checks inside its own transaction.
+   */
+  readonly activeCount?: number;
 };
 
 type EditProps = {
@@ -28,6 +40,7 @@ type EditProps = {
   >;
   readonly onSaved: (summary: MonitorSummaryResponse) => void;
   readonly onClose: () => void;
+  readonly activeCount?: number;
 };
 
 type MonitorFormDialogProps = CreateProps | EditProps;
@@ -69,9 +82,23 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
   const [name, setName] = useState(editing?.name ?? "");
   const [strategyId, setStrategyId] = useState(editing?.strategyId ?? "");
   const [stockListId, setStockListId] = useState(editing?.stockListId ?? "");
-  const [enabled, setEnabled] = useState(editing?.enabled ?? true);
+  const plan = useEntitlements();
+  const maxActive =
+    plan.status === "ready" ? plan.entitlements.monitors.maxActive : null;
+  // Switching this monitor on would take a slot the plan does not have. An existing monitor that
+  // is already on holds its own slot, so only a new or switched-off one can hit the limit.
+  const atCapacity =
+    !builtIn &&
+    maxActive !== null &&
+    props.activeCount !== undefined &&
+    !(editing?.enabled ?? false) &&
+    props.activeCount >= maxActive;
+  // At capacity a new monitor starts switched off, so saving it succeeds instead of being refused
+  // after the whole form is filled.
+  const [enabled, setEnabled] = useState(editing?.enabled ?? !atCapacity);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [capacityRefused, setCapacityRefused] = useState(false);
   const [pending, setPending] = useState(false);
 
   // Only creation can be blocked: an existing monitor already references a strategy and a list, so
@@ -88,6 +115,10 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    await save(enabled);
+  };
+
+  const save = async (enabledValue: boolean) => {
     if (pending) {
       return;
     }
@@ -100,9 +131,11 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
     };
     setErrors(found);
     setSubmitError(null);
+    setCapacityRefused(false);
     if (Object.keys(found).length > 0) {
       return;
     }
+    setEnabled(enabledValue);
 
     setPending(true);
     try {
@@ -112,7 +145,7 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             name: trimmedName,
             strategyId,
             stockListId,
-            enabled,
+            enabled: enabledValue,
           }),
         );
       } else {
@@ -124,12 +157,15 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             strategyId,
             stockListId,
             // A built-in's switch is its global enable, which the monitor page owns.
-            ...(builtIn ? {} : { enabled }),
+            ...(builtIn ? {} : { enabled: enabledValue }),
           }),
         );
       }
     } catch (caught) {
       setSubmitError(requestMessage(caught, props.mode));
+      setCapacityRefused(
+        entitlementReason(caught) === "ENTITLEMENT_MONITOR_LIMIT",
+      );
       setPending(false);
     }
   };
@@ -330,6 +366,20 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
                   ? "Leave this off to save the monitor without evaluating it yet. You can enable it at any time."
                   : "A disabled monitor keeps its signals and resumes from where it left off when you enable it again."}
               </span>
+              {atCapacity ? (
+                <span
+                  className={styles.capacityHint}
+                  data-testid="monitor-capacity-hint"
+                >
+                  {plan.status === "ready" && plan.plan
+                    ? PLAN_LABEL[plan.plan]
+                    : "Your plan"}{" "}
+                  allows {maxActive} active monitor{maxActive === 1 ? "" : "s"}{" "}
+                  and {props.activeCount} {props.activeCount === 1 ? "is" : "are"}{" "}
+                  switched on, so this one is saved switched off. Switch another
+                  monitor off to start it.
+                </span>
+              ) : null}
             </label>
           </div>
           )}
@@ -342,7 +392,25 @@ export function MonitorFormDialog(props: MonitorFormDialogProps) {
             </p>
           ) : null}
 
-          {submitError ? (
+          {submitError && capacityRefused ? (
+            // The obvious alternative, offered rather than hidden (UI-022): the same monitor, saved
+            // switched off, which the plan always allows.
+            <EntitlementNotice
+              testId="monitor-form-error"
+              message={submitError}
+              recovery={
+                <button
+                  type="button"
+                  className={forms.primaryButton}
+                  data-testid="monitor-save-without-monitoring"
+                  disabled={pending}
+                  onClick={() => void save(false)}
+                >
+                  Save without monitoring
+                </button>
+              }
+            />
+          ) : submitError ? (
             <p
               className={forms.error}
               role="alert"

@@ -68,7 +68,7 @@ describe("AccountMenu", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows the signed-in identity and role", async () => {
+  it("shows the signed-in identity and plan, and no internal role for a customer", async () => {
     const user = userEvent.setup();
     render(<AccountMenu />);
 
@@ -77,7 +77,19 @@ describe("AccountMenu", () => {
     expect(screen.getByTestId("account-email").textContent).toBe(
       "person@example.test",
     );
-    expect(screen.getByTestId("account-role").textContent).toBe("USER");
+    // The plan is what the customer bought (UI-024); "USER" meant nothing to them.
+    expect(screen.getByTestId("account-plan").textContent).toBe("Pro");
+    expect(screen.queryByTestId("account-role")).toBeNull();
+  });
+
+  it("marks an administrator as such beside the plan", async () => {
+    const user = userEvent.setup();
+    state = authenticated("ADMIN");
+    render(<AccountMenu />);
+
+    await user.click(screen.getByTestId("account-menu-trigger"));
+    expect(screen.getByTestId("account-plan").textContent).toBe("Pro");
+    expect(screen.getByTestId("account-role").textContent).toBe("Admin");
   });
 
   it("offers the admin route only to an ADMIN", async () => {

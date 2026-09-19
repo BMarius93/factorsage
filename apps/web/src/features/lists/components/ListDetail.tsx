@@ -20,7 +20,12 @@ import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { LimitMeter } from "../../../components/ui/LimitMeter";
+import {
+  isEntitlementError,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
 import {
   addStockListItems,
   deleteStockList,
@@ -127,6 +132,7 @@ export function ListDetail({ listId }: ListDetailProps) {
   const [pendingAdd, setPendingAdd] = useState<StockListSecurityResponse[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addRefusedByPlan, setAddRefusedByPlan] = useState(false);
 
   const memberIds = useMemo(
     () => new Set(detail?.items.map((item) => item.security.id) ?? []),
@@ -211,6 +217,7 @@ export function ListDetail({ listId }: ListDetailProps) {
       applyDetail(updated);
       setPendingAdd([]);
     } catch (error) {
+      setAddRefusedByPlan(isEntitlementError(error));
       setAddError(
         requestFailureMessage(
           error,
@@ -314,14 +321,7 @@ export function ListDetail({ listId }: ListDetailProps) {
                 {stockCountLabel(detail.items.length)}
               </StatusBadge>
               {detail.compliance.compliant ? null : (
-                <StatusBadge
-                  tone="warning"
-                  title={
-                    detail.compliance.symbolLimit === null
-                      ? "This list exceeds your plan's symbol limit."
-                      : `This list holds ${detail.compliance.symbolCount} stocks; your plan allows ${detail.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
-                  }
-                >
+                <StatusBadge tone="warning" testId="list-over-limit-badge">
                   Over plan limit
                 </StatusBadge>
               )}
@@ -355,6 +355,20 @@ export function ListDetail({ listId }: ListDetailProps) {
           }
         />
 
+        {detail.compliance.compliant ? null : (
+          // The explanation lives on the page, not in a tooltip a phone cannot open (UI-021).
+          <EntitlementNotice
+            announce="status"
+            testId="list-over-limit-notice"
+            title="This list is over your plan's stock limit"
+            message={
+              detail.compliance.symbolLimit === null
+                ? "This list exceeds your plan's stock limit. Existing stocks stay readable; new ones cannot be added."
+                : `It holds ${detail.compliance.symbolCount} stocks and your plan allows ${detail.compliance.symbolLimit} per list. Existing stocks stay readable and can be removed; new ones cannot be added until it is within the limit.`
+            }
+          />
+        )}
+
         {editable ? (
           <SectionCard
             id="add-stocks"
@@ -387,7 +401,45 @@ export function ListDetail({ listId }: ListDetailProps) {
                     : "Add to list"}
               </button>
             </div>
-            {addError ? (
+            {detail.compliance.symbolLimit !== null ? (
+              // The plan's capacity for this list, before anything is added (UI-020). The limit is
+              // the one the API derived for this viewer on this read.
+              <div className={styles.addMeter}>
+                <LimitMeter
+                  label="Stocks in this list"
+                  usage={detail.items.length}
+                  limit={detail.compliance.symbolLimit}
+                  unit={["stock", "stocks"]}
+                  testId="list-symbol-meter"
+                />
+                {pendingAdd.length > 0 &&
+                detail.items.length + pendingAdd.length >
+                  detail.compliance.symbolLimit ? (
+                  <p
+                    className={styles.addWarning}
+                    data-testid="list-add-over-limit"
+                  >
+                    Adding{" "}
+                    {pendingAdd.length === 1
+                      ? "this stock"
+                      : `these ${pendingAdd.length} stocks`}{" "}
+                    would make {detail.items.length + pendingAdd.length}; your
+                    plan allows {detail.compliance.symbolLimit} per list.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {addError && addRefusedByPlan ? (
+              <EntitlementNotice
+                testId="list-add-error"
+                message={addError}
+                recovery={
+                  <span className={styles.recoveryHint}>
+                    Remove stocks from the selection or from the list.
+                  </span>
+                }
+              />
+            ) : addError ? (
               <p
                 className={`${forms.error} ${styles.addError}`}
                 role="alert"
