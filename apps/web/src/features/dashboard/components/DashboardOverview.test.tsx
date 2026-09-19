@@ -129,7 +129,7 @@ async function renderOverview(
  * The Dashboard's opening row.
  *
  * The count and the order are asserted literally, because they are the product decision: five
- * cards, `Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`, and nothing else. A Nasdaq card
+ * cards, `Run Backtest · S&P 500 · DJIA · VIX · Current matches`, and nothing else. A Nasdaq card
  * or a Fear & Greed gauge arriving by accident is exactly the failure these tests exist to catch.
  */
 describe("DashboardOverview", () => {
@@ -158,7 +158,7 @@ describe("DashboardOverview", () => {
       expect.stringContaining("S&P 500"),
       expect.stringContaining("DJIA"),
       expect.stringContaining("VIX"),
-      expect.stringContaining("Real-time Matches"),
+      expect.stringContaining("Current matches"),
     ]);
   });
 

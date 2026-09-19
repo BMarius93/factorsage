@@ -232,16 +232,52 @@ describe("DashboardPage", () => {
     expect(
       rows.filter((entry) => entry.textContent?.includes("AAPL")),
     ).toHaveLength(2);
-    expect(within(rows[0]!).getByText("Waiting for trigger")).toBeDefined();
+    const pending = rows.find((entry) => entry.textContent?.includes("Roper"))!;
+    expect(within(pending).getByText("Waiting for trigger")).toBeDefined();
     expect(
-      within(rows[0]!).getByText(/Waiting for: Price crosses above SMA 20D/),
+      within(pending).getByText(/Waiting for: Price crosses above SMA 20D/),
     ).toBeDefined();
-    expect(within(rows[1]!).getByText("Active")).toBeDefined();
-    expect(within(rows[1]!).getByText("Buy 100%")).toBeDefined();
-    expect(within(rows[3]!).getByText("Final exit")).toBeDefined();
+    const buy = rows.find((entry) => entry.textContent?.includes("Buy 100%"))!;
+    expect(within(buy).getByText("Active")).toBeDefined();
+    expect(
+      rows.some((entry) => within(entry).queryByText("Final exit") !== null),
+    ).toBe(true);
   });
 
-  it("shows exactly the agreed columns: no Since, and no per-row Backtest", async () => {
+  it("orders active before waiting, then by action, then newest first (UI-025)", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const states = rows.map(
+      (entry) =>
+        entry.querySelector("[data-state]")?.getAttribute("data-state") ?? "",
+    );
+    const levels = rows.map(
+      (entry) =>
+        entry.querySelector("[data-level]")?.getAttribute("data-level") ?? "",
+    );
+    // The API sent the waiting setup first; it is actionable last.
+    expect(states).toEqual(["ACTIVE", "ACTIVE", "ACTIVE", "PENDING_TRIGGER"]);
+    expect(levels.slice(0, 3)).toEqual(["BUY", "BUY", "FINAL_EXIT"]);
+  });
+
+  it("says when each signal's state began, with the exact time in reachable text (UI-025)", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const since = (await screen.findAllByTestId("dashboard-since"))[0]!;
+    expect(since.querySelector("time")?.getAttribute("dateTime")).toMatch(
+      /^\d{4}-\d{2}-\d{2}T/,
+    );
+    // Relative ("… ago") for scanning, the absolute instant for a screen reader.
+    expect(since.textContent).toMatch(/ago|just now/);
+    expect(since.textContent).toMatch(/\(\w{3} \d{1,2}, \d{4}, /);
+  });
+
+  it("shows exactly the agreed columns, Since included, and no per-row Backtest", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
@@ -253,13 +289,13 @@ describe("DashboardPage", () => {
     ).toEqual([
       "Stock",
       "Action",
+      "Since",
       "Why",
       "Price",
       "Strategy",
       "List",
       "Monitor",
     ]);
-    expect(within(table).queryByRole("columnheader", { name: "Since" })).toBeNull();
     expect(screen.queryAllByRole("link", { name: /Backtest/ })).toHaveLength(0);
   });
 
@@ -270,7 +306,10 @@ describe("DashboardPage", () => {
     const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
       "dashboard-signal-row",
     );
-    const active = rows[1]!;
+    const active = rows.find((entry) =>
+      entry.querySelector('a[href="/monitors/monitor-b"]') &&
+      entry.querySelector('a[href="/stocks/AAPL"]'),
+    )!;
     // The identity cell is the row's own link to Stock Details; the three relationship cells
     // each go somewhere else, and none of them is the row's destination.
     expect(
@@ -298,7 +337,10 @@ describe("DashboardPage", () => {
     const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
       "dashboard-signal-row",
     );
-    const active = rows[1]!;
+    const active = rows.find((entry) =>
+      entry.querySelector('a[href="/monitors/monitor-b"]') &&
+      entry.querySelector('a[href="/stocks/AAPL"]'),
+    )!;
     // The three columns step out between 880 and 1,279px, and the same references are folded
     // into the identity cell instead. CSS shows exactly one of the two at any width.
     expect(

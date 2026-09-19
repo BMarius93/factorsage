@@ -15,6 +15,7 @@ import actionStyles from "../../../components/ui/actions.module.css";
 import { lastScanLabel } from "../../monitors/utils/format";
 import { fetchBuiltInContent } from "../api/admin-api";
 import styles from "./BuiltInContentPanel.module.css";
+import { formatDate } from "../../../lib/dates";
 
 type Row = {
   readonly kind: "list" | "strategy" | "monitor";
@@ -40,7 +41,7 @@ const KIND_LABELS = {
 
 function rowsOf(content: BuiltInContentAdminResponse): Row[] {
   const updated = (at: string, by?: string) =>
-    `${new Date(at).toLocaleDateString()}${by ? ` · ${by}` : ""}`;
+    `${formatDate(at)}${by ? ` · ${by}` : ""}`;
   return [
     ...content.monitors.map((monitor) => ({
       kind: "monitor" as const,

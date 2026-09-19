@@ -41,7 +41,7 @@ type DashboardOverviewProps = {
 /**
  * The overview strip: five cards across the top of the Dashboard, in one visual family.
  *
- * `Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`. The order is fixed and the count is
+ * `Run Backtest · S&P 500 · DJIA · VIX · Current matches`. The order is fixed and the count is
  * exact — this is the row FactorSage V1 opened its Dashboard with, and the shape a returning user
  * recognises. What it is *not* is a place to keep adding metrics: breadth, valuation pulse, a
  * sentiment score and a second index each cost a reader more than they tell them.
@@ -369,7 +369,8 @@ function MatchesCard({
       data-testid="dashboard-matches-card"
     >
       <p className={styles.label}>
-        <span className={styles.fullLabel}>Real-time Matches</span>
+        {/* "Current", not "Real-time": this is an end-of-day product (UI-025). */}
+        <span className={styles.fullLabel}>Current matches</span>
         <span className={styles.shortLabel}>Matches</span>
       </p>
       {ready ? (

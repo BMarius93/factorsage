@@ -232,7 +232,11 @@ describe("MonitorDetail", () => {
       expect(
         screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
-      expect(screen.getByText("Waiting for trigger")).toBeDefined();
+      expect(
+        within(screen.getByTestId("monitor-securities")).getByText(
+          "Waiting for trigger",
+        ),
+      ).toBeDefined();
       expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
     });
 
@@ -429,18 +433,65 @@ describe("MonitorDetail", () => {
 
     const rows = screen.getAllByTestId("monitor-security-row");
     expect(rows).toHaveLength(4);
+    // What is happening first, then what could not be decided, then plain non-matches, then what
+    // has not been checked (UI-026).
     expect(within(rows[0]!).getByText("Matched")).toBeDefined();
-    expect(within(rows[1]!).getByText("No match")).toBeDefined();
-    expect(within(rows[2]!).getByText("Not evaluable")).toBeDefined();
+    expect(within(rows[1]!).getByText("Not evaluable")).toBeDefined();
+    expect(within(rows[2]!).getByText("No match")).toBeDefined();
     expect(within(rows[3]!).getByText("Not checked yet")).toBeDefined();
+    // "Not evaluable" is explained in words once, and the status filter counts every state.
+    expect(
+      screen.getByTestId("monitor-not-evaluable-note").textContent,
+    ).toContain("could not decide the rule");
+    const filter = screen.getByTestId("monitor-status-filter");
+    expect(
+      within(filter)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual([
+      "All4",
+      "Matched1",
+      "No match1",
+      "Not evaluable1",
+      "Not checked yet1",
+    ]);
 
     // The matched row explains itself through its Signal, and carries the observed price.
     expect(within(rows[0]!).getByText("Buy · Trigger")).toBeDefined();
     expect(within(rows[0]!).getByText("$212.50")).toBeDefined();
     // A security that did not match has no stored price, so none is shown rather than a fake zero.
-    expect(within(rows[1]!).queryByText(/\$/)).toBeNull();
+    expect(within(rows[2]!).queryByText(/\$/)).toBeNull();
     // And a never-checked one has no status timestamp either.
     expect(within(rows[3]!).queryByText(/Sep/)).toBeNull();
+  });
+
+  it("says why an ended signal ended, and dates a history-derived one by its session (UI-026)", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        signals: [
+          signal({
+            id: "signal-ended",
+            resolvedAt: "2026-09-11T20:00:00.000Z",
+            resolutionReason: "MEMBER_REMOVED",
+          }),
+          signal({
+            id: "signal-history",
+            reconstructed: true,
+            observationDate: "2026-09-10",
+          }),
+        ],
+      }),
+    );
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const rows = screen.getAllByTestId("monitor-signal-row");
+    expect(
+      within(rows[0]!).getByTestId("monitor-signal-ended").textContent,
+    ).toContain("stock left the list");
+    // The same day format as every other date in the product, never a raw ISO string.
+    expect(rows[1]!.textContent).toContain("Sep 10, 2026 · from history");
+    expect(rows[1]!.textContent).not.toContain("2026-09-10");
   });
 
   it("lists recent signals newest-first with their state", async () => {
@@ -466,7 +517,10 @@ describe("MonitorDetail", () => {
     expect(within(rows[0]!).getByText("Sell · Trigger")).toBeDefined();
     expect(within(rows[0]!).getByText("Active")).toBeDefined();
     expect(within(rows[1]!).getByText("Buy · Condition")).toBeDefined();
-    expect(within(rows[1]!).getByText(/^Ended /)).toBeDefined();
+    expect(within(rows[1]!).getByText("Ended")).toBeDefined();
+    expect(
+      within(rows[1]!).getByTestId("monitor-signal-ended").textContent,
+    ).toMatch(/Ended\w{3} \d{1,2}, \d{4}/);
     expect(within(rows[1]!).getByText("$101.50")).toBeDefined();
     // Under the window cap, so nothing claims to be truncated.
     expect(screen.queryByTestId("monitor-signals-window")).toBeNull();

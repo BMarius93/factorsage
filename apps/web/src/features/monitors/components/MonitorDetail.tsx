@@ -1,11 +1,13 @@
 "use client";
 
-import type {
-  MonitorDetailResponse,
-  MonitorSecurityEvaluationResponse,
-  MonitorSignalResponse,
-  UpdateMonitorRequest,
-  MonitorSummaryResponse,
+import {
+  MONITOR_SECURITY_STATUSES,
+  type MonitorDetailResponse,
+  type MonitorSecurityEvaluationResponse,
+  type MonitorSecurityStatus,
+  type MonitorSignalResponse,
+  type UpdateMonitorRequest,
+  type MonitorSummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -26,6 +28,12 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "../../../components/ui/SegmentedControl";
+import { formatDay, formatRelative } from "../../../lib/dates";
+import { useNow } from "../../../lib/use-now";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { stockCountLabel } from "../../lists/utils/format";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
@@ -43,7 +51,9 @@ import {
   formatObservationPrice,
   lastScanLabel,
   LEVEL_KIND_LABELS,
+  RESOLUTION_REASON_LABELS,
   SECURITY_STATUS_LABELS,
+  SECURITY_STATUS_ORDER,
   SECURITY_STATUS_TONES,
   SIGNAL_KIND_LABELS,
 } from "../utils/format";
@@ -98,6 +108,10 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   const [togglePending, setTogglePending] = useState(false);
   const [toggleFailure, setToggleFailure] = useState<string | null>(null);
   const [local, setLocal] = useState<MonitorSummaryResponse | null>(null);
+  const [statusFilter, setStatusFilter] = useState<
+    "ALL" | MonitorSecurityStatus
+  >("ALL");
+  const now = useNow(30_000);
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
@@ -199,6 +213,33 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
     );
 
   const signalsAtWindow = view.signals.length >= SIGNAL_WINDOW;
+
+  // Matched first, then waiting, then undecided, no match and unchecked (UI-026).
+  const sortedSecurities = [...view.securities].sort(
+    (a, b) => SECURITY_STATUS_ORDER[a.status] - SECURITY_STATUS_ORDER[b.status],
+  );
+  const statusCounts = Object.fromEntries(
+    MONITOR_SECURITY_STATUSES.map((status) => [
+      status,
+      view.securities.filter((entry) => entry.status === status).length,
+    ]),
+  ) as Record<MonitorSecurityStatus, number>;
+  const statusFilterOptions: readonly SegmentedOption<
+    "ALL" | MonitorSecurityStatus
+  >[] = [
+    { value: "ALL", label: "All", count: view.securities.length },
+    ...MONITOR_SECURITY_STATUSES.filter(
+      (status) => statusCounts[status] > 0,
+    ).map((status) => ({
+      value: status,
+      label: SECURITY_STATUS_LABELS[status],
+      count: statusCounts[status],
+    })),
+  ];
+  const visibleSecurities =
+    statusFilter === "ALL"
+      ? sortedSecurities
+      : sortedSecurities.filter((entry) => entry.status === statusFilter);
 
   const securityColumns: readonly DataTableColumn<MonitorSecurityEvaluationResponse>[] =
     [
@@ -313,15 +354,22 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       header: "State",
       cardRole: "status",
       nowrap: true,
-      render: (signal) => (
-        <StatusBadge
-          tone={signal.resolvedAt === undefined ? "positive" : "pending"}
-        >
-          {signal.resolvedAt === undefined
-            ? "Active"
-            : `Ended ${formatMonitorTimestamp(signal.resolvedAt)}`}
-        </StatusBadge>
-      ),
+      render: (signal) =>
+        signal.resolvedAt === undefined ? (
+          <StatusBadge tone="positive">Active</StatusBadge>
+        ) : (
+          // Ended, when, and why — the reason is text, not a hover (UI-026).
+          <span className={styles.ended} data-testid="monitor-signal-ended">
+            <StatusBadge tone="pending">Ended</StatusBadge>
+            <span className={styles.endedDetail}>
+              {formatMonitorTimestamp(signal.resolvedAt)}
+              {signal.resolutionReason &&
+              RESOLUTION_REASON_LABELS[signal.resolutionReason] !== "ended"
+                ? ` · ${RESOLUTION_REASON_LABELS[signal.resolutionReason]}`
+                : ""}
+            </span>
+          </span>
+        ),
     },
     {
       key: "level",
@@ -343,9 +391,11 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       key: "detected",
       header: "Detected",
       nowrap: true,
+      // One date format either way (UI-049): a session day for a reconstructed signal, a moment
+      // for one observed live.
       render: (signal) =>
         signal.reconstructed
-          ? `${signal.observationDate} · from history`
+          ? `${formatDay(signal.observationDate)} · from history`
           : formatMonitorTimestamp(signal.detectedAt),
     },
   ];
@@ -546,7 +596,11 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                 },
                 {
                   label: "Last checked",
-                  value: lastScanLabel(view.lastScanAt),
+                  // The exact time, and how long ago — kept ticking while the page is open (UI-048).
+                  value:
+                    view.lastScanAt === undefined
+                      ? lastScanLabel(view.lastScanAt)
+                      : `${lastScanLabel(view.lastScanAt)} · ${formatRelative(view.lastScanAt, now)}`,
                   testId: "monitor-last-checked",
                 },
               ]}
@@ -559,13 +613,40 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           title="Monitored stocks"
           aside={`${view.securities.length}`}
           flush={view.securities.length > 0}
+          {...(view.securities.length > 0
+            ? {
+                toolbar: (
+                  <SegmentedControl
+                    label="Filter by status"
+                    testId="monitor-status-filter"
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={statusFilterOptions}
+                  />
+                ),
+              }
+            : {})}
         >
+          {statusCounts.NOT_EVALUABLE > 0 ? (
+            // What "Not evaluable" means, once, in words (UI-026). The per-stock cause is not
+            // recorded yet — see ui-system.md, known read-model gaps.
+            <p
+              className={styles.sectionNote}
+              data-testid="monitor-not-evaluable-note"
+            >
+              <strong>Not evaluable</strong> means the last check could not
+              decide the rule for that stock — for example its price history is
+              too short for a metric, a value such as intrinsic value is not
+              available, or no current quote arrived. It is not the same as
+              &ldquo;No match&rdquo;, and it is checked again on the next scan.
+            </p>
+          ) : null}
           <DataTable
             label="Monitored stocks"
             testId="monitor-securities"
             rowTestId="monitor-security-row"
             columns={securityColumns}
-            rows={view.securities}
+            rows={visibleSecurities}
             getRowKey={(entry) => entry.security.id}
             emptyState={
               <EmptyState

@@ -385,6 +385,23 @@ the API's own sentence, an optional recovery that fits the case, and "See plans"
 number of its own — the feature passes usage it already has and limits from `useEntitlements()`
 or a server-derived `compliance` (see `ai/architecture/entitlements.md`).
 
+### `SegmentedControl`
+
+One row of mutually exclusive view choices — `aria-pressed` toggle buttons in a labelled group,
+each showing the count it would reveal. The chosen option is tinted (`--color-surface-selected`,
+primary ink), never a solid slab: a page keeps one solid-blue commit action. The Dashboard's state
+filter and the Monitor page's status filter use it (UI-009 … UI-012 build on the same control).
+
+### Dates and relative time — `lib/dates.ts`, `lib/use-now.ts`
+
+Every rendered date goes through `lib/dates.ts` in one product locale (UI-049): `formatDay` for a
+calendar day (`"2026-08-28"`, in UTC so no timezone moves it), `formatDate` / `formatDateTime`
+for an instant, `formatRelative` for "12 min ago". A relative label reads the page clock from
+`useNow()`, so it keeps ticking while the page is open (UI-048), and the absolute value is always
+in text a keyboard or screen-reader user can reach — never only a tooltip. Feature formatters
+(`formatListDate`, `formatDay`, `formatMonitorTimestamp`, …) delegate here; do not add another
+`Intl.DateTimeFormat`. Native date **inputs** keep the platform's own locale on purpose.
+
 ### `Skeleton` / `SkeletonList`
 
 The one loading language. Always `aria-hidden`: a placeholder is not content.
@@ -517,3 +534,9 @@ addition, not something to work around in the browser.
 4. **Benchmark quotes.** The legacy dashboard showed S&P 500 and DJIA quote cards. `GET /benchmarks`
    returns catalog metadata only, with no price or change, so those tiles are not built. _Needed:_ a
    latest-close projection on the benchmark catalog.
+
+5. **Why a stock is "Not evaluable".** The Monitor page explains what the state means in words
+   (UI-026), but the specific cause for one security — warm-up, missing history, no quote — is
+   recorded only as the outcome `NOT_EVALUABLE` (`MonitorSignalState.lastOutcome`). _Needed:_ an
+   evaluation-reason code persisted with the outcome and projected on
+   `MonitorSecurityEvaluationResponse`.

@@ -34,6 +34,14 @@ At capacity, the New Monitor dialog offers "Start monitoring now" switched **off
 and a capacity refusal offers "Save without monitoring" (UI-022) — the plan always allows a
 switched-off Monitor.
 
+How the UI tells a Monitor's story (UI-025, UI-026): the Dashboard gives every row a **Since**
+(how long the state has held, ticking, with the exact time as reachable text and "from history"
+for a reconstructed state), lists active signals before setups waiting for a trigger, then by
+action, then newest first, and calls its summary card "Current matches" — the product is end of
+day, never "real-time". The Monitor page lists matched stocks first, filters by status, explains
+"Not evaluable" in words, and says why an ended signal ended from its `resolutionReason` ("stock
+left the list", "membership period ended", "strategy logic changed", …).
+
 ## Signals
 
 `Signal` is the product term for a Monitor result. It is deliberately not the Monitor: a Monitor is

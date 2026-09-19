@@ -5,6 +5,7 @@ import {
   type UserPlan,
 } from "@intrinsic/contracts";
 import { ApiError } from "../../../lib/api/client";
+import { formatDate } from "../../../lib/dates";
 
 /**
  * Presentation for the billing surface.
@@ -33,18 +34,10 @@ export const CURRENCY_LABEL: Readonly<Record<BillingCatalogEntry["currency"], st
 };
 
 export function formatBillingDate(iso: string | null): string | null {
-  if (!iso) {
+  if (!iso || Number.isNaN(Date.parse(iso))) {
     return null;
   }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  return formatDate(iso);
 }
 
 /**
