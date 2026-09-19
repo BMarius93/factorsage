@@ -10,6 +10,7 @@ import Link from "next/link";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   DataTable,
+  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -69,6 +70,22 @@ function ReturnValue({ value }: { readonly value: number | null }) {
  * A run's own page owns live progress; this collection reports the state each run was in when the
  * list was fetched, so opening the app does not start a poll per row.
  */
+/** The benchmark and what it returned over the same period: one fact, in one place. */
+function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
+  return (
+    <span className={styles.benchmarkCell}>
+      <EntityReferenceChip kind="benchmark" name={run.benchmarkName} />
+      {run.benchmarkReturnPercent === null ? (
+        <span className={styles.placeholder}>{METRIC_PLACEHOLDER}</span>
+      ) : (
+        <span className={styles.benchmarkReturn}>
+          {formatSignedPercent(run.benchmarkReturnPercent)}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function BacktestsPage() {
   const { status, runs, retry } = useBacktestRuns();
 
@@ -134,27 +151,23 @@ export function BacktestsPage() {
       // The runs collection carries names but no ids, so these identify without linking.
       // The run's own page reads the snapshot, which does carry them.
       render: (run) => (
-        <EntityReferenceChip kind="list" name={run.stockListName} />
+        <span className={styles.listCell}>
+          <EntityReferenceChip kind="list" name={run.stockListName} />
+          {/* The Benchmark column folds in here between 880 and 1,279px. */}
+          <IntermediateOnly testId="backtest-folded-benchmark">
+            <BenchmarkFact run={run} />
+          </IntermediateOnly>
+        </span>
       ),
     },
     {
       key: "benchmark",
       header: "Benchmark",
       cardRole: "links",
+      foldIntermediate: true,
       // The benchmark and what it returned over the same period are one fact, so they
       // share a cell rather than sitting in two columns with a stock list between them.
-      render: (run) => (
-        <span className={styles.benchmarkCell}>
-          <EntityReferenceChip kind="benchmark" name={run.benchmarkName} />
-          {run.benchmarkReturnPercent === null ? (
-            <span className={styles.placeholder}>{METRIC_PLACEHOLDER}</span>
-          ) : (
-            <span className={styles.benchmarkReturn}>
-              {formatSignedPercent(run.benchmarkReturnPercent)}
-            </span>
-          )}
-        </span>
-      ),
+      render: (run) => <BenchmarkFact run={run} />,
     },
     {
       key: "portfolio",
@@ -177,6 +190,9 @@ export function BacktestsPage() {
       key: "queued",
       header: "Queued",
       cardRole: "hidden",
+      // Low-priority: the one column that steps out in the intermediate band without a folded
+      // copy — the run's own page carries its timestamps.
+      foldIntermediate: true,
       nowrap: true,
       render: (run) => formatTimestamp(run.queuedAt),
     },
@@ -191,7 +207,11 @@ export function BacktestsPage() {
       // executing has nothing to show yet.
       render: (run) =>
         isTerminalBacktestStatus(run.status) ? (
-          <Link className={actionStyles.action} href={`/backtests/${run.id}`}>
+          <Link
+            className={actionStyles.action}
+            href={`/backtests/${run.id}`}
+            aria-label={`View results for ${run.strategyName}`}
+          >
             View results
           </Link>
         ) : null,

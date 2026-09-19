@@ -124,6 +124,13 @@ no danger variant at all, and `forms.dangerButton` is reachable only from `Confi
 
 Give each row one visible contextual action — `Open`, `View results` — beside the trigger. A record
 with no maintenance actions renders no trigger: `OverflowMenu` returns `null` for an empty list.
+Name the visible action after its record (`aria-label="Open {name}"`), as the trigger already is:
+"Open" read 158 times down a page tells a screen-reader user nothing (UI-050).
+
+**Placement is collision-aware** (UI-006). The popup right-aligns under its trigger; where that
+would cross the left edge it left-aligns, and where it would fall under the bottom edge or the phone
+bottom navigation it opens upwards. `placeMenu` is the pure rule and is unit-tested. On a phone card
+the trigger sits at the card's **top-right** (see `DataTable`), never beside the bottom action.
 
 ### `WorkflowFooter`
 
@@ -170,6 +177,15 @@ Each column declares a `cardRole` that says where its cell goes on a phone:
 | `actions`  | cell    | a full-width action row under a divider                  |
 | `hidden`   | cell    | omitted                                                  |
 
+The `OverflowMenu` in an `actions` cell is pinned to the card's top-right, in the same row as the
+identity and status; the contextual action stays at the bottom. It is one DOM node positioned by
+the stylesheet, so the tab order and the desktop cell are unchanged. A column marked `stacked`
+(long prose — a signal's "why") puts its label above a left-aligned value instead of beside it.
+
+Below 880px the cards form a **fluid grid**, `repeat(auto-fit, minmax(min(100%, 20rem), 1fr))`: one
+card per row on a phone, two where the content area genuinely fits two readable cards (roughly
+680–879px), never a single card stretched to 850px with its values far from their labels.
+
 Card regions are ordered by role, not by declaration order, so a card's hierarchy cannot drift when
 someone reorders columns. Three desktop columns — Strategy, Stock list, Benchmark — become the
 legacy "LINKED" block on a card with no second component and no second markup.
@@ -183,16 +199,31 @@ so they size to their own content, and let the identity column absorb the remain
 chip caps its own width and truncates, so one long name cannot widen a column. If a table still
 exceeds the content width it scrolls inside its surface; the page body never scrolls sideways.
 
+**Why the chip contains itself** (UI-001, UI-002). The chip is an `inline-grid` with one
+`minmax(2.5rem, max-content)` track and an **absolute** `max-width: 12rem`. A percentage cap looks
+equivalent but is cyclic while an auto-layout table computes its column widths and is ignored
+there — which is how a visibly truncated chip once kept its 700px label width, widened the
+Backtests table to 1,735px and pushed `View results` off-screen, and made the phone Dashboard
+scroll sideways. No feature needs a wrapper rule for this any more.
+
 **The identity column absorbs the remainder, but never its identifier** (UX-007). A column that
 absorbs everything can be squeezed to nothing: at 1280 px the Dashboard's Stock column once
 rendered "U." and "QATE…". Where a table is wide enough to squeeze its identity, give the identity
-cell a floor that fits the whole identifier — the Dashboard's is `7rem`, the mark plus a full
-seven-character ticker, with the company name truncating beneath it — and let the relationship
-chips give way instead: wrapping a chip in a `minmax(0, max-content)` grid track lets its cell
-shrink below the chip's natural width, and the chip already truncates with the full name in its
-title. Both rules live in the feature stylesheet at `min-width: 880px`; the phone card is
-untouched. `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880,
-1024, 1280 and 1440 px with no document overflow.
+cell a floor that fits the whole identifier and let the relationship chips give way instead.
+`DataTable` gives every `identity` column a `12rem` floor in the desktop layout (and lets a single
+unbroken token wrap rather than widen the table); a column overrides it with `minWidth` — the
+Dashboard's ticker column is `7rem`, the mark plus a full seven-character symbol. Width hints travel
+as custom properties that only the desktop layout reads, so they never constrain a phone card.
+`e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880, 1024, 1280
+and 1440 px with no document overflow.
+
+**Fold before scrolling.** In the intermediate desktop band (880–1,279px) a wide table has more
+columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
+same facts inside a cell that stays, wrapped in `IntermediateOnly` (displayed only in that band, so
+a fact is never exposed twice): the Dashboard folds Strategy · List · Monitor under the stock, the
+Monitors collection folds Strategy and Stock list under the monitor's name, and Backtests folds the
+Benchmark under the Stock list and drops the low-priority Queued column. Every collection then fits
+its surface at 880, 1,024, 1,280 and 1,440px with its actions visible.
 
 When a table needs one column too many, **fold a fact into the cell it belongs to** rather than
 adding a column: the Monitors table carries the universe size beside the Stock List chip, and the
@@ -417,17 +448,25 @@ system is meant to stay small enough to hold in your head.
 
 ## Breakpoints
 
-The target breakpoints are:
+**880px is the canonical dense/compact switch** (UI-004). It is what the code has always shipped,
+and one switch drives everything that changes between the two modes: the topbar navigation and the
+phone bottom navigation, the table/card switch in `DataTable`, the dissolving flush `SectionCard`,
+`WorkflowFooter`'s sticky bar and the responsive tokens in `tokens.css`. The earlier documented
+`768px`/`1024px` pair never existed in CSS and is withdrawn.
 
-- `600px` — tablet padding and fuller brand treatment
-- `768px` — the collection table/card switch
-- `1024px` — persistent topbar navigation replaces the fixed bottom navigation
+- `600px` — tablet padding and the fuller brand treatment
+- `880px` — dense desktop ↔ compact phone/tablet, as above
+- `880–1,279px` — the intermediate desktop band, where wide tables fold (`foldIntermediate`)
 - `1280px` — wide desktop padding
 
-`DataTable` scopes its two layouts to explicitly non-overlapping `max-width: 767px` and
-`min-width: 768px` blocks rather than layering them by specificity, so a per-role rule in one layout
-can never leak into the other. Shell navigation intentionally uses a different switch because its
-content constraint is different. See `v1-visual-parity.md`.
+Below 880px the compact layout is not one stretched column: `DataTable` cards form a fluid
+one/two-column grid (see `DataTable`), so there is no second hard breakpoint for tablets.
+
+`DataTable` scopes its two layouts to explicitly non-overlapping `max-width: 879px` and
+`min-width: 880px` blocks rather than layering them by specificity, so a per-role rule in one layout
+can never leak into the other. A component-local breakpoint (the Strategy Builder's 620/960px, the
+search field's 380px) is allowed only where it is about that component's own content, not the page's
+mode. See `v1-visual-parity.md`.
 
 ## Known read-model gaps
 

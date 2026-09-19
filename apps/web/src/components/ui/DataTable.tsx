@@ -1,6 +1,6 @@
 "use client";
 
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import styles from "./DataTable.module.css";
 
 /**
@@ -33,6 +33,25 @@ export type DataTableColumn<TRow> = {
    */
   readonly nowrap?: boolean;
   readonly width?: string;
+  /**
+   * The narrowest this column may become in the desktop table. An `identity` column gets a
+   * floor by default (`12rem`) so a squeezed table never breaks a name mid-word; pass a
+   * smaller one where the identifier is short — the Dashboard's ticker needs `7rem`.
+   */
+  readonly minWidth?: string;
+  /**
+   * Long prose — a signal's "why", a description. On a phone card the label sits above the
+   * value and the text runs left-aligned across the card, instead of a ragged-left block
+   * squeezed against its label.
+   */
+  readonly stacked?: boolean;
+  /**
+   * Hidden in the intermediate desktop band (880–1,279px), where the table has more columns
+   * than room. The feature then folds the same facts into a cell that stays — the Dashboard
+   * folds Strategy, List and Monitor under the stock. Only one copy is ever displayed, so a
+   * screen reader still meets each fact once.
+   */
+  readonly foldIntermediate?: boolean;
   /** Defaults to `fact`. */
   readonly cardRole?: DataTableCardRole;
   /** Label beside the value in the mobile card; defaults to `header`. */
@@ -68,6 +87,21 @@ type DataTableProps<TRow> = {
   /** Rendered instead of the table when there are no rows. */
   readonly emptyState?: ReactNode;
 };
+
+/**
+ * Width hints travel as custom properties rather than inline `width`/`min-width`, so they apply
+ * only inside the desktop layout's media query and never constrain a phone card.
+ */
+function columnStyle<TRow>(column: DataTableColumn<TRow>): CSSProperties {
+  const style: Record<string, string> = {};
+  if (column.width) {
+    style["--column-width"] = column.width;
+  }
+  if (column.minWidth) {
+    style["--column-min-width"] = column.minWidth;
+  }
+  return style as CSSProperties;
+}
 
 function SortIndicator({
   state,
@@ -148,13 +182,15 @@ export function DataTable<TRow>({
                   scope="col"
                   className={styles.th}
                   data-align={column.align ?? "left"}
+                  data-card={column.cardRole ?? "fact"}
+                  data-fold={column.foldIntermediate ? "true" : undefined}
                   {...(active
                     ? {
                         "aria-sort":
                           sort.direction === "asc" ? "ascending" : "descending",
                       }
                     : {})}
-                  {...(column.width ? { style: { width: column.width } } : {})}
+                  style={columnStyle(column)}
                 >
                   {column.sortable && onSortChange ? (
                     <button
@@ -194,6 +230,9 @@ export function DataTable<TRow>({
                   data-numeric={column.numeric ? "true" : undefined}
                   data-nowrap={column.nowrap ? "true" : undefined}
                   data-card={column.cardRole ?? "fact"}
+                  data-stacked={column.stacked ? "true" : undefined}
+                  data-fold={column.foldIntermediate ? "true" : undefined}
+                  style={columnStyle(column)}
                 >
                   {/* The column header is the cell's label on a phone, where the header
                       row is visually hidden. Hidden from assistive tech because the real
@@ -213,5 +252,29 @@ export function DataTable<TRow>({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Content shown only in the intermediate desktop band (880–1,279px), inside a cell that stays
+ * visible there. It is the other half of `foldIntermediate`: a column steps out of the table in
+ * that band and its facts reappear here, beside the fact they belong to, so the table fits
+ * without scrolling its actions away (UI-001, UI-003). Outside the band it is not displayed, so
+ * a fact is never exposed twice.
+ */
+export function IntermediateOnly({
+  children,
+  testId,
+}: {
+  readonly children: ReactNode;
+  readonly testId?: string;
+}) {
+  return (
+    <span
+      className={styles.intermediateOnly}
+      {...(testId ? { "data-testid": testId } : {})}
+    >
+      {children}
+    </span>
   );
 }

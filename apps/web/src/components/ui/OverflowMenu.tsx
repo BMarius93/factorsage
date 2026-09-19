@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import styles from "./OverflowMenu.module.css";
 
 export type OverflowMenuItem = {
@@ -45,12 +52,32 @@ type OverflowMenuProps = {
  * on out of the last one, which closes it; Escape closes and returns focus to the trigger;
  * a pointer or focus move outside dismisses. If this ever needs true menu semantics, adopt
  * the full pattern — roles *and* key handling — rather than re-adding the roles alone.
+ *
+ * **Placement is collision-aware** (UI-006). The popup right-aligns under its trigger, which is
+ * right for a trigger at the end of a row; where that would cross the left edge of the viewport
+ * it left-aligns instead, and where it would drop under the bottom edge — or under the phone's
+ * fixed bottom navigation — it opens upwards. Placement is measured before paint, so the popup
+ * never flashes in the wrong place.
  */
 export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = useState<MenuPlacement>(DEFAULT_PLACEMENT);
   const menuId = useId();
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPlacement(DEFAULT_PLACEMENT);
+      return;
+    }
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    const menu = menuRef.current?.getBoundingClientRect();
+    if (trigger && menu) {
+      setPlacement(placeMenu(trigger, menu, viewportBounds()));
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -87,6 +114,7 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
     <div
       className={styles.root}
       ref={rootRef}
+      data-overflow-menu=""
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
           setOpen(false);
@@ -108,7 +136,13 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
         </span>
       </button>
       {open ? (
-        <div className={styles.menu} id={menuId}>
+        <div
+          className={styles.menu}
+          id={menuId}
+          ref={menuRef}
+          data-align={placement.align}
+          data-side={placement.side}
+        >
           {items.map((item) => (
             <Fragment key={item.label}>
               {item.separated ? (
@@ -133,4 +167,64 @@ export function OverflowMenu({ label, items, testId }: OverflowMenuProps) {
       ) : null}
     </div>
   );
+}
+
+export type MenuPlacement = {
+  /** `end`: the popup's right edge meets the trigger's. `start`: its left edge does. */
+  readonly align: "end" | "start";
+  readonly side: "below" | "above";
+};
+
+const DEFAULT_PLACEMENT: MenuPlacement = { align: "end", side: "below" };
+
+/** Space kept between a popup and the edge it would otherwise touch. */
+const EDGE_MARGIN = 8;
+/** The popup's distance from its trigger, matching the stylesheet. */
+const TRIGGER_GAP = 6;
+
+type Box = Pick<DOMRect, "top" | "bottom" | "left" | "right" | "width" | "height">;
+
+type ViewportBounds = { readonly width: number; readonly bottom: number };
+
+/** The usable viewport: its width, and how far down a popup may reach. */
+function viewportBounds(): ViewportBounds {
+  const root = document.documentElement;
+  // The phone shell pins a navigation bar to the bottom of the screen; a popup under it is as
+  // unreachable as one off-screen. It exists exactly below the 880px shell breakpoint.
+  const bottomNav = window.matchMedia?.("(max-width: 879px)").matches
+    ? Number.parseFloat(
+        getComputedStyle(root).getPropertyValue("--bottom-nav-height"),
+      ) || 0
+    : 0;
+  return {
+    width: root.clientWidth || window.innerWidth,
+    bottom: window.innerHeight - bottomNav,
+  };
+}
+
+/**
+ * Where a popup of the measured size fits next to its trigger. Pure, so the rule is testable
+ * without a layout engine.
+ */
+export function placeMenu(
+  trigger: Box,
+  menu: Box,
+  viewport: ViewportBounds,
+): MenuPlacement {
+  if (menu.width === 0 && menu.height === 0) {
+    return DEFAULT_PLACEMENT;
+  }
+  const endLeft = trigger.right - menu.width;
+  const startRight = trigger.left + menu.width;
+  const align =
+    endLeft < EDGE_MARGIN && startRight <= viewport.width - EDGE_MARGIN
+      ? "start"
+      : "end";
+  const belowBottom = trigger.bottom + TRIGGER_GAP + menu.height;
+  const aboveTop = trigger.top - TRIGGER_GAP - menu.height;
+  const side =
+    belowBottom > viewport.bottom - EDGE_MARGIN && aboveTop >= EDGE_MARGIN
+      ? "above"
+      : "below";
+  return { align, side };
 }

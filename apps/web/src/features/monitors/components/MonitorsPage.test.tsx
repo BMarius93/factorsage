@@ -28,6 +28,15 @@ import {
 import { MonitorsPage } from "./MonitorsPage";
 import { blockedExplanation } from "../utils/blocked-status";
 
+/**
+ * Between 880 and 1,279px the Strategy and Stock list columns fold under the monitor's name
+ * (UI-01). jsdom applies no stylesheet, so both copies exist here; assertions about the columns
+ * look past the folded one.
+ */
+const OUTSIDE_FOLD = {
+  ignore: 'script, style, [data-testid="monitor-folded-relationships"] *',
+};
+
 vi.mock("../api/monitors-api", () => ({
   fetchMonitors: vi.fn(),
   createMonitor: vi.fn(),
@@ -219,7 +228,7 @@ describe("MonitorsPage", () => {
       within(builtIns).queryByRole("button", { name: /S&P Value & Trend/ }),
     ).toBeNull();
     expect(
-      within(builtIns).getByRole("link", { name: "Open" }).getAttribute("href"),
+      within(builtIns).getByRole("link", { name: /^Open / }).getAttribute("href"),
     ).toBe("/monitors/builtin-1");
   });
 
@@ -346,9 +355,9 @@ describe("MonitorsPage", () => {
     expect(screen.getAllByTestId("monitor-card")).toHaveLength(2);
 
     expect(screen.getByText("Value entries")).toBeDefined();
-    expect(screen.getByText("Deep value")).toBeDefined();
-    expect(screen.getByText("Quality compounders")).toBeDefined();
-    expect(screen.getByText("12 stocks")).toBeDefined();
+    expect(screen.getByText("Deep value", OUTSIDE_FOLD)).toBeDefined();
+    expect(screen.getByText("Quality compounders", OUTSIDE_FOLD)).toBeDefined();
+    expect(screen.getByText("12 stocks", OUTSIDE_FOLD)).toBeDefined();
     expect(screen.getByText("3 active signals")).toBeDefined();
     expect(screen.getByText(/^Sep 12, 2026, /)).toBeDefined();
 
@@ -356,15 +365,15 @@ describe("MonitorsPage", () => {
     expect(screen.getByText("Disabled")).toBeDefined();
     // A monitor that has never been included in a cycle says so rather than borrowing a timestamp.
     expect(screen.getByText("Not checked yet")).toBeDefined();
-    expect(screen.getByText("1 stock")).toBeDefined();
+    expect(screen.getByText("1 stock", OUTSIDE_FOLD)).toBeDefined();
 
     // The strategy and the list a monitor references stay reachable from the row.
     expect(
-      screen.getByRole("link", { name: "Deep value" }).getAttribute("href"),
+      screen.getAllByRole("link", { name: "Deep value" })[0]!.getAttribute("href"),
     ).toBe("/strategies/strategy-1");
     expect(
       screen
-        .getByRole("link", { name: "Quality compounders" })
+        .getAllByRole("link", { name: "Quality compounders" })[0]!
         .getAttribute("href"),
     ).toBe("/lists/list-1");
   });
@@ -659,7 +668,7 @@ describe("MonitorsPage", () => {
 
     render(<MonitorsPage />);
     await waitFor(() => {
-      expect(screen.getByText("Deep value")).toBeDefined();
+      expect(screen.getByText("Deep value", OUTSIDE_FOLD)).toBeDefined();
     });
 
     await chooseFromOverflowMenu(userEvent, "Value entries", "Edit");
@@ -688,9 +697,9 @@ describe("MonitorsPage", () => {
     });
     // The collection reflects the rebind, including the reset last-checked line.
     await waitFor(() => {
-      expect(screen.getByText("Momentum exits")).toBeDefined();
+      expect(screen.getByText("Momentum exits", OUTSIDE_FOLD)).toBeDefined();
     });
-    expect(screen.getByText("Tech universe")).toBeDefined();
+    expect(screen.getByText("Tech universe", OUTSIDE_FOLD)).toBeDefined();
     expect(screen.getByText("Not checked yet")).toBeDefined();
   });
 

@@ -115,7 +115,11 @@ const COLUMNS: readonly DataTableColumn<Row>[] = [
     cardRole: "actions",
     align: "right",
     render: (row) => (
-      <Link className={actionStyles.action} href={HREF[row.kind](row.id)}>
+      <Link
+        className={actionStyles.action}
+        href={HREF[row.kind](row.id)}
+        aria-label={`Edit ${row.name}`}
+      >
         Edit
       </Link>
     ),

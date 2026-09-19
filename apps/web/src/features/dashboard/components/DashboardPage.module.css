@@ -129,21 +129,14 @@
   }
 }
 
-/* Laptop widths (UX-007). Between the table breakpoint and a wide desktop the table has more
-   content than room, and something has to give. It must never be the ticker: the Stock cell gets
-   a floor wide enough for the mark and a full seven-character symbol, while the company name
-   under it truncates. The Strategy, List and Monitor chips are what give instead — the
-   `minmax(0, max-content)` track lets a chip's cell shrink below the chip's natural width, and
-   the chip itself already truncates its label with the full name in its title. The mobile card
-   composition is untouched. */
-@media (min-width: 880px) {
-  .stockCell {
-    display: block;
-    min-width: 7rem;
-  }
+/* The identity floor for the Stock column comes from `DataTable` (`minWidth: 7rem`, UX-007) and
+   relationship chips contain themselves, so the table needs no local sizing rules. */
+.stockCell {
+  display: block;
+  min-width: 0;
+}
 
-  .entityCell {
-    display: grid;
-    grid-template-columns: minmax(0, max-content);
-  }
+.entityCell {
+  display: block;
+  min-width: 0;
 }

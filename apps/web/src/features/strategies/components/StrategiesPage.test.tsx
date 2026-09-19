@@ -170,7 +170,7 @@ describe("StrategiesPage", () => {
     fetchStrategiesMock.mockResolvedValue([summary("s1", "Deep value")]);
     render(<StrategiesPage />);
 
-    const link = await screen.findByRole("link", { name: /Deep value/ });
+    const link = await screen.findByRole("link", { name: /^Deep value/ });
     expect(link.getAttribute("href")).toBe("/strategies/s1");
   });
 

@@ -276,21 +276,41 @@ describe("DashboardPage", () => {
     expect(
       within(active).getByRole("link", { name: /AAPL/ }).getAttribute("href"),
     ).toBe("/stocks/AAPL");
+    const relationshipCells = Array.from(
+      active.querySelectorAll<HTMLElement>('td[data-card="links"]'),
+    );
     expect(
-      within(active)
-        .getByRole("link", { name: "Value & Trend" })
-        .getAttribute("href"),
-    ).toBe("/strategies/strategy-a");
+      relationshipCells.map((cell) => [
+        within(cell).getByRole("link").textContent,
+        within(cell).getByRole("link").getAttribute("href"),
+      ]),
+    ).toEqual([
+      ["Value & Trend", "/strategies/strategy-a"],
+      ["S&P 500 Growth Leaders", "/lists/list-a"],
+      ["Nasdaq Trend Confirmation", "/monitors/monitor-b"],
+    ]);
+  });
+
+  it("folds the three relationships under the stock for the intermediate desktop band", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const active = rows[1]!;
+    // The three columns step out between 880 and 1,279px, and the same references are folded
+    // into the identity cell instead. CSS shows exactly one of the two at any width.
     expect(
-      within(active)
-        .getByRole("link", { name: "S&P 500 Growth Leaders" })
-        .getAttribute("href"),
-    ).toBe("/lists/list-a");
+      active.querySelectorAll('td[data-card="links"][data-fold="true"]'),
+    ).toHaveLength(3);
+    const folded = within(active).getByTestId("dashboard-folded-relationships");
+    expect(folded.closest('td')?.getAttribute("data-card")).toBe("identity");
     expect(
-      within(active)
-        .getByRole("link", { name: "Nasdaq Trend Confirmation" })
-        .getAttribute("href"),
-    ).toBe("/monitors/monitor-b");
+      within(folded)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["/strategies/strategy-a", "/lists/list-a", "/monitors/monitor-b"]);
   });
 
   it("filters by state with a segmented control and by action with a dropdown", async () => {

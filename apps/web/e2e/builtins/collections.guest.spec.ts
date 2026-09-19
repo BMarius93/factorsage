@@ -101,7 +101,7 @@ test.describe("guest built-in collections", () => {
     // Read-only: no enable/disable, no edit, no delete.
     await expect(row.getByTestId("monitor-actions")).toHaveCount(0);
 
-    await row.getByRole("link", { name: QA_MONITOR }).click();
+    await row.getByRole("link", { name: QA_MONITOR, exact: true }).click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
     await expect(page.getByTestId("built-in-badge")).toBeVisible();
     await expect(page.getByTestId("edit-monitor")).toHaveCount(0);
@@ -184,7 +184,7 @@ test.describe("guest built-in collections", () => {
       .getByTestId("built-in-monitors")
       .locator("tbody tr")
       .filter({ hasText: QA_MONITOR })
-      .getByRole("link", { name: QA_MONITOR })
+      .getByRole("link", { name: QA_MONITOR, exact: true })
       .click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
     const monitorUrl = page.url();

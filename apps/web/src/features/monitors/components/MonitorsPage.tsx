@@ -6,7 +6,10 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
-import type { DataTableColumn } from "../../../components/ui/DataTable";
+import {
+  IntermediateOnly,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import {
@@ -98,7 +101,11 @@ function MonitorRowActions({
   return (
     <span className={styles.rowActions}>
       <span className={actionStyles.group}>
-        <Link className={actionStyles.action} href={`/monitors/${monitor.id}`}>
+        <Link
+          className={actionStyles.action}
+          href={`/monitors/${monitor.id}`}
+          aria-label={`Open ${monitor.name}`}
+        >
           Open
         </Link>
         <OverflowMenu
@@ -148,6 +155,31 @@ function MonitorRowActions({
  * names, the universe size and the active-Signal count — so the collection is one request rather
  * than one per monitor. A monitor's Signals are not presented here; that surface is its own slice.
  */
+/** The Strategy and Stock list a monitor watches, as one folded line. */
+function MonitorReferences({
+  monitor,
+}: {
+  readonly monitor: MonitorSummaryResponse;
+}) {
+  return (
+    <>
+      <EntityReferenceChip
+        kind="strategy"
+        name={monitor.strategyName}
+        href={`/strategies/${monitor.strategyId}`}
+      />
+      <EntityReferenceChip
+        kind="list"
+        name={monitor.stockListName}
+        href={`/lists/${monitor.stockListId}`}
+      />
+      <span className={styles.listCount}>
+        {stockCountLabel(monitor.securityCount)}
+      </span>
+    </>
+  );
+}
+
 export function MonitorsPage() {
   const { status, monitors, retry, applyCreated, applyUpdated, applyDeleted } =
     useMonitors();
@@ -164,9 +196,16 @@ export function MonitorsPage() {
     header: "Monitor",
     cardRole: "identity",
     render: (monitor) => (
-      <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
-        {monitor.name}
-      </Link>
+      <>
+        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
+          {monitor.name}
+        </Link>
+        {/* Between 880 and 1,279px the Strategy and Stock list columns fold in here, under the
+            name, rather than squeezing three columns of chips until the actions scroll away. */}
+        <IntermediateOnly testId="monitor-folded-relationships">
+          <MonitorReferences monitor={monitor} />
+        </IntermediateOnly>
+      </>
     ),
   };
 
@@ -175,6 +214,7 @@ export function MonitorsPage() {
       key: "strategy",
       header: "Strategy",
       cardRole: "links",
+      foldIntermediate: true,
       render: (monitor) => (
         <EntityReferenceChip
           kind="strategy"
@@ -187,6 +227,7 @@ export function MonitorsPage() {
       key: "list",
       header: "Stock list",
       cardRole: "links",
+      foldIntermediate: true,
       // The universe size belongs to the list, so it rides with the reference rather than
       // taking a column of its own — the row already carries as much as 1200px can hold.
       render: (monitor) => (
@@ -298,6 +339,7 @@ export function MonitorsPage() {
           <Link
             className={actionStyles.action}
             href={`/monitors/${monitor.id}`}
+            aria-label={`Open ${monitor.name}`}
           >
             Open
           </Link>

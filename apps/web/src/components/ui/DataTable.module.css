@@ -47,14 +47,22 @@
   }
 
   /* The surface this sits in has dissolved and the page container supplies the gutter,
-     so the cards stack directly on the canvas. */
+     so the cards stack directly on the canvas.
+
+     A fluid grid rather than one stretched column (UI-003, UI-004): a phone gets one card
+     per row, and a band with genuinely room for two readable cards — a large phone in
+     landscape, a small tablet — gets two, without a second hard breakpoint. `auto-fit`
+     collapses unused tracks, so a lone card still takes the full width. */
   .body {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    align-items: start;
     gap: 10px;
     padding: 0;
   }
 
   .row {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
@@ -125,6 +133,41 @@
     border-top: 1px solid var(--color-border-subtle);
   }
 
+  /* The maintenance trigger belongs in the card's top row, at the top-right (UI-006): at the
+     bottom-left, a right-aligned menu opened off the left edge of the screen. It stays in the
+     actions cell — one DOM, one tab order, the same place on desktop — and is only positioned
+     here. A card that has one reserves a third top-row column so the status never sits under
+     it. */
+  .row:has([data-overflow-menu]) {
+    grid-template-columns: minmax(0, 1fr) auto var(--action-height);
+  }
+
+  .row:has([data-overflow-menu]) .td[data-card="status"] {
+    grid-column: 2;
+  }
+
+  /* The top row is at least as tall as the trigger, so it never hangs into the first fact. */
+  .row:has([data-overflow-menu]) .td[data-card="identity"] {
+    min-height: var(--action-height);
+  }
+
+  .td[data-card="actions"] [data-overflow-menu] {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+  }
+
+  /* Long prose reads left-aligned under its label, across the whole card (UI-011). */
+  .td[data-stacked="true"] {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .td[data-stacked="true"] .cardValue {
+    text-align: left;
+  }
+
   /* Desktop-only detail: shown in the table, omitted from the card. */
   .td[data-card="hidden"] {
     display: none;
@@ -178,6 +221,28 @@
     padding-right: var(--surface-inset, 16px);
   }
 
+  .th,
+  .td {
+    width: var(--column-width, auto);
+  }
+
+  /* The column that identifies the row has a floor (UI-001): a squeezed table used to break a
+     monitor's name mid-word ("Univers / e 04"). Relationship chips are what give way instead —
+     they have no min-content width of their own — and a single unbroken token is allowed to
+     wrap rather than widen the table. */
+  .td[data-card="identity"] {
+    min-width: var(--column-min-width, 12rem);
+    overflow-wrap: anywhere;
+  }
+
+  .th[data-card="identity"] {
+    min-width: var(--column-min-width, 12rem);
+  }
+
+  .td:not([data-card="identity"]) {
+    min-width: var(--column-min-width, 0);
+  }
+
   .th {
     padding: 0 16px 10px;
     color: var(--color-text-muted);
@@ -225,6 +290,30 @@
 
   .td[data-card="actions"] {
     white-space: nowrap;
+  }
+}
+
+/* The intermediate desktop band, where a wide table has more columns than room. A column
+   marked `foldIntermediate` steps out; its feature folds the same facts into a cell that
+   stays. */
+.intermediateOnly {
+  display: none;
+}
+
+@media (min-width: 880px) and (max-width: 1279px) {
+  .th[data-fold="true"],
+  .td[data-fold="true"] {
+    display: none;
+  }
+
+  .intermediateOnly {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    min-width: 0;
+    margin-top: 6px;
+    font-weight: 400;
   }
 }
 

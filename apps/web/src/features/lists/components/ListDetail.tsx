@@ -269,6 +269,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             type="button"
             className={actionStyles.action}
             onClick={() => setDialog({ kind: "membership", item })}
+            aria-label={`Membership for ${item.security.symbol}`}
           >
             Membership
           </button>

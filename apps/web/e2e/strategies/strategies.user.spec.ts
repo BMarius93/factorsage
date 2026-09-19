@@ -77,7 +77,7 @@ function watchUnsavedPrompts(page: Page, answer: { stay: boolean }) {
 function navLink(page: Page, nav: "Primary" | "Primary mobile", label: string) {
   return page
     .getByRole("navigation", { name: nav })
-    .getByRole("link", { name: label });
+    .getByRole("link", { name: label, exact: true });
 }
 
 test.describe("strategy builder", () => {

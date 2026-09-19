@@ -11,6 +11,7 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   DataTable,
+  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -82,6 +83,35 @@ function ReasonCell({ row }: { readonly row: DashboardRowResponse }) {
 }
 
 /**
+ * Strategy, List and Monitor as one line under the stock, for the intermediate desktop band
+ * (880–1,279px) only (UI-003). There, three chip columns beside the reason and the price were
+ * squeezed to "QA Bu…" and a lone "("; the three columns step out (`foldIntermediate`) and the
+ * same references read here in full width instead. Outside that band this block is not
+ * displayed, so the references are never exposed twice.
+ */
+function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
+  return (
+    <IntermediateOnly testId="dashboard-folded-relationships">
+      <EntityReferenceChip
+        kind="strategy"
+        name={row.strategy.name}
+        href={`/strategies/${row.strategy.id}`}
+      />
+      <EntityReferenceChip
+        kind="list"
+        name={row.stockList.name}
+        href={`/lists/${row.stockList.id}`}
+      />
+      <EntityReferenceChip
+        kind="monitor"
+        name={row.monitor.name}
+        href={`/monitors/${row.monitor.id}`}
+      />
+    </IntermediateOnly>
+  );
+}
+
+/**
  * The signal table's columns.
  *
  * Strategy, List and Monitor are **three** columns, not one. They are three different objects with
@@ -100,7 +130,9 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Stock",
     cardRole: "identity",
     // A floor under the column that identifies the row: at laptop widths the table's other
-    // columns used to squeeze it to "U." (UX-007). The company name still truncates.
+    // columns used to squeeze it to "U." (UX-007). The mark plus a full seven-character ticker;
+    // the company name still truncates.
+    minWidth: "7rem",
     render: (row) => (
       <span className={styles.stockCell}>
         <StockIdentity
@@ -111,6 +143,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
           size="sm"
           testId="dashboard-stock"
         />
+        <FoldedRelationships row={row} />
       </span>
     ),
   },
@@ -141,6 +174,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "reason",
     header: "Why",
     cardLabel: "Why",
+    stacked: true,
     render: (row) => <ReasonCell row={row} />,
   },
   {
@@ -158,6 +192,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "strategy",
+    foldIntermediate: true,
     header: "Strategy",
     cardRole: "links",
     render: (row) => (
@@ -172,6 +207,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "list",
+    foldIntermediate: true,
     header: "List",
     cardRole: "links",
     render: (row) => (
@@ -186,6 +222,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   },
   {
     key: "monitor",
+    foldIntermediate: true,
     header: "Monitor",
     cardRole: "links",
     render: (row) => (

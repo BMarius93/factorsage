@@ -131,6 +131,7 @@ export function StrategiesPage() {
           <Link
             className={actionStyles.action}
             href={`/strategies/${strategy.id}`}
+            aria-label={`Open ${strategy.name}`}
           >
             Open
           </Link>

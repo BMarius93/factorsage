@@ -132,7 +132,11 @@ export function ListsPage() {
         nowrap: true,
         render: (list) => (
           <span className={actions.group}>
-            <Link className={actions.action} href={`/lists/${list.id}`}>
+            <Link
+              className={actions.action}
+              href={`/lists/${list.id}`}
+              aria-label={`Open ${list.name}`}
+            >
               Open
             </Link>
             {list.canEdit ? (

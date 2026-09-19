@@ -38,7 +38,7 @@ const RENAMED_MONITOR = "E2E watch beta";
 function navLink(page: Page, label: string) {
   return page
     .getByRole("navigation", { name: "Primary" })
-    .getByRole("link", { name: label });
+    .getByRole("link", { name: label, exact: true });
 }
 
 function monitorCard(page: Page, name: string) {
@@ -267,7 +267,7 @@ test.describe("PRO_USER monitors", () => {
     });
 
     // 5. The name opens the monitor's own page, which reports the same configuration.
-    await card.getByRole("link", { name: MONITOR_NAME }).click();
+    await card.getByRole("link", { name: MONITOR_NAME, exact: true }).click();
     await expect(page).toHaveURL(/\/monitors\/[0-9a-f-]{36}$/);
     const detail = page.getByTestId("monitor-detail");
     await expect(detail).toBeVisible({ timeout: 20_000 });
@@ -432,7 +432,7 @@ test.describe("PRO_USER monitors", () => {
     await expect(dialog).toBeHidden();
 
     await monitorCard(page, MONITOR_NAME)
-      .getByRole("link", { name: MONITOR_NAME })
+      .getByRole("link", { name: MONITOR_NAME, exact: true })
       .click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible({
       timeout: 20_000,
