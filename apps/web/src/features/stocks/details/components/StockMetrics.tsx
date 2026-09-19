@@ -2,7 +2,6 @@ import type {
   SecurityProfileResponse,
   SecurityResponse,
 } from "@intrinsic/contracts";
-import type { ReactNode } from "react";
 import {
   formatCompactNumber,
   formatInteger,
@@ -11,6 +10,8 @@ import {
   formatWebsiteHost,
 } from "../utils/format";
 import type { PriceSummary } from "../utils/price-summary";
+import { FactGrid, type Fact } from "../../../../components/ui/FactGrid";
+import { SectionCard } from "../../../../components/ui/SectionCard";
 import styles from "./StockMetrics.module.css";
 
 type StockMetricsProps = {
@@ -19,26 +20,8 @@ type StockMetricsProps = {
   readonly summary?: PriceSummary;
 };
 
-type Fact = {
-  readonly label: string;
-  readonly value: ReactNode;
-};
-
 function facts(entries: ReadonlyArray<Fact | undefined>): Fact[] {
   return entries.filter((entry): entry is Fact => entry !== undefined);
-}
-
-function FactList({ items }: { readonly items: readonly Fact[] }) {
-  return (
-    <dl className={styles.list}>
-      {items.map((fact) => (
-        <div key={fact.label} className={styles.row}>
-          <dt className={styles.label}>{fact.label}</dt>
-          <dd className={styles.value}>{fact.value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
 }
 
 /**
@@ -103,15 +86,12 @@ export function StockMetrics({ security, profile, summary }: StockMetricsProps) 
   ]);
 
   return (
-    <section className={styles.card} aria-labelledby="key-facts-title">
-      <h2 className={styles.title} id="key-facts-title">
-        Key facts
-      </h2>
+    <SectionCard id="key-facts" title="Key facts">
 
       {marketFacts.length > 0 ? (
         <div className={styles.group}>
           <h3 className={styles.groupTitle}>Market snapshot</h3>
-          <FactList items={marketFacts} />
+          <FactGrid facts={marketFacts} minColumnWidth="160px" />
         </div>
       ) : null}
 
@@ -120,8 +100,8 @@ export function StockMetrics({ security, profile, summary }: StockMetricsProps) 
         {profile?.description ? (
           <p className={styles.description}>{profile.description}</p>
         ) : null}
-        <FactList items={companyFacts} />
+        <FactGrid facts={companyFacts} minColumnWidth="160px" />
       </div>
-    </section>
+    </SectionCard>
   );
 }

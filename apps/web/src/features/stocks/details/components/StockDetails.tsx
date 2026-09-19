@@ -7,6 +7,11 @@ import type {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageContainer } from "../../../../components/layout/PageContainer";
+import { EmptyState } from "../../../../components/ui/EmptyState";
+import forms from "../../../../components/ui/forms.module.css";
+import { SectionCard } from "../../../../components/ui/SectionCard";
+import { useSignInPrompt } from "../../../auth/hooks/use-sign-in-prompt";
+import { AddToListDialog } from "../../../lists/components/AddToListDialog";
 import { useRecordSecurityView } from "../../recent/hooks/use-recent-securities";
 import type { StockHistoryWindow } from "../api/stock-details-api";
 import { useIndicatorSelection } from "../hooks/use-indicator-selection";
@@ -33,10 +38,14 @@ import { StockHeader } from "./StockHeader";
 import { StockMetrics } from "./StockMetrics";
 import { StockPriceChart } from "./StockPriceChart";
 import { StockRangeSelector } from "./StockRangeSelector";
-import { StockStatusPanel } from "./StockStatusPanel";
 import { StockTechnicalSummary } from "./StockTechnicalSummary";
 import { StockValuationSummary } from "./StockValuationSummary";
 import styles from "./StockDetails.module.css";
+
+const SIGN_IN_TO_ADD = {
+  title: "Sign in to add this stock to a list",
+  body: "Stock details are free to read. Your lists are saved to your account, so adding a stock to one needs somewhere to keep it.",
+};
 
 type StockDetailsProps = {
   /** Normalized upper-case ticker from the route. */
@@ -70,18 +79,23 @@ export function StockDetails({ symbol }: StockDetailsProps) {
   if (state.status === "not-found") {
     return (
       <PageContainer>
-        <StockStatusPanel
+        <EmptyState
+          as="h1"
+          testId="stock-not-found"
           title="Stock not found"
-          description={
-            symbol === ""
-              ? "This page needs a stock symbol. Use the search above to find a supported stock."
-              : `${symbol} is not in the supported stock catalog. Check the spelling or use the search above to find a supported stock.`
+          body={
+            <p>
+              {symbol === ""
+                ? "This page needs a stock symbol. Use the search above to find a supported stock."
+                : `${symbol} is not in the supported stock catalog. Check the spelling or use the search above to find a supported stock.`}
+            </p>
           }
-        >
-          <Link className={styles.actionLink} href="/dashboard">
-            Back to Dashboard
-          </Link>
-        </StockStatusPanel>
+          actions={
+            <Link className={forms.secondaryButton} href="/dashboard">
+              Back to Dashboard
+            </Link>
+          }
+        />
       </PageContainer>
     );
   }
@@ -89,21 +103,27 @@ export function StockDetails({ symbol }: StockDetailsProps) {
   if (state.status === "error" || !state.details || !state.window) {
     return (
       <PageContainer>
-        <StockStatusPanel
-          title="Something went wrong"
-          description={`${symbol} could not be loaded right now. This is usually temporary — try again in a moment.`}
-        >
-          <button
-            type="button"
-            className={styles.retryButton}
-            onClick={state.retry}
-          >
-            Try again
-          </button>
-          <Link className={styles.actionLink} href="/dashboard">
-            Back to Dashboard
-          </Link>
-        </StockStatusPanel>
+        <EmptyState
+          as="h1"
+          variant="error"
+          testId="stock-load-error"
+          title={`${symbol} could not be loaded`}
+          body={<p>This is usually temporary — try again in a moment.</p>}
+          actions={
+            <>
+              <Link className={forms.secondaryButton} href="/dashboard">
+                Back to Dashboard
+              </Link>
+              <button
+                type="button"
+                className={forms.secondaryButton}
+                onClick={state.retry}
+              >
+                Try again
+              </button>
+            </>
+          }
+        />
       </PageContainer>
     );
   }
@@ -130,6 +150,8 @@ function StockDetailsContent({
   window,
 }: StockDetailsContentProps) {
   const [range, setRange] = useState<PriceRangeKey>(DEFAULT_PRICE_RANGE);
+  const gate = useSignInPrompt();
+  const [addingToList, setAddingToList] = useState(false);
 
   const { security, profile } = details;
   const summary = useMemo(() => summarizePrices(details.prices), [details.prices]);
@@ -241,20 +263,30 @@ function StockDetailsContent({
       <div className={styles.page}>
         <StockHeader
           security={security}
+          // Research leads somewhere: the stock goes into one of the caller's lists (UI-018). A
+          // one-stock backtest is deliberately not offered; a backtest runs over a list.
+          actions={
+            <button
+              type="button"
+              className={forms.secondaryButton}
+              data-testid="add-to-list-button"
+              disabled={!gate.resolved}
+              onClick={() =>
+                gate.attempt(SIGN_IN_TO_ADD, () => setAddingToList(true))
+              }
+            >
+              Add to list
+            </button>
+          }
           {...(summary ? { summary } : {})}
           {...(profile ? { profile } : {})}
         />
 
-        <section className={styles.chartCard} aria-labelledby="price-history-title">
-          <div className={styles.chartHeading}>
-            <div>
-              <h2 className={styles.chartTitle} id="price-history-title">
-                Price history
-              </h2>
-              <p className={styles.chartCaption}>
-                Daily closing prices · End-of-day data
-              </p>
-            </div>
+        <SectionCard
+          id="price-history"
+          title="Price history"
+          caption="Daily closing prices · End-of-day data"
+          aside={
             <div className={styles.chartTools}>
               <StockRangeSelector value={range} onChange={setRange} />
               <IndicatorsMenu
@@ -264,8 +296,8 @@ function StockDetailsContent({
                 colorOf={colorOf}
               />
             </div>
-          </div>
-
+          }
+        >
           <StockPriceChart
             points={chartPoints}
             overlays={chartOverlays}
@@ -297,39 +329,47 @@ function StockDetailsContent({
               </button>
             </p>
           ) : null}
-        </section>
+        </SectionCard>
 
+        {/* One ordered flow, balanced into two columns on a wide screen (UI-018), so the shorter
+            side no longer ends early above an empty area. The two compact panels come first so
+            they share a column and the long moving-average list takes the other. */}
         <div className={styles.columns}>
-          <div className={styles.column}>
-            <StockValuationSummary
-              {...(valuationSnapshot ? { snapshot: valuationSnapshot } : {})}
-              {...(summary
-                ? {
-                    latestClose: {
-                      value: summary.latestClose,
-                      date: summary.latestDate,
-                    },
-                  }
-                : {})}
+          <StockValuationSummary
+            {...(valuationSnapshot ? { snapshot: valuationSnapshot } : {})}
+            {...(summary
+              ? {
+                  latestClose: {
+                    value: summary.latestClose,
+                    date: summary.latestDate,
+                  },
+                }
+              : {})}
+            currency={security.currency}
+          />
+          <StockMetrics
+            security={security}
+            {...(profile ? { profile } : {})}
+            {...(summary ? { summary } : {})}
+          />
+          {technicalSnapshot ? (
+            <StockTechnicalSummary
+              snapshot={technicalSnapshot}
+              {...(summary ? { latestClose: summary.latestClose } : {})}
               currency={security.currency}
             />
-            {technicalSnapshot ? (
-              <StockTechnicalSummary
-                snapshot={technicalSnapshot}
-                {...(summary ? { latestClose: summary.latestClose } : {})}
-                currency={security.currency}
-              />
-            ) : null}
-          </div>
-          <div className={styles.column}>
-            <StockMetrics
-              security={security}
-              {...(profile ? { profile } : {})}
-              {...(summary ? { summary } : {})}
-            />
-          </div>
+          ) : null}
         </div>
       </div>
+
+      {gate.prompt}
+
+      {addingToList ? (
+        <AddToListDialog
+          security={security}
+          onClose={() => setAddingToList(false)}
+        />
+      ) : null}
     </PageContainer>
   );
 }

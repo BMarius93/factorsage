@@ -139,3 +139,22 @@ so a long series is already valid on the oldest day the chart can reach. See
 
 Stock Details may show the complete model/blend summaries outside the chart. Chart selection is
 presentation state and does not alter strategy configuration.
+
+## Actions, key and sign convention (UI-017, UI-018)
+
+- **Add to list** is the page's one action: it opens a dialog offering only the caller's own lists
+  (built-ins are read-only), says "already in" before sending anything, adds the stock as always
+  eligible, and shows a plan refusal in the API's own words. A Guest is asked to sign in with a
+  `next` back to the stock. A one-stock backtest is deliberately not offered: a backtest runs over
+  a list.
+- A **persistent chart key** under the plot names the close and every enabled overlay; the
+  crosshair readout still adds values under the pointer.
+- **One sign convention:** every comparison is the price against its reference —
+  "Price vs value: −5.9%", "Price vs average: +3.2%" — so a negative number always means the price
+  is below the reference. The chip is neutral in colour; green/red would assert a judgement.
+- The page is built from shared primitives: `EmptyState` for not-found and load failures,
+  `SectionCard` panels, `FactGrid` key facts and `StatusBadge` listing badges. The lower panels are
+  one ordered flow balanced into two columns from 880px.
+- Market capitalisation is not shown: the stock-data contract carries no market-cap field, and
+  adding one needs provider data (deferred, see the PR's finding map).
+

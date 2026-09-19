@@ -575,6 +575,7 @@ export function StockPriceChart({
     .join(",");
 
   return (
+    <>
     <div
       ref={wrapperRef}
       className={styles.wrapper}
@@ -625,5 +626,28 @@ export function StockPriceChart({
         </div>
       ) : null}
     </div>
+    {/* The persistent key (UI-018): what each line is, always visible, including on touch where
+        there is no hover. The crosshair readout above adds the values under the pointer. */}
+    <ul className={styles.key} aria-label="Chart key" data-testid="chart-key">
+      <li className={styles.keyItem}>
+        <span
+          className={styles.keySwatch}
+          style={{ background: CHART_COLORS.price }}
+          aria-hidden="true"
+        />
+        Close
+      </li>
+      {overlays.map((overlay) => (
+        <li key={overlay.id} className={styles.keyItem}>
+          <span
+            className={styles.keySwatch}
+            style={{ background: overlay.color }}
+            aria-hidden="true"
+          />
+          {overlay.label}
+        </li>
+      ))}
+    </ul>
+    </>
   );
 }

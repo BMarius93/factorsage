@@ -1,8 +1,7 @@
-import { formatLocalDate, formatMoney, formatSignedPercent } from "../utils/format";
-import {
-  upsideFraction,
-  type ValuationSnapshot,
-} from "../utils/valuation";
+import { formatLocalDate, formatMoney } from "../utils/format";
+import { priceVersusValue, type ValuationSnapshot } from "../utils/valuation";
+import { PriceRelative } from "./PriceRelative";
+import { SectionCard } from "../../../../components/ui/SectionCard";
 import styles from "./StockValuationSummary.module.css";
 
 type LatestClose = {
@@ -17,7 +16,7 @@ type StockValuationSummaryProps = {
   readonly currency: string;
 };
 
-function upsideFor(
+function priceVsValueFor(
   valuePerShare: number,
   valueCurrency: string,
   currency: string,
@@ -26,23 +25,14 @@ function upsideFor(
   if (!latestClose || valueCurrency !== currency) {
     return undefined;
   }
-  return upsideFraction(valuePerShare, latestClose.value);
-}
-
-function UpsideChip({ fraction }: { readonly fraction: number }) {
-  const direction = fraction >= 0 ? "above" : "below";
-  return (
-    <span className={styles.upside} data-direction={direction}>
-      {formatSignedPercent(fraction)} vs price
-    </span>
-  );
+  return priceVersusValue(latestClose.value, valuePerShare);
 }
 
 /**
  * Latest intrinsic-value estimates next to the latest market close.
  *
  * Values come from the backend's point-in-time materialized series untouched; the only derivation
- * is the display upside against the close. Each entry keeps its own valuation date, and a date
+ * is where the close sits against each value, stated as "Price vs value". Each entry keeps its own valuation date, and a date
  * differing from the section's as-of date is called out instead of silently blended.
  */
 export function StockValuationSummary({
@@ -51,27 +41,26 @@ export function StockValuationSummary({
   currency,
 }: StockValuationSummaryProps) {
   return (
-    <section className={styles.card} aria-labelledby="valuation-title">
-      <div className={styles.heading}>
-        <h2 className={styles.title} id="valuation-title">
-          Intrinsic value
-        </h2>
-        {snapshot ? (
-          <p className={styles.caption}>
-            Valuation as of {formatLocalDate(snapshot.asOfDate)}
-            {latestClose
-              ? ` · vs close of ${formatLocalDate(latestClose.date)}`
-              : ""}
-          </p>
-        ) : null}
-      </div>
+    <SectionCard
+      id="valuation"
+      title="Intrinsic value"
+      {...(snapshot
+        ? {
+            caption: `Valuation as of ${formatLocalDate(snapshot.asOfDate)}${
+              latestClose
+                ? ` · vs close of ${formatLocalDate(latestClose.date)}`
+                : ""
+            }`,
+          }
+        : {})}
+    >
 
       {snapshot ? (
         <>
           {snapshot.blends.length > 0 ? (
             <ul className={styles.blendGrid} aria-label="Blended intrinsic values">
               {snapshot.blends.map((blend) => {
-                const upside = upsideFor(
+                const upside = priceVsValueFor(
                   blend.valuePerShare,
                   blend.currency,
                   currency,
@@ -83,7 +72,7 @@ export function StockValuationSummary({
                     <span className={styles.blendValue}>
                       {formatMoney(blend.valuePerShare, blend.currency)}
                     </span>
-                    {upside === undefined ? null : <UpsideChip fraction={upside} />}
+                    {upside === undefined ? null : <PriceRelative reference="value" fraction={upside} />}
                     {blend.valuationDate === snapshot.asOfDate ? null : (
                       <span className={styles.staleNote}>
                         as of {formatLocalDate(blend.valuationDate)}
@@ -98,7 +87,7 @@ export function StockValuationSummary({
           {snapshot.models.length > 0 ? (
             <dl className={styles.modelList} aria-label="Intrinsic values by model">
               {snapshot.models.map((model) => {
-                const upside = upsideFor(
+                const upside = priceVsValueFor(
                   model.valuePerShare,
                   model.currency,
                   currency,
@@ -117,7 +106,7 @@ export function StockValuationSummary({
                     </dt>
                     <dd className={styles.modelValue}>
                       <span>{formatMoney(model.valuePerShare, model.currency)}</span>
-                      {upside === undefined ? null : <UpsideChip fraction={upside} />}
+                      {upside === undefined ? null : <PriceRelative reference="value" fraction={upside} />}
                     </dd>
                   </div>
                 );
@@ -130,6 +119,6 @@ export function StockValuationSummary({
           No intrinsic-value estimates are available for this stock yet.
         </p>
       )}
-    </section>
+    </SectionCard>
   );
 }

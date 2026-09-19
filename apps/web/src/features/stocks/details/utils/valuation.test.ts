@@ -5,7 +5,7 @@ import {
   type IntrinsicValueResponse,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
-import { selectLatestValuations, upsideFraction } from "./valuation";
+import { priceVersusValue, selectLatestValuations } from "./valuation";
 
 function model(
   modelId: IntrinsicValueResponse["model"],
@@ -107,15 +107,15 @@ describe("selectLatestValuations", () => {
   });
 });
 
-describe("upsideFraction", () => {
-  it("expresses the intrinsic value relative to the price", () => {
-    expect(upsideFraction(290, 232)).toBeCloseTo(0.25, 10);
-    expect(upsideFraction(174, 232)).toBeCloseTo(-0.25, 10);
+describe("priceVersusValue", () => {
+  it("states the price relative to the value, so below value is negative (UI-018)", () => {
+    expect(priceVersusValue(232, 290)).toBeCloseTo(-0.2, 10);
+    expect(priceVersusValue(232, 174)).toBeCloseTo(0.3333333333, 8);
   });
 
-  it("cannot be computed without a positive price", () => {
-    expect(upsideFraction(100, 0)).toBeUndefined();
-    expect(upsideFraction(100, -1)).toBeUndefined();
-    expect(upsideFraction(100, Number.NaN)).toBeUndefined();
+  it("cannot be computed without a positive value", () => {
+    expect(priceVersusValue(100, 0)).toBeUndefined();
+    expect(priceVersusValue(100, -1)).toBeUndefined();
+    expect(priceVersusValue(100, Number.NaN)).toBeUndefined();
   });
 });

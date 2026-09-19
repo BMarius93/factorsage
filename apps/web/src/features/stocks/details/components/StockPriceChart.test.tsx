@@ -382,6 +382,13 @@ describe("StockPriceChart", () => {
     expect(legend.textContent).toContain("SMA 50D$220.00");
     expect(legend.textContent).toContain("SMA 20W$216.00");
     expect(legend.textContent).toContain("Balanced$290.00");
+
+    // The key under the plot names every line without a pointer, which is all a touch screen has
+    // (UI-018).
+    const key = screen.getByRole("list", { name: "Chart key" });
+    expect(
+      Array.from(key.querySelectorAll("li")).map((item) => item.textContent),
+    ).toEqual(["Close", "SMA 50D", "SMA 20W", "Balanced"]);
   });
 
   it("repaints a reused overlay when the selection shifts its colour position", () => {
