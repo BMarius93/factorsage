@@ -82,11 +82,11 @@ document in the same commit as this plan.
 | AUTH-002    | Verifying an email must not activate a password the verifier did not set          | P1       | own | **Yes** (classified 2026-09-18, DEC-005)  | B-1 ¶2         |
 | AUTH-003    | Registration does not reveal whether an account exists                            | P1       | own | **Yes** (DEC-004; specified 2026-09-18)   | S-2            |
 | PRICING-001 | Public `/pricing` page for guests                                                 | P1       | own | **Yes** (DEC-001; implemented 2026-09-18) | §2, §5         |
-| DEMO-001    | Guest-viewable precomputed/static demo backtests                                  | P1       | TBD | **Yes** (DEC-002)                         | §2             |
+| DEMO-001    | Guest-viewable precomputed/static demo backtests (**Withdrawn**)                    | P1       | —   | No — withdrawn by DEC-007                 | §2             |
 
-The last four rows were created by the product decisions in §8. Each is _specification pending_
-until the plan carries a full item for it; AUTH-002 (DEC-005), AUTH-003 (DEC-004) and PRICING-001
-(DEC-001) are specified and ship in their own PRs.
+The last four rows were created by the product decisions in §8. AUTH-002 (DEC-005), AUTH-003
+(DEC-004) and PRICING-001 (DEC-001) are specified and ship in their own PRs. DEMO-001 keeps its
+stable ID but is **Withdrawn** by DEC-007; it requires neither a specification nor implementation.
 
 "Release-blocking" means it must be merged, or its decision recorded, before public production.
 §9 is the gate.
@@ -1822,11 +1822,12 @@ In that case, raise it to P0 and stop the release.
 
 ## 8. Product decisions
 
-**Recorded 2026-09-18 by the product owner.** These decisions are recorded here, in the plan.
+DEC-001…DEC-006 were recorded 2026-09-18 by the product owner. DEC-007 was recorded 2026-09-19
+by the product owner. These decisions are recorded here, in the plan.
 
-- **The canonical documents are not updated by this documentation PR.** Each implementing PR must
-  copy its decision into the canonical document named under "Canonical record", in the same PR as
-  the code.
+- Each implementing PR must copy its decision into the canonical document named under "Canonical
+  record", in the same PR as the code. DEC-007 needs no implementation; this documentation commit
+  updates its canonical record directly.
 - **Where a decision creates new work, the work has a stable ID.** Its status is **"specification
   pending"**: it is not implementation-ready until the plan carries a full item for it, in the same
   template as §3–§7 (observed/required behaviour, files, constraints, tests, verification,
@@ -2024,7 +2025,10 @@ carrying the cadence through sign-in, `next` through the verification email, and
 - Found, not fixed: `e2e/billing/billing.free.spec.ts` has three cases that **fail** rather than
   skip when billing is unconfigured, contrary to `ai/workflows/validation.md`; identical on `main`.
 
-### DEC-002: Guest precomputed/static demo backtests. Decided: YES, launch scope
+### DEC-002: Guest precomputed/static demo backtests. Superseded by DEC-007
+
+- **Status:** superseded on 2026-09-19 before implementation. The original decision is retained
+  below for history; it is not the current product contract.
 
 - **Decision:**
   - Guests can view **precomputed/static demo backtests** at launch.
@@ -2312,6 +2316,27 @@ default to "deferred".
   registration is a required deployment step (§9).
 - **Canonical record:** the deployment checklist (§9).
 
+### DEC-007: Authentication required for every Backtest surface. Decided: YES
+
+- **Decision date and owner:** 2026-09-19, product owner.
+- **Decision:**
+  - A Guest may not view a Backtest configuration, run or result, including a precomputed/static
+    demo.
+  - A Guest may not submit or execute a Backtest and never owns an anonymous/guest run.
+  - From guest-readable built-in content, **Backtest this …** opens the existing sign-in prompt.
+    A completed sign-in that carries `next` uses UX-003 to return the user to the intended
+    prefilled Backtest page.
+  - `/backtests`, `/backtests/new` and Backtest-result surfaces remain authenticated-only. There is
+    no public demo Backtest route or public-read exception in V1.
+- **Consequence:**
+  - DEC-002 is superseded.
+  - DEMO-001 is **Withdrawn** and its stable ID is retained. No implementation PR, schema change,
+    system-owned Backtest run, static result artifact or new test surface is required.
+  - UX-002 and UX-003 already implement the chosen interaction; no code change is required.
+- **Canonical record:** `docs/decisions/entitlements-v1.md` §3, §4 and §7.
+- **Release-blocking:** the decision is satisfied by this record and the already-merged UX-002 /
+  UX-003 behaviour. DEMO-001 is not a release blocker.
+
 ---
 
 ## 9. Release gate checklist
@@ -2346,13 +2371,13 @@ default to "deferred".
 
 - [ ] AUTH-003 merged: registration no longer reveals existing accounts (DEC-004).
 - [ ] PRICING-001 merged: public `/pricing`; `/billing` may stay protected (DEC-001).
-- [ ] DEMO-001 merged: guests view precomputed/static demo backtests; no guest execution or saving
-      (DEC-002).
+- [x] DEMO-001 withdrawn by DEC-007: every Backtest configuration/run/result requires sign-in;
+      UX-002 and UX-003 already provide the guest prompt and safe return path.
 - [ ] AUTH-002 **explicitly classified**, with date and owner, as release-blocking or not
       (DEC-005). If classified release-blocking, it must also be merged.
 - [ ] Canonical documents updated by the implementing PRs:
       `ai/architecture/authentication.md` (DEC-003, DEC-004, DEC-005),
-      `docs/decisions/entitlements-v1.md` (DEC-002),
+      `docs/decisions/entitlements-v1.md` (DEC-007 supersedes DEC-002),
       `docs/decisions/stripe-billing-v1.md` (DEC-001).
 
 **Gate:**
@@ -2394,7 +2419,9 @@ default to "deferred".
       page.
 - [ ] Guest: `/pricing` shows the four-price catalog; a plan action opens the sign-in prompt;
       `/billing` still requires sign-in.
-- [ ] Guest: a demo backtest is viewable; no path lets a guest run or save one.
+- [ ] Guest: direct Backtest configuration/result routes require sign-in; **Backtest this …** opens
+      the prompt and a completed sign-in returns to the intended prefilled page. No guest path can
+      view, run or save a Backtest.
 - [ ] 390 px pass on a real phone; 1280 px Dashboard.
 
 ### Required during launch stabilization (first 2–4 weeks)
@@ -2487,7 +2514,7 @@ PR 5  E2E-001 E2E-002 E2E-003 E2E-005 E2E-004 E2E-006 E2E-007 TEST-001  (E2E-006
 AUTH-003     registration enumeration        (after PR 2: needs PROD-001's required SMTP; coordinate with AUTH-002)
 AUTH-002     email-verification variant      (classify first; its own PR unless its PR proves a combined scope stays reviewable)
 PRICING-001  public /pricing                 (after PR 4: sign-in return to /pricing uses UX-003; specified, own PR)
-DEMO-001     guest demo backtests            (after its design is specified; after PR 4 for the guest prompt)
+DEMO-001     Withdrawn by DEC-007             (no implementation; all Backtest surfaces require sign-in)
 ```
 
 ## 13. Validation commands for implementation PRs

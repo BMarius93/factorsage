@@ -67,7 +67,7 @@ V1 explicitly has:
 | Saved custom Strategy count | 0 | Unlimited | Unlimited | Unlimited |
 | Indicators / conditions / triggers available in Strategy Builder | Built-in content only | All | All | All |
 | Run live Backtests | No | Yes | Yes | Yes |
-| Demo/precomputed Backtests | Yes | Yes | Yes | Yes |
+| View Backtest results | No | Yes | Yes | Yes |
 | Symbols per live Backtest | N/A | 10 | 50 | 100 |
 | Backtest historical depth | N/A | 5 years | 15 years | 30 years |
 | Concurrent live Backtests | 0 | 1 | 1 | 2 |
@@ -90,18 +90,25 @@ Guests may:
 - view stock details;
 - access system built-in Lists;
 - access system built-in Strategies;
-- view demo Backtests that are precomputed/static;
 - read the public price list at `/pricing`, which presents this document's capacities and the Stripe catalog without changing either (`docs/decisions/stripe-billing-v1.md` section 19, _Public pricing page_). Choosing a plan requires an account.
 
 Guests may not:
 
 - create or persist custom Lists;
 - create or persist custom Strategies;
+- view any Backtest configuration, run or result, including a precomputed/static demo;
 - run live Backtests;
 - create or enable Monitors;
 - persist user-owned content that requires an account.
 
 A Guest attempting an authenticated-only operation should be rejected by entitlement/authentication enforcement before expensive business logic executes.
+
+This Backtest boundary was confirmed by the product owner on 2026-09-19. It supersedes the earlier
+decision to ship guest-viewable precomputed/static demo Backtests. A Guest may inspect built-in
+Lists and Strategies, but **Backtest this …** opens the sign-in prompt; after authentication the
+safe return path restores the intended prefilled Backtest page when the sign-in flow carries its
+`next` destination. No public Backtest-result route, guest-owned run or demo-run exception exists
+in V1.
 
 ## 5. Lists
 
@@ -133,7 +140,9 @@ Built-in Strategies are system content and remain available independently of cus
 
 ### Guest
 
-Guests may only consume precomputed/static demo Backtests. They may not initiate live Backtest execution.
+Guests may not view a Backtest configuration, run or result and may not initiate Backtest
+execution. Every Backtest surface requires an authenticated session. Guest actions from public
+built-in content open the sign-in prompt rather than submitting work.
 
 ### Symbol limits
 
@@ -377,7 +386,8 @@ The implementation is not complete with only a static matrix. Tests must prove e
 At minimum cover:
 
 1. Guest resolves without creating a User row.
-2. Guest can use permitted public read paths but cannot persist custom content or run live Backtests/Monitors.
+2. Guest can use permitted public read paths but cannot view Backtest configurations/results,
+   persist custom content, or run live Backtests/Monitors.
 3. Free / Starter / Pro List symbol limits are exactly 10 / 50 / 100.
 4. Custom List and Strategy counts are unlimited for authenticated tiers.
 5. All authenticated tiers can use all Strategy analytical primitives.
