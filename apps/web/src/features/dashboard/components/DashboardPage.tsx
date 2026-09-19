@@ -449,6 +449,18 @@ export function DashboardPage() {
                 variant="compact"
                 testId="dashboard-signals-filtered-empty"
                 title="No signals match these filters"
+                actions={
+                  <button
+                    type="button"
+                    className={forms.secondaryButton}
+                    onClick={() => {
+                      setStateFilter("ALL");
+                      setLevelFilter("ALL");
+                    }}
+                  >
+                    Clear filters
+                  </button>
+                }
               />
             ) : (
               <NowContext.Provider value={now}>

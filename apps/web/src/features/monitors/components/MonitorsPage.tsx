@@ -7,6 +7,11 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
 import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
+import {
   IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
@@ -227,6 +232,29 @@ function MonitorComplianceNotice({
       }
     />
   );
+}
+
+/**
+ * The orders a customer's own monitors can be read in; the API's newest-first comes first. Search
+ * also matches the strategy and list a monitor watches, since that is how people tell them apart.
+ */
+const MONITOR_SORTS: readonly CollectionSort<MonitorSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "signals",
+    label: "Most active signals",
+    compare: (a, b) => b.activeSignalCount - a.activeSignalCount,
+  },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((monitor) => monitor.updatedAt),
+  },
+];
+
+function monitorSearchText(monitor: MonitorSummaryResponse): string {
+  return `${monitor.name} ${monitor.strategyName} ${monitor.stockListName}`;
 }
 
 export function MonitorsPage() {
@@ -475,6 +503,8 @@ export function MonitorsPage() {
             columns={ownColumns}
             rows={own}
             getRowKey={(monitor) => monitor.id}
+            searchText={monitorSearchText}
+            sorts={MONITOR_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -509,6 +539,7 @@ export function MonitorsPage() {
             columns={builtInColumns}
             rows={builtIn}
             getRowKey={(monitor) => monitor.id}
+            searchText={monitorSearchText}
             clickableRows
           />
         ) : null}

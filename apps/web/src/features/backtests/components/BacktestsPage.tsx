@@ -18,7 +18,10 @@ import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { CollectionFooter } from "../../../components/ui/CollectionFooter";
-import { usePagination } from "../../../components/ui/use-pagination";
+import {
+  useCollection,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import actionStyles from "../../../components/ui/actions.module.css";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import {
@@ -85,6 +88,32 @@ function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
     </span>
   );
 }
+
+/** The orders a run history can be read in; the API's newest-first comes first. */
+const RUN_SORTS: readonly CollectionSort<BacktestRunSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "oldest",
+    label: "Oldest",
+    compare: (a, b) => Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
+  },
+  {
+    id: "return",
+    label: "Best return",
+    // Runs without a result yet sort after every finished one, in their existing order.
+    compare: (a, b) =>
+      (b.portfolioReturnPercent ?? -Infinity) -
+        (a.portfolioReturnPercent ?? -Infinity) || 0,
+  },
+  {
+    id: "strategy",
+    label: "Strategy A–Z",
+    compare: (a, b) =>
+      a.strategyName.localeCompare(b.strategyName, "en", {
+        sensitivity: "base",
+      }),
+  },
+];
 
 export function BacktestsPage() {
   const { status, runs, retry } = useBacktestRuns();
@@ -225,7 +254,14 @@ export function BacktestsPage() {
       },
     },
   ];
-  const paging = usePagination(runs);
+  const collection = useCollection(runs, {
+    noun: "runs",
+    testId: "backtests",
+    searchText: (run) =>
+      `${run.strategyName} ${run.stockListName} ${run.benchmarkName}`,
+    sorts: RUN_SORTS,
+  });
+  const { paging } = collection;
 
   return (
     <PageContainer>
@@ -268,41 +304,53 @@ export function BacktestsPage() {
           />
         ) : null}
 
-        {status === "ready" && runs.length === 0 ? (
-          <EmptyState
-            testId="backtests-empty"
-            title="No backtests yet"
-            body={
-              <p>
-                A backtest executes one strategy over one stock list across a
-                historical period, with your capital, contributions and position
-                limit. Results appear while it runs. Start with{" "}
-                <strong>New backtest</strong> above.
-              </p>
-            }
-          />
-        ) : null}
-
-        {status === "ready" && runs.length > 0 ? (
-          <SectionCard ariaLabel="Backtest runs" flush>
-            <DataTable
-              label="Backtest runs"
-              testId="backtests-grid"
-              rowTestId="backtest-card"
-              columns={columns}
-              rows={paging.visibleRows}
-              getRowKey={(run) => run.id}
-              clickableRows
-            />
-            <CollectionFooter
-              testId="backtests-footer"
-              noun="runs"
-              total={paging.total}
-              page={paging.page}
-              pageSize={paging.pageSize}
-              onPageChange={paging.setPage}
-              onPageSizeChange={paging.setPageSize}
-            />
+        {status === "ready" ? (
+          // One composition for every collection (UI-012): a titled section whose empty state is
+          // the compact one, exactly like Lists, Strategies and Monitors.
+          <SectionCard
+            title="Your backtests"
+            ariaLabel="Backtest runs"
+            flush={runs.length > 0 && collection.filteredEmpty === null}
+            {...(runs.length > 0 ? { toolbar: collection.toolbar } : {})}
+          >
+            {runs.length === 0 ? (
+              <EmptyState
+                variant="compact"
+                testId="backtests-empty"
+                title="No backtests yet"
+                body={
+                  <p>
+                    A backtest executes one strategy over one stock list across
+                    a historical period, with your capital, contributions and
+                    position limit. Results appear while it runs. Start with{" "}
+                    <strong>New backtest</strong> above.
+                  </p>
+                }
+              />
+            ) : (
+              (collection.filteredEmpty ?? (
+                <>
+                  <DataTable
+                    label="Backtest runs"
+                    testId="backtests-grid"
+                    rowTestId="backtest-card"
+                    columns={columns}
+                    rows={paging.visibleRows}
+                    getRowKey={(run) => run.id}
+                    clickableRows
+                  />
+                  <CollectionFooter
+                    testId="backtests-footer"
+                    noun="runs"
+                    total={paging.total}
+                    page={paging.page}
+                    pageSize={paging.pageSize}
+                    onPageChange={paging.setPage}
+                    onPageSizeChange={paging.setPageSize}
+                  />
+                </>
+              ))
+            )}
           </SectionCard>
         ) : null}
       </div>

@@ -382,9 +382,12 @@ describe("DashboardPage", () => {
     await user.selectOptions(actions, "SELL");
     expect(screen.getByTestId("dashboard-signals-filtered-empty")).toBeDefined();
 
-    await user.selectOptions(actions, "ALL");
-    await user.click(within(states).getByRole("button", { name: /^All/ }));
+    // And always offers the way back (UI-012): one press resets both filters.
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(4);
+    expect(
+      (screen.getByTestId("dashboard-level-filter") as HTMLSelectElement).value,
+    ).toBe("ALL");
   });
 
   it("carries no monitor configuration: that lives with the monitors", async () => {

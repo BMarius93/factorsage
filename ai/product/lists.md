@@ -150,7 +150,9 @@ Structured events (`component: stock-lists`, `actorUserId` from the request cont
 see `ai/architecture/ui-system.md`) that also drives the topbar search — one search behavior,
 catalog-only, recently viewed stocks on a blank field, the same throttling copy, and Enter can only
 select a real result, never free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
-list page through a per-stock editor dialog.
+list page through a per-stock editor dialog. From ten members the list page offers a search by ticker
+or company and a Sort (list order, ticker, company); the members stay one scroll (see `useCollection`
+in `ai/architecture/ui-system.md`).
 
 ### The V1 membership editor exposes one period
 

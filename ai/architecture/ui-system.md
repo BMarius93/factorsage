@@ -108,7 +108,28 @@ point; card-inside-card is the noise this replaced.
 Page size, the visible range and page navigation, under every collection. Paging is applied in the
 browser over rows the page already holds — every collection endpoint returns the caller's own records
 in one response — so this is presentation, not a data-loading concern. If a collection ever outgrows
-one response, `usePagination` is the seam to replace.
+one response, `usePagination` is the seam to replace. A new `resetKey` (a new query or order)
+returns to the first page.
+
+### `useCollection` — search and sort (UI-010, UI-011)
+
+Client-side search and sort over the same in-memory rows, feeding `usePagination`, used by
+`CollectionSection` (Lists, Strategies, Monitors), the Backtests history and a list's members. The
+**search field appears from 10 records** (`COLLECTION_SEARCH_THRESHOLD`) and stays while a query is
+active; the **Sort control** appears where the feature offers more than one order and there is more
+than one record — built-in sections pass no orders, so a two-row section carries no chrome. The
+Sort control is also the phone's only ordering control, since card layouts hide table headers. The
+API's order is always the first ("Newest"), so the default never re-sorts what the server decided.
+A query announces "N of M {noun} match “q”." through a `role="status"` region; filtered to nothing,
+the section shows a compact `EmptyState` with **Clear search** instead of an unfiltered table. No
+server pagination is introduced: endpoints still return the whole owned collection. A list's
+members are searchable and sortable but stay one scroll, so a stock just added never lands on a
+later page.
+
+**One empty-collection composition (UI-012):** a titled `SectionCard` ("Your lists", "Your
+backtests") holding a compact `EmptyState`; the page's create action stays in the `PageHeader`.
+Every filtered-empty state offers the reset — Clear search on collections, Clear filters on the
+Dashboard.
 
 ### `OverflowMenu`
 

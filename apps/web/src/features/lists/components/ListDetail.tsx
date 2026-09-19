@@ -13,6 +13,10 @@ import {
   DataTable,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
+import {
+  useCollection,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
@@ -126,6 +130,26 @@ type DialogState =
  * list data plus the local catalog identity of each member — deliberately no prices, fundamentals,
  * or other heavy stock hydration.
  */
+const NO_ITEMS: readonly StockListItemResponse[] = [];
+
+/** How a list's members can be read: the list's own order first, then alphabetically. */
+const MEMBER_SORTS: readonly CollectionSort<StockListItemResponse>[] = [
+  { id: "list", label: "List order" },
+  {
+    id: "symbol",
+    label: "Ticker A–Z",
+    compare: (a, b) => a.security.symbol.localeCompare(b.security.symbol),
+  },
+  {
+    id: "name",
+    label: "Company A–Z",
+    compare: (a, b) =>
+      a.security.name.localeCompare(b.security.name, "en", {
+        sensitivity: "base",
+      }),
+  },
+];
+
 export function ListDetail({ listId }: ListDetailProps) {
   const router = useRouter();
   const {
@@ -147,6 +171,15 @@ export function ListDetail({ listId }: ListDetailProps) {
     () => new Set(detail?.items.map((item) => item.security.id) ?? []),
     [detail],
   );
+
+  // A 100-stock list is searchable by ticker or company and sortable. It stays one scroll rather than
+  // pages: membership is edited in place, and a stock just added must not land on a later page.
+  const members = useCollection(detail?.items ?? NO_ITEMS, {
+    noun: "stocks",
+    testId: "list-items",
+    searchText: (item) => `${item.security.symbol} ${item.security.name}`,
+    sorts: MEMBER_SORTS,
+  });
 
   const closeDialog = () => setDialog({ kind: "closed" });
 
@@ -472,24 +505,31 @@ export function ListDetail({ listId }: ListDetailProps) {
               ? "A built-in list maintained by FactorSage. Each stock's membership decides the dates a strategy may open a new position in it; selling is never restricted."
               : "Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
           }
-          flush={detail.items.length > 0}
+          flush={detail.items.length > 0 && members.filteredEmpty === null}
+          {...(detail.items.length > 0 ? { toolbar: members.toolbar } : {})}
         >
-          <DataTable
-            label={`Stocks in ${detail.name}`}
-            testId="list-items"
-            rowTestId="list-item"
-            columns={columns}
-            rows={detail.items}
-            getRowKey={(item) => item.id}
-            emptyState={
-              <EmptyState
-                variant="compact"
-                testId="list-items-empty"
-                title="No stocks yet"
-                body={<p>Search above to add supported stocks to this list.</p>}
+          {members.filteredEmpty ?? (
+            <>
+              <DataTable
+                label={`Stocks in ${detail.name}`}
+                testId="list-items"
+                rowTestId="list-item"
+                columns={columns}
+                rows={members.rows}
+                getRowKey={(item) => item.id}
+                emptyState={
+                  <EmptyState
+                    variant="compact"
+                    testId="list-items-empty"
+                    title="No stocks yet"
+                    body={
+                      <p>Search above to add supported stocks to this list.</p>
+                    }
+                  />
+                }
               />
-            }
-          />
+            </>
+          )}
         </SectionCard>
       </div>
 

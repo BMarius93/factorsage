@@ -10,6 +10,11 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
@@ -62,6 +67,17 @@ type DialogState =
  * it has at least one BUY level — there is no name-only strategy to create here. Rendering needs
  * only the summary counts, never a definition.
  */
+/** The orders a customer's own strategies can be read in; the API's newest-first comes first. */
+const STRATEGY_SORTS: readonly CollectionSort<StrategySummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((strategy) => strategy.updatedAt),
+  },
+  { id: "name", label: "Name A–Z", compare: byName },
+];
+
 export function StrategiesPage() {
   const router = useRouter();
   const { status, strategies, retry, applyUpdated, applyDeleted } =
@@ -248,6 +264,8 @@ export function StrategiesPage() {
             columns={columns}
             rows={own}
             getRowKey={(strategy) => strategy.id}
+            searchText={(strategy) => strategy.name}
+            sorts={STRATEGY_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -280,6 +298,7 @@ export function StrategiesPage() {
             columns={columns}
             rows={builtIn}
             getRowKey={(strategy) => strategy.id}
+            searchText={(strategy) => strategy.name}
             clickableRows
           />
         ) : null}

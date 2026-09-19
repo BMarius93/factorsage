@@ -6,6 +6,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import actions from "../../../components/ui/actions.module.css";
+import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
@@ -70,6 +75,22 @@ function ListComplianceNotice({
     />
   );
 }
+
+/** The orders a customer's own lists can be read in; the API's newest-first comes first. */
+const LIST_SORTS: readonly CollectionSort<StockListSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((list) => list.updatedAt),
+  },
+  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "size",
+    label: "Most stocks",
+    compare: (a, b) => b.itemCount - a.itemCount,
+  },
+];
 
 export function ListsPage() {
   const router = useRouter();
@@ -276,6 +297,8 @@ export function ListsPage() {
             columns={columnsFor("own")}
             rows={own}
             getRowKey={(list) => list.id}
+            searchText={(list) => list.name}
+            sorts={LIST_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -307,6 +330,7 @@ export function ListsPage() {
             columns={columnsFor("built-in")}
             rows={builtIn}
             getRowKey={(list) => list.id}
+            searchText={(list) => list.name}
             clickableRows
           />
         ) : null}

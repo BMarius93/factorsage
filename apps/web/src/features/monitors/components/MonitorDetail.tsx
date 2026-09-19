@@ -236,10 +236,16 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
       count: statusCounts[status],
     })),
   ];
+  // A refresh can empty the status being filtered on; the filter then falls back to All rather than
+  // showing an empty table under a "no stocks" message that is not true.
+  const activeStatusFilter =
+    statusFilter !== "ALL" && (statusCounts[statusFilter] ?? 0) === 0
+      ? "ALL"
+      : statusFilter;
   const visibleSecurities =
-    statusFilter === "ALL"
+    activeStatusFilter === "ALL"
       ? sortedSecurities
-      : sortedSecurities.filter((entry) => entry.status === statusFilter);
+      : sortedSecurities.filter((entry) => entry.status === activeStatusFilter);
 
   const securityColumns: readonly DataTableColumn<MonitorSecurityEvaluationResponse>[] =
     [
@@ -619,7 +625,7 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
                   <SegmentedControl
                     label="Filter by status"
                     testId="monitor-status-filter"
-                    value={statusFilter}
+                    value={activeStatusFilter}
                     onChange={setStatusFilter}
                     options={statusFilterOptions}
                   />
