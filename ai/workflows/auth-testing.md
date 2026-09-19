@@ -364,11 +364,143 @@ an environment's catalog.
 history, the derived state the production calculators build from it (daily and weekly moving
 averages, carried-forward completed weeks), fixture intrinsic-value model/blend results, and the
 dataset coverage/state watermarks that tell the canonical loader nothing is missing. That is what
-lets `e2e/stocks` drive real Stock Details without a market-data provider. The watermarks carry the
-seed's own timestamp and the loader treats a price tail older than
-`STOCK_RECENT_PRICE_FRESHNESS_MS` (default 6 hours) as stale, so **run the seed shortly before the
-Stock Details suite** rather than relying on a seed from a previous day. Rerunning is safe and
-produces the same data for the same day. `QATEST2` deliberately stays identity-only.
+lets `e2e/stocks` drive real Stock Details without a market-data provider. `QATEST2` has no market
+data and is declared complete and empty. Rerunning is safe and is the reset (below).
+
+### The deterministic fixture boundary (E2E-001…E2E-007)
+
+The E2E stack is **hermetic**: everything it talks to runs on this machine, and that is enforced
+and checked rather than assumed.
+
+**What is real and what is faked**
+
+| Dependency | On the E2E stack | Where it is set |
+| --- | --- | --- |
+| PostgreSQL | Real — `TEST_DATABASE_URL` (`intrinsic_value_test`), never `DATABASE_URL` | launcher: `DATABASE_URL=$TEST_DATABASE_URL` |
+| Redis | Real — the same `REDIS_URL` instance; see namespaces below | `.env` |
+| API, worker, web | Real applications, ordinary dev commands (`dev:api`, `dev:worker`, `dev:web`) | `apps/api/src/e2e-stack/launch.ts` |
+| FMP (market data, profiles, statements, quotes, holidays) | **Faked**: fixture server on `127.0.0.1:3011` | `FMP_BASE_URL`, `FMP_API_KEY=e2e-fixture-provider` |
+| Company-logo CDN | **Faked in the browser**: every `/api/logo/*` answers the UX-005 miss (`204`) | `apps/web/e2e/fixtures.ts` |
+| SMTP / Mailtrap | **Off**: the `SMTP_*` group is blanked, so the API uses its unconfigured sender | launcher |
+| Google OAuth | **Off**: the `GOOGLE_*` group is blanked; `/auth/providers` reports no Google | launcher |
+| Stripe | **Inert**: test-mode placeholder key and price ids, so billing pages render; any SDK call is blocked by the guard | launcher |
+| Anything else | **Blocked** by the egress guard | `packages/testing/egress-guard.cjs` |
+
+The overlay is one function, `e2eStackEnvironment` in `packages/testing/src/e2e-stack.ts`, laid
+over the developer's `.env` (a shell value — even an empty one — beats `.env`, so a blank really
+switches an integration off). No real provider credential is present in an E2E process. Production
+configuration is untouched: `FMP_BASE_URL` is unset there, and production refuses a loopback or
+plain-http value.
+
+**Where fixture responses live.** `apps/api/src/e2e-stack/fake-fmp.ts`. It answers only the fixture
+namespace (`apps/api/src/e2e-stack/fixture-boundary.ts`, derived from the seeds themselves):
+
+- daily bars for a fixture security (`QATEST1`, `QATEST2`, `ENTF001`…`ENTF100`) or fixture
+  benchmark (`SPY`, `^GSPC`, `^DJI`, `^VIX`): `[]` — "no bars beyond what the seed wrote". An empty
+  answer never deletes a persisted row;
+- profile and the three financial statements of a fixture security: `[]`;
+- current quotes (`batch-quote`) of fixture securities: `[]`, as the real provider answers a
+  fictional ticker;
+- exchange holidays: NYSE's rule-based full closures for the requested years.
+
+Anything else — another endpoint, a real symbol, the wrong key — gets `404`/`401` naming the
+missing fixture, an `UNEXPECTED` line on the server's stderr, and a journal entry that fails the
+Playwright run. The client treats those statuses as non-retryable, so a gap fails at once.
+
+In a clean run the server sees only: the Monitor worker's `batch-quote` for the fixture universe
+(current quotes cannot be seeded), and — once per reseed — the thirty-year PRO run's request for
+`SPY` bars older than the seeded window. Nothing hydrates a fixture security from it.
+
+**How time and freshness are controlled.** The seeds anchor every series to the day they run and
+stamp their watermarks with the seed time. The launcher sets `STOCK_RECENT_PRICE_FRESHNESS_MS` and
+`STOCK_FUNDAMENTALS_FRESHNESS_MS` to thirty days for the API and worker only, so a seed from this
+morning, yesterday or last week is still fresh and nothing re-reads a tail. Were a tail ever re-read,
+the fixture server would answer it with no bars, which changes nothing. There is no fake clock: the
+product, the browser and the seeds all use the real date, and the fixture window moves with the seed.
+
+**What reseeding deletes.** `pnpm test:personas:seed` (and its parts) is reset → write → evict:
+
+- for every fixture security: `DailyPrice`, `WeeklyPrice`, `DailyDerivedState`,
+  `FinancialStatement`, `SecurityProfile`, `StockDatasetCoverage`, `StockDatasetState`;
+- for the current series of `SP500`, `SP500_INDEX`, `DJIA_INDEX`, `VIX_INDEX`: `BenchmarkDailyPrice`,
+  `BenchmarkDatasetCoverage`, `BenchmarkDatasetState`;
+- the Redis projections of all of them (`stock-data:v2:*` per security, `benchmark:v1:*` per series);
+- orphaned non-catalog benchmarks left by integration suites (`pruneOrphanedFixtureBenchmarks`);
+- the entitlement fixtures' own runs, lists, monitors and strategies, which it reconciles.
+
+It deletes nothing else: never a `Security` or `Benchmark` row, never a user, never a symbol outside
+the namespace (`resetE2eFixtureSecurityData` refuses one before any statement runs), and never the
+development database. Seeding twice leaves identical rows; only sync timestamps move
+(`fixture-reseed.integration.test.ts`).
+
+**Adding a stock or provider fixture.**
+
+1. Add the security to a seed (`QA_SECURITIES`, or the entitlement universe). It joins the namespace
+   automatically, so reseeding resets it and the fixture server answers it.
+2. Give it data: seeded rows plus coverage (`seedQaStockData` is the model), or declare it complete
+   and empty with `seedEmptyStockCoverage`. Either way the loader must have nothing to ask.
+3. A new *kind* of provider request (endpoint) needs an answer in `answerFakeFmpRequest`, and a test
+   in `fake-fmp.test.ts`. Prefer making the loader not ask — seed the dataset state — over answering.
+4. Run the suite; the teardown names any request that was still unanswered.
+
+**How to run the stack.**
+
+```bash
+pnpm infra:up
+set -a && . ./.env && set +a && pnpm db:test:prepare   # migrations only; never a reset
+pnpm dev:fmp:e2e        # terminal 1: fixture FMP server, 127.0.0.1:3011
+pnpm dev:api:e2e        # terminal 2: API on :3001, test DB
+pnpm dev:worker:e2e     # terminal 3: two backtest children + one Monitor child
+pnpm dev:web:e2e        # terminal 4: web on :3000 (the API's CORS origin)
+pnpm test:personas:seed # reset and seed every fixture
+pnpm test:e2e
+pnpm test:entitlements:seed && pnpm test:e2e   # every further run
+```
+
+Market data never needs reseeding between runs: the second run finds exactly what the first left
+(verified: `SP500` still ends on its seeded close, no fixture security gained a row, only the
+pinned runs in flight). The **entitlement** fixtures do, and always have: the last case of
+`entitlements.downgraded.spec.ts` switches a Monitor off on an over-capacity account, which the
+product deliberately offers no way to undo, so a second run without `pnpm test:entitlements:seed`
+fails that file on "Enabled". `pnpm test:e2e:entitlements` reseeds them for you.
+
+Stop the development stack first (same ports) and never run `pnpm test` at the same time — they
+share the test database (audit T-1). Do not edit `apps/api/src` while a run is in progress: the API
+watcher restarts and requests in that window fail as network errors.
+
+**How the egress guard proves isolation.** Every E2E process — the launchers, pnpm, `tsc`, Nest,
+Next and both worker children — starts with `NODE_OPTIONS=--require=…/egress-guard.cjs`. The guard
+patches `net.Socket.prototype.connect`, which every Node socket goes through (`fetch`/undici, `http`,
+`tls`, drivers): a loopback destination proceeds; anything else is refused with
+`E2E_EGRESS_BLOCKED` *before* a DNS lookup or a packet leaves, and recorded in
+`.e2e-stack/egress.jsonl` (git-ignored) together with every process that armed it. The Playwright
+global setup (`apps/web/e2e/global-setup.ts`) refuses to start unless the listeners on `:3001` and
+`:3000` and a backtest worker child have armed the guard; its teardown fails the run on any
+unanswered fixture request, any blocked connection, or any persona run left in flight, and prints
+the counts. The one blocked destination it tolerates (and still prints) is `registry.npmjs.org`
+from the web process: `next dev`'s own version check.
+
+**Databases, Redis namespaces and ports.** PostgreSQL `intrinsic_value_test`. Redis: the shared
+instance from `REDIS_URL`; stock and benchmark projections are keyed by row id (`stock-data:v2:*`,
+`benchmark:v1:*`) so they cannot collide with the development database's ids, the FMP request gate
+`stock-data:v2:fmp:*` is shared (harmless — the fixture server is the only destination), and HTTP
+rate-limit counters use their own `rate-limit:e2e` namespace. Ports: web `3000`, API `3001`, fixture
+FMP `3011`, PostgreSQL `5432`, Redis `6379`.
+
+**Cleanup expectations after a run.** Every spec that submits a backtest waits, in `afterEach` or
+inline, for its runs to reach `COMPLETED` or `FAILED` (`e2e/utils/backtests.ts`), so a run is never
+left holding a persona's concurrency slot; the teardown checks it. Afterwards the only non-terminal
+runs are the entitlement fixtures' pinned `ENT-In Flight` runs (lease 2099, never claimed). Lists and
+strategies a spec creates are deleted by that spec. Stop the stack with Ctrl-C in each terminal (the
+worker supervisor first); `ps`, `lsof -nP -iTCP:3000,3001,3011 -sTCP:LISTEN` and
+`pg_stat_activity` should then show nothing attached to the test database.
+
+**The shared Playwright infrastructure.** Every spec imports `test` from `e2e/fixtures.ts` (ESLint
+enforces it). It stubs logos and blocks provider image hosts in every browser context, and exposes
+`logoRequests`; a context opened by hand gets the same with `installBrowserStubs`. Console, page and
+request failures are collected by the one `watchForIssues` in `e2e/utils/page-issues.ts`, which
+filters nothing but the page's own aborted requests. `e2e/infra/hermetic-browser.guest.spec.ts`
+proves both pieces against a page Playwright serves itself.
 
 Return-destination coverage (UX-003) signs in as an existing persona through the real form and
 creates nothing: `e2e/builtins/collections.guest.spec.ts` (a built-in strategy's prompt, then
@@ -470,9 +602,9 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 - For manual local testing, point `SMTP_HOST`/`SMTP_PORT` at a local catch-all relay such as
   Mailpit. `SMTP_USER`/`SMTP_PASSWORD` may stay empty for an unauthenticated local relay.
 - The Playwright stack is a real API: `e2e/entitlements/entitlements.admin.spec.ts` registers an
-  `example.test` address, which dispatches an activation email through whatever transport that API
-  is configured with. Run E2E with the `SMTP_*` group empty or pointed at a local capture relay,
-  never at a hosted sandbox with a message quota.
+  `example.test` address. `pnpm dev:api:e2e` blanks the whole `SMTP_*` group, so that registration
+  reaches the unconfigured sender and no message is sent, whatever the developer's `.env` holds; the
+  egress guard would block an SMTP connection regardless.
 - Verification and password-reset tokens are single-use and only their SHA-256 hash is stored.
   Never log, print, or paste a plaintext token.
 - Playwright cannot read an inbox, so no browser test redeems a real reset or verification link.
@@ -495,7 +627,7 @@ signs in far more often than a person does — the auth setup alone authenticate
 the running API needs headroom or the suite fails on `429` in a way that looks like a broken login.
 
 `pnpm dev:api:e2e` therefore starts the API with its own counter namespace and a wide allowance
-multiplier, exactly as it already selects the test database:
+multiplier (set by `e2eStackEnvironment`), exactly as it selects the test database:
 
 ```bash
 RATE_LIMIT_KEY_NAMESPACE=rate-limit:e2e RATE_LIMIT_ALLOWANCE_MULTIPLIER=100

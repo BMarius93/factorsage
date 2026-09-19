@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../fixtures";
 
 /**
  * Anonymous browser behaviour. No persona credentials are involved, so this project needs no

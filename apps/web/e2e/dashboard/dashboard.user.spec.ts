@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
 
 /**
  * A signed-in customer's Dashboard: the same built-in rows a Guest sees, and nothing else — the

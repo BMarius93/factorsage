@@ -7,6 +7,7 @@ import {
   getAuthConfig,
   getBacktestDebugArchiveConfig,
   getBacktestWorkerConfig,
+  getFmpConfig,
   getGoogleOAuthConfig,
   getMonitorWorkerConfig,
   getTestPersonaCredentials,
@@ -500,6 +501,81 @@ describe("production API configuration", () => {
     expect(() => getBacktestWorkerConfig(workerEnv)).not.toThrow();
     expect(() => getMonitorWorkerConfig(workerEnv)).not.toThrow();
     expect(getBacktestDebugArchiveConfig(workerEnv).enabled).toBe(false);
+  });
+});
+
+describe("FMP configuration", () => {
+  const KEY = { FMP_API_KEY: "fmp-key-for-this-test" };
+
+  it("leaves the client on its own endpoint when FMP_BASE_URL is unset", () => {
+    const config = getFmpConfig(KEY);
+
+    expect(config).not.toHaveProperty("baseUrl");
+    expect(getFmpConfig({ ...KEY, FMP_BASE_URL: "  " })).not.toHaveProperty(
+      "baseUrl",
+    );
+  });
+
+  it("points the client at a local fixture server outside production", () => {
+    for (const environment of ["development", "test"]) {
+      expect(
+        getFmpConfig({
+          ...KEY,
+          NODE_ENV: environment,
+          FMP_BASE_URL: "http://127.0.0.1:3011/stable",
+        }).baseUrl,
+      ).toBe("http://127.0.0.1:3011/stable/");
+    }
+  });
+
+  it("keeps the base a directory, so every endpoint resolves beneath it", () => {
+    const { baseUrl } = getFmpConfig({
+      ...KEY,
+      FMP_BASE_URL: "http://localhost:3011/stable/",
+    });
+
+    expect(baseUrl).toBe("http://localhost:3011/stable/");
+    expect(new URL("batch-quote", baseUrl).toString()).toBe(
+      "http://localhost:3011/stable/batch-quote",
+    );
+  });
+
+  it("rejects a malformed base URL, a non-http scheme, a query or a fragment", () => {
+    for (const value of [
+      "not a url",
+      "ftp://127.0.0.1/stable/",
+      "http://127.0.0.1:3011/stable/?apikey=x",
+      "http://127.0.0.1:3011/stable/#x",
+    ]) {
+      expect(() => getFmpConfig({ ...KEY, FMP_BASE_URL: value })).toThrow(
+        /FMP_BASE_URL/,
+      );
+    }
+  });
+
+  it("refuses a loopback or plain-http base URL in production and names only the variable", () => {
+    for (const value of [
+      "http://127.0.0.1:3011/stable/",
+      "https://localhost/stable/",
+      "http://fmp.example.test/stable/",
+    ]) {
+      expect(() =>
+        getFmpConfig({ ...KEY, NODE_ENV: "production", FMP_BASE_URL: value }),
+      ).toThrow(/FMP_BASE_URL/);
+    }
+    expect(
+      getFmpConfig({
+        ...KEY,
+        NODE_ENV: "production",
+        FMP_BASE_URL: "https://fmp-proxy.example.test/stable/",
+      }).baseUrl,
+    ).toBe("https://fmp-proxy.example.test/stable/");
+  });
+
+  it("still requires the API key, whatever the base URL", () => {
+    expect(() =>
+      getFmpConfig({ FMP_BASE_URL: "http://127.0.0.1:3011/stable/" }),
+    ).toThrow(/FMP_API_KEY is required/);
   });
 });
 

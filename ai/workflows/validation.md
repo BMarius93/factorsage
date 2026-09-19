@@ -56,35 +56,65 @@ anything constructs a Prisma client — directly, or through `PrismaService` whe
 a Nest testing module compiles. There is no fallback, so an unconfigured run
 fails loudly instead of mutating development data.
 
-Current callers:
+Current callers (re-derive with `grep -rl "useTestDatabase()" apps packages --include=*.ts`; the
+list was last corrected by E2E-007, when it had fallen seventeen suites behind):
 
 - `apps/api/src/admin/securities-sync.integration.test.ts`
 - `apps/api/src/auth/auth.integration.test.ts`
-- `apps/api/src/auth/registration.integration.test.ts`
+- `apps/api/src/auth/email-verification.integration.test.ts`
 - `apps/api/src/auth/google-auth.integration.test.ts`
+- `apps/api/src/auth/password-reset.integration.test.ts`
+- `apps/api/src/auth/registration-enumeration.integration.test.ts`
+- `apps/api/src/auth/registration.integration.test.ts`
 - `apps/api/src/backtests/backtests.integration.test.ts`
-- `apps/api/src/builtins/builtins.integration.test.ts`
+- `apps/api/src/benchmarks/prune-fixture-benchmarks.integration.test.ts`
 - `apps/api/src/billing/billing.integration.test.ts`
+- `apps/api/src/builtins/builtins.integration.test.ts`
+- `apps/api/src/e2e-stack/fixture-reseed.integration.test.ts` — writes the E2E fixture scope
+  exactly as `pnpm test:personas:seed` does (see "The deterministic E2E stack" below)
 - `apps/api/src/entitlements/entitlements.integration.test.ts`
 - `apps/api/src/lists/stock-lists.integration.test.ts`
-- `apps/api/src/recent-searches/recent-searches.integration.test.ts`
-- `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
+- `apps/api/src/market/market.integration.test.ts`
+- `apps/api/src/monitors/monitors.integration.test.ts`
+- `apps/api/src/openapi/openapi.contract.test.ts`
 - `apps/api/src/qa-matrix/matrix-cleanup.integration.test.ts`
-- `apps/api/src/strategies/strategies.integration.test.ts`
-- `apps/api/src/stocks/stocks.integration.test.ts`
+- `apps/api/src/qa-matrix/qa-matrix.integration.test.ts`
+- `apps/api/src/rate-limit/rate-limit-coverage.test.ts`
+- `apps/api/src/rate-limit/rate-limit.api.integration.test.ts`
+- `apps/api/src/recent-searches/recent-searches.integration.test.ts`
 - `apps/api/src/stocks/stocks.infrastructure.integration.test.ts`
+- `apps/api/src/stocks/stocks.integration.test.ts`
 - `apps/api/src/stocks/stocks.live-fmp.integration.test.ts` (inside `beforeAll`,
   so the opt-in gate still skips cleanly)
+- `apps/api/src/strategies/strategies.integration.test.ts`
 - `apps/worker/src/backtest/claim-entitlements.integration.test.ts`
 - `apps/worker/src/backtest/job-repository.integration.test.ts`
 - `apps/worker/src/monitor/monitor-cycle.integration.test.ts`
 - `apps/worker/src/monitor/monitor-eligibility.integration.test.ts`
 - `apps/worker/src/monitor/scan-repository.integration.test.ts`
 - `packages/stock-data/src/benchmark-data.integration.test.ts`
+- `packages/stock-data/src/benchmark-market-references.integration.test.ts`
+- `packages/stock-data/src/benchmark-retention.integration.test.ts`
+- `packages/stock-data/src/benchmark-series.integration.test.ts`
 - `packages/stock-data/src/derived-state.integration.test.ts`
 - `packages/stock-data/src/financial-statements.test.ts`
+- `packages/stock-data/src/price-retention.integration.test.ts`
+- `packages/stock-data/src/provider-reuse.integration.test.ts`
 - `packages/stock-data/src/redis.integration.test.ts`
 - `packages/stock-data/src/security-search.integration.test.ts`
+
+`apps/worker/src/monitor/capacity-bench.ts` also calls it; it is a developer benchmark script, not a
+suite.
+
+**Suites that drive a Nest app over HTTP bind it to loopback.** Left unlistened (`app.init()`),
+supertest binds a _wildcard_ ephemeral port per request, and on macOS that bind succeeds even when
+another process already holds the same port on `127.0.0.1` — the request then reaches that process.
+This machine has two such listeners (editor helpers): one answers `404` with an empty body, the
+other accepts and never answers, after which every later test in the file times out at 5 s. Both
+were reproduced deliberately during TEST-001. `await app.listen(0, "127.0.0.1")` removes the
+mechanism; `registration-enumeration` and `backtests` do it. Other suites still use `app.init()`
+and remain exposed to the same rare collision — a `404 {}` or a 5 s timeout cascade in one of them
+is this, not a product failure, until they are converted.
 
 Prepare the database once, then keep `TEST_DATABASE_URL` in `.env` so `pnpm test`
 picks it up:
@@ -227,9 +257,10 @@ RUN_LIVE_FMP_TESTS=1 FMP_API_KEY=... \
 ```
 
 The API suite refuses to run against `DATABASE_URL` and both assert invariants
-only, never exact FMP values. Playwright never calls FMP: the QA seed writes
-deterministic data and coverage watermarks that keep the loader off the
-provider.
+only, never exact FMP values. Playwright never calls FMP: the E2E API and worker
+point `FMP_BASE_URL` at a local fixture server and run under an egress guard,
+and the QA seeds write deterministic data and coverage watermarks that keep the
+loader off even that (`auth-testing.md` §7).
 
 The `@intrinsic/stock-data` live suite also asserts that a 30-year `AAPL`
 daily-price request paginates past FMP's 5000-row per-response cap
@@ -333,18 +364,19 @@ manual thirty-year backtest would silently compare against part-real, part-fabri
 seeds therefore **connect to `TEST_DATABASE_URL` explicitly** and refuse to start when it is unset
 or equal to `DATABASE_URL` (except in CI, where one database is the whole environment).
 
-| Command                                             | Database                   |
-| --------------------------------------------------- | -------------------------- |
-| `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:web`   | `DATABASE_URL` — real data |
-| `pnpm db:migrate:deploy`, `pnpm db:seed`            | `DATABASE_URL`             |
-| `pnpm db:test:prepare`                              | `TEST_DATABASE_URL`        |
-| `pnpm test` (PostgreSQL-backed suites)              | `TEST_DATABASE_URL`        |
-| `pnpm test:users:seed`, `pnpm test:securities:seed` | `TEST_DATABASE_URL`        |
-| `pnpm test:builtins:seed`                           | `TEST_DATABASE_URL`        |
-| `pnpm builtins:bootstrap`, `pnpm builtins:reset`    | `DATABASE_URL`             |
-| `pnpm monitors:scan-once`                           | `DATABASE_URL`             |
-| `pnpm test:matrix:seed`                             | `TEST_DATABASE_URL`        |
-| `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`           | `TEST_DATABASE_URL`        |
+| Command                                                  | Database                   |
+| -------------------------------------------------------- | -------------------------- |
+| `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:web`        | `DATABASE_URL` — real data |
+| `pnpm db:migrate:deploy`, `pnpm db:seed`                 | `DATABASE_URL`             |
+| `pnpm db:test:prepare`                                   | `TEST_DATABASE_URL`        |
+| `pnpm test` (PostgreSQL-backed suites)                   | `TEST_DATABASE_URL`        |
+| `pnpm test:users:seed`, `pnpm test:securities:seed`      | `TEST_DATABASE_URL`        |
+| `pnpm test:builtins:seed`, `pnpm test:entitlements:seed` | `TEST_DATABASE_URL`        |
+| `pnpm builtins:bootstrap`, `pnpm builtins:reset`         | `DATABASE_URL`             |
+| `pnpm monitors:scan-once`                                | `DATABASE_URL`             |
+| `pnpm test:matrix:seed`                                  | `TEST_DATABASE_URL`        |
+| `pnpm dev:api:e2e`, `pnpm dev:worker:e2e`                | `TEST_DATABASE_URL`        |
+| `pnpm dev:fmp:e2e`, `pnpm dev:web:e2e`                   | none                       |
 
 ### Normal development, against real market data
 
@@ -356,42 +388,57 @@ pnpm dev:worker
 pnpm dev:web
 ```
 
-> **Do not run `pnpm test` while the deterministic E2E stack is up.** They share
-> `TEST_DATABASE_URL`, and a running `dev:worker:e2e` will claim the queued backtest jobs the API
-> integration suite creates — the suite then sees them mid-execution instead of `QUEUED`. Stop the
-> E2E stack first; the two are alternatives, not companions.
+> **Do not run `pnpm test` while the deterministic E2E stack is up** (audit T-1, a known limitation).
+> They share `TEST_DATABASE_URL`: a running `dev:worker:e2e` claims the queued backtest jobs the API
+> integration suite creates, and `fixture-reseed.integration.test.ts` rewrites the E2E fixture scope
+> under the running stack. Stop the E2E stack first; the two are alternatives, not companions. After
+> `pnpm test`, run `pnpm test:personas:seed` again before `pnpm test:e2e`: other suites create and
+> delete rows in the same database, and the seed is what restores the exact fixture state.
 
 ### Deterministic Playwright
 
 The E2E stack replaces the development stack — both bind the same ports, so stop one before
-starting the other. `dev:api:e2e` and `dev:worker:e2e` need `TEST_DATABASE_URL` in the shell, the
-same way `db:test:prepare` does:
+starting the other. It is **hermetic**: the fixture FMP server stands in for the provider, every
+other provider is switched off or made inert, and every Node process runs under an egress guard
+that refuses any non-loopback connection. `ai/workflows/auth-testing.md` §7 is the full runbook —
+what is real and what is faked, where fixture responses live, how time is controlled, what a reseed
+deletes, how to add a fixture, and how the guard proves isolation.
 
 ```bash
-set -a && . ./.env && set +a      # export TEST_DATABASE_URL for the two e2e stack commands
 pnpm infra:up
-pnpm db:test:prepare
-pnpm test:users:seed && pnpm test:securities:seed && pnpm test:builtins:seed
-pnpm dev:api:e2e    # and, in other shells:
+set -a && . ./.env && set +a && pnpm db:test:prepare
+pnpm dev:fmp:e2e      # the fixture FMP server, 127.0.0.1:3011
+pnpm dev:api:e2e      # and, in other shells:
 pnpm dev:worker:e2e
-pnpm dev:web
+pnpm dev:web:e2e
+pnpm test:personas:seed
 pnpm test:e2e
+pnpm test:entitlements:seed && pnpm test:e2e   # a further run: the downgraded spec is irreversible
 ```
 
-Both the QA security's and the benchmark's freshness watermarks carry the seed's own timestamp, so
-run the seed shortly before the suite; otherwise the loader treats the tail as stale and reaches for
-the provider.
+The Playwright global setup refuses to start unless the processes on the API and web ports and a
+backtest worker child were launched through those commands, and its teardown fails the run if the
+fixture server was asked for anything it has no fixture for, if the guard blocked a connection, or if
+any persona still has a backtest in flight other than the entitlement fixtures' pinned ones.
 
-The two fixtures make deliberately different coverage claims, because only one of them is true in
-both cases:
+Seeded data stays fresh for thirty days on this stack (`STOCK_RECENT_PRICE_FRESHNESS_MS` and
+`STOCK_FUNDAMENTALS_FRESHNESS_MS` are overridden by the launcher only), so the suite no longer has to
+follow the seed within hours; reseeding is still the reset, and still the documented first step.
 
-- **`QATEST1` claims the whole retention horizon.** It is a fictional security whose only provider
-  is the fixture, so the fixture genuinely is the authority on what exists before its first bar —
-  nothing. That is what lets Stock Details report a `PROVIDER` boundary.
+The fixtures make deliberately different coverage claims, because only one of them is true in each
+case:
+
+- **`QATEST1` claims the whole retention horizon** with seeded rows, and **`QATEST2` and `ENTF001`…
+  `ENTF100` claim it with none** (complete and empty). They are fictional securities whose only
+  provider is the fixture, so the fixture genuinely is the authority on what exists — for `QATEST1`
+  nothing before its first bar, for the others nothing at all. That is what lets Stock Details
+  report a `PROVIDER` boundary, and what lets a thirty-year PRO run over eighty ENTF securities
+  settle in seconds with no provider request.
 - **`SP500` claims only the interval it generated.** It is backed by a real symbol whose history
   continues much further back, so a horizon claim would be a lie that permanently blocked fetching
-  it. Keep E2E backtest periods inside the seeded window: an earlier start is genuinely uncovered
-  and a real read would go to the provider.
+  it. A backtest reaching before the seeded window therefore does ask for the older years — on this
+  stack, the fixture server, which answers "no bars" — and that provider-written coverage is
+  deleted by the next reseed.
 
 ### Repairing a development database seeded before this split
 

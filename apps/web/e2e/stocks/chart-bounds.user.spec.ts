@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * The hard bounds of the Stock Details time domain, driven through real gestures.
@@ -15,7 +15,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
  * rather than recomputing the bound a second time.
  *
  * Preconditions are the usual Stock Details ones: `pnpm test:users:seed` once, and
- * `pnpm test:securities:seed` shortly before the run.
+ * `pnpm test:securities:seed` before the run.
  */
 
 const QA_SYMBOL = "QATEST1";

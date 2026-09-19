@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
 import { qaPersona } from "../utils/env";
 import { submitSignInForm } from "../utils/sign-in";

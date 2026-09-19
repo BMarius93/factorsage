@@ -7,6 +7,11 @@ import type { TestPersonaName } from "@intrinsic/testing/personas";
  * suite run cannot rebuild or reset a developer's database. Seed the personas and their
  * entitlement fixtures once with `pnpm test:personas:seed`; see `ai/workflows/auth-testing.md`.
  *
+ * That stack is the **hermetic** one (`pnpm dev:fmp:e2e`, `dev:api:e2e`, `dev:worker:e2e`,
+ * `dev:web:e2e`): the global setup refuses to start against anything else, and its teardown fails
+ * the run if a provider request escaped or a backtest was left in flight (`e2e/global-setup.ts`).
+ * Every spec imports `test` from `e2e/fixtures.ts`, which keeps logo traffic inside the browser.
+ *
  * **One project per persona, and a spec's filename chooses it.** `lists.user.spec.ts` runs as the
  * PRO persona, `monitors.free.spec.ts` as the FREE one. That is what makes entitlement specs
  * independent: a spec signs in as the plan it is about and never changes anyone's plan, so no test
@@ -40,6 +45,7 @@ function personaProject(suffix: string, persona: TestPersonaName) {
 
 export default defineConfig({
   testDir: "./e2e",
+  globalSetup: "./e2e/global-setup.ts",
   // Personas share persistent accounts, so tests stay serial rather than racing each other.
   fullyParallel: false,
   workers: 1,

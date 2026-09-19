@@ -1,12 +1,13 @@
 import { OSCILLATOR_SERIES } from "@intrinsic/contracts";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
+import { watchForIssues } from "../utils/page-issues";
 
 /**
  * Stock Details RSI oscillator journey for PRO_USER, through the real Next + Nest + PostgreSQL +
  * Redis stack.
  *
  * Preconditions are the same as the indicators journey: `pnpm test:users:seed` once, and
- * `pnpm test:securities:seed` shortly before the run. That seed materializes the RSI family with
+ * `pnpm test:securities:seed` before the run. That seed materializes the RSI family with
  * the production Wilder calculator (`buildDailyDerivedState`), and its coverage watermarks keep
  * the canonical loader off any market-data provider — no FMP key is needed or used.
  */
@@ -18,39 +19,6 @@ const OSCILLATOR_LABELS = OSCILLATOR_SERIES.map((series) => series.label);
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
-
-type PageIssues = {
-  readonly consoleErrors: string[];
-  readonly failedRequests: string[];
-};
-
-/** Records console errors (hydration warnings included) and failed responses for the whole test. */
-function watchForIssues(page: Page): PageIssues {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") {
-      consoleErrors.push(message.text());
-    }
-  });
-  page.on("pageerror", (error) => {
-    consoleErrors.push(error.message);
-  });
-  page.on("requestfailed", (request) => {
-    // An aborted request is a cancellation, not a failure: every history read is abortable and a
-    // development remount cancels the in-flight one on purpose.
-    if (request.failure()?.errorText === "net::ERR_ABORTED") {
-      return;
-    }
-    failedRequests.push(`${request.method()} ${request.url()}`);
-  });
-  page.on("response", (response) => {
-    if (response.status() >= 400) {
-      failedRequests.push(`${response.status()} ${response.url()}`);
-    }
-  });
-  return { consoleErrors, failedRequests };
-}
 
 function panel(page: Page): Locator {
   return page.getByTestId("indicators-panel");
@@ -242,6 +210,7 @@ test.describe("PRO_USER Stock Details oscillators", () => {
       issues.consoleErrors.filter((message) => /hydrat/i.test(message)),
     ).toEqual([]);
     expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
   });
 
@@ -273,6 +242,7 @@ test.describe("PRO_USER Stock Details oscillators", () => {
     expect(documentWidth).toBeLessThanOrEqual(MOBILE.width);
 
     expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
   });
 

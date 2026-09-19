@@ -1,11 +1,11 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * Stock Details price-chart navigation for PRO_USER, through the real Next + Nest + PostgreSQL +
  * Redis stack.
  *
  * Preconditions are the same as the other Stock Details journeys: `pnpm test:users:seed` once, and
- * `pnpm test:securities:seed` shortly before the run, so the deterministic QA history is present
+ * `pnpm test:securities:seed` before the run, so the deterministic QA history is present
  * and the loader stays off any market-data provider.
  *
  * The visible window lives on a canvas, so it is asserted through the DOM contract the chart

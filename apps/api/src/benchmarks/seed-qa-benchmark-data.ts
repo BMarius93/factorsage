@@ -26,9 +26,10 @@ import { assertQaSecuritySeedingAllowed } from "../stocks/seed-qa-securities";
  * security's prices: the two must diverge, or portfolio return, benchmark return and alpha would all
  * be indistinguishable and the browser assertions would prove nothing.
  *
- * Freshness expires, so — exactly like the QA stock-data seed — this is a documented precondition of
- * an E2E run rather than a permanent fixture. Rerunning is safe and produces the same data for the
- * same day.
+ * Freshness expires (after thirty days on the E2E stack), so — exactly like the QA stock-data seed —
+ * this is a documented precondition of an E2E run rather than a permanent fixture. Rerunning is safe
+ * and produces the same data for the same day; the E2E seed entry point empties the series first,
+ * so rows a provider wrote there do not survive it (E2E-002).
  */
 
 /** Weeks of history, matching the QA security's window so both cover the same simulated period. */

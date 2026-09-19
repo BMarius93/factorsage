@@ -20,6 +20,8 @@
     "seed:qa-securities": "tsx src/seed-qa-securities.ts",
     "seed:qa-builtins": "tsx src/seed-qa-builtins.ts",
     "seed:qa-matrix": "tsx src/seed-qa-matrix.ts",
+    "e2e:fake-fmp": "tsx src/e2e-fake-fmp.ts",
+    "e2e:launch": "tsx src/e2e-stack/launch.ts",
     "qa:matrix:provision": "tsx src/qa-matrix-provision.ts",
     "qa:matrix:preflight": "tsx src/qa-matrix-preflight.ts",
     "qa:matrix:run": "tsx src/qa-matrix-run.ts",

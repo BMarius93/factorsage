@@ -1,7 +1,17 @@
-import { loadRootEnv } from "@intrinsic/config";
+import {
+  getRedisConfig,
+  getStockDataConfig,
+  loadRootEnv,
+} from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
+import {
+  createStockDataRedisClient,
+  IoredisCacheClient,
+  RedisStockDataCache,
+} from "@intrinsic/stock-data";
 import { resolveTestPersona } from "@intrinsic/testing";
 import { assertQaSeedingAllowed } from "./auth/seed-qa-users";
+import { seedEntitlementMarketFixtures } from "./e2e-stack/seed-market-fixtures";
 import {
   entitlementFixturePersonaEmails,
   seedEntitlementFixtures,
@@ -18,6 +28,9 @@ import { qaSeedDatabaseUrl } from "./stocks/seed-qa-securities";
  * Targets **TEST_DATABASE_URL** explicitly, never whatever `DATABASE_URL` happens to be: several
  * of these fixtures are states the product refuses to create — an eighty-three-symbol list on a
  * FREE account, a run pinned mid-flight — and they have no business in a development database.
+ *
+ * It also declares the `ENTF` universe complete and empty (E2E-005), after resetting whatever a
+ * provider or an earlier run wrote there, and drops those securities' Redis projections.
  */
 async function seed(): Promise<void> {
   loadRootEnv();
@@ -27,6 +40,11 @@ async function seed(): Promise<void> {
   const prisma = new PrismaClient({
     datasources: { db: { url: qaSeedDatabaseUrl() } },
   });
+  const redis = createStockDataRedisClient(getRedisConfig().url);
+  const cache = new RedisStockDataCache(
+    new IoredisCacheClient(redis),
+    getStockDataConfig().maxResidentStocks,
+  );
 
   try {
     await prisma.$connect();
@@ -37,6 +55,10 @@ async function seed(): Promise<void> {
       ),
     });
     console.log(`Fixture securities ready: ${result.securities}`);
+    const marketData = await seedEntitlementMarketFixtures({ prisma, cache });
+    console.log(
+      `Fixture securities declared complete and empty: ${marketData.securities}`,
+    );
     for (const persona of result.personas) {
       console.log(
         `${persona.persona}: ${persona.lists} lists, ${persona.monitors} monitors, ` +
@@ -44,6 +66,7 @@ async function seed(): Promise<void> {
       );
     }
   } finally {
+    redis.disconnect();
     await prisma.$disconnect();
   }
 }

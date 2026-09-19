@@ -1,5 +1,5 @@
 import { BILLING_CATALOG, PAID_PLANS } from "@intrinsic/contracts";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
 import { submitSignInForm } from "../utils/sign-in";
 import { qaPersona } from "../utils/env";
 

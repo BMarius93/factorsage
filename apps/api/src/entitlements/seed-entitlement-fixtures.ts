@@ -34,8 +34,19 @@ import { TEST_PERSONAS, type TestPersonaName } from "@intrinsic/testing";
 /** Everything this seeder owns is named with this prefix, and nothing else is touched. */
 export const ENTITLEMENT_FIXTURE_PREFIX = "ENT-";
 
-/** Catalog identity for the fixture universe. No market data: nothing here is executed. */
+/**
+ * The fixture universe: catalog identity plus complete, empty market-data coverage.
+ *
+ * The specs *do* execute these — PRO submits a thirty-year run over eighty of them, and the
+ * persona Monitors scan them — so each carries the coverage and dataset state that tell the
+ * canonical loader "asked, and there is nothing", exactly as `QATEST1` carries its seeded history
+ * (see `seedEntitlementFixtureMarketData`). Without it every run and every scan would hydrate a
+ * fictional ticker from the provider, one request at a time.
+ */
 export const ENTITLEMENT_FIXTURE_SECURITY_COUNT = 100;
+
+/** The fixtures' own inactive benchmark behind the pinned runs; never `SP500`. */
+export const ENTITLEMENT_FIXTURE_BENCHMARK_CODE = `${ENTITLEMENT_FIXTURE_PREFIX}BENCHMARK`;
 
 export function entitlementFixtureSymbol(index: number): string {
   return `ENTF${String(index + 1).padStart(3, "0")}`;
@@ -556,7 +567,7 @@ export async function seedEntitlementFixtures(
 
   // Runs need a benchmark and a series to point at. The fixture owns its own so it can never
   // disturb `SP500`, which real runs and the E2E stock data depend on.
-  const benchmarkCode = `${ENTITLEMENT_FIXTURE_PREFIX}BENCHMARK`;
+  const benchmarkCode = ENTITLEMENT_FIXTURE_BENCHMARK_CODE;
   const benchmark =
     (await prisma.benchmark.findFirst({
       where: { code: benchmarkCode },

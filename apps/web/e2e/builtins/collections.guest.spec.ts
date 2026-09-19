@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
-import { serveLogosAsMissing } from "../utils/logos";
 import { submitSignInForm } from "../utils/sign-in";
 import { qaPersona } from "../utils/env";
 
@@ -180,7 +179,6 @@ test.describe("guest built-in collections", () => {
   test("asks for an account in place when a Guest backtests a built-in monitor (UX-002)", async ({
     page,
   }) => {
-    await serveLogosAsMissing(page);
     await open(page, "/monitors");
     await page
       .getByTestId("built-in-monitors")

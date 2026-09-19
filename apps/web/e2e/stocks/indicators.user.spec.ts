@@ -2,14 +2,15 @@ import {
   SELECTABLE_SERIES_CATALOG,
   SELECTABLE_SERIES_GROUPED,
 } from "@intrinsic/contracts";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
+import { watchForIssues } from "../utils/page-issues";
 
 /**
  * Stock Details `Indicators` catalog journey for PRO_USER, through the real application boundary.
  *
  * Preconditions beyond the usual running stack and `pnpm test:users:seed`: the deterministic QA
- * catalog rows and their market data must exist — run `pnpm test:securities:seed` shortly before
- * the suite. That seed also writes the dataset coverage watermarks that keep the canonical loader
+ * catalog rows and their market data must exist — run `pnpm test:securities:seed` before the
+ * suite. That seed also writes the dataset coverage watermarks that keep the canonical loader
  * from reaching for a market-data provider, so this suite never depends on FMP and never assumes a
  * real market symbol exists in the environment's catalog.
  */
@@ -28,37 +29,6 @@ const CATALOG_SIZE = SELECTABLE_SERIES_CATALOG.length;
 
 const DESKTOP = { width: 1440, height: 900 };
 const MOBILE = { width: 390, height: 844 };
-
-type PageIssues = {
-  readonly consoleErrors: string[];
-  readonly failedRequests: string[];
-};
-
-/** Records console errors and non-2xx/3xx API responses for the whole test. */
-function watchForIssues(page: Page): PageIssues {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") {
-      consoleErrors.push(message.text());
-    }
-  });
-  page.on("requestfailed", (request) => {
-    // An aborted request is a cancellation, not a failure: every history read is abortable and a
-    // development remount cancels the in-flight one on purpose. Recording it here would make this
-    // suite fail on the very mechanism that keeps a superseded read from landing.
-    if (request.failure()?.errorText === "net::ERR_ABORTED") {
-      return;
-    }
-    failedRequests.push(`${request.method()} ${request.url()}`);
-  });
-  page.on("response", (response) => {
-    if (response.status() >= 400) {
-      failedRequests.push(`${response.status()} ${response.url()}`);
-    }
-  });
-  return { consoleErrors, failedRequests };
-}
 
 function panel(page: Page): Locator {
   return page.getByTestId("indicators-panel");
@@ -154,6 +124,7 @@ test.describe("PRO_USER Stock Details indicators", () => {
     await expect(option(page, "Conservative")).toBeChecked();
 
     expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
   });
 
@@ -178,6 +149,7 @@ test.describe("PRO_USER Stock Details indicators", () => {
     await expect(priceChart(page)).toBeVisible();
 
     expect(issues.consoleErrors).toEqual([]);
+    expect(issues.pageErrors).toEqual([]);
     expect(issues.failedRequests).toEqual([]);
   });
 

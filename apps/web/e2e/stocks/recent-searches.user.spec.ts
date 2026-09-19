@@ -1,11 +1,11 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "../fixtures";
 
 /**
  * RECENT SEARCHES in the global topbar search, for PRO_USER, through the real
  * Next + Nest + PostgreSQL stack.
  *
  * Preconditions are the Stock Details ones: `pnpm test:users:seed` once, and
- * `pnpm test:securities:seed` shortly before the run, so `QATEST1` exists with deterministic
+ * `pnpm test:securities:seed` before the run, so `QATEST1` exists with deterministic
  * history and the loader stays off any market-data provider.
  *
  * The persona is a persistent shared account whose recents survive between runs, so every

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "../fixtures";
 
 /**
  * An unknown URL shows FactorSage's own not-found page, not the framework's bare 404 (UX-006).
