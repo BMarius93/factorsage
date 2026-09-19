@@ -579,7 +579,7 @@
 
 /* --- Wider viewports --- */
 
-@media (min-width: 620px) {
+@media (min-width: 600px) {
   .predicateFields {
     /* Metric / operator / Value read as one sentence once there is room for it. */
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
@@ -659,7 +659,7 @@
   box-shadow: var(--focus-ring);
 }
 
-@media (min-width: 620px) {
+@media (min-width: 600px) {
   .unsetHint {
     grid-column: 2 / -1;
   }

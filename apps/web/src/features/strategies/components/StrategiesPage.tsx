@@ -95,17 +95,7 @@ export function StrategiesPage() {
       cardRole: "identity",
       render: (strategy) => (
         <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
-          <span className={styles.name}>
-            {strategy.name}
-            {strategy.ownership === "SYSTEM" ? (
-              <>
-                {" "}
-                <StatusBadge tone="neutral" variant="outline">
-                  Built-in
-                </StatusBadge>
-              </>
-            ) : null}
-          </span>
+          <span className={styles.name}>{strategy.name}</span>
           {strategy.description ? (
             <span className={styles.description}>{strategy.description}</span>
           ) : null}
@@ -114,6 +104,7 @@ export function StrategiesPage() {
     },
     {
       key: "shape",
+      width: "14rem",
       header: "Levels",
       cardRole: "status",
       render: (strategy) => (
@@ -124,6 +115,7 @@ export function StrategiesPage() {
     },
     {
       key: "version",
+      width: "6rem",
       header: "Version",
       align: "right",
       numeric: true,
@@ -132,12 +124,14 @@ export function StrategiesPage() {
     },
     {
       key: "updated",
+      width: "9rem",
       header: "Updated",
       nowrap: true,
       render: (strategy) => formatStrategyDate(strategy.updatedAt),
     },
     {
       key: "actions",
+      width: "9rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",

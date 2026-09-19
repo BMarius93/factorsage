@@ -565,9 +565,17 @@ one/two-column grid (see `DataTable`), so there is no second hard breakpoint for
 
 `DataTable` scopes its two layouts to explicitly non-overlapping `max-width: 879px` and
 `min-width: 880px` blocks rather than layering them by specificity, so a per-role rule in one layout
-can never leak into the other. A component-local breakpoint (the Strategy Builder's 620/960px, the
-search field's 380px) is allowed only where it is about that component's own content, not the page's
-mode. See `v1-visual-parity.md`.
+can never leak into the other. A component-local breakpoint is allowed only where it is about that
+component's own content, not the page's mode, and every one is listed here (UI-004):
+
+| Width | Where                                             | Why it is not 600/880/1280                                                                      |
+| ----- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 380px | Topbar search (`AppTopbar`, `StockSearch`)        | below it the field cannot sit beside the brand and account; it collapses to an icon             |
+| 960px | Strategy Builder side column (`ExplanationPanel`) | the editor rows need ~560px beside a 360px logic column; at 880 they would wrap every predicate |
+
+Everything else uses the shared set: auth and Admin phone padding at `max-width: 599px`, the Builder's
+two-up predicate fields at 600px, and the plan cards three abreast at 880px. See
+`v1-visual-parity.md`.
 
 ## Known read-model gaps
 

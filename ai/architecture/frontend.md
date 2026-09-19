@@ -89,10 +89,14 @@ The application shell and dense feature content have different constraints. Reus
 breakpoints unless a feature's own content demonstrates a different need. The full visual-parity
 composition and acceptance contract is in `v1-visual-parity.md`:
 
-- `600px` — tablet padding and the fuller brand treatment.
-- `768px` — dense collection tables replace their phone-card composition.
-- `1024px` — persistent topbar navigation replaces the fixed bottom navigation.
-- `1280px` — wide desktop padding.
+- `600px` — tablet padding, the fuller brand treatment and the four-column KPI band.
+- `880px` — the canonical dense/compact switch: topbar navigation replaces the fixed bottom
+  navigation, and `DataTable` switches from its fluid one/two-column card grid to the dense table
+  (UI-004). The earlier `768px`/`1024px` pair never existed in CSS and is withdrawn.
+- `1280px` — wide desktop padding; 880–1,279px is the intermediate band where wide tables fold.
+
+Component-local breakpoints are allowed only for a component's own content and are listed in
+`ui-system.md` (Breakpoints).
 
 ## Frontend structure
 

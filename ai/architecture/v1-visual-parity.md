@@ -76,8 +76,13 @@ stock's quote, a run's progress. It sits where actions sit but is something the 
 something the user can do. A marketing variant is deliberately **not** implemented: no route needs
 one — `/billing` and the public `/pricing` are ordinary product pages.
 
-There must be exactly one visible page title and one accessible `<h1>`. Do not follow a collection
-header with a second card titled “Your lists”, “Your strategies”, “Your monitors” or “Run history”.
+There must be exactly one visible page title and one accessible `<h1>`. A collection that holds
+both the customer's own records and built-ins keeps **two titled sections** — “Your lists” then
+“Built-in lists” — because ownership decides what the user may change (`frontend.md`, invariant 21;
+UI-007 resolved this conflict in favour of the sections). The two share column templates and widths
+so the eye does not re-find columns, and rows inside the built-in section carry no per-row
+“Built-in” badge: the section title already says it. A collection with one owner (Backtests) has
+one titled section, “Your backtests”, so every empty state has the same shape.
 
 ### Page-level action placement
 
@@ -209,18 +214,18 @@ operational state; they are not decorative section colors.
 
 ## Responsive breakpoints
 
-Shell layout and feature content have different constraints and therefore use different switches:
+Shipped V2 uses one canonical switch (UI-004; see `ui-system.md` Breakpoints):
 
-- `600px`: fuller brand treatment and tablet form composition where space permits.
-- `768px`: collection tables switch between semantic desktop table and dedicated mobile-card
-  layout.
-- `1024px`: persistent desktop navigation replaces mobile bottom navigation.
-- `1280px`: large-desktop page padding.
+- `600px`: fuller brand treatment, tablet form composition and the four-column KPI band.
+- `880px`: dense desktop ↔ compact phone/tablet. Topbar navigation replaces the bottom navigation,
+  and collection tables replace their card composition. Below it, cards form a fluid one/two-column
+  grid with a readable minimum width, so 600–879px is not a stretched phone column.
+- `1280px`: large-desktop page padding; 880–1,279px folds wide tables' secondary columns.
 
-Do not reuse one breakpoint for table composition, brand visibility and navigation solely for code
-convenience.
+The V1 `768px`/`1024px` pair is withdrawn: V2 never shipped it, and reviewers must verify against
+the widths the CSS actually uses.
 
-At widths below 768px, a collection surface must visually dissolve: no bordered/shadowed outer card
+At widths below 880px, a collection surface must visually dissolve: no bordered/shadowed outer card
 around a stack of bordered row cards. The section title is already supplied by `PageHeader`; render
 standalone record cards with the page background visible between them. The single accessible DOM
 tree and explicit table roles from V2 must remain.
@@ -230,7 +235,7 @@ tree and explicit table roles from V2 must remain.
 The shell should reproduce the V1 information architecture while using the V2 route registry.
 Navigation metadata remains centralized, but it may expose an explicit order/visibility per surface.
 
-Desktop order from 1024px:
+Desktop order from 880px:
 
 1. Strategies
 2. Monitors
@@ -240,7 +245,7 @@ Desktop order from 1024px:
 
 The brand links to Dashboard, so Dashboard does not need a desktop navigation label.
 
-Mobile bottom-navigation order below 1024px:
+Mobile bottom-navigation order below 880px:
 
 1. Dashboard
 2. Lists
@@ -402,9 +407,9 @@ Missing reverse-usage counts, entity ids or active-match aggregates are contract
 
 The parity work is incomplete until all affected screens are verified at representative widths:
 
-- 390px phone;
-- 768px boundary;
-- 1024px navigation boundary;
+- 375px (where the topbar search collapses to an icon) and 390px phone;
+- 879px and 880px, either side of the canonical switch;
+- 1024px and 1280px (the intermediate fold band and its end);
 - 1440px desktop.
 
 For every collection and detail/workflow screen verify:
@@ -477,7 +482,7 @@ consume the tokens:
 - `forms.module.css` gained `tintedButton` and `inputCompact`; `actions.module.css` **lost** its
   danger variant, because a destructive action is never a visible peer to the record it destroys.
 
-Every collection is now `PageHeader(surface)` → flush `SectionCard` → `DataTable` →
-`CollectionFooter`, with no second heading. The backtest result leads with `<SectionCard hero>`
+Every collection is now `PageHeader(surface)` → titled flush `SectionCard` per ownership group →
+`DataTable` → `CollectionFooter` (see the ownership rule above). The backtest result leads with `<SectionCard hero>`
 holding identity, status, chart and KPIs, and its run configuration follows in a collapsed
 `<details>`.

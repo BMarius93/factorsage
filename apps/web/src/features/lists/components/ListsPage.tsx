@@ -136,14 +136,6 @@ export function ListsPage() {
           <Link className={styles.nameLink} href={`/lists/${list.id}`}>
             <span className={styles.name}>
               {list.name}
-              {list.ownership === "SYSTEM" ? (
-                <>
-                  {" "}
-                  <StatusBadge tone="neutral" variant="outline">
-                    Built-in
-                  </StatusBadge>
-                </>
-              ) : null}
             </span>
             {list.description ? (
               <span className={styles.description}>{list.description}</span>
@@ -175,6 +167,7 @@ export function ListsPage() {
       },
       {
         key: "stocks",
+        width: "8rem",
         header: "Stocks",
         align: "right",
         numeric: true,
@@ -183,12 +176,14 @@ export function ListsPage() {
       },
       {
         key: "updated",
+        width: "9rem",
         header: "Updated",
         nowrap: true,
         render: (list) => formatListDate(list.updatedAt),
       },
       {
         key: "actions",
+        width: "9rem",
         header: "Actions",
         cardRole: "actions",
         align: "right",

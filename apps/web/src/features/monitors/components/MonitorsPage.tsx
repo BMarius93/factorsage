@@ -289,6 +289,7 @@ export function MonitorsPage() {
   const referenceColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
     {
       key: "strategy",
+      width: "13rem",
       header: "Strategy",
       cardRole: "links",
       foldIntermediate: true,
@@ -302,6 +303,7 @@ export function MonitorsPage() {
     },
     {
       key: "list",
+      width: "13rem",
       header: "Stock list",
       cardRole: "links",
       foldIntermediate: true,
@@ -322,6 +324,7 @@ export function MonitorsPage() {
     },
     {
       key: "signals",
+      width: "9rem",
       header: "Active signals",
       align: "right",
       numeric: true,
@@ -337,6 +340,7 @@ export function MonitorsPage() {
     },
     {
       key: "last-scan",
+      width: "11rem",
       header: "Last checked",
       nowrap: true,
       render: (monitor) => lastScanLabel(monitor.lastScanAt),
@@ -347,6 +351,7 @@ export function MonitorsPage() {
     identityColumn,
     {
       key: "state",
+      width: "11rem",
       header: "State",
       cardRole: "status",
       render: (monitor) => (
@@ -359,6 +364,7 @@ export function MonitorsPage() {
     ...referenceColumns,
     {
       key: "actions",
+      width: "10rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",
@@ -378,6 +384,7 @@ export function MonitorsPage() {
     identityColumn,
     {
       key: "visibility",
+      width: "11rem",
       header: "On my dashboard",
       cardRole: "status",
       cardLabel: "On my dashboard",
@@ -393,6 +400,7 @@ export function MonitorsPage() {
     ...referenceColumns,
     {
       key: "actions",
+      width: "10rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",
