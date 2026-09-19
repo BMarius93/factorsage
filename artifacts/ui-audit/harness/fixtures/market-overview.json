@@ -1,0 +1,123 @@
+{
+  "generatedAt": "2026-09-19T07:06:01.896Z",
+  "basis": "END_OF_DAY",
+  "items": [
+    {
+      "code": "SP500_INDEX",
+      "label": "S&P 500",
+      "status": "AVAILABLE",
+      "value": 7637.05,
+      "sessionDate": "2026-09-18",
+      "previousClose": 7551.81,
+      "changePercent": 1.1287360248735043,
+      "sparkline": [
+        {
+          "date": "2026-09-10",
+          "value": 7521.35
+        },
+        {
+          "date": "2026-09-11",
+          "value": 7588.02
+        },
+        {
+          "date": "2026-09-14",
+          "value": 7612.3
+        },
+        {
+          "date": "2026-09-15",
+          "value": 7604.77
+        },
+        {
+          "date": "2026-09-16",
+          "value": 7599.18
+        },
+        {
+          "date": "2026-09-17",
+          "value": 7551.81
+        },
+        {
+          "date": "2026-09-18",
+          "value": 7637.05
+        }
+      ]
+    },
+    {
+      "code": "DJIA_INDEX",
+      "label": "DJIA",
+      "status": "AVAILABLE",
+      "value": 51778.04,
+      "sessionDate": "2026-09-18",
+      "previousClose": 51461.9,
+      "changePercent": 0.6143185541147905,
+      "sparkline": [
+        {
+          "date": "2026-09-10",
+          "value": 51288.7
+        },
+        {
+          "date": "2026-09-11",
+          "value": 51660.02
+        },
+        {
+          "date": "2026-09-14",
+          "value": 52010.44
+        },
+        {
+          "date": "2026-09-15",
+          "value": 52260.18
+        },
+        {
+          "date": "2026-09-16",
+          "value": 52303.24
+        },
+        {
+          "date": "2026-09-17",
+          "value": 51461.9
+        },
+        {
+          "date": "2026-09-18",
+          "value": 51778.04
+        }
+      ]
+    },
+    {
+      "code": "VIX_INDEX",
+      "label": "VIX",
+      "status": "AVAILABLE",
+      "value": 15.43,
+      "sessionDate": "2026-09-18",
+      "previousClose": 17.71,
+      "changePercent": -12.874082439299835,
+      "sparkline": [
+        {
+          "date": "2026-09-10",
+          "value": 16.98
+        },
+        {
+          "date": "2026-09-11",
+          "value": 16.4
+        },
+        {
+          "date": "2026-09-14",
+          "value": 15.92
+        },
+        {
+          "date": "2026-09-15",
+          "value": 16.88
+        },
+        {
+          "date": "2026-09-16",
+          "value": 17.2
+        },
+        {
+          "date": "2026-09-17",
+          "value": 17.71
+        },
+        {
+          "date": "2026-09-18",
+          "value": 15.43
+        }
+      ]
+    }
+  ]
+}

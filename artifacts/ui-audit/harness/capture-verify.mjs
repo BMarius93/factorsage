@@ -1,0 +1,14 @@
+import { launch, personaContext, watch, settle, shot, VIEWPORTS as V, saveManifest } from "./lib.mjs";
+const b = await launch();
+const ctx = await personaContext(b, "free-limit", V.m390);
+const page = await ctx.newPage(); watch(page);
+await page.goto("/backtests/new"); await settle(page, 900);
+await page.getByLabel("Strategy").selectOption({ index: 1 });
+await page.getByLabel("Stock list").selectOption({ index: 1 });
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.getByRole("button", { name: "Run backtest" }).click();
+await page.waitForTimeout(1500);
+const inView = await page.getByTestId("backtest-submit-error").evaluate((el) => { const r = el.getBoundingClientRect(); return { top: Math.round(r.top), bottom: Math.round(r.bottom), vh: innerHeight, scrollY: Math.round(scrollY) }; });
+console.log("error rect:", JSON.stringify(inView));
+await shot(page, { area: "backtests", name: "free-limit-new-refused-viewport-after-tap", persona: "free-limit", state: `Viewport right after tapping Run in the sticky bar (error rect ${JSON.stringify(inView)})`, viewport: V.m390, section: "25 Entitlements / 5 Responsive", fullPage: false, expectedFailures: ["/backtests"] });
+saveManifest(); await b.close();

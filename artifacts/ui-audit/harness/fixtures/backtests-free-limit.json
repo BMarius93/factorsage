@@ -1,0 +1,22 @@
+[
+  {
+    "id": "b16287ee-d5ed-4474-b4e2-995151e7a829",
+    "status": "RUNNING",
+    "strategyName": "ENT-In Flight",
+    "stockListName": "ENT-Free Small",
+    "benchmarkCode": "ENT-BENCHMARK",
+    "benchmarkName": "Entitlement Fixture Benchmark",
+    "startDate": "2025-09-19",
+    "endDate": "2026-09-19",
+    "initialCapital": 100000,
+    "maximumPositions": 10,
+    "queuedAt": "2026-09-19T06:53:15.642Z",
+    "startedAt": "2026-09-19T06:53:15.641Z",
+    "completedAt": null,
+    "progressPercent": 42,
+    "progressMessage": "Simulating",
+    "portfolioReturnPercent": null,
+    "benchmarkReturnPercent": null,
+    "alphaPercent": null
+  }
+]

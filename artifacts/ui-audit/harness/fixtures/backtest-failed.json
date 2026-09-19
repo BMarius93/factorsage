@@ -1,0 +1,57 @@
+{
+  "id": "1f8dae0e-ca23-4585-9c52-ab612faeeddd",
+  "status": "FAILED",
+  "configuration": {
+    "strategyId": "a8e0df27-2643-4464-9318-7ffca4d20b82",
+    "strategyName": "Margin-of-safety ladder with RSI confirmation, staged profit taking and three alternative final-exit rules",
+    "strategyVersionNumber": 1,
+    "stockListId": "42b49b73-3299-4e96-88dd-17c93bd317db",
+    "stockListName": "Blue chips",
+    "securityCount": 27,
+    "startDate": "2025-09-19",
+    "endDate": "2026-09-19",
+    "initialCapital": 10000,
+    "monthlyContribution": 0,
+    "maximumPositions": 10,
+    "fullPositionPercent": 10,
+    "benchmark": {
+      "benchmarkId": "9b5d3810-44b4-480b-ae78-9c72798c0575",
+      "code": "SP500",
+      "name": "S&P 500",
+      "sourceKind": "FMP_SYMBOL",
+      "methodologyVersion": 1
+    },
+    "methodology": {
+      "returns": "time-weighted-index@1",
+      "calendar": "execution-calendar-authoritative@2",
+      "cashYield": "zero-interest@1",
+      "costBasis": "AVERAGE_COST",
+      "execution": "same-day-close/fractional-shares/exits-before-entries/contribution-dca@3",
+      "contribution": "first-eligible-trading-day-of-month@1",
+      "executionCosts": "zero-fees/zero-slippage@1",
+      "resultPrecision": "decimal-ledger-24-6@1",
+      "candidateOrdering": "top-ups-first/percentage-desc/symbol-asc@1",
+      "executionCalendar": "us-equities/reference-series@1",
+      "strategyEvaluation": "signal-evaluation@1",
+      "comparisonScenarios": "funded-scenarios/strategy-benchmark-cash@1"
+    }
+  },
+  "queuedAt": "2026-09-19T07:05:33.911Z",
+  "startedAt": "2026-09-19T07:05:34.005Z",
+  "completedAt": "2026-09-19T07:05:34.159Z",
+  "progress": {
+    "percent": 2,
+    "message": "Preparing market data",
+    "simulatedThrough": null,
+    "sequence": 1,
+    "updatedAt": "2026-09-19T07:05:34.047Z"
+  },
+  "live": null,
+  "milestones": [],
+  "result": null,
+  "failure": {
+    "code": "EXECUTION_FAILED",
+    "message": "The backtest could not be completed. Please try running it again.",
+    "phase": "PREPARING_DATA"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "id": "b16287ee-d5ed-4474-b4e2-995151e7a829",
+  "status": "RUNNING",
+  "configuration": {
+    "strategyId": "841eef52-0d57-4047-b2e8-4b50ac24acd4",
+    "strategyName": "ENT-In Flight",
+    "strategyVersionNumber": 1,
+    "stockListId": "aac2addc-1a04-4105-930d-6093baa69b5d",
+    "stockListName": "ENT-Free Small",
+    "securityCount": 3,
+    "startDate": "2025-09-19",
+    "endDate": "2026-09-19",
+    "initialCapital": 100000,
+    "monthlyContribution": 0,
+    "maximumPositions": 10,
+    "fullPositionPercent": 10,
+    "benchmark": {
+      "benchmarkId": "20c5ec49-50f5-416b-96c5-5d0924302ea0",
+      "code": "ENT-BENCHMARK",
+      "name": "Entitlement Fixture Benchmark",
+      "sourceKind": "FMP_SYMBOL",
+      "methodologyVersion": 1
+    },
+    "methodology": {
+      "fixture": true
+    }
+  },
+  "queuedAt": "2026-09-19T06:53:15.642Z",
+  "startedAt": "2026-09-19T06:53:15.641Z",
+  "completedAt": null,
+  "progress": {
+    "percent": 42,
+    "message": "Simulating",
+    "simulatedThrough": null,
+    "sequence": 1,
+    "updatedAt": "2026-09-19T06:53:15.642Z"
+  },
+  "live": null,
+  "milestones": [],
+  "result": null,
+  "failure": null
+}

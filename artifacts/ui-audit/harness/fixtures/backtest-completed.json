@@ -1,0 +1,6367 @@
+{
+  "id": "95e90c9b-0c11-4fa7-aae4-cccd3bd7e15f",
+  "status": "COMPLETED",
+  "configuration": {
+    "strategyId": "7a4be991-7862-4eb8-aa83-b0864ebfb8dc",
+    "strategyName": "RSI mean reversion",
+    "strategyVersionNumber": 1,
+    "stockListId": "ad1b79a1-65c6-4730-adff-1ae69db6f2f6",
+    "stockListName": "Global dividend aristocrats with twenty-five consecutive years of increases — core income sleeve, rebalanced every quart",
+    "securityCount": 2,
+    "startDate": "2023-09-19",
+    "endDate": "2026-09-19",
+    "initialCapital": 5000,
+    "monthlyContribution": 100,
+    "maximumPositions": 3,
+    "fullPositionPercent": 33.33333333333333,
+    "benchmark": {
+      "benchmarkId": "9b5d3810-44b4-480b-ae78-9c72798c0575",
+      "code": "SP500",
+      "name": "S&P 500",
+      "sourceKind": "FMP_SYMBOL",
+      "methodologyVersion": 1
+    },
+    "methodology": {
+      "returns": "time-weighted-index@1",
+      "calendar": "execution-calendar-authoritative@2",
+      "cashYield": "zero-interest@1",
+      "costBasis": "AVERAGE_COST",
+      "execution": "same-day-close/fractional-shares/exits-before-entries/contribution-dca@3",
+      "contribution": "first-eligible-trading-day-of-month@1",
+      "executionCosts": "zero-fees/zero-slippage@1",
+      "resultPrecision": "decimal-ledger-24-6@1",
+      "candidateOrdering": "top-ups-first/percentage-desc/symbol-asc@1",
+      "executionCalendar": "us-equities/reference-series@1",
+      "strategyEvaluation": "signal-evaluation@1",
+      "comparisonScenarios": "funded-scenarios/strategy-benchmark-cash@1"
+    }
+  },
+  "queuedAt": "2026-09-19T07:05:16.889Z",
+  "startedAt": "2026-09-19T07:05:17.287Z",
+  "completedAt": "2026-09-19T07:05:17.594Z",
+  "progress": {
+    "percent": 100,
+    "message": "Backtest complete",
+    "simulatedThrough": "2026-09-11",
+    "sequence": 10,
+    "updatedAt": "2026-09-19T07:05:17.685Z"
+  },
+  "live": null,
+  "milestones": [
+    {
+      "sequence": 1,
+      "year": "2023",
+      "simulatedThrough": "2023-12-29",
+      "percent": 27,
+      "completedDays": 74,
+      "totalDays": 779,
+      "cash": 5300,
+      "totalValue": 5300,
+      "investedCapital": 5300,
+      "portfolioReturnPercent": 0,
+      "benchmarkReturnPercent": -0.42918455,
+      "alphaPercent": 0.42918455,
+      "maxDrawdownPercent": 0,
+      "tradeCount": 0,
+      "openPositions": 0
+    },
+    {
+      "sequence": 2,
+      "year": "2024",
+      "simulatedThrough": "2024-12-31",
+      "percent": 52,
+      "completedDays": 336,
+      "totalDays": 779,
+      "cash": 6500,
+      "totalValue": 6500,
+      "investedCapital": 6500,
+      "portfolioReturnPercent": 0,
+      "benchmarkReturnPercent": 5.55989075,
+      "alphaPercent": -5.55989075,
+      "maxDrawdownPercent": 0,
+      "tradeCount": 0,
+      "openPositions": 0
+    },
+    {
+      "sequence": 3,
+      "year": "2025",
+      "simulatedThrough": "2025-12-31",
+      "percent": 77,
+      "completedDays": 597,
+      "totalDays": 779,
+      "cash": 7700,
+      "totalValue": 7700,
+      "investedCapital": 7700,
+      "portfolioReturnPercent": 0,
+      "benchmarkReturnPercent": 11.43191572,
+      "alphaPercent": -11.43191572,
+      "maxDrawdownPercent": 0,
+      "tradeCount": 0,
+      "openPositions": 0
+    }
+  ],
+  "result": {
+    "summary": {
+      "firstSimulatedDate": "2023-09-19",
+      "lastSimulatedDate": "2026-09-11",
+      "tradingDays": 779,
+      "investedCapital": 8600,
+      "finalCash": 8600,
+      "finalPositionsValue": 0,
+      "finalValue": 8600,
+      "netProfit": 0,
+      "portfolioReturnPercent": 0,
+      "benchmarkReturnPercent": 14.78735856,
+      "alphaPercent": -14.78735856,
+      "portfolioCagrPercent": 0,
+      "maxDrawdownPercent": 0,
+      "benchmarkMaxDrawdownPercent": 2.12392829,
+      "realizedPnl": 0,
+      "unrealizedPnl": 0,
+      "totalTrades": 0,
+      "buyTrades": 0,
+      "sellTrades": 0,
+      "finalExitTrades": 0,
+      "winningTrades": 0,
+      "losingTrades": 0,
+      "openPositions": 0
+    },
+    "curve": [
+      {
+        "date": "2023-09-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0,
+        "strategyValue": 5000,
+        "benchmarkValue": 5000,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.11705033000000142,
+        "strategyValue": 5000,
+        "benchmarkValue": 5005.852517,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -2.009364030000005,
+        "strategyValue": 5000,
+        "benchmarkValue": 4899.531799,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.8923136900000026,
+        "strategyValue": 5000,
+        "benchmarkValue": 4905.384315,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.7752633600000012,
+        "strategyValue": 5000,
+        "benchmarkValue": 4911.236832,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.6582130299999998,
+        "strategyValue": 5000,
+        "benchmarkValue": 4917.089348,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.5411626999999983,
+        "strategyValue": 5000,
+        "benchmarkValue": 4922.941865,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.424112369999997,
+        "strategyValue": 5000,
+        "benchmarkValue": 4928.794382,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-09-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.3070620399999955,
+        "strategyValue": 5000,
+        "benchmarkValue": 4934.646898,
+        "cashBaselineValue": 5000
+      },
+      {
+        "date": "2023-10-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.1900117100000052,
+        "strategyValue": 5100,
+        "benchmarkValue": 5040.499415,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.072961370000003,
+        "strategyValue": 5100,
+        "benchmarkValue": 5046.470391,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.9559110400000015,
+        "strategyValue": 5100,
+        "benchmarkValue": 5052.441368,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.8388607100000001,
+        "strategyValue": 5100,
+        "benchmarkValue": 5058.412345,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.7218103799999986,
+        "strategyValue": 5100,
+        "benchmarkValue": 5064.383321,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.6047600499999972,
+        "strategyValue": 5100,
+        "benchmarkValue": 5070.354298,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.4877097199999958,
+        "strategyValue": 5100,
+        "benchmarkValue": 5076.325274,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.37065938000000465,
+        "strategyValue": 5100,
+        "benchmarkValue": 5082.296251,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.2536090500000032,
+        "strategyValue": 5100,
+        "benchmarkValue": 5088.267228,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.1365587200000018,
+        "strategyValue": 5100,
+        "benchmarkValue": 5094.238204,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.019508390000000375,
+        "strategyValue": 5100,
+        "benchmarkValue": 5100.209181,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.09754194000000105,
+        "strategyValue": 5100,
+        "benchmarkValue": 5106.180157,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.21459227000000247,
+        "strategyValue": 5100,
+        "benchmarkValue": 5112.151134,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.3316426100000047,
+        "strategyValue": 5100,
+        "benchmarkValue": 5118.122111,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.44869294000000615,
+        "strategyValue": 5100,
+        "benchmarkValue": 5124.093087,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.5657432700000076,
+        "strategyValue": 5100,
+        "benchmarkValue": 5130.064064,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.5606710899999987,
+        "strategyValue": 5100,
+        "benchmarkValue": 5021.591322,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.4436207599999973,
+        "strategyValue": 5100,
+        "benchmarkValue": 5027.562299,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.3265704299999959,
+        "strategyValue": 5100,
+        "benchmarkValue": 5033.533275,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.2095200900000047,
+        "strategyValue": 5100,
+        "benchmarkValue": 5039.504252,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.0924697600000033,
+        "strategyValue": 5100,
+        "benchmarkValue": 5045.475229,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-10-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.9754194300000019,
+        "strategyValue": 5100,
+        "benchmarkValue": 5051.446205,
+        "cashBaselineValue": 5100
+      },
+      {
+        "date": "2023-11-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.8583691000000004,
+        "strategyValue": 5200,
+        "benchmarkValue": 5157.417182,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.741318769999999,
+        "strategyValue": 5200,
+        "benchmarkValue": 5163.506222,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.6242684399999976,
+        "strategyValue": 5200,
+        "benchmarkValue": 5169.595262,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.5072180999999953,
+        "strategyValue": 5200,
+        "benchmarkValue": 5175.684303,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.390167770000005,
+        "strategyValue": 5200,
+        "benchmarkValue": 5181.773343,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.2731174400000036,
+        "strategyValue": 5200,
+        "benchmarkValue": 5187.862384,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.15606711000000217,
+        "strategyValue": 5200,
+        "benchmarkValue": 5193.951424,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.03901678000000075,
+        "strategyValue": 5200,
+        "benchmarkValue": 5200.040464,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.07803355000000067,
+        "strategyValue": 5200,
+        "benchmarkValue": 5206.129505,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.19508389000000292,
+        "strategyValue": 5200,
+        "benchmarkValue": 5212.218545,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.31213422000000435,
+        "strategyValue": 5200,
+        "benchmarkValue": 5218.307585,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.42918455000000577,
+        "strategyValue": 5200,
+        "benchmarkValue": 5224.396626,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.5462348800000072,
+        "strategyValue": 5200,
+        "benchmarkValue": 5230.485666,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.6632852100000086,
+        "strategyValue": 5200,
+        "benchmarkValue": 5236.574706,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.78033554000001,
+        "strategyValue": 5200,
+        "benchmarkValue": 5242.663747,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.8973858799999901,
+        "strategyValue": 5200,
+        "benchmarkValue": 5248.752787,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.0144362099999915,
+        "strategyValue": 5200,
+        "benchmarkValue": 5254.841827,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -1.1119781500000037,
+        "strategyValue": 5200,
+        "benchmarkValue": 5144.224261,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.9949278200000022,
+        "strategyValue": 5200,
+        "benchmarkValue": 5150.313301,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.8778774900000008,
+        "strategyValue": 5200,
+        "benchmarkValue": 5156.402342,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.7608271599999994,
+        "strategyValue": 5200,
+        "benchmarkValue": 5162.491382,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-11-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.6437768199999971,
+        "strategyValue": 5200,
+        "benchmarkValue": 5168.580422,
+        "cashBaselineValue": 5200
+      },
+      {
+        "date": "2023-12-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.5267264899999957,
+        "strategyValue": 5300,
+        "benchmarkValue": 5274.669463,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.4096761600000054,
+        "strategyValue": 5300,
+        "benchmarkValue": 5280.876173,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.292625830000004,
+        "strategyValue": 5300,
+        "benchmarkValue": 5287.082884,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.17557550000000255,
+        "strategyValue": 5300,
+        "benchmarkValue": 5293.289594,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.058525170000001125,
+        "strategyValue": 5300,
+        "benchmarkValue": 5299.496305,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.058525170000001125,
+        "strategyValue": 5300,
+        "benchmarkValue": 5305.703015,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.17557550000000255,
+        "strategyValue": 5300,
+        "benchmarkValue": 5311.909726,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.292625830000004,
+        "strategyValue": 5300,
+        "benchmarkValue": 5318.116436,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.4096761600000054,
+        "strategyValue": 5300,
+        "benchmarkValue": 5324.323147,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.5267264900000068,
+        "strategyValue": 5300,
+        "benchmarkValue": 5330.529857,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.6437768200000082,
+        "strategyValue": 5300,
+        "benchmarkValue": 5336.736568,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.7608271600000105,
+        "strategyValue": 5300,
+        "benchmarkValue": 5342.943278,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.8778774899999897,
+        "strategyValue": 5300,
+        "benchmarkValue": 5349.149989,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.9949278199999911,
+        "strategyValue": 5300,
+        "benchmarkValue": 5355.356699,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.1119781499999926,
+        "strategyValue": 5300,
+        "benchmarkValue": 5361.56341,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.229028479999994,
+        "strategyValue": 5300,
+        "benchmarkValue": 5367.77012,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.3460788099999954,
+        "strategyValue": 5300,
+        "benchmarkValue": 5373.976831,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.4631291499999977,
+        "strategyValue": 5300,
+        "benchmarkValue": 5380.183541,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.6632852099999975,
+        "strategyValue": 5300,
+        "benchmarkValue": 5267.428301,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.5462348799999961,
+        "strategyValue": 5300,
+        "benchmarkValue": 5273.635011,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2023-12-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.42918454999999467,
+        "strategyValue": 5300,
+        "benchmarkValue": 5279.841722,
+        "cashBaselineValue": 5300
+      },
+      {
+        "date": "2024-01-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.31213422000000435,
+        "strategyValue": 5400,
+        "benchmarkValue": 5386.048432,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.19508389000000292,
+        "strategyValue": 5400,
+        "benchmarkValue": 5392.372559,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.07803355000000067,
+        "strategyValue": 5400,
+        "benchmarkValue": 5398.696687,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.03901678000000075,
+        "strategyValue": 5400,
+        "benchmarkValue": 5405.020814,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.15606711000000217,
+        "strategyValue": 5400,
+        "benchmarkValue": 5411.344941,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.2731174400000036,
+        "strategyValue": 5400,
+        "benchmarkValue": 5417.669069,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.390167770000005,
+        "strategyValue": 5400,
+        "benchmarkValue": 5423.993196,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.5072181000000064,
+        "strategyValue": 5400,
+        "benchmarkValue": 5430.317323,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.6242684400000087,
+        "strategyValue": 5400,
+        "benchmarkValue": 5436.641451,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.7413187700000101,
+        "strategyValue": 5400,
+        "benchmarkValue": 5442.965578,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.8583690999999893,
+        "strategyValue": 5400,
+        "benchmarkValue": 5449.289705,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.9754194299999908,
+        "strategyValue": 5400,
+        "benchmarkValue": 5455.613833,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.0924697599999922,
+        "strategyValue": 5400,
+        "benchmarkValue": 5461.93796,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.2095200899999936,
+        "strategyValue": 5400,
+        "benchmarkValue": 5468.262087,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.3265704299999959,
+        "strategyValue": 5400,
+        "benchmarkValue": 5474.586214,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.4436207599999973,
+        "strategyValue": 5400,
+        "benchmarkValue": 5480.910342,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.5606710899999987,
+        "strategyValue": 5400,
+        "benchmarkValue": 5487.234469,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.6777214200000001,
+        "strategyValue": 5400,
+        "benchmarkValue": 5493.558596,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.7947717500000016,
+        "strategyValue": 5400,
+        "benchmarkValue": 5499.882724,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.911822080000003,
+        "strategyValue": 5400,
+        "benchmarkValue": 5506.206851,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.21459227000000247,
+        "strategyValue": 5400,
+        "benchmarkValue": 5391.318538,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": -0.09754194000000105,
+        "strategyValue": 5400,
+        "benchmarkValue": 5397.642665,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-01-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.019508390000000375,
+        "strategyValue": 5400,
+        "benchmarkValue": 5403.966793,
+        "cashBaselineValue": 5400
+      },
+      {
+        "date": "2024-02-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.1365587200000018,
+        "strategyValue": 5500,
+        "benchmarkValue": 5510.29092,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.2536090500000032,
+        "strategyValue": 5500,
+        "benchmarkValue": 5516.731938,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.37065938000000465,
+        "strategyValue": 5500,
+        "benchmarkValue": 5523.172956,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.4877097200000069,
+        "strategyValue": 5500,
+        "benchmarkValue": 5529.613974,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.6047600500000083,
+        "strategyValue": 5500,
+        "benchmarkValue": 5536.054992,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.7218103800000097,
+        "strategyValue": 5500,
+        "benchmarkValue": 5542.49601,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.838860709999989,
+        "strategyValue": 5500,
+        "benchmarkValue": 5548.937028,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.9559110399999904,
+        "strategyValue": 5500,
+        "benchmarkValue": 5555.378046,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.0729613699999918,
+        "strategyValue": 5500,
+        "benchmarkValue": 5561.819064,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.190011709999994,
+        "strategyValue": 5500,
+        "benchmarkValue": 5568.260082,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.3070620399999955,
+        "strategyValue": 5500,
+        "benchmarkValue": 5574.7011,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.424112369999997,
+        "strategyValue": 5500,
+        "benchmarkValue": 5581.142118,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.5411626999999983,
+        "strategyValue": 5500,
+        "benchmarkValue": 5587.583136,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.6582130299999998,
+        "strategyValue": 5500,
+        "benchmarkValue": 5594.024154,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.7752633600000012,
+        "strategyValue": 5500,
+        "benchmarkValue": 5600.465172,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.8923136900000026,
+        "strategyValue": 5500,
+        "benchmarkValue": 5606.90619,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.009364030000005,
+        "strategyValue": 5500,
+        "benchmarkValue": 5613.347208,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.1264143600000063,
+        "strategyValue": 5500,
+        "benchmarkValue": 5619.788226,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.2434646900000077,
+        "strategyValue": 5500,
+        "benchmarkValue": 5626.229245,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.360515020000009,
+        "strategyValue": 5500,
+        "benchmarkValue": 5632.670263,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-02-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.23410066000000285,
+        "strategyValue": 5500,
+        "benchmarkValue": 5515.658435,
+        "cashBaselineValue": 5500
+      },
+      {
+        "date": "2024-03-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.35115099000000427,
+        "strategyValue": 5600,
+        "benchmarkValue": 5622.099453,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.4682013300000065,
+        "strategyValue": 5600,
+        "benchmarkValue": 5628.657112,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.585251660000008,
+        "strategyValue": 5600,
+        "benchmarkValue": 5635.214771,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.7023019900000094,
+        "strategyValue": 5600,
+        "benchmarkValue": 5641.772429,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.8193523200000108,
+        "strategyValue": 5600,
+        "benchmarkValue": 5648.330088,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.93640264999999,
+        "strategyValue": 5600,
+        "benchmarkValue": 5654.887747,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.0534529799999914,
+        "strategyValue": 5600,
+        "benchmarkValue": 5661.445406,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.1705033199999937,
+        "strategyValue": 5600,
+        "benchmarkValue": 5668.003065,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.287553649999995,
+        "strategyValue": 5600,
+        "benchmarkValue": 5674.560723,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.4046039799999965,
+        "strategyValue": 5600,
+        "benchmarkValue": 5681.118382,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.521654309999998,
+        "strategyValue": 5600,
+        "benchmarkValue": 5687.676041,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.6387046399999994,
+        "strategyValue": 5600,
+        "benchmarkValue": 5694.2337,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.7557549700000008,
+        "strategyValue": 5600,
+        "benchmarkValue": 5700.791358,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.872805310000003,
+        "strategyValue": 5600,
+        "benchmarkValue": 5707.349017,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.9898556400000045,
+        "strategyValue": 5600,
+        "benchmarkValue": 5713.906676,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.106905970000006,
+        "strategyValue": 5600,
+        "benchmarkValue": 5720.464335,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.2239563000000073,
+        "strategyValue": 5600,
+        "benchmarkValue": 5727.021993,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.3410066300000087,
+        "strategyValue": 5600,
+        "benchmarkValue": 5733.579652,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.45805696000001,
+        "strategyValue": 5600,
+        "benchmarkValue": 5740.137311,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.57510729999999,
+        "strategyValue": 5600,
+        "benchmarkValue": 5746.69497,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-03-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.6921576299999916,
+        "strategyValue": 5600,
+        "benchmarkValue": 5753.252629,
+        "cashBaselineValue": 5600
+      },
+      {
+        "date": "2024-04-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.809207959999993,
+        "strategyValue": 5700,
+        "benchmarkValue": 5859.810287,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.682793600000009,
+        "strategyValue": 5700,
+        "benchmarkValue": 5738.611175,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.7998439300000104,
+        "strategyValue": 5700,
+        "benchmarkValue": 5745.282686,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 0.9168942599999896,
+        "strategyValue": 5700,
+        "benchmarkValue": 5751.954197,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.0339445999999919,
+        "strategyValue": 5700,
+        "benchmarkValue": 5758.625707,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.1509949299999933,
+        "strategyValue": 5700,
+        "benchmarkValue": 5765.297218,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.2680452599999947,
+        "strategyValue": 5700,
+        "benchmarkValue": 5771.968729,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.3850955899999962,
+        "strategyValue": 5700,
+        "benchmarkValue": 5778.64024,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.5021459199999976,
+        "strategyValue": 5700,
+        "benchmarkValue": 5785.31175,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.619196249999999,
+        "strategyValue": 5700,
+        "benchmarkValue": 5791.983261,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.7362465900000013,
+        "strategyValue": 5700,
+        "benchmarkValue": 5798.654772,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.8532969200000027,
+        "strategyValue": 5700,
+        "benchmarkValue": 5805.326283,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.970347250000004,
+        "strategyValue": 5700,
+        "benchmarkValue": 5811.997794,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.0873975800000055,
+        "strategyValue": 5700,
+        "benchmarkValue": 5818.669304,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.204447910000007,
+        "strategyValue": 5700,
+        "benchmarkValue": 5825.340815,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.3214982400000084,
+        "strategyValue": 5700,
+        "benchmarkValue": 5832.012326,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.4385485800000106,
+        "strategyValue": 5700,
+        "benchmarkValue": 5838.683837,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.55559890999999,
+        "strategyValue": 5700,
+        "benchmarkValue": 5845.355347,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.6726492399999913,
+        "strategyValue": 5700,
+        "benchmarkValue": 5852.026858,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.7896995699999927,
+        "strategyValue": 5700,
+        "benchmarkValue": 5858.698369,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.906749899999994,
+        "strategyValue": 5700,
+        "benchmarkValue": 5865.36988,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-04-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.0238002299999955,
+        "strategyValue": 5700,
+        "benchmarkValue": 5872.04139,
+        "cashBaselineValue": 5700
+      },
+      {
+        "date": "2024-05-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.140850569999998,
+        "strategyValue": 5800,
+        "benchmarkValue": 5978.712901,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.257900899999999,
+        "strategyValue": 5800,
+        "benchmarkValue": 5985.497898,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.131486539999993,
+        "strategyValue": 5800,
+        "benchmarkValue": 5862.237125,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.2485368699999944,
+        "strategyValue": 5800,
+        "benchmarkValue": 5869.022122,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.3655871999999958,
+        "strategyValue": 5800,
+        "benchmarkValue": 5875.807118,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.4826375299999972,
+        "strategyValue": 5800,
+        "benchmarkValue": 5882.592115,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.5996878699999995,
+        "strategyValue": 5800,
+        "benchmarkValue": 5889.377112,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.7167382000000009,
+        "strategyValue": 5800,
+        "benchmarkValue": 5896.162108,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.8337885300000023,
+        "strategyValue": 5800,
+        "benchmarkValue": 5902.947105,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.9508388600000037,
+        "strategyValue": 5800,
+        "benchmarkValue": 5909.732102,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.067889190000005,
+        "strategyValue": 5800,
+        "benchmarkValue": 5916.517098,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.1849395200000066,
+        "strategyValue": 5800,
+        "benchmarkValue": 5923.302095,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.301989860000009,
+        "strategyValue": 5800,
+        "benchmarkValue": 5930.087092,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.4190401900000102,
+        "strategyValue": 5800,
+        "benchmarkValue": 5936.872088,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.5360905199999895,
+        "strategyValue": 5800,
+        "benchmarkValue": 5943.657085,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.653140849999991,
+        "strategyValue": 5800,
+        "benchmarkValue": 5950.442082,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.7701911799999923,
+        "strategyValue": 5800,
+        "benchmarkValue": 5957.227078,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.8872415099999937,
+        "strategyValue": 5800,
+        "benchmarkValue": 5964.012075,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.004291849999996,
+        "strategyValue": 5800,
+        "benchmarkValue": 5970.797072,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.1213421799999974,
+        "strategyValue": 5800,
+        "benchmarkValue": 5977.582068,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.238392509999999,
+        "strategyValue": 5800,
+        "benchmarkValue": 5984.367065,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.3554428400000003,
+        "strategyValue": 5800,
+        "benchmarkValue": 5991.152062,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-05-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.4724931700000017,
+        "strategyValue": 5800,
+        "benchmarkValue": 5997.937058,
+        "cashBaselineValue": 5800
+      },
+      {
+        "date": "2024-06-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.589543500000003,
+        "strategyValue": 5900,
+        "benchmarkValue": 6104.722055,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.7065938400000054,
+        "strategyValue": 5900,
+        "benchmarkValue": 6111.620046,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.580179479999999,
+        "strategyValue": 5900,
+        "benchmarkValue": 5986.306542,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.6972298100000005,
+        "strategyValue": 5900,
+        "benchmarkValue": 5993.204534,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.814280140000002,
+        "strategyValue": 5900,
+        "benchmarkValue": 6000.102525,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 1.9313304700000034,
+        "strategyValue": 5900,
+        "benchmarkValue": 6007.000516,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.0483808000000048,
+        "strategyValue": 5900,
+        "benchmarkValue": 6013.898507,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.165431140000007,
+        "strategyValue": 5900,
+        "benchmarkValue": 6020.796498,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.2824814700000084,
+        "strategyValue": 5900,
+        "benchmarkValue": 6027.694489,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.39953180000001,
+        "strategyValue": 5900,
+        "benchmarkValue": 6034.59248,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.516582129999989,
+        "strategyValue": 5900,
+        "benchmarkValue": 6041.490471,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.6336324599999905,
+        "strategyValue": 5900,
+        "benchmarkValue": 6048.388462,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.750682789999992,
+        "strategyValue": 5900,
+        "benchmarkValue": 6055.286453,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.867733129999994,
+        "strategyValue": 5900,
+        "benchmarkValue": 6062.184444,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.9847834599999956,
+        "strategyValue": 5900,
+        "benchmarkValue": 6069.082435,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.101833789999997,
+        "strategyValue": 5900,
+        "benchmarkValue": 6075.980426,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.2188841199999985,
+        "strategyValue": 5900,
+        "benchmarkValue": 6082.878417,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.33593445,
+        "strategyValue": 5900,
+        "benchmarkValue": 6089.776408,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.4529847800000013,
+        "strategyValue": 5900,
+        "benchmarkValue": 6096.674399,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-06-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.5700351200000036,
+        "strategyValue": 5900,
+        "benchmarkValue": 6103.57239,
+        "cashBaselineValue": 5900
+      },
+      {
+        "date": "2024-07-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.687085450000005,
+        "strategyValue": 6000,
+        "benchmarkValue": 6210.470381,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.8041357800000064,
+        "strategyValue": 6000,
+        "benchmarkValue": 6217.48126,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.921186110000008,
+        "strategyValue": 6000,
+        "benchmarkValue": 6224.492139,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.038236440000009,
+        "strategyValue": 6000,
+        "benchmarkValue": 6231.503018,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.155286770000011,
+        "strategyValue": 6000,
+        "benchmarkValue": 6238.513897,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.0288724200000052,
+        "strategyValue": 6000,
+        "benchmarkValue": 6111.149594,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.1459227500000067,
+        "strategyValue": 6000,
+        "benchmarkValue": 6118.160473,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.262973080000008,
+        "strategyValue": 6000,
+        "benchmarkValue": 6125.171352,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.3800234100000095,
+        "strategyValue": 6000,
+        "benchmarkValue": 6132.182231,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.497073740000011,
+        "strategyValue": 6000,
+        "benchmarkValue": 6139.19311,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.61412406999999,
+        "strategyValue": 6000,
+        "benchmarkValue": 6146.203989,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.7311743999999916,
+        "strategyValue": 6000,
+        "benchmarkValue": 6153.214868,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.848224739999994,
+        "strategyValue": 6000,
+        "benchmarkValue": 6160.225748,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.9652750699999952,
+        "strategyValue": 6000,
+        "benchmarkValue": 6167.236627,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.0823253999999967,
+        "strategyValue": 6000,
+        "benchmarkValue": 6174.247506,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.199375729999998,
+        "strategyValue": 6000,
+        "benchmarkValue": 6181.258385,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.3164260599999995,
+        "strategyValue": 6000,
+        "benchmarkValue": 6188.269264,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.433476390000001,
+        "strategyValue": 6000,
+        "benchmarkValue": 6195.280143,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.550526730000003,
+        "strategyValue": 6000,
+        "benchmarkValue": 6202.291022,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.6675770600000046,
+        "strategyValue": 6000,
+        "benchmarkValue": 6209.301901,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.784627390000006,
+        "strategyValue": 6000,
+        "benchmarkValue": 6216.31278,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.9016777200000075,
+        "strategyValue": 6000,
+        "benchmarkValue": 6223.323659,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-07-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.018728050000009,
+        "strategyValue": 6000,
+        "benchmarkValue": 6230.334538,
+        "cashBaselineValue": 6000
+      },
+      {
+        "date": "2024-08-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.13577838000001,
+        "strategyValue": 6100,
+        "benchmarkValue": 6337.345417,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.25282871999999,
+        "strategyValue": 6100,
+        "benchmarkValue": 6344.468698,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.369879049999992,
+        "strategyValue": 6100,
+        "benchmarkValue": 6351.591979,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.486929379999993,
+        "strategyValue": 6100,
+        "benchmarkValue": 6358.71526,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.603979709999995,
+        "strategyValue": 6100,
+        "benchmarkValue": 6365.83854,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.4775653500000105,
+        "strategyValue": 6100,
+        "benchmarkValue": 6236.432274,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.5946156799999898,
+        "strategyValue": 6100,
+        "benchmarkValue": 6243.555554,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.711666019999992,
+        "strategyValue": 6100,
+        "benchmarkValue": 6250.678835,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.8287163499999934,
+        "strategyValue": 6100,
+        "benchmarkValue": 6257.802116,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.945766679999995,
+        "strategyValue": 6100,
+        "benchmarkValue": 6264.925397,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.0628170099999963,
+        "strategyValue": 6100,
+        "benchmarkValue": 6272.048677,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.1798673399999977,
+        "strategyValue": 6100,
+        "benchmarkValue": 6279.171958,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.296917669999999,
+        "strategyValue": 6100,
+        "benchmarkValue": 6286.295239,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.4139680100000014,
+        "strategyValue": 6100,
+        "benchmarkValue": 6293.41852,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.531018340000003,
+        "strategyValue": 6100,
+        "benchmarkValue": 6300.5418,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.6480686700000042,
+        "strategyValue": 6100,
+        "benchmarkValue": 6307.665081,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.7651190000000057,
+        "strategyValue": 6100,
+        "benchmarkValue": 6314.788362,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.882169330000007,
+        "strategyValue": 6100,
+        "benchmarkValue": 6321.911642,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.9992196600000085,
+        "strategyValue": 6100,
+        "benchmarkValue": 6329.034923,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.116270000000011,
+        "strategyValue": 6100,
+        "benchmarkValue": 6336.158204,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.23332032999999,
+        "strategyValue": 6100,
+        "benchmarkValue": 6343.281485,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-08-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.350370659999991,
+        "strategyValue": 6100,
+        "benchmarkValue": 6350.404765,
+        "cashBaselineValue": 6100
+      },
+      {
+        "date": "2024-09-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.467420989999993,
+        "strategyValue": 6200,
+        "benchmarkValue": 6457.528046,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.584471319999994,
+        "strategyValue": 6200,
+        "benchmarkValue": 6464.763372,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.701521649999996,
+        "strategyValue": 6200,
+        "benchmarkValue": 6471.998697,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.818571989999998,
+        "strategyValue": 6200,
+        "benchmarkValue": 6479.234023,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.935622319999999,
+        "strategyValue": 6200,
+        "benchmarkValue": 6486.469348,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.052672650000001,
+        "strategyValue": 6200,
+        "benchmarkValue": 6493.704674,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 2.9262582899999945,
+        "strategyValue": 6200,
+        "benchmarkValue": 6362.262926,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.043308619999996,
+        "strategyValue": 6200,
+        "benchmarkValue": 6369.498252,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.1603589499999973,
+        "strategyValue": 6200,
+        "benchmarkValue": 6376.733578,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.2774092899999996,
+        "strategyValue": 6200,
+        "benchmarkValue": 6383.968903,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.394459620000001,
+        "strategyValue": 6200,
+        "benchmarkValue": 6391.204229,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.5115099500000024,
+        "strategyValue": 6200,
+        "benchmarkValue": 6398.439554,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.628560280000004,
+        "strategyValue": 6200,
+        "benchmarkValue": 6405.67488,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.7456106100000053,
+        "strategyValue": 6200,
+        "benchmarkValue": 6412.910205,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.8626609400000067,
+        "strategyValue": 6200,
+        "benchmarkValue": 6420.145531,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.979711280000009,
+        "strategyValue": 6200,
+        "benchmarkValue": 6427.380856,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.09676161000001,
+        "strategyValue": 6200,
+        "benchmarkValue": 6434.616182,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.21381193999999,
+        "strategyValue": 6200,
+        "benchmarkValue": 6441.851507,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.330862269999991,
+        "strategyValue": 6200,
+        "benchmarkValue": 6449.086833,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.4479125999999924,
+        "strategyValue": 6200,
+        "benchmarkValue": 6456.322158,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-09-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.564962929999994,
+        "strategyValue": 6200,
+        "benchmarkValue": 6463.557484,
+        "cashBaselineValue": 6200
+      },
+      {
+        "date": "2024-10-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.682013269999996,
+        "strategyValue": 6300,
+        "benchmarkValue": 6570.79281,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.7990635999999975,
+        "strategyValue": 6300,
+        "benchmarkValue": 6578.13995,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.916113929999999,
+        "strategyValue": 6300,
+        "benchmarkValue": 6585.487091,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.03316426,
+        "strategyValue": 6300,
+        "benchmarkValue": 6592.834232,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.150214590000002,
+        "strategyValue": 6300,
+        "benchmarkValue": 6600.181372,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.267264920000003,
+        "strategyValue": 6300,
+        "benchmarkValue": 6607.528513,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.3843152600000055,
+        "strategyValue": 6300,
+        "benchmarkValue": 6614.875654,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.501365590000007,
+        "strategyValue": 6300,
+        "benchmarkValue": 6622.222794,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.3749512300000006,
+        "strategyValue": 6300,
+        "benchmarkValue": 6488.749739,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.492001560000002,
+        "strategyValue": 6300,
+        "benchmarkValue": 6496.096879,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.6090518900000035,
+        "strategyValue": 6300,
+        "benchmarkValue": 6503.44402,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.726102220000005,
+        "strategyValue": 6300,
+        "benchmarkValue": 6510.791161,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.843152560000007,
+        "strategyValue": 6300,
+        "benchmarkValue": 6518.138301,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.9602028900000086,
+        "strategyValue": 6300,
+        "benchmarkValue": 6525.485442,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.07725322000001,
+        "strategyValue": 6300,
+        "benchmarkValue": 6532.832583,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.194303549999989,
+        "strategyValue": 6300,
+        "benchmarkValue": 6540.179723,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.311353879999991,
+        "strategyValue": 6300,
+        "benchmarkValue": 6547.526864,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.428404209999992,
+        "strategyValue": 6300,
+        "benchmarkValue": 6554.874005,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.545454549999994,
+        "strategyValue": 6300,
+        "benchmarkValue": 6562.221145,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.662504879999996,
+        "strategyValue": 6300,
+        "benchmarkValue": 6569.568286,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.779555209999997,
+        "strategyValue": 6300,
+        "benchmarkValue": 6576.915427,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.896605539999999,
+        "strategyValue": 6300,
+        "benchmarkValue": 6584.262567,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-10-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.01365587,
+        "strategyValue": 6300,
+        "benchmarkValue": 6591.609708,
+        "cashBaselineValue": 6300
+      },
+      {
+        "date": "2024-11-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.130706200000001,
+        "strategyValue": 6400,
+        "benchmarkValue": 6698.956849,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.247756540000004,
+        "strategyValue": 6400,
+        "benchmarkValue": 6706.415327,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.364806870000005,
+        "strategyValue": 6400,
+        "benchmarkValue": 6713.873806,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.4818572000000065,
+        "strategyValue": 6400,
+        "benchmarkValue": 6721.332285,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.598907530000008,
+        "strategyValue": 6400,
+        "benchmarkValue": 6728.790763,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.715957860000009,
+        "strategyValue": 6400,
+        "benchmarkValue": 6736.249242,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.833008190000011,
+        "strategyValue": 6400,
+        "benchmarkValue": 6743.70772,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.950058529999991,
+        "strategyValue": 6400,
+        "benchmarkValue": 6751.166199,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.823644170000007,
+        "strategyValue": 6400,
+        "benchmarkValue": 6615.670505,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 3.940694500000008,
+        "strategyValue": 6400,
+        "benchmarkValue": 6623.128983,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.05774483000001,
+        "strategyValue": 6400,
+        "benchmarkValue": 6630.587462,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.174795160000011,
+        "strategyValue": 6400,
+        "benchmarkValue": 6638.04594,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.29184548999999,
+        "strategyValue": 6400,
+        "benchmarkValue": 6645.504419,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.4088958299999925,
+        "strategyValue": 6400,
+        "benchmarkValue": 6652.962898,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.525946159999994,
+        "strategyValue": 6400,
+        "benchmarkValue": 6660.421376,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.642996489999995,
+        "strategyValue": 6400,
+        "benchmarkValue": 6667.879855,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.760046819999997,
+        "strategyValue": 6400,
+        "benchmarkValue": 6675.338333,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.877097149999998,
+        "strategyValue": 6400,
+        "benchmarkValue": 6682.796812,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.99414748,
+        "strategyValue": 6400,
+        "benchmarkValue": 6690.25529,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.111197820000002,
+        "strategyValue": 6400,
+        "benchmarkValue": 6697.713769,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-11-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.228248150000003,
+        "strategyValue": 6400,
+        "benchmarkValue": 6705.172248,
+        "cashBaselineValue": 6400
+      },
+      {
+        "date": "2024-12-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.345298480000005,
+        "strategyValue": 6500,
+        "benchmarkValue": 6812.630726,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.462348810000006,
+        "strategyValue": 6500,
+        "benchmarkValue": 6820.200316,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.579399140000008,
+        "strategyValue": 6500,
+        "benchmarkValue": 6827.769906,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.696449470000009,
+        "strategyValue": 6500,
+        "benchmarkValue": 6835.339495,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.81349980000001,
+        "strategyValue": 6500,
+        "benchmarkValue": 6842.909085,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.9305501399999905,
+        "strategyValue": 6500,
+        "benchmarkValue": 6850.478675,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.047600469999992,
+        "strategyValue": 6500,
+        "benchmarkValue": 6858.048264,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.164650799999993,
+        "strategyValue": 6500,
+        "benchmarkValue": 6865.617854,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.281701129999995,
+        "strategyValue": 6500,
+        "benchmarkValue": 6873.187444,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.398751459999996,
+        "strategyValue": 6500,
+        "benchmarkValue": 6880.757033,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.27233709999999,
+        "strategyValue": 6500,
+        "benchmarkValue": 6743.242821,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.389387439999992,
+        "strategyValue": 6500,
+        "benchmarkValue": 6750.81241,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.506437769999994,
+        "strategyValue": 6500,
+        "benchmarkValue": 6758.382,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.623488099999995,
+        "strategyValue": 6500,
+        "benchmarkValue": 6765.95159,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.740538429999996,
+        "strategyValue": 6500,
+        "benchmarkValue": 6773.521179,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.857588759999998,
+        "strategyValue": 6500,
+        "benchmarkValue": 6781.090769,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.974639089999999,
+        "strategyValue": 6500,
+        "benchmarkValue": 6788.660359,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.0916894300000015,
+        "strategyValue": 6500,
+        "benchmarkValue": 6796.229949,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.208739760000003,
+        "strategyValue": 6500,
+        "benchmarkValue": 6803.799538,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.325790090000004,
+        "strategyValue": 6500,
+        "benchmarkValue": 6811.369128,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.442840420000006,
+        "strategyValue": 6500,
+        "benchmarkValue": 6818.938718,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2024-12-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.559890750000007,
+        "strategyValue": 6500,
+        "benchmarkValue": 6826.508307,
+        "cashBaselineValue": 6500
+      },
+      {
+        "date": "2025-01-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.676941080000009,
+        "strategyValue": 6600,
+        "benchmarkValue": 6934.077897,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.793991420000011,
+        "strategyValue": 6600,
+        "benchmarkValue": 6941.758249,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.91104174999999,
+        "strategyValue": 6600,
+        "benchmarkValue": 6949.438601,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.0280920799999915,
+        "strategyValue": 6600,
+        "benchmarkValue": 6957.118953,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.145142409999993,
+        "strategyValue": 6600,
+        "benchmarkValue": 6964.799305,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.262192739999994,
+        "strategyValue": 6600,
+        "benchmarkValue": 6972.479658,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.379243069999996,
+        "strategyValue": 6600,
+        "benchmarkValue": 6980.16001,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.496293409999998,
+        "strategyValue": 6600,
+        "benchmarkValue": 6987.840362,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.6133437399999995,
+        "strategyValue": 6600,
+        "benchmarkValue": 6995.520714,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.730394070000001,
+        "strategyValue": 6600,
+        "benchmarkValue": 7003.201066,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.847444400000002,
+        "strategyValue": 6600,
+        "benchmarkValue": 7010.881418,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.721030039999996,
+        "strategyValue": 6600,
+        "benchmarkValue": 6871.355021,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.8380803699999975,
+        "strategyValue": 6600,
+        "benchmarkValue": 6879.035374,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 4.95513071,
+        "strategyValue": 6600,
+        "benchmarkValue": 6886.715726,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.072181040000001,
+        "strategyValue": 6600,
+        "benchmarkValue": 6894.396078,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.189231370000003,
+        "strategyValue": 6600,
+        "benchmarkValue": 6902.07643,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.306281700000004,
+        "strategyValue": 6600,
+        "benchmarkValue": 6909.756782,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.423332030000005,
+        "strategyValue": 6600,
+        "benchmarkValue": 6917.437134,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.540382360000007,
+        "strategyValue": 6600,
+        "benchmarkValue": 6925.117486,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.657432700000009,
+        "strategyValue": 6600,
+        "benchmarkValue": 6932.797838,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.7744830300000105,
+        "strategyValue": 6600,
+        "benchmarkValue": 6940.47819,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.89153335999999,
+        "strategyValue": 6600,
+        "benchmarkValue": 6948.158543,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-01-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.008583689999991,
+        "strategyValue": 6600,
+        "benchmarkValue": 6955.838895,
+        "cashBaselineValue": 6600
+      },
+      {
+        "date": "2025-02-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.125634019999993,
+        "strategyValue": 6700,
+        "benchmarkValue": 7063.519247,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.242684349999994,
+        "strategyValue": 6700,
+        "benchmarkValue": 7071.309893,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.359734689999996,
+        "strategyValue": 6700,
+        "benchmarkValue": 7079.100539,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.476785019999998,
+        "strategyValue": 6700,
+        "benchmarkValue": 7086.891185,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.593835349999999,
+        "strategyValue": 6700,
+        "benchmarkValue": 7094.681832,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.7108856800000005,
+        "strategyValue": 6700,
+        "benchmarkValue": 7102.472478,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.827936010000002,
+        "strategyValue": 6700,
+        "benchmarkValue": 7110.263124,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.944986340000003,
+        "strategyValue": 6700,
+        "benchmarkValue": 7118.05377,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.062036680000006,
+        "strategyValue": 6700,
+        "benchmarkValue": 7125.844417,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.179087010000007,
+        "strategyValue": 6700,
+        "benchmarkValue": 7133.635063,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.2961373400000085,
+        "strategyValue": 6700,
+        "benchmarkValue": 7141.425709,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.169722980000002,
+        "strategyValue": 6700,
+        "benchmarkValue": 6999.895636,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.286773310000004,
+        "strategyValue": 6700,
+        "benchmarkValue": 7007.686282,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.403823640000005,
+        "strategyValue": 6700,
+        "benchmarkValue": 7015.476928,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.520873980000007,
+        "strategyValue": 6700,
+        "benchmarkValue": 7023.267575,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.637924310000009,
+        "strategyValue": 6700,
+        "benchmarkValue": 7031.058221,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.75497464000001,
+        "strategyValue": 6700,
+        "benchmarkValue": 7038.848867,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.872024969999989,
+        "strategyValue": 6700,
+        "benchmarkValue": 7046.639513,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.989075299999991,
+        "strategyValue": 6700,
+        "benchmarkValue": 7054.43016,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-02-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.106125629999992,
+        "strategyValue": 6700,
+        "benchmarkValue": 7062.220806,
+        "cashBaselineValue": 6700
+      },
+      {
+        "date": "2025-03-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.2231759699999945,
+        "strategyValue": 6800,
+        "benchmarkValue": 7170.011452,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.340226299999996,
+        "strategyValue": 6800,
+        "benchmarkValue": 7177.912291,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.457276629999997,
+        "strategyValue": 6800,
+        "benchmarkValue": 7185.81313,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.574326959999999,
+        "strategyValue": 6800,
+        "benchmarkValue": 7193.713969,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.69137729,
+        "strategyValue": 6800,
+        "benchmarkValue": 7201.614808,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.808427620000002,
+        "strategyValue": 6800,
+        "benchmarkValue": 7209.515647,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.925477960000004,
+        "strategyValue": 6800,
+        "benchmarkValue": 7217.416486,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.042528290000005,
+        "strategyValue": 6800,
+        "benchmarkValue": 7225.317325,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.159578620000007,
+        "strategyValue": 6800,
+        "benchmarkValue": 7233.218165,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.276628950000008,
+        "strategyValue": 6800,
+        "benchmarkValue": 7241.119004,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.3936792800000095,
+        "strategyValue": 6800,
+        "benchmarkValue": 7249.019843,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.510729610000011,
+        "strategyValue": 6800,
+        "benchmarkValue": 7256.920682,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.627779949999991,
+        "strategyValue": 6800,
+        "benchmarkValue": 7264.821521,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.744830279999992,
+        "strategyValue": 6800,
+        "benchmarkValue": 7272.72236,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.618415920000008,
+        "strategyValue": 6800,
+        "benchmarkValue": 7129.19045,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.73546625000001,
+        "strategyValue": 6800,
+        "benchmarkValue": 7137.091289,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.852516579999989,
+        "strategyValue": 6800,
+        "benchmarkValue": 7144.992128,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 5.96956690999999,
+        "strategyValue": 6800,
+        "benchmarkValue": 7152.892967,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.086617249999993,
+        "strategyValue": 6800,
+        "benchmarkValue": 7160.793806,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.203667579999994,
+        "strategyValue": 6800,
+        "benchmarkValue": 7168.694645,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-03-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.3207179099999955,
+        "strategyValue": 6800,
+        "benchmarkValue": 7176.595485,
+        "cashBaselineValue": 6800
+      },
+      {
+        "date": "2025-04-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.437768239999997,
+        "strategyValue": 6900,
+        "benchmarkValue": 7284.496324,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.554818569999998,
+        "strategyValue": 6900,
+        "benchmarkValue": 7292.507133,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.6718689,
+        "strategyValue": 6900,
+        "benchmarkValue": 7300.517943,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.788919240000002,
+        "strategyValue": 6900,
+        "benchmarkValue": 7308.528753,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.905969570000003,
+        "strategyValue": 6900,
+        "benchmarkValue": 7316.539563,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.023019900000005,
+        "strategyValue": 6900,
+        "benchmarkValue": 7324.550372,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.140070230000006,
+        "strategyValue": 6900,
+        "benchmarkValue": 7332.561182,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.257120560000008,
+        "strategyValue": 6900,
+        "benchmarkValue": 7340.571992,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.374170890000009,
+        "strategyValue": 6900,
+        "benchmarkValue": 7348.582802,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.491221229999989,
+        "strategyValue": 6900,
+        "benchmarkValue": 7356.593611,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.608271559999991,
+        "strategyValue": 6900,
+        "benchmarkValue": 7364.604421,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.725321889999992,
+        "strategyValue": 6900,
+        "benchmarkValue": 7372.615231,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.8423722199999935,
+        "strategyValue": 6900,
+        "benchmarkValue": 7380.62604,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.959422549999995,
+        "strategyValue": 6900,
+        "benchmarkValue": 7388.63685,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.076472879999997,
+        "strategyValue": 6900,
+        "benchmarkValue": 7396.64766,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.193523209999999,
+        "strategyValue": 6900,
+        "benchmarkValue": 7404.65847,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.067108859999992,
+        "strategyValue": 6900,
+        "benchmarkValue": 7259.128759,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.184159189999994,
+        "strategyValue": 6900,
+        "benchmarkValue": 7267.139569,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.301209519999995,
+        "strategyValue": 6900,
+        "benchmarkValue": 7275.150379,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.4182598499999965,
+        "strategyValue": 6900,
+        "benchmarkValue": 7283.161189,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.535310179999998,
+        "strategyValue": 6900,
+        "benchmarkValue": 7291.171998,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-04-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.65236052,
+        "strategyValue": 6900,
+        "benchmarkValue": 7299.182808,
+        "cashBaselineValue": 6900
+      },
+      {
+        "date": "2025-05-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.769410850000002,
+        "strategyValue": 7000,
+        "benchmarkValue": 7407.193618,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.886461180000003,
+        "strategyValue": 7000,
+        "benchmarkValue": 7415.314057,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.0035115100000045,
+        "strategyValue": 7000,
+        "benchmarkValue": 7423.434496,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.120561840000006,
+        "strategyValue": 7000,
+        "benchmarkValue": 7431.554934,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.237612170000007,
+        "strategyValue": 7000,
+        "benchmarkValue": 7439.675373,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.354662500000009,
+        "strategyValue": 7000,
+        "benchmarkValue": 7447.795812,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.471712840000011,
+        "strategyValue": 7000,
+        "benchmarkValue": 7455.916251,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.58876316999999,
+        "strategyValue": 7000,
+        "benchmarkValue": 7464.03669,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.705813499999992,
+        "strategyValue": 7000,
+        "benchmarkValue": 7472.157128,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.822863829999993,
+        "strategyValue": 7000,
+        "benchmarkValue": 7480.277567,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.9399141599999945,
+        "strategyValue": 7000,
+        "benchmarkValue": 7488.398006,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.056964489999995,
+        "strategyValue": 7000,
+        "benchmarkValue": 7496.518445,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.174014829999997,
+        "strategyValue": 7000,
+        "benchmarkValue": 7504.638884,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.291065159999999,
+        "strategyValue": 7000,
+        "benchmarkValue": 7512.759323,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.40811549,
+        "strategyValue": 7000,
+        "benchmarkValue": 7520.879761,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.525165820000002,
+        "strategyValue": 7000,
+        "benchmarkValue": 7529.0002,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.642216150000003,
+        "strategyValue": 7000,
+        "benchmarkValue": 7537.120639,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.515801789999998,
+        "strategyValue": 7000,
+        "benchmarkValue": 7389.599334,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.63285213,
+        "strategyValue": 7000,
+        "benchmarkValue": 7397.719773,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.749902460000001,
+        "strategyValue": 7000,
+        "benchmarkValue": 7405.840211,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.866952790000003,
+        "strategyValue": 7000,
+        "benchmarkValue": 7413.96065,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-05-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.984003120000004,
+        "strategyValue": 7000,
+        "benchmarkValue": 7422.081089,
+        "cashBaselineValue": 7000
+      },
+      {
+        "date": "2025-06-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.1010534500000055,
+        "strategyValue": 7100,
+        "benchmarkValue": 7530.201528,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.218103780000007,
+        "strategyValue": 7100,
+        "benchmarkValue": 7538.431256,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.335154120000009,
+        "strategyValue": 7100,
+        "benchmarkValue": 7546.660985,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.452204450000011,
+        "strategyValue": 7100,
+        "benchmarkValue": 7554.890713,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.56925477999999,
+        "strategyValue": 7100,
+        "benchmarkValue": 7563.120442,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.686305109999991,
+        "strategyValue": 7100,
+        "benchmarkValue": 7571.35017,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.803355439999993,
+        "strategyValue": 7100,
+        "benchmarkValue": 7579.579899,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.920405769999994,
+        "strategyValue": 7100,
+        "benchmarkValue": 7587.809627,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.037456109999997,
+        "strategyValue": 7100,
+        "benchmarkValue": 7596.039355,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.154506439999999,
+        "strategyValue": 7100,
+        "benchmarkValue": 7604.269084,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.27155677,
+        "strategyValue": 7100,
+        "benchmarkValue": 7612.498812,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.388607100000002,
+        "strategyValue": 7100,
+        "benchmarkValue": 7620.728541,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.505657430000003,
+        "strategyValue": 7100,
+        "benchmarkValue": 7628.958269,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.622707760000004,
+        "strategyValue": 7100,
+        "benchmarkValue": 7637.187998,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.739758100000007,
+        "strategyValue": 7100,
+        "benchmarkValue": 7645.417726,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.856808430000008,
+        "strategyValue": 7100,
+        "benchmarkValue": 7653.647455,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.97385876000001,
+        "strategyValue": 7100,
+        "benchmarkValue": 7661.877183,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.090909090000011,
+        "strategyValue": 7100,
+        "benchmarkValue": 7670.106911,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 6.964494730000004,
+        "strategyValue": 7100,
+        "benchmarkValue": 7520.600178,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.081545060000005,
+        "strategyValue": 7100,
+        "benchmarkValue": 7528.829906,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-06-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.198595400000007,
+        "strategyValue": 7100,
+        "benchmarkValue": 7537.059635,
+        "cashBaselineValue": 7100
+      },
+      {
+        "date": "2025-07-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.315645730000009,
+        "strategyValue": 7200,
+        "benchmarkValue": 7645.289363,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.43269606000001,
+        "strategyValue": 7200,
+        "benchmarkValue": 7653.628163,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.5497463899999895,
+        "strategyValue": 7200,
+        "benchmarkValue": 7661.966962,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.666796719999991,
+        "strategyValue": 7200,
+        "benchmarkValue": 7670.305762,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.783847049999992,
+        "strategyValue": 7200,
+        "benchmarkValue": 7678.644561,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.900897389999995,
+        "strategyValue": 7200,
+        "benchmarkValue": 7686.983361,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.017947719999995,
+        "strategyValue": 7200,
+        "benchmarkValue": 7695.322161,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.134998049999997,
+        "strategyValue": 7200,
+        "benchmarkValue": 7703.66096,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.252048379999998,
+        "strategyValue": 7200,
+        "benchmarkValue": 7711.99976,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.36909871,
+        "strategyValue": 7200,
+        "benchmarkValue": 7720.338559,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.48614904,
+        "strategyValue": 7200,
+        "benchmarkValue": 7728.677359,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.603199380000003,
+        "strategyValue": 7200,
+        "benchmarkValue": 7737.016158,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.720249710000004,
+        "strategyValue": 7200,
+        "benchmarkValue": 7745.354958,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.837300040000006,
+        "strategyValue": 7200,
+        "benchmarkValue": 7753.693757,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.954350370000007,
+        "strategyValue": 7200,
+        "benchmarkValue": 7762.032557,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.071400700000009,
+        "strategyValue": 7200,
+        "benchmarkValue": 7770.371356,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.18845103000001,
+        "strategyValue": 7200,
+        "benchmarkValue": 7778.710156,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.305501369999991,
+        "strategyValue": 7200,
+        "benchmarkValue": 7787.048955,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.422551699999993,
+        "strategyValue": 7200,
+        "benchmarkValue": 7795.387755,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.539602029999994,
+        "strategyValue": 7200,
+        "benchmarkValue": 7803.726554,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.41318767000001,
+        "strategyValue": 7200,
+        "benchmarkValue": 7652.238363,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.530237999999989,
+        "strategyValue": 7200,
+        "benchmarkValue": 7660.577162,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-07-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.6472883299999905,
+        "strategyValue": 7200,
+        "benchmarkValue": 7668.915962,
+        "cashBaselineValue": 7200
+      },
+      {
+        "date": "2025-08-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.764338669999993,
+        "strategyValue": 7300,
+        "benchmarkValue": 7777.254762,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.881388999999994,
+        "strategyValue": 7300,
+        "benchmarkValue": 7785.702178,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.998439329999996,
+        "strategyValue": 7300,
+        "benchmarkValue": 7794.149594,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.115489659999998,
+        "strategyValue": 7300,
+        "benchmarkValue": 7802.597011,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.23253999,
+        "strategyValue": 7300,
+        "benchmarkValue": 7811.044427,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.34959032,
+        "strategyValue": 7300,
+        "benchmarkValue": 7819.491844,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.466640660000003,
+        "strategyValue": 7300,
+        "benchmarkValue": 7827.93926,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.583690990000004,
+        "strategyValue": 7300,
+        "benchmarkValue": 7836.386677,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.700741320000006,
+        "strategyValue": 7300,
+        "benchmarkValue": 7844.834093,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.817791650000007,
+        "strategyValue": 7300,
+        "benchmarkValue": 7853.28151,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.934841980000009,
+        "strategyValue": 7300,
+        "benchmarkValue": 7861.728926,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.05189231000001,
+        "strategyValue": 7300,
+        "benchmarkValue": 7870.176343,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.16894264999999,
+        "strategyValue": 7300,
+        "benchmarkValue": 7878.623759,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.28599297999999,
+        "strategyValue": 7300,
+        "benchmarkValue": 7887.071176,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.403043309999992,
+        "strategyValue": 7300,
+        "benchmarkValue": 7895.518592,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.520093639999994,
+        "strategyValue": 7300,
+        "benchmarkValue": 7903.966009,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.637143969999995,
+        "strategyValue": 7300,
+        "benchmarkValue": 7912.413425,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.754194299999996,
+        "strategyValue": 7300,
+        "benchmarkValue": 7920.860841,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.871244639999999,
+        "strategyValue": 7300,
+        "benchmarkValue": 7929.308258,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.98829497,
+        "strategyValue": 7300,
+        "benchmarkValue": 7937.755674,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-08-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.861880609999994,
+        "strategyValue": 7300,
+        "benchmarkValue": 7784.294275,
+        "cashBaselineValue": 7300
+      },
+      {
+        "date": "2025-09-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 7.978930939999995,
+        "strategyValue": 7400,
+        "benchmarkValue": 7892.741692,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.095981269999996,
+        "strategyValue": 7400,
+        "benchmarkValue": 7901.297509,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.213031599999997,
+        "strategyValue": 7400,
+        "benchmarkValue": 7909.853327,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.33008194,
+        "strategyValue": 7400,
+        "benchmarkValue": 7918.409144,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.44713227,
+        "strategyValue": 7400,
+        "benchmarkValue": 7926.964962,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.564182600000002,
+        "strategyValue": 7400,
+        "benchmarkValue": 7935.520779,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.681232930000004,
+        "strategyValue": 7400,
+        "benchmarkValue": 7944.076597,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.798283260000005,
+        "strategyValue": 7400,
+        "benchmarkValue": 7952.632415,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.915333590000007,
+        "strategyValue": 7400,
+        "benchmarkValue": 7961.188232,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.032383930000009,
+        "strategyValue": 7400,
+        "benchmarkValue": 7969.74405,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.149434259999989,
+        "strategyValue": 7400,
+        "benchmarkValue": 7978.299867,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.26648458999999,
+        "strategyValue": 7400,
+        "benchmarkValue": 7986.855685,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.383534919999992,
+        "strategyValue": 7400,
+        "benchmarkValue": 7995.411502,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.500585249999993,
+        "strategyValue": 7400,
+        "benchmarkValue": 8003.96732,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.617635579999995,
+        "strategyValue": 7400,
+        "benchmarkValue": 8012.523137,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.734685909999996,
+        "strategyValue": 7400,
+        "benchmarkValue": 8021.078955,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.851736249999998,
+        "strategyValue": 7400,
+        "benchmarkValue": 8029.634773,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.96878658,
+        "strategyValue": 7400,
+        "benchmarkValue": 8038.19059,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.085836910000001,
+        "strategyValue": 7400,
+        "benchmarkValue": 8046.746408,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.202887240000003,
+        "strategyValue": 7400,
+        "benchmarkValue": 8055.302225,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.319937570000004,
+        "strategyValue": 7400,
+        "benchmarkValue": 8063.858043,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-09-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.436987900000005,
+        "strategyValue": 7400,
+        "benchmarkValue": 8072.41386,
+        "cashBaselineValue": 7400
+      },
+      {
+        "date": "2025-10-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.31057355,
+        "strategyValue": 7500,
+        "benchmarkValue": 8016.983175,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.427623880000002,
+        "strategyValue": 7500,
+        "benchmarkValue": 8025.647062,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.544674210000004,
+        "strategyValue": 7500,
+        "benchmarkValue": 8034.310948,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.661724540000005,
+        "strategyValue": 7500,
+        "benchmarkValue": 8042.974835,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.778774870000007,
+        "strategyValue": 7500,
+        "benchmarkValue": 8051.638722,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.895825200000008,
+        "strategyValue": 7500,
+        "benchmarkValue": 8060.302608,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.01287554000001,
+        "strategyValue": 7500,
+        "benchmarkValue": 8068.966495,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.129925870000012,
+        "strategyValue": 7500,
+        "benchmarkValue": 8077.630382,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.24697619999999,
+        "strategyValue": 7500,
+        "benchmarkValue": 8086.294269,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.364026529999991,
+        "strategyValue": 7500,
+        "benchmarkValue": 8094.958155,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.481076859999993,
+        "strategyValue": 7500,
+        "benchmarkValue": 8103.622042,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.598127189999994,
+        "strategyValue": 7500,
+        "benchmarkValue": 8112.285929,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.715177529999997,
+        "strategyValue": 7500,
+        "benchmarkValue": 8120.949815,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.832227859999998,
+        "strategyValue": 7500,
+        "benchmarkValue": 8129.613702,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.94927819,
+        "strategyValue": 7500,
+        "benchmarkValue": 8138.277589,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.06632852,
+        "strategyValue": 7500,
+        "benchmarkValue": 8146.941476,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.183378850000002,
+        "strategyValue": 7500,
+        "benchmarkValue": 8155.605362,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.300429180000004,
+        "strategyValue": 7500,
+        "benchmarkValue": 8164.269249,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.417479520000006,
+        "strategyValue": 7500,
+        "benchmarkValue": 8172.933136,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.534529850000007,
+        "strategyValue": 7500,
+        "benchmarkValue": 8181.597022,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.651580180000009,
+        "strategyValue": 7500,
+        "benchmarkValue": 8190.260909,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.76863051000001,
+        "strategyValue": 7500,
+        "benchmarkValue": 8198.924796,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-10-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.885680839999988,
+        "strategyValue": 7500,
+        "benchmarkValue": 8207.588683,
+        "cashBaselineValue": 7500
+      },
+      {
+        "date": "2025-11-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.759266480000004,
+        "strategyValue": 7600,
+        "benchmarkValue": 8150.194741,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.876316820000007,
+        "strategyValue": 7600,
+        "benchmarkValue": 8158.966251,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 8.993367150000008,
+        "strategyValue": 7600,
+        "benchmarkValue": 8167.737761,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.11041748000001,
+        "strategyValue": 7600,
+        "benchmarkValue": 8176.509271,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.22746780999999,
+        "strategyValue": 7600,
+        "benchmarkValue": 8185.280781,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.344518139999991,
+        "strategyValue": 7600,
+        "benchmarkValue": 8194.052291,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.461568469999992,
+        "strategyValue": 7600,
+        "benchmarkValue": 8202.823801,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.578618809999995,
+        "strategyValue": 7600,
+        "benchmarkValue": 8211.595311,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.695669139999996,
+        "strategyValue": 7600,
+        "benchmarkValue": 8220.366821,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.812719469999998,
+        "strategyValue": 7600,
+        "benchmarkValue": 8229.138331,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.929769799999999,
+        "strategyValue": 7600,
+        "benchmarkValue": 8237.909841,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.04682013,
+        "strategyValue": 7600,
+        "benchmarkValue": 8246.681351,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.163870460000002,
+        "strategyValue": 7600,
+        "benchmarkValue": 8255.452861,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.280920800000004,
+        "strategyValue": 7600,
+        "benchmarkValue": 8264.224371,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.397971130000006,
+        "strategyValue": 7600,
+        "benchmarkValue": 8272.995881,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.515021460000007,
+        "strategyValue": 7600,
+        "benchmarkValue": 8281.767391,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.632071790000008,
+        "strategyValue": 7600,
+        "benchmarkValue": 8290.538901,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.74912212000001,
+        "strategyValue": 7600,
+        "benchmarkValue": 8299.310411,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.86617244999999,
+        "strategyValue": 7600,
+        "benchmarkValue": 8308.081921,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-11-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.983222789999992,
+        "strategyValue": 7600,
+        "benchmarkValue": 8316.853431,
+        "cashBaselineValue": 7600
+      },
+      {
+        "date": "2025-12-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.100273119999994,
+        "strategyValue": 7700,
+        "benchmarkValue": 8425.624941,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.217323449999995,
+        "strategyValue": 7700,
+        "benchmarkValue": 8434.501807,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.334373779999996,
+        "strategyValue": 7700,
+        "benchmarkValue": 8443.378672,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.20795941999999,
+        "strategyValue": 7700,
+        "benchmarkValue": 8282.115614,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.32500974999999,
+        "strategyValue": 7700,
+        "benchmarkValue": 8290.992479,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.442060089999993,
+        "strategyValue": 7700,
+        "benchmarkValue": 8299.869345,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.559110419999994,
+        "strategyValue": 7700,
+        "benchmarkValue": 8308.746211,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.676160749999996,
+        "strategyValue": 7700,
+        "benchmarkValue": 8317.623076,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.793211079999997,
+        "strategyValue": 7700,
+        "benchmarkValue": 8326.499942,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.910261409999999,
+        "strategyValue": 7700,
+        "benchmarkValue": 8335.376808,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.02731174,
+        "strategyValue": 7700,
+        "benchmarkValue": 8344.253673,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.144362080000002,
+        "strategyValue": 7700,
+        "benchmarkValue": 8353.130539,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.261412410000004,
+        "strategyValue": 7700,
+        "benchmarkValue": 8362.007404,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.378462740000005,
+        "strategyValue": 7700,
+        "benchmarkValue": 8370.88427,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.495513070000007,
+        "strategyValue": 7700,
+        "benchmarkValue": 8379.761136,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.612563400000008,
+        "strategyValue": 7700,
+        "benchmarkValue": 8388.638001,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.72961373000001,
+        "strategyValue": 7700,
+        "benchmarkValue": 8397.514867,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.846664069999989,
+        "strategyValue": 7700,
+        "benchmarkValue": 8406.391732,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.96371439999999,
+        "strategyValue": 7700,
+        "benchmarkValue": 8415.268598,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.080764729999991,
+        "strategyValue": 7700,
+        "benchmarkValue": 8424.145464,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.197815059999993,
+        "strategyValue": 7700,
+        "benchmarkValue": 8433.022329,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.314865389999994,
+        "strategyValue": 7700,
+        "benchmarkValue": 8441.899195,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2025-12-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.431915719999996,
+        "strategyValue": 7700,
+        "benchmarkValue": 8450.77606,
+        "cashBaselineValue": 7700
+      },
+      {
+        "date": "2026-01-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.548966059999998,
+        "strategyValue": 7800,
+        "benchmarkValue": 8559.652926,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.66601639,
+        "strategyValue": 7800,
+        "benchmarkValue": 8568.634723,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.78306672,
+        "strategyValue": 7800,
+        "benchmarkValue": 8577.616521,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.656652359999995,
+        "strategyValue": 7800,
+        "benchmarkValue": 8414.447201,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.773702689999997,
+        "strategyValue": 7800,
+        "benchmarkValue": 8423.428999,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 9.890753019999998,
+        "strategyValue": 7800,
+        "benchmarkValue": 8432.410796,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.00780336,
+        "strategyValue": 7800,
+        "benchmarkValue": 8441.392594,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.124853690000002,
+        "strategyValue": 7800,
+        "benchmarkValue": 8450.374391,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.241904020000003,
+        "strategyValue": 7800,
+        "benchmarkValue": 8459.356188,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.358954350000005,
+        "strategyValue": 7800,
+        "benchmarkValue": 8468.337986,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.476004680000006,
+        "strategyValue": 7800,
+        "benchmarkValue": 8477.319783,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.593055010000008,
+        "strategyValue": 7800,
+        "benchmarkValue": 8486.301581,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.71010535000001,
+        "strategyValue": 7800,
+        "benchmarkValue": 8495.283378,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.82715567999999,
+        "strategyValue": 7800,
+        "benchmarkValue": 8504.265175,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.944206009999991,
+        "strategyValue": 7800,
+        "benchmarkValue": 8513.246973,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.061256339999993,
+        "strategyValue": 7800,
+        "benchmarkValue": 8522.22877,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.178306669999994,
+        "strategyValue": 7800,
+        "benchmarkValue": 8531.210568,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.295356999999996,
+        "strategyValue": 7800,
+        "benchmarkValue": 8540.192365,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.412407339999998,
+        "strategyValue": 7800,
+        "benchmarkValue": 8549.174162,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.52945767,
+        "strategyValue": 7800,
+        "benchmarkValue": 8558.15596,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.646508,
+        "strategyValue": 7800,
+        "benchmarkValue": 8567.137757,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-01-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.763558330000002,
+        "strategyValue": 7800,
+        "benchmarkValue": 8576.119555,
+        "cashBaselineValue": 7800
+      },
+      {
+        "date": "2026-02-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.880608660000004,
+        "strategyValue": 7900,
+        "benchmarkValue": 8685.101352,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.997658990000005,
+        "strategyValue": 7900,
+        "benchmarkValue": 8694.18777,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.114709330000007,
+        "strategyValue": 7900,
+        "benchmarkValue": 8703.274188,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.231759660000009,
+        "strategyValue": 7900,
+        "benchmarkValue": 8712.360607,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.105345300000002,
+        "strategyValue": 7900,
+        "benchmarkValue": 8547.290677,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.222395630000003,
+        "strategyValue": 7900,
+        "benchmarkValue": 8556.377095,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.339445960000004,
+        "strategyValue": 7900,
+        "benchmarkValue": 8565.463513,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.456496290000006,
+        "strategyValue": 7900,
+        "benchmarkValue": 8574.549931,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.573546630000008,
+        "strategyValue": 7900,
+        "benchmarkValue": 8583.636349,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.69059696000001,
+        "strategyValue": 7900,
+        "benchmarkValue": 8592.722767,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.807647290000011,
+        "strategyValue": 7900,
+        "benchmarkValue": 8601.809186,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.92469761999999,
+        "strategyValue": 7900,
+        "benchmarkValue": 8610.895604,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.04174794999999,
+        "strategyValue": 7900,
+        "benchmarkValue": 8619.982022,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.158798279999992,
+        "strategyValue": 7900,
+        "benchmarkValue": 8629.06844,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.275848609999993,
+        "strategyValue": 7900,
+        "benchmarkValue": 8638.154858,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.392898949999996,
+        "strategyValue": 7900,
+        "benchmarkValue": 8647.241276,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.509949279999997,
+        "strategyValue": 7900,
+        "benchmarkValue": 8656.327695,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.626999609999999,
+        "strategyValue": 7900,
+        "benchmarkValue": 8665.414113,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.74404994,
+        "strategyValue": 7900,
+        "benchmarkValue": 8674.500531,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-02-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.861100270000001,
+        "strategyValue": 7900,
+        "benchmarkValue": 8683.586949,
+        "cashBaselineValue": 7900
+      },
+      {
+        "date": "2026-03-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.978150600000003,
+        "strategyValue": 8000,
+        "benchmarkValue": 8792.673367,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.095200940000005,
+        "strategyValue": 8000,
+        "benchmarkValue": 8801.864315,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.212251270000007,
+        "strategyValue": 8000,
+        "benchmarkValue": 8811.055263,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.329301600000008,
+        "strategyValue": 8000,
+        "benchmarkValue": 8820.24621,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.44635193000001,
+        "strategyValue": 8000,
+        "benchmarkValue": 8829.437158,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.56340225999999,
+        "strategyValue": 8000,
+        "benchmarkValue": 8838.628106,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.680452589999991,
+        "strategyValue": 8000,
+        "benchmarkValue": 8847.819054,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.554038240000008,
+        "strategyValue": 8000,
+        "benchmarkValue": 8680.850169,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.671088570000009,
+        "strategyValue": 8000,
+        "benchmarkValue": 8690.041117,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.78813890000001,
+        "strategyValue": 8000,
+        "benchmarkValue": 8699.232065,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 10.90518922999999,
+        "strategyValue": 8000,
+        "benchmarkValue": 8708.423013,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.022239559999992,
+        "strategyValue": 8000,
+        "benchmarkValue": 8717.61396,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.139289889999993,
+        "strategyValue": 8000,
+        "benchmarkValue": 8726.804908,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.256340229999996,
+        "strategyValue": 8000,
+        "benchmarkValue": 8735.995856,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.373390559999997,
+        "strategyValue": 8000,
+        "benchmarkValue": 8745.186804,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.490440889999999,
+        "strategyValue": 8000,
+        "benchmarkValue": 8754.377751,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.60749122,
+        "strategyValue": 8000,
+        "benchmarkValue": 8763.568699,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.724541550000001,
+        "strategyValue": 8000,
+        "benchmarkValue": 8772.759647,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.841591880000003,
+        "strategyValue": 8000,
+        "benchmarkValue": 8781.950595,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.958642220000005,
+        "strategyValue": 8000,
+        "benchmarkValue": 8791.141543,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.075692550000007,
+        "strategyValue": 8000,
+        "benchmarkValue": 8800.33249,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-03-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.192742880000008,
+        "strategyValue": 8000,
+        "benchmarkValue": 8809.523438,
+        "cashBaselineValue": 8000
+      },
+      {
+        "date": "2026-04-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.30979321000001,
+        "strategyValue": 8100,
+        "benchmarkValue": 8918.714386,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.42684354000001,
+        "strategyValue": 8100,
+        "benchmarkValue": 8928.009555,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.54389386999999,
+        "strategyValue": 8100,
+        "benchmarkValue": 8937.304723,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.660944209999991,
+        "strategyValue": 8100,
+        "benchmarkValue": 8946.599892,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.777994539999993,
+        "strategyValue": 8100,
+        "benchmarkValue": 8955.895061,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.895044869999994,
+        "strategyValue": 8100,
+        "benchmarkValue": 8965.190229,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.012095199999996,
+        "strategyValue": 8100,
+        "benchmarkValue": 8974.485398,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.129145529999997,
+        "strategyValue": 8100,
+        "benchmarkValue": 8983.780567,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.00273116999999,
+        "strategyValue": 8100,
+        "benchmarkValue": 8814.918335,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.119781509999992,
+        "strategyValue": 8100,
+        "benchmarkValue": 8824.213504,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.236831839999994,
+        "strategyValue": 8100,
+        "benchmarkValue": 8833.508673,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.353882169999995,
+        "strategyValue": 8100,
+        "benchmarkValue": 8842.803841,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.470932499999996,
+        "strategyValue": 8100,
+        "benchmarkValue": 8852.09901,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.587982829999998,
+        "strategyValue": 8100,
+        "benchmarkValue": 8861.394179,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.70503316,
+        "strategyValue": 8100,
+        "benchmarkValue": 8870.689347,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.822083500000002,
+        "strategyValue": 8100,
+        "benchmarkValue": 8879.984516,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.939133830000003,
+        "strategyValue": 8100,
+        "benchmarkValue": 8889.279685,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.056184160000004,
+        "strategyValue": 8100,
+        "benchmarkValue": 8898.574854,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.173234490000006,
+        "strategyValue": 8100,
+        "benchmarkValue": 8907.870022,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.290284820000007,
+        "strategyValue": 8100,
+        "benchmarkValue": 8917.165191,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.407335150000009,
+        "strategyValue": 8100,
+        "benchmarkValue": 8926.46036,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-04-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.52438548999999,
+        "strategyValue": 8100,
+        "benchmarkValue": 8935.755529,
+        "cashBaselineValue": 8100
+      },
+      {
+        "date": "2026-05-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.641435819999991,
+        "strategyValue": 8200,
+        "benchmarkValue": 9045.050697,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.758486149999992,
+        "strategyValue": 8200,
+        "benchmarkValue": 9054.44978,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.875536479999994,
+        "strategyValue": 8200,
+        "benchmarkValue": 9063.848863,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.992586809999995,
+        "strategyValue": 8200,
+        "benchmarkValue": 9073.247946,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.109637139999997,
+        "strategyValue": 8200,
+        "benchmarkValue": 9082.647028,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.226687479999999,
+        "strategyValue": 8200,
+        "benchmarkValue": 9092.046111,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.34373781,
+        "strategyValue": 8200,
+        "benchmarkValue": 9101.445194,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.460788140000002,
+        "strategyValue": 8200,
+        "benchmarkValue": 9110.844277,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.577838470000003,
+        "strategyValue": 8200,
+        "benchmarkValue": 9120.24336,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.451424109999998,
+        "strategyValue": 8200,
+        "benchmarkValue": 8949.493355,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.56847444,
+        "strategyValue": 8200,
+        "benchmarkValue": 8958.892438,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.685524780000001,
+        "strategyValue": 8200,
+        "benchmarkValue": 8968.291521,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.802575110000003,
+        "strategyValue": 8200,
+        "benchmarkValue": 8977.690604,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.919625440000004,
+        "strategyValue": 8200,
+        "benchmarkValue": 8987.089687,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.036675770000006,
+        "strategyValue": 8200,
+        "benchmarkValue": 8996.488769,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.153726100000007,
+        "strategyValue": 8200,
+        "benchmarkValue": 9005.887852,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.270776430000009,
+        "strategyValue": 8200,
+        "benchmarkValue": 9015.286935,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.38782677000001,
+        "strategyValue": 8200,
+        "benchmarkValue": 9024.686018,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.50487709999999,
+        "strategyValue": 8200,
+        "benchmarkValue": 9034.085101,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.62192742999999,
+        "strategyValue": 8200,
+        "benchmarkValue": 9043.484183,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-05-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.738977759999992,
+        "strategyValue": 8200,
+        "benchmarkValue": 9052.883266,
+        "cashBaselineValue": 8200
+      },
+      {
+        "date": "2026-06-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.856028089999993,
+        "strategyValue": 8300,
+        "benchmarkValue": 9162.282349,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.973078419999995,
+        "strategyValue": 8300,
+        "benchmarkValue": 9171.785148,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.090128759999997,
+        "strategyValue": 8300,
+        "benchmarkValue": 9181.287948,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.207179089999999,
+        "strategyValue": 8300,
+        "benchmarkValue": 9190.790747,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.32422942,
+        "strategyValue": 8300,
+        "benchmarkValue": 9200.293546,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.441279750000001,
+        "strategyValue": 8300,
+        "benchmarkValue": 9209.796346,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.558330080000003,
+        "strategyValue": 8300,
+        "benchmarkValue": 9219.299145,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.675380410000004,
+        "strategyValue": 8300,
+        "benchmarkValue": 9228.801944,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.792430750000007,
+        "strategyValue": 8300,
+        "benchmarkValue": 9238.304744,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.909481080000008,
+        "strategyValue": 8300,
+        "benchmarkValue": 9247.807543,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.02653141000001,
+        "strategyValue": 8300,
+        "benchmarkValue": 9257.310342,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 11.900117050000002,
+        "strategyValue": 8300,
+        "benchmarkValue": 9084.676155,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.017167380000004,
+        "strategyValue": 8300,
+        "benchmarkValue": 9094.178954,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.134217710000005,
+        "strategyValue": 8300,
+        "benchmarkValue": 9103.681753,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.251268050000007,
+        "strategyValue": 8300,
+        "benchmarkValue": 9113.184553,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.368318380000009,
+        "strategyValue": 8300,
+        "benchmarkValue": 9122.687352,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.48536871000001,
+        "strategyValue": 8300,
+        "benchmarkValue": 9132.190151,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.60241903999999,
+        "strategyValue": 8300,
+        "benchmarkValue": 9141.692951,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.719469369999992,
+        "strategyValue": 8300,
+        "benchmarkValue": 9151.19575,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.836519699999993,
+        "strategyValue": 8300,
+        "benchmarkValue": 9160.698549,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.953570039999995,
+        "strategyValue": 8300,
+        "benchmarkValue": 9170.201348,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-06-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.070620369999997,
+        "strategyValue": 8300,
+        "benchmarkValue": 9179.704148,
+        "cashBaselineValue": 8300
+      },
+      {
+        "date": "2026-07-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.187670699999998,
+        "strategyValue": 8400,
+        "benchmarkValue": 9289.206947,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.30472103,
+        "strategyValue": 8400,
+        "benchmarkValue": 9298.813159,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.421771360000001,
+        "strategyValue": 8400,
+        "benchmarkValue": 9308.419371,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.538821690000002,
+        "strategyValue": 8400,
+        "benchmarkValue": 9318.025583,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.655872020000004,
+        "strategyValue": 8400,
+        "benchmarkValue": 9327.631795,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.772922360000006,
+        "strategyValue": 8400,
+        "benchmarkValue": 9337.238007,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.889972690000008,
+        "strategyValue": 8400,
+        "benchmarkValue": 9346.844219,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.007023020000009,
+        "strategyValue": 8400,
+        "benchmarkValue": 9356.450431,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.12407335000001,
+        "strategyValue": 8400,
+        "benchmarkValue": 9366.056643,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.24112367999999,
+        "strategyValue": 8400,
+        "benchmarkValue": 9375.662855,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-15",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.358174009999992,
+        "strategyValue": 8400,
+        "benchmarkValue": 9385.269067,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-16",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.475224349999994,
+        "strategyValue": 8400,
+        "benchmarkValue": 9394.875278,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.34880999000001,
+        "strategyValue": 8400,
+        "benchmarkValue": 9220.362428,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.465860320000012,
+        "strategyValue": 8400,
+        "benchmarkValue": 9229.96864,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.58291064999999,
+        "strategyValue": 8400,
+        "benchmarkValue": 9239.574852,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-22",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.699960979999991,
+        "strategyValue": 8400,
+        "benchmarkValue": 9249.181064,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-23",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.817011309999993,
+        "strategyValue": 8400,
+        "benchmarkValue": 9258.787276,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.934061649999995,
+        "strategyValue": 8400,
+        "benchmarkValue": 9268.393488,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.051111979999996,
+        "strategyValue": 8400,
+        "benchmarkValue": 9277.9997,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.168162309999998,
+        "strategyValue": 8400,
+        "benchmarkValue": 9287.605912,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-29",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.28521264,
+        "strategyValue": 8400,
+        "benchmarkValue": 9297.212124,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-30",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.40226297,
+        "strategyValue": 8400,
+        "benchmarkValue": 9306.818336,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-07-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.519313300000002,
+        "strategyValue": 8400,
+        "benchmarkValue": 9316.424548,
+        "cashBaselineValue": 8400
+      },
+      {
+        "date": "2026-08-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.636363640000004,
+        "strategyValue": 8500,
+        "benchmarkValue": 9426.03076,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.753413970000006,
+        "strategyValue": 8500,
+        "benchmarkValue": 9435.739976,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-05",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.870464300000007,
+        "strategyValue": 8500,
+        "benchmarkValue": 9445.449192,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-06",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.987514630000009,
+        "strategyValue": 8500,
+        "benchmarkValue": 9455.158408,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.10456496000001,
+        "strategyValue": 8500,
+        "benchmarkValue": 9464.867625,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.221615289999988,
+        "strategyValue": 8500,
+        "benchmarkValue": 9474.576841,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.33866562999999,
+        "strategyValue": 8500,
+        "benchmarkValue": 9484.286057,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-12",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.455715959999992,
+        "strategyValue": 8500,
+        "benchmarkValue": 9493.995273,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-13",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.572766289999993,
+        "strategyValue": 8500,
+        "benchmarkValue": 9503.704489,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-14",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.689816619999995,
+        "strategyValue": 8500,
+        "benchmarkValue": 9513.413706,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-17",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.806866949999996,
+        "strategyValue": 8500,
+        "benchmarkValue": 9523.122922,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-18",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.923917279999998,
+        "strategyValue": 8500,
+        "benchmarkValue": 9532.832138,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-19",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.797502929999993,
+        "strategyValue": 8500,
+        "benchmarkValue": 9356.448043,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-20",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 12.914553259999995,
+        "strategyValue": 8500,
+        "benchmarkValue": 9366.157259,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-21",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.031603589999996,
+        "strategyValue": 8500,
+        "benchmarkValue": 9375.866476,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-24",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.148653919999997,
+        "strategyValue": 8500,
+        "benchmarkValue": 9385.575692,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-25",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.265704249999999,
+        "strategyValue": 8500,
+        "benchmarkValue": 9395.284908,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-26",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.38275458,
+        "strategyValue": 8500,
+        "benchmarkValue": 9404.994124,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-27",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.499804920000003,
+        "strategyValue": 8500,
+        "benchmarkValue": 9414.703341,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-28",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.616855250000004,
+        "strategyValue": 8500,
+        "benchmarkValue": 9424.412557,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-08-31",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.733905580000005,
+        "strategyValue": 8500,
+        "benchmarkValue": 9434.121773,
+        "cashBaselineValue": 8500
+      },
+      {
+        "date": "2026-09-01",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.850955910000007,
+        "strategyValue": 8600,
+        "benchmarkValue": 9543.830989,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-02",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 13.968006240000008,
+        "strategyValue": 8600,
+        "benchmarkValue": 9553.643016,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-03",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.08505657000001,
+        "strategyValue": 8600,
+        "benchmarkValue": 9563.455042,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-04",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.20210690999999,
+        "strategyValue": 8600,
+        "benchmarkValue": 9573.267068,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-07",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.319157239999992,
+        "strategyValue": 8600,
+        "benchmarkValue": 9583.079095,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-08",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.436207569999993,
+        "strategyValue": 8600,
+        "benchmarkValue": 9592.891121,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-09",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.553257899999995,
+        "strategyValue": 8600,
+        "benchmarkValue": 9602.703148,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-10",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.670308229999996,
+        "strategyValue": 8600,
+        "benchmarkValue": 9612.515174,
+        "cashBaselineValue": 8600
+      },
+      {
+        "date": "2026-09-11",
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 14.787358559999998,
+        "strategyValue": 8600,
+        "benchmarkValue": 9622.3272,
+        "cashBaselineValue": 8600
+      }
+    ],
+    "trades": [],
+    "holdings": []
+  },
+  "failure": null
+}

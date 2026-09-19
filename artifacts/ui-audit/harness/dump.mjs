@@ -1,0 +1,17 @@
+import { apiAs } from "./api.mjs";
+import { writeFileSync } from "node:fs";
+const a = await apiAs("pro");
+const w = (n, o) => writeFileSync(`fixtures/${n}.json`, JSON.stringify(o, null, 2));
+w("dashboard-pro", await a.get("/dashboard"));
+const mons = await a.get("/monitors"); w("monitors-pro", mons);
+w("monitor-builtin-b", await a.get(`/monitors/${mons.find(m=>m.name==="QA Built-in Monitor B").id}`));
+w("market-overview", await a.get("/market-overview"));
+const h = await apiAs("pro-heavy");
+const runs = await h.get("/backtests"); w("backtests-pro-heavy", runs);
+w("backtest-completed", await h.get(`/backtests/${runs.find(r=>r.status==="COMPLETED").id}`));
+w("backtest-failed", await h.get(`/backtests/${runs.find(r=>r.status==="FAILED").id}`));
+const f = await apiAs("free-limit");
+const fr = await f.get("/backtests"); w("backtests-free-limit", fr);
+w("backtest-running", await f.get(`/backtests/${fr[0].id}`));
+w("backtest-progress-running", await f.get(`/backtests/${fr[0].id}/progress`));
+console.log(runs.map(r=>r.status).join(","), "|", fr.map(r=>r.status+":"+r.progressPercent).join(","));

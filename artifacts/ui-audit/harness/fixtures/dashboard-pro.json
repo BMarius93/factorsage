@@ -1,0 +1,248 @@
+{
+  "viewer": "AUTHENTICATED",
+  "generatedAt": "2026-09-19T07:06:01.803Z",
+  "staleAfterMs": 900000,
+  "monitors": [
+    {
+      "id": "15656ff2-065b-45b7-9e3f-7e9a3a6e8312",
+      "name": "QA Built-in Monitor A",
+      "ownership": "SYSTEM",
+      "strategy": {
+        "id": "2e684ee4-4add-451b-a149-3826d376a2db",
+        "name": "QA Built-in Trend"
+      },
+      "stockList": {
+        "id": "88a97153-fb52-4c2a-bd1b-f21783980241",
+        "name": "QA Built-in Leaders"
+      },
+      "visible": true,
+      "control": "BUILT_IN_PREFERENCE",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 1,
+      "pendingCount": 0
+    },
+    {
+      "id": "4d4584ea-daca-4f3f-83eb-52724d65b06c",
+      "name": "QA Built-in Monitor B",
+      "ownership": "SYSTEM",
+      "strategy": {
+        "id": "2e684ee4-4add-451b-a149-3826d376a2db",
+        "name": "QA Built-in Trend"
+      },
+      "stockList": {
+        "id": "29a87496-1dbe-40dc-991d-84857cbf38ec",
+        "name": "QA Built-in Newcomers"
+      },
+      "visible": true,
+      "control": "BUILT_IN_PREFERENCE",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 1,
+      "pendingCount": 1
+    },
+    {
+      "id": "20191180-e7a7-4c09-b657-5e6b8c29dbb7",
+      "name": "ENT-Pro Monitor 1",
+      "ownership": "USER",
+      "strategy": {
+        "id": "7330c7be-95ed-4a6d-9e8d-9bbc6db57086",
+        "name": "ENT-PRO_USER Strategy"
+      },
+      "stockList": {
+        "id": "8aa794f3-8f84-473b-9faa-e66861d6f7c0",
+        "name": "ENT-Pro Wide"
+      },
+      "visible": true,
+      "control": "MONITOR_ENABLED",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 0,
+      "pendingCount": 0
+    },
+    {
+      "id": "ca215e63-b74b-406d-b697-22f153b3456f",
+      "name": "ENT-Pro Monitor 2",
+      "ownership": "USER",
+      "strategy": {
+        "id": "7330c7be-95ed-4a6d-9e8d-9bbc6db57086",
+        "name": "ENT-PRO_USER Strategy"
+      },
+      "stockList": {
+        "id": "8aa794f3-8f84-473b-9faa-e66861d6f7c0",
+        "name": "ENT-Pro Wide"
+      },
+      "visible": true,
+      "control": "MONITOR_ENABLED",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 0,
+      "pendingCount": 0
+    },
+    {
+      "id": "62605dc6-fe52-44fd-bb9d-c6cf0a54c601",
+      "name": "ENT-Pro Monitor 3",
+      "ownership": "USER",
+      "strategy": {
+        "id": "7330c7be-95ed-4a6d-9e8d-9bbc6db57086",
+        "name": "ENT-PRO_USER Strategy"
+      },
+      "stockList": {
+        "id": "8aa794f3-8f84-473b-9faa-e66861d6f7c0",
+        "name": "ENT-Pro Wide"
+      },
+      "visible": true,
+      "control": "MONITOR_ENABLED",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 0,
+      "pendingCount": 0
+    },
+    {
+      "id": "80751a9f-f431-4588-8fa5-e4030a6c91a9",
+      "name": "ENT-Pro Monitor 4",
+      "ownership": "USER",
+      "strategy": {
+        "id": "7330c7be-95ed-4a6d-9e8d-9bbc6db57086",
+        "name": "ENT-PRO_USER Strategy"
+      },
+      "stockList": {
+        "id": "8aa794f3-8f84-473b-9faa-e66861d6f7c0",
+        "name": "ENT-Pro Wide"
+      },
+      "visible": true,
+      "control": "MONITOR_ENABLED",
+      "freshness": "CURRENT",
+      "lastScanAt": "2026-09-19T07:01:50.563Z",
+      "activeCount": 0,
+      "pendingCount": 0
+    }
+  ],
+  "rows": [
+    {
+      "id": "eb14953d-05d5-42c4-b513-2bbd38f970cc",
+      "state": "PENDING_TRIGGER",
+      "security": {
+        "id": "9e5cd0d0-b371-4428-b5c5-ed784bb33402",
+        "symbol": "QATEST2",
+        "name": "QA Test Beta Corporation",
+        "exchangeCode": "NASDAQ",
+        "exchangeName": "NASDAQ Global Select"
+      },
+      "levelKind": "BUY",
+      "levelIndex": 1,
+      "levelPercentage": 100,
+      "reasons": [
+        {
+          "conditions": [
+            "SMA 50D is above SMA 200D",
+            "Price is above SMA 200D"
+          ],
+          "trigger": "Price crosses above SMA 20D",
+          "waitingForTrigger": true
+        }
+      ],
+      "monitor": {
+        "id": "4d4584ea-daca-4f3f-83eb-52724d65b06c",
+        "name": "QA Built-in Monitor B",
+        "ownership": "SYSTEM"
+      },
+      "strategy": {
+        "id": "2e684ee4-4add-451b-a149-3826d376a2db",
+        "name": "QA Built-in Trend"
+      },
+      "stockList": {
+        "id": "29a87496-1dbe-40dc-991d-84857cbf38ec",
+        "name": "QA Built-in Newcomers"
+      },
+      "price": 48.75,
+      "observationDate": "2026-09-14",
+      "since": "2026-09-14T15:00:00.000Z",
+      "reconstructed": false
+    },
+    {
+      "id": "16dc0ef0-6552-46fb-9012-95090d16f958",
+      "state": "ACTIVE",
+      "security": {
+        "id": "23856c41-e002-49af-bbee-6a23d89c17ae",
+        "symbol": "QATEST1",
+        "name": "QA Test Alpha Corporation",
+        "exchangeCode": "NASDAQ",
+        "exchangeName": "NASDAQ Global Select"
+      },
+      "levelKind": "BUY",
+      "levelIndex": 1,
+      "levelPercentage": 100,
+      "reasons": [
+        {
+          "conditions": [
+            "SMA 50D is above SMA 200D",
+            "Price is above SMA 200D"
+          ],
+          "trigger": "Price crosses above SMA 20D",
+          "waitingForTrigger": false
+        }
+      ],
+      "monitor": {
+        "id": "4d4584ea-daca-4f3f-83eb-52724d65b06c",
+        "name": "QA Built-in Monitor B",
+        "ownership": "SYSTEM"
+      },
+      "strategy": {
+        "id": "2e684ee4-4add-451b-a149-3826d376a2db",
+        "name": "QA Built-in Trend"
+      },
+      "stockList": {
+        "id": "29a87496-1dbe-40dc-991d-84857cbf38ec",
+        "name": "QA Built-in Newcomers"
+      },
+      "price": 102.5,
+      "observationDate": "2026-09-11",
+      "since": "2026-09-11T15:00:00.000Z",
+      "reconstructed": false,
+      "signalId": "13c63e3d-3a6f-4417-9656-67c0f4420e20"
+    },
+    {
+      "id": "6580dd39-9b01-492e-8381-ed6c34edb01c",
+      "state": "ACTIVE",
+      "security": {
+        "id": "23856c41-e002-49af-bbee-6a23d89c17ae",
+        "symbol": "QATEST1",
+        "name": "QA Test Alpha Corporation",
+        "exchangeCode": "NASDAQ",
+        "exchangeName": "NASDAQ Global Select"
+      },
+      "levelKind": "BUY",
+      "levelIndex": 1,
+      "levelPercentage": 100,
+      "reasons": [
+        {
+          "conditions": [
+            "SMA 50D is above SMA 200D",
+            "Price is above SMA 200D"
+          ],
+          "trigger": "Price crosses above SMA 20D",
+          "waitingForTrigger": false
+        }
+      ],
+      "monitor": {
+        "id": "15656ff2-065b-45b7-9e3f-7e9a3a6e8312",
+        "name": "QA Built-in Monitor A",
+        "ownership": "SYSTEM"
+      },
+      "strategy": {
+        "id": "2e684ee4-4add-451b-a149-3826d376a2db",
+        "name": "QA Built-in Trend"
+      },
+      "stockList": {
+        "id": "88a97153-fb52-4c2a-bd1b-f21783980241",
+        "name": "QA Built-in Leaders"
+      },
+      "price": 101.25,
+      "observationDate": "2026-09-10",
+      "since": "2026-09-10T15:00:00.000Z",
+      "reconstructed": false,
+      "signalId": "dd32f8ea-ae85-4958-be21-333426b5eb03"
+    }
+  ]
+}

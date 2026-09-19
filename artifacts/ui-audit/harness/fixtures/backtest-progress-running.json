@@ -1,0 +1,14 @@
+{
+  "runId": "b16287ee-d5ed-4474-b4e2-995151e7a829",
+  "status": "RUNNING",
+  "percent": 42,
+  "message": "Simulating",
+  "simulatedThrough": null,
+  "sequence": 1,
+  "updatedAt": "2026-09-19T06:53:15.642Z",
+  "startedAt": "2026-09-19T06:53:15.641Z",
+  "completedAt": null,
+  "live": null,
+  "milestones": [],
+  "failure": null
+}
