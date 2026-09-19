@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  STRATEGY_LEVEL_LABELS,
   STRATEGY_MAX_EXIT_RULES,
   type StrategyFinalExit,
   type StrategyIssuePath,
@@ -52,7 +51,6 @@ export function FinalExitCard({
   const levelMessage = messageAt(issues, levelPath, isRevealed(levelPath));
   const rules = finalExit.rules;
   const multiple = rules.length > 1;
-  const title = STRATEGY_LEVEL_LABELS.FINAL_EXIT;
 
   return (
     <li
@@ -60,19 +58,14 @@ export function FinalExitCard({
       data-tone="FINAL_EXIT"
       data-testid="level-card-FINAL_EXIT"
     >
-      <header className={styles.levelHeader}>
-        <button
-          type="button"
-          className={styles.levelTitle}
-          onClick={() => onFocusHelp({ kind: "LEVEL", levelKind: "FINAL_EXIT" })}
-        >
-          {title}
-        </button>
+      {/* No title of its own: the section above is already headed FINAL EXIT, and the card
+          repeating it read as a second, nested level (UI-014). */}
+      <header className={styles.levelHeader} data-untitled="true">
         <div className={styles.levelActions}>
           <button
             type="button"
             className={styles.levelRemove}
-            aria-label={`Remove ${title}`}
+            aria-label="Remove final exit"
             onClick={() =>
               dispatch({ type: "removeLevel", ref: { levelKind: "FINAL_EXIT" } })
             }

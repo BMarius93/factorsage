@@ -544,7 +544,13 @@ apps/web/src/features/strategies/
 
 State boundaries, each owning exactly one thing:
 
-- **Draft** — a `useReducer` over `{ name, description, definition }`. The reducer lives in
+- **Draft** — a `useReducer` over `{ name, description, definition, unset }`. `unset` lists the
+  Condition/Trigger rows an "+ Add" created whose Metric the user has not chosen yet (UI-013): the
+  canonical document has no "no metric" value, so such a row holds a placeholder and is listed until
+  `setMetric` names it. An unset row authors no logic — validation reports only "Choose a metric."
+  for it (never a duplicate or operator issue about the placeholder), the logic preview reads
+  `authoredDefinition`, and the draft cannot be saved while one remains, so the persisted document,
+  its semantics and its fingerprint never contain a placeholder. The reducer lives in
   `utils/strategy-draft.ts` as a pure function so it is unit-testable without React. Actions:
   `addLevel`, `removeLevel`, `moveLevel`, `setPercentage`, `addCondition`, `removeCondition`,
   `setMetric`, `setOperator`, `setValue`, `setTrigger`, `removeTrigger`, `setName`,
@@ -800,8 +806,19 @@ so the preview shows what is missing instead of silently under-reporting the str
 
 **When errors appear.** Never on first render of a new strategy — an empty builder would open to a
 wall of red. A field's issue renders once that field is **touched**, or once **Save has been
-attempted**. The issue count is always visible in the action bar but stays neutral until a save
-attempt.
+attempted**. A pristine form shows no count at all ("Nothing to save yet"); once there is something
+to fill in, the count is neutral ("2 things left to complete") until a field is touched or a save
+is attempted, and only then reads as "2 issues to fix" (UI-013).
+
+**Removing authored logic is recoverable** (UI-014). Remove is neutral ink, never red at rest.
+Removing a level or Exit Rule that holds a chosen Metric keeps the previous draft until the next
+edit or save, and the save bar offers "Undo"; removing an empty level needs no ceremony.
+
+**Identity** (UI-015). An existing strategy's page is titled with its name. Its header offers
+"Run backtest" (New Backtest prefilled with the strategy — the saved version) and an overflow with
+Rename (focuses the Name field, which is where the name is edited) and Delete (confirmed). The
+collection's rename dialog is titled "Rename strategy". FINAL EXIT's card carries no second
+"FINAL EXIT" heading under its section's.
 
 **Where errors appear.** `strategy-issues.ts` groups issues by `StrategyIssuePath` into a lookup
 keyed by level and condition index, so each control asks for its own:

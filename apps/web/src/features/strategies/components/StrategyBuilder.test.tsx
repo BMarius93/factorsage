@@ -87,6 +87,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * Chooses a Metric on every row still waiting for one (UI-013), so a test about something else can
+ * start from authored rows. `within` scopes it to one card or rule.
+ */
+async function chooseMetrics(
+  user: ReturnType<typeof userEvent.setup>,
+  scope: Pick<typeof screen, "getAllByTestId"> = screen,
+  metric = "PRICE:",
+) {
+  for (const select of scope.getAllByTestId("metric-select")) {
+    if ((select as HTMLSelectElement).value === "") {
+      await user.selectOptions(select, metric);
+    }
+  }
+}
+
 beforeEach(() => {
   replace.mockReset();
   createStrategyMock.mockReset();
@@ -102,10 +118,64 @@ describe("StrategyBuilder", () => {
       "disabled",
       true,
     );
-    // A strategy with no BUY level can never buy anything, so the issue count is non-zero.
-    expect(screen.getByTestId("issue-count").textContent).toMatch(
-      /issues to fix/,
+    // A pristine form reports nothing to fix: no red count before any interaction (UI-013).
+    expect(screen.queryByTestId("issue-count")).toBeNull();
+    expect(screen.getByText("Nothing to save yet")).toBeDefined();
+  });
+
+  it("adds rows that author nothing until a metric is chosen (UI-013)", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+
+    // The new row asks for its Metric; no Condition or Value is shown for a placeholder.
+    const metric = screen.getByTestId("metric-select") as HTMLSelectElement;
+    expect(metric.value).toBe("");
+    expect(screen.getByTestId("predicate-unset-hint")).toBeDefined();
+    expect(screen.queryByTestId("operator-select")).toBeNull();
+    // Nothing is described as logic yet.
+    const preview = within(screen.getByTestId("logic-preview"));
+    expect(preview.queryByText(/Price is above/)).toBeNull();
+    // The count is neutral until the user engages, and the save stays closed.
+    expect(screen.getByTestId("issue-count").getAttribute("data-tone")).toBe(
+      "neutral",
     );
+    expect(screen.getByTestId("save-strategy")).toHaveProperty("disabled", true);
+
+    // Adding another condition creates another empty row, never a duplicate rule.
+    await user.click(screen.getByTestId("add-condition"));
+    await user.click(screen.getByTestId("issue-count"));
+    expect(screen.getAllByText("Choose a metric.")).toHaveLength(2);
+    expect(screen.queryByText(/repeats condition/)).toBeNull();
+
+    await user.selectOptions(screen.getAllByTestId("metric-select")[0]!, "PRICE:");
+    expect(preview.getByText(/Price is above/)).toBeDefined();
+  });
+
+  it("makes removing a level with authored logic recoverable (UI-014)", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={savedStrategy()} />);
+
+    await user.click(screen.getByRole("button", { name: "Remove BUY 1" }));
+    expect(screen.queryAllByTestId("level-card-BUY")).toHaveLength(0);
+    const undo = screen.getByTestId("strategy-undo");
+    expect(undo.textContent).toContain("BUY 1 removed");
+    await user.click(within(undo).getByRole("button", { name: "Undo" }));
+    expect(screen.getAllByTestId("level-card-BUY")).toHaveLength(1);
+    expect(screen.queryByTestId("strategy-undo")).toBeNull();
+  });
+
+  it("names an existing strategy in its header and offers its actions (UI-015)", async () => {
+    render(<StrategyBuilder strategy={savedStrategy()} />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Deep value",
+    );
+    expect(
+      screen.getByTestId("strategy-run-backtest").getAttribute("href"),
+    ).toBe("/backtests/new?strategyId=s1");
+    expect(
+      screen.getByRole("button", { name: "More actions for Deep value" }),
+    ).toBeDefined();
   });
 
   it("reveals a field's issue only once that field is touched", async () => {
@@ -123,6 +193,7 @@ describe("StrategyBuilder", () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
+    await chooseMetrics(user);
 
     const operator = screen.getByTestId("operator-select");
     const priceOptions = within(operator)
@@ -223,8 +294,8 @@ describe("StrategyBuilder", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-condition"));
-
-    // Both rows default to the same metric, operator and value.
+    // The user chooses the same Metric twice; operator and value default identically.
+    await chooseMetrics(user);
     expect(screen.getAllByTestId("predicate-row")).toHaveLength(2);
     // Save stays disabled, so the issue count is the way to see what is wrong.
     expect(screen.getByTestId("save-strategy")).toHaveProperty(
@@ -243,6 +314,7 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
+    await chooseMetrics(user);
     await user.click(screen.getByTestId("save-strategy"));
 
     await waitFor(() => expect(createStrategyMock).toHaveBeenCalledTimes(1));
@@ -284,6 +356,7 @@ describe("StrategyBuilder", () => {
     render(<StrategyBuilder strategy={strategy} />);
 
     await user.click(screen.getByTestId("add-level-BUY"));
+    await chooseMetrics(user, screen, "OSCILLATOR:RSI_14D");
     await user.click(screen.getByTestId("save-strategy"));
 
     await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalledTimes(1));
@@ -308,6 +381,7 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
+    await chooseMetrics(user);
 
     expect(navigateAway().preventDefault).toHaveBeenCalledTimes(1);
     expect(confirm).toHaveBeenCalledTimes(1);
@@ -343,6 +417,7 @@ describe("StrategyBuilder", () => {
 
     await user.type(screen.getByLabelText("Name"), "Deep value");
     await user.click(screen.getByTestId("add-level-BUY"));
+    await chooseMetrics(user);
     await user.click(screen.getByTestId("save-strategy"));
     await screen.findByText("All changes saved");
 
@@ -385,6 +460,7 @@ describe("StrategyBuilder final exit rules", () => {
     render(<StrategyBuilder />);
     await user.click(screen.getByTestId("add-level-BUY"));
     await user.click(screen.getByTestId("add-level-FINAL_EXIT"));
+    await chooseMetrics(user);
     return user;
   }
 
@@ -482,6 +558,7 @@ describe("StrategyBuilder final exit rules", () => {
     await user.click(exitCard().getByTestId("add-exit-rule"));
     // Make rule 2 different, so the document is valid and the preview reads distinctly.
     const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
+    await chooseMetrics(user, secondRule);
     await user.selectOptions(
       secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
       "IS_BELOW",
@@ -519,6 +596,7 @@ describe("StrategyBuilder final exit rules", () => {
     const user = await builderWithFinalExit();
     await user.click(exitCard().getByTestId("add-exit-rule"));
     const secondRule = within(exitCard().getAllByTestId("exit-rule")[1] as HTMLElement);
+    await chooseMetrics(user, secondRule);
     await user.selectOptions(
       secondRule.getAllByTestId("operator-select")[0] as HTMLElement,
       "IS_BELOW",

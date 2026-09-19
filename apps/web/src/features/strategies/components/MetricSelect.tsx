@@ -19,6 +19,8 @@ type MetricSelectProps = {
   readonly onChange: (metric: StrategyMetric) => void;
   readonly onFocus: (metric: StrategyMetric) => void;
   readonly onBlur: () => void;
+  /** The row has no Metric chosen yet: the control opens on "Choose a metric…". */
+  readonly unset?: boolean;
 };
 
 /**
@@ -37,6 +39,7 @@ export function MetricSelect({
   onChange,
   onFocus,
   onBlur,
+  unset = false,
 }: MetricSelectProps) {
   const options = strategyMetricOptions(levelKind);
 
@@ -62,7 +65,7 @@ export function MetricSelect({
     return built;
   }, [options]);
 
-  const selected = metricKey(metric);
+  const selected = unset ? "" : metricKey(metric);
 
   return (
     <select
@@ -72,7 +75,11 @@ export function MetricSelect({
       aria-invalid={invalid || undefined}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={selected}
-      onFocus={() => onFocus(metric)}
+      onFocus={() => {
+        if (!unset) {
+          onFocus(metric);
+        }
+      }}
       onBlur={onBlur}
       onChange={(event) => {
         const next = options.find(
@@ -89,9 +96,13 @@ export function MetricSelect({
         change. Rendering it keeps the row readable instead of silently showing the wrong metric;
         validation is what reports it.
       */}
-      {options.some(
-        (option) => metricKey(option.metric) === selected,
-      ) ? null : (
+      {unset ? (
+        <option value="" disabled>
+          Choose a metric…
+        </option>
+      ) : options.some(
+          (option) => metricKey(option.metric) === selected,
+        ) ? null : (
         <option value={selected}>Unavailable metric</option>
       )}
       {groups.map((group) => (
