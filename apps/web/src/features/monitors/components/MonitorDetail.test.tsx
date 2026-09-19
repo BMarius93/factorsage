@@ -621,7 +621,7 @@ describe("MonitorDetail", () => {
     expect(screen.queryByText("Try again")).toBeNull();
     expect(
       screen
-        .getByRole("link", { name: "Back to monitors" })
+        .getByRole("link", { name: "Back to Monitors" })
         .getAttribute("href"),
     ).toBe("/monitors");
   });

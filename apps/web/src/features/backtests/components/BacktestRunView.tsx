@@ -21,7 +21,7 @@ import { LinkedEntities } from "../../../components/ui/EntityReference";
 import { FactGrid } from "../../../components/ui/FactGrid";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import {
   StatusBadge,
   type StatusTone,
@@ -292,7 +292,7 @@ function FailurePanel({
               : "Run again with these settings"}
           </Link>
           <Link className={forms.secondaryButton} href="/backtests">
-            Back to backtests
+            Back to Backtests
           </Link>
         </>
       }
@@ -350,11 +350,10 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   if (loadStatus === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page}>
-          <SectionCard ariaLabel="Loading backtest">
-            <SkeletonList rows={5} />
-          </SectionCard>
-        </div>
+        <DetailSkeleton
+          thing="backtest"
+          back={{ href: "/backtests", label: "Backtests" }}
+        />
       </PageContainer>
     );
   }
@@ -366,13 +365,13 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
           <EmptyState
             as="h1"
             testId="backtest-not-found"
-            title="This backtest was not found"
+            title="Backtest not found"
             body={
               <p>It may have been deleted, or it belongs to another account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/backtests">
-                Back to backtests
+                Back to Backtests
               </Link>
             }
           />

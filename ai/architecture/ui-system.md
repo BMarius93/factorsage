@@ -388,6 +388,21 @@ in the shell so navigation keeps working, with a "Try again" that calls `reset()
 and depends on nothing but the token stylesheet. None of the three renders an error's message,
 digest or stack; the error is logged to the browser console only.
 
+**Page states (UI-027…UI-029, UI-057).**
+
+- **Loading an entity page:** `DetailSkeleton` — the real `PageHeader` frame with its back link, a
+  placeholder title and actions, and a section of rows, so nothing jumps when the entity lands. The
+  page keeps exactly one `h1` ("Loading list…", for assistive technology) and reports `aria-busy`.
+- **Not found:** one pattern for every owned entity — "{Thing} not found", "It may have been deleted,
+  or it belongs to another account.", and "Back to {Collection}". Another account's object and a
+  deleted one are deliberately indistinguishable: no access-control detail is leaked.
+- **Load failures:** "{Thing} could not be loaded", with "Try again" (secondary) always present.
+- **Session gates** (`RequireAuth`) render inside `PageContainer` as `EmptyState`s, never bespoke
+  markup against the viewport edge. A failed session check is worded by cause — the API answered
+  with a failure ("usually temporary") versus no answer at all ("check your connection") — and
+  offers Try again beside Return to sign in. A missing role reads "This page is not available to
+  your account", with a way back.
+
 ### `Notice`
 
 One inline message about the state of what the user is looking at — `info`, `warning`, `success`

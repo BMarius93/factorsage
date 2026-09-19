@@ -21,7 +21,7 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
@@ -187,11 +187,10 @@ export function ListDetail({ listId }: ListDetailProps) {
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page}>
-          <SectionCard ariaLabel="Loading list">
-            <SkeletonList rows={5} />
-          </SectionCard>
-        </div>
+        <DetailSkeleton
+          thing="list"
+          back={{ href: "/lists", label: "Lists" }}
+        />
       </PageContainer>
     );
   }
@@ -205,7 +204,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             testId="list-not-found"
             title="List not found"
             body={
-              <p>This list does not exist or belongs to a different account.</p>
+              <p>It may have been deleted, or it belongs to another account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/lists">

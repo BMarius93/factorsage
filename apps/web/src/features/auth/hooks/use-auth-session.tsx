@@ -1,6 +1,7 @@
 "use client";
 
 import type { AuthUser } from "@intrinsic/contracts";
+import { ApiError } from "../../../lib/api/client";
 import {
   createContext,
   useCallback,
@@ -20,7 +21,15 @@ export type AuthState =
   | { status: "loading" }
   | { status: "unauthenticated" }
   | { status: "authenticated"; user: AuthUser }
-  | { status: "error" };
+  | {
+      status: "error";
+      /**
+       * Why the session could not be read (UI-029). `server`: the API answered with a failure, so
+       * the network is fine and retrying later is the advice. `unreachable`: no answer at all.
+       * Absent where a caller constructs the state without knowing.
+       */
+      reason?: "server" | "unreachable";
+    };
 
 export type AuthSession = {
   readonly state: AuthState;
@@ -29,6 +38,8 @@ export type AuthSession = {
    * every other device is signed out on its next request too.
    */
   readonly signOut: (options?: { everywhere?: boolean }) => Promise<void>;
+  /** Asks for the session again after a failure. */
+  readonly retry?: () => void;
 };
 
 const AuthSessionContext = createContext<AuthSession | null>(null);
@@ -47,6 +58,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     setState({ status: "unauthenticated" });
   }, []);
 
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setState({ status: "loading" });
+    setAttempt((current) => current + 1);
+  }, []);
+
   useEffect(() => {
     let active = true;
 
@@ -59,18 +76,23 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
             : { status: "unauthenticated" },
         );
       })
-      .catch(() => {
-        if (active) setState({ status: "error" });
+      .catch((error: unknown) => {
+        if (active) {
+          setState({
+            status: "error",
+            reason: error instanceof ApiError ? "server" : "unreachable",
+          });
+        }
       });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [attempt]);
 
   const value = useMemo<AuthSession>(
-    () => ({ state, signOut }),
-    [state, signOut],
+    () => ({ state, signOut, retry }),
+    [state, signOut, retry],
   );
 
   return (

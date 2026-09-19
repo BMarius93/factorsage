@@ -24,7 +24,7 @@ import { FactGrid } from "../../../components/ui/FactGrid";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import forms from "../../../components/ui/forms.module.css";
@@ -118,11 +118,10 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page}>
-          <SectionCard ariaLabel="Loading monitor">
-            <SkeletonList rows={5} />
-          </SectionCard>
-        </div>
+        <DetailSkeleton
+          thing="monitor"
+          back={{ href: "/monitors", label: "Monitors" }}
+        />
       </PageContainer>
     );
   }
@@ -134,15 +133,13 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
           <EmptyState
             as="h1"
             testId="monitor-missing"
-            title="This monitor no longer exists"
+            title="Monitor not found"
             body={
-              <p>
-                It may have been deleted. Your other monitors are unaffected.
-              </p>
+              <p>It may have been deleted, or it belongs to another account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/monitors">
-                Back to monitors
+                Back to Monitors
               </Link>
             }
           />

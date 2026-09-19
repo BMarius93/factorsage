@@ -246,7 +246,7 @@ describe("ListDetail", () => {
     });
     expect(
       screen.getByText(
-        "This list does not exist or belongs to a different account.",
+        "It may have been deleted, or it belongs to another account.",
       ),
     ).toBeDefined();
   });
