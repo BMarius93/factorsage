@@ -148,7 +148,7 @@ export function DataTable<TRow>({
     // A click on a link, a button or a form control belongs to that control, never to the row.
     if (
       (event.target as HTMLElement).closest(
-        "a, button, input, select, textarea, label",
+        "a, button, input, select, textarea, label, summary, details",
       )
     ) {
       return;

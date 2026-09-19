@@ -3,7 +3,7 @@ import type {
   StockListItemResponse,
   StockListSecurityResponse,
 } from "@intrinsic/contracts";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -190,11 +190,18 @@ describe("ListDetail", () => {
     expect(screen.getByText("AAPL")).toBeDefined();
     expect(screen.getByText("AAPL Incorporated")).toBeDefined();
     expect(screen.getByText("Always eligible")).toBeDefined();
-    // The multi-period member leads with its first period and says how many more it holds, so a
-    // gap in membership is never presented as continuous eligibility.
-    expect(screen.getByText("Jan 1, 2020")).toBeDefined();
-    expect(screen.getByText("Dec 31, 2020")).toBeDefined();
-    expect(screen.getByText("+1 more")).toBeDefined();
+    // The multi-period member leads with what is true today — a member since 2023 — not with its
+    // oldest stored period (UI-019), and every period is in a disclosure rather than a tooltip.
+    const membership = screen.getAllByTestId("membership")[1]!;
+    expect(membership.getAttribute("data-state")).toBe("CURRENT");
+    expect(membership.textContent).toContain("Member now · since Jan 1, 2023");
+    expect(
+      within(membership).getByTestId("membership-periods-toggle").textContent,
+    ).toBe("2 periods");
+    const periods = within(membership).getByTestId("membership-periods");
+    expect(periods.textContent).toContain("Jan 1, 2020");
+    expect(periods.textContent).toContain("Dec 31, 2020");
+    expect(membership.hasAttribute("title")).toBe(false);
   });
 
   it("renders the member's mark from the catalog projection", async () => {

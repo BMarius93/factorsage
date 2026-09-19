@@ -39,43 +39,86 @@ export function formatMembershipPeriod(range: BuyWindowRangeResponse): string {
 }
 
 /**
- * What a membership cell renders, for one list member.
+ * Where a member stands today, by meaning rather than by storage order (UI-019).
  *
- * `periods` is empty for `FULL`. A member with more than one period shows the first and says how
- * many more there are; `title` carries all of them, because the cell must not imply that a stock
- * with a gap in its membership was eligible throughout.
+ * - `CURRENT`: a period covers today — the stock is a member now.
+ * - `UPCOMING`: no period covers today and one starts later; the earliest such period is shown.
+ * - `ENDED`: every period is over; the most recent one is shown.
+ *
+ * Periods are stored sorted by start date, so "the first period" is the *oldest* — for a stock
+ * that left an index in 2018 and rejoined last year, the one that no longer applies. Showing it
+ * first made an eligible stock look ineligible at a glance.
  */
+export type MembershipState = "CURRENT" | "UPCOMING" | "ENDED";
+
 export type MembershipSummary = {
   readonly mode: StockListItemResponse["buyWindowMode"];
+  /** Every stored period, in stored (chronological) order. Empty for `FULL`. */
   readonly periods: readonly BuyWindowRangeResponse[];
-  /** The period shown in the cell, or `null` under `FULL`. */
+  /** The period that answers "is it a member today?", or `null` under `FULL`. */
   readonly leading: BuyWindowRangeResponse | null;
-  /** Periods beyond the leading one; `0` for every member the V1 editor can produce. */
-  readonly additionalCount: number;
-  /** Every period, one per line, for the cell's `title`. */
-  readonly title: string;
+  readonly state: MembershipState | null;
 };
+
+/** Today as the `YYYY-MM-DD` day the member's periods are written in, in the viewer's calendar. */
+export function todayIsoDate(now: Date = new Date()): string {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
 
 export function membershipSummary(
   item: Pick<StockListItemResponse, "buyWindowMode" | "buyWindows">,
+  today: string = todayIsoDate(),
 ): MembershipSummary {
   if (item.buyWindowMode === "FULL") {
-    return {
-      mode: "FULL",
-      periods: [],
-      leading: null,
-      additionalCount: 0,
-      title: "Eligible to buy on every date a strategy or backtest covers.",
-    };
+    return { mode: "FULL", periods: [], leading: null, state: null };
   }
   const periods = item.buyWindows;
+  const current = periods.find(
+    (period) =>
+      period.startDate <= today &&
+      (period.endDate === null || period.endDate >= today),
+  );
+  if (current) {
+    return { mode: "CUSTOM", periods, leading: current, state: "CURRENT" };
+  }
+  const upcoming = periods
+    .filter((period) => period.startDate > today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  if (upcoming) {
+    return { mode: "CUSTOM", periods, leading: upcoming, state: "UPCOMING" };
+  }
+  const ended = [...periods].sort((a, b) =>
+    (b.endDate ?? b.startDate).localeCompare(a.endDate ?? a.startDate),
+  )[0];
   return {
     mode: "CUSTOM",
     periods,
-    leading: periods[0] ?? null,
-    additionalCount: Math.max(periods.length - 1, 0),
-    title: periods.map(formatMembershipPeriod).join("\n"),
+    leading: ended ?? null,
+    state: ended ? "ENDED" : null,
   };
+}
+
+/**
+ * The cell's one-line answer: "Member now · since Sep 19, 2025", "Joins Jan 2, 2027",
+ * "Ended Jun 29, 2018". The full periods are listed separately, never only in a tooltip.
+ */
+export function membershipHeadline(summary: MembershipSummary): string {
+  const leading = summary.leading;
+  if (summary.mode === "FULL" || leading === null) {
+    return ALWAYS_ELIGIBLE_LABEL;
+  }
+  switch (summary.state) {
+    case "CURRENT":
+      return leading.endDate === null
+        ? `Member now · since ${formatMembershipDate(leading.startDate)}`
+        : `Member now · until ${formatMembershipDate(leading.endDate)}`;
+    case "UPCOMING":
+      return `Joins ${formatMembershipDate(leading.startDate)}`;
+    default:
+      return `Ended ${formatMembershipDate(leading.endDate ?? leading.startDate)}`;
+  }
 }
 
 /**

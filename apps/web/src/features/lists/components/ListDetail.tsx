@@ -34,6 +34,7 @@ import {
 import { useStockList } from "../hooks/use-stock-list";
 import {
   ALWAYS_ELIGIBLE_LABEL,
+  membershipHeadline,
   membershipSummary,
   PRESENT_LABEL,
 } from "../utils/buy-windows";
@@ -50,29 +51,25 @@ type ListDetailProps = {
 };
 
 /**
- * A member's membership, as it reads in a row: `Nov 30, 1982 → Present`.
+ * A member's membership, as it reads in a row: whether the stock is a member **today**, first
+ * (UI-019) — "Member now · since Sep 19, 2025" — and every stored period one tap away.
  *
- * Secondary metadata by design — it must not compete with the ticker and company name beside it,
- * so it is plain text at the table's own weight rather than a badge.
- *
- * The arrow is decoration and is hidden from assistive technology, which reads "Nov 30, 1982 to
- * Present" instead. `Present` is a real word in the accessibility tree for the same reason it is
- * one on screen: an open-ended membership is a fact about the stock, not a missing value.
- *
- * A member with more than one stored period shows the first and says how many more there are,
- * with all of them in the tooltip — the V1 editor cannot create that state, but the API can, and a
- * cell that showed only the first period would imply an eligibility the stock never had.
+ * Periods are stored oldest first, so the row used to lead with the oldest period — for a stock
+ * that left an index and rejoined, one that no longer applies — and hide the one in force in a
+ * tooltip a phone cannot open. The headline is derived by meaning (`membershipSummary`), and the
+ * full list is a native disclosure that works by touch and keyboard. Secondary metadata by design:
+ * plain text at the row's own weight, never a badge.
  */
 function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
   const summary = membershipSummary(item);
+  const headline = membershipHeadline(summary);
 
-  if (summary.leading === null) {
+  if (summary.mode === "FULL" || summary.leading === null) {
     return (
       <span
         className={styles.membership}
         data-testid="membership"
-        data-mode={summary.mode}
-        title={summary.title}
+        data-mode="FULL"
       >
         {ALWAYS_ELIGIBLE_LABEL}
       </span>
@@ -84,23 +81,34 @@ function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
       className={styles.membership}
       data-testid="membership"
       data-mode={summary.mode}
-      title={summary.title}
+      data-state={summary.state ?? undefined}
     >
-      <span>{formatMembershipDate(summary.leading.startDate)}</span>
-      <span className={styles.membershipArrow} aria-hidden="true">
-        →
-      </span>
-      <span className={styles.srOnly}>to</span>
-      <span>
-        {summary.leading.endDate === null
-          ? PRESENT_LABEL
-          : formatMembershipDate(summary.leading.endDate)}
-      </span>
-      {summary.additionalCount > 0 ? (
-        <span className={styles.membershipMore}>
-          +{summary.additionalCount} more
-        </span>
-      ) : null}
+      <span className={styles.membershipHeadline}>{headline}</span>
+      <details className={styles.membershipPeriods}>
+        <summary data-testid="membership-periods-toggle">
+          {summary.periods.length}{" "}
+          {summary.periods.length === 1 ? "period" : "periods"}
+        </summary>
+        <ul data-testid="membership-periods">
+          {summary.periods.map((period) => (
+            <li
+              key={`${period.startDate}-${period.endDate ?? "open"}`}
+              data-current={period === summary.leading ? "true" : undefined}
+            >
+              <span>{formatMembershipDate(period.startDate)}</span>
+              <span className={styles.membershipArrow} aria-hidden="true">
+                {" → "}
+              </span>
+              <span className={styles.srOnly}> to </span>
+              <span>
+                {period.endDate === null
+                  ? PRESENT_LABEL
+                  : formatMembershipDate(period.endDate)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
     </span>
   );
 }
@@ -251,6 +259,9 @@ export function ListDetail({ listId }: ListDetailProps) {
     {
       key: "membership",
       header: "Membership",
+      // Several lines on a phone card (headline and the period list), so it reads under its
+      // label, left-aligned.
+      stacked: true,
       cardRole: "fact",
       nowrap: true,
       render: (item) => <MembershipCell item={item} />,
