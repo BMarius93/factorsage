@@ -85,7 +85,7 @@ function count(limit: EntitlementLimit, noun: string, nounPlural: string): strin
 }
 
 /**
- * The five capacities that differ between plans, in one fixed order.
+ * The six capacities that differ between plans, in one fixed order.
  *
  * Fixed order and fixed length are what make the three cards line up row for row, so a reader
  * compares the same capacity across plans by looking straight across rather than hunting.
@@ -111,11 +111,18 @@ export function planFeatures(plan: UserPlan): readonly PlanFeature[] {
             ).toLowerCase()}`,
     },
     {
+      // Enforced separately from a list's size, so it is stated separately (UI-039).
+      id: "backtest-symbols",
+      label: `${capacity(entitlements.backtests.maxSymbols, "stock", "stocks")} per backtest`,
+    },
+    {
+      // A limit on the length of the simulated period, not on how far back it may start: any
+      // plan may begin thirty years ago. "Over N years of history" read as a look-back cap.
       id: "backtest-history",
       label:
         entitlements.backtests.maxHistoricalYears === null
-          ? "Backtests over the full history"
-          : `Backtests over ${entitlements.backtests.maxHistoricalYears} years of history`,
+          ? "Backtest periods of any length"
+          : `Backtest periods up to ${entitlements.backtests.maxHistoricalYears} years long`,
     },
     {
       id: "backtest-concurrency",

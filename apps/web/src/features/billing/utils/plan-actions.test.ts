@@ -132,7 +132,9 @@ describe("plan card actions", () => {
 
     const starter = state("STARTER", "MONTH", billing);
     expect(starter.action).toEqual({ kind: "NONE" });
-    expect(starter.effectHint).toBe("Resume your subscription to change plan");
+    expect(starter.effectHint).toBe(
+      "Resume your subscription in Manage billing to change plan",
+    );
     // The plan still held is still stated, without an action.
     expect(state("PRO", "MONTH", billing).action).toEqual({
       kind: "CURRENT",

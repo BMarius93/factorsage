@@ -69,7 +69,7 @@ test.describe("STARTER billing", () => {
       entitlements: {
         lists: { maxSymbols: number };
         monitors: { maxActive: number };
-        backtests: { maxHistoricalYears: number };
+        backtests: { maxHistoricalYears: number; maxSymbols: number };
       };
     };
 
@@ -84,7 +84,10 @@ test.describe("STARTER billing", () => {
       `${body.entitlements.monitors.maxActive} active monitors`,
     );
     await expect(card).toContainText(
-      `Backtests over ${body.entitlements.backtests.maxHistoricalYears} years of history`,
+      `Backtest periods up to ${body.entitlements.backtests.maxHistoricalYears} years long`,
+    );
+    await expect(card).toContainText(
+      `Up to ${body.entitlements.backtests.maxSymbols} stocks per backtest`,
     );
   });
 });

@@ -80,7 +80,8 @@ export function statusNotice(
     case "INCOMPLETE_EXPIRED":
       return {
         tone: "info",
-        message: "Your subscription has ended. You are on the Free plan.",
+        message:
+          "Your subscription has ended. You are on the Free plan — choose a plan above whenever you want to subscribe again.",
       };
     case "TRIALING":
     case "PAUSED":
