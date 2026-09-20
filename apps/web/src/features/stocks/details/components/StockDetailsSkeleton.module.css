@@ -4,17 +4,23 @@
   gap: 16px;
 }
 
+/* Shaped like the compact quote header it stands in for: one dense row on a desktop, a
+   short stack on a phone. A roomier placeholder would settle into a shorter header and
+   drag the chart up as it goes. */
 .header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  padding: 12px 14px;
 }
 
 @media (min-width: 600px) {
   .header {
     flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 16px;
+    padding: 14px 16px;
   }
 }
 
@@ -22,19 +28,13 @@
 .quote {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 /* Percentage-width blocks need a resolved width to size against. */
 .identity {
   flex: 1;
   min-width: 0;
-}
-
-@media (min-width: 600px) {
-  .quote {
-    align-items: flex-end;
-  }
 }
 
 .card {
@@ -68,17 +68,17 @@
 
 .titleBlock {
   width: min(320px, 70%);
-  height: 30px;
+  height: 24px;
 }
 
 .badgeBlock {
   width: min(220px, 50%);
-  height: 22px;
+  height: 20px;
 }
 
 .priceBlock {
-  width: 140px;
-  height: 32px;
+  width: 120px;
+  height: 26px;
 }
 
 .captionBlock {

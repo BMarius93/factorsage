@@ -46,6 +46,24 @@
   gap: 12px;
 }
 
+/* Transparent until a page brings a mark: with none, the identity is the flex item of the
+   header it has always been. */
+.identityGroup {
+  display: contents;
+}
+
+.identityGroup[data-mark="true"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mark {
+  display: flex;
+  flex: none;
+}
+
 .identity {
   display: grid;
   gap: 6px;
@@ -127,5 +145,71 @@
 
   .actions > * {
     flex: 1 1 auto;
+  }
+}
+
+/* ── Compact: the quote header ────────────────────────────────────────────────
+ *
+ * Stock Details opens with a readout, not an introduction: a ticker, its latest close and one
+ * action. At the comfortable density those three groups are spread across a 1600px row by
+ * `space-between`, which strands the quote in an empty middle and spends ~50px of vertical
+ * padding on a single line of facts — height taken from the chart the page exists for.
+ *
+ * Compact keeps the same three groups in the same order and only removes the air: the identity
+ * and the quote sit together at the start of the row, the action keeps the trailing edge, and
+ * the surface padding drops to what one dense row needs. */
+.wrapper[data-density="compact"] {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.wrapper[data-density="compact"] .header {
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px 24px;
+}
+
+/* Phones stack the same groups, so the rhythm between them is what decides how much of the
+   first screen the header takes. */
+@media (max-width: 599px) {
+  .wrapper[data-density="compact"] .header {
+    gap: 6px;
+  }
+}
+
+.wrapper[data-density="compact"] .identity {
+  gap: 3px;
+}
+
+.wrapper[data-density="compact"] .titleRow {
+  gap: 4px 10px;
+}
+
+/* The identity keeps only the width it needs, so the quote sits beside it rather than being
+   pushed into the middle of the row. */
+.wrapper[data-density="compact"] .title {
+  min-width: 0;
+}
+
+.wrapper[data-density="compact"] .aside {
+  gap: 2px;
+}
+
+/* The action stays on the trailing edge, where every other header in the product puts it. */
+.wrapper[data-density="compact"] .actions {
+  margin-left: auto;
+}
+
+@media (min-width: 600px) {
+  .wrapper[data-density="compact"] {
+    padding: 14px 16px;
+  }
+
+  /* Beside the identity now, not opposite it: reading left to right is who, then what it
+     trades at. Only the column gap separates them — a rule or a divider would be left
+     hanging at the width where the quote drops onto its own line. */
+  .wrapper[data-density="compact"] .aside {
+    align-items: flex-start;
+    text-align: left;
   }
 }

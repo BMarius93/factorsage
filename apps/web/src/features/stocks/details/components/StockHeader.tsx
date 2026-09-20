@@ -51,22 +51,28 @@ export function StockHeader({
 
   return (
     <PageHeader
+      // A quote header, not a page introduction: the identity, the close and the one action
+      // read as a single dense row so the chart below starts as high as it can.
+      density="compact"
       {...(actions ? { actions } : {})}
+      // Beside the identity rather than inside the heading: the mark then spans the ticker and
+      // the listing metadata under it, which is what keeps a phone's identity two lines instead
+      // of three.
+      mark={
+        <StockLogo
+          symbol={security.symbol}
+          name={security.name}
+          size="lg"
+          // The page's own identity, above the fold on every viewport: nothing is gained by
+          // deferring it behind a viewport check it passes on the first frame.
+          loading="eager"
+          {...(profile?.logoUrl ? { logoUrl: profile.logoUrl } : {})}
+        />
+      }
       title={
-        <span className={styles.identityRow}>
-          <StockLogo
-            symbol={security.symbol}
-            name={security.name}
-            size="lg"
-            // The page's own identity, above the fold on every viewport: nothing is gained by
-            // deferring it behind a viewport check it passes on the first frame.
-            loading="eager"
-            {...(profile?.logoUrl ? { logoUrl: profile.logoUrl } : {})}
-          />
-          <span className={styles.titleText}>
-            <span className={styles.symbol}>{security.symbol}</span>
-            <span className={styles.name}>{security.name}</span>
-          </span>
+        <span className={styles.titleText}>
+          <span className={styles.symbol}>{security.symbol}</span>
+          <span className={styles.name}>{security.name}</span>
         </span>
       }
       badges={
@@ -93,16 +99,22 @@ export function StockHeader({
       aside={
         summary ? (
           <>
-            <p className={styles.price}>
-              {formatMoney(summary.latestClose, security.currency)}
-            </p>
-            {change && direction ? (
-              <p className={styles.change} data-direction={direction}>
-                <span aria-hidden="true">{direction === "up" ? "▲" : "▼"}</span>{" "}
-                {formatSignedMoney(change.absolute, security.currency)} (
-                {formatSignedPercent(change.fraction)})
+            {/* The close and its move are one fact and sit on one line; only the metadata
+                below them is a second. */}
+            <div className={styles.quote}>
+              <p className={styles.price}>
+                {formatMoney(summary.latestClose, security.currency)}
               </p>
-            ) : null}
+              {change && direction ? (
+                <p className={styles.change} data-direction={direction}>
+                  <span aria-hidden="true">
+                    {direction === "up" ? "▲" : "▼"}
+                  </span>{" "}
+                  {formatSignedMoney(change.absolute, security.currency)} (
+                  {formatSignedPercent(change.fraction)})
+                </p>
+              ) : null}
+            </div>
             <p className={styles.asOf}>
               At close · {formatLocalDate(summary.latestDate)} · End-of-day data
             </p>
