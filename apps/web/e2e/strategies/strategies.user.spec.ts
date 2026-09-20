@@ -547,11 +547,11 @@ test.describe("strategy builder on a phone", () => {
     await expect(page.getByTestId("inline-help")).toContainText(
       "Relative Strength Index",
     );
-    // Longer help sits behind a tap so it cannot bury the rest of the level on a phone.
-    await page
-      .getByTestId("inline-help")
-      .getByText("Formula and examples")
-      .click();
+    // Everything past the summary sits behind a tap so it cannot bury the level on a phone.
+    await expect(
+      page.getByTestId("inline-help").locator("details"),
+    ).not.toHaveAttribute("open", /.*/);
+    await page.getByTestId("inline-help").getByText("More details").click();
     await expect(page.getByTestId("inline-help")).toContainText("warming up");
 
     await expectNoHorizontalScroll(page);
@@ -575,6 +575,51 @@ test.describe("strategy builder on a phone", () => {
     await expect(page.getByTestId("logic-preview")).toContainText(
       "RSI 14D is below 30",
     );
+    await expectNoHorizontalScroll(page);
+  });
+
+  test("keeps a rule's three fields on one row, and explains the one in hand", async ({
+    page,
+  }) => {
+    await page.goto("/strategies/new");
+    await page.getByTestId("add-level-BUY").click();
+
+    const buyCard = page.getByTestId("level-card-BUY").first();
+    await buyCard
+      .getByTestId("metric-select")
+      .first()
+      .selectOption("MOVING_AVERAGE:SMA_50D");
+    await buyCard
+      .getByTestId("operator-select")
+      .first()
+      .selectOption("IS_BELOW");
+    await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
+
+    // `SMA 50D | is below | EMA 200D` reads as one sentence on a phone exactly as it does on a
+    // desktop: one row, three fields in order, and targets that stay tappable.
+    const boxes = await Promise.all(
+      ["metric-select", "operator-select", "value-control"].map((testId) =>
+        buyCard.getByTestId(testId).first().boundingBox(),
+      ),
+    );
+    const [metric, operator, value] = boxes;
+    expect(metric && operator && value).toBeTruthy();
+    expect(Math.abs(operator!.y - metric!.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(value!.y - metric!.y)).toBeLessThanOrEqual(1);
+    expect(metric!.x).toBeLessThan(operator!.x);
+    expect(operator!.x).toBeLessThan(value!.x);
+    for (const box of boxes) {
+      expect(box!.height).toBeGreaterThanOrEqual(40);
+    }
+
+    // A second condition still reads as joined, without a reserved column for the word.
+    await buyCard.getByTestId("add-condition").click();
+    await expect(buyCard.getByText("AND", { exact: true })).toBeVisible();
+    await expectNoHorizontalScroll(page);
+
+    // The third field explains itself like the first two do.
+    await buyCard.getByTestId("value-control").first().focus();
+    await expect(page.getByTestId("inline-help")).toContainText("EMA 200D");
     await expectNoHorizontalScroll(page);
   });
 

@@ -2,6 +2,7 @@
 
 import {
   STRATEGY_METRIC_GROUP_LABELS,
+  strategyMetricLabel,
   strategyMetricOptions,
   type StrategyLevelKind,
   type StrategyMetric,
@@ -72,6 +73,9 @@ export function MetricSelect({
       density="compact"
       testId="metric-select"
       aria-label={label}
+      // A long metric truncates in a phone's row; the full label stays available on hover and is
+      // what the native picker shows either way.
+      {...(unset ? {} : { title: strategyMetricLabel(metric) })}
       invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={selected}

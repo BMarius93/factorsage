@@ -19,6 +19,12 @@ type LevelCardProps = {
   readonly ordinal: number;
   readonly percentage: number;
   readonly signal: StrategySignal;
+  /**
+   * Whether this level has somewhere to move.
+   *
+   * Still part of the card's contract while the reordering controls are not rendered: the level
+   * knows where it sits, and the answer is what a restored control would read.
+   */
   readonly canMoveUp: boolean;
   readonly canMoveDown: boolean;
   readonly issues: StrategyIssueLookup;
@@ -43,8 +49,6 @@ export function LevelCard({
   ordinal,
   percentage,
   signal,
-  canMoveUp,
-  canMoveDown,
   issues,
   isRevealed,
   touch,
@@ -88,28 +92,11 @@ export function LevelCard({
           }
         />
         <div className={styles.levelActions}>
-          <button
-            type="button"
-            className={styles.levelAction}
-            aria-label={`Move ${title} up`}
-            disabled={!canMoveUp}
-            onClick={() =>
-              dispatch({ type: "moveLevel", ref: levelRef, direction: -1 })
-            }
-          >
-            ↑
-          </button>
-          <button
-            type="button"
-            className={styles.levelAction}
-            aria-label={`Move ${title} down`}
-            disabled={!canMoveDown}
-            onClick={() =>
-              dispatch({ type: "moveLevel", ref: levelRef, direction: 1 })
-            }
-          >
-            ↓
-          </button>
+          {/* The ↑/↓ reordering controls are deliberately not rendered for now: two arrow buttons
+              in every level header cost more attention than reordering earns, and the header reads
+              as name, size and Remove without them. Nothing about ordering itself changed — the
+              `moveLevel` action, `canMoveUp`/`canMoveDown` and the persisted order are all intact,
+              so putting a control back is a rendering decision and nothing more. */}
           <button
             type="button"
             className={styles.levelRemove}

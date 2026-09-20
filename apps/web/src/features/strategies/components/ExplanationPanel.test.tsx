@@ -1,4 +1,6 @@
 import {
+  STRATEGY_METRIC_HELP,
+  STRATEGY_OPERATOR_HELP,
   STRATEGY_SCHEMA_VERSION,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
@@ -198,7 +200,7 @@ describe("explanation panel", () => {
     const inline = within(screen.getByTestId("inline-help")).getByTestId(
       "inline-explanation-panel",
     );
-    // One explanation, two placements. The row copy puts the formula and examples behind a
+    // One explanation, two placements. The row copy puts everything after the summary behind a
     // disclosure so it does not bury the rest of the level on a phone, but says the same things.
     const side = screen.getByTestId("explanation-panel").textContent ?? "";
     expect(inline.textContent).toContain("Margin of Safety · DCF (FCFF)");
@@ -206,14 +208,111 @@ describe("explanation panel", () => {
     // The formula reaches both placements; only the row copy hides it behind a tap.
     expect(inline.textContent).toContain("Intrinsic Value * 100");
     expect(side).toContain("Intrinsic Value * 100");
-    expect(within(inline).getByText("Formula and examples")).toBeDefined();
+    expect(within(inline).getByText("More details")).toBeDefined();
     expect(
       within(screen.getByTestId("explanation-panel")).queryByText(
-        "Formula and examples",
+        "More details",
       ),
     ).toBeNull();
     // Only the focused row carries one.
     expect(screen.getAllByTestId("inline-help")).toHaveLength(1);
+  });
+
+  it("opens the row's explanation at a name and one line, everything else behind a tap", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={MOS_STRATEGY} />);
+
+    const buyCard = screen.getByTestId("level-card-BUY");
+    await user.click(within(buyCard).getAllByTestId("operator-select")[0]!);
+
+    const inline = within(screen.getByTestId("inline-help")).getByTestId(
+      "inline-explanation-panel",
+    );
+    const disclosure = inline.querySelector("details")!;
+
+    // What a phone reads between two rules before it taps anything: the operator and its summary.
+    expect(within(inline).getByRole("heading").textContent).toBe("is above");
+    expect(inline.textContent).toContain("strictly greater than");
+    expect(disclosure.open).toBe(false);
+    expect(disclosure.textContent?.includes("strictly greater than")).toBe(
+      false,
+    );
+    // The longer paragraph is part of what waits for the tap, not just the formula and examples.
+    expect(disclosure.textContent).toContain(
+      STRATEGY_OPERATOR_HELP.IS_ABOVE.detail,
+    );
+
+    // The desktop rail is untouched by any of this: it still shows the whole entry at once.
+    const side = screen.getByTestId("explanation-panel");
+    expect(side.querySelector("details")).toBeNull();
+    expect(side.textContent).toContain(STRATEGY_OPERATOR_HELP.IS_ABOVE.detail);
+  });
+
+  it("explains the series chosen as the Value, wherever the explanation is placed", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={MOS_STRATEGY} />);
+
+    const buyCard = screen.getByTestId("level-card-BUY");
+    // The trigger's Value: `Price crosses above EMA 50D`.
+    const value = within(buyCard).getAllByTestId("value-control").at(-1)!;
+    await user.click(value);
+
+    const side = screen.getByTestId("explanation-panel");
+    expect(within(side).getByRole("heading").textContent).toBe("EMA 50D");
+    // The same canonical entry a moving average gets when it is the Metric, not a second copy.
+    expect(side.textContent).toContain(
+      STRATEGY_METRIC_HELP.MOVING_AVERAGE.summary,
+    );
+    // And in the row, for the placement a phone reads.
+    expect(screen.getByTestId("inline-help").textContent).toContain("EMA 50D");
+
+    // Choosing a different series describes that one instead.
+    await user.selectOptions(value, "SMA_200D");
+    expect(within(side).getByRole("heading").textContent).toBe("SMA 200D");
+    expect(screen.getByTestId("inline-help").textContent).toContain("SMA 200D");
+  });
+
+  it("follows the Value from the keyboard, not only from a click", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={MOS_STRATEGY} />);
+
+    const buyCard = screen.getByTestId("level-card-BUY");
+    const operator = within(buyCard).getAllByTestId("operator-select").at(-1)!;
+    await user.click(operator);
+    expect(
+      within(screen.getByTestId("explanation-panel")).getByRole("heading")
+        .textContent,
+    ).toBe("crosses above");
+
+    // Tab moves from the operator to the Value beside it, and the explanation follows.
+    await user.tab();
+    expect(within(buyCard).getAllByTestId("value-control").at(-1)).toBe(
+      document.activeElement,
+    );
+    expect(
+      within(screen.getByTestId("explanation-panel")).getByRole("heading")
+        .textContent,
+    ).toBe("EMA 50D");
+  });
+
+  it("invents nothing for a threshold the user typed", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder strategy={MOS_STRATEGY} />);
+
+    const sellCard = screen.getByTestId("level-card-SELL");
+    // `Gain is above 25%`: the Value is a number, and a number has no canonical help.
+    await user.click(within(sellCard).getAllByTestId("metric-select")[0]!);
+    const side = screen.getByTestId("explanation-panel");
+    expect(within(side).getByRole("heading").textContent).toBe("Gain");
+
+    await user.click(within(sellCard).getByTestId("value-control"));
+    // Still the metric: focusing a typed threshold neither blanks the panel nor makes something up,
+    // in either placement.
+    expect(within(side).getByRole("heading").textContent).toBe("Gain");
+    expect(
+      within(screen.getByTestId("inline-help")).getByRole("heading")
+        .textContent,
+    ).toBe("Gain");
   });
 
   it("describes the signal and never the backtest lifecycle", () => {

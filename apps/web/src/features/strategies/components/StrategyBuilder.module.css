@@ -192,6 +192,8 @@
   margin-left: auto;
 }
 
+/* `.levelAction` styles the level-header's ↑/↓ reorder controls, which `LevelCard` deliberately
+   does not render for now. It stays beside `.levelRemove` so the two remain one control family. */
 .levelAction,
 .levelRemove {
   min-width: 32px;
@@ -384,27 +386,60 @@
   list-style: none;
 }
 
+/*
+ * One rule, on a phone.
+ *
+ * The three fields stay on one line here as they do on a desktop, because a predicate is one
+ * sentence and three stacked selects per rule made a two-condition level taller than the screen.
+ * What gives way instead is the desktop's reserved `AND` column: on a phone the connector is a
+ * small line above the rule it joins, which is the same relationship in a fifth of the width.
+ */
 .predicateRow {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: start;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 6px;
 }
 
 .connector {
-  padding-top: 12px;
-  min-width: 30px;
+  grid-column: 1 / -1;
   color: var(--color-text-muted);
   font-size: 11px;
   font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
 }
 
+/* The first rule of a signal joins nothing, and on a phone an empty connector must not cost a
+   line. The desktop column is restored with the rest of the row below. */
+.connector:empty {
+  display: none;
+}
+
+/*
+ * Sized to the vocabulary rather than split evenly. The operator's longest label is
+ * `crosses above`, and it is the one field whose whole option set is short enough to always fit,
+ * so it gets the few pixels that keep it from ellipsizing; the Metric and the Value keep the rest
+ * and truncate cleanly, because their catalog labels ("Dividend Discount (DDM)") have no width
+ * that would ever be enough. A truncated label stays whole in `title`, in the native picker and
+ * in the control's accessible value.
+ */
 .predicateFields {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.18fr) minmax(0, 1fr);
+  gap: 4px;
   min-width: 0;
+}
+
+/*
+ * Feature-owned density, not a change to the shared control: these three selects are the only
+ * place in the product where three of them share one phone-width row, so they trade the compact
+ * scale's side padding for readable text and keep a 40px target.
+ */
+.predicateFields select[data-density="compact"] {
+  min-height: 40px;
+  padding: 0 16px 0 6px;
+  background-position: right 3px center;
+  font-size: 12px;
 }
 
 .numberField {
@@ -415,8 +450,8 @@
 
 .numberInput {
   width: 100%;
-  min-height: 38px;
-  padding: 0 26px 0 10px;
+  min-height: 40px;
+  padding: 0 26px 0 8px;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
@@ -438,8 +473,8 @@
 }
 
 .rowRemove {
-  min-width: 32px;
-  min-height: 38px;
+  min-width: 28px;
+  min-height: 40px;
   border: none;
   border-radius: 9px;
   background: none;
@@ -455,7 +490,7 @@
 }
 
 .rowError {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
 }
 
 .addRow,
@@ -580,10 +615,50 @@
 /* --- Wider viewports --- */
 
 @media (min-width: 600px) {
+  /* Room for the reserved `AND` column again, and for the control scale the editor is built on. */
+  .predicateRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 8px;
+  }
+
+  .connector {
+    grid-column: auto;
+    padding-top: 12px;
+    min-width: 30px;
+  }
+
+  /* Kept, not hidden: an empty connector is what keeps the first rule's fields in line with the
+     ones below it. */
+  .connector:empty {
+    display: block;
+  }
+
   .predicateFields {
     /* Metric / operator / Value read as one sentence once there is room for it. */
     grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 8px;
+  }
+
+  .predicateFields select[data-density="compact"] {
+    min-height: var(--control-height-compact);
+    padding: 0 30px 0 10px;
+    background-position: right 10px center;
+    font-size: 13px;
+  }
+
+  .numberInput {
+    min-height: var(--control-height-compact);
+    padding: 0 26px 0 10px;
+  }
+
+  .rowRemove {
+    min-width: 32px;
+    min-height: var(--control-height-compact);
+  }
+
+  .rowError {
+    grid-column: 2 / -1;
   }
 }
 
@@ -620,6 +695,7 @@
 /* A row waiting for its Metric: the Condition and Value fields are held back until there is a
    Metric for them to describe (UI-013). */
 .unsetHint {
+  grid-column: 2 / -1;
   display: flex;
   align-items: center;
   min-height: var(--control-height-compact);
@@ -657,12 +733,6 @@
   outline: none;
   border-radius: var(--radius-sm);
   box-shadow: var(--focus-ring);
-}
-
-@media (min-width: 600px) {
-  .unsetHint {
-    grid-column: 2 / -1;
-  }
 }
 
 .confirmBody {

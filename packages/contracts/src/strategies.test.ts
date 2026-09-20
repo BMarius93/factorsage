@@ -22,10 +22,12 @@ import {
   STRATEGY_LEVEL_KINDS,
   STRATEGY_METRIC_DEFINITIONS,
   STRATEGY_METRIC_HELP,
+  STRATEGY_VALUE_SERIES_HELP,
   STRATEGY_METRIC_KINDS,
   STRATEGY_OPERATOR_HELP,
   STRATEGY_SCHEMA_VERSION,
   strategyMetricLabel,
+  strategySeriesHelp,
   strategyMetricOptions,
   strategyValueLabel,
   StrategyValidationError,
@@ -353,6 +355,54 @@ describe("strategy metric registry", () => {
       expect(STRATEGY_OPERATOR_HELP[operator].summary.length).toBeGreaterThan(
         0,
       );
+    }
+  });
+
+  it("explains every catalog series that can be chosen as a Value", () => {
+    for (const entry of SELECTABLE_SERIES_CATALOG) {
+      const help = strategySeriesHelp(entry.id);
+      expect(help, entry.id).toBeDefined();
+      expect(help!.summary.length, entry.id).toBeGreaterThan(0);
+      expect(help!.detail.length, entry.id).toBeGreaterThan(0);
+    }
+    // An id that is not a catalog entry has nothing canonical to say, and nothing is invented.
+    expect(strategySeriesHelp("NOT_A_SERIES" as never)).toBeUndefined();
+  });
+
+  it("explains a series as a Value with the same entry it gets as a Metric", () => {
+    // One object, not a copy: a moving average means the same thing on either side of a Condition,
+    // and a second entry is exactly the drift the single registry exists to prevent.
+    expect(STRATEGY_VALUE_SERIES_HELP.MOVING_AVERAGE).toBe(
+      STRATEGY_METRIC_HELP.MOVING_AVERAGE,
+    );
+    expect(STRATEGY_VALUE_SERIES_HELP.OSCILLATOR).toBe(
+      STRATEGY_METRIC_HELP.OSCILLATOR,
+    );
+    // The intrinsic-value families are the two with no Metric of their own — Margin of Safety
+    // consumes a source rather than being one — so they carry their own entry.
+    expect(STRATEGY_VALUE_SERIES_HELP.INTRINSIC_VALUE_BLEND).not.toBe(
+      STRATEGY_METRIC_HELP.MARGIN_OF_SAFETY,
+    );
+    expect(strategySeriesHelp("BALANCED")).toBe(
+      STRATEGY_VALUE_SERIES_HELP.INTRINSIC_VALUE_BLEND,
+    );
+    expect(strategySeriesHelp("DCF_FCFF")).toBe(
+      STRATEGY_VALUE_SERIES_HELP.INTRINSIC_VALUE_MODEL,
+    );
+  });
+
+  it("never names one catalog series in help shared by a whole family", () => {
+    const seriesText = Object.values(STRATEGY_VALUE_SERIES_HELP)
+      .flatMap((help) => [
+        help.summary,
+        help.detail,
+        help.formula ?? "",
+        help.notEvaluableWhen ?? "",
+        ...(help.notes ?? []),
+      ])
+      .join(" ");
+    for (const entry of SELECTABLE_SERIES_CATALOG) {
+      expect(seriesText).not.toContain(entry.label);
     }
   });
 

@@ -16,6 +16,14 @@ type ValueControlProps = {
   readonly invalid: boolean;
   readonly describedBy?: string;
   readonly onChange: (value: StrategyValue) => void;
+  /**
+   * The Value came into focus, or a new one was chosen.
+   *
+   * Series-valued only: the explanation surface describes the selected series exactly as it
+   * describes the same series chosen as a Metric. A numeric threshold never reports focus,
+   * because there is no canonical help for a number the user typed.
+   */
+  readonly onFocus?: (value: StrategyValue) => void;
   readonly onBlur: () => void;
 };
 
@@ -34,6 +42,7 @@ export function ValueControl({
   invalid,
   describedBy,
   onChange,
+  onFocus,
   onBlur,
 }: ValueControlProps) {
   const spec = valueSpecFor(metric);
@@ -45,16 +54,26 @@ export function ValueControl({
         density="compact"
         testId="value-control"
         aria-label={label}
+        // The row truncates a long series on a phone; the full label stays readable on hover and
+        // is what the native picker and the accessible value carry either way.
+        {...(selected === "" ? {} : { title: strategyValueLabel(value) })}
         invalid={invalid}
         {...(describedBy ? { "aria-describedby": describedBy } : {})}
         value={selected}
+        onFocus={() => {
+          if (value.kind === "SERIES") {
+            onFocus?.(value);
+          }
+        }}
         onBlur={onBlur}
-        onValueChange={(seriesId) =>
-          onChange({
+        onValueChange={(seriesId) => {
+          const next: StrategyValue = {
             kind: "SERIES",
             seriesId: seriesId as (typeof spec.seriesIds)[number],
-          })
-        }
+          };
+          onChange(next);
+          onFocus?.(next);
+        }}
         {...(selected === ""
           ? { placeholder: "Choose", placeholderDisabled: true }
           : {})}

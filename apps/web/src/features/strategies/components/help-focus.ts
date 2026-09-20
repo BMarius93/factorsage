@@ -2,6 +2,7 @@ import type {
   ConditionOperator,
   StrategyLevelKind,
   StrategyMetric,
+  StrategyValue,
   TriggerOperator,
 } from "@intrinsic/contracts";
 
@@ -18,6 +19,14 @@ import type {
 export type HelpSubject =
   | { kind: "METRIC"; metric: StrategyMetric }
   | { kind: "OPERATOR"; operator: ConditionOperator | TriggerOperator }
+  /**
+   * The third field: the series a rule compares against.
+   *
+   * A Value is the same object as a Metric wherever the product offers it as both, so this is the
+   * identity and the panel reads the same canonical entry for it. Only a `SERIES` Value is ever
+   * focused — a typed threshold explains itself and has no canonical help.
+   */
+  | { kind: "VALUE"; value: StrategyValue }
   | { kind: "LEVEL"; levelKind: StrategyLevelKind };
 
 export type HelpFocus = (HelpSubject & { origin?: string }) | null;
