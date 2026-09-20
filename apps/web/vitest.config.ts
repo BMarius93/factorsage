@@ -9,6 +9,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     setupFiles: ["./vitest.setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    // `qa/` holds the manual QA-persona launcher; its argument parsing is unit-tested here.
+    include: ["src/**/*.test.{ts,tsx}", "qa/**/*.test.ts"],
   },
 });

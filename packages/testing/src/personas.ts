@@ -53,6 +53,21 @@ export type TestPersona = {
   readonly envPrefix: string;
   /** Where Playwright keeps this persona's signed-in storage state. Git-ignored. */
   readonly storageState: string;
+  /**
+   * Lower-case handle for the command line and the filesystem: `pnpm qa:persona free`, and the
+   * persistent browser profile under {@link QA_BROWSER_PROFILE_ROOT}.
+   *
+   * Derived from nothing — stated once here — so a slug cannot mean `FREE_USER` to the launcher
+   * and `STARTER_USER` to the directory it opens.
+   */
+  readonly slug: string;
+  /**
+   * Short upper-case tag the manual launcher prefixes onto the browser tab title, e.g. `[FREE]`.
+   *
+   * It is written by the launcher into the page from outside the application, never by product
+   * code, so nothing about it reaches a real user.
+   */
+  readonly label: string;
   /** What this persona exists for. Read by the docs and by anyone choosing one. */
   readonly purpose: string;
 };
@@ -64,6 +79,8 @@ export const TEST_PERSONAS: Readonly<Record<TestPersonaName, TestPersona>> = {
     role: "USER",
     envPrefix: "QA_FREE",
     storageState: "playwright/.auth/free.json",
+    slug: "free",
+    label: "FREE",
     purpose:
       "The smallest paid-for capacity. Used for the boundary cases — a list at ten symbols, a " +
       "five-year backtest, one active monitor — where the limit is what is being proven.",
@@ -74,6 +91,8 @@ export const TEST_PERSONAS: Readonly<Record<TestPersonaName, TestPersona>> = {
     role: "USER",
     envPrefix: "QA_STARTER",
     storageState: "playwright/.auth/starter.json",
+    slug: "starter",
+    label: "STARTER",
     purpose:
       "The middle tier. Proves a limit moved with the plan rather than being hard-coded, which " +
       "a two-tier test can never show.",
@@ -86,6 +105,8 @@ export const TEST_PERSONAS: Readonly<Record<TestPersonaName, TestPersona>> = {
     // account, now stated in plan terms.
     envPrefix: "QA_USER",
     storageState: "playwright/.auth/user.json",
+    slug: "pro",
+    label: "PRO",
     purpose:
       "The default account for local development and manual testing, and the persona every " +
       "non-entitlement E2E spec signs in as. It is deliberately a commercial customer and not an " +
@@ -100,6 +121,8 @@ export const TEST_PERSONAS: Readonly<Record<TestPersonaName, TestPersona>> = {
     role: "ADMIN",
     envPrefix: "QA_ADMIN",
     storageState: "playwright/.auth/admin.json",
+    slug: "admin",
+    label: "ADMIN",
     purpose:
       "Internal and QA scenarios that intentionally need `ADMIN_ENTITLEMENTS` — administrative " +
       "surfaces, and the developer QA validation matrix. Never the default development account.",
@@ -110,6 +133,8 @@ export const TEST_PERSONAS: Readonly<Record<TestPersonaName, TestPersona>> = {
     role: "USER",
     envPrefix: "QA_DOWNGRADED",
     storageState: "playwright/.auth/downgraded.json",
+    slug: "downgraded",
+    label: "DOWNGRADED",
     purpose:
       "A FREE account holding content created under a higher tier: an oversized list, a " +
       "completed backtest, and more enabled monitors than FREE allows. Those states are not " +
@@ -125,8 +150,9 @@ export function testPersona(name: TestPersonaName): TestPersona {
   return TEST_PERSONAS[name];
 }
 
-export const TEST_PERSONA_LIST: readonly TestPersona[] =
-  TEST_PERSONA_NAMES.map((name) => TEST_PERSONAS[name]);
+export const TEST_PERSONA_LIST: readonly TestPersona[] = TEST_PERSONA_NAMES.map(
+  (name) => TEST_PERSONAS[name],
+);
 
 /** `<prefix>_EMAIL` and `<prefix>_PASSWORD` for one persona. */
 export function personaCredentialEnvNames(persona: TestPersona): {
@@ -138,3 +164,54 @@ export function personaCredentialEnvNames(persona: TestPersona): {
     password: `${persona.envPrefix}_PASSWORD`,
   };
 }
+
+/**
+ * The personas the **manual** release-testing tooling seeds, resets and opens a browser for.
+ *
+ * One per commercial plan, plus the administrator, in the order the launcher tiles their windows —
+ * smallest plan first, so a side-by-side comparison reads left to right the way the pricing page
+ * does.
+ *
+ * `DOWNGRADED_USER` is deliberately excluded. It exists to hold content that was created under a
+ * higher plan and is unreachable through the UI by design, so it is the one persona that is *not*
+ * empty and must not be reset to empty: `pnpm test:entitlements:seed` owns it. Manual testing is
+ * about building content by hand from nothing, which is the opposite requirement.
+ */
+export const MANUAL_QA_PERSONA_NAMES = [
+  "FREE_USER",
+  "STARTER_USER",
+  "PRO_USER",
+  "ADMIN_USER",
+] as const;
+
+export type ManualQaPersonaName = (typeof MANUAL_QA_PERSONA_NAMES)[number];
+
+export const MANUAL_QA_PERSONA_LIST: readonly TestPersona[] =
+  MANUAL_QA_PERSONA_NAMES.map((name) => TEST_PERSONAS[name]);
+
+/**
+ * Where the manual launcher keeps one persistent Chromium profile per persona, relative to the
+ * repository root.
+ *
+ * A profile directory — not a Playwright storage-state file — because a profile is the whole
+ * browser: cookies, `localStorage`, `sessionStorage`, IndexedDB and the service-worker registry all
+ * live inside it and are opened by exactly one context. Two personas therefore cannot share a
+ * session by construction, which is a stronger statement than "we used separate incognito
+ * windows". Git-ignored: a signed-in profile holds a live session cookie.
+ */
+export const QA_BROWSER_PROFILE_ROOT = ".qa/browser";
+
+/** This persona's persistent browser profile directory, relative to the repository root. */
+export function qaBrowserProfileDirectory(persona: TestPersona): string {
+  return `${QA_BROWSER_PROFILE_ROOT}/${persona.slug}`;
+}
+
+/** Resolves a command-line handle (`free`, `pro`, …) to a persona, or `undefined`. */
+export function manualQaPersonaBySlug(slug: string): TestPersona | undefined {
+  const wanted = slug.trim().toLowerCase();
+  return MANUAL_QA_PERSONA_LIST.find((persona) => persona.slug === wanted);
+}
+
+/** Every handle `pnpm qa:persona` accepts, for usage messages. */
+export const MANUAL_QA_PERSONA_SLUGS: readonly string[] =
+  MANUAL_QA_PERSONA_LIST.map((persona) => persona.slug);

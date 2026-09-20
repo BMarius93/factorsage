@@ -36,6 +36,11 @@ pnpm dev:api
 pnpm dev:worker
 ```
 
+For a manual release-testing pass, `pnpm qa:seed` creates one clean account per commercial plan
+(plus the administrator) in this same database, and `pnpm qa:personas` opens each in its own
+persistent, isolated browser window. They create no product content on purpose. See
+`development/qa-personas.md`.
+
 Stock-data misses use `FMP_API_KEY` from the same root `.env`. `STOCK_HISTORY_YEARS` defaults to
 30 and is the **product** horizon: the oldest day Stock Details, the APIs and a backtest may reach.
 Raw daily prices are retained four years further back (34 in total) so long series such as
