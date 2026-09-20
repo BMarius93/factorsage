@@ -14,7 +14,8 @@
     "e2e:entitlements": "playwright test e2e/entitlements",
     "e2e:headed": "playwright test --headed",
     "e2e:report": "playwright show-report",
-    "e2e:billing": "playwright test e2e/billing"
+    "e2e:billing": "playwright test e2e/billing",
+    "qa:personas": "tsx qa/personas.ts"
   },
   "dependencies": {
     "@intrinsic/contracts": "workspace:*",
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.7.0",
     "jsdom": "^30.0.1",
+    "tsx": "^4.23.12",
     "typescript": "^5.9.0",
     "vitest": "^2.1.8"
   }
