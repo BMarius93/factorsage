@@ -64,7 +64,7 @@ function row(
     reasons: [
       {
         conditions: [
-          "Margin of Safety (Balanced) is above 5%",
+          "Margin of Safety · Balanced is above 5%",
           "Price is above SMA 200D",
         ],
         waitingForTrigger: false,
@@ -232,16 +232,52 @@ describe("DashboardPage", () => {
     expect(
       rows.filter((entry) => entry.textContent?.includes("AAPL")),
     ).toHaveLength(2);
-    expect(within(rows[0]!).getByText("Waiting for trigger")).toBeDefined();
+    const pending = rows.find((entry) => entry.textContent?.includes("Roper"))!;
+    expect(within(pending).getByText("Waiting for trigger")).toBeDefined();
     expect(
-      within(rows[0]!).getByText(/Waiting for: Price crosses above SMA 20D/),
+      within(pending).getByText(/Waiting for: Price crosses above SMA 20D/),
     ).toBeDefined();
-    expect(within(rows[1]!).getByText("Active")).toBeDefined();
-    expect(within(rows[1]!).getByText("Buy 100%")).toBeDefined();
-    expect(within(rows[3]!).getByText("Final exit")).toBeDefined();
+    const buy = rows.find((entry) => entry.textContent?.includes("Buy 100%"))!;
+    expect(within(buy).getByText("Active")).toBeDefined();
+    expect(
+      rows.some((entry) => within(entry).queryByText("Final exit") !== null),
+    ).toBe(true);
   });
 
-  it("shows exactly the agreed columns: no Since, and no per-row Backtest", async () => {
+  it("orders active before waiting, then by action, then newest first (UI-025)", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const states = rows.map(
+      (entry) =>
+        entry.querySelector("[data-state]")?.getAttribute("data-state") ?? "",
+    );
+    const levels = rows.map(
+      (entry) =>
+        entry.querySelector("[data-level]")?.getAttribute("data-level") ?? "",
+    );
+    // The API sent the waiting setup first; it is actionable last.
+    expect(states).toEqual(["ACTIVE", "ACTIVE", "ACTIVE", "PENDING_TRIGGER"]);
+    expect(levels.slice(0, 3)).toEqual(["BUY", "BUY", "FINAL_EXIT"]);
+  });
+
+  it("says when each signal's state began, with the exact time in reachable text (UI-025)", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const since = (await screen.findAllByTestId("dashboard-since"))[0]!;
+    expect(since.querySelector("time")?.getAttribute("dateTime")).toMatch(
+      /^\d{4}-\d{2}-\d{2}T/,
+    );
+    // Relative ("… ago") for scanning, the absolute instant for a screen reader.
+    expect(since.textContent).toMatch(/ago|just now/);
+    expect(since.textContent).toMatch(/\(\w{3} \d{1,2}, \d{4}, /);
+  });
+
+  it("shows exactly the agreed columns, Since included, and no per-row Backtest", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
@@ -253,13 +289,13 @@ describe("DashboardPage", () => {
     ).toEqual([
       "Stock",
       "Action",
+      "Since",
       "Why",
       "Price",
       "Strategy",
       "List",
       "Monitor",
     ]);
-    expect(within(table).queryByRole("columnheader", { name: "Since" })).toBeNull();
     expect(screen.queryAllByRole("link", { name: /Backtest/ })).toHaveLength(0);
   });
 
@@ -270,27 +306,53 @@ describe("DashboardPage", () => {
     const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
       "dashboard-signal-row",
     );
-    const active = rows[1]!;
+    const active = rows.find((entry) =>
+      entry.querySelector('a[href="/monitors/monitor-b"]') &&
+      entry.querySelector('a[href="/stocks/AAPL"]'),
+    )!;
     // The identity cell is the row's own link to Stock Details; the three relationship cells
     // each go somewhere else, and none of them is the row's destination.
     expect(
       within(active).getByRole("link", { name: /AAPL/ }).getAttribute("href"),
     ).toBe("/stocks/AAPL");
+    const relationshipCells = Array.from(
+      active.querySelectorAll<HTMLElement>('td[data-card="links"]'),
+    );
     expect(
-      within(active)
-        .getByRole("link", { name: "Value & Trend" })
-        .getAttribute("href"),
-    ).toBe("/strategies/strategy-a");
+      relationshipCells.map((cell) => [
+        within(cell).getByRole("link").textContent,
+        within(cell).getByRole("link").getAttribute("href"),
+      ]),
+    ).toEqual([
+      ["Value & Trend", "/strategies/strategy-a"],
+      ["S&P 500 Growth Leaders", "/lists/list-a"],
+      ["Nasdaq Trend Confirmation", "/monitors/monitor-b"],
+    ]);
+  });
+
+  it("folds the three relationships under the stock for the intermediate desktop band", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const active = rows.find((entry) =>
+      entry.querySelector('a[href="/monitors/monitor-b"]') &&
+      entry.querySelector('a[href="/stocks/AAPL"]'),
+    )!;
+    // The three columns step out between 880 and 1,279px, and the same references are folded
+    // into the identity cell instead. CSS shows exactly one of the two at any width.
     expect(
-      within(active)
-        .getByRole("link", { name: "S&P 500 Growth Leaders" })
-        .getAttribute("href"),
-    ).toBe("/lists/list-a");
+      active.querySelectorAll('td[data-card="links"][data-fold="true"]'),
+    ).toHaveLength(3);
+    const folded = within(active).getByTestId("dashboard-folded-relationships");
+    expect(folded.closest('td')?.getAttribute("data-card")).toBe("identity");
     expect(
-      within(active)
-        .getByRole("link", { name: "Nasdaq Trend Confirmation" })
-        .getAttribute("href"),
-    ).toBe("/monitors/monitor-b");
+      within(folded)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href")),
+    ).toEqual(["/strategies/strategy-a", "/lists/list-a", "/monitors/monitor-b"]);
   });
 
   it("filters by state with a segmented control and by action with a dropdown", async () => {
@@ -320,9 +382,12 @@ describe("DashboardPage", () => {
     await user.selectOptions(actions, "SELL");
     expect(screen.getByTestId("dashboard-signals-filtered-empty")).toBeDefined();
 
-    await user.selectOptions(actions, "ALL");
-    await user.click(within(states).getByRole("button", { name: /^All/ }));
+    // And always offers the way back (UI-012): one press resets both filters.
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.getAllByTestId("dashboard-signal-row")).toHaveLength(4);
+    expect(
+      (screen.getByTestId("dashboard-level-filter") as HTMLSelectElement).value,
+    ).toBe("ALL");
   });
 
   it("carries no monitor configuration: that lives with the monitors", async () => {

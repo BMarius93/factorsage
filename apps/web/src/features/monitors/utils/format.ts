@@ -2,8 +2,10 @@ import type {
   MonitorLevelKind,
   MonitorSecurityStatus,
   MonitorSignalKind,
+  MonitorTransitionReason,
 } from "@intrinsic/contracts";
 import type { StatusTone } from "../../../components/ui/StatusBadge";
+import { formatDateTime } from "../../../lib/dates";
 
 /**
  * Display formatting for the monitors feature.
@@ -12,19 +14,9 @@ import type { StatusTone } from "../../../components/ui/StatusBadge";
  * a list's size cannot read one way on its own page and another way on a monitor card.
  */
 
-/** An ISO instant as a locale-aware date **and** time; the raw value if it cannot be parsed. */
+/** An ISO instant as a date **and** time, through the product's one date module. */
 export function formatMonitorTimestamp(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.valueOf())) {
-    return iso;
-  }
-  return parsed.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTime(iso);
 }
 
 /** What a monitor that has never completed a cycle reports instead of a time. */
@@ -102,3 +94,36 @@ export function activeSignalLabel(count: number): string {
   }
   return `${count} active ${count === 1 ? "signal" : "signals"}`;
 }
+
+/**
+ * Why a Signal ended, in the product's words (UI-026). `resolutionReason` is recorded on every
+ * resolution; "Ended Sep 18" alone left the reader to guess whether the stock stopped qualifying or
+ * something about the monitor changed. Reasons that only ever start a state read as a plain end.
+ */
+export const RESOLUTION_REASON_LABELS: Record<MonitorTransitionReason, string> =
+  {
+    CONDITIONS_MET: "ended",
+    SETUP_STARTED: "ended",
+    TRIGGER_FIRED: "ended",
+    CONDITIONS_ENDED: "conditions no longer hold",
+    EVENT_SESSION_ENDED: "trigger day passed",
+    BUY_WINDOW_CLOSED: "membership period ended",
+    LOGIC_CHANGED: "strategy logic changed",
+    LEVEL_REMOVED: "level removed from the strategy",
+    MEMBER_REMOVED: "stock left the list",
+    MONITOR_REBOUND: "monitor now watches something else",
+    RECONSTRUCTED: "ended",
+  };
+
+/**
+ * The order monitored stocks are listed in (UI-026): what is happening first — matched, then
+ * waiting for a trigger — then what could not be decided, then plain non-matches, then what has
+ * not been checked. Symbol order breaks ties, as the API sends it.
+ */
+export const SECURITY_STATUS_ORDER: Record<MonitorSecurityStatus, number> = {
+  MATCHED: 0,
+  WAITING_FOR_TRIGGER: 1,
+  NOT_EVALUABLE: 2,
+  NO_MATCH: 3,
+  NOT_CHECKED: 4,
+};

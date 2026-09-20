@@ -1,3 +1,5 @@
+import { formatDay } from "../../../../lib/dates";
+
 /**
  * Shared display formatting for Stock Details.
  *
@@ -57,19 +59,9 @@ export function formatInteger(value: number): string {
   return numberFormat("integer", { maximumFractionDigits: 0 }).format(value);
 }
 
-const localDateFormat = new Intl.DateTimeFormat("en-US", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  // Canonical dates are plain `YYYY-MM-DD` values; parsing them lands on UTC midnight, so the
-  // formatter must stay in UTC or western timezones would render the previous day.
-  timeZone: "UTC",
-});
-
-/** `"2026-08-28"` → `"Aug 28, 2026"`. Returns the raw string when it is not a parseable date. */
+/** `"2026-08-28"` → `"Aug 28, 2026"`: a calendar day, through the product's one date module. */
 export function formatLocalDate(date: string): string {
-  const parsed = new Date(`${date}T00:00:00.000Z`);
-  return Number.isNaN(parsed.valueOf()) ? date : localDateFormat.format(parsed);
+  return formatDay(date);
 }
 
 /** `"https://www.apple.com/"` → `"apple.com"`, for compact website links. */

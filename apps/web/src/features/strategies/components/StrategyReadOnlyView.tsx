@@ -5,10 +5,9 @@ import { PageContainer } from "../../../components/layout/PageContainer";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
-import forms from "../../../components/ui/forms.module.css";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import page from "../../../components/ui/page.module.css";
-import { AccountActionLink } from "../../auth/components/AccountActionLink";
-import { SIGN_IN_TO_BACKTEST } from "../../auth/utils/sign-in-prompts";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
 import { LogicPreview } from "./LogicPreview";
 
 /**
@@ -23,11 +22,13 @@ export function StrategyReadOnlyView({
 }: {
   readonly strategy: StrategyDetailResponse;
 }) {
+  useDocumentTitle(strategy.name);
   return (
     <PageContainer>
       <div className={page.stack} data-testid="strategy-read-only">
         <PageHeader
-          back={{ href: "/dashboard", label: "Dashboard" }}
+          // The owning collection (UI-016): a built-in is found on Strategies, not the Dashboard.
+          back={{ href: "/strategies", label: "Strategies" }}
           title={strategy.name}
           {...(strategy.description ? { lead: strategy.description } : {})}
           badges={
@@ -42,14 +43,10 @@ export function StrategyReadOnlyView({
             ) : undefined
           }
           actions={
-            <AccountActionLink
-              className={forms.tintedButton}
-              href={`/backtests/new?strategyId=${encodeURIComponent(strategy.id)}`}
-              prompt={SIGN_IN_TO_BACKTEST}
+            <RunBacktestLink
+              prefill={{ strategyId: strategy.id }}
               testId="backtest-this-strategy"
-            >
-              Backtest this strategy
-            </AccountActionLink>
+            />
           }
         />
         <SectionCard
@@ -57,7 +54,9 @@ export function StrategyReadOnlyView({
           title="Logic"
           caption="Maintained by FactorSage. Conditions are combined with AND; a trigger must fire while they hold."
         >
-          <LogicPreview definition={strategy.definition} />
+          {/* Unframed: the section is already the surface, and a card titled "Strategy logic"
+              inside one titled "Logic" was a card-in-card with a second heading (UI-016). */}
+          <LogicPreview definition={strategy.definition} framed={false} />
         </SectionCard>
       </div>
     </PageContainer>

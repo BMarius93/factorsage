@@ -1,0 +1,52 @@
+/* The one select. Its heights come from the shared control scale (tokens.css), and the chevron is
+   drawn here so the control looks the same on every platform while staying a native select. */
+.select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 0 32px 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%237a7f8c' d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E")
+    no-repeat right 12px center;
+  background-color: var(--color-surface);
+  font: inherit;
+  font-size: var(--text-secondary);
+  text-overflow: ellipsis;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.select[data-density="compact"] {
+  min-height: var(--control-height-compact);
+  padding: 0 30px 0 10px;
+  background-position: right 10px center;
+  font-size: 13px;
+}
+
+.select[data-density="toolbar"] {
+  width: auto;
+  min-height: var(--action-height);
+  padding: 0 28px 0 8px;
+  background-position: right 8px center;
+  color: var(--color-text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring-inset);
+}
+
+.select[aria-invalid="true"] {
+  border-color: var(--color-negative);
+}
+
+.select:disabled {
+  color: var(--color-text-muted);
+  background-color: var(--color-surface-soft);
+  cursor: not-allowed;
+}

@@ -1,22 +1,8 @@
-.gate {
-  display: grid;
-  gap: 12px;
-  place-items: start;
-  padding: 48px 0;
-  color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.title {
+/* The session check is a one-line status inside the page gutters, not a panel: it lasts a moment
+   and every outcome replaces it with a real page state. */
+.checking {
   margin: 0;
-  color: var(--color-text-primary);
-  font-size: 22px;
-  font-weight: var(--weight-emphasis);
-  letter-spacing: -0.01em;
-}
-
-.link {
-  color: var(--color-primary);
-  font-weight: var(--weight-emphasis);
+  padding: 24px 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
 }

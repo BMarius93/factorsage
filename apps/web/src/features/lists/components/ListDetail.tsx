@@ -13,14 +13,24 @@ import {
   DataTable,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
+import {
+  useCollection,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
-import { SkeletonList } from "../../../components/ui/Skeleton";
+import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { RunBacktestLink } from "../../backtests/components/RunBacktestLink";
+import { LimitMeter } from "../../../components/ui/LimitMeter";
+import {
+  isEntitlementError,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
 import {
   addStockListItems,
   deleteStockList,
@@ -29,15 +39,19 @@ import {
 import { useStockList } from "../hooks/use-stock-list";
 import {
   ALWAYS_ELIGIBLE_LABEL,
+  membershipHeadline,
   membershipSummary,
   PRESENT_LABEL,
 } from "../utils/buy-windows";
 import { formatMembershipDate, stockCountLabel } from "../utils/format";
 import { MembershipEditor } from "./MembershipEditor";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
+import { DeleteListDialog } from "./DeleteListDialog";
 import { ListFormDialog } from "./ListFormDialog";
 import forms from "../../../components/ui/forms.module.css";
 import { SecurityMultiSelect } from "./SecurityMultiSelect";
+import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
+import { useDocumentTitle } from "../../../lib/use-document-title";
 import styles from "./ListDetail.module.css";
 
 type ListDetailProps = {
@@ -45,29 +59,25 @@ type ListDetailProps = {
 };
 
 /**
- * A member's membership, as it reads in a row: `Nov 30, 1982 → Present`.
+ * A member's membership, as it reads in a row: whether the stock is a member **today**, first
+ * (UI-019) — "Member now · since Sep 19, 2025" — and every stored period one tap away.
  *
- * Secondary metadata by design — it must not compete with the ticker and company name beside it,
- * so it is plain text at the table's own weight rather than a badge.
- *
- * The arrow is decoration and is hidden from assistive technology, which reads "Nov 30, 1982 to
- * Present" instead. `Present` is a real word in the accessibility tree for the same reason it is
- * one on screen: an open-ended membership is a fact about the stock, not a missing value.
- *
- * A member with more than one stored period shows the first and says how many more there are,
- * with all of them in the tooltip — the V1 editor cannot create that state, but the API can, and a
- * cell that showed only the first period would imply an eligibility the stock never had.
+ * Periods are stored oldest first, so the row used to lead with the oldest period — for a stock
+ * that left an index and rejoined, one that no longer applies — and hide the one in force in a
+ * tooltip a phone cannot open. The headline is derived by meaning (`membershipSummary`), and the
+ * full list is a native disclosure that works by touch and keyboard. Secondary metadata by design:
+ * plain text at the row's own weight, never a badge.
  */
 function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
   const summary = membershipSummary(item);
+  const headline = membershipHeadline(summary);
 
-  if (summary.leading === null) {
+  if (summary.mode === "FULL" || summary.leading === null) {
     return (
       <span
         className={styles.membership}
         data-testid="membership"
-        data-mode={summary.mode}
-        title={summary.title}
+        data-mode="FULL"
       >
         {ALWAYS_ELIGIBLE_LABEL}
       </span>
@@ -79,23 +89,34 @@ function MembershipCell({ item }: { readonly item: StockListItemResponse }) {
       className={styles.membership}
       data-testid="membership"
       data-mode={summary.mode}
-      title={summary.title}
+      data-state={summary.state ?? undefined}
     >
-      <span>{formatMembershipDate(summary.leading.startDate)}</span>
-      <span className={styles.membershipArrow} aria-hidden="true">
-        →
-      </span>
-      <span className={styles.srOnly}>to</span>
-      <span>
-        {summary.leading.endDate === null
-          ? PRESENT_LABEL
-          : formatMembershipDate(summary.leading.endDate)}
-      </span>
-      {summary.additionalCount > 0 ? (
-        <span className={styles.membershipMore}>
-          +{summary.additionalCount} more
-        </span>
-      ) : null}
+      <span className={styles.membershipHeadline}>{headline}</span>
+      <details className={styles.membershipPeriods}>
+        <summary data-testid="membership-periods-toggle">
+          {summary.periods.length}{" "}
+          {summary.periods.length === 1 ? "period" : "periods"}
+        </summary>
+        <ul data-testid="membership-periods">
+          {summary.periods.map((period) => (
+            <li
+              key={`${period.startDate}-${period.endDate ?? "open"}`}
+              data-current={period === summary.leading ? "true" : undefined}
+            >
+              <span>{formatMembershipDate(period.startDate)}</span>
+              <span className={styles.membershipArrow} aria-hidden="true">
+                {" → "}
+              </span>
+              <span className={styles.srOnly}> to </span>
+              <span>
+                {period.endDate === null
+                  ? PRESENT_LABEL
+                  : formatMembershipDate(period.endDate)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
     </span>
   );
 }
@@ -112,6 +133,26 @@ type DialogState =
  * list data plus the local catalog identity of each member — deliberately no prices, fundamentals,
  * or other heavy stock hydration.
  */
+const NO_ITEMS: readonly StockListItemResponse[] = [];
+
+/** How a list's members can be read: the list's own order first, then alphabetically. */
+const MEMBER_SORTS: readonly CollectionSort<StockListItemResponse>[] = [
+  { id: "list", label: "List order" },
+  {
+    id: "symbol",
+    label: "Ticker A–Z",
+    compare: (a, b) => a.security.symbol.localeCompare(b.security.symbol),
+  },
+  {
+    id: "name",
+    label: "Company A–Z",
+    compare: (a, b) =>
+      a.security.name.localeCompare(b.security.name, "en", {
+        sensitivity: "base",
+      }),
+  },
+];
+
 export function ListDetail({ listId }: ListDetailProps) {
   const router = useRouter();
   const {
@@ -124,25 +165,35 @@ export function ListDetail({ listId }: ListDetailProps) {
     applyMeta,
   } = useStockList(listId);
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
+  useDocumentTitle(detail?.name);
   const [pendingAdd, setPendingAdd] = useState<StockListSecurityResponse[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [addRefusedByPlan, setAddRefusedByPlan] = useState(false);
 
   const memberIds = useMemo(
     () => new Set(detail?.items.map((item) => item.security.id) ?? []),
     [detail],
   );
 
+  // A 100-stock list is searchable by ticker or company and sortable. It stays one scroll rather than
+  // pages: membership is edited in place, and a stock just added must not land on a later page.
+  const members = useCollection(detail?.items ?? NO_ITEMS, {
+    noun: "stocks",
+    testId: "list-items",
+    searchText: (item) => `${item.security.symbol} ${item.security.name}`,
+    sorts: MEMBER_SORTS,
+  });
+
   const closeDialog = () => setDialog({ kind: "closed" });
 
   if (status === "loading") {
     return (
       <PageContainer>
-        <div className={styles.page}>
-          <SectionCard ariaLabel="Loading list">
-            <SkeletonList rows={5} />
-          </SectionCard>
-        </div>
+        <DetailSkeleton
+          thing="list"
+          back={{ href: "/lists", label: "Lists" }}
+        />
       </PageContainer>
     );
   }
@@ -156,7 +207,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             testId="list-not-found"
             title="List not found"
             body={
-              <p>This list does not exist or belongs to a different account.</p>
+              <p>It may have been deleted, or it belongs to another account.</p>
             }
             actions={
               <Link className={forms.secondaryButton} href="/lists">
@@ -211,6 +262,7 @@ export function ListDetail({ listId }: ListDetailProps) {
       applyDetail(updated);
       setPendingAdd([]);
     } catch (error) {
+      setAddRefusedByPlan(isEntitlementError(error));
       setAddError(
         requestFailureMessage(
           error,
@@ -244,6 +296,9 @@ export function ListDetail({ listId }: ListDetailProps) {
     {
       key: "membership",
       header: "Membership",
+      // Several lines on a phone card (headline and the period list), so it reads under its
+      // label, left-aligned.
+      stacked: true,
       cardRole: "fact",
       nowrap: true,
       render: (item) => <MembershipCell item={item} />,
@@ -269,6 +324,7 @@ export function ListDetail({ listId }: ListDetailProps) {
             type="button"
             className={actionStyles.action}
             onClick={() => setDialog({ kind: "membership", item })}
+            aria-label={`Membership for ${item.security.symbol}`}
           >
             Membership
           </button>
@@ -291,11 +347,8 @@ export function ListDetail({ listId }: ListDetailProps) {
     <PageContainer>
       <div className={styles.page} data-testid="list-detail">
         <PageHeader
-          back={
-            builtIn && !editable
-              ? { href: "/dashboard", label: "Dashboard" }
-              : { href: "/lists", label: "Lists" }
-          }
+          // The owning collection (UI-016), for a built-in too.
+          back={{ href: "/lists", label: "Lists" }}
           title={detail.name}
           {...(detail.description ? { lead: detail.description } : {})}
           badges={
@@ -313,14 +366,7 @@ export function ListDetail({ listId }: ListDetailProps) {
                 {stockCountLabel(detail.items.length)}
               </StatusBadge>
               {detail.compliance.compliant ? null : (
-                <StatusBadge
-                  tone="warning"
-                  title={
-                    detail.compliance.symbolLimit === null
-                      ? "This list exceeds your plan's symbol limit."
-                      : `This list holds ${detail.compliance.symbolCount} stocks; your plan allows ${detail.compliance.symbolLimit}. Existing stocks stay readable, but new ones cannot be added.`
-                  }
-                >
+                <StatusBadge tone="warning" testId="list-over-limit-badge">
                   Over plan limit
                 </StatusBadge>
               )}
@@ -329,6 +375,8 @@ export function ListDetail({ listId }: ListDetailProps) {
           actions={
             editable ? (
               <>
+                {/* The list's next step, the same on a built-in and on the owner's list (UI-008). */}
+                <RunBacktestLink prefill={{ stockListId: detail.id }} />
                 <button
                   type="button"
                   className={forms.tintedButton}
@@ -350,9 +398,26 @@ export function ListDetail({ listId }: ListDetailProps) {
                   />
                 )}
               </>
-            ) : undefined
+            ) : (
+              <RunBacktestLink prefill={{ stockListId: detail.id }} />
+            )
           }
         />
+        {builtIn && editable ? <BuiltInEditNotice thing="list" /> : null}
+
+        {detail.compliance.compliant ? null : (
+          // The explanation lives on the page, not in a tooltip a phone cannot open (UI-021).
+          <EntitlementNotice
+            announce="status"
+            testId="list-over-limit-notice"
+            title="This list is over your plan's stock limit"
+            message={
+              detail.compliance.symbolLimit === null
+                ? "This list exceeds your plan's stock limit. Existing stocks stay readable; new ones cannot be added."
+                : `It holds ${detail.compliance.symbolCount} stocks and your plan allows ${detail.compliance.symbolLimit} per list. Existing stocks stay readable and can be removed; new ones cannot be added until it is within the limit.`
+            }
+          />
+        )}
 
         {editable ? (
           <SectionCard
@@ -386,7 +451,45 @@ export function ListDetail({ listId }: ListDetailProps) {
                     : "Add to list"}
               </button>
             </div>
-            {addError ? (
+            {detail.compliance.symbolLimit !== null ? (
+              // The plan's capacity for this list, before anything is added (UI-020). The limit is
+              // the one the API derived for this viewer on this read.
+              <div className={styles.addMeter}>
+                <LimitMeter
+                  label="Stocks in this list"
+                  usage={detail.items.length}
+                  limit={detail.compliance.symbolLimit}
+                  unit={["stock", "stocks"]}
+                  testId="list-symbol-meter"
+                />
+                {pendingAdd.length > 0 &&
+                detail.items.length + pendingAdd.length >
+                  detail.compliance.symbolLimit ? (
+                  <p
+                    className={styles.addWarning}
+                    data-testid="list-add-over-limit"
+                  >
+                    Adding{" "}
+                    {pendingAdd.length === 1
+                      ? "this stock"
+                      : `these ${pendingAdd.length} stocks`}{" "}
+                    would make {detail.items.length + pendingAdd.length}; your
+                    plan allows {detail.compliance.symbolLimit} per list.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            {addError && addRefusedByPlan ? (
+              <EntitlementNotice
+                testId="list-add-error"
+                message={addError}
+                recovery={
+                  <span className={styles.recoveryHint}>
+                    Remove stocks from the selection or from the list.
+                  </span>
+                }
+              />
+            ) : addError ? (
               <p
                 className={`${forms.error} ${styles.addError}`}
                 role="alert"
@@ -406,24 +509,31 @@ export function ListDetail({ listId }: ListDetailProps) {
               ? "A built-in list maintained by FactorSage. Each stock's membership decides the dates a strategy may open a new position in it; selling is never restricted."
               : "Each stock's membership decides the dates a strategy may open a new position in it. Selling is never restricted."
           }
-          flush={detail.items.length > 0}
+          flush={detail.items.length > 0 && members.filteredEmpty === null}
+          {...(detail.items.length > 0 ? { toolbar: members.toolbar } : {})}
         >
-          <DataTable
-            label={`Stocks in ${detail.name}`}
-            testId="list-items"
-            rowTestId="list-item"
-            columns={columns}
-            rows={detail.items}
-            getRowKey={(item) => item.id}
-            emptyState={
-              <EmptyState
-                variant="compact"
-                testId="list-items-empty"
-                title="No stocks yet"
-                body={<p>Search above to add supported stocks to this list.</p>}
+          {members.filteredEmpty ?? (
+            <>
+              <DataTable
+                label={`Stocks in ${detail.name}`}
+                testId="list-items"
+                rowTestId="list-item"
+                columns={columns}
+                rows={members.rows}
+                getRowKey={(item) => item.id}
+                emptyState={
+                  <EmptyState
+                    variant="compact"
+                    testId="list-items-empty"
+                    title="No stocks yet"
+                    body={
+                      <p>Search above to add supported stocks to this list.</p>
+                    }
+                  />
+                }
               />
-            }
-          />
+            </>
+          )}
         </SectionCard>
       </div>
 
@@ -446,16 +556,8 @@ export function ListDetail({ listId }: ListDetailProps) {
       ) : null}
 
       {dialog.kind === "delete-list" ? (
-        <ConfirmDialog
-          title="Delete list"
-          body={
-            <p className={styles.confirmBody}>
-              Delete <strong>{detail.name}</strong> and every stock&apos;s
-              membership configuration? This cannot be undone.
-            </p>
-          }
-          confirmLabel="Delete list"
-          pendingLabel="Deleting…"
+        <DeleteListDialog
+          name={detail.name}
           onClose={closeDialog}
           onConfirm={async () => {
             await deleteStockList(detail.id);

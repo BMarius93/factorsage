@@ -62,7 +62,7 @@ test.describe("PRO_USER dashboard", () => {
     await expect(page.getByTestId("built-in-badge")).toBeVisible();
     await expect(page.getByTestId("edit-monitor")).toHaveCount(0);
     await expect(
-      page.getByRole("link", { name: "Backtest this monitor" }),
+      page.getByRole("link", { name: "Run backtest" }),
     ).toBeVisible();
   });
 });

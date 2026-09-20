@@ -88,7 +88,7 @@ describe("DataTable", () => {
     expect(row.querySelector('[data-card="fact"]')?.textContent).toContain(
       "Size",
     );
-    expect(container.querySelectorAll('[data-card="hidden"]')).toHaveLength(2);
+    expect(container.querySelectorAll('td[data-card="hidden"]')).toHaveLength(2);
   });
 
   it("marks numeric columns so digits align", () => {
@@ -179,5 +179,30 @@ describe("DataTable", () => {
     const header = screen.getByRole("columnheader", { name: /Name/ });
     expect(header.getAttribute("aria-sort")).toBe("ascending");
     expect(screen.getByRole("button", { name: /Name/ })).toBeDefined();
+  });
+
+  it("carries sizing hints as custom properties so they never constrain a phone card", () => {
+    render(
+      <DataTable
+        label="Sized"
+        columns={[
+          { key: "name", header: "Name", cardRole: "identity", minWidth: "7rem", render: (row: Row) => row.name },
+          { key: "why", header: "Why", stacked: true, foldIntermediate: true, render: () => "Because" },
+        ]}
+        rows={ROWS}
+        getRowKey={(row) => row.id}
+        rowTestId="sized-row"
+      />,
+    );
+    const row = screen.getAllByTestId("sized-row")[0]!;
+    const identity = row.querySelector<HTMLElement>('[data-card="identity"]')!;
+    expect(identity.style.getPropertyValue("--column-min-width")).toBe("7rem");
+    expect(identity.style.minWidth).toBe("");
+    const why = row.querySelector<HTMLElement>('td[data-card="fact"]')!;
+    expect(why.getAttribute("data-stacked")).toBe("true");
+    expect(why.getAttribute("data-fold")).toBe("true");
+    expect(
+      screen.getByRole("columnheader", { name: "Why" }).getAttribute("data-fold"),
+    ).toBe("true");
   });
 });

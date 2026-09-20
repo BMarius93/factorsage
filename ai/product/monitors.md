@@ -21,10 +21,26 @@ Disabling a Monitor stops future evaluations. Re-enabling it resumes evaluations
 `enabled` is intent, not a promise that the Monitor is scanning. After a downgrade an enabled
 Monitor can be `BLOCKED_BY_ENTITLEMENT` — over the plan's active-Monitor count
 (`MONITOR_CAPACITY`) or watching a List over the plan's symbol limit (`LIST_OVER_LIMIT`) — and then
-it is not evaluated. Both the collection and the Monitor's own page show the configured state
-("Enabled") **and** the effective one ("Not scanning", with the reason in the user's terms), from
-one web helper (`features/monitors/utils/blocked-status.tsx`, UX-004). Neither surface ever
-rewrites one into the other.
+it is not evaluated. The UI shows **one effective state** per Monitor (UI-021): an enabled
+Monitor the plan has stopped reads "Paused — plan limit", with its reason as text beside it (never
+only a tooltip), and the configured intent stays visible as a secondary "Monitoring: Switched on"
+fact on the Monitor's own page. Showing "Enabled" and "Not scanning" side by side read as a
+contradiction. Collection and detail share one web helper
+(`features/monitors/utils/blocked-status.tsx`), the Monitors page states the account-level
+consequence once ("N monitors are paused by your plan") with a route to the plans, and nothing
+ever rewrites `enabled`.
+
+At capacity, the New Monitor dialog offers "Start monitoring now" switched **off** and says why,
+and a capacity refusal offers "Save without monitoring" (UI-022) — the plan always allows a
+switched-off Monitor.
+
+How the UI tells a Monitor's story (UI-025, UI-026): the Dashboard gives every row a **Since**
+(how long the state has held, ticking, with the exact time as reachable text and "from history"
+for a reconstructed state), lists active signals before setups waiting for a trigger, then by
+action, then newest first, and calls its summary card "Current matches" — the product is end of
+day, never "real-time". The Monitor page lists matched stocks first, filters by status, explains
+"Not evaluable" in words, and says why an ended signal ended from its `resolutionReason` ("stock
+left the list", "membership period ended", "strategy logic changed", …).
 
 ## Signals
 
@@ -463,6 +479,8 @@ cycle — so a first-time visitor's Dashboard already shows real matches.
 - **A customer's own Monitor** keeps its real `enabled` lifecycle: disabled (or plan-blocked)
   Monitors contribute no Dashboard rows, whatever their frozen state says. A customer's Monitor
   watches only the customer's own Lists and Strategies; a built-in Monitor watches only built-ins.
+  The New/Edit Monitor dialog says so beside its pickers (UI-009), and its create-first notice
+  says "of your own", so an account holding only built-ins is never told it has nothing.
 - **Administrators** (`role = ADMIN`) change built-ins through the ordinary routes and editors;
   everybody else reads them. Changing a display name never changes the `systemKey`.
 

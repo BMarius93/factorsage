@@ -108,16 +108,17 @@ export function selectLatestValuations(
 }
 
 /**
- * Display upside of an intrinsic value against a market price, as a fraction of the price
- * (`0.15` means the intrinsic value sits 15% above the price). Undefined when the price cannot
- * anchor the comparison.
+ * Where the market price sits relative to an intrinsic value, as a fraction of that value
+ * (`-0.059` means the price is 5.9% below the value). This is the one sign convention Stock Details
+ * uses for every comparison — "Price vs value", "Price vs average" — so a negative number always
+ * means the price is below its reference (UI-018). Undefined when the value cannot anchor it.
  */
-export function upsideFraction(
-  valuePerShare: number,
+export function priceVersusValue(
   price: number,
+  valuePerShare: number,
 ): number | undefined {
-  if (!Number.isFinite(price) || price <= 0) {
+  if (!Number.isFinite(valuePerShare) || valuePerShare <= 0) {
     return undefined;
   }
-  return (valuePerShare - price) / price;
+  return (price - valuePerShare) / valuePerShare;
 }

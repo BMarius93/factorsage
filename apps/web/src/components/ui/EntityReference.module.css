@@ -1,11 +1,22 @@
 /* One pill shape for every cross-entity reference. The kind changes only the accent,
    so the product stays calm while the relationship stays recognisable. */
 .chip {
-  display: inline-flex;
+  /* The cap is intrinsic, so one long strategy or list name cannot widen whatever the chip
+     sits in (UI-001, UI-002). Two properties do it together:
+     - the single `minmax(2.5rem, max-content)` track gives the chip a small, absolute
+       min-content width, so an auto-layout table cell or a flex/grid parent can shrink it
+       below its label — but never to an empty pill;
+     - `max-width` is an absolute length, not a percentage. A percentage cap is cyclic while a
+       table computes its column widths and is ignored there, which is how a "truncated" chip
+       used to keep its full 700px max-content width and push a row's actions off-screen.
+     An inline-grid with a small min-content fits its container anyway, so no percentage is
+     needed. The label truncates and the full name stays in the title attribute. */
+  display: inline-grid;
+  grid-template-columns: minmax(2.5rem, max-content);
   align-items: center;
-  /* Capped so one long strategy or list name cannot widen the column it sits in; the
-     label truncates and the full name stays in the title attribute. */
-  max-width: min(100%, 12rem);
+  min-width: 0;
+  max-width: 12rem;
+  vertical-align: middle;
   padding: 3px 10px;
   border: 1px solid var(--color-primary-border);
   border-radius: var(--radius-pill);
@@ -22,6 +33,7 @@
 }
 
 .chipLabel {
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

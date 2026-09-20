@@ -49,12 +49,15 @@ test.describe("guest entitlements", () => {
     expect(payload.entitlements.stocks.maxHistoricalYears).toBeNull();
   });
 
-  test("may read built-in content and demo backtests", async ({ page }) => {
+  test("may read built-in content but no backtest, demo included", async ({
+    page,
+  }) => {
     const { entitlements } = await readEntitlements(page);
 
     expect(entitlements.builtInContent.canViewLists).toBe(true);
     expect(entitlements.builtInContent.canViewStrategies).toBe(true);
-    expect(entitlements.backtests.canViewDemo).toBe(true);
+    // DEC-007: every Backtest configuration, run and result requires a session.
+    expect(entitlements.backtests.canViewDemo).toBe(false);
   });
 
   test("cannot create lists, strategies, backtests or monitors", async ({
@@ -86,7 +89,13 @@ test.describe("guest entitlements", () => {
     // The collection pages for Lists, Strategies and Monitors are deliberately **not** here: they
     // carry public built-in content, so a Guest reads them and is asked for an account at the
     // point of action instead (`e2e/builtins/collections.guest.spec.ts`).
-    for (const path of ["/backtests", "/backtests/new", "/billing"]) {
+    // Every Backtest collection, configuration and result route needs a session (DEC-007).
+    for (const path of [
+      "/backtests",
+      "/backtests/new",
+      "/backtests/00000000-0000-4000-8000-000000000000",
+      "/billing",
+    ]) {
       await page.goto(path);
       // Bounced to sign-in with the attempted page kept for afterwards (UX-003).
       await expect(page).toHaveURL(`/login?next=${encodeURIComponent(path)}`);

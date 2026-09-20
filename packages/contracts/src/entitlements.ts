@@ -165,7 +165,12 @@ export type Entitlements = {
 
   readonly backtests: {
     readonly canRunLive: boolean;
-    /** Precomputed/static demo runs, which every access state may consume. */
+    /**
+     * Precomputed/static demo runs. V1 ships none, and a Guest may not view any Backtest
+     * configuration, run or result, demo included (`docs/decisions/entitlements-v1.md` section 4,
+     * DEC-007), so it is `false` for a Guest and the public response never advertises guest demo
+     * access.
+     */
     readonly canViewDemo: boolean;
     readonly maxSymbols: EntitlementLimit;
     /** Maximum requested period length, in years. Execution only — see `stocks.maxHistoricalYears`. */
@@ -212,7 +217,7 @@ export const GUEST_ENTITLEMENTS: Entitlements = {
   },
   backtests: {
     canRunLive: false,
-    canViewDemo: true,
+    canViewDemo: false,
     maxSymbols: 0,
     maxHistoricalYears: 0,
     maxConcurrentRuns: 0,

@@ -10,7 +10,6 @@
   width: min(440px, 100%);
   padding: 36px;
   border: 1px solid var(--color-border);
-  border-top: 4px solid var(--color-primary);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-surface);
@@ -34,7 +33,7 @@
 .title {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 30px;
+  font-size: var(--text-page-title-hero);
   font-weight: var(--weight-emphasis);
   line-height: 1.15;
   letter-spacing: -0.02em;
@@ -43,8 +42,8 @@
 .subtitle {
   margin: 10px 0 0;
   color: var(--color-text-secondary);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
 }
 
 .footer {
@@ -73,12 +72,8 @@
   }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 599px) {
   .panel {
     padding: 28px 22px;
-  }
-
-  .title {
-    font-size: 26px;
   }
 }

@@ -146,10 +146,13 @@ Structured events (`component: stock-lists`, `actorUserId` from the request cont
 ## Frontend
 
 `apps/web/src/features/lists/` with routes `/lists` and `/lists/[id]`. The membership picker
-(`SecurityMultiSelect`) is a chips combobox built on the same `useStockSearch` hook as the global
-topbar search — one search behavior, catalog-only, and Enter can only select a real result, never
-free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
-list page through a per-stock editor dialog.
+(`SecurityMultiSelect`) is the `multi` mode of the shared stock combobox (`useSecurityCombobox`,
+see `ai/architecture/ui-system.md`) that also drives the topbar search — one search behavior,
+catalog-only, recently viewed stocks on a blank field, the same throttling copy, and Enter can only
+select a real result, never free text. List creation stays fast: name + stock selection; membership is edited afterwards on the
+list page through a per-stock editor dialog. From ten members the list page offers a search by ticker
+or company and a Sort (list order, ticker, company); the members stay one scroll (see `useCollection`
+in `ai/architecture/ui-system.md`).
 
 ### The V1 membership editor exposes one period
 
@@ -178,8 +181,13 @@ The backend stores any number of periods, and `PUT …/buy-windows` replaces the
 naive one-period form would flatten `[p1, p2, p3]` to `[p1]` on any read/edit/save cycle. The protection lives in the editor: an item with
 more than one stored period opens **read-only**, listing every period it has, with no form and no
 save button. The single-period form appears only after the user presses `Replace with one period`.
-The collection row shows the same truth — the first period plus `+N more`, with all of them in the
-cell's title — rather than implying continuous eligibility across a gap.
+The member row answers "is it a member **today**?" first, by meaning rather than storage order
+(UI-019): "Member now · since Sep 19, 2025" (or "· until …" for a bounded current period), "Joins
+Jan 4, 2027" when only a future period remains, "Ended Jun 29, 2018" when every period is over.
+Periods are stored oldest first, so leading with the first one showed a stock that rejoined an
+index as if it were ineligible. Every period is listed behind a native "N periods" disclosure that
+opens by touch and keyboard — never only in a tooltip — so a gap is never presented as continuous
+eligibility. Nothing about writing or normalising periods changes.
 
 `lists.user.spec.ts` asserts this against a member the API gave two periods: opening the editor,
 closing it, and re-reading the API must return both periods unchanged.

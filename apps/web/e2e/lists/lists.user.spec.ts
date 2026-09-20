@@ -260,7 +260,7 @@ test.describe("PRO_USER stock lists", () => {
 
       const message = editor.getByTestId("membership-validation");
       await expect(message).toHaveText(
-        "Membership cannot end before it starts",
+        "Membership cannot end before it starts.",
       );
       // The message belongs to the field it is about, for assistive technology too.
       await expect(editor.getByLabel("To", { exact: true })).toHaveAttribute(
@@ -303,10 +303,17 @@ test.describe("PRO_USER stock lists", () => {
       });
 
       await page.goto(`/lists/${listId}`);
-      // The row says how many periods there are rather than showing only the first.
+      // The row leads with what is true today — a member since 2012 — not with the oldest stored
+      // period (UI-019), and lists every period behind a disclosure a finger can open.
       const cell = membershipCellText(page, QA_SYMBOL_ONE);
-      await expect(cell).toContainText("Mar 10, 2001");
-      await expect(cell).toContainText("+1 more");
+      await expect(cell).toContainText("Member now · since May 1, 2012");
+      const toggle = cell.getByTestId("membership-periods-toggle");
+      await expect(toggle).toHaveText("2 periods");
+      await toggle.click();
+      await expect(cell.getByTestId("membership-periods")).toBeVisible();
+      await expect(cell.getByTestId("membership-periods")).toContainText(
+        "Mar 10, 2001",
+      );
 
       const editor = await openMembership(page, QA_SYMBOL_ONE);
       const history = editor.getByTestId("membership-history");

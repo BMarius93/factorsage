@@ -8,7 +8,10 @@ import {
   type StrategyMetric,
 } from "@intrinsic/contracts";
 import { describe, expect, it } from "vitest";
+import { draftIssues } from "../hooks/use-strategy-draft";
 import {
+  authoredDefinition,
+  draftFrom,
   draftPayload,
   emptyDraft,
   strategyDraftReducer,
@@ -465,5 +468,104 @@ describe("final exit rules", () => {
     expect(
       validateStrategy({ ...draftPayload(state), name: "Two ways out" }),
     ).toEqual([]);
+  });
+});
+
+describe("rows waiting for a metric (UI-013)", () => {
+  it("marks every row an Add creates as unset, and authors it once a metric is chosen", () => {
+    let state = strategyDraftReducer(emptyDraft(), {
+      type: "addLevel",
+      levelKind: "BUY",
+    });
+    const rowId = state.definition.buyLevels[0]!.signal.conditions[0]!.id;
+    expect(state.unset).toEqual([rowId]);
+
+    state = strategyDraftReducer(state, {
+      type: "addCondition",
+      ref: { levelKind: "BUY", levelIndex: 0 },
+    });
+    expect(state.unset).toHaveLength(2);
+
+    state = strategyDraftReducer(state, {
+      type: "setMetric",
+      ref: { levelKind: "BUY", levelIndex: 0, part: "CONDITION", conditionIndex: 0 },
+      metric: { kind: "PRICE" },
+    });
+    expect(state.unset).not.toContain(rowId);
+    expect(state.unset).toHaveLength(1);
+  });
+
+  it("leaves unset rows out of the authored document, never out of the draft", () => {
+    const state = strategyDraftReducer(emptyDraft(), {
+      type: "addLevel",
+      levelKind: "BUY",
+    });
+    expect(state.definition.buyLevels[0]!.signal.conditions).toHaveLength(1);
+    expect(authoredDefinition(state).buyLevels[0]!.signal.conditions).toHaveLength(0);
+  });
+
+  it("forgets the ids of removed rows", () => {
+    let state = strategyDraftReducer(emptyDraft(), {
+      type: "addLevel",
+      levelKind: "BUY",
+    });
+    state = strategyDraftReducer(state, {
+      type: "removeLevel",
+      ref: { levelKind: "BUY", levelIndex: 0 },
+    });
+    expect(state.unset).toEqual([]);
+  });
+
+  it("asks for the metric instead of judging a placeholder", () => {
+    let state = strategyDraftReducer(emptyDraft(), { type: "setName", name: "x" });
+    state = strategyDraftReducer(state, { type: "addLevel", levelKind: "BUY" });
+    state = strategyDraftReducer(state, {
+      type: "addCondition",
+      ref: { levelKind: "BUY", levelIndex: 0 },
+    });
+    const issues = draftIssues(state);
+    // Two identical placeholders would otherwise be a DUPLICATE_CONDITION the user never wrote.
+    expect(issues.map((issue) => issue.message)).toEqual([
+      "Choose a metric.",
+      "Choose a metric.",
+    ]);
+    expect(issues.every((issue) => issue.path.field === "METRIC")).toBe(true);
+  });
+
+  it("leaves a loaded strategy exactly as saved", () => {
+    const draft = draftFrom({
+      ownership: "USER",
+      canEdit: true,
+      id: "s1",
+      name: "Saved",
+      buyLevelCount: 1,
+      sellLevelCount: 0,
+      hasFinalExit: false,
+      versionNumber: 1,
+      createdAt: "2026-08-01T10:00:00.000Z",
+      updatedAt: "2026-08-01T10:00:00.000Z",
+      definition: {
+        schemaVersion: 2,
+        buyLevels: [
+          {
+            id: "b1",
+            percentage: 100,
+            signal: {
+              conditions: [
+                {
+                  id: "c1",
+                  metric: { kind: "PRICE" },
+                  operator: "IS_ABOVE",
+                  value: { kind: "SERIES", seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        ],
+        sellLevels: [],
+      },
+    });
+    expect(draft.unset).toEqual([]);
+    expect(authoredDefinition(draft)).toBe(draft.definition);
   });
 });

@@ -2,7 +2,9 @@ import type {
   SecurityProfileResponse,
   SecurityResponse,
 } from "@intrinsic/contracts";
+import type { ReactNode } from "react";
 import { PageHeader } from "../../../../components/ui/PageHeader";
+import { StatusBadge } from "../../../../components/ui/StatusBadge";
 import { StockLogo } from "../../../../components/ui/StockIdentity";
 import {
   formatLocalDate,
@@ -21,6 +23,8 @@ type StockHeaderProps = {
    * one, and a broken image falls back to the ticker monogram.
    */
   readonly profile?: SecurityProfileResponse;
+  /** Page actions — "Add to list" — rendered where every entity header puts them. */
+  readonly actions?: ReactNode;
 };
 
 const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> =
@@ -34,7 +38,12 @@ const SECURITY_TYPE_BADGES: Partial<Record<SecurityResponse["type"], string>> =
  * The change is derived from the two most recent EOD closes and is labelled as at-close data —
  * nothing here claims to be live.
  */
-export function StockHeader({ security, summary, profile }: StockHeaderProps) {
+export function StockHeader({
+  security,
+  summary,
+  profile,
+  actions,
+}: StockHeaderProps) {
   const change = summary?.change;
   const direction =
     change === undefined ? undefined : change.absolute >= 0 ? "up" : "down";
@@ -42,6 +51,7 @@ export function StockHeader({ security, summary, profile }: StockHeaderProps) {
 
   return (
     <PageHeader
+      {...(actions ? { actions } : {})}
       title={
         <span className={styles.identityRow}>
           <StockLogo
@@ -61,15 +71,21 @@ export function StockHeader({ security, summary, profile }: StockHeaderProps) {
       }
       badges={
         <ul className={styles.badges} aria-label="Listing details">
-          <li className={styles.badge}>
-            {security.exchangeName ?? security.exchangeCode}
-          </li>
-          <li className={styles.badge}>{security.currency}</li>
-          {typeBadge ? <li className={styles.badge}>{typeBadge}</li> : null}
-          {security.isAdr ? <li className={styles.badge}>ADR</li> : null}
+          {[
+            security.exchangeName ?? security.exchangeCode,
+            security.currency,
+            ...(typeBadge ? [typeBadge] : []),
+            ...(security.isAdr ? ["ADR"] : []),
+          ].map((label) => (
+            <li key={label}>
+              <StatusBadge tone="neutral" variant="outline">
+                {label}
+              </StatusBadge>
+            </li>
+          ))}
           {security.isActivelyTrading ? null : (
-            <li className={`${styles.badge} ${styles.badgeWarning}`}>
-              Not actively trading
+            <li>
+              <StatusBadge tone="warning">Not actively trading</StatusBadge>
             </li>
           )}
         </ul>

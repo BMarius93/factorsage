@@ -167,13 +167,14 @@ test.describe("guest dashboard overview cards", () => {
 
     const prompt = page.getByTestId("sign-in-prompt");
     await expect(prompt).toBeVisible();
+    // Signing in goes straight to New Backtest, which is what the Guest asked for (UI-042).
     await expect(prompt.getByRole("link", { name: "Sign in" })).toHaveAttribute(
       "href",
-      "/login",
+      "/login?next=%2Fbacktests%2Fnew",
     );
     await expect(
       prompt.getByRole("link", { name: "Create an account" }),
-    ).toHaveAttribute("href", "/register");
+    ).toHaveAttribute("href", "/register?next=%2Fbacktests%2Fnew");
 
     // Still here: no redirect to /login merely for clicking, and the page underneath is intact.
     await expect(page).toHaveURL(/\/dashboard$/);

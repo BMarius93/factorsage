@@ -133,131 +133,19 @@
   cursor: pointer;
 }
 
-.panel {
-  position: absolute;
-  top: calc(100% + 6px);
+/* Placement only; the dropdown's look is the shared `SecurityListbox`. On a phone it spans the
+   topbar between the page gutters rather than the width of the collapsed trigger. */
+.search .panel {
   right: var(--page-pad-mobile);
   left: var(--page-pad-mobile);
   z-index: 45;
-  padding: 6px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-menu);
-}
-
-.panelHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px 8px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-/* Heading for a second section inside the scrolling list. Deliberately the same box as
-   `.panelHeader` — same padding, same rule underneath, same label typography — so RECENT
-   SEARCHES and POPULAR SEARCHES are one treatment rather than two. The 4px above and below
-   matches the gap `.options` already leaves under the panel header. */
-.sectionHeader {
-  display: flex;
-  align-items: center;
-  margin: 4px 0;
-  padding: 6px 10px 8px;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.groupLabel {
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  font-weight: var(--weight-emphasis);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-/* Subtle progress: a hairline that pulses rather than a spinner that grabs attention. */
-.loading {
-  width: 44px;
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--color-primary-soft);
-  animation: search-loading 1s ease-in-out infinite;
-}
-
-.options {
-  max-height: min(320px, 50dvh);
-  margin: 4px 0 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 44px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.option:hover,
-.option[data-highlighted="true"] {
-  background: var(--color-primary-soft);
-}
-
-/* Trailing label: it never wraps to a second line and never competes with the
-   identity for width — the ticker and company name are what the user is scanning. */
-.exchange {
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: var(--weight-emphasis);
-  letter-spacing: 0.02em;
-}
-
-.message {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 10px;
-  color: var(--color-text-secondary);
-  font-size: 13px;
-}
-
-.retry {
-  padding: 0;
-  border: 0;
-  color: var(--color-primary);
-  background: transparent;
-  font-size: 13px;
-  font-weight: var(--weight-emphasis);
-  cursor: pointer;
 }
 
 .trigger:focus-visible,
 .clear:focus-visible,
-.cancel:focus-visible,
-.retry:focus-visible {
+.cancel:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
-}
-
-@keyframes search-loading {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 
 /* Inline field. V1 keeps a real search box visible at ordinary phone widths and so does
@@ -287,7 +175,7 @@
     transform: none;
   }
 
-  .panel {
+  .search .panel {
     right: 0;
     left: 0;
   }
@@ -308,10 +196,5 @@
 @media (prefers-reduced-motion: reduce) {
   .field {
     transition: none;
-  }
-
-  .loading {
-    animation: none;
-    opacity: 0.6;
   }
 }

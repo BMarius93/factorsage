@@ -3,6 +3,7 @@ import {
   EMPTY_MEMBERSHIP,
   formatMembershipPeriod,
   membershipError,
+  membershipHeadline,
   membershipSummary,
   previewMembershipPeriod,
   toEditableMembership,
@@ -32,41 +33,61 @@ describe("formatMembershipPeriod", () => {
   });
 });
 
-describe("membershipSummary", () => {
-  it("reports FULL with no periods to render", () => {
-    const summary = membershipSummary({
-      buyWindowMode: "FULL",
-      buyWindows: [],
-    });
-    expect(summary.leading).toBeNull();
-    expect(summary.additionalCount).toBe(0);
-  });
+describe("membershipSummary (UI-019)", () => {
+  const TODAY = "2026-09-19";
+  const summarise = (
+    buyWindows: { startDate: string; endDate: string | null }[],
+  ) => membershipSummary({ buyWindowMode: "CUSTOM", buyWindows }, TODAY);
 
-  it("leads with the single period a V1-edited member has", () => {
-    const summary = membershipSummary({
-      buyWindowMode: "CUSTOM",
-      buyWindows: [{ startDate: "1982-11-30", endDate: null }],
-    });
-    expect(summary.leading).toEqual({
-      startDate: "1982-11-30",
-      endDate: null,
-    });
-    expect(summary.additionalCount).toBe(0);
-    expect(summary.title).toBe("Nov 30, 1982 → Present");
-  });
-
-  it("counts the periods a multi-period member holds and titles all of them", () => {
-    const summary = membershipSummary({
-      buyWindowMode: "CUSTOM",
-      buyWindows: [
-        { startDate: "2001-03-10", endDate: "2008-07-15" },
-        { startDate: "2012-05-01", endDate: null },
-      ],
-    });
-    expect(summary.additionalCount).toBe(1);
-    expect(summary.title).toBe(
-      "Mar 10, 2001 → Jul 15, 2008\nMay 1, 2012 → Present",
+  it("reports FULL as always eligible, with no period to lead with", () => {
+    const summary = membershipSummary(
+      { buyWindowMode: "FULL", buyWindows: [] },
+      TODAY,
     );
+    expect(summary.leading).toBeNull();
+    expect(membershipHeadline(summary)).toBe("Always eligible");
+  });
+
+  it("leads with an open period covering today", () => {
+    const summary = summarise([{ startDate: "2025-09-19", endDate: null }]);
+    expect(summary.state).toBe("CURRENT");
+    expect(membershipHeadline(summary)).toBe("Member now · since Sep 19, 2025");
+  });
+
+  it("leads with a bounded period covering today, and says when it ends", () => {
+    const summary = summarise([
+      { startDate: "2025-01-02", endDate: "2026-12-31" },
+    ]);
+    expect(summary.state).toBe("CURRENT");
+    expect(membershipHeadline(summary)).toBe("Member now · until Dec 31, 2026");
+  });
+
+  it("says when a future-only membership starts", () => {
+    const summary = summarise([{ startDate: "2027-01-04", endDate: null }]);
+    expect(summary.state).toBe("UPCOMING");
+    expect(membershipHeadline(summary)).toBe("Joins Jan 4, 2027");
+  });
+
+  it("says when an expired-only membership ended — the most recent period, not the oldest", () => {
+    const summary = summarise([
+      { startDate: "2010-01-04", endDate: "2012-06-29" },
+      { startDate: "2015-01-02", endDate: "2018-06-29" },
+    ]);
+    expect(summary.state).toBe("ENDED");
+    expect(membershipHeadline(summary)).toBe("Ended Jun 29, 2018");
+  });
+
+  it("puts today's period first for a member that left and rejoined", () => {
+    // Stored oldest first: the old UI showed "Jan 2, 2015 → Jun 29, 2018 +2 more" for a stock
+    // that is a member today.
+    const summary = summarise([
+      { startDate: "2015-01-02", endDate: "2018-06-29" },
+      { startDate: "2020-03-02", endDate: "2021-12-31" },
+      { startDate: "2025-09-19", endDate: null },
+    ]);
+    expect(summary.state).toBe("CURRENT");
+    expect(summary.leading).toEqual({ startDate: "2025-09-19", endDate: null });
+    expect(summary.periods).toHaveLength(3);
   });
 });
 
@@ -130,7 +151,7 @@ describe("membershipError", () => {
       membershipError({ startDate: "", endDate: "", present: true }),
     ).toEqual({
       field: "startDate",
-      message: "Pick the date membership starts",
+      message: "Pick the date membership starts.",
     });
   });
 
@@ -143,7 +164,7 @@ describe("membershipError", () => {
       }),
     ).toEqual({
       field: "endDate",
-      message: "Pick the date membership ends, or choose Present",
+      message: "Pick the date membership ends, or choose Present.",
     });
   });
 
@@ -156,7 +177,7 @@ describe("membershipError", () => {
       }),
     ).toEqual({
       field: "endDate",
-      message: "Membership cannot end before it starts",
+      message: "Membership cannot end before it starts.",
     });
   });
 

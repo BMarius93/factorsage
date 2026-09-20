@@ -6,7 +6,15 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
-import type { DataTableColumn } from "../../../components/ui/DataTable";
+import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
+import {
+  IntermediateOnly,
+  type DataTableColumn,
+} from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import {
@@ -17,14 +25,20 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { SkeletonList } from "../../../components/ui/Skeleton";
-import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { stockCountLabel } from "../../lists/utils/format";
 import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteMonitor, updateMonitor } from "../api/monitors-api";
 import { useMonitors } from "../hooks/use-monitors";
-import { MonitorBlockedPill } from "../utils/blocked-status";
+import {
+  isBlockedByEntitlement,
+  MonitorStateBadge,
+} from "../utils/blocked-status";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { LimitMeter } from "../../../components/ui/LimitMeter";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { PLAN_LABEL } from "../../billing/utils/format";
 import { activeSignalLabel, lastScanLabel } from "../utils/format";
 import { BuiltInMonitorVisibility } from "./BuiltInMonitorVisibility";
 import { MonitorFormDialog } from "./MonitorFormDialog";
@@ -98,7 +112,11 @@ function MonitorRowActions({
   return (
     <span className={styles.rowActions}>
       <span className={actionStyles.group}>
-        <Link className={actionStyles.action} href={`/monitors/${monitor.id}`}>
+        <Link
+          className={actionStyles.action}
+          href={`/monitors/${monitor.id}`}
+          aria-label={`Open ${monitor.name}`}
+        >
           Open
         </Link>
         <OverflowMenu
@@ -148,6 +166,97 @@ function MonitorRowActions({
  * names, the universe size and the active-Signal count — so the collection is one request rather
  * than one per monitor. A monitor's Signals are not presented here; that surface is its own slice.
  */
+/** The Strategy and Stock list a monitor watches, as one folded line. */
+function MonitorReferences({
+  monitor,
+}: {
+  readonly monitor: MonitorSummaryResponse;
+}) {
+  return (
+    <>
+      <EntityReferenceChip
+        kind="strategy"
+        name={monitor.strategyName}
+        href={`/strategies/${monitor.strategyId}`}
+      />
+      <EntityReferenceChip
+        kind="list"
+        name={monitor.stockListName}
+        href={`/lists/${monitor.stockListId}`}
+      />
+      <span className={styles.listCount}>
+        {stockCountLabel(monitor.securityCount)}
+      </span>
+    </>
+  );
+}
+
+/**
+ * What a plan limit has stopped, said once at the top of the page with a way forward (UI-021).
+ *
+ * A downgrade never deletes or switches anything off: an over-capacity account keeps its monitors
+ * switched on and the system pauses the ones outside the allowance. The rows each say "Paused —
+ * plan limit"; this says why, in numbers, and what to do.
+ */
+function MonitorComplianceNotice({
+  own,
+}: {
+  readonly own: readonly MonitorSummaryResponse[];
+}) {
+  const plan = useEntitlements();
+  const paused = own.filter(
+    (monitor) => monitor.enabled && isBlockedByEntitlement(monitor),
+  );
+  if (paused.length === 0 || plan.status !== "ready") {
+    return null;
+  }
+  const byCapacity = paused.some((m) => m.blockedReason !== "LIST_OVER_LIMIT");
+  const byList = paused.some((m) => m.blockedReason === "LIST_OVER_LIMIT");
+  const limit = plan.entitlements.monitors.maxActive;
+  const planName = plan.plan ? PLAN_LABEL[plan.plan] : "Your plan";
+  const switchedOn = own.filter((monitor) => monitor.enabled).length;
+  return (
+    <EntitlementNotice
+      announce="status"
+      testId="monitors-compliance-notice"
+      title={`${paused.length} ${paused.length === 1 ? "monitor is" : "monitors are"} paused by your plan`}
+      message={
+        <>
+          {byCapacity && limit !== null
+            ? `${planName} allows ${limit} active monitor${limit === 1 ? "" : "s"} and ${switchedOn} are switched on, so the ones outside the allowance wait. Disable the monitors you do not need — the next one takes the free slot. `
+            : null}
+          {byList
+            ? "A monitor whose stock list holds more stocks than your plan allows waits until the list is smaller. Nothing was deleted or switched off."
+            : "Nothing was deleted or switched off."}
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * The orders a customer's own monitors can be read in; the API's newest-first comes first. Search
+ * also matches the strategy and list a monitor watches, since that is how people tell them apart.
+ */
+const MONITOR_SORTS: readonly CollectionSort<MonitorSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  { id: "name", label: "Name A–Z", compare: byName },
+  {
+    id: "signals",
+    label: "Most active signals",
+    compare: (a, b) => b.activeSignalCount - a.activeSignalCount,
+  },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((monitor) => monitor.updatedAt),
+  },
+];
+
+function monitorSearchText(monitor: MonitorSummaryResponse): string {
+  return `${monitor.name} ${monitor.strategyName} ${monitor.stockListName}`;
+}
+
 export function MonitorsPage() {
   const { status, monitors, retry, applyCreated, applyUpdated, applyDeleted } =
     useMonitors();
@@ -164,17 +273,26 @@ export function MonitorsPage() {
     header: "Monitor",
     cardRole: "identity",
     render: (monitor) => (
-      <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
-        {monitor.name}
-      </Link>
+      <>
+        <Link className={styles.nameLink} href={`/monitors/${monitor.id}`}>
+          {monitor.name}
+        </Link>
+        {/* Between 880 and 1,279px the Strategy and Stock list columns fold in here, under the
+            name, rather than squeezing three columns of chips until the actions scroll away. */}
+        <IntermediateOnly testId="monitor-folded-relationships">
+          <MonitorReferences monitor={monitor} />
+        </IntermediateOnly>
+      </>
     ),
   };
 
   const referenceColumns: readonly DataTableColumn<MonitorSummaryResponse>[] = [
     {
       key: "strategy",
+      width: "13rem",
       header: "Strategy",
       cardRole: "links",
+      foldIntermediate: true,
       render: (monitor) => (
         <EntityReferenceChip
           kind="strategy"
@@ -185,8 +303,10 @@ export function MonitorsPage() {
     },
     {
       key: "list",
+      width: "13rem",
       header: "Stock list",
       cardRole: "links",
+      foldIntermediate: true,
       // The universe size belongs to the list, so it rides with the reference rather than
       // taking a column of its own — the row already carries as much as 1200px can hold.
       render: (monitor) => (
@@ -204,6 +324,7 @@ export function MonitorsPage() {
     },
     {
       key: "signals",
+      width: "9rem",
       header: "Active signals",
       align: "right",
       numeric: true,
@@ -219,6 +340,7 @@ export function MonitorsPage() {
     },
     {
       key: "last-scan",
+      width: "11rem",
       header: "Last checked",
       nowrap: true,
       render: (monitor) => lastScanLabel(monitor.lastScanAt),
@@ -229,30 +351,20 @@ export function MonitorsPage() {
     identityColumn,
     {
       key: "state",
+      width: "11rem",
       header: "State",
       cardRole: "status",
       render: (monitor) => (
         <span className={styles.stateCell}>
-          {/*
-            Two different facts, deliberately shown as two pills. `enabled` is what the user asked
-            for and never changes on its own; the operational status is what the system will
-            actually do with that intent right now. A monitor left over capacity by a downgrade is
-            still enabled — collapsing the two would either claim it is scanning when it is not, or
-            claim the user turned it off when they did not.
-          */}
-          <StatusBadge
-            tone={monitor.enabled ? "positive" : "pending"}
-            testId="monitor-enabled-pill"
-          >
-            {monitor.enabled ? "Enabled" : "Disabled"}
-          </StatusBadge>
-          <MonitorBlockedPill monitor={monitor} />
+          {/* One effective state, with its reason as text (UI-021). */}
+          <MonitorStateBadge monitor={monitor} showReason />
         </span>
       ),
     },
     ...referenceColumns,
     {
       key: "actions",
+      width: "10rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",
@@ -272,6 +384,7 @@ export function MonitorsPage() {
     identityColumn,
     {
       key: "visibility",
+      width: "11rem",
       header: "On my dashboard",
       cardRole: "status",
       cardLabel: "On my dashboard",
@@ -287,6 +400,7 @@ export function MonitorsPage() {
     ...referenceColumns,
     {
       key: "actions",
+      width: "10rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",
@@ -298,6 +412,7 @@ export function MonitorsPage() {
           <Link
             className={actionStyles.action}
             href={`/monitors/${monitor.id}`}
+            aria-label={`Open ${monitor.name}`}
           >
             Open
           </Link>
@@ -318,20 +433,34 @@ export function MonitorsPage() {
     },
   ];
 
-  // Exactly one "New monitor" affordance in every state: the header carries it once the viewer has
-  // monitors of their own (or is a Guest, who will never have a "Your monitors" section), and the
-  // empty section carries it otherwise.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0) ? (
-      <button
-        type="button"
-        className={forms.tintedButton}
-        data-testid="new-monitor-button"
-        onClick={create}
-      >
-        New monitor
-      </button>
+  // How many of the viewer's own monitors are switched on, against the plan's allowance — shown
+  // before anything is created or enabled (UI-020). Enabling is gated on this intent count.
+  const plan = useEntitlements();
+  const maxActive =
+    plan.status === "ready" ? plan.entitlements.monitors.maxActive : null;
+  const activeMeter =
+    status === "ready" && gate.signedIn && plan.status === "ready" ? (
+      <LimitMeter
+        label="Active monitors"
+        usage={own.filter((monitor) => monitor.enabled).length}
+        limit={maxActive}
+        unit={["active monitor", "active monitors"]}
+        testId="monitors-active-meter"
+      />
     ) : null;
+
+  // "New monitor" lives in the header in every state (UI-030); it waits only for the session.
+  const headerAction = (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-monitor-button"
+      disabled={!gate.resolved}
+      onClick={create}
+    >
+      New monitor
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -339,8 +468,13 @@ export function MonitorsPage() {
         <PageHeader
           title="Monitors"
           lead="Watch a strategy against current market data and collect the signals it produces."
-          {...(headerAction ? { actions: headerAction } : {})}
+          {...(activeMeter ? { aside: activeMeter } : {})}
+          actions={headerAction}
         />
+
+        {status === "ready" && gate.signedIn ? (
+          <MonitorComplianceNotice own={own} />
+        ) : null}
 
         {status === "loading" ? (
           <SectionCard ariaLabel="Loading monitors">
@@ -377,6 +511,8 @@ export function MonitorsPage() {
             columns={ownColumns}
             rows={own}
             getRowKey={(monitor) => monitor.id}
+            searchText={monitorSearchText}
+            sorts={MONITOR_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -390,18 +526,8 @@ export function MonitorsPage() {
                     matches one of the strategy&apos;s levels. Scanning runs in
                     the background on a fixed schedule, so there is nothing to
                     time yourself — you choose what is watched and whether it is
-                    running.
+                    running. Start with <strong>New monitor</strong> above.
                   </p>
-                }
-                actions={
-                  <button
-                    type="button"
-                    className={forms.primaryButton}
-                    data-testid="new-monitor-button"
-                    onClick={create}
-                  >
-                    New monitor
-                  </button>
                 }
               />
             }
@@ -421,6 +547,7 @@ export function MonitorsPage() {
             columns={builtInColumns}
             rows={builtIn}
             getRowKey={(monitor) => monitor.id}
+            searchText={monitorSearchText}
             clickableRows
           />
         ) : null}
@@ -431,6 +558,7 @@ export function MonitorsPage() {
       {dialog.kind === "create" ? (
         <MonitorFormDialog
           mode="create"
+          activeCount={own.filter((monitor) => monitor.enabled).length}
           onClose={closeDialog}
           onSaved={(detail) => {
             applyCreated(detail);
@@ -443,6 +571,7 @@ export function MonitorsPage() {
         <MonitorFormDialog
           mode="edit"
           monitor={dialog.monitor}
+          activeCount={own.filter((monitor) => monitor.enabled).length}
           onClose={closeDialog}
           onSaved={(summary) => {
             applyUpdated(summary);

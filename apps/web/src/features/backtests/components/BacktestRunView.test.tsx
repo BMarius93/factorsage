@@ -264,11 +264,48 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("backtest-status").textContent).toContain(
       "Failed",
     );
-    // A finished run has nothing still to come, so the chart frame must not promise progress.
-    expect(screen.getByTestId("backtest-chart-placeholder").textContent).toBe(
-      "This run produced no comparison curve.",
+    // A data problem is not something a retry fixes (UI-031): the guidance says so, and the
+    // recovery edits the configuration rather than resubmitting it unchanged.
+    expect(screen.getByTestId("backtest-failure-next").textContent).toContain(
+      "would fail the same way",
     );
+    expect(screen.getByTestId("backtest-failure-rerun").textContent).toBe(
+      "Edit and run again",
+    );
+    // The raw code lives only in the collapsed support details.
+    expect(
+      screen.getByTestId("backtest-failure-code").closest("details"),
+    ).not.toBeNull();
     expect(screen.queryByTestId("backtest-progress")).toBeNull();
+  });
+
+  it("offers the run's own configuration back for editing, never a blank form", async () => {
+    fetchRunMock.mockResolvedValue(testDetail("QUEUED"));
+    fetchProgressMock.mockResolvedValue(
+      testProgress("FAILED", 3, {
+        percent: 0,
+        failure: {
+          code: "ABANDONED",
+          phase: "RUNNING",
+          message: "The run was abandoned.",
+        },
+      }),
+    );
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await tick(BACKTEST_PENDING_POLL_INTERVAL_MS);
+    await flush();
+
+    const rerun = screen.getByTestId("backtest-failure-rerun");
+    // A system interruption is fine to run again unchanged, and says so.
+    expect(rerun.textContent).toBe("Run again with these settings");
+    const href = new URL(rerun.getAttribute("href") ?? "", "https://x.test");
+    expect(href.pathname).toBe("/backtests/new");
+    expect(href.searchParams.get("from")).toBe("run-1");
+    expect(href.searchParams.get("start")).toBe(TEST_PERIOD_START);
+    expect(href.searchParams.get("end")).toBe(TEST_PERIOD_END);
+    expect(href.searchParams.get("positions")).not.toBeNull();
   });
 
   it("drops a dead attempt's partial curve when the run fails", async () => {
@@ -308,14 +345,12 @@ describe("BacktestRunView", () => {
       "Failed",
     );
     expect(screen.queryByTestId("backtest-chart")).toBeNull();
-    expect(screen.getByTestId("backtest-chart-placeholder").textContent).toBe(
-      "This run produced no comparison curve.",
-    );
-    // Nothing else may carry the dead attempt's numbers either.
-    expect(screen.getByTestId("metric-portfolio-value").textContent).toContain(
-      "—",
-    );
-    expect(screen.getByText("This run made no trades.")).toBeTruthy();
+    // A run that never produced a result shows no result sections at all: no empty chart, no
+    // KPIs of "—", no "No positions" or "no trades" copy that reads like an outcome (UI-031).
+    expect(screen.queryByTestId("backtest-chart-placeholder")).toBeNull();
+    expect(screen.queryByTestId("metric-portfolio-value")).toBeNull();
+    expect(screen.queryByText("This run made no trades.")).toBeNull();
+    expect(screen.queryByText(/No positions/)).toBeNull();
   });
 
   it("omits the phase row when the failure has no user-facing phase", async () => {

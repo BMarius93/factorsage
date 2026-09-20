@@ -6,10 +6,13 @@ import { DESKTOP_NAV_ITEMS } from "./navigation";
 import { useUnsavedChangesGuard } from "./unsaved-changes";
 
 /** Destinations a click actually reached, once the guard let it through. */
-const { navigated } = vi.hoisted(() => ({ navigated: [] as string[] }));
+const { navigated, route } = vi.hoisted(() => ({
+  navigated: [] as string[],
+  route: { pathname: "/lists" },
+}));
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/lists",
+  usePathname: () => route.pathname,
   useRouter: () => ({ push: vi.fn() }),
 }));
 
@@ -92,6 +95,27 @@ describe("AppTopbar", () => {
       .querySelector('a[aria-current="page"]');
 
     expect(active?.getAttribute("href")).toBe("/lists");
+  });
+
+  it("lets the brand say you are on the Dashboard, and claims no item elsewhere off the nav (UI-053)", () => {
+    route.pathname = "/dashboard";
+    const { unmount } = render(<AppTopbar />);
+    expect(
+      screen.getByRole("link", { name: /home/ }).getAttribute("aria-current"),
+    ).toBe("page");
+    unmount();
+
+    route.pathname = "/billing";
+    render(<AppTopbar />);
+    expect(
+      screen.getByRole("link", { name: /home/ }).getAttribute("aria-current"),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("navigation", { name: "Primary" })
+        .querySelector('a[aria-current="page"]'),
+    ).toBeNull();
+    route.pathname = "/lists";
   });
 
   it("keeps a page's unsaved work from being discarded by a navigation link", async () => {

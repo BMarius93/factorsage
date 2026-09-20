@@ -435,9 +435,22 @@ over-length — is `/dashboard`. An accepted value is used verbatim, never re-en
   a same-tab sign-in returns correctly. It is **not** put into the activation email: verification
   only activates the account and sets its password (AUTH-002/003); carrying a destination through
   email is a separate follow-up.
-- **What is not covered.** The topbar's plain "Sign in" link and the post-sign-out redirect do not
-  carry a destination. `next` is not restricted to known route prefixes: an unknown app path lands
-  on the not-found page, which is harmless.
+- **Every entry point uses the helpers (UI-042).** `signInHref`, `registerHref` and
+  `forgotPasswordHref` (`features/auth/utils/guest-routes.ts`) build every sign-in link: the
+  topbar's "Sign in" carries the current pathname (the pathname, not `window.location`, so the link
+  is identical on the server and the client), sign-in prompts carry the intended href — for "Run
+  backtest" that is the prefilled `/backtests/new?…` — and the forgot-password detour keeps `next`
+  so "Back to sign in" still returns there. Links out of an emailed verify/reset page carry no
+  destination, because the email never did.
+- **Already signed in (UI-040).** `/login` and `/register` read the session once
+  (`useRedirectIfSignedIn`) and send a signed-in visitor to the validated `next`, or the
+  Dashboard, instead of showing a second sign-in form. The form renders meanwhile, so a Guest never
+  waits; the Guest's `401` from `/auth/me` is the expected probe answer, not an error.
+- **Empty sign-in (UI-041).** An empty email or password is answered beside the field and focuses
+  it; no request is sent, so it can never come back as "those credentials".
+- **What is not covered.** The post-sign-out redirect does not carry a destination. `next` is not
+  restricted to known route prefixes: an unknown app path lands on the not-found page, which is
+  harmless.
 
 Google is optional. With all three `GOOGLE_*` variables unset the provider is simply not offered;
 partial configuration is rejected by centralized configuration at startup.
@@ -705,6 +718,12 @@ Verify Email, and reachable from a **Forgot your password?** link on the sign-in
 cookie an attacker captured — gets the generic `401` on its next request, while a failed, expired,
 unknown or already-used token revokes nothing. The reset itself issues no session: the user signs
 in with the new password afterwards, and that token carries the incremented version.
+
+
+An invalid, expired or already-used reset link (`401` from the API, which does not say which) switches
+the page to a recovery state — the neutral "This password reset link is invalid, expired, or has
+already been used." and an inline "Send a new link" form — exactly as an invalid verification link
+does, instead of leaving a dead password form under the raw API sentence (UI-043).
 
 ## Configuration and secrets
 

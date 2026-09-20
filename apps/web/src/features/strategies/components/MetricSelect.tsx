@@ -8,7 +8,7 @@ import {
 } from "@intrinsic/contracts";
 import { useMemo } from "react";
 import { metricKey } from "../utils/strategy-draft";
-import styles from "./StrategyBuilder.module.css";
+import { Select } from "../../../components/ui/Select";
 
 type MetricSelectProps = {
   readonly levelKind: StrategyLevelKind;
@@ -19,6 +19,8 @@ type MetricSelectProps = {
   readonly onChange: (metric: StrategyMetric) => void;
   readonly onFocus: (metric: StrategyMetric) => void;
   readonly onBlur: () => void;
+  /** The row has no Metric chosen yet: the control opens on "Choose a metric…". */
+  readonly unset?: boolean;
 };
 
 /**
@@ -37,6 +39,7 @@ export function MetricSelect({
   onChange,
   onFocus,
   onBlur,
+  unset = false,
 }: MetricSelectProps) {
   const options = strategyMetricOptions(levelKind);
 
@@ -62,50 +65,45 @@ export function MetricSelect({
     return built;
   }, [options]);
 
-  const selected = metricKey(metric);
+  const selected = unset ? "" : metricKey(metric);
 
   return (
-    <select
-      className={styles.select}
-      data-testid="metric-select"
+    <Select
+      density="compact"
+      testId="metric-select"
       aria-label={label}
-      aria-invalid={invalid || undefined}
+      invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={selected}
-      onFocus={() => onFocus(metric)}
+      onFocus={() => {
+        if (!unset) {
+          onFocus(metric);
+        }
+      }}
       onBlur={onBlur}
-      onChange={(event) => {
+      onValueChange={(value) => {
         const next = options.find(
-          (option) => metricKey(option.metric) === event.target.value,
+          (option) => metricKey(option.metric) === value,
         );
         if (next) {
           onChange(next.metric);
           onFocus(next.metric);
         }
       }}
-    >
-      {/*
-        A saved strategy can carry a Metric a level no longer offers — for example after a product
-        change. Rendering it keeps the row readable instead of silently showing the wrong metric;
-        validation is what reports it.
-      */}
-      {options.some(
-        (option) => metricKey(option.metric) === selected,
-      ) ? null : (
-        <option value={selected}>Unavailable metric</option>
-      )}
-      {groups.map((group) => (
-        <optgroup key={group.id} label={group.label}>
-          {group.options.map((option) => (
-            <option
-              key={metricKey(option.metric)}
-              value={metricKey(option.metric)}
-            >
-              {option.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+      // A saved strategy can carry a Metric a level no longer offers — for example after a product
+      // change. `Select` keeps it readable as "Unavailable metric" instead of silently showing the
+      // wrong metric; validation is what reports it.
+      {...(unset
+        ? { placeholder: "Choose a metric…", placeholderDisabled: true }
+        : {})}
+      unavailableLabel="Unavailable metric"
+      groups={groups.map((group) => ({
+        label: group.label,
+        options: group.options.map((option) => ({
+          value: metricKey(option.metric),
+          label: option.label,
+        })),
+      }))}
+    />
   );
 }

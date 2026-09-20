@@ -1,5 +1,6 @@
 "use client";
 
+import { Select } from "./Select";
 import styles from "./SelectControl.module.css";
 
 export type SelectControlOption = {
@@ -39,19 +40,14 @@ export function SelectControl({
       <label className={styles.label} htmlFor={id}>
         {label}
       </label>
-      <select
+      <Select
         id={id}
-        className={styles.select}
+        density="toolbar"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        {...(testId ? { "data-testid": testId } : {})}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+        onValueChange={onChange}
+        options={options}
+        {...(testId ? { testId } : {})}
+      />
     </div>
   );
 }

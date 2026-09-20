@@ -85,7 +85,7 @@ describe("StockSearch", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
     const listbox = screen.getByRole("listbox");
     const options = within(listbox).getAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
@@ -105,7 +105,7 @@ describe("StockSearch", () => {
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
   });
 
   it("replaces the popular searches with real results once a query is typed", async () => {
@@ -125,7 +125,7 @@ describe("StockSearch", () => {
         "AAPAdvance Auto PartsNASDAQ",
       ]);
     });
-    expect(screen.queryByText("Popular Searches")).toBeNull();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
 
     const requestedUrl = String(fetchMock.mock.calls[0]?.[0]);
     expect(requestedUrl).toContain("/stocks/search");
@@ -330,6 +330,72 @@ describe("StockSearch", () => {
       expect(optionTexts()).toEqual(["AAPLApple Inc.NASDAQ"]),
     );
   });
+
+  it("names the wait on a 429, offers no retry inside it, and sends nothing until it is over (UI-036)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers(),
+        json: async () => ({
+          code: "RATE_LIMITED",
+          message: "Too many requests",
+          retryAfterSeconds: 42,
+        }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => [result("AAPL", "Apple Inc.")],
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StockSearch />);
+    await typeQuery(user, "aapl");
+    await vi.advanceTimersByTimeAsync(300);
+
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toBe(
+      "Too many requests. Please try again in 42 seconds.",
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+    // A new query inside the wait says how long is left instead of asking again.
+    await user.keyboard("l");
+    await vi.advanceTimersByTimeAsync(300);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /^Too many requests\. Please try again in \d+ seconds\.$/,
+    );
+
+    // Once the wait is over, trying again is offered and works.
+    await vi.advanceTimersByTimeAsync(42_000);
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "Search is available again.",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    await vi.advanceTimersByTimeAsync(300);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("labels its listbox and marks the highlighted option as selected (single-select model)", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<StockSearch />);
+    await user.click(screen.getByRole("combobox"));
+
+    const listbox = screen.getByRole("listbox");
+    expect(listbox.getAttribute("aria-labelledby")).toBeTruthy();
+    expect(listbox.getAttribute("aria-multiselectable")).toBeNull();
+    await user.keyboard("{ArrowDown}");
+    const [first] = screen.getAllByRole("option");
+    expect(first?.getAttribute("aria-selected")).toBe("true");
+    expect(
+      screen.getByRole("combobox").getAttribute("aria-activedescendant"),
+    ).toBe(first?.id);
+  });
 });
 
 /**
@@ -405,7 +471,7 @@ describe("StockSearch recent searches", () => {
 
   function sectionLabels(): string[] {
     return screen
-      .getAllByText(/Recent Searches|Popular Searches|Results/)
+      .getAllByText(/Recently Viewed|Popular Stocks|Results/)
       .map((element) => element.textContent ?? "");
   }
 
@@ -417,7 +483,7 @@ describe("StockSearch recent searches", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    expect(sectionLabels()).toEqual(["Recently Viewed", "Popular Stocks"]);
     // Recent rows carry the same ticker/company treatment as the popular rows below them, with no
     // exchange badge and no extra controls.
     expect(optionTexts()).toEqual([
@@ -437,8 +503,8 @@ describe("StockSearch recent searches", () => {
     render(<StockSearch />);
     await user.click(screen.getByRole("combobox"));
 
-    expect(screen.queryByText("Recent Searches")).toBeNull();
-    expect(sectionLabels()).toEqual(["Popular Searches"]);
+    expect(screen.queryByText("Recently Viewed")).toBeNull();
+    expect(sectionLabels()).toEqual(["Popular Stocks"]);
   });
 
   it("never repeats a stock that is already in the recent section", async () => {
@@ -477,7 +543,7 @@ describe("StockSearch recent searches", () => {
       "DCompany D",
       "ECompany E",
     ]);
-    expect(screen.getByText("Popular Searches")).toBeDefined();
+    expect(screen.getByText("Popular Stocks")).toBeDefined();
   });
 
   it("hides both shortcut sections while a query is being typed, and restores them when it is cleared", async () => {
@@ -492,12 +558,12 @@ describe("StockSearch recent searches", () => {
     await waitFor(() =>
       expect(optionTexts()).toEqual(["MSFTMicrosoft CorporationNASDAQ"]),
     );
-    expect(screen.queryByText("Recent Searches")).toBeNull();
-    expect(screen.queryByText("Popular Searches")).toBeNull();
+    expect(screen.queryByText("Recently Viewed")).toBeNull();
+    expect(screen.queryByText("Popular Stocks")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Clear search" }));
 
-    expect(sectionLabels()).toEqual(["Recent Searches", "Popular Searches"]);
+    expect(sectionLabels()).toEqual(["Recently Viewed", "Popular Stocks"]);
     expect(optionTexts()[0]).toBe("AAPLApple");
   });
 

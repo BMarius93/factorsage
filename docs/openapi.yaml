@@ -3523,7 +3523,9 @@ components:
         [
           id,
           status,
+          strategyId,
           strategyName,
+          stockListId,
           stockListName,
           benchmarkCode,
           benchmarkName,
@@ -3543,7 +3545,13 @@ components:
       properties:
         id: { type: string, format: uuid }
         status: { $ref: "#/components/schemas/BacktestRunStatus" }
+        strategyId:
+          description: Null once the strategy has been deleted; the name comes from the run snapshot.
+          oneOf: [{ type: string, format: uuid }, { type: "null" }]
         strategyName: { type: string }
+        stockListId:
+          description: Null once the stock list has been deleted; the name comes from the run snapshot.
+          oneOf: [{ type: string, format: uuid }, { type: "null" }]
         stockListName: { type: string }
         benchmarkCode: { type: string }
         benchmarkName: { type: string }

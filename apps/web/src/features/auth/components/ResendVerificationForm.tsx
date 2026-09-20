@@ -76,7 +76,7 @@ export function ResendVerificationForm() {
         type="submit"
         disabled={submitting}
       >
-        {submitting ? "Sending..." : "Send a new link"}
+        {submitting ? "Sending…" : "Send a new link"}
       </button>
     </form>
   );

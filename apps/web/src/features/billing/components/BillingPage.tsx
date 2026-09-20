@@ -10,6 +10,7 @@ import { useSearchParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { FactGrid, type Fact } from "../../../components/ui/FactGrid";
+import { Notice } from "../../../components/ui/Notice";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
@@ -106,7 +107,8 @@ type BillingHeaderProps = {
 function BillingHeader({ plan, actions }: BillingHeaderProps = {}) {
   return (
     <PageHeader
-      title="Billing & Plan"
+      // One name for this page everywhere — header, account menu, pricing link, tab (UI-047).
+      title="Plan and billing"
       lead="Choose the plan that fits your research needs."
       badges={
         plan ? (
@@ -142,7 +144,11 @@ function BillingContent({
    * commitment to evaluate.
    */
   const [interval, setInterval] = useState<BillingInterval>(
-    subscription?.interval ?? "MONTH",
+    // Only a *live* subscription seeds the cadence. An ended yearly one used to open the page on
+    // Yearly, quoting the plan the customer had left at the price they had stopped paying.
+    subscription?.interval && occupiesPaidSlot(subscription.status)
+      ? subscription.interval
+      : "MONTH",
   );
   const { pendingPlan, portalPending, busy, failure, act, openPortal } =
     usePlanActions({ onChanged });
@@ -169,27 +175,16 @@ function BillingContent({
       />
 
       {checkoutOutcome === "success" ? (
-        <p
-          className={styles.notice}
-          data-tone="info"
-          role="status"
-          data-testid="checkout-success-notice"
-        >
-          {settling
-            ? "Payment received — we are confirming your subscription with Stripe. This page updates itself."
-            : "Payment received. Your plan below reflects your confirmed subscription."}
-        </p>
+        <CheckoutReturnNotice billing={billing} settling={settling} />
       ) : null}
 
       {checkoutOutcome === "cancelled" ? (
-        <p
-          className={styles.notice}
-          data-tone="info"
-          role="status"
-          data-testid="checkout-cancelled-notice"
-        >
-          Checkout was cancelled. Nothing was charged and your plan has not changed.
-        </p>
+        <Notice tone="info" announce="status" testId="checkout-cancelled-notice">
+          <p>
+            Checkout was cancelled. Nothing was charged and your plan has not
+            changed.
+          </p>
+        </Notice>
       ) : null}
 
       {/*
@@ -224,6 +219,65 @@ function BillingContent({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The answer to "did my payment go through?" after returning from Stripe Checkout — in three
+ * honest states, never two (UI-046).
+ *
+ * The return URL proves nothing: FactorSage only knows a plan changed once the persisted plan
+ * says so. So the page confirms only when `User.plan` is paid; while the bounded settle is still
+ * asking it says so; and when the settle window runs out with nothing confirmed it says *that* —
+ * instead of "your plan below reflects your confirmed subscription" above a card still showing
+ * Free. The webhook remains the authority and will converge.
+ */
+function CheckoutReturnNotice({
+  billing,
+  settling,
+}: {
+  readonly billing: BillingStatusResponse;
+  readonly settling: boolean;
+}) {
+  const confirmed =
+    billing.plan !== "FREE" &&
+    billing.subscription !== null &&
+    occupiesPaidSlot(billing.subscription.status);
+  if (confirmed) {
+    return (
+      <Notice
+        tone="success"
+        announce="status"
+        testId="checkout-success-notice"
+        title="Payment confirmed"
+      >
+        <p>You are now on {PLAN_LABEL[billing.plan]}.</p>
+      </Notice>
+    );
+  }
+  if (settling) {
+    return (
+      <Notice tone="info" announce="status" testId="checkout-success-notice">
+        <p>
+          Payment received — we are confirming your subscription with Stripe.
+          This page updates itself.
+        </p>
+      </Notice>
+    );
+  }
+  return (
+    <Notice
+      tone="warning"
+      announce="status"
+      testId="checkout-success-notice"
+      title="Still confirming your payment"
+    >
+      <p>
+        Stripe has not confirmed the subscription to FactorSage yet. This can
+        take a minute. Refresh this page or check back shortly — your plan
+        updates as soon as it is confirmed.
+      </p>
+    </Notice>
   );
 }
 
@@ -306,14 +360,13 @@ function SubscriptionSection({
         ) : null}
 
         {notice ? (
-          <p
-            className={styles.notice}
-            data-tone={notice.tone}
-            role={notice.tone === "warning" ? "alert" : "status"}
-            data-testid="billing-status-notice"
+          <Notice
+            tone={notice.tone}
+            announce={notice.tone === "warning" ? "alert" : "status"}
+            testId="billing-status-notice"
           >
-            {notice.message}
-          </p>
+            <p>{notice.message}</p>
+          </Notice>
         ) : null}
 
         {currentPriceKey === null && subscription.plan === null ? (

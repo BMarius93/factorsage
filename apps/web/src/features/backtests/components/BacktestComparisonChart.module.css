@@ -83,6 +83,14 @@
   border-radius: var(--radius-pill);
 }
 
+/* Cash is drawn dashed on the chart, so its key is a short dashed stroke, not a dot. */
+.legendDot[data-shape="dashed"] {
+  width: 14px;
+  height: 0;
+  border-top: 2px dashed currentColor;
+  border-radius: 0;
+}
+
 /* How far the curves have been drawn, in the row that already names the scenarios. It reuses that
    row's own type and colour rather than introducing a second status treatment; the progress the
    user reads is the lines extending, and this only says where they currently end. */

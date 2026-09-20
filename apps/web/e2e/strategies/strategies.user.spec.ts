@@ -44,6 +44,20 @@ async function deleteStrategyIfPresent(page: Page, name: string) {
 }
 
 /** No page may scroll sideways: a signal must be definable without horizontal scrolling. */
+/**
+ * A new row waits for its Metric (UI-013) and authors nothing until one is chosen. Picks Price on
+ * every row still waiting, the way a user completes a level before saving.
+ */
+async function chooseUnsetMetrics(page: Page) {
+  const selects = page.getByTestId("metric-select");
+  for (let index = 0; index < (await selects.count()); index += 1) {
+    const select = selects.nth(index);
+    if ((await select.inputValue()) === "") {
+      await select.selectOption("PRICE:");
+    }
+  }
+}
+
 async function expectNoHorizontalScroll(page: Page) {
   const overflow = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -77,7 +91,7 @@ function watchUnsavedPrompts(page: Page, answer: { stay: boolean }) {
 function navLink(page: Page, nav: "Primary" | "Primary mobile", label: string) {
   return page
     .getByRole("navigation", { name: nav })
-    .getByRole("link", { name: label });
+    .getByRole("link", { name: label, exact: true });
 }
 
 test.describe("strategy builder", () => {
@@ -98,7 +112,7 @@ test.describe("strategy builder", () => {
     ).toHaveCount(0);
     await expect(page.getByTestId("save-strategy")).toBeDisabled();
 
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
 
     // Price is above EMA 200D.
@@ -110,7 +124,7 @@ test.describe("strategy builder", () => {
       .selectOption("IS_ABOVE");
     await buyCard.getByTestId("value-control").first().selectOption("EMA_200D");
 
-    // ... AND Margin of Safety (DCF) is above 25%.
+    // ... AND Margin of Safety · DCF is above 25%.
     await buyCard.getByTestId("add-condition").click();
     const second = buyCard.getByTestId("predicate-row").nth(1);
     await second
@@ -121,7 +135,7 @@ test.describe("strategy builder", () => {
     // The explanation panel must explain Margin of Safety correctly.
     await second.getByTestId("metric-select").click();
     const panel = page.getByTestId("explanation-panel");
-    await expect(panel).toContainText("Margin of Safety (DCF (FCFF))");
+    await expect(panel).toContainText("Margin of Safety · DCF (FCFF)");
     await expect(panel.getByTestId("help-formula")).toHaveText(
       "Margin of Safety = (Intrinsic Value - Price) / Intrinsic Value * 100",
     );
@@ -157,9 +171,9 @@ test.describe("strategy builder", () => {
 
     // Persistence survives a reload.
     await page.reload();
-    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
     await expect(page.getByTestId("logic-preview")).toContainText(
-      "Margin of Safety (DCF (FCFF)) is above 25%",
+      "Margin of Safety · DCF (FCFF) is above 25%",
     );
     await expect(page.getByTestId("logic-preview")).toContainText(
       "Gain is above 25%",
@@ -171,6 +185,7 @@ test.describe("strategy builder", () => {
       .first()
       .getByTestId("add-trigger")
       .click();
+    await chooseUnsetMetrics(page);
     await page.getByTestId("save-strategy").click();
     await expect(page.getByText("All changes saved")).toBeVisible();
     await page.reload();
@@ -184,7 +199,7 @@ test.describe("strategy builder", () => {
       "Rename",
       card(page, STRATEGY_NAME),
     );
-    await page.getByLabel("Name").fill(RENAMED);
+    await page.getByLabel("Name", { exact: true }).fill(RENAMED);
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(card(page, RENAMED)).toHaveCount(1);
 
@@ -201,10 +216,12 @@ test.describe("strategy builder", () => {
     page,
   }) => {
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
-    // Two identical conditions: ANDing a predicate with itself is always a mistake.
+    // Two identical conditions: ANDing a predicate with itself is always a mistake. A new row
+    // authors nothing until its Metric is chosen, so the user makes both rows the same rule.
     await page.getByTestId("add-condition").click();
+    await chooseUnsetMetrics(page);
 
     await expect(page.getByTestId("save-strategy")).toBeDisabled();
     await page.getByTestId("issue-count").click();
@@ -240,10 +257,11 @@ test.describe("strategy builder final exit rules", () => {
     page,
   }) => {
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(MULTI_RULE_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(MULTI_RULE_NAME);
 
     // A BUY level, because a strategy without one can never buy anything.
     await page.getByTestId("add-level-BUY").click();
+    await chooseUnsetMetrics(page);
 
     await page.getByTestId("add-level-FINAL_EXIT").click();
     const exitCard = page.getByTestId("level-card-FINAL_EXIT");
@@ -285,10 +303,10 @@ test.describe("strategy builder final exit rules", () => {
 
     // The Strategy Logic panel must read as (rule 1) OR (rule 2), under one FINAL EXIT.
     const preview = page.getByTestId("logic-preview");
-    await expect(preview).toContainText("Rule 1");
+    await expect(preview).toContainText("Exit rule 1");
     await expect(preview).toContainText("Price is below SMA 200D");
     await expect(preview).toContainText("SMA 50D is below SMA 200D");
-    await expect(preview).toContainText("Rule 2");
+    await expect(preview).toContainText("Exit rule 2");
     await expect(preview).toContainText("RSI 14D is above 80");
     await expect(preview.getByTestId("preview-exit-rule-or")).toHaveCount(1);
     await expect(preview.getByText("FINAL EXIT")).toHaveCount(1);
@@ -299,7 +317,7 @@ test.describe("strategy builder final exit rules", () => {
 
     // Reload: both rules come back, in order, with the OR intact.
     await page.reload();
-    await expect(page.getByLabel("Name")).toHaveValue(MULTI_RULE_NAME);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(MULTI_RULE_NAME);
     await expect(
       page.getByTestId("level-card-FINAL_EXIT").getByTestId("exit-rule"),
     ).toHaveCount(2);
@@ -357,9 +375,10 @@ test.describe("strategy builder final exit rules", () => {
     page,
   }) => {
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(MULTI_RULE_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(MULTI_RULE_NAME);
     await page.getByTestId("add-level-BUY").click();
     await page.getByTestId("add-level-FINAL_EXIT").click();
+    await chooseUnsetMetrics(page);
 
     const exitCard = page.getByTestId("level-card-FINAL_EXIT");
     await exitCard.getByTestId("add-exit-rule").click();
@@ -375,6 +394,7 @@ test.describe("strategy builder final exit rules", () => {
 
     // Two identical rules are refused too: FINAL EXIT already occurs when the first one matches.
     await exitRule(page, 1).getByTestId("add-condition").click();
+    await chooseUnsetMetrics(page);
     await page.getByTestId("issue-count").click();
     await expect(exitRule(page, 1).getByRole("alert")).toContainText(
       "repeats exit rule 1",
@@ -396,7 +416,7 @@ test.describe("strategy builder final exit rules on a phone", () => {
     page,
   }) => {
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(MOBILE_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(MOBILE_NAME);
     await page.getByTestId("add-level-BUY").click();
     await page.getByTestId("add-level-FINAL_EXIT").click();
 
@@ -455,11 +475,12 @@ test.describe("strategy builder unsaved changes", () => {
 
     // Unsaved: cancelling keeps the page and the in-memory draft exactly as they were.
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
+    await chooseUnsetMetrics(page);
     await navLink(page, "Primary", "Backtests").click();
     await expect(page).toHaveURL(/\/strategies\/new$/);
-    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
     await expect(page.getByTestId("level-card-BUY")).toHaveCount(1);
     expect(prompts).toHaveLength(1);
 
@@ -478,14 +499,14 @@ test.describe("strategy builder unsaved changes", () => {
     const prompts = watchUnsavedPrompts(page, { stay: false });
 
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await navLink(page, "Primary", "Backtests").click();
     await expect(page).toHaveURL(/\/backtests$/);
     expect(prompts).toHaveLength(1);
 
     // Discarded means discarded: nothing was stashed for the next visit.
     await page.goto("/strategies/new");
-    await expect(page.getByLabel("Name")).toHaveValue("");
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
   });
 });
 
@@ -502,7 +523,7 @@ test.describe("strategy builder on a phone", () => {
     await page.goto("/strategies/new");
     await expectNoHorizontalScroll(page);
 
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await page.getByTestId("add-level-BUY").click();
 
     const buyCard = page.getByTestId("level-card-BUY").first();
@@ -550,7 +571,7 @@ test.describe("strategy builder on a phone", () => {
     await expect(page).toHaveURL(/\/strategies\/[0-9a-f-]{36}$/);
 
     await page.reload();
-    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
     await expect(page.getByTestId("logic-preview")).toContainText(
       "RSI 14D is below 30",
     );
@@ -563,11 +584,11 @@ test.describe("strategy builder on a phone", () => {
     const prompts = watchUnsavedPrompts(page, { stay: true });
 
     await page.goto("/strategies/new");
-    await page.getByLabel("Name").fill(STRATEGY_NAME);
+    await page.getByLabel("Name", { exact: true }).fill(STRATEGY_NAME);
     await navLink(page, "Primary mobile", "Backtests").click();
 
     await expect(page).toHaveURL(/\/strategies\/new$/);
-    await expect(page.getByLabel("Name")).toHaveValue(STRATEGY_NAME);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(STRATEGY_NAME);
     expect(prompts).toHaveLength(1);
   });
 });

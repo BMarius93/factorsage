@@ -3,7 +3,7 @@ import { AuthCard } from "../../features/auth/components/AuthCard";
 import { VerifyEmailRoute } from "./VerifyEmailRoute";
 
 export const metadata = {
-  title: "Verify your email | FactorSage",
+  title: "Verify your email · FactorSage",
 };
 
 export default function VerifyEmailPage() {

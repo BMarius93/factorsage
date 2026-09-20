@@ -387,14 +387,16 @@ describe("entitlements", () => {
       expect((response.body as EntitlementsResponse).principal).toBe("GUEST");
     });
 
-    it("reports full stock-details history and built-in content for a guest", async () => {
+    it("reports stock-details history and built-in content, but no Backtest, for a guest", async () => {
       const body = (await anonymous.get("/entitlements").expect(200))
         .body as EntitlementsResponse;
       expect(body.entitlements.stocks.maxHistoricalYears).toBeNull();
       expect(body.entitlements.stocks.canSearch).toBe(true);
       expect(body.entitlements.builtInContent.canViewLists).toBe(true);
       expect(body.entitlements.builtInContent.canViewStrategies).toBe(true);
-      expect(body.entitlements.backtests.canViewDemo).toBe(true);
+      // DEC-007: a Guest may not view any Backtest, demo included.
+      expect(body.entitlements.backtests.canViewDemo).toBe(false);
+      expect(body.entitlements.backtests.canRunLive).toBe(false);
     });
 
     it("refuses every path that would persist content or start live execution", async () => {

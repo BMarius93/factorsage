@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { OverflowMenu } from "./OverflowMenu";
+import { OverflowMenu, placeMenu } from "./OverflowMenu";
 
 function renderMenu() {
   const onRename = vi.fn();
@@ -284,5 +284,55 @@ describe("OverflowMenu keyboard and semantics", () => {
 
     expect(screen.queryByRole("button", { name: "Rename" })).toBeNull();
     expect(document.activeElement).toBe(trigger());
+  });
+});
+
+describe("placeMenu", () => {
+  const box = (left: number, top: number, width: number, height: number) => ({
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+  });
+  const menu = box(0, 0, 160, 120);
+  const viewport = { width: 390, bottom: 844 - 60 };
+
+  it("right-aligns under a trigger at the end of a row", () => {
+    expect(placeMenu(box(340, 100, 38, 38), menu, viewport)).toEqual({
+      align: "end",
+      side: "below",
+    });
+  });
+
+  it("left-aligns instead of opening past the left edge (UI-006)", () => {
+    // The old phone card put the trigger at the bottom-left: right-aligned, the popup started
+    // at x = -21px and "Delete" rendered as "elete".
+    expect(placeMenu(box(16, 100, 38, 38), menu, viewport).align).toBe("start");
+  });
+
+  it("opens upwards rather than under the bottom navigation", () => {
+    expect(placeMenu(box(340, 700, 38, 38), menu, viewport).side).toBe("above");
+  });
+
+  it("stays below when there is no room above either", () => {
+    expect(
+      placeMenu(box(340, 60, 38, 38), box(0, 0, 160, 760), viewport).side,
+    ).toBe("below");
+  });
+
+  it("keeps the default when nothing has been laid out", () => {
+    expect(placeMenu(box(0, 0, 0, 0), box(0, 0, 0, 0), viewport)).toEqual({
+      align: "end",
+      side: "below",
+    });
+  });
+});
+
+describe("OverflowMenu placement", () => {
+  it("marks its root so a phone card can pin the trigger to the top-right", () => {
+    renderMenu();
+    expect(trigger().closest("[data-overflow-menu]")).not.toBeNull();
   });
 });

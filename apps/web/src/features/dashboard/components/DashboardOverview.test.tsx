@@ -129,7 +129,7 @@ async function renderOverview(
  * The Dashboard's opening row.
  *
  * The count and the order are asserted literally, because they are the product decision: five
- * cards, `Run Backtest · S&P 500 · DJIA · VIX · Real-time Matches`, and nothing else. A Nasdaq card
+ * cards, `Run Backtest · S&P 500 · DJIA · VIX · Current matches`, and nothing else. A Nasdaq card
  * or a Fear & Greed gauge arriving by accident is exactly the failure these tests exist to catch.
  */
 describe("DashboardOverview", () => {
@@ -158,7 +158,7 @@ describe("DashboardOverview", () => {
       expect.stringContaining("S&P 500"),
       expect.stringContaining("DJIA"),
       expect.stringContaining("VIX"),
-      expect.stringContaining("Real-time Matches"),
+      expect.stringContaining("Current matches"),
     ]);
   });
 
@@ -365,12 +365,13 @@ describe("DashboardOverview", () => {
       within(prompt)
         .getByRole("link", { name: "Sign in" })
         .getAttribute("href"),
-    ).toBe("/login");
+      // Signing in goes straight to New Backtest, the thing the Guest asked for (UI-042).
+    ).toBe("/login?next=%2Fbacktests%2Fnew");
     expect(
       within(prompt)
         .getByRole("link", { name: "Create an account" })
         .getAttribute("href"),
-    ).toBe("/register");
+    ).toBe("/register?next=%2Fbacktests%2Fnew");
     // And the Dashboard is still underneath it: no redirect to /login for a click.
     expect(screen.queryByTestId("dashboard-overview")).not.toBeNull();
     expect(
@@ -480,7 +481,13 @@ describe("DashboardOverview VIX gauge", () => {
     withVix({ value });
     await renderOverview();
 
-    expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(label);
+    // `renderOverview` returns once the request is made; the zone is read once its answer has
+    // rendered, not in the same tick (this raced under a loaded full-suite run).
+    await waitFor(() =>
+      expect(screen.getByTestId("dashboard-vix-status").textContent).toBe(
+        label,
+      ),
+    );
     expect(
       screen.getByTestId("dashboard-vix-gauge").getAttribute("data-status"),
     ).toBe(zone);

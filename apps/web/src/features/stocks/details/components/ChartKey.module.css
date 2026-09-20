@@ -1,0 +1,24 @@
+/* The persistent key under the plot: one swatch and name per line on the chart. */
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  list-style: none;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+}

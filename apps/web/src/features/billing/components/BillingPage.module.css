@@ -280,7 +280,7 @@
 
 /* Three abreast once the cards can hold a feature line without wrapping every row. Below that they
    stack, which is also what keeps the price and the button readable on a phone. */
-@media (min-width: 820px) {
+@media (min-width: 880px) {
   .plans {
     gap: 16px;
   }
@@ -295,7 +295,7 @@
   }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1280px) {
   .grid {
     gap: 20px;
   }

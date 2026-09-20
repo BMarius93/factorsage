@@ -1,9 +1,8 @@
 "use client";
 
 import type { StockListSecurityResponse } from "@intrinsic/contracts";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { StockLogo } from "../../../components/ui/StockIdentity";
-import { useStockSearch } from "../../stocks/search/hooks/use-stock-search";
+import { SecurityListbox } from "../../stocks/search/components/SecurityListbox";
+import { useSecurityCombobox } from "../../stocks/search/hooks/use-security-combobox";
 import styles from "./SecurityMultiSelect.module.css";
 
 type SecurityMultiSelectProps = {
@@ -19,10 +18,11 @@ type SecurityMultiSelectProps = {
 /**
  * Multi-select combobox over the catalog-backed stock search, for building list membership.
  *
- * Shares `useStockSearch` (debounce, sequence guarding, catalog-only results) with the global
- * topbar search so the product keeps exactly one search behavior. Only a real catalog result can
- * ever be selected: Enter picks the highlighted row and free text is never turned into a chip.
- * Picking an already-selected row unselects it, so duplicates are impossible by construction.
+ * The `multi` mode of the shared stock combobox (`useSecurityCombobox`), so it searches, throttles,
+ * offers recently viewed stocks on a blank field, and answers the keyboard exactly like the topbar
+ * search. Only a real catalog row can ever be selected: Enter picks the highlighted row and free
+ * text is never turned into a chip. Picking an already-selected row unselects it, so duplicates are
+ * impossible by construction.
  */
 export function SecurityMultiSelect({
   selected,
@@ -31,127 +31,53 @@ export function SecurityMultiSelect({
   inputLabel = "Search stocks to add",
   placeholder = "Search stocks…",
 }: SecurityMultiSelectProps) {
-  const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const listboxId = `${useId()}-listbox`;
-
-  const { status, results, retry } = useStockSearch(query);
-  const highlighted = activeIndex < results.length ? activeIndex : -1;
   const selectedIds = new Set(selected.map((entry) => entry.id));
 
-  const close = useCallback(() => {
-    setOpen(false);
-    setActiveIndex(-1);
-  }, []);
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (target instanceof Node && containerRef.current?.contains(target)) {
+  const combobox = useSecurityCombobox({
+    mode: "multi",
+    onPick: (option) => {
+      const security = option.security;
+      if (!security || excludedIds?.has(security.id)) {
         return;
       }
-      close();
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [close, open]);
-
-  const toggle = (result: (typeof results)[number]) => {
-    if (excludedIds?.has(result.id)) {
-      return;
-    }
-    if (selectedIds.has(result.id)) {
-      onChange(selected.filter((entry) => entry.id !== result.id));
-      return;
-    }
-    onChange([
-      ...selected,
-      {
-        id: result.id,
-        symbol: result.symbol,
-        name: result.name,
-        exchangeCode: result.exchangeCode,
-        ...(result.exchangeName ? { exchangeName: result.exchangeName } : {}),
-        // Carried onto the selection so a member added in this session renders the same mark the
-        // saved list will, without waiting for a reload to fetch it back.
-        ...(result.logoUrl ? { logoUrl: result.logoUrl } : {}),
-      },
-    ]);
-    // Ready for the next search immediately; the caret stays in the field.
-    setQuery("");
-    setActiveIndex(-1);
-    inputRef.current?.focus();
-  };
+      if (selectedIds.has(security.id)) {
+        onChange(selected.filter((entry) => entry.id !== security.id));
+      } else {
+        onChange([
+          ...selected,
+          {
+            id: security.id,
+            symbol: security.symbol,
+            name: security.name,
+            exchangeCode: security.exchangeCode,
+            ...(security.exchangeName
+              ? { exchangeName: security.exchangeName }
+              : {}),
+            // Carried onto the selection so a member added in this session renders the same mark
+            // the saved list will, without waiting for a reload to fetch it back.
+            ...(security.logoUrl ? { logoUrl: security.logoUrl } : {}),
+          },
+        ]);
+      }
+      // Ready for the next search immediately: the caret stays in the field, and the list closes
+      // until the next keystroke, so it never covers the dialog's own buttons after a pick.
+      combobox.clear();
+      combobox.close();
+      combobox.inputRef.current?.focus();
+    },
+    onBackspaceEmpty: () => {
+      const last = selected[selected.length - 1];
+      if (last) {
+        removeChip(last.id);
+      }
+    },
+  });
+  const { inputRef, containerRef } = combobox;
 
   const removeChip = (id: string) => {
     onChange(selected.filter((entry) => entry.id !== id));
     inputRef.current?.focus();
   };
-
-  const move = (delta: number) => {
-    if (results.length === 0) {
-      return;
-    }
-    setOpen(true);
-    setActiveIndex((current) => {
-      const next =
-        current < 0 ? (delta > 0 ? 0 : results.length - 1) : current + delta;
-      return (next + results.length) % results.length;
-    });
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      move(event.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    if (event.key === "Enter") {
-      // Enter never submits an enclosing form while a search is in play, and never creates a
-      // free-text chip: it only acts when it resolves to a real catalog row.
-      if (open || query.trim() !== "") {
-        event.preventDefault();
-      }
-      const option = results[highlighted >= 0 ? highlighted : 0];
-      if (open && option) {
-        toggle(option);
-      }
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-    if (event.key === "Backspace" && query === "" && selected.length > 0) {
-      const last = selected[selected.length - 1];
-      if (last) {
-        removeChip(last.id);
-      }
-    }
-  };
-
-  const statusMessage = (() => {
-    if (query.trim() === "") {
-      return null;
-    }
-    if (status === "error") {
-      return "Search is unavailable right now.";
-    }
-    if (status === "loading" && results.length === 0) {
-      return "Searching…";
-    }
-    if (status === "ready" && results.length === 0) {
-      return `No stocks match “${query.trim()}”.`;
-    }
-    return null;
-  })();
 
   return (
     <div className={styles.multiselect} ref={containerRef}>
@@ -178,90 +104,21 @@ export function SecurityMultiSelect({
           className={styles.input}
           placeholder={selected.length === 0 ? placeholder : "Add another…"}
           aria-label={inputLabel}
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            highlighted >= 0 ? `${listboxId}-option-${highlighted}` : undefined
-          }
-          autoComplete="off"
-          spellCheck={false}
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setActiveIndex(-1);
-            setOpen(true);
-          }}
-          onFocus={() => setOpen(true)}
-          onClick={() => setOpen(true)}
-          onKeyDown={onKeyDown}
+          {...combobox.inputProps}
         />
       </div>
 
-      {open && (results.length > 0 || statusMessage) ? (
-        <div
-          className={styles.panel}
-          // Keeps focus (and the mobile keyboard) on the input while a row is being clicked.
-          onMouseDown={(event) => event.preventDefault()}
-        >
-          <ul className={styles.options} id={listboxId} role="listbox">
-            {results.map((result, index) => {
-              const isSelected = selectedIds.has(result.id);
-              const isExcluded = excludedIds?.has(result.id) ?? false;
-              return (
-                <li
-                  key={result.id}
-                  id={`${listboxId}-option-${index}`}
-                  className={styles.option}
-                  role="option"
-                  aria-selected={isSelected}
-                  aria-disabled={isExcluded}
-                  data-highlighted={index === highlighted}
-                  data-muted={isExcluded}
-                  onClick={() => toggle(result)}
-                >
-                  {/* The shared mark, not a local image: a picker row identifies a stock the
-                      same way a list row does. The dense one-line composition below is the
-                      picker's own — a combobox row is not a `StockIdentity` stack. */}
-                  <StockLogo
-                    symbol={result.symbol}
-                    name={result.name}
-                    {...(result.logoUrl ? { logoUrl: result.logoUrl } : {})}
-                    size="sm"
-                  />
-                  <span className={styles.optionSymbol}>{result.symbol}</span>
-                  <span className={styles.optionName}>{result.name}</span>
-                  {isExcluded ? (
-                    <span className={styles.optionState}>In list</span>
-                  ) : isSelected ? (
-                    <span className={styles.optionState}>Selected</span>
-                  ) : (
-                    <span className={styles.optionExchange}>
-                      {result.exchangeName ?? result.exchangeCode}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
-          {statusMessage ? (
-            <p className={styles.message} role="status">
-              {statusMessage}
-              {status === "error" ? (
-                <button
-                  type="button"
-                  className={styles.retry}
-                  onClick={() => retry()}
-                >
-                  Try again
-                </button>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <SecurityListbox
+        combobox={combobox}
+        isSelected={(option) =>
+          option.security !== undefined && selectedIds.has(option.security.id)
+        }
+        unavailableReason={(option) =>
+          option.security !== undefined && excludedIds?.has(option.security.id)
+            ? "In list"
+            : null
+        }
+      />
     </div>
   );
 }

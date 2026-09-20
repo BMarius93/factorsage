@@ -37,12 +37,27 @@ async function open(page: Page, path: string) {
 }
 
 /**
- * The prompt is open, and both of its answers carry the page being read as `?next=` so that
- * signing in comes straight back to it (UX-003).
+ * The prompt is open, and both of its answers carry a safe `?next=`: the page being read by
+ * default, so signing in comes straight back to it (UX-003), or — for "Run backtest" — the
+ * prefilled New Backtest the Guest asked for (UI-042).
  */
-async function expectSignInPrompt(page: Page) {
+async function expectSignInPrompt(page: Page, intended?: RegExp) {
   const prompt = page.getByTestId("sign-in-prompt");
   await expect(prompt).toBeVisible();
+  if (intended) {
+    for (const [name, base] of [
+      ["Sign in", "/login"],
+      ["Create an account", "/register"],
+    ] as const) {
+      const href = await prompt
+        .getByRole("link", { name })
+        .getAttribute("href");
+      const url = new URL(href ?? "", "http://localhost");
+      expect(url.pathname).toBe(base);
+      expect(url.searchParams.get("next") ?? "").toMatch(intended);
+    }
+    return prompt;
+  }
   const here = new URL(page.url());
   const next = encodeURIComponent(`${here.pathname}${here.search}`);
   await expect(prompt.getByRole("link", { name: "Sign in" })).toHaveAttribute(
@@ -101,7 +116,7 @@ test.describe("guest built-in collections", () => {
     // Read-only: no enable/disable, no edit, no delete.
     await expect(row.getByTestId("monitor-actions")).toHaveCount(0);
 
-    await row.getByRole("link", { name: QA_MONITOR }).click();
+    await row.getByRole("link", { name: QA_MONITOR, exact: true }).click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
     await expect(page.getByTestId("built-in-badge")).toBeVisible();
     await expect(page.getByTestId("edit-monitor")).toHaveCount(0);
@@ -168,9 +183,12 @@ test.describe("guest built-in collections", () => {
     await expect(action).toHaveJSProperty("tagName", "BUTTON");
     await action.click();
 
-    const prompt = await expectSignInPrompt(page);
+    const prompt = await expectSignInPrompt(
+      page,
+      /^\/backtests\/new\?strategyId=[0-9a-f-]{36}$/,
+    );
     await expect(prompt).toContainText("Sign in to run a backtest");
-    await expect(prompt).toContainText("you will come straight back here");
+    await expect(prompt).toContainText("signing in takes you straight to it");
     // Nothing navigated: still on the strategy, which is still rendered underneath.
     expect(page.url()).toBe(strategyUrl);
     await expect(page.getByTestId("strategy-read-only")).toBeVisible();
@@ -184,18 +202,21 @@ test.describe("guest built-in collections", () => {
       .getByTestId("built-in-monitors")
       .locator("tbody tr")
       .filter({ hasText: QA_MONITOR })
-      .getByRole("link", { name: QA_MONITOR })
+      .getByRole("link", { name: QA_MONITOR, exact: true })
       .click();
     await expect(page.getByTestId("monitor-detail")).toBeVisible();
     const monitorUrl = page.url();
 
     await page.getByTestId("backtest-this-monitor").click();
 
-    await expectSignInPrompt(page);
+    await expectSignInPrompt(
+      page,
+      /^\/backtests\/new\?strategyId=[0-9a-f-]{36}&stockListId=[0-9a-f-]{36}$/,
+    );
     expect(page.url()).toBe(monitorUrl);
   });
 
-  test("comes straight back to the built-in strategy after signing in from the prompt (UX-003)", async ({
+  test("goes straight to the prefilled backtest after signing in from the prompt (UX-003, UI-042)", async ({
     page,
   }) => {
     await open(page, "/strategies");
@@ -209,26 +230,30 @@ test.describe("guest built-in collections", () => {
     const strategyId = strategyPath.split("/").pop() ?? "";
 
     await page.getByTestId("backtest-this-strategy").click();
-    const prompt = await expectSignInPrompt(page);
+    const prompt = await expectSignInPrompt(page, /^\/backtests\/new\?/);
     await prompt.getByRole("link", { name: "Sign in" }).click();
 
-    // The sign-in page carries the strategy as its destination.
-    await expect(page).toHaveURL(
-      `/login?next=${encodeURIComponent(strategyPath)}`,
-    );
+    // The sign-in page carries what the Guest asked for — New Backtest with this strategy — as
+    // its destination, not the strategy page they were reading.
+    const intended = `/backtests/new?strategyId=${encodeURIComponent(strategyId)}`;
+    await expect(page).toHaveURL(`/login?next=${encodeURIComponent(intended)}`);
     // An existing seeded persona; this creates no account and sends no email.
     await submitSignInForm(page, qaPersona("PRO_USER"));
 
-    await expect(page).toHaveURL(strategyPath);
-    await expect(page.getByTestId("strategy-read-only")).toBeVisible();
+    await expect(page).toHaveURL(intended);
+    await expect(page.getByTestId("new-backtest-form")).toBeVisible();
+    await expect(page.getByTestId("backtest-strategy")).toHaveValue(
+      strategyId,
+      {
+        timeout: 20_000,
+      },
+    );
     await expect(page.getByTestId("account-menu-trigger")).toBeVisible();
-    // Signed in, the same action is the prefilled link it always was.
+    // And from the strategy itself, signed in, the same action is the prefilled link.
+    await page.goto(strategyPath);
     const action = page.getByTestId("backtest-this-strategy");
     await expect(action).toHaveJSProperty("tagName", "A");
-    await expect(action).toHaveAttribute(
-      "href",
-      `/backtests/new?strategyId=${encodeURIComponent(strategyId)}`,
-    );
+    await expect(action).toHaveAttribute("href", intended);
   });
 
   test("renders the built-in collections on a phone without horizontal scrolling", async ({

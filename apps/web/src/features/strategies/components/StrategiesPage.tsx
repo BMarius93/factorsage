@@ -10,6 +10,11 @@ import { useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { ConfirmDialog } from "../../../components/ui/ConfirmDialog";
 import actionStyles from "../../../components/ui/actions.module.css";
+import {
+  byName,
+  byNewest,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
@@ -62,6 +67,17 @@ type DialogState =
  * it has at least one BUY level — there is no name-only strategy to create here. Rendering needs
  * only the summary counts, never a definition.
  */
+/** The orders a customer's own strategies can be read in; the API's newest-first comes first. */
+const STRATEGY_SORTS: readonly CollectionSort<StrategySummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "updated",
+    label: "Recently updated",
+    compare: byNewest((strategy) => strategy.updatedAt),
+  },
+  { id: "name", label: "Name A–Z", compare: byName },
+];
+
 export function StrategiesPage() {
   const router = useRouter();
   const { status, strategies, retry, applyUpdated, applyDeleted } =
@@ -79,17 +95,7 @@ export function StrategiesPage() {
       cardRole: "identity",
       render: (strategy) => (
         <Link className={styles.nameLink} href={`/strategies/${strategy.id}`}>
-          <span className={styles.name}>
-            {strategy.name}
-            {strategy.ownership === "SYSTEM" ? (
-              <>
-                {" "}
-                <StatusBadge tone="neutral" variant="outline">
-                  Built-in
-                </StatusBadge>
-              </>
-            ) : null}
-          </span>
+          <span className={styles.name}>{strategy.name}</span>
           {strategy.description ? (
             <span className={styles.description}>{strategy.description}</span>
           ) : null}
@@ -98,6 +104,7 @@ export function StrategiesPage() {
     },
     {
       key: "shape",
+      width: "14rem",
       header: "Levels",
       cardRole: "status",
       render: (strategy) => (
@@ -108,6 +115,7 @@ export function StrategiesPage() {
     },
     {
       key: "version",
+      width: "6rem",
       header: "Version",
       align: "right",
       numeric: true,
@@ -116,12 +124,14 @@ export function StrategiesPage() {
     },
     {
       key: "updated",
+      width: "9rem",
       header: "Updated",
       nowrap: true,
       render: (strategy) => formatStrategyDate(strategy.updatedAt),
     },
     {
       key: "actions",
+      width: "9rem",
       header: "Actions",
       cardRole: "actions",
       align: "right",
@@ -131,6 +141,7 @@ export function StrategiesPage() {
           <Link
             className={actionStyles.action}
             href={`/strategies/${strategy.id}`}
+            aria-label={`Open ${strategy.name}`}
           >
             Open
           </Link>
@@ -188,11 +199,20 @@ export function StrategiesPage() {
       </button>
     );
 
-  // Exactly one "New strategy" affordance in every state.
-  const headerAction =
-    gate.resolved && status === "ready" && (gate.guest || own.length > 0)
-      ? newStrategyAction(forms.tintedButton)
-      : null;
+  // "New strategy" lives in the header in every state (UI-030). Until the session resolves it is a
+  // disabled button, because it is a link for a customer and a question for a Guest.
+  const headerAction = gate.resolved ? (
+    newStrategyAction(forms.tintedButton)
+  ) : (
+    <button
+      type="button"
+      className={forms.tintedButton}
+      data-testid="new-strategy-button"
+      disabled
+    >
+      New strategy
+    </button>
+  );
 
   return (
     <PageContainer>
@@ -200,7 +220,7 @@ export function StrategiesPage() {
         <PageHeader
           title="Strategies"
           lead="Reusable buy, sell and final-exit logic for backtests and monitors."
-          {...(headerAction ? { actions: headerAction } : {})}
+          actions={headerAction}
         />
 
         {status === "loading" ? (
@@ -238,6 +258,8 @@ export function StrategiesPage() {
             columns={columns}
             rows={own}
             getRowKey={(strategy) => strategy.id}
+            searchText={(strategy) => strategy.name}
+            sorts={STRATEGY_SORTS}
             clickableRows
             emptyState={
               <EmptyState
@@ -249,9 +271,9 @@ export function StrategiesPage() {
                     A strategy is the reusable logic that decides when to buy
                     and when to sell — conditions such as{" "}
                     <em>{EXAMPLE_CONDITION}</em>, and the event that fires them.
+                    Start with <strong>New strategy</strong> above.
                   </p>
                 }
-                actions={newStrategyAction(forms.primaryButton)}
               />
             }
           />
@@ -270,6 +292,7 @@ export function StrategiesPage() {
             columns={columns}
             rows={builtIn}
             getRowKey={(strategy) => strategy.id}
+            searchText={(strategy) => strategy.name}
             clickableRows
           />
         ) : null}

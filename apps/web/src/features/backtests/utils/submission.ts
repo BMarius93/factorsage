@@ -68,8 +68,39 @@ function toDay(timestamp: number): string {
  * loader clamps its retention with — so the browser and the server land on the same day, 29
  * February included.
  */
-export function maximumBacktestStart(now: Date): string {
-  return subtractYears(toDay(now.valueOf()), BACKTEST_MAX_PERIOD_YEARS);
+export function maximumBacktestStart(
+  now: Date,
+  /**
+   * The caller's plan allowance (UI-023). MAX used to reach the product horizon whatever the
+   * plan, which on Free (5 years) was a guaranteed refusal. Never longer than the horizon.
+   */
+  planYears: number | null = BACKTEST_MAX_PERIOD_YEARS,
+): string {
+  const years = Math.min(
+    planYears ?? BACKTEST_MAX_PERIOD_YEARS,
+    BACKTEST_MAX_PERIOD_YEARS,
+  );
+  return subtractYears(toDay(now.valueOf()), years);
+}
+
+/** The start date that makes a period exactly `years` long, ending on `endDate`. */
+export function startForPeriodYears(endDate: string, years: number): string {
+  return subtractYears(endDate, years);
+}
+
+/**
+ * Whether a period is longer than the plan allows — an advisory mirror of the API's history
+ * check, for saying so before submit. The API decides.
+ */
+export function exceedsPeriodYears(
+  startDate: string,
+  endDate: string,
+  years: number | null,
+): boolean {
+  if (years === null || startDate === "" || endDate === "") {
+    return false;
+  }
+  return startDate < subtractYears(endDate, years);
 }
 
 export function defaultBacktestPeriod(now: Date): {

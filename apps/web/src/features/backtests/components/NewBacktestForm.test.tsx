@@ -24,6 +24,8 @@ vi.mock("next/navigation", () => ({
 vi.mock("../api/backtests-api", () => ({
   fetchBenchmarks: vi.fn(),
   createBacktestRun: vi.fn(),
+  // The form reads the caller's runs to show a concurrency limit before submit (UI-020).
+  fetchBacktestRuns: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../strategies/api/strategies-api", () => ({
@@ -123,7 +125,7 @@ describe("NewBacktestForm", () => {
     const groups = Array.from(strategy.querySelectorAll("optgroup")).map(
       (group) => group.label,
     );
-    expect(groups).toEqual(["Built-in", "Your strategies"]);
+    expect(groups).toEqual(["Your strategies", "Built-in strategies"]);
   });
 
   it("ignores a linked id the caller cannot choose", async () => {
@@ -133,6 +135,52 @@ describe("NewBacktestForm", () => {
     expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
       "",
     );
+  });
+
+  it("restores a whole configuration from an earlier run, and says where it came from", async () => {
+    searchParams = new URLSearchParams({
+      strategyId: "strategy-1",
+      stockListId: "list-1",
+      benchmark: "SP500",
+      start: "2019-03-01",
+      end: "2023-03-01",
+      capital: "25000",
+      contribution: "0",
+      positions: "4",
+      from: "run-42",
+    });
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Strategy") as HTMLSelectElement).value,
+      ).toBe("strategy-1"),
+    );
+    expect(
+      (screen.getByLabelText("Stock list") as HTMLSelectElement).value,
+    ).toBe("list-1");
+    expect(
+      (screen.getByTestId("backtest-start") as HTMLInputElement).value,
+    ).toBe("2019-03-01");
+    expect((screen.getByTestId("backtest-end") as HTMLInputElement).value).toBe(
+      "2023-03-01",
+    );
+    expect(
+      (screen.getByTestId("backtest-capital") as HTMLInputElement).value,
+    ).toBe("25000");
+    expect(
+      (screen.getByTestId("backtest-contribution") as HTMLInputElement).value,
+    ).toBe("");
+    expect(
+      (screen.getByTestId("backtest-max-positions") as HTMLInputElement).value,
+    ).toBe("4");
+    expect(
+      screen
+        .getByTestId("backtest-prefilled-from-run")
+        .querySelector("a")
+        ?.getAttribute("href"),
+    ).toBe("/backtests/run-42");
   });
 
   it("offers the catalog's benchmarks and preselects the canonical default", async () => {
@@ -180,6 +228,22 @@ describe("NewBacktestForm", () => {
       screen.getByText("Choose the stock list this backtest should trade."),
     ).toBeTruthy();
     expect(createBacktestRunMock).not.toHaveBeenCalled();
+    // Focus moves to the first invalid field, not back onto the submit button (UI-005).
+    expect(document.activeElement).toBe(screen.getByLabelText("Strategy"));
+  });
+
+  it("focuses the first invalid field in reading order", async () => {
+    const user = userEvent.setup();
+    render(<NewBacktestForm />);
+    await screen.findByLabelText("Benchmark");
+
+    await user.selectOptions(screen.getByLabelText("Strategy"), "strategy-1");
+    await user.selectOptions(screen.getByLabelText("Stock list"), "list-1");
+    await user.clear(screen.getByTestId("backtest-capital"));
+    await user.click(screen.getByTestId("submit-backtest"));
+
+    expect(document.activeElement).toBe(screen.getByTestId("backtest-capital"));
+    expect(createBacktestRunMock).not.toHaveBeenCalled();
   });
 
   it("submits the run and opens its page", async () => {
@@ -226,9 +290,20 @@ describe("NewBacktestForm", () => {
     await user.selectOptions(screen.getByLabelText("Stock list"), "list-1");
     await user.click(screen.getByTestId("submit-backtest"));
 
-    expect(
-      (await screen.findByTestId("backtest-submit-error")).textContent,
-    ).toBe("A backtest cannot start before the stock list has any buy window.");
+    const message = await screen.findByTestId("backtest-submit-error");
+    expect(message.textContent).toBe(
+      "A backtest cannot start before the stock list has any buy window.",
+    );
+    // The refusal lives in the action footer — on a phone, the sticky bar the user just tapped —
+    // inside a live region that was mounted before the message arrived (UI-005).
+    expect(screen.getByTestId("new-backtest-actions").contains(message)).toBe(
+      true,
+    );
+    expect(message.parentElement?.getAttribute("aria-live")).toBe("assertive");
+    // What the user entered is kept.
+    expect((screen.getByLabelText("Strategy") as HTMLSelectElement).value).toBe(
+      "strategy-1",
+    );
     expect(push).not.toHaveBeenCalled();
   });
 });

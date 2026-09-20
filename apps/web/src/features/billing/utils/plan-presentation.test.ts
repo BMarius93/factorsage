@@ -35,7 +35,10 @@ describe("plan presentation", () => {
 
       expect(text).toContain(`${entitlements.lists.maxSymbols} stocks per list`);
       expect(text).toContain(
-        `${entitlements.backtests.maxHistoricalYears} years of history`,
+        `Backtest periods up to ${entitlements.backtests.maxHistoricalYears} years long`,
+      );
+      expect(text).toContain(
+        `${entitlements.backtests.maxSymbols} stocks per backtest`,
       );
       expect(text).toContain(
         `${entitlements.backtests.maxConcurrentRuns} backtest`,

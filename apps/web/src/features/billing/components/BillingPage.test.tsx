@@ -525,6 +525,58 @@ describe("BillingPage", () => {
     );
   });
 
+  it("lets a lapsed subscriber buy back the plan they left (UI-037)", async () => {
+    fetchBillingStatus.mockResolvedValue(
+      billingStatus({
+        plan: "FREE",
+        canStartCheckout: true,
+        canOpenPortal: true,
+        subscription: {
+          plan: "PRO",
+          interval: "YEAR",
+          status: "CANCELED",
+          currentPeriodEnd: "2027-09-14T00:00:00.000Z",
+          cancelAtPeriodEnd: false,
+          cancelAt: null,
+          pendingChange: null,
+        },
+      }),
+    );
+    render(<BillingPage />);
+
+    const pro = await screen.findByTestId("plan-action-PRO");
+    // Not "Waiting for payment confirmation": nothing is waiting, the subscription ended.
+    expect(pro.textContent).toBe("Resubscribe to Pro");
+    expect(pro.hasAttribute("disabled")).toBe(false);
+    expect(screen.queryByText("Waiting for payment confirmation")).toBeNull();
+    // The ended yearly cadence does not seed the toggle; a returning buyer starts on monthly.
+    expect(
+      (screen.getByRole("radio", { name: /Monthly/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("never claims confirmation when the settle window runs out unconfirmed (UI-046)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      searchParams.value = new URLSearchParams("checkout=success");
+      fetchBillingStatus.mockResolvedValue(billingStatus());
+      refreshBillingStatus.mockResolvedValue(billingStatus());
+      render(<BillingPage />);
+
+      await screen.findByTestId("checkout-success-notice");
+      await vi.advanceTimersByTimeAsync(20_000);
+      await waitFor(() =>
+        expect(refreshBillingStatus.mock.calls.length).toBeGreaterThanOrEqual(6),
+      );
+      const notice = await screen.findByTestId("checkout-success-notice");
+      await waitFor(() => expect(notice.textContent).toMatch(/Still confirming/));
+      expect(notice.textContent).not.toMatch(/confirmed subscription|Payment confirmed/);
+      expect(screen.getByTestId("billing-plan").textContent).toContain("Free");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("grants nothing from a checkout=success parameter alone", async () => {
     // The critical one: a browser redirect is not billing proof. Both the initial read and the
     // settle refresh report FREE, and the page must say FREE while the notice explains the wait.
@@ -567,6 +619,10 @@ describe("BillingPage", () => {
       expect(
         screen.getByTestId("plan-card-STARTER").getAttribute("data-current"),
       ).toBe("true"),
+    );
+    // Confirmation is stated only because the persisted plan now says so.
+    expect(screen.getByTestId("checkout-success-notice").textContent).toMatch(
+      /Payment confirmed/,
     );
   });
 
@@ -663,8 +719,8 @@ describe("BillingPage", () => {
 
     expect(await screen.findByTestId("billing-error")).toBeTruthy();
     // The title stays, so the page never renders as a bare error string.
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain(
-      "Billing",
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Plan and billing",
     );
   });
 });

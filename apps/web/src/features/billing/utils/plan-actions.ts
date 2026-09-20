@@ -64,15 +64,35 @@ export type PlanCardState = {
 const IMMEDIATE_HINT = "Takes effect immediately";
 const RENEWAL_HINT = "Takes effect at your next renewal";
 
-/** The logical price the user is billed for right now, or `null` when nothing is live. */
+/**
+ * The logical price the user is billed for right now, or `null` when nothing is live.
+ *
+ * An **ended** subscription — canceled, unpaid, expired before its first payment — still carries
+ * its last price in the mirror, but nobody is billed for it any more (UI-037). Treating that price
+ * as current is what once showed a lapsed Pro customer "Waiting for payment confirmation" on the
+ * plan they had left, with no way to buy it again. `occupiesPaidSlot` is the contract's one answer
+ * to "is this subscription still live".
+ */
 export function currentPriceKeyOf(
   billing: BillingStatusResponse,
 ): BillingPriceKey | null {
   const subscription = billing.subscription;
-  if (!subscription?.plan || !subscription.interval) {
+  if (
+    !subscription?.plan ||
+    !subscription.interval ||
+    !occupiesPaidSlot(subscription.status)
+  ) {
     return null;
   }
   return billingPriceKeyFor(subscription.plan, subscription.interval);
+}
+
+/** The paid plan of a subscription that has ended, if any: the one a returning buyer left. */
+function endedPlanOf(billing: BillingStatusResponse): UserPlan | null {
+  const subscription = billing.subscription;
+  return subscription?.plan && !occupiesPaidSlot(subscription.status)
+    ? subscription.plan
+    : null;
 }
 
 export function planCardState(input: {
@@ -112,9 +132,10 @@ export function planCardState(input: {
     return {
       current,
       action: { kind: "NONE" },
+      // Resuming is a Customer Portal action, so the hint names where it lives (UI-038).
       effectHint: current
         ? null
-        : "Resume your subscription to change plan",
+        : "Resume your subscription in Manage billing to change plan",
     };
   }
 
@@ -159,7 +180,12 @@ export function planCardState(input: {
       current,
       action: {
         kind: "CHECKOUT",
-        label: `Upgrade to ${PLAN_LABEL[plan]}`,
+        // A returning customer buys back the plan they left; everything else is an upgrade from
+        // Free. Both are an ordinary Checkout for this price.
+        label:
+          endedPlanOf(billing) === plan
+            ? `Resubscribe to ${PLAN_LABEL[plan]}`
+            : `Upgrade to ${PLAN_LABEL[plan]}`,
         priceKey,
       },
       effectHint: null,

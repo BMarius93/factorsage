@@ -48,7 +48,7 @@ const RUN_TIMEOUT_MS = 180_000;
 function navLink(page: Page, label: string) {
   return page
     .getByRole("navigation", { name: "Primary" })
-    .getByRole("link", { name: label });
+    .getByRole("link", { name: label, exact: true });
 }
 
 /** The first selectable value of a select, ignoring its "Select a…" prompt. */

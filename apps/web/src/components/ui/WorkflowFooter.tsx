@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useEffect, useRef, type ReactNode } from "react";
 import styles from "./WorkflowFooter.module.css";
 
 type WorkflowFooterProps = {
@@ -7,6 +9,14 @@ type WorkflowFooterProps = {
    * the save state of an editor. Optional, and never a count of credits.
    */
   readonly summary?: ReactNode;
+  /**
+   * Why the last submit did not go through — a refusal from the server, a plan limit. It is
+   * rendered **in the footer itself**, so on a phone it appears in the sticky bar the user just
+   * tapped instead of a screen-height below it (UI-005), and it is announced through a live region
+   * that exists before the message does. Field-level validation stays beside each field.
+   */
+  readonly error?: ReactNode;
+  readonly errorTestId?: string;
   /** Cancel first, then the primary action. The order is the contract. */
   readonly children: ReactNode;
   readonly testId?: string;
@@ -27,14 +37,46 @@ type WorkflowFooterProps = {
  */
 export function WorkflowFooter({
   summary,
+  error,
+  errorTestId,
   children,
   testId,
 }: WorkflowFooterProps) {
+  const footerRef = useRef<HTMLDivElement>(null);
+  const hasError = Boolean(error);
+
+  useEffect(() => {
+    // On a desktop the footer is not sticky, and the message it just gained can push it past the
+    // bottom of the viewport. Bring the whole footer — message and buttons — into view, moving
+    // the page only as far as needed.
+    if (hasError) {
+      footerRef.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [hasError, error]);
+
   return (
     <div
+      ref={footerRef}
       className={styles.footer}
       {...(testId ? { "data-testid": testId } : {})}
     >
+      {/* Always mounted: a live region inserted together with its message is often not
+          announced. It takes no space while it is empty. */}
+      <div className={styles.error} aria-live="assertive" aria-atomic="true">
+        {typeof error === "string" && error !== "" ? (
+          <p
+            className={styles.errorMessage}
+            {...(errorTestId ? { "data-testid": errorTestId } : {})}
+          >
+            {error}
+          </p>
+        ) : error ? (
+          // A composed refusal — a plan limit with its recovery — brings its own surface.
+          <div {...(errorTestId ? { "data-testid": errorTestId } : {})}>
+            {error}
+          </div>
+        ) : null}
+      </div>
       {summary ? (
         <div className={styles.summary} aria-live="polite">
           {summary}

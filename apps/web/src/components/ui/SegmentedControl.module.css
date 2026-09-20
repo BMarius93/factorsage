@@ -1,0 +1,53 @@
+/* A pill per option, with the count it would show. */
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--button-height);
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.option:hover {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+}
+
+/* The chosen view is tinted, not a solid slab: a page has one solid-blue commit action, and a
+   filter is not it. */
+.option[data-active="true"] {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-surface-selected);
+}
+
+.option:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.count {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-soft);
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.option[data-active="true"] .count {
+  background: var(--color-surface);
+  color: var(--color-primary-ink);
+}

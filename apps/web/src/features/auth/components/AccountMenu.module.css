@@ -65,23 +65,11 @@
   font-weight: var(--weight-emphasis);
 }
 
-.roleBadge {
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   justify-self: start;
-  padding: 3px 9px;
-  border-radius: var(--radius-pill);
-  font-size: var(--text-label-size);
-  font-weight: var(--weight-emphasis);
-  letter-spacing: 0.03em;
-}
-
-.roleAdmin {
-  color: var(--color-positive);
-  background: var(--color-positive-soft);
-}
-
-.roleUser {
-  color: var(--color-text-secondary);
-  background: var(--color-surface-muted);
 }
 
 .menuLink,

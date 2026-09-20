@@ -20,9 +20,10 @@ import {
 import { ListsPage } from "./ListsPage";
 
 const push = vi.fn();
+const replace = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, replace }),
 }));
 
 vi.mock("../../auth/hooks/use-auth-session", () => ({
@@ -132,6 +133,18 @@ describe("ListsPage", () => {
     expect(
       within(builtIns).queryByRole("button", { name: /Recent Market Debuts/ }),
     ).toBeNull();
+  });
+
+  it("opens the create dialog when another surface links to /lists?new=1 (UI-009)", async () => {
+    window.history.replaceState(null, "", "/lists?new=1");
+    fetchStockListsMock.mockResolvedValue([]);
+
+    render(<ListsPage />);
+
+    expect(await screen.findByTestId("list-form-dialog")).toBeDefined();
+    // The request is consumed, so a reload lands on the plain collection.
+    expect(replace).toHaveBeenCalledWith("/lists");
+    window.history.replaceState(null, "", "/lists");
   });
 
   it("asks a Guest for an account instead of sending them to the login page", async () => {

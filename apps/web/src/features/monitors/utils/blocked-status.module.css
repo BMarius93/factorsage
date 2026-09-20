@@ -1,0 +1,14 @@
+.state {
+  display: inline-grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.reason {
+  /* Narrow enough that the state column never squeezes the monitor's name on a phone card. */
+  max-width: 9rem;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  line-height: var(--line-height-tight);
+  white-space: normal;
+}

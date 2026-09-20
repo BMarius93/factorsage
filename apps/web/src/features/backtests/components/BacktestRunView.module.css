@@ -94,31 +94,6 @@
   text-align: center;
 }
 
-.failure {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  padding: 16px;
-  border: 1px solid var(--color-negative);
-  border-radius: var(--radius-md);
-  background: var(--color-negative-soft);
-}
-
-.failureTitle {
-  margin: 0;
-  color: var(--color-negative);
-  font-size: var(--text-section-title);
-  font-weight: var(--weight-emphasis);
-}
-
-.failureBody {
-  margin: 0;
-  max-width: 64ch;
-  color: var(--color-text-body);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
 .columns {
   display: grid;
   gap: 14px;
@@ -202,7 +177,23 @@
   color: var(--color-negative);
 }
 
-/* What a user needs in order to act on a failure, and to quote it back to someone. */
+/* The code, phase and run id of a failure: collapsed by default, for quoting to support. */
+.support {
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+}
+
+.support summary {
+  cursor: pointer;
+  font-weight: var(--weight-emphasis);
+}
+
+.support summary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+
 .failureFacts {
   display: grid;
   gap: 8px;

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
   DataTable,
+  IntermediateOnly,
   type DataTableColumn,
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -17,7 +18,10 @@ import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { CollectionFooter } from "../../../components/ui/CollectionFooter";
-import { usePagination } from "../../../components/ui/use-pagination";
+import {
+  useCollection,
+  type CollectionSort,
+} from "../../../components/ui/Collection";
 import actionStyles from "../../../components/ui/actions.module.css";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import {
@@ -69,6 +73,48 @@ function ReturnValue({ value }: { readonly value: number | null }) {
  * A run's own page owns live progress; this collection reports the state each run was in when the
  * list was fetched, so opening the app does not start a poll per row.
  */
+/** The benchmark and what it returned over the same period: one fact, in one place. */
+function BenchmarkFact({ run }: { readonly run: BacktestRunSummaryResponse }) {
+  return (
+    <span className={styles.benchmarkCell}>
+      <EntityReferenceChip kind="benchmark" name={run.benchmarkName} />
+      {run.benchmarkReturnPercent === null ? (
+        <span className={styles.placeholder}>{METRIC_PLACEHOLDER}</span>
+      ) : (
+        <span className={styles.benchmarkReturn}>
+          {formatSignedPercent(run.benchmarkReturnPercent)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The orders a run history can be read in; the API's newest-first comes first. */
+const RUN_SORTS: readonly CollectionSort<BacktestRunSummaryResponse>[] = [
+  { id: "newest", label: "Newest" },
+  {
+    id: "oldest",
+    label: "Oldest",
+    compare: (a, b) => Date.parse(a.queuedAt) - Date.parse(b.queuedAt),
+  },
+  {
+    id: "return",
+    label: "Best return",
+    // Runs without a result yet sort after every finished one, in their existing order.
+    compare: (a, b) =>
+      (b.portfolioReturnPercent ?? -Infinity) -
+        (a.portfolioReturnPercent ?? -Infinity) || 0,
+  },
+  {
+    id: "strategy",
+    label: "Strategy A–Z",
+    compare: (a, b) =>
+      a.strategyName.localeCompare(b.strategyName, "en", {
+        sensitivity: "base",
+      }),
+  },
+];
+
 export function BacktestsPage() {
   const { status, runs, retry } = useBacktestRuns();
 
@@ -131,30 +177,30 @@ export function BacktestsPage() {
       key: "list",
       header: "Stock list",
       cardRole: "links",
-      // The runs collection carries names but no ids, so these identify without linking.
-      // The run's own page reads the snapshot, which does carry them.
+      // Linked while the list still exists; a list deleted since the run keeps its snapshotted
+      // name as a static chip rather than a link that would 404 (UI-034).
       render: (run) => (
-        <EntityReferenceChip kind="list" name={run.stockListName} />
+        <span className={styles.listCell}>
+          <EntityReferenceChip
+            kind="list"
+            name={run.stockListName}
+            {...(run.stockListId ? { href: `/lists/${run.stockListId}` } : {})}
+          />
+          {/* The Benchmark column folds in here between 880 and 1,279px. */}
+          <IntermediateOnly testId="backtest-folded-benchmark">
+            <BenchmarkFact run={run} />
+          </IntermediateOnly>
+        </span>
       ),
     },
     {
       key: "benchmark",
       header: "Benchmark",
       cardRole: "links",
+      foldIntermediate: true,
       // The benchmark and what it returned over the same period are one fact, so they
       // share a cell rather than sitting in two columns with a stock list between them.
-      render: (run) => (
-        <span className={styles.benchmarkCell}>
-          <EntityReferenceChip kind="benchmark" name={run.benchmarkName} />
-          {run.benchmarkReturnPercent === null ? (
-            <span className={styles.placeholder}>{METRIC_PLACEHOLDER}</span>
-          ) : (
-            <span className={styles.benchmarkReturn}>
-              {formatSignedPercent(run.benchmarkReturnPercent)}
-            </span>
-          )}
-        </span>
-      ),
+      render: (run) => <BenchmarkFact run={run} />,
     },
     {
       key: "portfolio",
@@ -177,6 +223,9 @@ export function BacktestsPage() {
       key: "queued",
       header: "Queued",
       cardRole: "hidden",
+      // Low-priority: the one column that steps out in the intermediate band without a folded
+      // copy — the run's own page carries its timestamps.
+      foldIntermediate: true,
       nowrap: true,
       render: (run) => formatTimestamp(run.queuedAt),
     },
@@ -187,17 +236,32 @@ export function BacktestsPage() {
       align: "right",
       nowrap: true,
       // A run has no maintenance actions — there is no rename and no delete in the
-      // contract — so the column carries only the contextual one, and a run still
-      // executing has nothing to show yet.
-      render: (run) =>
-        isTerminalBacktestStatus(run.status) ? (
-          <Link className={actionStyles.action} href={`/backtests/${run.id}`}>
-            View results
+      // contract — so the column carries only the contextual one. A run still executing
+      // opens the same page, where its progress is live (UI-034).
+      render: (run) => {
+        const label = isTerminalBacktestStatus(run.status)
+          ? "View results"
+          : "View progress";
+        return (
+          <Link
+            className={actionStyles.action}
+            href={`/backtests/${run.id}`}
+            aria-label={`${label} for ${run.strategyName}`}
+          >
+            {label}
           </Link>
-        ) : null,
+        );
+      },
     },
   ];
-  const paging = usePagination(runs);
+  const collection = useCollection(runs, {
+    noun: "runs",
+    testId: "backtests",
+    searchText: (run) =>
+      `${run.strategyName} ${run.stockListName} ${run.benchmarkName}`,
+    sorts: RUN_SORTS,
+  });
+  const { paging } = collection;
 
   return (
     <PageContainer>
@@ -205,16 +269,15 @@ export function BacktestsPage() {
         <PageHeader
           title="Backtests"
           lead="Run a strategy over a stock list and a historical period, and compare it against a benchmark."
+          // In the header in every state, never swapped for an empty state's own button (UI-030).
           actions={
-            status === "ready" && runs.length > 0 ? (
-              <Link
-                className={forms.tintedButton}
-                href="/backtests/new"
-                data-testid="new-backtest-button"
-              >
-                New backtest
-              </Link>
-            ) : null
+            <Link
+              className={forms.tintedButton}
+              href="/backtests/new"
+              data-testid="new-backtest-button"
+            >
+              New backtest
+            </Link>
           }
         />
 
@@ -241,49 +304,53 @@ export function BacktestsPage() {
           />
         ) : null}
 
-        {status === "ready" && runs.length === 0 ? (
-          <EmptyState
-            testId="backtests-empty"
-            title="No backtests yet"
-            body={
-              <p>
-                A backtest executes one strategy over one stock list across a
-                historical period, with your capital, contributions and position
-                limit. Results appear while it runs.
-              </p>
-            }
-            actions={
-              <Link
-                className={forms.primaryButton}
-                href="/backtests/new"
-                data-testid="new-backtest-button"
-              >
-                Run your first backtest
-              </Link>
-            }
-          />
-        ) : null}
-
-        {status === "ready" && runs.length > 0 ? (
-          <SectionCard ariaLabel="Backtest runs" flush>
-            <DataTable
-              label="Backtest runs"
-              testId="backtests-grid"
-              rowTestId="backtest-card"
-              columns={columns}
-              rows={paging.visibleRows}
-              getRowKey={(run) => run.id}
-              clickableRows
-            />
-            <CollectionFooter
-              testId="backtests-footer"
-              noun="runs"
-              total={paging.total}
-              page={paging.page}
-              pageSize={paging.pageSize}
-              onPageChange={paging.setPage}
-              onPageSizeChange={paging.setPageSize}
-            />
+        {status === "ready" ? (
+          // One composition for every collection (UI-012): a titled section whose empty state is
+          // the compact one, exactly like Lists, Strategies and Monitors.
+          <SectionCard
+            title="Your backtests"
+            ariaLabel="Backtest runs"
+            flush={runs.length > 0 && collection.filteredEmpty === null}
+            {...(runs.length > 0 ? { toolbar: collection.toolbar } : {})}
+          >
+            {runs.length === 0 ? (
+              <EmptyState
+                variant="compact"
+                testId="backtests-empty"
+                title="No backtests yet"
+                body={
+                  <p>
+                    A backtest executes one strategy over one stock list across
+                    a historical period, with your capital, contributions and
+                    position limit. Results appear while it runs. Start with{" "}
+                    <strong>New backtest</strong> above.
+                  </p>
+                }
+              />
+            ) : (
+              (collection.filteredEmpty ?? (
+                <>
+                  <DataTable
+                    label="Backtest runs"
+                    testId="backtests-grid"
+                    rowTestId="backtest-card"
+                    columns={columns}
+                    rows={paging.visibleRows}
+                    getRowKey={(run) => run.id}
+                    clickableRows
+                  />
+                  <CollectionFooter
+                    testId="backtests-footer"
+                    noun="runs"
+                    total={paging.total}
+                    page={paging.page}
+                    pageSize={paging.pageSize}
+                    onPageChange={paging.setPage}
+                    onPageSizeChange={paging.setPageSize}
+                  />
+                </>
+              ))
+            )}
           </SectionCard>
         ) : null}
       </div>

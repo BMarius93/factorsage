@@ -224,22 +224,27 @@ describe("MonitorDetail", () => {
       await detailReady();
 
       expect(screen.getByTestId("built-in-badge")).toBeDefined();
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Running",
       );
       expect(screen.queryByTestId("edit-monitor")).toBeNull();
       expect(screen.queryByTestId("monitor-detail-actions")).toBeNull();
       expect(
-        screen
-          .getByRole("link", { name: "Backtest this monitor" })
-          .getAttribute("href"),
+        screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
       ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
-      expect(screen.getByText("Waiting for trigger")).toBeDefined();
+      expect(
+        within(screen.getByTestId("monitor-securities")).getByText(
+          "Waiting for trigger",
+        ),
+      ).toBeDefined();
       expect(screen.getByText("Buy · waiting for trigger")).toBeDefined();
     });
 
     describe("backtest action for a Guest (UX-002)", () => {
       const MONITOR_PATH = "/monitors/monitor-1";
+      // Signing in leads to the prefilled New Backtest the Guest asked for (UI-042).
+      const INTENDED =
+        "/backtests/new?strategyId=strategy-1&stockListId=list-1";
 
       beforeEach(() => {
         window.history.replaceState(null, "", MONITOR_PATH);
@@ -257,11 +262,9 @@ describe("MonitorDetail", () => {
         render(<MonitorDetail monitorId="monitor-1" />);
         await detailReady();
 
-        expect(
-          screen.queryByRole("link", { name: "Backtest this monitor" }),
-        ).toBeNull();
+        expect(screen.queryByRole("link", { name: "Run backtest" })).toBeNull();
         await userEvent.click(
-          screen.getByRole("button", { name: "Backtest this monitor" }),
+          screen.getByRole("button", { name: "Run backtest" }),
         );
 
         const prompt = await screen.findByTestId("sign-in-prompt");
@@ -272,12 +275,12 @@ describe("MonitorDetail", () => {
           within(prompt)
             .getByRole("link", { name: "Sign in" })
             .getAttribute("href"),
-        ).toBe(`/login?next=${encodeURIComponent(MONITOR_PATH)}`);
+        ).toBe(`/login?next=${encodeURIComponent(INTENDED)}`);
         expect(
           within(prompt)
             .getByRole("link", { name: "Create an account" })
             .getAttribute("href"),
-        ).toBe(`/register?next=${encodeURIComponent(MONITOR_PATH)}`);
+        ).toBe(`/register?next=${encodeURIComponent(INTENDED)}`);
         expect(push).not.toHaveBeenCalled();
         expect(replace).not.toHaveBeenCalled();
         expect(window.location.pathname).toBe(MONITOR_PATH);
@@ -289,7 +292,7 @@ describe("MonitorDetail", () => {
         await detailReady();
 
         const action = screen.getByRole("button", {
-          name: "Backtest this monitor",
+          name: "Run backtest",
         });
         expect(action.hasAttribute("disabled")).toBe(true);
         await userEvent.click(action);
@@ -328,6 +331,22 @@ describe("MonitorDetail", () => {
     });
   });
 
+  it("offers the owner the same Run backtest a built-in has, prefilled (UI-008)", async () => {
+    fetchMonitorMock.mockResolvedValue(detail());
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    expect(
+      screen.getByRole("link", { name: "Run backtest" }).getAttribute("href"),
+    ).toBe("/backtests/new?strategyId=strategy-1&stockListId=list-1");
+    // Secondary, then the owner's Edit, then the overflow: the canonical header order.
+    expect(screen.getByTestId("edit-monitor")).toBeDefined();
+    // The back link is the owning collection.
+    expect(
+      screen.getByRole("link", { name: /Monitors/ }).getAttribute("href"),
+    ).toBe("/monitors");
+  });
+
   it("shows what the monitor watches, with its state and last checked time", async () => {
     fetchMonitorMock.mockResolvedValue(detail());
 
@@ -337,7 +356,7 @@ describe("MonitorDetail", () => {
     expect(
       screen.getByRole("heading", { name: "Value entries" }),
     ).toBeDefined();
-    expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+    expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
       "Enabled",
     );
     // Scoped to the configuration panel: the list is also linked from the empty-state sentence
@@ -414,18 +433,65 @@ describe("MonitorDetail", () => {
 
     const rows = screen.getAllByTestId("monitor-security-row");
     expect(rows).toHaveLength(4);
+    // What is happening first, then what could not be decided, then plain non-matches, then what
+    // has not been checked (UI-026).
     expect(within(rows[0]!).getByText("Matched")).toBeDefined();
-    expect(within(rows[1]!).getByText("No match")).toBeDefined();
-    expect(within(rows[2]!).getByText("Not evaluable")).toBeDefined();
+    expect(within(rows[1]!).getByText("Not evaluable")).toBeDefined();
+    expect(within(rows[2]!).getByText("No match")).toBeDefined();
     expect(within(rows[3]!).getByText("Not checked yet")).toBeDefined();
+    // "Not evaluable" is explained in words once, and the status filter counts every state.
+    expect(
+      screen.getByTestId("monitor-not-evaluable-note").textContent,
+    ).toContain("could not decide the rule");
+    const filter = screen.getByTestId("monitor-status-filter");
+    expect(
+      within(filter)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual([
+      "All4",
+      "Matched1",
+      "No match1",
+      "Not evaluable1",
+      "Not checked yet1",
+    ]);
 
     // The matched row explains itself through its Signal, and carries the observed price.
     expect(within(rows[0]!).getByText("Buy · Trigger")).toBeDefined();
     expect(within(rows[0]!).getByText("$212.50")).toBeDefined();
     // A security that did not match has no stored price, so none is shown rather than a fake zero.
-    expect(within(rows[1]!).queryByText(/\$/)).toBeNull();
+    expect(within(rows[2]!).queryByText(/\$/)).toBeNull();
     // And a never-checked one has no status timestamp either.
     expect(within(rows[3]!).queryByText(/Sep/)).toBeNull();
+  });
+
+  it("says why an ended signal ended, and dates a history-derived one by its session (UI-026)", async () => {
+    fetchMonitorMock.mockResolvedValue(
+      detail({
+        signals: [
+          signal({
+            id: "signal-ended",
+            resolvedAt: "2026-09-11T20:00:00.000Z",
+            resolutionReason: "MEMBER_REMOVED",
+          }),
+          signal({
+            id: "signal-history",
+            reconstructed: true,
+            observationDate: "2026-09-10",
+          }),
+        ],
+      }),
+    );
+    render(<MonitorDetail monitorId="monitor-1" />);
+    await detailReady();
+
+    const rows = screen.getAllByTestId("monitor-signal-row");
+    expect(
+      within(rows[0]!).getByTestId("monitor-signal-ended").textContent,
+    ).toContain("stock left the list");
+    // The same day format as every other date in the product, never a raw ISO string.
+    expect(rows[1]!.textContent).toContain("Sep 10, 2026 · from history");
+    expect(rows[1]!.textContent).not.toContain("2026-09-10");
   });
 
   it("lists recent signals newest-first with their state", async () => {
@@ -451,7 +517,10 @@ describe("MonitorDetail", () => {
     expect(within(rows[0]!).getByText("Sell · Trigger")).toBeDefined();
     expect(within(rows[0]!).getByText("Active")).toBeDefined();
     expect(within(rows[1]!).getByText("Buy · Condition")).toBeDefined();
-    expect(within(rows[1]!).getByText(/^Ended /)).toBeDefined();
+    expect(within(rows[1]!).getByText("Ended")).toBeDefined();
+    expect(
+      within(rows[1]!).getByTestId("monitor-signal-ended").textContent,
+    ).toMatch(/Ended\w{3} \d{1,2}, \d{4}/);
     expect(within(rows[1]!).getByText("$101.50")).toBeDefined();
     // Under the window cap, so nothing claims to be truncated.
     expect(screen.queryByTestId("monitor-signals-window")).toBeNull();
@@ -552,7 +621,7 @@ describe("MonitorDetail", () => {
     expect(screen.queryByText("Try again")).toBeNull();
     expect(
       screen
-        .getByRole("link", { name: "Back to monitors" })
+        .getByRole("link", { name: "Back to Monitors" })
         .getAttribute("href"),
     ).toBe("/monitors");
   });
@@ -573,7 +642,7 @@ describe("MonitorDetail", () => {
       });
     });
     await waitFor(() => {
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Disabled",
       );
     });
@@ -594,7 +663,7 @@ describe("MonitorDetail", () => {
     await waitFor(() => {
       expect(screen.getByText(/That change did not save/)).toBeDefined();
     });
-    expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+    expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
       "Enabled",
     );
     await openOverflowMenu(userEvent, "Value entries");
@@ -614,19 +683,17 @@ describe("MonitorDetail", () => {
       render(<MonitorDetail monitorId="monitor-1" />);
       await detailReady();
 
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
-        "Enabled",
-      );
-      const pill = screen.getByTestId("monitor-blocked-pill");
-      expect(pill.textContent).toBe("Not scanning");
+      // One effective state, with the full explanation on the page (UI-021).
+      const pill = screen.getByTestId("monitor-state-pill");
+      expect(pill.textContent).toBe("Paused — plan limit");
       expect(pill.getAttribute("data-blocked-reason")).toBe("MONITOR_CAPACITY");
-      // The same sentence the collection carries, from the same helper.
-      expect(pill.getAttribute("title")).toBe(
-        blockedExplanation("MONITOR_CAPACITY"),
-      );
       expect(
         screen.getByTestId("monitor-blocked-explanation").textContent,
-      ).toBe(blockedExplanation("MONITOR_CAPACITY"));
+      ).toContain(blockedExplanation("MONITOR_CAPACITY"));
+      // The configured intent is still stated, as a secondary fact.
+      expect(
+        screen.getByTestId("monitor-configured-intent").textContent,
+      ).toContain("Switched on");
     });
 
     it("says a monitor over an oversized list is not scanning, and why", async () => {
@@ -641,12 +708,12 @@ describe("MonitorDetail", () => {
 
       expect(
         screen
-          .getByTestId("monitor-blocked-pill")
+          .getByTestId("monitor-state-pill")
           .getAttribute("data-blocked-reason"),
       ).toBe("LIST_OVER_LIMIT");
       expect(
         screen.getByTestId("monitor-blocked-explanation").textContent,
-      ).toBe(blockedExplanation("LIST_OVER_LIMIT"));
+      ).toContain(blockedExplanation("LIST_OVER_LIMIT"));
       expect(blockedExplanation("LIST_OVER_LIMIT")).not.toBe(
         blockedExplanation("MONITOR_CAPACITY"),
       );
@@ -657,10 +724,12 @@ describe("MonitorDetail", () => {
       render(<MonitorDetail monitorId="monitor-1" />);
       await detailReady();
 
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Enabled",
       );
-      expect(screen.queryByTestId("monitor-blocked-pill")).toBeNull();
+      expect(
+        screen.getByTestId("monitor-state-pill").getAttribute("data-state"),
+      ).toBe("ENABLED");
       expect(screen.queryByTestId("monitor-blocked-explanation")).toBeNull();
       expect(screen.queryByText("Not scanning")).toBeNull();
     });
@@ -686,7 +755,7 @@ describe("MonitorDetail", () => {
         ),
       ).toBe(message);
       // The header still tells the truth about the configured state.
-      expect(screen.getByTestId("monitor-enabled-pill").textContent).toBe(
+      expect(screen.getByTestId("monitor-state-pill").textContent).toBe(
         "Disabled",
       );
     });

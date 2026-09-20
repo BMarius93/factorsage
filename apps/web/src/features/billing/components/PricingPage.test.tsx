@@ -141,7 +141,10 @@ describe("PricingPage", () => {
           `${limits.lists.maxSymbols} stocks per list`,
         );
         expect(features).toContain(
-          `${limits.backtests.maxHistoricalYears} years of history`,
+          `Backtest periods up to ${limits.backtests.maxHistoricalYears} years long`,
+        );
+        expect(features).toContain(
+          `${limits.backtests.maxSymbols} stocks per backtest`,
         );
         expect(features).toContain(
           `${limits.monitors.maxActive} active monitor`,

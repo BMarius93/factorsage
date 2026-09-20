@@ -48,6 +48,14 @@ export function registerHref(next?: string): string {
   return withReturnPath("/register", next);
 }
 
+/**
+ * The same, for recovering a password: the destination survives the detour, so "Back to sign in"
+ * from the recovery page still returns to where the visitor was going (UI-042).
+ */
+export function forgotPasswordHref(next?: string): string {
+  return withReturnPath("/forgot-password", next);
+}
+
 function withReturnPath(page: string, next: string | undefined): string {
   if (next === undefined) {
     return page;

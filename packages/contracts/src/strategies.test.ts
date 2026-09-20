@@ -335,7 +335,7 @@ describe("strategy metric registry", () => {
       const catalogLabel = findSelectableSeries(seriesId)?.label ?? "";
       expect(option.label).toBe(
         option.metric.kind === "MARGIN_OF_SAFETY"
-          ? `Margin of Safety (${catalogLabel})`
+          ? `Margin of Safety · ${catalogLabel}`
           : catalogLabel,
       );
     }
@@ -1434,7 +1434,7 @@ describe("describeStrategy", () => {
       { kind: "CONDITION", text: "RSI 14D is below 30", connector: "AND" },
       {
         kind: "CONDITION",
-        text: "Margin of Safety (DCF (FCFF)) is above 25%",
+        text: "Margin of Safety · DCF (FCFF) is above 25%",
         connector: "AND",
       },
       {
@@ -1547,7 +1547,7 @@ describe("describeStrategy", () => {
   it("reads rules as short sentences in product vocabulary", () => {
     expect(
       strategyMetricLabel({ kind: "MARGIN_OF_SAFETY", sourceId: "GRAHAM" }),
-    ).toBe("Margin of Safety (Graham)");
+    ).toBe("Margin of Safety · Graham");
     expect(strategyMetricLabel({ kind: "PRICE" })).toBe("Price");
     expect(
       strategyMetricLabel({ kind: "MOVING_AVERAGE", seriesId: "SMA_200W" }),

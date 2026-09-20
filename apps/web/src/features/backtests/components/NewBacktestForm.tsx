@@ -8,29 +8,58 @@ import {
   BACKTEST_MIN_INITIAL_CAPITAL,
   BACKTEST_MIN_MAXIMUM_POSITIONS,
   DEFAULT_BENCHMARK_CODE,
+  isTerminalBacktestStatus,
+  type EntitlementReasonCode,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { Notice } from "../../../components/ui/Notice";
+import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
+import { useEntitlements } from "../../auth/hooks/use-entitlements";
+import { useBacktestRuns } from "../hooks/use-backtest-runs";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { WorkflowFooter } from "../../../components/ui/WorkflowFooter";
 import forms from "../../../components/ui/forms.module.css";
-import { requestFailureMessage } from "../../../lib/api/entitlement-errors";
+import {
+  entitlementReason,
+  requestFailureMessage,
+} from "../../../lib/api/entitlement-errors";
 import { createBacktestRun } from "../api/backtests-api";
 import { useBacktestOptions } from "../hooks/use-backtest-options";
-import { OwnershipOptions } from "./OwnershipOptions";
+import { readBacktestPrefill } from "../utils/prefill";
 import {
   defaultBacktestPeriod,
   fullPositionHelpText,
+  exceedsPeriodYears,
   maximumBacktestStart,
+  startForPeriodYears,
   validateBacktestForm,
   type BacktestFormErrors,
   type BacktestFormValues,
 } from "../utils/submission";
+import { EntitySelect } from "../../../components/ui/EntitySelect";
+import { Select } from "../../../components/ui/Select";
 import styles from "./NewBacktestForm.module.css";
+
+/**
+ * The form's fields in reading order, with the control each error belongs to. Client validation
+ * moves focus to the first invalid one (UI-005) instead of leaving it on "Run backtest".
+ */
+const FIELD_CONTROLS: readonly (readonly [keyof BacktestFormValues, string])[] =
+  [
+    ["strategyId", "backtest-strategy"],
+    ["stockListId", "backtest-list"],
+    ["benchmarkCode", "backtest-benchmark"],
+    ["startDate", "backtest-start"],
+    ["endDate", "backtest-end"],
+    ["initialCapital", "backtest-capital"],
+    ["monthlyContribution", "backtest-contribution"],
+    ["maximumPositions", "backtest-max-positions"],
+  ];
 
 const DEFAULT_INITIAL_CAPITAL = "10000";
 const DEFAULT_MAXIMUM_POSITIONS = "10";
@@ -72,7 +101,17 @@ export function NewBacktestForm() {
   const { status, strategies, lists, benchmarks, retry } = useBacktestOptions();
   const [values, setValues] = useState<BacktestFormValues>(EMPTY_VALUES);
   const [errors, setErrors] = useState<BacktestFormErrors>({});
-  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<{
+    readonly message: string;
+    readonly reason: EntitlementReasonCode | undefined;
+  } | null>(null);
+  const plan = useEntitlements();
+  const limits = plan.status === "ready" ? plan.entitlements.backtests : null;
+  const runs = useBacktestRuns();
+  // Runs still holding a concurrency slot, so the limit can be seen before submitting (UI-020).
+  const inFlight = runs.runs.filter(
+    (run) => !isTerminalBacktestStatus(run.status),
+  );
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
@@ -105,26 +144,52 @@ export function NewBacktestForm() {
     });
   }, [status, benchmarks]);
 
+  const prefill = useMemo(
+    () => readBacktestPrefill(searchParams),
+    [searchParams],
+  );
+  const prefillApplied = useRef(false);
+
   useEffect(() => {
-    if (status !== "ready") {
+    if (status !== "ready" || prefillApplied.current) {
       return;
     }
-    // A link from the Dashboard names the Strategy and List it wants backtested. Only ids the
-    // caller can actually choose are applied; anything else leaves the form as it was.
-    const strategyId = searchParams?.get("strategyId") ?? "";
-    const stockListId = searchParams?.get("stockListId") ?? "";
+    prefillApplied.current = true;
+    // A link names what it wants backtested — an entity header, a Guest's return from sign-in,
+    // "Edit and run again" from a finished run. Only choices the caller can actually make are
+    // applied: an unknown id or benchmark is ignored and leaves that field as it was.
     setValues((current) => ({
       ...current,
-      ...(current.strategyId === "" &&
-      strategies.some((strategy) => strategy.id === strategyId)
-        ? { strategyId }
+      ...(prefill.strategyId &&
+      strategies.some((strategy) => strategy.id === prefill.strategyId)
+        ? { strategyId: prefill.strategyId }
         : {}),
-      ...(current.stockListId === "" &&
-      lists.some((list) => list.id === stockListId)
-        ? { stockListId }
+      ...(prefill.stockListId &&
+      lists.some((list) => list.id === prefill.stockListId)
+        ? { stockListId: prefill.stockListId }
+        : {}),
+      ...(prefill.benchmarkCode &&
+      benchmarks.some((benchmark) => benchmark.code === prefill.benchmarkCode)
+        ? { benchmarkCode: prefill.benchmarkCode }
+        : {}),
+      ...(prefill.startDate ? { startDate: prefill.startDate } : {}),
+      ...(prefill.endDate ? { endDate: prefill.endDate } : {}),
+      ...(prefill.initialCapital !== undefined
+        ? { initialCapital: String(prefill.initialCapital) }
+        : {}),
+      ...(prefill.monthlyContribution !== undefined
+        ? {
+            monthlyContribution:
+              prefill.monthlyContribution > 0
+                ? String(prefill.monthlyContribution)
+                : "",
+          }
+        : {}),
+      ...(prefill.maximumPositions !== undefined
+        ? { maximumPositions: String(prefill.maximumPositions) }
         : {}),
     }));
-  }, [status, strategies, lists, searchParams]);
+  }, [status, strategies, lists, benchmarks, prefill]);
 
   const update = <Key extends keyof BacktestFormValues>(
     key: Key,
@@ -143,6 +208,10 @@ export function NewBacktestForm() {
     setErrors(found);
     setSubmitError(null);
     if (request === null) {
+      const first = FIELD_CONTROLS.find(([key]) => found[key] !== undefined);
+      if (first) {
+        document.getElementById(first[1])?.focus();
+      }
       return;
     }
 
@@ -151,8 +220,71 @@ export function NewBacktestForm() {
       const run = await createBacktestRun(request);
       router.push(`/backtests/${run.id}`);
     } catch (caught) {
-      setSubmitError(submissionMessage(caught));
+      setSubmitError({
+        message: submissionMessage(caught),
+        reason: entitlementReason(caught),
+      });
       setPending(false);
+    }
+  };
+
+  const planYears = limits?.maxHistoricalYears ?? null;
+  const maxSymbols = limits?.maxSymbols ?? null;
+  const maxConcurrent = limits?.maxConcurrentRuns ?? null;
+  const periodTooLong = exceedsPeriodYears(
+    values.startDate,
+    values.endDate,
+    planYears,
+  );
+  const fitPeriodToPlan = () => {
+    if (planYears !== null && values.endDate !== "") {
+      update("startDate", startForPeriodYears(values.endDate, planYears));
+    }
+  };
+  const chosenListSize = lists.find(
+    (list) => list.id === values.stockListId,
+  )?.itemCount;
+  const listTooLarge =
+    maxSymbols !== null &&
+    chosenListSize !== undefined &&
+    chosenListSize > maxSymbols;
+  const atConcurrency =
+    maxConcurrent !== null &&
+    runs.status === "ready" &&
+    inFlight.length >= maxConcurrent;
+
+  /** The next step that fits each refusal, beside "See plans" (UI-020). */
+  const refusalRecovery = (reason: EntitlementReasonCode) => {
+    switch (reason) {
+      case "ENTITLEMENT_BACKTEST_HISTORY_LIMIT":
+        return planYears === null ? null : (
+          <button
+            type="button"
+            className={forms.primaryButton}
+            data-testid="backtest-fit-period"
+            onClick={fitPeriodToPlan}
+          >
+            Set the period to {planYears} years
+          </button>
+        );
+      case "ENTITLEMENT_BACKTEST_CONCURRENCY_LIMIT":
+        return inFlight[0] ? (
+          <Link
+            className={forms.primaryButton}
+            href={`/backtests/${inFlight[0].id}`}
+            data-testid="backtest-open-running"
+          >
+            View the running backtest
+          </Link>
+        ) : null;
+      case "ENTITLEMENT_BACKTEST_SYMBOL_LIMIT":
+        return (
+          <span className={styles.recoveryHint}>
+            Choose a smaller list, or remove stocks from this one.
+          </span>
+        );
+      default:
+        return null;
     }
   };
 
@@ -218,30 +350,64 @@ export function NewBacktestForm() {
           lead="One strategy, one stock list, one historical period. The run executes in the background and its results appear while it progresses."
         />
 
+        {prefill.fromRunId && status === "ready" ? (
+          <Notice tone="info" testId="backtest-prefilled-from-run">
+            <p>
+              Prefilled from{" "}
+              <Link
+                className={styles.noticeLink}
+                href={`/backtests/${encodeURIComponent(prefill.fromRunId)}`}
+              >
+                an earlier run
+              </Link>
+              , which stays unchanged. The strategy runs as it is now, and a
+              strategy or list deleted since is not preselected.
+            </p>
+          </Notice>
+        ) : null}
+
         {missingPrerequisite ? (
-          <div className={styles.notice} data-testid="backtest-prerequisites">
-            <p className={styles.noticeBody}>
+          <Notice tone="warning" testId="backtest-prerequisites">
+            <p>
               A backtest needs both a strategy and a stock list.
               {strategies.length === 0 ? (
                 <>
                   {" "}
-                  <Link className={styles.noticeLink} href="/strategies/new">
-                    Create a strategy
-                  </Link>{" "}
-                  first.
+                  <Link href="/strategies/new">Create a strategy</Link> first.
                 </>
               ) : null}
               {lists.length === 0 ? (
                 <>
                   {" "}
-                  <Link className={styles.noticeLink} href="/lists">
-                    Create a stock list
-                  </Link>{" "}
-                  first.
+                  <Link href="/lists?new=1">Create a stock list</Link> first.
                 </>
               ) : null}
             </p>
-          </div>
+          </Notice>
+        ) : null}
+
+        {atConcurrency ? (
+          // The concurrency limit, before the form is filled in (UI-020).
+          <EntitlementNotice
+            announce="status"
+            testId="backtest-concurrency-notice"
+            title={
+              maxConcurrent === 1
+                ? "A backtest is already running"
+                : `${inFlight.length} backtests are already running`
+            }
+            message={`Your plan runs ${maxConcurrent} backtest${maxConcurrent === 1 ? "" : "s"} at a time. You can prepare this one now and run it when a slot frees.`}
+            recovery={
+              inFlight[0] ? (
+                <Link
+                  className={forms.secondaryButton}
+                  href={`/backtests/${inFlight[0].id}`}
+                >
+                  View progress
+                </Link>
+              ) : null
+            }
+          />
         ) : null}
 
         <form
@@ -261,23 +427,16 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-strategy">
                     Strategy
                   </label>
-                  <select
+                  <EntitySelect
                     id="backtest-strategy"
-                    className={styles.select}
-                    data-testid="backtest-strategy"
+                    kind="strategy"
+                    testId="backtest-strategy"
+                    items={strategies}
                     value={values.strategyId}
-                    disabled={loading}
-                    aria-invalid={errors.strategyId !== undefined}
-                    onChange={(event) =>
-                      update("strategyId", event.target.value)
-                    }
-                  >
-                    <option value="">Select a strategy…</option>
-                    <OwnershipOptions
-                      items={strategies}
-                      ownLabel="Your strategies"
-                    />
-                  </select>
+                    loading={loading}
+                    invalid={errors.strategyId !== undefined}
+                    onValueChange={(id) => update("strategyId", id)}
+                  />
                   {errors.strategyId ? (
                     <p className={forms.hint} role="alert">
                       {errors.strategyId}
@@ -289,23 +448,28 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-list">
                     Stock list
                   </label>
-                  <select
+                  <EntitySelect
                     id="backtest-list"
-                    className={styles.select}
-                    data-testid="backtest-list"
+                    kind="list"
+                    testId="backtest-list"
+                    items={lists}
                     value={values.stockListId}
-                    disabled={loading}
-                    aria-invalid={errors.stockListId !== undefined}
-                    onChange={(event) =>
-                      update("stockListId", event.target.value)
-                    }
-                  >
-                    <option value="">Select a stock list…</option>
-                    <OwnershipOptions items={lists} ownLabel="Your lists" />
-                  </select>
+                    loading={loading}
+                    invalid={errors.stockListId !== undefined}
+                    onValueChange={(id) => update("stockListId", id)}
+                  />
                   {errors.stockListId ? (
                     <p className={forms.hint} role="alert">
                       {errors.stockListId}
+                    </p>
+                  ) : listTooLarge ? (
+                    <p
+                      className={styles.limitText}
+                      data-state="over"
+                      data-testid="backtest-list-over-limit"
+                    >
+                      This list has {chosenListSize} stocks; your plan runs up
+                      to {maxSymbols} per backtest.
                     </p>
                   ) : null}
                 </div>
@@ -314,24 +478,19 @@ export function NewBacktestForm() {
                   <label className={forms.label} htmlFor="backtest-benchmark">
                     Benchmark
                   </label>
-                  <select
+                  <Select
                     id="backtest-benchmark"
-                    className={styles.select}
-                    data-testid="backtest-benchmark"
+                    testId="backtest-benchmark"
                     value={values.benchmarkCode}
                     disabled={loading}
-                    aria-invalid={errors.benchmarkCode !== undefined}
-                    onChange={(event) =>
-                      update("benchmarkCode", event.target.value)
-                    }
-                  >
-                    <option value="">Select a benchmark…</option>
-                    {benchmarks.map((benchmark) => (
-                      <option key={benchmark.code} value={benchmark.code}>
-                        {benchmark.name}
-                      </option>
-                    ))}
-                  </select>
+                    invalid={errors.benchmarkCode !== undefined}
+                    onValueChange={(code) => update("benchmarkCode", code)}
+                    placeholder="Select a benchmark…"
+                    options={benchmarks.map((benchmark) => ({
+                      value: benchmark.code,
+                      label: benchmark.name,
+                    }))}
+                  />
                   {errors.benchmarkCode ? (
                     <p className={forms.hint} role="alert">
                       {errors.benchmarkCode}
@@ -371,9 +530,15 @@ export function NewBacktestForm() {
                       className={styles.maxButton}
                       data-testid="backtest-start-max"
                       onClick={() =>
-                        update("startDate", maximumBacktestStart(new Date()))
+                        update(
+                          "startDate",
+                          maximumBacktestStart(new Date(), planYears),
+                        )
                       }
-                      title={`Earliest available start — ${BACKTEST_MAX_PERIOD_YEARS} years back`}
+                      title={`The longest period your plan allows — ${Math.min(
+                        planYears ?? BACKTEST_MAX_PERIOD_YEARS,
+                        BACKTEST_MAX_PERIOD_YEARS,
+                      )} years back`}
                     >
                       MAX
                     </button>
@@ -405,6 +570,31 @@ export function NewBacktestForm() {
                   ) : null}
                 </div>
               </div>
+              {planYears !== null && planYears < BACKTEST_MAX_PERIOD_YEARS ? (
+                // The plan's period allowance, before submit (UI-023): a period-length limit,
+                // not a look-back — any start date is fine if the period fits.
+                <div
+                  className={styles.limitRow}
+                  data-state={periodTooLong ? "over" : "ok"}
+                  data-testid="backtest-period-limit"
+                >
+                  <p className={styles.limitText}>
+                    {periodTooLong
+                      ? `This period is longer than your plan allows. Backtest periods can be up to ${planYears} years long.`
+                      : `Your plan allows backtest periods up to ${planYears} years long. MAX sets the longest it allows.`}
+                  </p>
+                  {periodTooLong ? (
+                    <button
+                      type="button"
+                      className={styles.maxButton}
+                      data-testid="backtest-period-fit"
+                      onClick={fitPeriodToPlan}
+                    >
+                      Set to {planYears} years
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </fieldset>
 
             <fieldset className={styles.group}>
@@ -512,18 +702,19 @@ export function NewBacktestForm() {
             </fieldset>
           </SectionCard>
 
-          {submitError ? (
-            <p
-              className={forms.error}
-              role="alert"
-              data-testid="backtest-submit-error"
-            >
-              {submitError}
-            </p>
-          ) : null}
-
           <WorkflowFooter
             testId="new-backtest-actions"
+            error={
+              submitError === null ? null : submitError.reason ? (
+                <EntitlementNotice
+                  message={submitError.message}
+                  recovery={refusalRecovery(submitError.reason)}
+                />
+              ) : (
+                submitError.message
+              )
+            }
+            errorTestId="backtest-submit-error"
             summary={
               summary ? (
                 <span data-testid="backtest-summary">{summary}</span>

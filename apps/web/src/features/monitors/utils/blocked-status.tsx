@@ -3,6 +3,7 @@ import type {
   MonitorSummaryResponse,
 } from "@intrinsic/contracts";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
+import styles from "./blocked-status.module.css";
 
 /**
  * Why an enabled monitor is not scanning, in the user's own terms.
@@ -29,36 +30,74 @@ export function isBlockedByEntitlement(monitor: OperationalState): boolean {
   return monitor.operationalStatus === "BLOCKED_BY_ENTITLEMENT";
 }
 
+/** The short reason shown inline under the state, on every device (UI-021). */
+export function blockedShortReason(
+  reason: MonitorBlockedReason | undefined,
+): string {
+  return reason === "LIST_OVER_LIMIT"
+    ? "Its list is over your plan's stock limit"
+    : "Over your plan's active-monitor limit";
+}
+
 /**
- * The effective scanning state beside the configured one.
+ * **One** effective state per monitor (UI-021).
  *
- * `enabled` is what the user asked for and never changes on its own; the operational status is
- * what the system will actually do with that intent right now. A monitor left over capacity by a
- * downgrade is still enabled, so the collection and the detail page both show this pill next to
- * "Enabled" rather than replacing it — one component, so the two surfaces cannot drift apart.
+ * `enabled` is what the user asked for; the operational status is what the system does with it.
+ * They used to render as two pills side by side — "Enabled" and "Not scanning" — which read as a
+ * contradiction, and the reason lived in a hover tooltip a phone cannot open. A monitor the plan
+ * has stopped now reads "Paused — plan limit", its reason sits under it as text, and the
+ * configured intent is a secondary fact on the monitor's own page. Collection and detail share
+ * this component so they cannot drift apart.
  */
-export function MonitorBlockedPill({
+export function MonitorStateBadge({
   monitor,
+  builtIn = false,
+  showReason = false,
 }: {
-  readonly monitor: OperationalState;
+  readonly monitor: OperationalState & { readonly enabled: boolean };
+  readonly builtIn?: boolean;
+  /** Adds the short reason under a paused state — for a collection row, where there is room. */
+  readonly showReason?: boolean;
 }) {
-  if (!isBlockedByEntitlement(monitor)) {
-    return null;
+  if (!builtIn && monitor.enabled && isBlockedByEntitlement(monitor)) {
+    return (
+      <span className={styles.state}>
+        <StatusBadge
+          tone="blocked"
+          testId="monitor-state-pill"
+          dataAttributes={{
+            "data-state": "BLOCKED",
+            ...(monitor.blockedReason
+              ? { "data-blocked-reason": monitor.blockedReason }
+              : {}),
+          }}
+        >
+          Paused — plan limit
+        </StatusBadge>
+        {showReason ? (
+          <span className={styles.reason} data-testid="monitor-state-reason">
+            {blockedShortReason(monitor.blockedReason)}
+          </span>
+        ) : null}
+      </span>
+    );
   }
+  const label = builtIn
+    ? monitor.enabled
+      ? "Running"
+      : "Paused"
+    : monitor.enabled
+      ? "Enabled"
+      : "Disabled";
   return (
     <StatusBadge
-      tone="blocked"
-      testId="monitor-blocked-pill"
-      title={blockedExplanation(monitor.blockedReason)}
-      {...(monitor.blockedReason
-        ? {
-            dataAttributes: {
-              "data-blocked-reason": monitor.blockedReason,
-            },
-          }
-        : {})}
+      tone={monitor.enabled ? "positive" : "pending"}
+      testId="monitor-state-pill"
+      dataAttributes={{
+        "data-state": monitor.enabled ? "ENABLED" : "DISABLED",
+      }}
     >
-      Not scanning
+      {label}
     </StatusBadge>
   );
 }

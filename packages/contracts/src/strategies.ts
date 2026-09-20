@@ -667,8 +667,10 @@ function seriesLabel(id: SelectableSeriesId): string {
  * The one Metric label.
  *
  * For every catalog-backed identity it is `findSelectableSeries(id).label` and nothing else.
- * `Margin of Safety (DCF (FCFF))` reads poorly, so the composition happens here, in one function —
- * a composition of the catalog label, never a second label map.
+ * A source label can carry its own parentheses ("DCF (FCFF)"), so the source follows the product's
+ * `·` separator — `Margin of Safety · DCF (FCFF)` — rather than nesting a second pair (UI-058). The
+ * composition happens here, in one function: a composition of the catalog label, never a second
+ * label map.
  */
 export function strategyMetricLabel(metric: StrategyMetric): string {
   switch (metric.kind) {
@@ -676,9 +678,9 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
     case "OSCILLATOR":
       return seriesLabel(metric.seriesId);
     case "MARGIN_OF_SAFETY":
-      return `${metricBaseLabel("MARGIN_OF_SAFETY")} (${seriesLabel(
+      return `${metricBaseLabel("MARGIN_OF_SAFETY")} · ${seriesLabel(
         metric.sourceId,
-      )})`;
+      )}`;
     default:
       return metricBaseLabel(metric.kind);
   }
