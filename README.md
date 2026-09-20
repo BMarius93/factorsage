@@ -267,6 +267,11 @@ Forgot/reset password, refresh tokens, and additional identity providers are not
 `ai/architecture/authentication.md` is the canonical design document and
 `ai/workflows/auth-testing.md` is the test/QA-persona runbook.
 
+For a manual release pass, `pnpm qa:seed` creates one clean account per commercial plan plus the
+administrator, `pnpm qa:personas` opens each in its own persistent, isolated browser window, and
+`pnpm qa:reset` empties them again. They hold no pre-created lists, strategies, monitors or
+backtests on purpose. See `docs/development/qa-personas.md`.
+
 ## Full Docker stack
 
 The starter also includes simple whole-repository Dockerfiles:

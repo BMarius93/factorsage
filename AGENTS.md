@@ -294,7 +294,12 @@ evaluator physically cannot read an ungated value.
   storage-state path anywhere else, and do not change a persona's plan inside a test: sign in as the
   plan under test. `PRO_USER` is the normal development and manual-testing account; `ADMIN_USER` is
   for internal/QA scenarios that intentionally need entitlement overrides.
-- Never commit credentials, session cookies, tokens, or Playwright storage state.
+- Manual release testing uses the same registry through `pnpm qa:seed` / `qa:reset` /
+  `qa:personas`, against the development database. `docs/development/qa-personas.md` is the runbook.
+  Those personas stay empty of product content on purpose; do not seed lists, strategies, monitors
+  or backtests into them.
+- Never commit credentials, session cookies, tokens, Playwright storage state, or the `.qa/`
+  browser profiles.
 
 ## Validation
 

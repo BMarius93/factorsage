@@ -138,6 +138,31 @@ path at a concurrency no commercial plan sells — see `docs/development/qa-matr
 live in the reserved `QA-MATRIX-` namespace so they cannot collide with anything a suite creates;
 `../../docs/development/qa-matrix-fixtures.md` documents them.
 
+## 4b. Manual release testing with the same personas
+
+The same four plan/role personas are also what a **manual** release pass uses, in the
+**development** database rather than the test one:
+
+```bash
+pnpm qa:seed        # create/repair FREE_USER, STARTER_USER, PRO_USER, ADMIN_USER in DATABASE_URL
+pnpm qa:personas    # open all four in isolated, persistent, visible browsers
+pnpm qa:reset       # preview, confirm, then empty them and re-assert their plans
+```
+
+It is the same registry and the same `seedQaUsers` writer; only the target database and the absence
+of fixtures differ. These accounts are deliberately **empty** — no list, strategy, monitor, backtest
+or signal — because building those by hand through the real screens is what a manual pass is for.
+`DOWNGRADED_USER` is excluded: it exists to hold content that is unreachable through the UI, so it
+must not be emptied, and `pnpm test:entitlements:seed` continues to own it.
+
+Authentication is the product's own `/login` form, driven once per persistent Chromium profile
+under `.qa/browser/<handle>` (git-ignored, holds a live session cookie). There is no test-only login
+route and no injected cookie.
+
+`docs/development/qa-personas.md` is the runbook: setup, every command and option, the
+first-run sign-in, how to clear browser state, the mobile policy, and exactly what `pnpm qa:reset`
+deletes and what it cannot reach.
+
 ## 5. API auth integration tests
 
 ```bash
@@ -534,6 +559,7 @@ duplication-free repeated toggling.
 
 - `apps/web/playwright/.auth/user.json`
 - `apps/web/playwright/.auth/admin.json`
+- `.qa/browser/<handle>/` — the manual launcher's persistent Chromium profiles (section 4b)
 
 These hold live session cookies. They are git-ignored and must never be committed, pasted, or
 attached to an issue. Delete them to force a fresh sign-in; the `setup` project recreates them.
@@ -615,6 +641,7 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
 
 - `.env` or any file containing real credentials
 - `apps/web/playwright/.auth/*.json`
+- `.qa/` — the manual QA-persona browser profiles
 - `playwright-report/`, `test-results/`, traces, videos, or screenshots containing a session
 - Real emails, passwords, cookies, JWTs, OAuth tokens, authorization codes, or SMTP credentials in
   source, tests, fixtures, Markdown, or commit messages
