@@ -107,8 +107,8 @@ pnpm qa:persona pro -- --route=/backtests/new
 ```
 
 `pnpm qa:persona` and `pnpm qa:personas` are the same launcher; the first simply reads better with
-a persona handle after it. Useful routes to compare tiers on: `/dashboard`, `/lists`, `/strategies`,
-`/monitors`, `/backtests`, `/backtests/new`, `/billing`.
+a persona handle after it. Useful routes to compare tiers on: `/` (the Dashboard), `/lists`,
+`/strategies`, `/monitors`, `/backtests`, `/backtests/new`, `/billing`.
 
 ## 5. First-time use
 

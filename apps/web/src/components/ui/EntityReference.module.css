@@ -40,6 +40,40 @@
   white-space: nowrap;
 }
 
+/* Two lines, for a surface where the name is the fact — the Dashboard's Strategy, List and
+   Monitor columns. The same pill: same border, radius, accent and hover; it simply grows a
+   line rather than throwing the second half of "New Listings Trend Confirmation" away.
+
+   The cap is still absolute rather than a percentage, for the reason the single-line cap is
+   (a percentage max-width is cyclic while a table computes its columns and is ignored there),
+   and it is one step wider because a name worth wrapping is a name worth a little more room.
+   Line three is clipped, never scrolled, and `title` keeps the whole name reachable. */
+.chip[data-lines="2"] {
+  grid-template-columns: minmax(2.5rem, 1fr);
+  max-width: 13.5rem;
+  padding: 3px 9px;
+}
+
+.chip[data-lines="2"] .chipLabel {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  white-space: normal;
+  line-height: 1.25;
+  text-overflow: clip;
+}
+
+/* Inside a phone card the chip has the card's width to work with, which is more than any
+   desktop column gives it, so the absolute cap only gets in the way. */
+@media (max-width: 879px) {
+  .chip[data-lines="2"] {
+    max-width: 100%;
+  }
+}
+
 a.chip:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);

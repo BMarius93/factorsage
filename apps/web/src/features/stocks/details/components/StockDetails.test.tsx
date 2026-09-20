@@ -1033,7 +1033,7 @@ describe("StockDetails", () => {
       screen
         .getByRole("link", { name: "Back to Dashboard" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 

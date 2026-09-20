@@ -18,11 +18,11 @@ describe("not-found (UX-006)", () => {
       screen
         .getByRole("link", { name: "Go to the Dashboard" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
     expect(
       screen
         .getByRole("link", { name: "FactorSage home" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
   });
 });

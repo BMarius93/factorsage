@@ -43,10 +43,16 @@
   gap: 4px;
 }
 
+/* The dominant column: the sentence that says why the row is here, given a floor so the other
+   seven cannot squeeze it into a column of two-word lines, and a ceiling so it cannot run to a
+   1,000px measure on a wide screen. The floor is 13rem rather than 14 because at 1,280px those
+   last 16px are the difference between Strategy, List and Monitor wrapping inside their columns
+   and the whole table scrolling sideways; `Why` is still half again the width of any other
+   column at every desktop size. */
 .reasons {
   display: grid;
   gap: 2px;
-  min-width: 14rem;
+  min-width: 13rem;
   max-width: 26rem;
 }
 
@@ -75,9 +81,22 @@
     min-width: 0;
     max-width: none;
   }
+
+  /* The card's prose, not a fact beside a label: it reads at the body colour, across the
+     whole card, because it is the one sentence on the card that says why the row exists. */
+  .reason {
+    color: var(--color-text-body);
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+
+  /* The filters keep their touch height and only lose the air between them. */
+  .toolbar {
+    gap: 8px 12px;
+  }
 }
 
-/* The identity floor for the Stock column comes from `DataTable` (`minWidth: 7rem`, UX-007) and
+/* The identity floor for the Stock column comes from `DataTable` (`minWidth: 8.5rem`, UX-007) and
    relationship chips contain themselves, so the table needs no local sizing rules. */
 .stockCell {
   display: block;
@@ -89,17 +108,22 @@
   min-width: 0;
 }
 
-/* How long a signal's state has held (UI-025). */
+/* How long a match's state has held (UI-025). */
 .since {
   display: inline-grid;
-  gap: 2px;
   color: var(--color-text-body);
   font-variant-numeric: tabular-nums;
 }
 
-.sinceNote {
+/* `Updated 4 min ago`, beside the Current matches heading. Quiet on purpose: it is what a
+   reader checks, not what they read first, and the warning treatments (stale, never scanned)
+   keep the `StatusBadge` they have always had. */
+.freshness {
   color: var(--color-text-muted);
-  font-size: var(--text-small);
+  font-size: var(--text-secondary);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .srOnly {

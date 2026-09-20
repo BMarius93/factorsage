@@ -6,14 +6,14 @@
  * travels as `?next=` through the sign-in pages, and a value anybody can put in a link is the
  * textbook open redirect: `/login?next=//evil.example` must never send a freshly signed-in user
  * off-site. So a destination is accepted only when it is a bounded, app-relative path, and
- * everything else — including nothing — becomes the Dashboard.
+ * everything else — including nothing — becomes the Dashboard, which is `/`.
  *
  * The API validates its own copy before the Google redirect (`apps/api/src/auth/return-path.ts`).
  * Neither side trusts the other, and one shared corpus in `@intrinsic/testing` keeps them agreeing.
  */
 
-/** The post-sign-in default, and what every rejected value resolves to. */
-export const DEFAULT_RETURN_PATH = "/dashboard";
+/** The post-sign-in default, and what every rejected value resolves to: the Dashboard, at `/`. */
+export const DEFAULT_RETURN_PATH = "/";
 
 /** Far above any real product URL, and small enough that a query string cannot be abused. */
 export const MAX_RETURN_PATH_LENGTH = 2048;
@@ -28,7 +28,7 @@ const MAX_DECODE_ROUNDS = 3;
 const PROBE_ORIGIN = "http://return-path.invalid";
 
 /**
- * The app-relative destination `value` names, or `/dashboard`.
+ * The app-relative destination `value` names, or `/`.
  *
  * Accepted: one leading `/`, then any path, query and fragment, up to `MAX_RETURN_PATH_LENGTH`.
  * Refused: anything that is not a string, empty, too long, not starting with exactly one `/`,

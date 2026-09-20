@@ -96,8 +96,29 @@
     justify-content: flex-end;
   }
 
-  .td[data-card="fact"] {
+  /* One summary line, not a labelled row each: the short secondary facts of a record —
+     a relative time and a price — read across the card the way they would in a caption.
+     The first takes the leading edge, anything after it the trailing one, so two of them
+     land at the two ends of the card without either needing a label. */
+  .td[data-card="summary"] {
+    grid-column: auto;
     order: 3;
+    justify-content: flex-start;
+    gap: 6px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+  }
+
+  .td[data-card="summary"] ~ .td[data-card="summary"] {
+    justify-content: flex-end;
+  }
+
+  .td[data-card="summary"] .cardValue {
+    text-align: inherit;
+  }
+
+  .td[data-card="fact"] {
+    order: 4;
     color: var(--color-text-secondary);
     font-size: 13px;
   }
@@ -106,10 +127,11 @@
      grouped under one divider. Only the first of the run draws it — `~` matches the
      later ones, which are contiguous because the columns are declared together. */
   .td[data-card="links"] {
-    order: 4;
+    order: 5;
+    align-items: start;
     justify-content: flex-start;
     gap: 8px;
-    padding-top: 10px;
+    padding-top: 8px;
     border-top: 1px solid var(--color-border-subtle);
   }
 
@@ -119,13 +141,14 @@
   }
 
   .td[data-card="links"] .cardLabel {
-    width: 5.5rem;
+    width: 4.25rem;
     font-size: 10px;
+    line-height: 1.3;
     letter-spacing: 0.08em;
   }
 
   .td[data-card="actions"] {
-    order: 5;
+    order: 6;
     flex-wrap: wrap;
     justify-content: flex-start;
     gap: 8px;

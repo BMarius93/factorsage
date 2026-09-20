@@ -44,7 +44,7 @@ describe("global-error (UX-006)", () => {
       screen
         .getByRole("link", { name: "Go to the Dashboard" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
     expect(document.body.textContent).not.toContain(SECRET);
   });
 });

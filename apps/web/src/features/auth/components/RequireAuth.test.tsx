@@ -137,6 +137,6 @@ describe("RequireAuth", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(
       panel.querySelector("a")?.getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
   });
 });

@@ -60,6 +60,6 @@ describe("LoginPanel return destination (UX-003)", () => {
 
     await signIn();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
   });
 });

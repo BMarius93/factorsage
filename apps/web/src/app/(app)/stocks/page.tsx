@@ -7,5 +7,5 @@ import { redirect } from "next/navigation";
  * decision, not a placeholder to keep.
  */
 export default function StocksIndex() {
-  redirect("/dashboard");
+  redirect("/");
 }

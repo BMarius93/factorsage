@@ -40,7 +40,7 @@ export default function GlobalError({
               Try again, or reload from the Dashboard.
             </p>
             <div className={styles.actions}>
-              <a className={forms.secondaryButton} href="/dashboard">
+              <a className={forms.secondaryButton} href="/">
                 Go to the Dashboard
               </a>
               <button

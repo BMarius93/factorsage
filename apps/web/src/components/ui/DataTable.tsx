@@ -7,13 +7,20 @@ import styles from "./DataTable.module.css";
  * Where a column's cell belongs inside the mobile card.
  *
  * The same cell is one table cell on desktop and one region of a card on a phone — there is only
- * ever one DOM node for it. `identity` and `status` share the card's top row; `fact`, `links` and
- * `actions` each take a full-width row underneath, in that order, regardless of the order the
+ * ever one DOM node for it. `identity` and `status` share the card's top row; `summary`, `fact`,
+ * `links` and `actions` each take a row underneath, in that order, regardless of the order the
  * columns were declared in.
  */
 export type DataTableCardRole =
   | "identity"
   | "status"
+  /**
+   * A short secondary fact that shares one line with the other `summary` cells instead of
+   * taking a labelled row of its own — a relative time and a price, read as one summary line.
+   * The column header still labels the cell for assistive technology; only the visible label
+   * is dropped, because a date and a currency amount say what they are.
+   */
+  | "summary"
   | "fact"
   | "links"
   | "actions"
@@ -54,7 +61,11 @@ export type DataTableColumn<TRow> = {
   readonly foldIntermediate?: boolean;
   /** Defaults to `fact`. */
   readonly cardRole?: DataTableCardRole;
-  /** Label beside the value in the mobile card; defaults to `header`. */
+  /**
+   * Label beside the value in the mobile card; defaults to `header`. Pass `null` where the
+   * value speaks for itself and the label is only height — a signal's "why" is already a
+   * sentence.
+   */
   readonly cardLabel?: ReactNode;
   readonly sortable?: boolean;
 };
@@ -101,6 +112,31 @@ function columnStyle<TRow>(column: DataTableColumn<TRow>): CSSProperties {
     style["--column-min-width"] = column.minWidth;
   }
   return style as CSSProperties;
+}
+
+/**
+ * The visible label a cell carries inside a phone card, or nothing.
+ *
+ * Only `fact` and `links` cells wear one: identity, status and summary cells read as themselves,
+ * and a column may opt out with `cardLabel: null` where the label would only be height.
+ */
+function cardLabelOf<TRow>(
+  column: DataTableColumn<TRow>,
+): ReactNode | undefined {
+  const role = column.cardRole ?? "fact";
+  if (role !== "fact" && role !== "links") {
+    return undefined;
+  }
+  const label =
+    column.cardLabel === undefined ? column.header : column.cardLabel;
+  if (label === null) {
+    return undefined;
+  }
+  return (
+    <span className={styles.cardLabel} aria-hidden="true">
+      {label}
+    </span>
+  );
 }
 
 function SortIndicator({
@@ -238,12 +274,8 @@ export function DataTable<TRow>({
                       row is visually hidden. Hidden from assistive tech because the real
                       header still labels the cell there. Relationship cells carry it too:
                       that is what turns three desktop columns into the "Monitor / Strategy
-                      / List" linked block on a card. */}
-                  {["fact", "links"].includes(column.cardRole ?? "fact") ? (
-                    <span className={styles.cardLabel} aria-hidden="true">
-                      {column.cardLabel ?? column.header}
-                    </span>
-                  ) : null}
+                      / List" linked block on a card. An explicit `null` opts out. */}
+                  {cardLabelOf(column) ?? null}
                   <span className={styles.cardValue}>{column.render(row)}</span>
                 </td>
               ))}

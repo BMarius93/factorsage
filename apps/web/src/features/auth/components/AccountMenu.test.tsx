@@ -2,8 +2,15 @@ import type { AuthUser } from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useUnsavedChangesGuard } from "../../../components/layout/unsaved-changes";
 import type { AuthState } from "../hooks/use-auth-session";
 import { AccountMenu } from "./AccountMenu";
+
+/** A mounted page with unsaved work, which is what the shell's navigation guard reads. */
+function GuardedPage() {
+  useUnsavedChangesGuard(true, "Leave and discard?");
+  return null;
+}
 
 const replace = vi.fn();
 const refresh = vi.fn();
@@ -14,7 +21,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
 }));
 
-let pathname = "/dashboard";
+let pathname = "/";
 
 vi.mock("next/link", () => ({
   default: ({
@@ -71,7 +78,7 @@ describe("AccountMenu", () => {
     expect(screen.getByTestId("sign-in-link").getAttribute("href")).toBe(
       "/login?next=%2Fstrategies%2Fabc",
     );
-    pathname = "/dashboard";
+    pathname = "/";
   });
 
   it("renders nothing until a session exists", () => {
@@ -126,7 +133,6 @@ describe("AccountMenu", () => {
     await user.click(screen.getByTestId("account-menu-trigger"));
     await user.tab(); // Plan and billing
     await user.tab(); // Sign out
-    await user.tab(); // Sign out everywhere
     await user.tab(); // leaves the panel
     expect(document.activeElement?.textContent).toBe("Next on the page");
     expect(screen.queryByTestId("account-menu")).toBeNull();
@@ -170,19 +176,46 @@ describe("AccountMenu", () => {
     expect(screen.queryByTestId("account-menu")).toBeNull();
   });
 
-  it("signs out everywhere and returns the browser to the sign-in page", async () => {
+  it("carries exactly the four account facts and actions, and no sign out everywhere", async () => {
     const user = userEvent.setup();
     render(<AccountMenu />);
 
     await user.click(screen.getByTestId("account-menu-trigger"));
-    await user.click(
-      screen.getByRole("button", { name: "Sign out everywhere" }),
+
+    // Identity, plan, billing, sign out. Revoking every session of the account is a security
+    // recovery step, not a menu item beside the ordinary one it made look like a choice; the
+    // capability itself is untouched (`signOut({ everywhere: true })`, POST /auth/logout-everywhere).
+    expect(screen.getByTestId("account-email")).toBeDefined();
+    expect(screen.getByTestId("account-plan")).toBeDefined();
+    expect(screen.getByTestId("account-billing-link")).toBeDefined();
+    expect(screen.getByTestId("sign-out")).toBeDefined();
+
+    expect(screen.queryByTestId("sign-out-everywhere")).toBeNull();
+    expect(screen.queryByRole("button", { name: /everywhere/i })).toBeNull();
+    expect(screen.getByTestId("account-menu").textContent).not.toMatch(
+      /everywhere/i,
+    );
+  });
+
+  it("asks before signing out of a page with unsaved work", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(
+      <>
+        <GuardedPage />
+        <AccountMenu />
+      </>,
     );
 
-    await waitFor(() => expect(signOut).toHaveBeenCalledTimes(1));
-    expect(signOut).toHaveBeenCalledWith({ everywhere: true });
-    expect(replace).toHaveBeenCalledWith("/login");
-    expect(screen.queryByTestId("account-menu")).toBeNull();
+    await user.click(screen.getByTestId("account-menu-trigger"));
+    await user.click(screen.getByTestId("sign-out"));
+
+    // Signing out leaves the page, so the unsaved-changes guard gets the same say it has over any
+    // other navigation. Refused here: nothing was signed out and nothing navigated.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(signOut).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("keeps the session visible when signing out fails", async () => {

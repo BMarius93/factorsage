@@ -35,7 +35,7 @@ describe("SignInPrompt (UX-003)", () => {
   });
 
   it("carries nothing from the Dashboard, which is already the default", () => {
-    window.history.replaceState(null, "", "/dashboard");
+    window.history.replaceState(null, "", "/");
     renderPrompt();
 
     expect(

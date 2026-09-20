@@ -215,11 +215,12 @@ cannot drift apart.
 ## Guest-readable routes
 
 The `(app)` shell renders for Guests, and `RouteAccessGate` decides per route whether a session is
-required: `/dashboard`, `/stocks`, `/stocks/[symbol]` and **both the collections and the detail
-pages** of Lists, Strategies and Monitors are public, because built-in content is public product
-content (`AGENTS.md` invariant 21) and a visitor who cannot browse it cannot discover what the
-product does. `/strategies/new` and everything else goes through `RequireAuth`. The list is
-`isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test. The API still
+required: `/` — the Dashboard, and the product's canonical home — `/stocks`, `/stocks/[symbol]`
+and **both the collections and the detail pages** of Lists, Strategies and Monitors are public,
+because built-in content is public product content (`AGENTS.md` invariant 21) and a visitor who
+cannot browse it cannot discover what the product does. `/strategies/new` and everything else goes
+through `RequireAuth`. The list is `isGuestReadableRoute` in
+`features/auth/utils/guest-routes.ts`, with its own test. The API still
 authorizes every request — a page for another customer's object reads as not found.
 
 **A Guest is never redirected for navigating.** Reaching a protected *action* — New list, New

@@ -21,7 +21,7 @@ test.describe("PRO_USER dashboard", () => {
   test("keeps the built-in signals after signing in, with no configuration panel", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-guest-notice")).toHaveCount(0);
     await expect(qaRows(page)).toHaveCount(3);
 
@@ -36,7 +36,7 @@ test.describe("PRO_USER dashboard", () => {
   test("reaches the strategy, the list and the monitor behind a row", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const row = qaRows(page).filter({ hasText: MONITOR_A }).first();
 
     await expect(
@@ -52,7 +52,7 @@ test.describe("PRO_USER dashboard", () => {
   });
 
   test("shows a customer a built-in monitor read-only", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await qaRows(page)
       .filter({ hasText: MONITOR_A })
       .first()

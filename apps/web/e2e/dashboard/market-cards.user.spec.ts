@@ -18,7 +18,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
   test("shows a customer the same market data a Guest sees", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     await expect(
       page.getByTestId("dashboard-market-value-SP500_INDEX"),
@@ -41,7 +41,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
   test("takes Run Backtest straight to the canonical New Backtest route", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const card = page.getByTestId("dashboard-run-backtest");
 
     // A real link for a signed-in viewer, so the browser's own affordances work.
@@ -89,7 +89,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
   test("reflects the rows this viewer's dashboard returned", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
     await expect(page.getByTestId("dashboard-matches-total")).toBeVisible();
 
@@ -112,7 +112,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
   test("leaves the signal table's filtering and row links working", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
     const before = await qaRows(page).count();
     expect(before).toBeGreaterThan(0);
@@ -138,7 +138,7 @@ test.describe("PRO_USER dashboard overview cards", () => {
 
   test("fits a 390px phone for a signed-in viewer too", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-overview")).toBeVisible();
     await expect(page.getByTestId("dashboard-run-backtest")).toBeVisible();
     await expect(page.getByTestId("dashboard-matches-card")).toBeVisible();

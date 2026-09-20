@@ -98,7 +98,7 @@ describe("AppTopbar", () => {
   });
 
   it("lets the brand say you are on the Dashboard, and claims no item elsewhere off the nav (UI-053)", () => {
-    route.pathname = "/dashboard";
+    route.pathname = "/";
     const { unmount } = render(<AppTopbar />);
     expect(
       screen.getByRole("link", { name: /home/ }).getAttribute("aria-current"),

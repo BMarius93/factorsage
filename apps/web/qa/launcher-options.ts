@@ -12,7 +12,7 @@ import {
  * module's job is to open windows, and importing it in a unit test would do exactly that.
  */
 
-const DEFAULT_ROUTE = "/dashboard";
+const DEFAULT_ROUTE = "/";
 const DEFAULT_BASE_URL = "http://localhost:3000";
 
 export type LauncherOptions = {

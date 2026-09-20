@@ -18,6 +18,10 @@ import { DEFAULT_RETURN_PATH, safeReturnPath } from "./return-path";
  * name a built-in; the API still answers `404` for anybody else's content.
  */
 const GUEST_ROUTE_PATTERNS: readonly RegExp[] = [
+  // The Dashboard, at the product's canonical home. `/dashboard` is kept beside it because it is
+  // still a real address a browser can ask for; the Next redirect answers it first, and this only
+  // makes sure a Guest is never bounced to `/login` in the moment before it does.
+  /^\/$/,
   /^\/dashboard$/,
   /^\/stocks(\/[^/]+)?$/,
   /^\/lists(\/[^/]+)?$/,
@@ -28,7 +32,9 @@ const GUEST_ROUTE_PATTERNS: readonly RegExp[] = [
 ];
 
 export function isGuestReadableRoute(pathname: string): boolean {
-  const path = pathname.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? "";
+  const trimmed = pathname.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? "";
+  // Trimming the trailing slash empties the root path; it is `/`, the Dashboard.
+  const path = trimmed === "" ? "/" : trimmed;
   return GUEST_ROUTE_PATTERNS.some((pattern) => pattern.test(path));
 }
 
@@ -37,7 +43,7 @@ export function isGuestReadableRoute(pathname: string): boolean {
  *
  * `next` is validated here as well as where it is read, so a link this app renders can never carry
  * a destination the sign-in page would refuse. The Dashboard is the default either way, so it is
- * left out rather than spelled as `?next=%2Fdashboard`.
+ * left out rather than spelled as `?next=%2F`.
  */
 export function signInHref(next?: string): string {
   return withReturnPath("/login", next);

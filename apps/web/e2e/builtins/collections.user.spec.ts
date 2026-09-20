@@ -123,7 +123,7 @@ test.describe("PRO_USER built-in collections", () => {
 
       // And it is a Dashboard preference: that monitor's rows are gone from this account's
       // Dashboard, while the shared monitor keeps producing them for everybody else.
-      await page.goto("/dashboard");
+      await page.goto("/");
       await expect(
         page
           .getByTestId("dashboard-signal-row")
@@ -136,7 +136,7 @@ test.describe("PRO_USER built-in collections", () => {
       // A context opened by hand gets the same hermetic browser as the fixture's own.
       const guestStubs = await installBrowserStubs(guest);
       const guestPage = await guest.newPage();
-      await guestPage.goto("/dashboard");
+      await guestPage.goto("/");
       await expect(
         guestPage
           .getByTestId("dashboard-signal-row")
@@ -155,7 +155,7 @@ test.describe("PRO_USER built-in collections", () => {
       }
     }
 
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(
       page.getByTestId("dashboard-signal-row").filter({ hasText: QA_MONITOR }),
     ).not.toHaveCount(0);

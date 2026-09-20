@@ -37,7 +37,7 @@ async function expectNoHorizontalScroll(page: Page) {
 
 test.describe("guest dashboard overview cards", () => {
   test("shows exactly the five agreed cards, in order", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const strip = page.getByTestId("dashboard-overview");
     await expect(strip).toBeVisible();
 
@@ -61,7 +61,7 @@ test.describe("guest dashboard overview cards", () => {
   test("reports the seeded index values, changes and trends without an account", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
 
     // Index levels, not the SPY share price the backtest benchmark is sourced from.
     await expect(
@@ -99,7 +99,7 @@ test.describe("guest dashboard overview cards", () => {
   test("reads VIX as a gauge: the real close, its zone, and the session change", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const vix = page.getByTestId("dashboard-market-card-VIX_INDEX");
 
     await expect(vix).toHaveAttribute("data-variant", "gauge");
@@ -153,7 +153,7 @@ test.describe("guest dashboard overview cards", () => {
       expect(serialized).not.toContain(symbol);
     }
 
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(
       page.getByTestId("dashboard-market-value-SP500_INDEX"),
     ).toHaveText("7,637");
@@ -162,7 +162,7 @@ test.describe("guest dashboard overview cards", () => {
   test("asks a Guest for an account in place, without leaving the Dashboard", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await page.getByTestId("dashboard-run-backtest").click();
 
     const prompt = page.getByTestId("sign-in-prompt");
@@ -177,14 +177,14 @@ test.describe("guest dashboard overview cards", () => {
     ).toHaveAttribute("href", "/register?next=%2Fbacktests%2Fnew");
 
     // Still here: no redirect to /login merely for clicking, and the page underneath is intact.
-    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(page).toHaveURL("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
   });
 
   test("agrees with the built-in rows the Dashboard is showing", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-signals")).toBeVisible();
     await expect(page.getByTestId("dashboard-matches-total")).toBeVisible();
 
@@ -207,7 +207,7 @@ test.describe("guest dashboard overview cards", () => {
   test("does not move when the signal table below is filtered", async ({
     page,
   }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const total = await page
       .getByTestId("dashboard-matches-total")
       .textContent();
@@ -238,7 +238,7 @@ test.describe("guest dashboard overview cards", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/dashboard");
+    await page.goto("/");
     await expect(page.getByTestId("dashboard-overview")).toBeVisible();
 
     // All five still present, still one row, still readable.
@@ -293,7 +293,7 @@ test.describe("guest dashboard overview cards", () => {
   });
 
   test("puts the cards above the current signals", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     const stripBottom = await page
       .getByTestId("dashboard-overview")
       .evaluate((element) => element.getBoundingClientRect().bottom);
