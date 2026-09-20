@@ -100,16 +100,24 @@ the inset. Below 880px a `flush` surface **dissolves** — border, background an
 `DataTable` already gives each record its own card there and the wrapper would draw a box around a
 stack of boxes. The heading stays: it is the section's name, not the card's.
 
-**Do not nest a `SectionCard` inside another.** One page-level surface per section is the whole
-point; card-inside-card is the noise this replaced.
+**Do not nest a `SectionCard` inside another**, and do not draw a bordered container around a group
+inside one either. One page-level surface per section is the whole point; card-inside-card is the
+noise this replaced, and a section's own box inside a surface is the same mistake wearing a
+different class name. A section *within* a surface is a heading plus its content — the backtest
+result's `Results` and `Annual returns` are both exactly that, separated from each other and from
+the chart by the hero body's gap. Give the individual cells a border if they need one; do not give
+the group a second.
 
 ### `CollectionFooter` / `usePagination`
 
-Page size, the visible range and page navigation, under every collection. Paging is applied in the
-browser over rows the page already holds — every collection endpoint returns the caller's own records
-in one response — so this is presentation, not a data-loading concern. If a collection ever outgrows
-one response, `usePagination` is the seam to replace. A new `resetKey` (a new query or order)
-returns to the first page.
+Page size, the visible range and page navigation, under every collection. The footer itself is
+presentation: it draws a position in a collection and reports the moves a reader asks for, and where
+the rows come from is the caller's business. Most collections slice rows the page already holds with
+`usePagination`, because their endpoint returns the caller's own records in one response; a new
+`resetKey` (a new query or order) returns such a collection to the first page. A collection that
+outgrows one response pages in the database instead and hands the footer the server's own `page`,
+`pageSize` and `totalCount` — the backtest trade log does, at 18,348 rows. Both read identically,
+which is the point.
 
 ### `useCollection` — search and sort (UI-010, UI-011)
 

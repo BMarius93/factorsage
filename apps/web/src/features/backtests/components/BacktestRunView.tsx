@@ -207,6 +207,11 @@ export type BacktestRunViewProps = {
  * surfaces stay in place and fill in as checkpoints arrive, so watching a run finish never costs a
  * navigation, a reload or a layout jump — the chart replaces its own placeholder inside a frame
  * that already has the height it will keep.
+ *
+ * The order is header, chart, results, annual returns, run configuration, trade log: the shape of
+ * the run before the numbers that summarise it, and the summary before the year-by-year
+ * decomposition. Chart, results and years are three flat sections inside the one hero surface —
+ * separated by spacing, never by a card apiece.
  */
 /**
  * How many years the run has finished, while it is still executing.
@@ -572,31 +577,12 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
 
           {failed ? null : (
             <>
-              {/* The eight numbers first: what a user opened the page to read. */}
-              <BacktestMetricsRow
-                metrics={snapshot?.metrics ?? EMPTY_METRICS}
-                benchmarkName={configuration.benchmark.name}
-                caption={
-                  terminal ? undefined : "Updating as the run progresses"
-                }
-              />
+              {/* The chart first: what the run *did* over the period, before the numbers that
+              summarise it. The three series are named by the legend under the plot, which is why
+              there is no paragraph here setting the comparison up — the sentence that used to
+              cost a screen before the curve now lives in the chart's own accessible description.
 
-              {/* Then what each year did, on its own. It belongs between the totals it
-                  decomposes and the chart it explains, not above either. */}
-              <BacktestAnnualReturns
-                years={snapshot?.annualReturns ?? []}
-                {...(terminal
-                  ? {}
-                  : {
-                      caption:
-                        "Each completed year on its own, not cumulative.",
-                    })}
-              />
-
-              <p className={styles.chartCaption}>
-                {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
-              </p>
-              {/* One frame, one height. The chart is mounted as soon as the run exists, curve or not:
+              One frame, one height. The chart is mounted as soon as the run exists, curve or not:
               its horizontal domain is the configured period, which is known before the first day
               is simulated, so the axis a user watches fill in is the axis the finished run will
               have. Only a run that ended with nothing to draw falls back to a message. */}
@@ -614,7 +600,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   <BacktestComparisonChart
                     points={curve}
                     benchmarkName={configuration.benchmark.name}
-                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
+                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
                     periodStart={configuration.startDate}
                     periodEnd={configuration.endDate}
                     populating={populating}
@@ -623,6 +609,28 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   />
                 )}
               </div>
+
+              {/* Then the eight numbers that summarise it. No surface of its own: a heading and a
+                  row of tiles, so the totals do not read as a card inside the hero card. */}
+              <BacktestMetricsRow
+                metrics={snapshot?.metrics ?? EMPTY_METRICS}
+                benchmarkName={configuration.benchmark.name}
+                caption={
+                  terminal ? undefined : "Updating as the run progresses"
+                }
+              />
+
+              {/* Then what each year did, on its own — directly under the totals it decomposes,
+                  in the same flat grammar. */}
+              <BacktestAnnualReturns
+                years={snapshot?.annualReturns ?? []}
+                {...(terminal
+                  ? {}
+                  : {
+                      caption:
+                        "Each completed year on its own, not cumulative.",
+                    })}
+              />
             </>
           )}
         </SectionCard>

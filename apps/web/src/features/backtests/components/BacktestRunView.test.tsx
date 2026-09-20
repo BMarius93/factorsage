@@ -261,7 +261,7 @@ describe("BacktestRunView", () => {
     ).toBeNull();
   });
 
-  it("reports each calendar year on its own, above the chart and below the results", async () => {
+  it("reports each calendar year on its own, directly below the results", async () => {
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", { result: testResult() }),
     );
@@ -284,17 +284,121 @@ describe("BacktestRunView", () => {
       "2022-7.50%",
       "2023+24.25%",
     ]);
+    // The heading keeps its one line of copy, and the note that explains the asterisk survives
+    // the reorder. `testResult` reports three whole years, so this run has no partial marker.
+    expect(section.textContent).toContain(
+      "Each calendar year on its own, not cumulative.",
+    );
+    expect(section.querySelector("[data-partial]")).toBeNull();
+  });
 
-    // Below the eight result tiles and above the chart, which is the order the page promises.
-    const metrics = screen.getByTestId("backtest-metrics");
-    const chart = screen.getByTestId("backtest-chart");
+  it("marks a part-year and explains the asterisk", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: testResult({
+          annualReturns: [
+            {
+              year: "1996",
+              simulatedThrough: "1996-12-31",
+              returnPercent: 4.5,
+              partial: true,
+            },
+            {
+              year: "1997",
+              simulatedThrough: "1997-12-31",
+              returnPercent: 12,
+              partial: false,
+            },
+          ],
+        }),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const section = screen.getByTestId("backtest-annual-returns");
     expect(
-      metrics.compareDocumentPosition(section) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      section.querySelector('[data-year="1996"]')?.getAttribute("data-partial"),
+    ).toBe("true");
     expect(
-      section.compareDocumentPosition(chart) & Node.DOCUMENT_POSITION_FOLLOWING,
+      section.querySelector('[data-year="1997"]')?.getAttribute("data-partial"),
+    ).toBeNull();
+    expect(section.textContent).toContain(
+      "* part of the year only — the run started or ended inside it.",
+    );
+  });
+
+  it("orders a completed result chart, results, years, configuration, trade log", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    fetchTradesMock.mockResolvedValue(testTradePage());
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The shape of the run first, then the numbers that summarise it, then the years that
+    // decompose those, then the inputs, then every trade.
+    const order = [
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ].map((testId) => screen.getByTestId(testId));
+    for (const [index, node] of order.slice(0, -1).entries()) {
+      expect(
+        node.compareDocumentPosition(order[index + 1] as Element) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        `${node.getAttribute("data-testid")} does not precede the next section`,
+      ).toBeTruthy();
+    }
+
+    // The paragraph that used to set the chart up is gone from the page. The comparison it
+    // described is still named — by the legend, and by the chart's own accessible description.
+    expect(screen.queryByText(/invested three ways/)).toBeNull();
+    expect(
+      screen.getByLabelText(/Strategy portfolio value against/),
     ).toBeTruthy();
+  });
+
+  it("renders the eight result numbers as one flat section, not a card in a card", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const results = screen.getByTestId("backtest-results");
+    const years = screen.getByTestId("backtest-annual-returns");
+    const grid = screen.getByTestId("backtest-metrics");
+
+    // Results and Annual returns are peers in the hero's one stack — Results does not sit inside
+    // a surface of its own that Annual returns does without.
+    expect(results.parentElement).toBe(years.parentElement);
+    // And the tiles hang straight off the section: heading, grid, tiles, with nothing wrapped
+    // around the grid to draw a second box.
+    expect(grid.parentElement).toBe(results);
+    expect([...results.children].length).toBe(2);
+
+    // All eight, still, in order.
+    expect(
+      [...grid.children].map((tile) => tile.getAttribute("data-testid")),
+    ).toEqual([
+      "metric-portfolio-return",
+      "metric-benchmark-return",
+      "metric-alpha",
+      "metric-portfolio-value",
+      "metric-net-profit",
+      "metric-max-drawdown",
+      "metric-trades",
+      "metric-cagr",
+    ]);
   });
 
   it("pages the trade log from the server and puts the page in the URL", async () => {

@@ -1,21 +1,26 @@
-.card {
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
+/* The eight headline numbers, in the same visual grammar as Annual returns: a heading, then a
+   grid of small bordered tiles, and no surface of its own.
+
+   This section used to draw its own card around a bordered grid, inside the result hero — a card
+   inside a card inside a card, which made the totals look heavier than the years that decompose
+   them. The separation from the chart above and from Annual returns below is spacing now, not
+   chrome. The tile keeps its border, because eight numbers in a row need a boundary each. */
+
+.section {
+  display: grid;
+  gap: 10px;
 }
 
+/* The caption sits under the heading on a phone and beside it on a wider screen, so a line of
+   explanatory copy never has to share 390px with the section's name. */
 .head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-  margin-bottom: 12px;
+  display: grid;
+  gap: 2px;
 }
 
 .title {
   margin: 0;
+  color: var(--color-text-primary);
   font-size: var(--text-section-title);
   font-weight: var(--weight-emphasis);
   letter-spacing: -0.01em;
@@ -23,29 +28,31 @@
 
 .caption {
   margin: 0;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   font-size: var(--text-small);
 }
 
-/* Two tiles across on a phone, four on a desktop: eight numbers stay scannable without ever
-   producing a row narrow enough to wrap a value mid-number. */
+/* Two tiles across on a phone, four on a tablet, all eight in one row once the content width can
+   carry them without shrinking a value. */
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
+  gap: 6px;
   margin: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-border);
-  overflow: hidden;
+  padding: 0;
 }
 
+/* Padding is two pixels tighter than the borderless tile it replaces, vertically and
+   horizontally, so gaining a hairline neither makes the phone's 2 x 4 block taller nor leaves a
+   label less room to stay on one line than it had. */
 .tile {
   display: grid;
   align-content: start;
   gap: 4px;
-  padding: 12px;
-  background: var(--color-surface);
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
 }
 
 .label {
@@ -76,14 +83,26 @@
 }
 
 @media (min-width: 600px) {
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+  }
+
   .grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
+/* Eight across. The gap closes to 4px here purely to buy the labels their width back: a tile has
+   to be as wide inside as the borderless one it replaces, or "Portfolio return" starts wrapping on
+   a 1280px screen where it used to fit on one line. */
 @media (min-width: 1280px) {
   .grid {
     grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 4px;
   }
 
   .value {

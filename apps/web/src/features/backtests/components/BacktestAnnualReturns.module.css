@@ -1,4 +1,4 @@
-/* A strip of per-year figures between the results and the chart.
+/* A strip of per-year figures under the results they decompose.
 
    Thirty years has to fit without becoming a wall, so the cells are a fixed-track grid that
    simply gains columns as the viewport allows: five across a phone, up to ten on a wide
@@ -10,12 +10,12 @@
   gap: 10px;
 }
 
+/* The explanatory line sits under the heading on a phone and beside it from 600px up. Relying on
+   flex wrapping alone put a 40-character sentence in whatever room "Annual returns" left it, which
+   on a 390px screen is a two-word ragged column. */
 .head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 12px;
+  display: grid;
+  gap: 2px;
 }
 
 .title {
@@ -83,6 +83,16 @@
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--text-label-size);
+}
+
+@media (min-width: 600px) {
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+  }
 }
 
 @media (min-width: 880px) {

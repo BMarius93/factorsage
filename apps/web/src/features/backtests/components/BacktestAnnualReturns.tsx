@@ -17,9 +17,9 @@ export type BacktestAnnualReturnsProps = {
  * monthly contributions does not report the deposits as performance.
  *
  * Thirty years is the design constraint. A phone gets a compact multi-column grid rather than the
- * full-width pills this replaced — those cost a whole screen before the chart — and a desktop lays
- * the same cells out wider still, so the section reads as a strip under the results rather than a
- * wall above the chart.
+ * full-width pills this replaced — those cost a whole screen on their own — and a desktop lays the
+ * same cells out wider still, so the section reads as a strip under the totals it decomposes
+ * rather than as a wall of its own.
  */
 export function BacktestAnnualReturns({
   years,

@@ -31,6 +31,22 @@ An open symbol occupies one position slot regardless of whether the strategy ent
 75%, or 100% of its full-position budget. Cash and position-capacity constraints are enforced by
 the execution engine.
 
+## What a finished result shows, in order
+
+A completed run reads top to bottom as the shape of the run, then the numbers that summarise it:
+
+```text
+header  ->  chart  ->  Results  ->  Annual returns  ->  Run configuration  ->  Trade log
+```
+
+The chart comes first because it answers "what happened over the period" before any figure can, and
+the three scenarios it draws are named by its own legend — no paragraph sets the comparison up above
+it. `Results` (eight tiles) and `Annual returns` are two flat sections inside the one result surface,
+not two cards: the summary, then the same period decomposed year by year. The configuration the run
+froze follows, collapsed, and the trade log last.
+
+There are no final holdings, because the run ended in cash.
+
 ## A completed run ends in cash
 
 At the end of the simulation period, FactorSage liquidates all remaining positions at the canonical

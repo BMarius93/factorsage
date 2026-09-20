@@ -75,6 +75,33 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
+/**
+ * The completed result's sections, in the order the document actually puts them.
+ *
+ * Read from the rendered DOM rather than from a list of assertions per section, because the whole
+ * point of the hierarchy is the sequence: chart, results, years, configuration, trades. Sections a
+ * given run does not have simply do not appear.
+ */
+const RESULT_SECTIONS = [
+  "backtest-chart",
+  "backtest-results",
+  "backtest-annual-returns",
+  "run-configuration",
+  "backtest-trades",
+] as const;
+
+async function sectionOrder(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (ids) =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          ids.map((id) => `[data-testid="${id}"]`).join(","),
+        ),
+      ].map((node) => node.dataset.testid ?? ""),
+    RESULT_SECTIONS as readonly string[],
+  );
+}
+
 async function createStrategy(page: Page, name: string) {
   await page.goto("/strategies/new");
   await page.getByLabel("Name").fill(name);
@@ -444,13 +471,27 @@ test.describe("PRO_USER backtests", () => {
     // A completed run ends in cash, so there is no holdings section at all.
     await expect(page.getByText("Final holdings")).toHaveCount(0);
 
-    // Per-calendar-year returns, between the results and the chart.
+    // Per-calendar-year returns, directly below the results they decompose.
     const annual = page.getByTestId("backtest-annual-returns");
     await expect(annual).toBeVisible();
     expect(
       Number(await annual.getAttribute("data-year-count")),
       "A completed run reported no annual returns",
     ).toBeGreaterThan(0);
+
+    // The shape of the run, then the numbers, then the years, then the inputs, then the trades.
+    expect(
+      await sectionOrder(page),
+      "The completed result is not in its intended order",
+    ).toEqual([
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ]);
+    // The setup paragraph that used to sit above the chart is gone; the legend names the series.
+    await expect(page.getByText(/invested three ways/)).toHaveCount(0);
 
     // Every trade says why it happened, and the log is paged from the server rather than shipped
     // whole. The reason is read from its own cell: a BUY's Realized cell is legitimately an em
@@ -473,6 +514,38 @@ test.describe("PRO_USER backtests", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(chart).toBeVisible();
     await expectNoHorizontalScroll(page);
+
+    // A phone keeps the same order and the same 2 x 4 result block, and the chart that now leads
+    // the page stays compact enough to leave those numbers on the first screen.
+    expect(await sectionOrder(page)).toEqual([
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ]);
+    expect(
+      await page
+        .getByTestId("backtest-metrics")
+        .evaluate(
+          (node) =>
+            getComputedStyle(node).gridTemplateColumns.split(" ").length,
+        ),
+      "The phone's result grid is not two columns across",
+    ).toBe(2);
+    const chartHeight = (await chart.boundingBox())?.height ?? 0;
+    expect(
+      chartHeight,
+      "The chart takes more than half a phone screen",
+    ).toBeLessThan(844 / 2);
+    expect(chartHeight).toBeGreaterThan(200);
+    // The legend still sits with the chart, and still fits its width.
+    const series = page.getByTestId("backtest-chart-series");
+    await expect(series).toBeVisible();
+    expect(
+      await series.evaluate((node) => node.scrollWidth <= node.clientWidth),
+      "The chart legend overflows a 390px screen",
+    ).toBe(true);
 
     // The finished run is listed in the collection.
     await navLink(page, "Backtests").click();

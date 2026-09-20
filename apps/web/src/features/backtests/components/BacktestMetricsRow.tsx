@@ -40,6 +40,10 @@ export type BacktestMetricsRowProps = {
  * A metric that does not exist yet renders as a placeholder rather than a zero: a queued run has
  * not returned 0.00%, and a benchmark with no value at or before the run's first date has no
  * comparison to show. Presenting either as zero would be a fabricated result.
+ *
+ * The section owns no surface. It is a heading and a grid of tiles inside the result hero, exactly
+ * as Annual returns is, so the two read as one flat sequence under the chart rather than as a card
+ * nested in a card.
  */
 export function BacktestMetricsRow({
   metrics,
@@ -114,7 +118,11 @@ export function BacktestMetricsRow({
   ];
 
   return (
-    <section className={styles.card} aria-labelledby="backtest-metrics-title">
+    <section
+      className={styles.section}
+      aria-labelledby="backtest-metrics-title"
+      data-testid="backtest-results"
+    >
       <div className={styles.head}>
         <h2 className={styles.title} id="backtest-metrics-title">
           Results

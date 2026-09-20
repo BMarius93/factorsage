@@ -73,7 +73,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* One height for both states: the placeholder and the chart are interchangeable inside it. */
+/* One height for both states: the placeholder and the chart are interchangeable inside it.
+
+   The chart leads the result now, so the phone's height is deliberately the shortest of the three:
+   240px is a readable thirty-year curve and still leaves the eight result numbers on the first
+   screen. A wider viewport has the room to give the plot more of it. */
 .chartFrame {
   position: relative;
   --backtest-chart-height: 240px;
@@ -210,16 +214,6 @@
 .copyButton:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-}
-
-/* --- Hero chart caption --- */
-
-.chartCaption {
-  margin: 0;
-  max-width: 70ch;
-  color: var(--color-text-secondary);
-  font-size: var(--text-secondary);
-  line-height: var(--line-height-body);
 }
 
 /* --- Run configuration, below the outcome and collapsed --- */
