@@ -4,6 +4,7 @@ export {
   BillingSubscriptionStatus,
   BacktestRunStatus,
   BacktestTradeAction,
+  BacktestTradeSource,
   BenchmarkDataset,
   BenchmarkSeriesType,
   BenchmarkSourceKind,

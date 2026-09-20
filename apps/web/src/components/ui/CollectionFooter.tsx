@@ -27,9 +27,11 @@ type CollectionFooterProps = {
 /**
  * The one collection footer: page size, the visible range, and page navigation.
  *
- * Paging is applied in the browser over rows the page already holds — no contract changes
- * and no extra requests — so this is presentation, not a data-loading concern. `usePagination`
- * owns the slicing.
+ * Presentation only — it draws a position in a collection and reports the moves a reader asks
+ * for. Where the rows come from is the caller's business: most collections slice rows the page
+ * already holds (`usePagination`), while the backtest trade log pages in the database and hands
+ * this the server's own `page`, `pageSize` and `totalCount`. Both look and read identically,
+ * which is the point.
  */
 export function CollectionFooter({
   total,

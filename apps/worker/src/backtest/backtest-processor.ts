@@ -1,10 +1,12 @@
 import {
+  backtestTradeReasonIndex,
   revisionMismatches,
   type BacktestFailureCode,
   type BacktestFailurePhase,
   type BacktestLiveSnapshotResponse,
   type BacktestRunSnapshot,
   type BacktestSnapshotSecurity,
+  type BacktestTradeReasonIndex,
 } from "@intrinsic/contracts";
 import { BacktestRunStatus } from "@intrinsic/database";
 import type {
@@ -929,6 +931,10 @@ export class BacktestProcessor implements BacktestJobProcessor {
     });
 
     let lastCheckpointAt = 0;
+    // The run's own levels and Exit Rules, described once. A checkpoint carries a handful of recent
+    // trades every few seconds, and re-reading the definition for each of them would be the same
+    // work over and over for an answer that cannot change inside a run.
+    const reasons = backtestTradeReasonIndex(snapshot.strategy.definition);
 
     const simulation = createBacktestSimulation(
       {
@@ -972,7 +978,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
           }
           lastCheckpointAt = at;
 
-          await this.publishCheckpoint(claim, lease, checkpoint);
+          await this.publishCheckpoint(claim, lease, checkpoint, reasons);
         },
       },
     );
@@ -1032,6 +1038,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
     claim: ClaimedBacktestJob,
     lease: BacktestJobLease,
     checkpoint: BacktestCheckpoint,
+    reasons: BacktestTradeReasonIndex,
   ): Promise<void> {
     const progressed =
       checkpoint.totalDays > 0
@@ -1060,7 +1067,7 @@ export class BacktestProcessor implements BacktestJobProcessor {
       percent,
       message: `Running backtest — simulated through ${checkpoint.simulatedThrough}`,
       simulatedThrough: checkpoint.simulatedThrough,
-      snapshot: toLiveSnapshotResponse(checkpoint),
+      snapshot: toLiveSnapshotResponse(checkpoint, reasons),
       ...(checkpoint.milestone
         ? {
             milestone: {

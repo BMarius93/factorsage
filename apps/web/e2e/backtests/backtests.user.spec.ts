@@ -234,6 +234,8 @@ type RunObservation = {
   /** Sampled while the simulation itself was in flight — the only phase that can carry a curve. */
   sawSimulating: boolean;
   sawChartWhileRunning: boolean;
+  /** Whether a non-terminal status ever wore the "this job is alive" indicator. */
+  sawActivityWhileRunning: boolean;
   maxPointsWhileRunning: number;
   maxSeriesWhileRunning: number;
   failureMessage: string | null;
@@ -252,6 +254,7 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
     sawNonTerminal: false,
     sawSimulating: false,
     sawChartWhileRunning: false,
+    sawActivityWhileRunning: false,
     maxPointsWhileRunning: 0,
     maxSeriesWhileRunning: 0,
     failureMessage: null,
@@ -264,8 +267,10 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
       const failure = document.querySelector(
         '[data-testid="backtest-failure"]',
       );
+      const badge = document.querySelector('[data-testid="backtest-status"]');
       return {
         status: run?.getAttribute("data-status") ?? "",
+        activity: badge?.getAttribute("data-activity") ?? "",
         hasChart: chart !== null,
         points: Number(chart?.getAttribute("data-strategy-points") ?? "0"),
         series: Number(chart?.getAttribute("data-series-count") ?? "0"),
@@ -278,6 +283,9 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
       sample.status === "COMPLETED" || sample.status === "FAILED";
     if (sample.status !== "" && !terminal) {
       seen.sawNonTerminal = true;
+      if (sample.activity === "pulse") {
+        seen.sawActivityWhileRunning = true;
+      }
       if (sample.status === "RUNNING" || sample.status === "FINALIZING") {
         seen.sawSimulating = true;
       }
@@ -360,6 +368,14 @@ test.describe("PRO_USER backtests", () => {
     // so the browser may only ever sample QUEUED — a phase that correctly has no curve yet. Assert
     // the progressive behaviour when the simulation itself was observed, and record the fact when
     // it was not: being fast is not a defect.
+    if (observation.sawNonTerminal) {
+      // A job that has not finished says so: a small activity indicator on the status pill, and
+      // nothing that implies progress it cannot measure.
+      expect(
+        observation.sawActivityWhileRunning,
+        "A queued or running backtest showed no activity indicator on its status.",
+      ).toBe(true);
+    }
     if (observation.sawSimulating) {
       expect(
         observation.sawChartWhileRunning,
@@ -419,12 +435,39 @@ test.describe("PRO_USER backtests", () => {
       "metric-net-profit",
       "metric-max-drawdown",
       "metric-trades",
-      "metric-open-positions",
+      // Replaced "Open positions", which a terminally liquidated run could only ever report as 0.
+      "metric-cagr",
     ]) {
       await expect(page.getByTestId(metric)).not.toHaveText(/—$/);
     }
     await expect(page.getByText("Trade log")).toBeVisible();
-    await expect(page.getByText("Final holdings")).toBeVisible();
+    // A completed run ends in cash, so there is no holdings section at all.
+    await expect(page.getByText("Final holdings")).toHaveCount(0);
+
+    // Per-calendar-year returns, between the results and the chart.
+    const annual = page.getByTestId("backtest-annual-returns");
+    await expect(annual).toBeVisible();
+    expect(
+      Number(await annual.getAttribute("data-year-count")),
+      "A completed run reported no annual returns",
+    ).toBeGreaterThan(0);
+
+    // Every trade says why it happened, and the log is paged from the server rather than shipped
+    // whole. The reason is read from its own cell: a BUY's Realized cell is legitimately an em
+    // dash, so the row's text says nothing about whether the rule was described.
+    const firstTrade = page.getByTestId("backtest-trade-row").first();
+    await expect(firstTrade).toBeVisible();
+    await expect(
+      firstTrade.locator('[data-testid="backtest-trade-reason"]'),
+      "The first trade carried no reason",
+    ).not.toBeEmpty();
+    await expect(page.getByTestId("backtest-trades-footer")).toBeVisible();
+
+    // A finished run stays still: no activity pulse on a terminal status.
+    await expect(page.getByTestId("backtest-status")).not.toHaveAttribute(
+      "data-activity",
+      "pulse",
+    );
 
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -500,12 +543,12 @@ test.describe("PRO_USER backtests", () => {
     expect(firstPoint, "The chart carried no first point").not.toBeNull();
     expect(firstPoint as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    // A multi-year run reports the years it finished, and keeps them after it ends.
-    const years = page.getByTestId("backtest-milestone-years");
+    // A multi-year run reports a return for each year it simulated, and keeps them after it ends.
+    const years = page.getByTestId("backtest-annual-returns");
     await expect(years).toBeVisible();
     expect(
-      Number(await years.getAttribute("data-milestone-count")),
-      "A multi-year run recorded no annual milestones",
+      Number(await years.getAttribute("data-year-count")),
+      "A multi-year run reported no annual returns",
     ).toBeGreaterThan(0);
   });
 
@@ -704,7 +747,10 @@ test.describe("PRO_USER backtests", () => {
     expect(full.to <= (periodEnd ?? "")).toBe(true);
 
     // Zoom in, then try to walk out of the period in both directions.
-    await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
+    await page.mouse.move(
+      box!.x + box!.width * 0.5,
+      box!.y + box!.height * 0.5,
+    );
     for (let tick = 0; tick < 8; tick += 1) {
       await page.mouse.wheel(0, -120);
     }

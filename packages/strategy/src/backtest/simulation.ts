@@ -143,6 +143,8 @@ type BuyCandidate = {
  * 4. entries — read the precomputed BUY gate for every security whose buy window admits the date;
  * 5. order the candidates and size them under `fullPositionFraction = 1 / maximumPositions`,
  *    enforcing available cash and the position-slot cap;
+ * 5b. on the run's **final** date only, liquidate every position still open, so a completed run
+ *    ends in cash. Execution methodology, never a strategy signal;
  * 6. record the day's equity point and the three comparison values.
  *
  * Nothing reads a clock, no iteration depends on hash order, and checkpoints are pure observation,
@@ -313,6 +315,11 @@ export class BacktestSimulation {
    * Refuses a simulation that has not consumed every window: a partially simulated run is not a
    * completed backtest, and handing back a summary for the years that happened to finish would be
    * indistinguishable from one for the period the user asked for.
+   *
+   * Under terminal liquidation the final date already closed every position, so `finalPositions`
+   * reports nothing open, `unrealizedPnl` is zero and `finalCash` equals `finalValue`. That is a
+   * reconciliation rather than a coincidence: the liquidation sold each holding at the very price
+   * the day's `positionsValue` marked it at.
    */
   finish(): BacktestResult {
     if (this.nextWindowIndex !== this.windows.length) {
@@ -549,15 +556,21 @@ export class BacktestSimulation {
         // two rules matching on one date reach exactly one exit below. There is no per-rule branch
         // that could run twice.
         const gates = runtime.gates.finalExit;
-        const result = evaluabilityAny(
-          definition.finalExit.rules.map((rule, ruleIndex) =>
-            evaluabilityAnd(
-              readGate(gates?.[ruleIndex], index),
-              evaluatePositionSignal(rule.signal, context),
-            ),
+        const ruleResults = definition.finalExit.rules.map((rule, ruleIndex) =>
+          evaluabilityAnd(
+            readGate(gates?.[ruleIndex], index),
+            evaluatePositionSignal(rule.signal, context),
           ),
         );
+        const result = evaluabilityAny(ruleResults);
         if (result === Evaluability.TRUE) {
+          // Which alternative actually matched, so the trade log can explain the exit instead of
+          // reciting every OR branch. Several may be TRUE on one date and FINAL EXIT is still one
+          // action, so the record names the first in definition order — deterministic, and the one
+          // a reader looking down the strategy would reach first.
+          const matched = definition.finalExit.rules.find(
+            (_rule, ruleIndex) => ruleResults[ruleIndex] === Evaluability.TRUE,
+          );
           const shares = position.shares;
           const exitPrice = quantizePrice(close);
           const {
@@ -576,7 +589,9 @@ export class BacktestSimulation {
             symbol: position.symbol,
             name: position.name,
             action: "FINAL_EXIT",
+            source: "STRATEGY",
             levelId: definition.finalExit.id,
+            exitRuleId: matched?.id ?? null,
             levelPercentage: null,
             shares: sharesString(shares),
             price: priceString(exitPrice),
@@ -634,7 +649,9 @@ export class BacktestSimulation {
           symbol: position.symbol,
           name: position.name,
           action: "SELL",
+          source: "STRATEGY",
           levelId: level.id,
+          exitRuleId: null,
           levelPercentage: level.percentage,
           shares: sharesString(shares),
           price: priceString(sellPrice),
@@ -832,7 +849,9 @@ export class BacktestSimulation {
           symbol: position.symbol,
           name: position.name,
           action: "BUY",
+          source: "STRATEGY",
           levelId: candidate.levelId,
+          exitRuleId: null,
           levelPercentage: candidate.percentage,
           shares: sharesString(sharesBought),
           price: priceString(buyPrice),
@@ -845,6 +864,15 @@ export class BacktestSimulation {
           averageCostAfter: priceString(position.averageCostValue),
         });
       }
+    }
+
+    // 5b. The period ends here: sell whatever is still open, so the run finishes in cash.
+    //
+    // After the day's ordinary execution, never instead of it — the final date's contribution,
+    // exits and entries are the ones the strategy would really have made, and only then does the
+    // simulation end. See `TERMINAL_LIQUIDATION_METHODOLOGY_VERSION`.
+    if (this.completedDays === this.calendar.length - 1) {
+      this.liquidateRemainingPositions(date);
     }
 
     // 6. Record the position metric that actually held today, for tomorrow's Trigger.
@@ -953,6 +981,71 @@ export class BacktestSimulation {
           milestone: isYearBoundary ? year : null,
         }),
       );
+    }
+  }
+
+  /**
+   * Closes every remaining position at the end of the requested period.
+   *
+   * The price is the position's most recent observed close — exactly the price `positionsValue`
+   * marked it at a moment earlier, and for a security whose history ended mid-run the last close
+   * that was actually quoted rather than a mark that never existed. Using the same price is what
+   * makes the liquidation value-neutral: the day's total value is unchanged, `finalCash` becomes
+   * `finalValue`, and nothing is created or destroyed by the run ending.
+   *
+   * Everything below the mutation boundary is the ordinary sell path — `applySell`, the same fee
+   * seam, the same monetary and share quantization — so realized P&L, the average-cost policy and
+   * the persisted scales are identical to a strategy exit. Only `source` differs, and that is the
+   * whole point: this is FactorSage ending the simulation, not the strategy deciding to leave.
+   *
+   * Positions are closed in the engine's canonical order (symbol, then security id), so a run with
+   * several open positions produces the same trade sequence every time.
+   */
+  private liquidateRemainingPositions(date: LocalDate): void {
+    for (const position of sortedPositions(this.positions)) {
+      if (!position.shares.gt(MONEY_ZERO)) {
+        // Defensive: an exit earlier today already closed it, and a zero-share sale would be a
+        // trade that moved nothing.
+        this.positions.delete(position.securityId);
+        continue;
+      }
+      const shares = position.shares;
+      const exitPrice = quantizePrice(position.lastPrice);
+      const {
+        realizedPnl: pnl,
+        costRemoved,
+        proceeds,
+      } = applySell(position, shares, exitPrice, V1_FEE);
+      this.cash = quantizeMoney(
+        this.cash.plus(exitCashInflow(proceeds, V1_FEE)),
+      );
+      this.realizedPnl = quantizeMoney(this.realizedPnl.plus(pnl));
+      this.recordTrade({
+        date,
+        securityId: position.securityId,
+        symbol: position.symbol,
+        name: position.name,
+        // A sale, and shown as one. The action stays the user-facing truth; `source` carries why.
+        action: "SELL",
+        source: "END_OF_BACKTEST",
+        // No strategy level produced this, so there is none to name. Attributing it to a level
+        // would put an execution rule inside the user's strategy.
+        levelId: null,
+        exitRuleId: null,
+        levelPercentage: null,
+        shares: sharesString(shares),
+        price: priceString(exitPrice),
+        amount: moneyString(proceeds),
+        fees: moneyString(V1_FEE),
+        realizedPnl: moneyString(pnl),
+        realizedPnlPercent: costRemoved.gt(MONEY_ZERO)
+          ? (toNumber(pnl) / toNumber(costRemoved)) * 100
+          : null,
+        cashAfter: moneyString(this.cash),
+        sharesAfter: sharesString(MONEY_ZERO),
+        averageCostAfter: null,
+      });
+      this.positions.delete(position.securityId);
     }
   }
 
@@ -1140,6 +1233,11 @@ export class BacktestSimulation {
       alphaPercent: alphaPercent(
         portfolioReturnPercent,
         benchmarkReturnPercent,
+      ),
+      portfolioCagrPercent: cagrPercent(
+        this.returnIndex,
+        this.calendar[0] as LocalDate,
+        input.date,
       ),
       maxDrawdownPercent: this.drawdown.maxDrawdownPercent,
       benchmarkValue: input.benchmarkValue,

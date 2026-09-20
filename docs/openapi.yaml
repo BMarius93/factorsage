@@ -1379,6 +1379,46 @@ paths:
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /backtests/{runId}/trades:
+    parameters:
+      - { $ref: "#/components/parameters/RunId" }
+    get:
+      tags: [Backtests]
+      operationId: getBacktestTrades
+      summary: One page of a run's trade log, newest first.
+      description: |
+        The log is paged in the database rather than in the browser: a thirty-year run can execute
+        tens of thousands of trades and the page on screen is fifty of them. Ordering is the
+        engine's own execution sequence, descending.
+
+        Paging is deliberately forgiving. A page past the end is clamped to the last real page and
+        the response reports the `page` actually served, so a stale bookmark lands somewhere real;
+        a malformed `page` or `pageSize` falls back to the default rather than answering `400`.
+
+        Each trade carries the rule that produced it, described from the run's own immutable
+        snapshot — never from the strategy as it stands today.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: The requested page, with the run's true trade count.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BacktestTradePage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /backtests/{runId}/strategy:
     parameters:
       - { $ref: "#/components/parameters/RunId" }
@@ -3460,6 +3500,12 @@ components:
         executionCalendar: { type: string }
         candidateOrdering: { type: string }
         execution: { type: string }
+        terminalLiquidation:
+          type: string
+          description: |
+            How the run ends. Absent on a run submitted before FactorSage liquidated remaining
+            positions at the end of the period — those runs finished holding what they held, and a
+            snapshot is never rewritten.
         executionCosts: { type: string }
         cashYield: { type: string }
         strategyEvaluation: { type: string }
@@ -3589,6 +3635,28 @@ components:
           type: number
           description: The uninvested-cash comparison scenario, contributions included.
 
+    BacktestTradeReason:
+      description: |
+        Why one trade happened, in the canonical Strategy description language. Structured rather
+        than a rendered sentence: the server owns which rule fired and says so in canonical labels,
+        and the browser decides how to draw it. Always derived from the run's immutable snapshot,
+        so editing a strategy afterwards never rewrites a run's history.
+      oneOf:
+        - type: object
+          required: [kind, conditions]
+          properties:
+            kind: { type: string, enum: [STRATEGY] }
+            exitRule:
+              type: integer
+              minimum: 1
+              description: The FINAL EXIT Exit Rule's 1-based position, when the level has several.
+            conditions: { type: array, items: { type: string } }
+            trigger: { type: string }
+        - type: object
+          required: [kind]
+          properties:
+            kind: { type: string, enum: [END_OF_BACKTEST] }
+
     BacktestTrade:
       type: object
       required:
@@ -3598,12 +3666,14 @@ components:
           symbol,
           name,
           action,
+          source,
           levelPercentage,
           shares,
           price,
           amount,
           realizedPnl,
           realizedPnlPercent,
+          reason,
         ]
       properties:
         sequence: { type: integer, minimum: 0 }
@@ -3611,6 +3681,13 @@ components:
         symbol: { type: string }
         name: { type: string }
         action: { type: string, enum: [BUY, SELL, FINAL_EXIT] }
+        source:
+          type: string
+          enum: [STRATEGY, END_OF_BACKTEST]
+          description: |
+            What put the trade in the log: the Strategy's own signal, or the end of the simulated
+            period. A terminal liquidation is a sale and keeps `action: SELL`; it is deliberately
+            not a fourth action and is never the Strategy's FINAL EXIT.
         levelPercentage:
           description: The strategy level that fired. Null for a final exit.
           oneOf: [{ type: integer }, { type: "null" }]
@@ -3619,6 +3696,46 @@ components:
         amount: { type: number }
         realizedPnl: { $ref: "#/components/schemas/NullableNumber" }
         realizedPnlPercent: { $ref: "#/components/schemas/NullableNumber" }
+        reason:
+          description: |
+            Null when the run did not record enough to say which rule fired — a FINAL EXIT with
+            several Exit Rules, executed before the engine recorded the matching rule's identity.
+          oneOf:
+            - { $ref: "#/components/schemas/BacktestTradeReason" }
+            - { type: "null" }
+
+    BacktestAnnualReturn:
+      type: object
+      description: |
+        What the portfolio returned in one calendar year — that year alone, never cumulative.
+        Chained off the run's time-weighted return index, so a year that received monthly
+        contributions does not report the deposits as performance.
+      required: [year, simulatedThrough, returnPercent, partial]
+      properties:
+        year: { type: string, pattern: "^\\d{4}$" }
+        simulatedThrough: { type: string, format: date }
+        returnPercent: { type: number }
+        partial:
+          type: boolean
+          description: |
+            True when only part of the calendar year was simulated — the run's first year when it
+            starts after 1 January, its last when it ends before 31 December.
+
+    BacktestTradePage:
+      type: object
+      description: |
+        One page of a completed run's trade log, newest trade first. Paged in the database: an
+        eighteen-thousand-trade run must not ship eighteen thousand rows to display fifty.
+      required: [items, page, pageSize, totalCount, pageCount]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items: { $ref: "#/components/schemas/BacktestTrade" }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 200 }
+        totalCount: { type: integer, minimum: 0 }
+        pageCount: { type: integer, minimum: 1 }
 
     BacktestHolding:
       type: object
@@ -3663,6 +3780,7 @@ components:
           portfolioReturnPercent,
           benchmarkReturnPercent,
           alphaPercent,
+          portfolioCagrPercent,
           maxDrawdownPercent,
           benchmarkValue,
           cashBaselineValue,
@@ -3684,6 +3802,11 @@ components:
         portfolioReturnPercent: { type: number }
         benchmarkReturnPercent: { $ref: "#/components/schemas/NullableNumber" }
         alphaPercent: { $ref: "#/components/schemas/NullableNumber" }
+        portfolioCagrPercent:
+          description: |
+            CAGR over the part simulated so far — the same calculation the completed summary
+            reports, so the KPI tile carries a number while a run executes.
+          $ref: "#/components/schemas/NullableNumber"
         maxDrawdownPercent: { type: number }
         benchmarkValue: { $ref: "#/components/schemas/NullableNumber" }
         cashBaselineValue: { type: number }
@@ -3859,22 +3982,23 @@ components:
 
     BacktestResult:
       type: object
-      required: [summary, curve, trades, holdings]
+      description: |
+        A completed run's result. The trade log is deliberately absent — it is paginated from the
+        database through `GET /backtests/{runId}/trades`, because a bounded tail of a long run's
+        trades is neither the whole log nor a usable page of one. Final holdings are absent too: a
+        run executed under terminal liquidation ends in cash.
+      required: [summary, annualReturns, curve]
       properties:
         summary: { $ref: "#/components/schemas/BacktestResultSummary" }
+        annualReturns:
+          type: array
+          description: Per-calendar-year returns, non-cumulative.
+          items: { $ref: "#/components/schemas/BacktestAnnualReturn" }
         curve:
           type: array
           maxItems: 1500
           description: Downsampled to a bounded number of points for rendering.
           items: { $ref: "#/components/schemas/BacktestCurvePoint" }
-        trades:
-          type: array
-          maxItems: 500
-          description: Bounded; `summary.totalTrades` is the true count.
-          items: { $ref: "#/components/schemas/BacktestTrade" }
-        holdings:
-          type: array
-          items: { $ref: "#/components/schemas/BacktestHolding" }
 
     BacktestRunDetail:
       type: object

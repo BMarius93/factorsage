@@ -255,7 +255,14 @@ describe("one Final Exit, however many rules match", () => {
     );
 
     expect(result.trades.filter((t) => t.action === "FINAL_EXIT")).toEqual([]);
-    expect(result.summary.openPositions).toBe(1);
+    // The position survived the strategy and was closed only because the period ended — an
+    // end-of-backtest liquidation, which is execution methodology and never a FINAL EXIT.
+    const closeOut = result.trades.filter(
+      (t) => t.source === "END_OF_BACKTEST",
+    );
+    expect(closeOut).toHaveLength(1);
+    expect(closeOut[0]?.action).toBe("SELL");
+    expect(result.summary.openPositions).toBe(0);
   });
 });
 
@@ -433,8 +440,21 @@ describe("a single-rule FINAL EXIT behaves exactly as it always has", () => {
       ),
     ]);
 
-    expect(viaRules.trades).toEqual(single.trades);
+    // Everything but the recorded rule identity is identical. The two fixtures name their single
+    // alternative differently — the v1 upcast reuses the FINAL EXIT's own id, while a hand-written
+    // multi-rule FINAL EXIT numbers its rules — and that identity is what the trade records so a
+    // trade log can say which alternative matched. The logic, the fills and the ledger are the
+    // same.
+    const withoutRuleIdentity = (trades: typeof single.trades) =>
+      trades.map(({ exitRuleId: _ignored, ...rest }) => rest);
+    expect(withoutRuleIdentity(viaRules.trades)).toEqual(
+      withoutRuleIdentity(single.trades),
+    );
     expect(viaRules.summary).toEqual(single.summary);
+    const exitIdOf = (trades: typeof single.trades) =>
+      trades.find((trade) => trade.action === "FINAL_EXIT")?.exitRuleId;
+    expect(exitIdOf(single.trades)).toBe("exit-1");
+    expect(exitIdOf(viaRules.trades)).toBe("exit-1-rule-1");
   });
 });
 

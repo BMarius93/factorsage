@@ -2,6 +2,7 @@ import type {
   BacktestProgressResponse,
   BacktestRunDetailResponse,
   BacktestRunSummaryResponse,
+  BacktestTradePageResponse,
   BenchmarkResponse,
   CreateBacktestRunRequest,
 } from "@intrinsic/contracts";
@@ -44,6 +45,27 @@ export function fetchBacktestProgress(
 ) {
   return apiGet<BacktestProgressResponse>(
     `/backtests/${runId}/progress`,
+    options,
+  );
+}
+
+/**
+ * One page of a completed run's trade log.
+ *
+ * Its own request, because the log is paged in the database: a thirty-year run can hold tens of
+ * thousands of trades and the page on screen is fifty of them.
+ */
+export function fetchBacktestTrades(
+  runId: string,
+  request: { page: number; pageSize: number },
+  options: { signal?: AbortSignal } = {},
+) {
+  const query = new URLSearchParams({
+    page: String(request.page),
+    pageSize: String(request.pageSize),
+  });
+  return apiGet<BacktestTradePageResponse>(
+    `/backtests/${runId}/trades?${query.toString()}`,
     options,
   );
 }

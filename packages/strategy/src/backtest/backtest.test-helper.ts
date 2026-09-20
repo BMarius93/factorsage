@@ -15,8 +15,29 @@ import type {
   BacktestResult,
   BacktestSecurityInput,
   BacktestSimulationOptions,
+  BacktestTradeRecord,
   BenchmarkSeriesInput,
 } from "./types.js";
+
+/**
+ * Only the trades a Strategy signal produced.
+ *
+ * Every run now ends with an end-of-backtest liquidation of whatever was still open, which is
+ * execution methodology rather than strategy behaviour. A test about what the *strategy* did reads
+ * this; the liquidation has its own suite (`simulation.terminal-liquidation.test.ts`).
+ */
+export function strategyTrades(
+  result: BacktestResult,
+): readonly BacktestTradeRecord[] {
+  return result.trades.filter((trade) => trade.source === "STRATEGY");
+}
+
+/** The end-of-backtest liquidation trades, in the order they executed. */
+export function liquidationTrades(
+  result: BacktestResult,
+): readonly BacktestTradeRecord[] {
+  return result.trades.filter((trade) => trade.source === "END_OF_BACKTEST");
+}
 
 /** Consecutive weekday dates, so a fixture reads like a real trading week without a calendar. */
 export function tradingDates(start: LocalDate, count: number): LocalDate[] {

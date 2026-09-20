@@ -16,6 +16,7 @@ import {
   securityInput,
   sellLevel,
   simulateBacktestByYear,
+  strategyTrades,
 } from "./backtest.test-helper.js";
 import {
   BacktestExecutionError,
@@ -180,8 +181,9 @@ describe("year-boundary Trigger context", () => {
 
     const windowed = await simulateBacktestByYear(input);
 
-    expect(windowed.trades).toHaveLength(1);
-    expect(windowed.trades[0]?.date).toBe("2001-01-02");
+    // The crossing buys once; the run then ends and liquidates what it bought.
+    expect(strategyTrades(windowed)).toHaveLength(1);
+    expect(strategyTrades(windowed)[0]?.date).toBe("2001-01-02");
     expect(windowed.trades).toEqual((await simulateBacktest(input)).trades);
   });
 
@@ -211,8 +213,8 @@ describe("year-boundary Trigger context", () => {
 
     const windowed = await simulateBacktestByYear(input);
 
-    expect(windowed.trades).toHaveLength(1);
-    expect(windowed.trades[0]?.date).toBe("2001-02-01");
+    expect(strategyTrades(windowed)).toHaveLength(1);
+    expect(strategyTrades(windowed)[0]?.date).toBe("2001-02-01");
     expect(windowed.trades).toEqual((await simulateBacktest(input)).trades);
   });
 
@@ -405,14 +407,17 @@ describe("absolute comparison scenarios", () => {
 
     const result = await simulateBacktestByYear(input);
     const last = result.equity[result.equity.length - 1]!;
+    // The day before the run ends, so the Strategy is still holding: the final date liquidates
+    // everything into cash, which would make the two lines agree for the wrong reason.
+    const invested = result.equity[result.equity.length - 2]!;
 
     expect(Number(last.cashBaselineValue)).toBeCloseTo(123_000, 6);
     // The Strategy put nearly everything to work, so its uninvested cash is nothing like the
     // Cash line — which is exactly the confusion the separate name exists to prevent.
-    expect(Number(last.cash)).toBeLessThan(5_000);
-    expect(Number(last.positionsValue)).toBeGreaterThan(100_000);
-    expect(Number(last.totalValue)).toBeCloseTo(
-      Number(last.cash) + Number(last.positionsValue),
+    expect(Number(invested.cash)).toBeLessThan(5_000);
+    expect(Number(invested.positionsValue)).toBeGreaterThan(100_000);
+    expect(Number(invested.totalValue)).toBeCloseTo(
+      Number(invested.cash) + Number(invested.positionsValue),
       6,
     );
   });

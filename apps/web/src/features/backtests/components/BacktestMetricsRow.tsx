@@ -101,11 +101,15 @@ export function BacktestMetricsRow({
       tone: "neutral",
     },
     {
-      key: "open-positions",
-      label: "Open positions",
-      value: metrics.openPositions,
-      render: formatCount,
-      tone: "neutral",
+      // Not "Open positions": a completed run liquidates everything it still holds at the end of
+      // its period, so that tile could only ever read 0. CAGR is the figure that makes a
+      // thirty-year total return comparable to a three-year one, and the summary already carries
+      // it.
+      key: "cagr",
+      label: "CAGR",
+      value: metrics.portfolioCagrPercent,
+      render: formatSignedPercent,
+      tone: "signed",
     },
   ];
 

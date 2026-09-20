@@ -8,11 +8,13 @@ import {
   finalExit,
   frameOf,
   gainAboveSignal,
+  liquidationTrades,
   lossAboveSignal,
   priceAboveSignal,
   priceBelowSignal,
   securityInput,
   sellLevel,
+  strategyTrades,
   tradingDates,
 } from "./backtest.test-helper.js";
 import { simulateBacktest, BacktestExecutionError } from "./simulate.js";
@@ -69,13 +71,14 @@ describe("allocation under maximumPositions", () => {
       }),
     );
 
-    expect(result.trades).toHaveLength(2);
-    expect(result.trades[0]?.amount).toBeCloseTo(2_500, 6);
+    const bought = strategyTrades(result);
+    expect(bought).toHaveLength(2);
+    expect(bought[0]?.amount).toBeCloseTo(2_500, 6);
     // Day 2: full position budget is 10% of the portfolio, target 50% of it. The position already
     // holds 25 shares worth 2,250 at 90, so only the shortfall is bought.
     const dayTwoValue = 97_500 + 25 * 90;
     const target = (dayTwoValue * 0.1 * 50) / 100;
-    expect(result.trades[1]?.amount).toBeCloseTo(target - 25 * 90, 6);
+    expect(bought[1]?.amount).toBeCloseTo(target - 25 * 90, 6);
   });
 
   it("never opens more than maximumPositions positions and leaves the surplus candidates unbought", async () => {
@@ -95,11 +98,20 @@ describe("allocation under maximumPositions", () => {
       }),
     );
 
-    expect(result.positions.map((position) => position.symbol)).toEqual([
+    // Two slots were taken, and the surplus candidates never opened one. The run ends in cash, so
+    // what proves which two were held is the pair of end-of-backtest liquidations.
+    expect(
+      strategyTrades(result).map((trade) => [trade.symbol, trade.action]),
+    ).toEqual([
+      ["AAA", "BUY"],
+      ["BBB", "BUY"],
+    ]);
+    expect(liquidationTrades(result).map((trade) => trade.symbol)).toEqual([
       "AAA",
       "BBB",
     ]);
-    expect(result.summary.openPositions).toBe(2);
+    expect(result.positions).toHaveLength(0);
+    expect(result.summary.openPositions).toBe(0);
   });
 
   it("stops buying when cash runs out rather than going negative", async () => {
@@ -119,8 +131,19 @@ describe("allocation under maximumPositions", () => {
       }),
     );
 
-    // Two slots at 50% of 1,000 each: the whole balance is deployed and nothing overdraws.
-    expect(result.summary.finalCash).toBeCloseTo(0, 6);
+    // Two slots at 50% of 1,000 each: the whole balance is deployed and nothing overdraws. The
+    // final day then liquidates both, so the balance that matters on the way through is the equity
+    // curve's, not the summary's.
+    expect(
+      result.equity.every(
+        (point, index) =>
+          index === result.equity.length - 1 || Number(point.cash) < 1e-6,
+      ),
+    ).toBe(true);
+    expect(result.summary.finalCash).toBeCloseTo(
+      Number(result.summary.finalValue),
+      6,
+    );
     expect(result.equity.every((point) => Number(point.cash) >= -1e-9)).toBe(
       true,
     );
@@ -147,13 +170,16 @@ describe("exits", () => {
       }),
     );
 
-    const sells = result.trades.filter((trade) => trade.action === "SELL");
+    const sells = strategyTrades(result).filter(
+      (trade) => trade.action === "SELL",
+    );
     // Both SELL levels match on day 2 and execute in definition order against the remaining
     // position: 100 shares -> 50 sold -> 25 sold, leaving 25.
     expect(sells).toHaveLength(2);
     expect(sells[0]?.shares).toBeCloseTo(50, 6);
     expect(sells[1]?.shares).toBeCloseTo(25, 6);
-    expect(result.positions[0]?.shares).toBeCloseTo(25, 6);
+    // The 25 that were left are what the end of the period liquidates.
+    expect(liquidationTrades(result)[0]?.shares).toBeCloseTo(25, 6);
   });
 
   it("fires each SELL level at most once per position lifecycle", async () => {
@@ -175,7 +201,7 @@ describe("exits", () => {
     );
 
     expect(
-      result.trades.filter((trade) => trade.action === "SELL"),
+      strategyTrades(result).filter((trade) => trade.action === "SELL"),
     ).toHaveLength(1);
   });
 
@@ -222,7 +248,9 @@ describe("exits", () => {
       }),
     );
 
-    expect(result.trades.map((trade) => [trade.date, trade.action])).toEqual([
+    expect(
+      strategyTrades(result).map((trade) => [trade.date, trade.action]),
+    ).toEqual([
       [dates[0], "BUY"],
       [dates[1], "FINAL_EXIT"],
       [dates[2], "BUY"],
@@ -459,13 +487,18 @@ describe("buy windows", () => {
       }),
     );
 
-    expect(result.trades.map((trade) => [trade.action, trade.date])).toEqual([
+    expect(
+      strategyTrades(result).map((trade) => [trade.action, trade.date]),
+    ).toEqual([
       ["BUY", dates[0]],
       ["SELL", dates[5]],
     ]);
-    // A SELL level trims a position rather than closing it, and the remainder is still held: the
-    // window closing neither sold it nor stopped the level that did.
-    expect(result.positions).toHaveLength(1);
+    // A SELL level trims a position rather than closing it, and the remainder stayed held to the
+    // end of the period: the window closing neither sold it nor stopped the level that did. What
+    // finally closes it is the end of the backtest, not the membership.
+    expect(
+      liquidationTrades(result).map((trade) => [trade.symbol, trade.date]),
+    ).toEqual([["AAA", dates[7]]]);
   });
 
   it("still reaches FINAL EXIT after membership ended", async () => {
@@ -520,7 +553,9 @@ describe("buy windows", () => {
       }),
     );
 
-    expect(result.trades.map((trade) => [trade.action, trade.date])).toEqual([
+    expect(
+      strategyTrades(result).map((trade) => [trade.action, trade.date]),
+    ).toEqual([
       ["BUY", dates[0]],
       ["FINAL_EXIT", dates[3]],
       ["BUY", dates[8]],
@@ -552,7 +587,7 @@ describe("candidate ordering", () => {
     );
 
     // MMM matches the 100% level, AAA and ZZZ the 25% level; ties order by symbol.
-    expect(result.trades.map((trade) => trade.symbol)).toEqual([
+    expect(strategyTrades(result).map((trade) => trade.symbol)).toEqual([
       "MMM",
       "AAA",
       "ZZZ",
@@ -581,7 +616,9 @@ describe("candidate ordering", () => {
       }),
     );
 
-    const dayTwo = result.trades.filter((trade) => trade.date === dates[1]);
+    const dayTwo = strategyTrades(result).filter(
+      (trade) => trade.date === dates[1],
+    );
     expect(dayTwo.map((trade) => trade.symbol)).toEqual(["ZZZ", "AAA"]);
   });
 });
@@ -616,8 +653,8 @@ describe("unavailable data", () => {
       }),
     );
 
-    expect(result.trades).toHaveLength(1);
-    expect(result.trades[0]?.date).toBe(dates[2]);
+    expect(strategyTrades(result)).toHaveLength(1);
+    expect(strategyTrades(result)[0]?.date).toBe(dates[2]);
   });
 
   it("carries a holding forward over a non-positive close instead of marking it to zero", async () => {
@@ -779,12 +816,26 @@ describe("determinism and point-in-time correctness", () => {
     const long = await simulateBacktest(inputFor(dates.length - 1));
     const cutoff = dates[19] as string;
 
-    expect(long.trades.filter((trade) => trade.date <= cutoff)).toEqual(
-      short.trades,
+    // Strategy decisions are identical over the shared prefix: a later end date cannot reach back
+    // and change what the strategy did.
+    expect(
+      strategyTrades(long).filter((trade) => trade.date <= cutoff),
+    ).toEqual(strategyTrades(short));
+    // Every day before the short run's last is identical too.
+    expect(long.equity.filter((point) => point.date < cutoff)).toEqual(
+      short.equity.slice(0, -1),
     );
-    expect(long.equity.filter((point) => point.date <= cutoff)).toEqual(
-      short.equity,
+    // The last day is where the two legitimately differ, and only in composition: the short run
+    // ends there, so it liquidates, while the long run carries the same positions on. The *value*
+    // is the same number, which is what makes terminal liquidation value-neutral.
+    const shortLast = short.equity[short.equity.length - 1];
+    const longSameDay = long.equity.find((point) => point.date === cutoff);
+    expect(Number(shortLast?.totalValue)).toBeCloseTo(
+      Number(longSameDay?.totalValue),
+      6,
     );
+    expect(Number(shortLast?.positionsValue)).toBe(0);
+    expect(Number(longSameDay?.positionsValue)).toBeGreaterThan(0);
   });
 
   it("is unaffected by the checkpoint cadence", async () => {
@@ -819,6 +870,8 @@ describe("determinism and point-in-time correctness", () => {
  * only to buy the shortfall to its recalculated target. It is not a daily rebalance.
  */
 describe("contribution-date DCA top-ups", () => {
+  // Every case here is about what the *strategy* bought, so the assertions read the strategy
+  // trades: a run also ends with an end-of-backtest liquidation, which has its own suite.
   // Two calendar months of weekday dates: the second month's first date deposits.
   const dates = [
     ...tradingDates("2020-01-06", 5),
@@ -856,8 +909,8 @@ describe("contribution-date DCA top-ups", () => {
     });
 
     // The signal is true on all ten days; the level buys once.
-    expect(result.trades).toHaveLength(1);
-    expect(result.trades[0]?.date).toBe(dates[0]);
+    expect(strategyTrades(result)).toHaveLength(1);
+    expect(strategyTrades(result)[0]?.date).toBe(dates[0]);
   });
 
   it("does not rebalance a position that merely drifted below target", async () => {
@@ -870,7 +923,7 @@ describe("contribution-date DCA top-ups", () => {
       monthlyContribution: 0,
     });
 
-    expect(result.trades).toHaveLength(1);
+    expect(strategyTrades(result)).toHaveLength(1);
   });
 
   it("tops a fired level up to its recalculated target on a contribution date", async () => {
@@ -879,8 +932,8 @@ describe("contribution-date DCA top-ups", () => {
       buyLevels: [buyLevel("b25", 25, alwaysTrue())],
     });
 
-    expect(result.trades).toHaveLength(2);
-    const [entry, topUp] = result.trades;
+    expect(strategyTrades(result)).toHaveLength(2);
+    const [entry, topUp] = strategyTrades(result);
     // Day one: 25% of a 10% full position of 100,000.
     expect(entry?.amount).toBeCloseTo(2_500, 6);
     expect(topUp?.date).toBe(contributionDate);
@@ -897,7 +950,7 @@ describe("contribution-date DCA top-ups", () => {
       buyLevels: [buyLevel("b25", 25, alwaysTrue())],
     });
 
-    const afterContribution = result.trades.filter(
+    const afterContribution = strategyTrades(result).filter(
       (trade) => trade.date > contributionDate,
     );
     expect(afterContribution).toHaveLength(0);
@@ -912,8 +965,8 @@ describe("contribution-date DCA top-ups", () => {
       buyLevels: [buyLevel("b25", 25, priceAboveSignal(95))],
     });
 
-    expect(result.trades).toHaveLength(1);
-    expect(result.trades[0]?.date).toBe(dates[0]);
+    expect(strategyTrades(result)).toHaveLength(1);
+    expect(strategyTrades(result)[0]?.date).toBe(dates[0]);
   });
 
   it("does not top up when the buy window closes before the contribution date", async () => {
@@ -928,7 +981,7 @@ describe("contribution-date DCA top-ups", () => {
       },
     });
 
-    expect(result.trades).toHaveLength(1);
+    expect(strategyTrades(result)).toHaveLength(1);
   });
 
   it("tops up a Trigger level only when the Trigger actually fires that date", async () => {
@@ -940,7 +993,7 @@ describe("contribution-date DCA top-ups", () => {
       buyLevels: [buyLevel("b25", 25, priceCrossesAboveSignal(100))],
     });
 
-    expect(result.trades.map((trade) => trade.date)).toEqual([
+    expect(strategyTrades(result).map((trade) => trade.date)).toEqual([
       dates[1],
       contributionDate,
     ]);
@@ -954,8 +1007,8 @@ describe("contribution-date DCA top-ups", () => {
       buyLevels: [buyLevel("b25", 25, priceCrossesAboveSignal(100))],
     });
 
-    expect(result.trades).toHaveLength(1);
-    expect(result.trades[0]?.date).toBe(dates[1]);
+    expect(strategyTrades(result)).toHaveLength(1);
+    expect(strategyTrades(result)[0]?.date).toBe(dates[1]);
   });
 
   it("buys nothing when the position already covers its recalculated target", async () => {
@@ -968,7 +1021,7 @@ describe("contribution-date DCA top-ups", () => {
       monthlyContribution: 1_000,
     });
 
-    expect(result.trades).toHaveLength(1);
+    expect(strategyTrades(result)).toHaveLength(1);
   });
 
   it("still lets a higher unused BUY level fire normally on an ordinary day", async () => {
@@ -984,9 +1037,9 @@ describe("contribution-date DCA top-ups", () => {
       monthlyContribution: 0,
     });
 
-    expect(result.trades).toHaveLength(2);
-    expect(result.trades[1]?.date).toBe(dates[2]);
-    expect(result.trades[1]?.levelPercentage).toBe(100);
+    expect(strategyTrades(result)).toHaveLength(2);
+    expect(strategyTrades(result)[1]?.date).toBe(dates[2]);
+    expect(strategyTrades(result)[1]?.levelPercentage).toBe(100);
   });
 
   it("caps a top-up at available cash", async () => {
@@ -1011,7 +1064,7 @@ describe("contribution-date DCA top-ups", () => {
     expect(result.equity.every((point) => Number(point.cash) >= -1e-9)).toBe(
       true,
     );
-    const topUp = result.trades.find(
+    const topUp = strategyTrades(result).find(
       (trade) => trade.date === contributionDate,
     );
     expect(topUp?.amount).toBeCloseTo(100, 6);
@@ -1086,7 +1139,7 @@ describe("end-to-end methodology ledger", () => {
       }),
     );
 
-    const ledger = result.trades.map((trade) => [
+    const ledger = strategyTrades(result).map((trade) => [
       trade.date,
       trade.action,
       trade.levelPercentage,
@@ -1118,17 +1171,55 @@ describe("end-to-end methodology ledger", () => {
     // Seven calendar months are simulated and six contributions land: the opening month is funded
     // by the initial capital instead.
     expect(Number(result.summary.investedCapital)).toBe(100_000 + 6 * 20_000);
-    expect(Number(result.summary.realizedPnl)).toBeCloseTo(3_320.625, 3);
-    expect(result.summary.openPositions).toBe(1);
+    // What the strategy's own exits realized, unchanged.
+    const strategyRealized = strategyTrades(result).reduce(
+      (total, trade) => total + Number(trade.realizedPnl ?? 0),
+      0,
+    );
+    expect(strategyRealized).toBeCloseTo(3_320.625, 3);
 
     // A partial sell leaves the basis per share untouched; a top-up blends it.
-    const sell = result.trades.find((trade) => trade.action === "SELL");
-    const beforeSell = result.trades[2];
+    const sell = strategyTrades(result).find(
+      (trade) => trade.action === "SELL",
+    );
+    const beforeSell = strategyTrades(result)[2];
     expect(sell?.averageCostAfter).toBeCloseTo(
       Number(beforeSell?.averageCostAfter),
       6,
     );
-    expect(result.positions[0]?.averageCost).toBeCloseTo(49.1602, 4);
+    const lastBuy = strategyTrades(result).at(-1);
+    expect(Number(lastBuy?.averageCostAfter)).toBeCloseTo(49.1602, 4);
+
+    // The period ends holding 545.8024 shares at 40, and the run liquidates them. Every number is
+    // the position's own: the price the last day valued it at, the shares it held, and the loss
+    // against the 49.1602 basis the ledger above built.
+    const liquidation = liquidationTrades(result);
+    expect(liquidation).toHaveLength(1);
+    const closeOut = liquidation[0];
+    expect(closeOut?.date).toBe(dates[dates.length - 1]);
+    expect(closeOut?.action).toBe("SELL");
+    expect(closeOut?.levelId).toBeNull();
+    expect(Number(closeOut?.shares)).toBeCloseTo(545.8024, 4);
+    expect(Number(closeOut?.price)).toBe(40);
+    expect(Number(closeOut?.amount)).toBeCloseTo(545.8024 * 40, 2);
+    expect(Number(closeOut?.sharesAfter)).toBe(0);
+    expect(Number(closeOut?.realizedPnl)).toBeCloseTo(
+      545.8024 * (40 - 49.1602),
+      1,
+    );
+
+    // Nothing is left, and the run's whole final value is cash.
+    expect(result.positions).toHaveLength(0);
+    expect(result.summary.openPositions).toBe(0);
+    expect(Number(result.summary.finalPositionsValue)).toBe(0);
+    expect(Number(result.summary.finalCash)).toBeCloseTo(
+      Number(result.summary.finalValue),
+      6,
+    );
+    expect(Number(result.summary.realizedPnl)).toBeCloseTo(
+      strategyRealized + Number(closeOut?.realizedPnl),
+      3,
+    );
   });
 });
 
@@ -1353,7 +1444,10 @@ describe("BUY allocation tiers", () => {
     );
 
     expect(
-      result.trades.map((trade) => [trade.levelId, Number(trade.amount)]),
+      strategyTrades(result).map((trade) => [
+        trade.levelId,
+        Number(trade.amount),
+      ]),
     ).toEqual([["b100", 100_000]]);
   });
 
@@ -1379,9 +1473,9 @@ describe("BUY allocation tiers", () => {
 
     // One trade, on the first day. No contribution was made, so nothing may buy again: reaching
     // the 100% tier satisfied the 25% one by definition.
-    expect(result.trades.map((trade) => [trade.date, trade.levelId])).toEqual([
-      [dates[0], "b100"],
-    ]);
+    expect(
+      strategyTrades(result).map((trade) => [trade.date, trade.levelId]),
+    ).toEqual([[dates[0], "b100"]]);
   });
 
   it("settles a tier that could only be filled as far as the cash went", async () => {
@@ -1413,10 +1507,13 @@ describe("BUY allocation tiers", () => {
       }),
     );
 
-    const cccTrades = result.trades.filter((trade) => trade.symbol === "CCC");
+    const cccTrades = strategyTrades(result).filter(
+      (trade) => trade.symbol === "CCC",
+    );
     expect(cccTrades).toHaveLength(1);
     expect(cccTrades[0]?.amount).toBeCloseTo(666.67, 2);
-    expect(result.summary.finalCash).toBeCloseTo(0, 8);
+    // Everything spendable was spent, which is visible on the day before the run liquidates.
+    expect(Number(result.equity.at(-2)?.cash)).toBeCloseTo(0, 8);
   });
 
   it("settles an existing position's tier even with no cash at all", async () => {
@@ -1444,8 +1541,8 @@ describe("BUY allocation tiers", () => {
     );
 
     // Exactly one entry. Zero cash consumed the opportunity just as a cent would have.
-    expect(result.trades).toHaveLength(1);
-    expect(result.summary.finalCash).toBeCloseTo(0, 8);
+    expect(strategyTrades(result)).toHaveLength(1);
+    expect(Number(result.equity.at(-2)?.cash)).toBeCloseTo(0, 8);
   });
 
   it("opens no position, and consumes nothing, when there is no cash to open one with", async () => {
@@ -1986,17 +2083,17 @@ describe("securities whose history does not span the run", () => {
       }),
     );
 
-    const position = result.positions[0];
-    expect(position?.symbol).toBe("GONE");
-    // The value is held at the last real close, and the date that close came from is reported, so
-    // a stale holding is visible rather than silent.
-    expect(Number(position?.lastPrice)).toBe(100);
-    expect(position?.lastPriceDate).toBe(truncated[truncated.length - 1]);
     // With no benchmark and no other security still reporting, there are no market dates left to
     // simulate, so the run ends where its data ends rather than inventing days to fill the period.
     expect(result.summary.lastSimulatedDate).toBe(
       truncated[truncated.length - 1],
     );
+    // The holding was carried at the last real close, which is also the price the end of the
+    // backtest liquidates it at: a price that was actually quoted, never a mark that was not.
+    const closeOut = liquidationTrades(result)[0];
+    expect(closeOut?.symbol).toBe("GONE");
+    expect(Number(closeOut?.price)).toBe(100);
+    expect(closeOut?.date).toBe(truncated[truncated.length - 1]);
     // No trade is invented after the data ends.
     expect(
       result.trades.every(
@@ -2031,10 +2128,11 @@ describe("securities whose history does not span the run", () => {
     // The market calendar continues, so the run does too — and the holding is carried at the last
     // close it actually had, with the date that close came from reported alongside it.
     expect(result.summary.lastSimulatedDate).toBe(full[full.length - 1]);
-    expect(Number(result.positions[0]?.lastPrice)).toBe(100);
-    expect(result.positions[0]?.lastPriceDate).toBe(
-      truncated[truncated.length - 1],
-    );
+    // Carried at the last close it actually had, right through to the liquidation that ends the
+    // run — priced at that same stale close, on the run's final market date.
+    const closeOut = liquidationTrades(result)[0];
+    expect(Number(closeOut?.price)).toBe(100);
+    expect(closeOut?.date).toBe(full[full.length - 1]);
     const afterData = result.equity.filter(
       (point) => point.date > (truncated[truncated.length - 1] as string),
     );

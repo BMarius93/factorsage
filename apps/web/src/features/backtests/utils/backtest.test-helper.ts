@@ -7,6 +7,8 @@ import type {
   BacktestMilestoneResponse,
   BacktestRunDetailResponse,
   BacktestRunStatus,
+  BacktestTradePageResponse,
+  BacktestTradeResponse,
 } from "@intrinsic/contracts";
 
 /**
@@ -53,6 +55,7 @@ export function testConfiguration(
       executionCosts: "execution-costs@1",
       cashYield: "cash-yield@1",
       comparisonScenarios: "comparison-scenarios@1",
+      terminalLiquidation: "terminal-liquidation@1",
       strategyEvaluation: "signal-evaluation@1",
       contribution: "contribution@1",
       returns: "returns@1",
@@ -99,6 +102,7 @@ export function testLive(
     portfolioReturnPercent: 12,
     benchmarkReturnPercent: 8,
     alphaPercent: 4,
+    portfolioCagrPercent: 4.6,
     maxDrawdownPercent: 9.5,
     benchmarkValue: 13_400,
     cashBaselineValue: 12_500,
@@ -140,35 +144,68 @@ export function testResult(
       losingTrades: 14,
       openPositions: 5,
     },
+    // Three years of the run's period, each with its own return. Deliberately not a rising
+    // sequence: a cumulative rendering would be invisible against one.
+    annualReturns: [
+      {
+        year: "2021",
+        simulatedThrough: "2021-12-31",
+        returnPercent: 18,
+        partial: false,
+      },
+      {
+        year: "2022",
+        simulatedThrough: "2022-12-31",
+        returnPercent: -7.5,
+        partial: false,
+      },
+      {
+        year: "2023",
+        simulatedThrough: "2023-12-31",
+        returnPercent: 24.25,
+        partial: false,
+      },
+    ],
     curve: testCurve(8),
-    trades: [
-      {
-        sequence: 1,
-        date: "2021-02-01",
-        symbol: "QATEST1",
-        name: "QA Test One",
-        action: "BUY",
-        levelPercentage: 50,
-        shares: 10,
-        price: 100,
-        amount: 1_000,
-        realizedPnl: null,
-        realizedPnlPercent: null,
-      },
-    ],
-    holdings: [
-      {
-        symbol: "QATEST1",
-        name: "QA Test One",
-        shares: 10,
-        averageCost: 100,
-        lastPrice: 130,
-        lastPriceDate: "2024-12-31",
-        marketValue: 1_300,
-        unrealizedPnlPercent: 30,
-        allocationPercent: 12.5,
-      },
-    ],
+    ...overrides,
+  };
+}
+
+export function testTrade(
+  overrides: Partial<BacktestTradeResponse> = {},
+): BacktestTradeResponse {
+  return {
+    sequence: 1,
+    date: "2021-02-01",
+    symbol: "QATEST1",
+    name: "QA Test One",
+    action: "BUY",
+    source: "STRATEGY",
+    levelPercentage: 50,
+    shares: 10,
+    price: 100,
+    amount: 1_000,
+    realizedPnl: null,
+    realizedPnlPercent: null,
+    reason: {
+      kind: "STRATEGY",
+      conditions: ["SMA 50D is above SMA 200D"],
+      trigger: "Price crosses above SMA 20D",
+    },
+    ...overrides,
+  };
+}
+
+export function testTradePage(
+  overrides: Partial<BacktestTradePageResponse> = {},
+): BacktestTradePageResponse {
+  const items = overrides.items ?? [testTrade()];
+  return {
+    items,
+    page: 1,
+    pageSize: 50,
+    totalCount: items.length,
+    pageCount: 1,
     ...overrides,
   };
 }

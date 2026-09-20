@@ -144,6 +144,9 @@ export function BacktestsPage() {
           <span className={styles.statusCell}>
             <StatusBadge
               tone={statusTone(run.status)}
+              // A small pulse on a job that is still processing, and nothing more: this is a
+              // collection, so "alive" is all a row needs to say. The row itself never animates.
+              pulse={!finished}
               testId="backtest-card-status"
               // The raw status alongside the label: a test reading "Preparing data" would be
               // asserting on prose, and the prose is allowed to change.

@@ -130,51 +130,14 @@
   }
 }
 
-.milestones {
-  display: grid;
-  gap: 8px;
-}
-
+/* How far a run has got, as one line. The years' *returns* belong to `BacktestAnnualReturns`
+   beside the results; this is progress, not a result. */
 .milestoneCaption {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: var(--weight-emphasis);
-}
-
-.milestoneList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.milestone {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-soft);
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.milestoneYear {
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-emphasis);
-}
-
-.milestoneReturn[data-tone="positive"] {
-  color: var(--color-positive);
-}
-
-.milestoneReturn[data-tone="negative"] {
-  color: var(--color-negative);
 }
 
 /* The code, phase and run id of a failure: collapsed by default, for quoting to support. */

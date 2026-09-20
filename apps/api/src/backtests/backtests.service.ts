@@ -1,15 +1,20 @@
 import { createHash } from "node:crypto";
 import {
+  backtestAnnualReturns,
   backtestPeriodYears,
+  backtestTradeReason,
+  backtestTradeReasonIndex,
   BACKTEST_MAX_SECURITIES,
   BACKTEST_RESULT_MAX_CURVE_POINTS,
-  BACKTEST_RESULT_MAX_TRADES,
+  BACKTEST_TRADES_MAX_PAGE_SIZE,
+  BACKTEST_TRADES_PAGE_SIZE,
   BACKTEST_FAILURE_PHASES,
   BACKTEST_SNAPSHOT_VERSION,
   canonicalBacktestSnapshotDocument,
   isTerminalBacktestStatus,
   normalizeStrategyDefinition,
   withCanonicalStrategyDefinition,
+  type BacktestAnnualReturnResponse,
   type BacktestCurvePointResponse,
   type BacktestFailurePhase,
   type BacktestFailureResponse,
@@ -28,10 +33,14 @@ import {
   type BacktestSnapshotSecurity,
   type AuthUser,
   type BacktestTradeAction,
+  type BacktestTradePageResponse,
+  type BacktestTradeReasonIndex,
   type BacktestTradeResponse,
+  type BacktestTradeSource,
 } from "@intrinsic/contracts";
 import {
   BacktestTradeAction as TradeAction,
+  BacktestTradeSource as TradeSource,
   type Prisma,
 } from "@intrinsic/database";
 import {
@@ -142,7 +151,6 @@ type RunProgressRow = Prisma.BacktestRunGetPayload<{
 
 type TradeRow = Prisma.BacktestTradeGetPayload<true>;
 type EquityRow = Prisma.BacktestDailyEquityGetPayload<true>;
-type PositionRow = Prisma.BacktestPositionGetPayload<true>;
 type SummaryRow = Prisma.BacktestRunSummaryGetPayload<true>;
 type MilestoneRow = Prisma.BacktestRunMilestoneGetPayload<true>;
 
@@ -234,6 +242,7 @@ const LIVE_NUMBER_FIELDS = [
 const LIVE_NULLABLE_NUMBER_FIELDS = [
   "benchmarkReturnPercent",
   "alphaPercent",
+  "portfolioCagrPercent",
   "benchmarkValue",
 ] as const;
 
@@ -270,6 +279,10 @@ function isTradeAction(value: unknown): value is BacktestTradeAction {
   return Object.values(TradeAction).some((action) => action === value);
 }
 
+function isTradeSource(value: unknown): value is BacktestTradeSource {
+  return Object.values(TradeSource).some((source) => source === value);
+}
+
 function isCurvePoint(value: unknown): value is BacktestCurvePointResponse {
   const point = asDocument(value);
   return (
@@ -303,6 +316,7 @@ function isTrade(value: unknown): value is BacktestTradeResponse {
     typeof trade.symbol === "string" &&
     typeof trade.name === "string" &&
     isTradeAction(trade.action) &&
+    isTradeSource(trade.source) &&
     (trade.levelPercentage === null || isFiniteNumber(trade.levelPercentage)) &&
     hasNumbers(trade, ["shares", "price", "amount"]) &&
     hasNullableNumbers(trade, ["realizedPnl", "realizedPnlPercent"])
@@ -537,34 +551,56 @@ function downsampleCurve(
   return sampled;
 }
 
-function tradeOf(row: TradeRow): BacktestTradeResponse {
+/**
+ * One persisted trade, with the rule that produced it described from the run's own snapshot.
+ *
+ * The index is prepared once per request rather than per row: a page of fifty trades otherwise
+ * re-parses and re-describes the same strategy fifty times for an answer that cannot change.
+ */
+function tradeOf(
+  row: TradeRow,
+  reasons: BacktestTradeReasonIndex,
+): BacktestTradeResponse {
   return {
     sequence: row.sequence,
     date: fromDatabaseDate(row.date),
     symbol: row.symbol,
     name: row.name,
     action: row.action,
+    source: row.source,
     levelPercentage: row.levelPercentage,
     shares: toNumber(row.shares),
     price: toNumber(row.price),
     amount: toNumber(row.amount),
     realizedPnl: toNullableNumber(row.realizedPnl),
     realizedPnlPercent: toNullableNumber(row.realizedPnlPercent),
+    reason: backtestTradeReason(reasons, row),
   };
 }
 
-function holdingOf(row: PositionRow): BacktestHoldingResponse {
-  return {
-    symbol: row.symbol,
-    name: row.name,
-    shares: toNumber(row.shares),
-    averageCost: toNumber(row.averageCost),
-    lastPrice: toNumber(row.lastPrice),
-    lastPriceDate: fromDatabaseDate(row.lastPriceDate),
-    marketValue: toNumber(row.marketValue),
-    unrealizedPnlPercent: toNumber(row.unrealizedPnlPercent),
-    allocationPercent: toNumber(row.allocationPercent),
-  };
+/**
+ * Per-calendar-year returns, chained off the run's persisted time-weighted return index.
+ *
+ * Derived rather than stored: the index is already on every equity row, `backtestAnnualReturns` is
+ * the one canonical chaining of it, and the rows are in memory for the curve anyway — so a run
+ * completed long before annual returns were reported still answers with the same arithmetic as one
+ * completed today. The period comes from the run's own requested dates, which is what decides
+ * whether its first or last year was only partly simulated.
+ */
+function annualReturnsOf(
+  equity: readonly EquityRow[],
+  run: { startDate: Date; endDate: Date },
+): BacktestAnnualReturnResponse[] {
+  return backtestAnnualReturns(
+    equity.map((row) => ({
+      date: fromDatabaseDate(row.date),
+      returnIndex: toNumber(row.returnIndex),
+    })),
+    {
+      startDate: fromDatabaseDate(run.startDate),
+      endDate: fromDatabaseDate(run.endDate),
+    },
+  );
 }
 
 function detailOf(
@@ -1004,9 +1040,73 @@ export class BacktestsService {
   }
 
   /**
-   * Results exist only for a COMPLETED run. Trades are the most recent
-   * `BACKTEST_RESULT_MAX_TRADES` by execution sequence; the summary's `totalTrades` always reports
-   * the true count, and every row remains durably persisted.
+   * One page of a completed run's trade log, newest first.
+   *
+   * Paged in PostgreSQL, not in the browser: a thirty-year run can execute tens of thousands of
+   * trades, and the page a user is looking at is fifty of them. `(runId, sequence)` is already
+   * unique, so both the ordered window and the count read an index rather than the table — no scan
+   * grows with the run, and nothing loads every trade to count them.
+   *
+   * A page past the end is clamped rather than refused: a stale link or a hand-edited query
+   * parameter should land on the last page, not on an error.
+   */
+  async getTrades(
+    userId: string,
+    runId: string,
+    request: { page?: number; pageSize?: number } = {},
+  ): Promise<BacktestTradePageResponse> {
+    const run = await this.prisma.backtestRun.findFirst({
+      where: { id: runId, userId },
+      select: { id: true, snapshot: true },
+    });
+    if (!run) {
+      throw new BacktestRunNotFoundError();
+    }
+
+    const pageSize = Math.min(
+      Math.max(Math.trunc(request.pageSize ?? BACKTEST_TRADES_PAGE_SIZE), 1),
+      BACKTEST_TRADES_MAX_PAGE_SIZE,
+    );
+    const totalCount = await this.prisma.backtestTrade.count({
+      where: { runId: run.id },
+    });
+    const pageCount = Math.max(1, Math.ceil(totalCount / pageSize));
+    const page = Math.min(
+      Math.max(Math.trunc(request.page ?? 1), 1),
+      pageCount,
+    );
+
+    const rows = await this.prisma.backtestTrade.findMany({
+      where: { runId: run.id },
+      // Newest first, which is the order the log has always been read in. `sequence` is the
+      // engine's own execution order, so this is stable across equal dates too.
+      orderBy: { sequence: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    });
+    // The run's own frozen definition — never the strategy as it stands today — described once for
+    // the whole page.
+    const reasons = backtestTradeReasonIndex(
+      withCanonicalStrategyDefinition(readSnapshot(run.snapshot)).strategy
+        .definition,
+    );
+    return {
+      items: rows.map((row) => tradeOf(row, reasons)),
+      page,
+      pageSize,
+      totalCount,
+      pageCount,
+    };
+  }
+
+  /**
+   * Results exist only for a COMPLETED run.
+   *
+   * The trade log is deliberately absent: it is paginated from the database through
+   * `getTrades`, because a bounded tail of a long run's trades is neither the whole log nor a
+   * usable page of one. Final holdings are absent too — a run executed under terminal liquidation
+   * ends in cash, and a run completed before that rule existed still reports its own stored summary
+   * truthfully, which is what the immutability invariant requires.
    */
   private async readResult(
     run: RunDetailRow,
@@ -1014,26 +1114,14 @@ export class BacktestsService {
     if (run.status !== "COMPLETED" || run.summary === null) {
       return null;
     }
-    const [equity, trades, positions] = await Promise.all([
-      this.prisma.backtestDailyEquity.findMany({
-        where: { runId: run.id },
-        orderBy: { date: "asc" },
-      }),
-      this.prisma.backtestTrade.findMany({
-        where: { runId: run.id },
-        orderBy: { sequence: "desc" },
-        take: BACKTEST_RESULT_MAX_TRADES,
-      }),
-      this.prisma.backtestPosition.findMany({
-        where: { runId: run.id },
-        orderBy: [{ marketValue: "desc" }, { symbol: "asc" }],
-      }),
-    ]);
+    const equity = await this.prisma.backtestDailyEquity.findMany({
+      where: { runId: run.id },
+      orderBy: { date: "asc" },
+    });
     return {
       summary: resultSummaryOf(run.summary),
+      annualReturns: annualReturnsOf(equity, run),
       curve: downsampleCurve(equity.map(curvePointOf)),
-      trades: trades.map(tradeOf),
-      holdings: positions.map(holdingOf),
     };
   }
 }

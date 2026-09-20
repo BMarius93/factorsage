@@ -16,3 +16,43 @@
 .placeholder {
   color: var(--color-text-muted);
 }
+
+/* The reason a trade happened: a sentence, not a chip.
+
+   It wraps to a bounded number of lines rather than either truncating the logic away or letting
+   one long rule set the height of every row. */
+.reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--color-text-body);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+.reasonRule {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+.reasonTrigger {
+  color: var(--color-primary-ink);
+}
+
+.reason[data-kind="END_OF_BACKTEST"] {
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* A page in flight dims; it never empties. */
+.rows[data-loading="true"] {
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rows[data-loading="true"] {
+    transition: none;
+  }
+}

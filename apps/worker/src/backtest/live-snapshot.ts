@@ -1,8 +1,10 @@
-import type {
-  BacktestCurvePointResponse,
-  BacktestHoldingResponse,
-  BacktestLiveSnapshotResponse,
-  BacktestTradeResponse,
+import {
+  backtestTradeReason,
+  type BacktestCurvePointResponse,
+  type BacktestHoldingResponse,
+  type BacktestLiveSnapshotResponse,
+  type BacktestTradeReasonIndex,
+  type BacktestTradeResponse,
 } from "@intrinsic/contracts";
 import type {
   BacktestCheckpoint,
@@ -15,11 +17,14 @@ import type {
  * Projects an engine checkpoint into the payload the running page polls.
  *
  * The engine already downsampled the curve and trimmed the trade tail, so this only drops what the
- * browser has no use for: internal security ids, the level id behind a fill, and the cash/share
- * bookkeeping that belongs to the durable trade log rather than to a live tile.
+ * browser has no use for: internal security ids, the raw level identities behind a fill, and the
+ * cash/share bookkeeping that belongs to the durable trade log rather than to a live tile. The
+ * level identities become a **reason** here instead — the canonical Strategy description of the
+ * rule that fired — so a running page explains its trades the same way a finished one does.
  */
 export function toLiveSnapshotResponse(
   checkpoint: BacktestCheckpoint,
+  reasons: BacktestTradeReasonIndex,
 ): BacktestLiveSnapshotResponse {
   return {
     simulatedThrough: checkpoint.simulatedThrough,
@@ -33,6 +38,7 @@ export function toLiveSnapshotResponse(
     portfolioReturnPercent: checkpoint.portfolioReturnPercent,
     benchmarkReturnPercent: checkpoint.benchmarkReturnPercent,
     alphaPercent: checkpoint.alphaPercent,
+    portfolioCagrPercent: checkpoint.portfolioCagrPercent,
     maxDrawdownPercent: checkpoint.maxDrawdownPercent,
     benchmarkValue: checkpoint.benchmarkValue,
     cashBaselineValue: checkpoint.cashBaselineValue,
@@ -40,7 +46,9 @@ export function toLiveSnapshotResponse(
     openPositions: checkpoint.openPositions,
     curve: checkpoint.curve.map(toCurvePoint),
     holdings: checkpoint.holdings.map(toHolding),
-    recentTrades: checkpoint.recentTrades.map(toTrade),
+    recentTrades: checkpoint.recentTrades.map((trade) =>
+      toTrade(trade, reasons),
+    ),
   };
 }
 
@@ -71,14 +79,21 @@ function toHolding(
   };
 }
 
-function toTrade(trade: BacktestTradeRecord): BacktestTradeResponse {
+function toTrade(
+  trade: BacktestTradeRecord,
+  reasons: BacktestTradeReasonIndex,
+): BacktestTradeResponse {
   return {
     sequence: trade.sequence,
     date: trade.date,
     symbol: trade.symbol,
     name: trade.name,
     action: trade.action,
+    source: trade.source,
     levelPercentage: trade.levelPercentage,
+    // Resolved from the run's own snapshotted definition, prepared once per run: the running page
+    // explains a trade in exactly the words the completed trade log will.
+    reason: backtestTradeReason(reasons, trade),
     // The live snapshot is a progress projection for the running UI, not the durable result, so
     // the canonical strings are parsed here rather than carried: a chart needs numbers and the
     // record it came from is not the record anything reconciles against.

@@ -31,6 +31,46 @@ An open symbol occupies one position slot regardless of whether the strategy ent
 75%, or 100% of its full-position budget. Cash and position-capacity constraints are enforced by
 the execution engine.
 
+## A completed run ends in cash
+
+At the end of the simulation period, FactorSage liquidates all remaining positions at the canonical
+final execution price. **This is execution methodology, not a Strategy FINAL EXIT signal.**
+
+The question a finished backtest answers is "what would I have, having done this?", and the honest
+answer is one number rather than cash plus a portfolio frozen mid-trade. So the final eligible date
+executes normally — contribution, valuation, exits, entries — and only then is whatever is still open
+sold, at the price that date valued it at. The run's final value does not move: it simply becomes
+cash, `finalCash == finalValue`, and there are no final holdings to report.
+
+Those sales appear in the trade log as ordinary **Sell** actions whose reason is `End of backtest`.
+They are deliberately **not** labelled Final exit: `FINAL EXIT` is a Strategy level the user wrote,
+and this is the simulation period ending. "The strategy decided to exit" and "the run reached its end
+date" are different facts and stay different facts.
+
+It is a versioned rule (`terminalLiquidation`), so a run completed before it existed keeps the result
+it recorded, holdings included. Nothing stored is rewritten to match a later methodology.
+
+## What each year returned
+
+A completed run reports one figure per calendar year, and it is that year alone — never the
+cumulative return to the end of it. A thirty-year run shows thirty independent numbers.
+
+The figure uses the same cash-flow-adjusted return index every other percentage in the product is
+built on, so a year that received twelve monthly contributions does not report the deposits as
+performance, and the yearly figures multiply back together to the run's total return. A first or last
+year the run only partly simulated is reported over the part that was simulated and marked as
+partial; nothing outside the requested period is invented.
+
+## Why every trade happened
+
+Each trade in the log says which rule produced it, in the same words the Strategy Builder uses. It is
+read from the run's **own frozen strategy**, so editing or deleting that strategy afterwards never
+rewrites a completed run's history.
+
+FINAL EXIT may be reached through several alternative Exit Rules. The log names the one that actually
+matched rather than reciting them all; a run executed before the engine recorded that identity says
+nothing rather than guessing.
+
 ## Execution assumptions in V1
 
 - **Fees and slippage are zero.** There is no editable field for either, and the assumption is
@@ -82,8 +122,8 @@ is implemented in V1.
 
 The remaining execution rules — exits before entries, a BUY level as a target fill, one firing per
 level per position lifecycle plus the contribution-date top-up above, FINAL EXIT outranking a
-partial SELL, no same-date re-entry, and the candidate ordering used when cash or slots cannot
-satisfy every match — are engine methodology, not Strategy semantics. They are decided and versioned
+partial SELL, no same-date re-entry, the terminal liquidation above, and the candidate ordering used
+when cash or slots cannot satisfy every match — are engine methodology, not Strategy semantics. They are decided and versioned
 in `../architecture/backtest-execution.md`, and every run records the versions it executed under.
 
 ## Benchmark
@@ -163,9 +203,10 @@ A stock list is a list of securities, not a guarantee that each one traded acros
   case.
 - **A security whose history ends before the run's end** stops producing prices. An open position in
   it is carried at its most recent real close for the rest of the run: the last price that was
-  actually quoted, never a mark that was never observed. The holdings panel shows that close's date
-  whenever it is earlier than the run's own last simulated date, so a stale valuation is visible
-  rather than silent.
+  actually quoted, never a mark that was never observed. While the run is executing, its holdings
+  panel shows that close's date whenever it is earlier than the run's own last simulated date, so a
+  stale valuation is visible rather than silent — and the terminal liquidation sells it at that same
+  observed close, never at a price nobody quoted.
 
 **This is not a delisting or corporate-action model.** A holding whose history ends is carried at
 its last observed close and reported with that close's date; the engine never claims the company was

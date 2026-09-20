@@ -309,6 +309,14 @@ without a find-and-replace across features.
 The feature supplies the label and the tone from its own canonical map. Never hard-code a colour for
 a status in a feature stylesheet.
 
+`pulse` adds a small breathing dot before the label, and it means exactly one thing: **this job is
+still alive**. It is for work genuinely in flight — a queued or running backtest, on its own page
+and in the collection alike — and never for a finished one, because animating a result implies work
+that is not happening. It says nothing about progress; a percentage is a different affordance. The
+dot is `aria-hidden`, so the label still carries the whole meaning, it is a slow opacity-and-scale
+breath rather than a blink, and under `prefers-reduced-motion: reduce` it stays visible and stops
+moving. Tests assert the `data-activity="pulse"` hook, never an animation frame.
+
 ### `EntityReferenceChip` / `LinkedEntities`
 
 How one entity refers to another. `EntityKind` is `monitor | strategy | list | backtest | benchmark |

@@ -32,6 +32,17 @@ type StatusBadgeProps = {
   readonly title?: string;
   /** `outline` reads as a quieter label inside dense tables. */
   readonly variant?: "solid" | "outline";
+  /**
+   * Marks the status as *live work*, with a small pulsing dot before the label.
+   *
+   * For a job that is genuinely still processing — queued or running — and nothing else. It says
+   * "this is alive", never how far along it is: a finished result must stay perfectly still, and
+   * animating one would imply work that is not happening. The dot is decorative; the label is what
+   * carries the meaning, so assistive technology reads exactly what it did before.
+   *
+   * Under `prefers-reduced-motion: reduce` the dot stops animating and stays visible.
+   */
+  readonly pulse?: boolean;
   readonly testId?: string;
   /** Extra data attributes so tests can assert on the raw domain value, not on prose. */
   readonly dataAttributes?: Readonly<Record<string, string | undefined>>;
@@ -48,6 +59,7 @@ export function StatusBadge({
   children,
   title,
   variant = "solid",
+  pulse,
   testId,
   dataAttributes,
 }: StatusBadgeProps) {
@@ -56,10 +68,20 @@ export function StatusBadge({
       className={styles.badge}
       data-tone={tone}
       data-variant={variant}
+      // A stable hook for "this job is alive", so a test asserts on state rather than on a CSS
+      // animation frame.
+      data-activity={pulse ? "pulse" : undefined}
       {...(title ? { title } : {})}
       {...(testId ? { "data-testid": testId } : {})}
       {...(dataAttributes ?? {})}
     >
+      {pulse ? (
+        <span
+          className={styles.pulse}
+          aria-hidden="true"
+          data-testid="status-pulse"
+        />
+      ) : null}
       {children}
     </span>
   );

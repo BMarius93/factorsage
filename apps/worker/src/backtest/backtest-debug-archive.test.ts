@@ -699,13 +699,17 @@ describe("backtest debug archive — execution windows and frames", () => {
     expect(strategy.totalValue).toBeCloseTo(summary.finalValue as number, 6);
     expect(strategy.tradeCount).toBe(summary.totalTrades);
 
-    // Position-level continuation state, allowlisted rather than serialized wholesale.
-    const positions = last.positions as Record<string, unknown>[];
+    // Position-level continuation state, allowlisted rather than serialized wholesale. Read at an
+    // *intermediate* boundary: the final one carries none, because the end of the period
+    // liquidates everything the run still held.
+    const carried = checkpoints[0] as Record<string, unknown>;
+    const positions = carried.positions as Record<string, unknown>[];
     expect(positions.length).toBeGreaterThan(0);
     expect(positions[0]).toHaveProperty("epoch");
     expect(positions[0]).toHaveProperty("buyLevelsSettled");
     expect(positions[0]).toHaveProperty("sellLevelsFired");
     expect(positions[0]).toHaveProperty("previousSignedReturnPercent");
+    expect((last.positions as unknown[]).length).toBe(0);
     expect(last.comparison).toMatchObject({ benchmarkPendingCapital: 0 });
   });
 });

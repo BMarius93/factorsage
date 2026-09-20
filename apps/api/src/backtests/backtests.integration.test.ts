@@ -4,6 +4,8 @@ import {
   BACKTEST_MAX_PERIOD_YEARS,
   BACKTEST_RESULT_MAX_CURVE_POINTS,
   BACKTEST_SNAPSHOT_VERSION,
+  BACKTEST_TRADES_MAX_PAGE_SIZE,
+  BACKTEST_TRADES_PAGE_SIZE,
   DEFAULT_BENCHMARK_CODE,
   STRATEGY_SCHEMA_VERSION,
   canonicalBacktestSnapshotDocument,
@@ -15,6 +17,7 @@ import {
   type BacktestRunSnapshot,
   type BacktestRunStrategyResponse,
   type BacktestRunSummaryResponse,
+  type BacktestTradePageResponse,
   type BenchmarkResponse,
   type StrategyDefinition,
 } from "@intrinsic/contracts";
@@ -28,7 +31,15 @@ import { useTestDatabase } from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { AuthModule } from "../auth/auth.module";
 import { PasswordService } from "../auth/password.service";
 import { ConfigurationModule } from "../config/configuration.module";
@@ -1016,6 +1027,7 @@ describe("backtests", () => {
       portfolioReturnPercent: 3.5,
       benchmarkReturnPercent: 2.25,
       alphaPercent: 1.25,
+      portfolioCagrPercent: 2.9,
       maxDrawdownPercent: 4.75,
       benchmarkValue: 105_100.5,
       cashBaselineValue: 103_000,
@@ -1059,12 +1071,17 @@ describe("backtests", () => {
           symbol: symbolOf("A"),
           name: "Backtest Security A",
           action: "BUY",
+          source: "STRATEGY",
           levelPercentage: 25,
           shares: 12.5,
           price: 100,
           amount: 1_250,
           realizedPnl: null,
           realizedPnlPercent: null,
+          reason: {
+            kind: "STRATEGY",
+            conditions: ["Price is above EMA 200D"],
+          },
         },
       ],
     };
@@ -1341,41 +1358,75 @@ describe("backtests", () => {
       [...curve.map((point) => point.date)].sort(),
     );
 
-    // Most recent first, by deterministic execution sequence.
-    expect(result?.trades.map((trade) => trade.sequence)).toEqual([3, 2, 1]);
-    expect(result?.trades[0]).toEqual({
+    // Per-calendar-year returns, chained off the persisted return index and never cumulative. The
+    // fixture's index rises by 1/10,000 a day from 1.0, so each year's figure is that year's own
+    // growth — and multiplying them back together reproduces the run's total return.
+    const annual = result?.annualReturns ?? [];
+    expect(annual.map((entry) => entry.year)).toEqual([
+      "2015",
+      "2016",
+      "2017",
+      "2018",
+      "2019",
+    ]);
+    const chained = annual.reduce(
+      (total, entry) => total * (1 + entry.returnPercent / 100),
+      1,
+    );
+    // Against the curve's own final growth, which is what the return index actually reached —
+    // this fixture's hand-written summary percentage is a separate literal and is not derived
+    // from the equity rows.
+    const totalReturnPercent = last?.portfolioReturnPercent ?? 0;
+    expect((chained - 1) * 100).toBeCloseTo(totalReturnPercent, 6);
+    // Not cumulative: every year is a fraction of the total the run reached.
+    for (const entry of annual) {
+      expect(entry.returnPercent).toBeLessThan(totalReturnPercent);
+    }
+    // The run was submitted for 2015-01-01 to 2020-12-31, so no calendar year of it is partial.
+    expect(annual.some((entry) => entry.partial)).toBe(false);
+
+    // Trades and holdings are no longer part of the result payload: the log is paginated from the
+    // database, and a completed run ends in cash rather than in holdings.
+    expect(result).not.toHaveProperty("trades");
+    expect(result).not.toHaveProperty("holdings");
+    // The run's own count stays truthful, and is what the paginated log reports a total against.
+    expect(result?.summary.totalTrades).toBe(3);
+
+    // One page of the log, newest first, with each trade explained from the run's own snapshot.
+    const tradesResponse = await owner
+      .get(`/backtests/${run.id}/trades`)
+      .expect(200);
+    const trades = tradesResponse.body as BacktestTradePageResponse;
+    expect(trades).toMatchObject({
+      page: 1,
+      pageSize: BACKTEST_TRADES_PAGE_SIZE,
+      totalCount: 3,
+      pageCount: 1,
+    });
+    expect(trades.items.map((trade) => trade.sequence)).toEqual([3, 2, 1]);
+    expect(trades.items[0]).toEqual({
       sequence: 3,
       date: "2018-09-10",
       symbol: symbolOf("A"),
       name: "Backtest Security A",
       action: "SELL",
+      source: "STRATEGY",
       levelPercentage: 50,
       shares: 5,
       price: 150,
       amount: 750,
       realizedPnl: 250,
       realizedPnlPercent: 50,
+      // The fixture's SELL names no level, so there is nothing to describe — and inventing a
+      // reason would be worse than admitting there is none.
+      reason: null,
     });
-    expect(result?.trades[2]?.realizedPnl).toBeNull();
-
-    expect(result?.holdings.map((holding) => holding.symbol)).toEqual([
-      symbolOf("B"),
-      symbolOf("A"),
-    ]);
-    expect(result?.holdings[0]).toEqual({
-      symbol: symbolOf("B"),
-      name: "Backtest Security B",
-      shares: 5,
-      averageCost: 200,
-      lastPrice: 260,
-      lastPriceDate: "2020-12-31",
-      marketValue: 1_300,
-      unrealizedPnlPercent: 30,
-      allocationPercent: 1.3,
+    expect(trades.items[2]?.realizedPnl).toBeNull();
+    // A BUY names its level, and the level is described in the canonical Strategy language.
+    expect(trades.items[2]?.reason).toEqual({
+      kind: "STRATEGY",
+      conditions: ["Price is above EMA 200D"],
     });
-
-    // The trade log is bounded, but the run's own count stays truthful.
-    expect(result?.summary.totalTrades).toBe(3);
   });
 
   it("still renders a run completed before the funded benchmark scenario existed", async () => {
@@ -1873,6 +1924,322 @@ describe("backtests", () => {
       expect(serialized).not.toContain("internal@2");
       expect(serialized).not.toContain("assertMethodologySupported");
     }
+  });
+
+  /**
+   * A trade log explains itself from the run's own snapshot.
+   *
+   * Two things are being proved. The reason comes from the **frozen** definition rather than the
+   * live strategy — a strategy edited after a run must not rewrite that run's history — and the
+   * end-of-backtest liquidation is told apart from the strategy's FINAL EXIT, which is a Strategy
+   * level with its own product meaning.
+   */
+  describe("trade reasons", () => {
+    const EXIT_RULE_ONE = {
+      id: "exit-rule-1",
+      signal: {
+        conditions: [
+          {
+            id: "exit-condition-1",
+            metric: { kind: "LOSS" },
+            operator: "IS_ABOVE",
+            value: { kind: "PERCENT", value: 30 },
+          },
+        ],
+      },
+    };
+    const EXIT_RULE_TWO = {
+      id: "exit-rule-2",
+      signal: {
+        conditions: [
+          {
+            id: "exit-condition-2",
+            metric: { kind: "OSCILLATOR", seriesId: "RSI_14D" },
+            operator: "IS_BELOW",
+            value: { kind: "NUMBER", value: 30 },
+          },
+        ],
+      },
+    };
+
+    it("names the rule that fired, from the snapshot, and never calls a liquidation a final exit", async () => {
+      const run = await submit();
+      // A FINAL EXIT with two alternatives, frozen into this run's snapshot. Written directly
+      // because the fixture strategy has none, and the point is what the *snapshot* says.
+      const current = await prisma.backtestRun.findUniqueOrThrow({
+        where: { id: run.id },
+        select: { snapshot: true },
+      });
+      const snapshot = current.snapshot as unknown as Record<string, unknown>;
+      const strategy = snapshot.strategy as Record<string, unknown>;
+      await prisma.backtestRun.update({
+        where: { id: run.id },
+        data: {
+          snapshot: {
+            ...snapshot,
+            strategy: {
+              ...strategy,
+              definition: {
+                ...(strategy.definition as Record<string, unknown>),
+                finalExit: {
+                  id: "final-exit",
+                  rules: [EXIT_RULE_ONE, EXIT_RULE_TWO],
+                },
+              },
+            },
+          } as never,
+        },
+      });
+
+      const securityA = securityIdsBySymbol.get(symbolOf("A")) ?? "";
+      const base = {
+        runId: run.id,
+        date: new Date("2018-09-10T00:00:00.000Z"),
+        securityId: securityA,
+        symbol: symbolOf("A"),
+        name: "Backtest Security A",
+        shares: 5,
+        price: 150,
+        amount: 750,
+        fees: 0,
+        cashAfter: 1_000,
+        sharesAfter: 0,
+      };
+      await prisma.backtestTrade.createMany({
+        data: [
+          {
+            ...base,
+            sequence: 1,
+            action: "BUY" as const,
+            levelId: "buy-1",
+            levelPercentage: 25,
+            sharesAfter: 5,
+          },
+          {
+            ...base,
+            sequence: 2,
+            action: "FINAL_EXIT" as const,
+            levelId: "final-exit",
+            // The alternative that actually matched. Without it the log could only recite both.
+            exitRuleId: "exit-rule-2",
+          },
+          {
+            ...base,
+            sequence: 3,
+            action: "SELL" as const,
+            source: "END_OF_BACKTEST" as const,
+            levelId: null,
+          },
+        ],
+      });
+
+      const response = await owner
+        .get(`/backtests/${run.id}/trades`)
+        .expect(200);
+      const page = response.body as BacktestTradePageResponse;
+      const bySequence = new Map(
+        page.items.map((trade) => [trade.sequence, trade]),
+      );
+
+      expect(bySequence.get(1)?.reason).toEqual({
+        kind: "STRATEGY",
+        conditions: ["Price is above EMA 200D"],
+      });
+      // Exactly the rule that matched — not both alternatives.
+      expect(bySequence.get(2)?.reason).toEqual({
+        kind: "STRATEGY",
+        exitRule: 2,
+        conditions: ["RSI 14D is below 30"],
+      });
+      expect(JSON.stringify(bySequence.get(2)?.reason)).not.toContain("Loss");
+
+      // The liquidation is a SELL whose reason is the end of the period, and it carries no level.
+      expect(bySequence.get(3)).toMatchObject({
+        action: "SELL",
+        source: "END_OF_BACKTEST",
+        levelPercentage: null,
+        reason: { kind: "END_OF_BACKTEST" },
+      });
+
+      // Editing the live strategy afterwards changes nothing: the run answers from its snapshot.
+      // The same level id, now comparing against a different series.
+      const edited = {
+        ...definition,
+        buyLevels: [
+          {
+            ...(definition.buyLevels[0] as (typeof definition.buyLevels)[0]),
+            signal: {
+              conditions: [
+                {
+                  id: "condition-1",
+                  metric: { kind: "PRICE" as const },
+                  operator: "IS_ABOVE" as const,
+                  value: { kind: "SERIES" as const, seriesId: "SMA_200D" },
+                },
+              ],
+            },
+          },
+        ],
+      };
+      try {
+        await prisma.strategyVersion.updateMany({
+          where: { strategyId },
+          data: { definition: edited as never },
+        });
+        const after = await owner
+          .get(`/backtests/${run.id}/trades`)
+          .expect(200);
+        expect(
+          (after.body as BacktestTradePageResponse).items.find(
+            (trade) => trade.sequence === 1,
+          )?.reason,
+          // Still EMA 200D: the run reads its own frozen copy, never the row that just changed.
+        ).toEqual({
+          kind: "STRATEGY",
+          conditions: ["Price is above EMA 200D"],
+        });
+      } finally {
+        // Shared fixture state: every later test submits against this strategy.
+        await prisma.strategyVersion.updateMany({
+          where: { strategyId },
+          data: { definition: definition as never },
+        });
+      }
+    });
+  });
+
+  /**
+   * The trade log is read a page at a time, from the database.
+   *
+   * A thirty-year run in the validation matrix reached 18,348 trades. Shipping a bounded tail of
+   * them and paging that in the browser was neither the whole log nor a usable page of one, so the
+   * ordering, the window and the count all live in PostgreSQL — over `(runId, sequence)`, which is
+   * already unique and therefore already indexed.
+   */
+  describe("the paginated trade log", () => {
+    const TRADE_COUNT = 620;
+    let pagedRunId = "";
+
+    // Per test rather than once: the suite removes every run after each case, so a run created in
+    // a `beforeAll` would exist only for the first one.
+    beforeEach(async () => {
+      const run = await submit({
+        startDate: "2015-01-01",
+        endDate: "2020-12-31",
+      });
+      pagedRunId = run.id;
+      const securityA = securityIdsBySymbol.get(symbolOf("A")) ?? "";
+      await prisma.backtestTrade.createMany({
+        data: Array.from({ length: TRADE_COUNT }, (_unused, index) => ({
+          runId: run.id,
+          sequence: index + 1,
+          date: new Date(`${isoDate(index)}T00:00:00.000Z`),
+          securityId: securityA,
+          symbol: symbolOf("A"),
+          name: "Backtest Security A",
+          action: "BUY" as const,
+          levelId: "buy-1",
+          levelPercentage: 25,
+          shares: 1,
+          price: 100,
+          amount: 100,
+          fees: 0,
+          cashAfter: 1_000,
+          sharesAfter: index + 1,
+          averageCostAfter: 100,
+        })),
+      });
+    });
+
+    async function page(query = ""): Promise<BacktestTradePageResponse> {
+      const response = await owner
+        .get(`/backtests/${pagedRunId}/trades${query}`)
+        .expect(200);
+      return response.body as BacktestTradePageResponse;
+    }
+
+    it("defaults to the newest fifty trades", async () => {
+      const first = await page();
+      expect(first.page).toBe(1);
+      expect(first.pageSize).toBe(BACKTEST_TRADES_PAGE_SIZE);
+      expect(first.totalCount).toBe(TRADE_COUNT);
+      expect(first.pageCount).toBe(Math.ceil(TRADE_COUNT / 50));
+      expect(first.items).toHaveLength(50);
+      // Newest first, by the engine's own execution order.
+      expect(first.items[0]?.sequence).toBe(TRADE_COUNT);
+      expect(first.items.at(-1)?.sequence).toBe(TRADE_COUNT - 49);
+    });
+
+    it("serves a middle page and the last page from the same ordering", async () => {
+      const middle = await page("?page=5");
+      expect(middle.page).toBe(5);
+      expect(middle.items[0]?.sequence).toBe(TRADE_COUNT - 200);
+      expect(middle.items).toHaveLength(50);
+
+      const last = await page(`?page=${Math.ceil(TRADE_COUNT / 50)}`);
+      expect(last.items).toHaveLength(TRADE_COUNT % 50 || 50);
+      expect(last.items.at(-1)?.sequence).toBe(1);
+    });
+
+    it("honours a page size, bounded by the contract's maximum", async () => {
+      const sized = await page("?pageSize=200");
+      expect(sized.pageSize).toBe(200);
+      expect(sized.items).toHaveLength(200);
+      expect(sized.pageCount).toBe(Math.ceil(TRADE_COUNT / 200));
+
+      const capped = await page("?pageSize=5000");
+      expect(capped.pageSize).toBe(BACKTEST_TRADES_MAX_PAGE_SIZE);
+      expect(capped.items).toHaveLength(BACKTEST_TRADES_MAX_PAGE_SIZE);
+    });
+
+    it("covers the whole log exactly once: no duplicates, no missing rows", async () => {
+      const seen: number[] = [];
+      const pageCount = Math.ceil(TRADE_COUNT / 50);
+      for (let index = 1; index <= pageCount; index += 1) {
+        const body = await page(`?page=${index}`);
+        seen.push(...body.items.map((trade) => trade.sequence));
+      }
+      expect(seen).toHaveLength(TRADE_COUNT);
+      expect(new Set(seen).size).toBe(TRADE_COUNT);
+      // Descending, contiguous, and reaching both ends of the run.
+      expect(seen[0]).toBe(TRADE_COUNT);
+      expect(seen.at(-1)).toBe(1);
+      expect([...seen].sort((left, right) => left - right)).toEqual(
+        Array.from({ length: TRADE_COUNT }, (_unused, index) => index + 1),
+      );
+    });
+
+    it("clamps a page past the end and a nonsense one, rather than refusing", async () => {
+      // A stale bookmark should land on the last real page, not on an error.
+      const beyond = await page("?page=9999");
+      expect(beyond.page).toBe(Math.ceil(TRADE_COUNT / 50));
+      expect(beyond.items.at(-1)?.sequence).toBe(1);
+
+      for (const query of ["?page=0", "?page=-3", "?page=abc", "?page="]) {
+        const fallback = await page(query);
+        expect(fallback.page).toBe(1);
+        expect(fallback.items[0]?.sequence).toBe(TRADE_COUNT);
+      }
+      const badSize = await page("?pageSize=0");
+      expect(badSize.pageSize).toBe(BACKTEST_TRADES_PAGE_SIZE);
+    });
+
+    it("reports one page even for a run that traded nothing", async () => {
+      const empty = await submit();
+      const response = await owner
+        .get(`/backtests/${empty.id}/trades`)
+        .expect(200);
+      expect(response.body as BacktestTradePageResponse).toMatchObject({
+        items: [],
+        page: 1,
+        totalCount: 0,
+        pageCount: 1,
+      });
+    });
+
+    it("answers 404 for a run the caller does not own", async () => {
+      await other.get(`/backtests/${pagedRunId}/trades`).expect(404);
+    });
   });
 
   it("reports no phase rather than one the browser cannot label", async () => {
