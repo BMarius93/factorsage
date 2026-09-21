@@ -7,6 +7,7 @@ import {
   OSCILLATOR_SERIES,
   PRICE_COMPARABLE_SERIES,
   type SelectableSeriesId,
+  type SelectableSeriesSource,
 } from "./selectable-series.js";
 
 /**
@@ -1076,6 +1077,55 @@ export const STRATEGY_LEVEL_HELP: Record<StrategyLevelKind, StrategyHelpEntry> =
         "FINAL EXIT is a distinct concept rather than a `SELL 100%` level, so it has no percentage: keeping it separate is what lets reporting tell partial profit-taking apart from the condition that ends the position.",
     },
   };
+
+/**
+ * What a catalog series means when it is chosen as the comparison **Value**.
+ *
+ * A Value is the same object as a Metric wherever the product offers it as both, so the families
+ * that have a Metric of their own are keyed straight back to that Metric's entry rather than
+ * explained twice — `SMA 200D` says the same thing whichever side of the Condition it sits on.
+ * The intrinsic-value families are the two that have no Metric of their own: `Margin of Safety`
+ * consumes an intrinsic-value source rather than being one, so without these entries selecting
+ * `Price is below <blend>` would have nothing canonical to say about the series it compares with.
+ *
+ * Keyed by the catalog's own `source.kind`, so one entry serves a whole family and no series is
+ * named in text shared by all of them.
+ */
+export const STRATEGY_VALUE_SERIES_HELP: Record<
+  SelectableSeriesSource["kind"],
+  StrategyHelpEntry
+> = {
+  MOVING_AVERAGE: STRATEGY_METRIC_HELP.MOVING_AVERAGE,
+  OSCILLATOR: STRATEGY_METRIC_HELP.OSCILLATOR,
+  INTRINSIC_VALUE_BLEND: {
+    summary:
+      "A weighted combination of the intrinsic-value models, as a value per share.",
+    detail:
+      "A blend is on the price scale, so it compares with Price. Its weights are a versioned product definition rather than something a rule configures, and the comparison is point-in-time: the blend's value as it stood on the evaluated date.",
+    notEvaluableWhen:
+      "The blend has no point-in-time value for the date, because a model it is composed of has none.",
+  },
+  INTRINSIC_VALUE_MODEL: {
+    summary: "One intrinsic-value model on its own, as a value per share.",
+    detail:
+      "A model is on the price scale, so it compares with Price. Comparing against a single model rather than a blend is a deliberately narrower rule: it answers to that one method and to nothing else, on that model's point-in-time series for the evaluated date.",
+    notEvaluableWhen: "The model has no point-in-time value for the date.",
+  },
+};
+
+/**
+ * The canonical help for one catalog series, or `undefined` when the id is not a catalog entry.
+ *
+ * The one accessor a surface needs to explain a `SERIES` Value. A numeric or percentage Value has
+ * no entry and never gets one: a threshold the user typed explains itself, and inventing prose for
+ * it would be help text with no canonical source.
+ */
+export function strategySeriesHelp(
+  seriesId: SelectableSeriesId,
+): StrategyHelpEntry | undefined {
+  const entry = findSelectableSeries(seriesId);
+  return entry ? STRATEGY_VALUE_SERIES_HELP[entry.source.kind] : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Validation

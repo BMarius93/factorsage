@@ -37,7 +37,7 @@ describe("(app) error boundary (UX-006)", () => {
       screen
         .getByRole("link", { name: "Go to the Dashboard" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
     // Logged for whoever is debugging, and only to the console.
     expect(logged).toHaveBeenCalledWith(error);
   });

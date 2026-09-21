@@ -70,3 +70,39 @@
 .badge[data-variant="outline"][data-tone="pending"] {
   border-color: var(--color-border-strong);
 }
+
+/* The "still processing" dot.
+
+   Deliberately restrained: a slow opacity-and-scale breath in the badge's own colour, not a
+   blink. It says a job is alive; it says nothing about progress, which is why only a
+   non-terminal status ever wears one. */
+.pulse {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  animation: status-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Reduced motion keeps the dot — it is part of reading the status — and drops the movement. */
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    animation: none;
+    opacity: 0.8;
+  }
+}

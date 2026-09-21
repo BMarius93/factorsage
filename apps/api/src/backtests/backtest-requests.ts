@@ -234,3 +234,32 @@ function parseBenchmarkCode(value: unknown): string {
   }
   return value.trim();
 }
+
+/**
+ * `?page=` and `?pageSize=` on the trade log.
+ *
+ * Deliberately forgiving where a rejection would help nobody: a missing, malformed or
+ * out-of-range value falls back to the default rather than answering `400`, and the service
+ * clamps a page past the end to the last real one. A bookmark to page 400 of a run that has since
+ * been re-read should land on its last page, not on an error — and there is no state to corrupt
+ * here, which is what makes leniency safe on this route and wrong on submission.
+ */
+export function parseTradePageRequest(query: {
+  page?: unknown;
+  pageSize?: unknown;
+}): { page?: number; pageSize?: number } {
+  const page = parsePositiveInteger(query.page);
+  const pageSize = parsePositiveInteger(query.pageSize);
+  return {
+    ...(page === undefined ? {} : { page }),
+    ...(pageSize === undefined ? {} : { pageSize }),
+  };
+}
+
+function parsePositiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : undefined;
+}

@@ -18,8 +18,17 @@ describe("primary navigation configuration", () => {
     expect(PRIMARY_NAV_ITEMS.length).toBeLessThanOrEqual(5);
   });
 
-  it("keeps Dashboard as the application home", () => {
-    expect(APP_HOME_HREF).toBe("/dashboard");
+  it("keeps Dashboard as the application home, at the root route", () => {
+    expect(APP_HOME_HREF).toBe("/");
+    expect(
+      PRIMARY_NAV_ITEMS.find((item) => item.id === "dashboard")?.href,
+    ).toBe("/");
+  });
+
+  it("never sends a primary destination to the legacy /dashboard address", () => {
+    const hrefs: readonly string[] = PRIMARY_NAV_ITEMS.map((item) => item.href);
+
+    expect(hrefs).not.toContain("/dashboard");
   });
 
   it("does not expose /stocks as a primary destination", () => {
@@ -39,7 +48,8 @@ describe("primary navigation configuration", () => {
   it("uses absolute hrefs without trailing slashes and non-empty labels", () => {
     for (const item of PRIMARY_NAV_ITEMS) {
       expect(item.href.startsWith("/")).toBe(true);
-      expect(item.href.endsWith("/")).toBe(false);
+      // The root route is the one href that legitimately ends in a slash: it *is* the slash.
+      expect(item.href === "/" || !item.href.endsWith("/")).toBe(true);
       expect(item.label.trim()).not.toBe("");
     }
   });

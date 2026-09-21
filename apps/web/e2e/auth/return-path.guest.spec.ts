@@ -61,7 +61,7 @@ test.describe("sign-in return destination", () => {
       await page.goto(`/login?next=${encodeURIComponent(hostile)}`);
       await submitSignInForm(page, qaPersona("PRO_USER"));
 
-      await expect(page).toHaveURL("/dashboard");
+      await expect(page).toHaveURL("/");
       expect(new URL(page.url()).origin).toBe(new URL(baseURL ?? "").origin);
       // The browser never so much as asked the hostile host for anything.
       expect(

@@ -16,7 +16,6 @@ import {
 } from "../../../components/ui/DataTable";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
-import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SelectControl } from "../../../components/ui/SelectControl";
@@ -101,22 +100,33 @@ function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
         kind="strategy"
         name={row.strategy.name}
         href={`/strategies/${row.strategy.id}`}
+        lines={2}
       />
       <EntityReferenceChip
         kind="list"
         name={row.stockList.name}
         href={`/lists/${row.stockList.id}`}
+        lines={2}
       />
       <EntityReferenceChip
         kind="monitor"
         name={row.monitor.name}
         href={`/monitors/${row.monitor.id}`}
+        lines={2}
       />
     </IntermediateOnly>
   );
 }
 
-/** How long the row's state has held, from `since`; the reconstruction marker when it applies. */
+/**
+ * How long the row's state has held, from `since`.
+ *
+ * Only the age. `row.reconstructed` — whether the lifecycle was rebuilt from Signal history
+ * rather than observed live — is a real and meaningful fact about the *engine*
+ * (`docs/decisions/builtin-dashboard-signals-v1.md`), and it stays in the contract and on the
+ * Monitor's own page. It is not a fact about this stock: "from history" under a date told a
+ * reader on the product's home page nothing they could act on, in the voice of a debug log.
+ */
 function SinceCell({ row }: { readonly row: DashboardRowResponse }) {
   const now = useContext(NowContext);
   return (
@@ -125,9 +135,6 @@ function SinceCell({ row }: { readonly row: DashboardRowResponse }) {
         {formatAge(row.since, now)}
         <span className={styles.srOnly}> ({formatDateTime(row.since)})</span>
       </time>
-      {row.reconstructed ? (
-        <span className={styles.sinceNote}>from history</span>
-      ) : null}
     </span>
   );
 }
@@ -157,6 +164,23 @@ export function sortDashboardRows(
 const NowContext = createContext<Date>(new Date(0));
 
 /**
+ * The floor under Strategy, List and Monitor.
+ *
+ * Eight columns sharing a 1,440px table left these three at the width of "Trend C…", which is
+ * where three distinguishable objects stopped being distinguishable. They are now allowed two
+ * lines (`EntityReferenceChip lines={2}`) and this much width to wrap inside; `Why` keeps its own
+ * floor and its 26rem ceiling, so it stays the dominant column it should be.
+ *
+ * The value is the widest the table can afford at **1,280px** — the narrowest width at which all
+ * eight columns are shown, since 880–1,279px folds these three out. What the other five need there
+ * is not negotiable (the ticker, a `Waiting for trigger` badge, a relative time, the reason and a
+ * price), and what is left over is this. Asking for more does not make the column wider: it makes
+ * `DataTable`'s safety valve scroll the table sideways inside its surface, which is worse than a
+ * name wrapping. Measured against the QA fixtures, which carry the longest action badge.
+ */
+const RELATIONSHIP_COLUMN_MIN_WIDTH = "9.5rem";
+
+/**
  * The signal table's columns.
  *
  * Strategy, List and Monitor are **three** columns, not one. They are three different objects with
@@ -177,7 +201,13 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     // A floor under the column that identifies the row: at laptop widths the table's other
     // columns used to squeeze it to "U." (UX-007). The mark plus a full seven-character ticker;
     // the company name still truncates.
-    minWidth: "7rem",
+    //
+    // `--column-min-width` is a border-box floor, so this has to cover the cell's own 32px of
+    // padding as well as the 28px mark, its 10px gap and the widest ticker the catalog allows
+    // (`QATEST1`, 53px at 13px/600). 7rem left 44px for a 53px ticker and only ever worked
+    // because auto table layout handed the column more than its floor — which stopped being true
+    // once Strategy, List and Monitor were given floors of their own.
+    minWidth: "8.5rem",
     render: (row) => (
       <span className={styles.stockCell}>
         <StockIdentity
@@ -218,21 +248,29 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
   {
     // When the present state began (UI-025): a signal says how long it has held, not just that it
     // holds. Relative and ticking, with the exact time beside it for keyboard and screen readers.
+    //
+    // On a phone it is a `summary` cell: "3 days ago" needs no "SINCE" label above it, and paying
+    // a labelled row for it — and another for the price — is how a card grew to a screenful.
     key: "since",
     header: "Since",
+    cardRole: "summary",
     nowrap: true,
     render: (row) => <SinceCell row={row} />,
   },
   {
     key: "reason",
     header: "Why",
-    cardLabel: "Why",
+    // No visible label on a card: the value is already a sentence about why this row is here.
+    // The column header still labels the cell for assistive technology.
+    cardLabel: null,
     stacked: true,
     render: (row) => <ReasonCell row={row} />,
   },
   {
     key: "price",
     header: "Price",
+    // Shares the card's summary line with `since`, at the other end of it.
+    cardRole: "summary",
     align: "right",
     numeric: true,
     nowrap: true,
@@ -248,12 +286,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     foldIntermediate: true,
     header: "Strategy",
     cardRole: "links",
+    // A floor under the name, because these three columns are what the reader distinguishes one
+    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="strategy"
           name={row.strategy.name}
           href={`/strategies/${row.strategy.id}`}
+          lines={2}
         />
       </span>
     ),
@@ -263,12 +305,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     foldIntermediate: true,
     header: "List",
     cardRole: "links",
+    // A floor under the name, because these three columns are what the reader distinguishes one
+    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="list"
           name={row.stockList.name}
           href={`/lists/${row.stockList.id}`}
+          lines={2}
         />
       </span>
     ),
@@ -278,12 +324,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     foldIntermediate: true,
     header: "Monitor",
     cardRole: "links",
+    // A floor under the name, because these three columns are what the reader distinguishes one
+    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="monitor"
           name={row.monitor.name}
           href={`/monitors/${row.monitor.id}`}
+          lines={2}
         />
       </span>
     ),
@@ -291,7 +341,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
 ];
 
 /**
- * The application home: every current match and setup from the monitors the viewer can see.
+ * The application home, at `/`: every current match and setup from the monitors the viewer can see.
  *
  * `docs/decisions/builtin-dashboard-signals-v1.md` section 4. One row per monitor outcome — the same
  * stock under two monitors is two rows — showing `ACTIVE` signals and `PENDING_TRIGGER` setups only.
@@ -329,20 +379,18 @@ export function DashboardPage() {
   return (
     <PageContainer>
       <div className={styles.page} data-testid="dashboard-page">
-        <PageHeader
-          title="Dashboard"
-          lead="Current matches and setups from your monitors, including FactorSage's built-in ones."
-          aside={
-            dashboard ? (
-              <OverallFreshness monitors={shownMonitors} now={now} />
-            ) : undefined
-          }
-        />
+        {/* The page's one heading, and nothing else of the header that used to sit here.
+            A card saying "Dashboard" over a sentence explaining what a dashboard is, with the
+            freshness pill parked in its corner, spent the whole first screen of the product's
+            home page introducing it to a reader who had arrived on purpose. The name is still
+            the document's `h1` — in the tab title, in the landmark tree and under a screen
+            reader's heading key — it just is not a 120px card any more. */}
+        <h1 className={styles.srOnly}>Dashboard</h1>
 
-        {/* The overview strip, directly under the header and above everything else — V1's own
-            placement, and the one that makes the market the context the signals are read in rather
-            than a footnote under them. It is given the *unfiltered* rows on purpose: narrowing the
-            table below must not change what is matching. */}
+        {/* The overview strip is now the first thing on the page — V1's own placement, and the
+            one that makes the market the context the matches are read in rather than a footnote
+            under them. It is given the *unfiltered* rows on purpose: narrowing the table below
+            must not change what is matching. */}
         <DashboardOverview rows={rows} rowsReady={status === "ready"} />
 
         {guest && status === "ready" ? (
@@ -352,10 +400,7 @@ export function DashboardPage() {
               choose which ones appear here, create your own, and backtest any
               of them.
             </p>
-            <Link
-              className={forms.tintedButton}
-              href={signInHref("/dashboard")}
-            >
+            <Link className={forms.tintedButton} href={signInHref()}>
               Sign in
             </Link>
           </div>
@@ -387,8 +432,13 @@ export function DashboardPage() {
         {status === "ready" && dashboard ? (
           <SectionCard
             id="signals"
-            title="Current signals"
-            caption="Active signals stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
+            title="Current matches"
+            caption="Active matches stay here while their conditions hold. Setups waiting for a trigger become active when it fires."
+            // Freshness reads as a detail of the matches, beside the heading they belong to,
+            // rather than as a page-level announcement (UI-048). The scan times behind it are
+            // unchanged: it is still the newest `lastScanAt` of the monitors on screen, and it
+            // still refuses to call a stale Dashboard current.
+            aside={<OverallFreshness monitors={shownMonitors} now={now} />}
             flush={rows.length > 0}
             toolbar={
               rows.length > 0 ? (
@@ -452,7 +502,7 @@ export function DashboardPage() {
               <EmptyState
                 variant="compact"
                 testId="dashboard-signals-filtered-empty"
-                title="No signals match these filters"
+                title="No matches for these filters"
                 actions={
                   <button
                     type="button"
@@ -469,7 +519,7 @@ export function DashboardPage() {
             ) : (
               <NowContext.Provider value={now}>
               <DataTable
-                label="Current signals"
+                label="Current matches"
                 testId="dashboard-signals"
                 rowTestId="dashboard-signal-row"
                 clickableRows
@@ -487,8 +537,13 @@ export function DashboardPage() {
 }
 
 /**
- * The page-level freshness fact: the newest scan among the monitors shown, and a warning when any
- * of them is stale. A Dashboard is never labelled live when its scans are not current.
+ * How fresh the matches are: the newest scan among the monitors shown, and a warning when any of
+ * them is stale. A Dashboard is never labelled live when its scans are not current.
+ *
+ * Two treatments, because they are two different statements. `Updated 4 min ago` is reassurance —
+ * quiet text beside the section's heading, where a reader can find it and nothing else has to make
+ * room for it. Anything else is a caveat about what they are looking at, and keeps the badge it has
+ * always had, because a stale or never-scanned Dashboard has to say so at a glance.
  */
 function OverallFreshness({
   monitors,
@@ -504,9 +559,19 @@ function OverallFreshness({
   const newest = scanned[scanned.length - 1];
   const stale = monitors.some((monitor) => monitor.freshness === "STALE");
   const freshness = stale ? "STALE" : newest ? "CURRENT" : "NOT_SCANNED";
+  const label = freshnessLabel(freshness, newest, now);
+
+  if (freshness === "CURRENT") {
+    return (
+      <span className={styles.freshness} data-testid="dashboard-freshness">
+        {label}
+      </span>
+    );
+  }
+
   return (
     <StatusBadge tone={FRESHNESS_TONES[freshness]} testId="dashboard-freshness">
-      {freshnessLabel(freshness, newest, now)}
+      {label}
     </StatusBadge>
   );
 }

@@ -222,10 +222,13 @@ describe("backtest diagnostics observer", () => {
     expect(last.state.comparison.benchmarkShares).toBeGreaterThan(0);
     expect(last.state.comparison.benchmarkPendingCapital).toBe(0);
 
-    // The position carried across both New Years is one lifecycle, at epoch 1.
-    expect(last.state.positions).toHaveLength(1);
-    expect(last.state.positions[0]?.epoch).toBe(1);
-    expect(last.state.positions[0]?.buyLevelsSettled).toEqual(["b100"]);
+    // The position carried across the New Year is one lifecycle, at epoch 1.
+    const middle = captured.closed[1] as BacktestWindowClosedDiagnostics;
+    expect(middle.state.positions).toHaveLength(1);
+    expect(middle.state.positions[0]?.epoch).toBe(1);
+    expect(middle.state.positions[0]?.buyLevelsSettled).toEqual(["b100"]);
+    // The final boundary carries none: the end of the period liquidated it.
+    expect(last.state.positions).toHaveLength(0);
 
     // The retained Trigger context row is named, so a reviewer can check the next year's crossing.
     expect(first.state.contextRows).toHaveLength(1);

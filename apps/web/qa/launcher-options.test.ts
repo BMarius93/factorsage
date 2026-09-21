@@ -15,7 +15,7 @@ describe("parseLauncherArguments", () => {
       "pro",
       "admin",
     ]);
-    expect(options.route).toBe("/dashboard");
+    expect(options.route).toBe("/");
     expect(options.baseUrl).toBe("http://localhost:3000");
   });
 

@@ -11,7 +11,7 @@ test.describe("ADMIN_USER session @smoke", () => {
   });
 
   test("shows the ADMIN role in the account menu", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await openAccountMenu(page);
 
     await expect(page.getByTestId("account-email")).toHaveText(
@@ -23,7 +23,7 @@ test.describe("ADMIN_USER session @smoke", () => {
   });
 
   test("signing out clears the authenticated state", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await openAccountMenu(page);
     await page.getByTestId("sign-out").click();
 

@@ -14,17 +14,23 @@ import { PLAN_LABEL } from "../../billing/utils/format";
 import styles from "./AccountMenu.module.css";
 
 /**
- * Account control for the application topbar: identity, ADMIN entry point, sign out of this browser
- * and sign out everywhere — or, for a Guest on a public page, the way to sign in.
+ * Account control for the application topbar: identity, plan, billing, the ADMIN entry point and
+ * sign out — or, for a Guest on a public page, the way to sign in.
+ *
+ * There is deliberately **no "Sign out everywhere" item**. Revoking every session of an account is
+ * a real capability and it still exists end to end — `signOut({ everywhere: true })` here,
+ * `POST /auth/logout-everywhere` and the `sessionTokenVersion` bump behind it — but it is a
+ * security recovery step taken once after losing a device, not one of the four things a customer
+ * opens this menu to do. Sitting under the ordinary Sign out, in the same shape and wording, its
+ * main effect was to make the ordinary one a choice. When it is given a surface again it belongs
+ * with the account's other security settings, next to the sessions it ends.
  */
 export function AccountMenu() {
   const router = useRouter();
   const pathname = usePathname();
   const { state, signOut } = useAuthSession();
   const [open, setOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState<"here" | "everywhere" | null>(
-    null,
-  );
+  const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -92,22 +98,22 @@ export function AccountMenu() {
   // dominate the topbar, and the full address is one click away inside the menu.
   const monogram = (user.email.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
 
-  async function handleSignOut(scope: "here" | "everywhere") {
+  async function handleSignOut() {
     // Signing out leaves the page too, so unsaved work gets the same say as any navigation.
     if (!canNavigate()) {
       return;
     }
-    setSigningOut(scope);
+    setSigningOut(true);
     setError(false);
 
     try {
-      await signOut({ everywhere: scope === "everywhere" });
+      await signOut({ everywhere: false });
       setOpen(false);
       router.replace("/login");
       router.refresh();
     } catch {
       setError(true);
-      setSigningOut(null);
+      setSigningOut(false);
     }
   }
 
@@ -203,24 +209,11 @@ export function AccountMenu() {
           <button
             className={styles.signOut}
             type="button"
-            disabled={signingOut !== null}
+            disabled={signingOut}
             data-testid="sign-out"
-            onClick={() => void handleSignOut("here")}
+            onClick={() => void handleSignOut()}
           >
-            {signingOut === "here" ? "Signing out…" : "Sign out"}
-          </button>
-
-          {/* Ends every session of the account, on every device — the step after a lost device. */}
-          <button
-            className={styles.signOut}
-            type="button"
-            disabled={signingOut !== null}
-            data-testid="sign-out-everywhere"
-            onClick={() => void handleSignOut("everywhere")}
-          >
-            {signingOut === "everywhere"
-              ? "Signing out everywhere…"
-              : "Sign out everywhere"}
+            {signingOut ? "Signing out…" : "Sign out"}
           </button>
 
           {error ? (

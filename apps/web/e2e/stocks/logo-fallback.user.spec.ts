@@ -21,7 +21,7 @@ test("renders a monogram for a missing logo with a clean console, cold and cache
 
   for (const pass of ["first load", "reload"]) {
     if (pass === "first load") {
-      await page.goto("/dashboard");
+      await page.goto("/");
     } else {
       await page.reload();
     }

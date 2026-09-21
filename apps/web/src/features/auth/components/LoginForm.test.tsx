@@ -69,7 +69,7 @@ describe("LoginForm", () => {
         password: "Local-test-password-42",
       });
     });
-    expect(replace).toHaveBeenCalledWith("/dashboard");
+    expect(replace).toHaveBeenCalledWith("/");
   });
 
   it("shows one generic message for any rejected credentials", async () => {
@@ -156,7 +156,7 @@ describe("LoginForm", () => {
 
       await submitCredentials("user@example.test", "Local-test-password-42");
 
-      await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+      await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
     });
 
     it("does not move the browser when sign-in is refused", async () => {

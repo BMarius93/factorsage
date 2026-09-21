@@ -7,8 +7,8 @@
  * apart on any case listed here without a failing test on one side.
  */
 
-/** What every rejected, empty or absent value resolves to. */
-export const RETURN_PATH_DEFAULT = "/dashboard";
+/** What every rejected, empty or absent value resolves to: the Dashboard, at `/`. */
+export const RETURN_PATH_DEFAULT = "/";
 
 /** The longest destination either side accepts, in UTF-16 code units. */
 export const RETURN_PATH_MAX_LENGTH = 2048;

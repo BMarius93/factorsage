@@ -56,6 +56,7 @@ export function OperatorSelect({
       density="compact"
       testId="operator-select"
       aria-label={label}
+      title={labelFor(operator)}
       invalid={invalid}
       {...(describedBy ? { "aria-describedby": describedBy } : {})}
       value={operator}

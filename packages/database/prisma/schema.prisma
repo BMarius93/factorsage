@@ -717,6 +717,20 @@ enum BacktestTradeAction {
   FINAL_EXIT
 }
 
+/// What put a trade in the log: the Strategy's own signal, or the end of the simulated period.
+///
+/// Deliberately a second axis rather than a fourth `BacktestTradeAction`. An end-of-backtest
+/// liquidation *is* a sale and is shown as one, so it keeps `SELL`; what it is not is a strategy
+/// decision, and folding it into `FINAL_EXIT` would attribute an execution rule to the user's
+/// strategy. See `terminalLiquidation` in the run's snapshotted methodology.
+///
+/// `STRATEGY` is the default so every row written before terminal liquidation existed keeps saying
+/// exactly what it always meant.
+enum BacktestTradeSource {
+  STRATEGY
+  END_OF_BACKTEST
+}
+
 /// One immutable execution of a backtest configuration.
 ///
 /// `snapshot` is the reproducibility authority: strategy identity and normalized definition,
@@ -888,8 +902,16 @@ model BacktestTrade {
   symbol             String
   name               String
   action             BacktestTradeAction
-  /// Strategy level that produced the order; null for FINAL EXIT, which has no percentage.
+  /// Whether the Strategy decided this, or the simulated period ending did.
+  source             BacktestTradeSource @default(STRATEGY)
+  /// Strategy level that produced the order; null for an end-of-backtest liquidation, which no
+  /// level decided.
   levelId            String?
+  /// Which FINAL EXIT Exit Rule matched. FINAL EXIT is one action reached through one or more
+  /// alternatives, so the level id alone cannot say which alternative was true — and a trade log
+  /// must not claim every OR branch fired. Null for every other trade, and for a FINAL EXIT
+  /// recorded before the engine captured this identity.
+  exitRuleId         String?
   levelPercentage    Int?
   shares             Decimal             @db.Decimal(28, 10)
   price              Decimal             @db.Decimal(20, 8)

@@ -12,8 +12,8 @@
  * `WEB_BASE_URL`, so the worst a tampered value can do is name another page of the app.
  */
 
-/** The post-sign-in default, and what every rejected value resolves to. */
-export const DEFAULT_RETURN_PATH = "/dashboard";
+/** The post-sign-in default, and what every rejected value resolves to: the Dashboard, at `/`. */
+export const DEFAULT_RETURN_PATH = "/";
 
 /** Far above any real product URL, and small enough that a cookie cannot be bloated with it. */
 export const MAX_RETURN_PATH_LENGTH = 2048;
@@ -25,7 +25,7 @@ const MAX_DECODE_ROUNDS = 3;
 const PROBE_ORIGIN = "http://return-path.invalid";
 
 /**
- * The app-relative destination `value` names, or `/dashboard`.
+ * The app-relative destination `value` names, or `/`.
  *
  * Accepted: one leading `/`, then any path, query and fragment, up to `MAX_RETURN_PATH_LENGTH`.
  * Refused: anything that is not a string (an absent or repeated query parameter included), empty,

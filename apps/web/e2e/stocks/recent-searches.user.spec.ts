@@ -49,7 +49,7 @@ test("a stock opened by URL becomes the first recent search @smoke", async ({
   // Stock Details, and it must record the view exactly like a search selection does.
   await openStockDetails(page, QA_SYMBOL);
 
-  await page.goto("/dashboard");
+  await page.goto("/");
   await openShortcuts(page);
 
   const options = dropdown(page).getByRole("option");
@@ -62,7 +62,7 @@ test("a recent row navigates exactly like any other search row", async ({
   page,
 }) => {
   await openStockDetails(page, QA_SYMBOL);
-  await page.goto("/dashboard");
+  await page.goto("/");
 
   await openShortcuts(page);
   await dropdown(page).getByRole("option").first().click();
@@ -78,9 +78,9 @@ test("the same stock is never listed twice in the dropdown", async ({
 }) => {
   await openStockDetails(page, QA_SYMBOL);
   // Viewing it again must promote the existing entry, never add a second one.
-  await page.goto("/dashboard");
+  await page.goto("/");
   await openStockDetails(page, QA_SYMBOL);
-  await page.goto("/dashboard");
+  await page.goto("/");
 
   await openShortcuts(page);
 
@@ -93,7 +93,7 @@ test("typing hides both shortcut sections and clearing the query brings them bac
   page,
 }) => {
   await openStockDetails(page, QA_SYMBOL);
-  await page.goto("/dashboard");
+  await page.goto("/");
   await openShortcuts(page);
 
   await globalSearch(page).fill(QA_SYMBOL.slice(0, 4));

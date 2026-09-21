@@ -502,6 +502,165 @@ describe("DashboardPage", () => {
     expect(page.textContent).not.toMatch(/24h/i);
   });
 
+  it("opens on the content, not on a card introducing itself", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-signals");
+
+    // The page still has exactly one h1 and it is still the page's name — it is simply not a
+    // surface any more, so the market strip is the first thing on screen.
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings.map((heading) => heading.textContent)).toEqual([
+      "Dashboard",
+    ]);
+    const page = screen.getByTestId("dashboard-page");
+    expect(page.textContent).not.toMatch(
+      /Current matches and setups from your monitors/,
+    );
+    // Nothing between the heading and the strip.
+    expect(page.firstElementChild?.tagName).toBe("H1");
+    expect(page.children[1]).toBe(screen.getByTestId("dashboard-overview"));
+  });
+
+  it("keeps the freshness fact, beside the matches it describes", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const freshness = await screen.findByTestId("dashboard-freshness");
+    // Still the real scan time, not a client-side clock: the fixture scanned three minutes ago.
+    expect(freshness.textContent).toBe("Updated 3 min ago");
+    // Inside the Current matches section, not in a page header above the market strip.
+    const section = screen.getByTestId("dashboard-signals").closest("section");
+    expect(section?.contains(freshness)).toBe(true);
+    expect(
+      screen
+        .getByTestId("dashboard-overview")
+        .compareDocumentPosition(freshness) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("calls them matches, on the heading, the table and the empty states", async () => {
+    const user = userEvent.setup();
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-signals");
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Current matches" }),
+    ).toBeDefined();
+    expect(screen.getByRole("table").getAttribute("aria-label")).toBe(
+      "Current matches",
+    );
+    // The lifecycle the caption explains is unchanged; only the word for a row is.
+    expect(
+      screen.getByText(/Active matches stay here while their conditions hold/),
+    ).toBeDefined();
+    expect(
+      screen.getByText(/Setups waiting for a trigger become active when it fires/),
+    ).toBeDefined();
+    expect(screen.getByTestId("dashboard-page").textContent).not.toMatch(
+      /Current signals/,
+    );
+
+    await user.selectOptions(screen.getByTestId("dashboard-level-filter"), "SELL");
+    expect(
+      screen.getByTestId("dashboard-signals-filtered-empty").textContent,
+    ).toMatch(/No matches for these filters/);
+  });
+
+  it("never says where a row's state was reconstructed from", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+    await screen.findByTestId("dashboard-signals");
+
+    // The fixture's FINAL EXIT row is `reconstructed: true`; the contract still carries it and the
+    // Monitor page still uses it. The Dashboard shows the age and nothing about the engine.
+    const reconstructed = screen
+      .getAllByTestId("dashboard-signal-row")
+      .find((entry) => entry.textContent?.includes("UBER"))!;
+    expect(within(reconstructed).getByTestId("dashboard-since").textContent).toMatch(
+      /ago|just now/,
+    );
+    expect(screen.getByTestId("dashboard-page").textContent).not.toMatch(
+      /from history/i,
+    );
+  });
+
+  it("lets a Strategy, List or Monitor name wrap instead of truncating it", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const rows = within(await screen.findByTestId("dashboard-signals")).getAllByTestId(
+      "dashboard-signal-row",
+    );
+    const row = rows.find((entry) =>
+      entry.querySelector('a[href="/monitors/monitor-b"]'),
+    )!;
+    const chips = Array.from(
+      row.querySelectorAll<HTMLElement>('td[data-card="links"] [data-kind]'),
+    );
+    expect(chips).toHaveLength(3);
+    for (const chip of chips) {
+      // Two lines, clipped after them — the CSS does the clipping, this is the contract it reads.
+      expect(chip.getAttribute("data-lines")).toBe("2");
+      // And the whole name stays reachable however it is clipped.
+      expect(chip.getAttribute("title")).toBe(chip.textContent);
+    }
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      "Value & Trend",
+      "S&P 500 Growth Leaders",
+      "Nasdaq Trend Confirmation",
+    ]);
+
+    // The folded copy for the intermediate desktop band wraps the same way.
+    for (const chip of within(
+      within(row).getByTestId("dashboard-folded-relationships"),
+    ).getAllByRole("link")) {
+      expect(chip.getAttribute("data-lines")).toBe("2");
+    }
+  });
+
+  it("composes the phone card as identity, one summary line, why, then origin", async () => {
+    fetchDashboardMock.mockResolvedValue(dashboard());
+    render(<DashboardPage />);
+
+    const row = within(await screen.findByTestId("dashboard-signals"))
+      .getAllByTestId("dashboard-signal-row")
+      .find((entry) => entry.querySelector('a[href="/monitors/monitor-a"]'))!;
+    const roleOf = (key: string) =>
+      row.querySelector(`td:nth-child(${key})`)?.getAttribute("data-card");
+
+    // Since and Price share one unlabelled summary line instead of a labelled row each.
+    expect(roleOf("3")).toBe("summary");
+    expect(roleOf("5")).toBe("summary");
+    for (const cell of row.querySelectorAll('td[data-card="summary"]')) {
+      expect(cell.textContent).not.toMatch(/SINCE|PRICE/i);
+    }
+
+    // The reason is the card's prose and carries no label of its own …
+    const why = row.querySelector<HTMLElement>('td[data-stacked="true"]')!;
+    expect(why.getAttribute("data-card")).toBe("fact");
+    expect(why.textContent).toMatch(/Margin of Safety/);
+    expect(why.textContent).not.toMatch(/^Why/);
+
+    // … while the three origin references keep theirs, because a bare name would not say which.
+    const links = Array.from(
+      row.querySelectorAll<HTMLElement>('td[data-card="links"]'),
+    );
+    expect(links.map((cell) => cell.textContent)).toEqual([
+      "StrategyValue & Trend",
+      "ListS&P 500 Growth Leaders",
+      "MonitorS&P Value & Trend",
+    ]);
+
+    // Everything the card has to carry is still on it, once each.
+    expect(within(row).getByTestId("dashboard-stock").textContent).toMatch(/AAPL/);
+    expect(within(row).getByText("Buy 100%")).toBeDefined();
+    expect(within(row).getByText("Active")).toBeDefined();
+    expect(row.textContent).toMatch(/\$210\.50/);
+  });
+
   it("sends a viewer who hid every monitor to the page that can bring one back", async () => {
     fetchDashboardMock.mockResolvedValue(
       dashboard({ rows: [], monitors: [monitor({ visible: false })] }),

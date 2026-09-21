@@ -126,7 +126,7 @@ test.describe("FREE billing", () => {
   });
 
   test("reaches billing from the account menu", async ({ page }) => {
-    await page.goto("/dashboard");
+    await page.goto("/");
     await page.getByTestId("account-menu-trigger").click();
     await page.getByTestId("account-billing-link").click();
     await expect(page.getByTestId("billing-plan")).toBeVisible({

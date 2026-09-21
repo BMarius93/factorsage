@@ -18,7 +18,15 @@ export type BacktestMetricsView = {
   readonly netProfit: number | null;
   readonly maxDrawdownPercent: number | null;
   readonly tradeCount: number | null;
-  readonly openPositions: number | null;
+  /**
+   * Compound annual growth rate.
+   *
+   * It replaced "Open positions", which stopped being a result the moment a completed run began
+   * liquidating everything it still held: a tile that can only ever read `0` describes nothing.
+   * CAGR is already on the canonical summary and on every checkpoint, and it is the one figure that
+   * makes a thirty-year total return comparable to a three-year one.
+   */
+  readonly portfolioCagrPercent: number | null;
 };
 
 /** Nothing measured yet: every tile is a placeholder. */
@@ -30,7 +38,7 @@ export const EMPTY_METRICS: BacktestMetricsView = {
   netProfit: null,
   maxDrawdownPercent: null,
   tradeCount: null,
-  openPositions: null,
+  portfolioCagrPercent: null,
 };
 
 /** The in-flight projection the running page renders between checkpoints. */
@@ -45,7 +53,7 @@ export function liveMetrics(
     netProfit: live.netProfit,
     maxDrawdownPercent: live.maxDrawdownPercent,
     tradeCount: live.tradeCount,
-    openPositions: live.openPositions,
+    portfolioCagrPercent: live.portfolioCagrPercent,
   };
 }
 
@@ -66,6 +74,6 @@ export function resultMetrics(
     netProfit: summary.netProfit,
     maxDrawdownPercent: summary.maxDrawdownPercent,
     tradeCount: summary.totalTrades,
-    openPositions: summary.openPositions,
+    portfolioCagrPercent: summary.portfolioCagrPercent,
   };
 }

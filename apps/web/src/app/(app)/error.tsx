@@ -41,7 +41,7 @@ export default function AppError({
         }
         actions={
           <>
-            <Link className={forms.secondaryButton} href="/dashboard">
+            <Link className={forms.secondaryButton} href="/">
               Go to the Dashboard
             </Link>
             <button

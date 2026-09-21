@@ -381,7 +381,7 @@ describe("Google authentication", () => {
     const started = await startAuthorization();
     const response = await completeCallback(started).expect(302);
 
-    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     const authCookie = setCookies(response).find((value) =>
       value.startsWith("test_auth="),
     );
@@ -536,7 +536,7 @@ describe("Google authentication", () => {
     const started = await startAuthorization();
     const response = await completeCallback(started).expect(302);
 
-    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     const linked = await prisma.user.findUniqueOrThrow({
       where: { id: existing.id },
       include: { oauthAccounts: true },
@@ -566,7 +566,7 @@ describe("Google authentication", () => {
     const started = await startAuthorization();
     const response = await completeCallback(started).expect(302);
 
-    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     expect(
       await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
     ).toBe(1);
@@ -650,7 +650,7 @@ describe("Google authentication", () => {
 
     // No account holds the address, so there is nothing to take over: the weaker bar is
     // deliberate, and is the difference between creating and adopting.
-    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     const created = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(created.passwordHash).toBeNull();
     expect(created.emailVerifiedAt).not.toBeNull();
@@ -679,7 +679,7 @@ describe("Google authentication", () => {
     const response = await completeCallback(started).expect(302);
 
     // The subject is the identity. Once it is linked, the email claim decides nothing.
-    expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+    expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     expect(
       await prisma.oAuthAccount.count({ where: { userId: existing.id } }),
     ).toBe(1);
@@ -772,7 +772,7 @@ describe("Google authentication", () => {
     // both browsers end up signed in to the one account PostgreSQL allowed to exist.
     for (const response of responses) {
       expect(response.status).toBe(302);
-      expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
     }
     expect(await prisma.user.count({ where: { email } })).toBe(1);
     expect(
@@ -977,7 +977,7 @@ describe("Google authentication", () => {
       ).toBeUndefined();
 
       const response = await completeCallback(started).expect(302);
-      expect(redirectLocation(response)).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(redirectLocation(response)).toBe(`${WEB_BASE_URL}/`);
     });
 
     it.each([
@@ -1009,7 +1009,7 @@ describe("Google authentication", () => {
         }).expect(302);
 
         const location = redirectLocation(response);
-        expect(location).toBe(`${WEB_BASE_URL}/dashboard`);
+        expect(location).toBe(`${WEB_BASE_URL}/`);
         expect(new URL(location).origin).toBe(WEB_BASE_URL);
       },
     );
@@ -1198,7 +1198,7 @@ describe("Google authentication", () => {
       // 2. The owner uses "Continue with Google".
       const identity = googleIdentity(email);
       const linked = await signInWithGoogle(identity);
-      expect(linked.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(linked.headers.location).toBe(`${WEB_BASE_URL}/`);
 
       // 3. The attacker's password no longer opens anything, and fails exactly like an unknown
       // account does.
@@ -1232,7 +1232,7 @@ describe("Google authentication", () => {
       expect(me.body).toMatchObject({ id: registered.id, email });
 
       const again = await signInWithGoogle(identity);
-      expect(again.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(again.headers.location).toBe(`${WEB_BASE_URL}/`);
       expect(cookieValue(again, "test_auth")).toBeTruthy();
       expect(
         await prisma.oAuthAccount.count({ where: { userId: registered.id } }),
@@ -1272,7 +1272,7 @@ describe("Google authentication", () => {
         googleIdentity(email, { hostedDomain: WORKSPACE_DOMAIN }),
       );
 
-      expect(linked.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(linked.headers.location).toBe(`${WEB_BASE_URL}/`);
       const state = await identityState(id);
       expect(state.passwordHash).toBeNull();
       expect(state.emailVerifiedAt).not.toBeNull();
@@ -1361,7 +1361,7 @@ describe("Google authentication", () => {
         googleIdentity(email, { providerAccountId }),
       );
 
-      expect(response.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+      expect(response.headers.location).toBe(`${WEB_BASE_URL}/`);
       const me = await request(app.getHttpServer())
         .get("/auth/me")
         .set("Cookie", `test_auth=${cookieValue(response, "test_auth")}`)
@@ -1414,7 +1414,7 @@ describe("Google authentication", () => {
         await dispatcher.drain();
 
         expect(registered.status).toBe(202);
-        expect(linked.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+        expect(linked.headers.location).toBe(`${WEB_BASE_URL}/`);
         expect(await prisma.user.count({ where: { email } })).toBe(1);
         const state = await identityState(id);
         expect(state.passwordHash).toBeNull();
@@ -1446,7 +1446,7 @@ describe("Google authentication", () => {
 
         // Neither side surfaces the uniqueness race: no 500, no refused sign-in.
         expect(registered.status).toBe(202);
-        expect(signedIn.headers.location).toBe(`${WEB_BASE_URL}/dashboard`);
+        expect(signedIn.headers.location).toBe(`${WEB_BASE_URL}/`);
         const users = await prisma.user.findMany({ where: { email } });
         expect(users).toHaveLength(1);
         const state = await identityState(users[0]?.id ?? "");

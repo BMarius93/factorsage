@@ -44,7 +44,7 @@ for (const viewport of [
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/dashboard");
+    await page.goto("/");
     const rows = page
       .getByTestId("dashboard-signal-row")
       .filter({ hasText: /QA Built-in Monitor/ });

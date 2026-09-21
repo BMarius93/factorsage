@@ -1,8 +1,11 @@
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
 import {
+  describeCondition,
+  describeTrigger,
   normalizeStrategyDefinition,
   upgradeStrategyDefinitionDocument,
   type StrategyDefinition,
+  type StrategySignal,
 } from "./strategies.js";
 
 /**
@@ -152,6 +155,14 @@ export type BacktestMethodologyResponse = {
    * funded benchmark value.
    */
   comparisonScenarios: string;
+  /**
+   * How a run ends.
+   *
+   * Absent on a run submitted before FactorSage liquidated remaining positions at the end of the
+   * period — those runs finished holding their open positions, and their stored result says so.
+   * Optional rather than backfilled: a snapshot is never rewritten.
+   */
+  terminalLiquidation?: string;
   costBasis: string;
 };
 
@@ -253,19 +264,160 @@ export type BacktestCurvePointResponse = {
 
 export type BacktestTradeAction = "BUY" | "SELL" | "FINAL_EXIT";
 
+/**
+ * What put a trade in the log.
+ *
+ * `STRATEGY` is a BUY, a SELL or a FINAL EXIT the strategy's own signal produced. `END_OF_BACKTEST`
+ * is the terminal liquidation: at the end of the requested period FactorSage sells every remaining
+ * position at its canonical final execution price, so a completed run ends in cash.
+ *
+ * It is a **separate axis from the action**, deliberately. A liquidation is a sale and reads as one
+ * — `Sell 100%` — so it must not become a fourth action, and it must never be confused with the
+ * strategy's FINAL EXIT, which is a decision the strategy made. Execution methodology and strategy
+ * logic are different things; see `ai/architecture/backtest-execution.md`.
+ */
+export const BACKTEST_TRADE_SOURCES = ["STRATEGY", "END_OF_BACKTEST"] as const;
+
+export type BacktestTradeSource = (typeof BACKTEST_TRADE_SOURCES)[number];
+
+/**
+ * Why one trade happened, in the canonical Strategy description language.
+ *
+ * Structured rather than one rendered sentence, exactly like `DashboardRowReason`: the server owns
+ * which rule fired and says so in canonical labels, and the browser decides how to draw it. The
+ * strings come from `describeCondition` / `describeTrigger`, so a Strategy metric is never named
+ * twice in two places.
+ *
+ * It is always derived from the run's **immutable snapshot**, never from the strategy as it stands
+ * today: editing a strategy after a run must not rewrite the run's history.
+ */
+export type BacktestTradeReason =
+  | {
+      kind: "STRATEGY";
+      /** The FINAL EXIT Exit Rule's 1-based position, when the level has more than one. */
+      exitRule?: number;
+      /** Canonical Condition descriptions, ANDed. */
+      conditions: string[];
+      /** The canonical Trigger description, when the level carries one. */
+      trigger?: string;
+    }
+  | { kind: "END_OF_BACKTEST" };
+
 export type BacktestTradeResponse = {
   sequence: number;
   date: string;
   symbol: string;
   name: string;
   action: BacktestTradeAction;
+  /** Strategy decision, or FactorSage ending the simulation. Never folded into `action`. */
+  source: BacktestTradeSource;
   levelPercentage: number | null;
   shares: number;
   price: number;
   amount: number;
   realizedPnl: number | null;
   realizedPnlPercent: number | null;
+  /**
+   * The rule that actually produced this trade, or null when the run did not record enough to say
+   * which one did — a FINAL EXIT with several Exit Rules, executed before the engine recorded the
+   * matching rule's identity. Null is the honest answer there: naming every alternative would claim
+   * they all matched.
+   */
+  reason: BacktestTradeReason | null;
 };
+
+/**
+ * One run's levels and Exit Rules, prepared once so a page of trades costs no repeated parsing.
+ *
+ * Built from the run's snapshotted definition and read per trade. Keeping it explicit is what stops
+ * a trade log of eighteen thousand rows re-describing the same strategy eighteen thousand times.
+ */
+export type BacktestTradeReasonIndex = {
+  readonly levels: ReadonlyMap<string, BacktestTradeReasonBody>;
+  readonly exitRules: ReadonlyMap<string, BacktestTradeReasonBody>;
+  /** How many alternatives FINAL EXIT offers; 1 needs no rule number, 0 means it has none. */
+  readonly exitRuleCount: number;
+};
+
+export type BacktestTradeReasonBody = {
+  conditions: string[];
+  trigger?: string;
+  /** 1-based position among FINAL EXIT's Exit Rules; absent for BUY and SELL levels. */
+  exitRule?: number;
+};
+
+function reasonBodyOf(signal: StrategySignal): BacktestTradeReasonBody {
+  return {
+    conditions: signal.conditions.map(describeCondition),
+    ...(signal.trigger ? { trigger: describeTrigger(signal.trigger) } : {}),
+  };
+}
+
+/** Prepares {@link BacktestTradeReasonIndex} from the definition a run executed. */
+export function backtestTradeReasonIndex(
+  definition: StrategyDefinition,
+): BacktestTradeReasonIndex {
+  const levels = new Map<string, BacktestTradeReasonBody>();
+  const exitRules = new Map<string, BacktestTradeReasonBody>();
+  for (const level of definition.buyLevels) {
+    levels.set(level.id, reasonBodyOf(level.signal));
+  }
+  for (const level of definition.sellLevels) {
+    levels.set(level.id, reasonBodyOf(level.signal));
+  }
+  const rules = definition.finalExit?.rules ?? [];
+  rules.forEach((rule, index) => {
+    exitRules.set(rule.id, {
+      ...reasonBodyOf(rule.signal),
+      // A lone alternative is not a choice, so it is not numbered — the same rule the Strategy
+      // logic preview applies.
+      ...(rules.length > 1 ? { exitRule: index + 1 } : {}),
+    });
+  });
+  return { levels, exitRules, exitRuleCount: rules.length };
+}
+
+/**
+ * The reason one persisted trade carries, resolved against the run's own snapshot.
+ *
+ * A FINAL EXIT resolves through `exitRuleId` — the alternative the engine recorded as the one that
+ * matched. A run whose FINAL EXIT had exactly one alternative needs no recorded identity, because
+ * there is nothing to choose between.
+ */
+export function backtestTradeReason(
+  index: BacktestTradeReasonIndex,
+  trade: {
+    source: BacktestTradeSource;
+    action: BacktestTradeAction;
+    levelId: string | null;
+    exitRuleId: string | null;
+  },
+): BacktestTradeReason | null {
+  if (trade.source === "END_OF_BACKTEST") {
+    return { kind: "END_OF_BACKTEST" };
+  }
+  const body =
+    trade.action === "FINAL_EXIT"
+      ? ((trade.exitRuleId === null
+          ? undefined
+          : index.exitRules.get(trade.exitRuleId)) ??
+        // One alternative is unambiguous even for a run recorded before the identity existed.
+        (index.exitRuleCount === 1
+          ? [...index.exitRules.values()][0]
+          : undefined))
+      : trade.levelId === null
+        ? undefined
+        : index.levels.get(trade.levelId);
+  if (!body) {
+    return null;
+  }
+  return {
+    kind: "STRATEGY",
+    ...(body.exitRule === undefined ? {} : { exitRule: body.exitRule }),
+    conditions: body.conditions,
+    ...(body.trigger === undefined ? {} : { trigger: body.trigger }),
+  };
+}
 
 export type BacktestHoldingResponse = {
   symbol: string;
@@ -286,6 +438,94 @@ export type BacktestHoldingResponse = {
   unrealizedPnlPercent: number;
   allocationPercent: number;
 };
+
+// ---------------------------------------------------------------------------
+// Annual returns
+// ---------------------------------------------------------------------------
+
+/**
+ * What one calendar year of a run returned — **that year only, never cumulative**.
+ *
+ * A thirty-year run reports thirty independent figures. `1998 +139.83%` means the portfolio grew
+ * by 139.83% during 1998, not that it stood 139.83% above where it started in 1996.
+ */
+export type BacktestAnnualReturnResponse = {
+  /** `YYYY`. */
+  year: string;
+  /** The last simulated date inside this year: the date the year's return is measured to. */
+  simulatedThrough: string;
+  /** Return over this year's simulated portion, cash-flow adjusted. Not cumulative. */
+  returnPercent: number;
+  /**
+   * True when only part of the calendar year was simulated — the run's first year when it starts
+   * after 1 January, its last when it ends before 31 December. The figure is still the true return
+   * over the part that was simulated; nothing outside the requested period is fabricated.
+   */
+  partial: boolean;
+};
+
+/**
+ * Per-calendar-year returns, chained off the canonical time-weighted return index.
+ *
+ * ```text
+ * annualReturn(year) = returnIndex(last simulated day of year)
+ *                    / returnIndex(last simulated day of the previous year) - 1
+ * ```
+ *
+ * The index is the run's own `time-weighted-index@1` growth index, based at 1.0 before the first
+ * simulated day, so a monthly contribution raises portfolio value without inventing return. That is
+ * the whole reason this is derived from the index rather than from `(end - start) / start` over
+ * portfolio value: a year that received twelve deposits would otherwise report the deposits as
+ * performance. The first year divides by 1.0, which is the base of that index and not a fabricated
+ * starting point.
+ *
+ * Chaining every year's `(1 + r)` reproduces the run's total portfolio return exactly, which is what
+ * makes the two readings one methodology rather than two.
+ *
+ * `points` may be the run's daily equity or its per-year milestones; only the last point of each
+ * calendar year is read, so both produce the same answer. Order does not matter.
+ */
+export function backtestAnnualReturns(
+  points: readonly { date: string; returnIndex: number }[],
+  period: { startDate: string; endDate: string },
+): BacktestAnnualReturnResponse[] {
+  const lastOfYear = new Map<string, { date: string; returnIndex: number }>();
+  for (const point of points) {
+    if (!Number.isFinite(point.returnIndex) || point.returnIndex <= 0) {
+      // A non-positive growth index is not a reading; dividing by one would report a wipeout that
+      // the portfolio value never had.
+      continue;
+    }
+    const year = point.date.slice(0, 4);
+    const held = lastOfYear.get(year);
+    if (!held || point.date >= held.date) {
+      lastOfYear.set(year, point);
+    }
+  }
+
+  const startYear = period.startDate.slice(0, 4);
+  const endYear = period.endDate.slice(0, 4);
+  const startsMidYear = period.startDate.slice(5) > "01-01";
+  const endsMidYear = period.endDate.slice(5) < "12-31";
+
+  let previousIndex = 1;
+  return [...lastOfYear.keys()].sort().map((year) => {
+    const point = lastOfYear.get(year) as {
+      date: string;
+      returnIndex: number;
+    };
+    const returnPercent = (point.returnIndex / previousIndex - 1) * 100;
+    previousIndex = point.returnIndex;
+    return {
+      year,
+      simulatedThrough: point.date,
+      returnPercent,
+      partial:
+        (year === startYear && startsMidYear) ||
+        (year === endYear && endsMidYear),
+    };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Live progress
@@ -310,6 +550,13 @@ export type BacktestLiveSnapshotResponse = {
   portfolioReturnPercent: number;
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
+  /**
+   * Compound annual growth rate of the time-weighted index over the part simulated so far.
+   *
+   * The same calculation the completed summary reports, so the KPI tile carries a real number while
+   * a run executes instead of a placeholder. Null before the run has spanned a measurable period.
+   */
+  portfolioCagrPercent: number | null;
   maxDrawdownPercent: number;
   /** The funded benchmark scenario on `simulatedThrough`, or null while it cannot be priced. */
   benchmarkValue: number | null;
@@ -463,25 +710,64 @@ export type BacktestResultSummaryResponse = {
   finalExitTrades: number;
   winningTrades: number;
   losingTrades: number;
+  /**
+   * Positions still open on the final simulated date.
+   *
+   * **Zero for every run executed under terminal liquidation**, which sells all remaining positions
+   * at the end of the requested period. The field stays because a run completed before that rule
+   * existed reports what it actually held, and rewriting its result to match a later methodology is
+   * exactly what the immutability invariant forbids.
+   */
   openPositions: number;
 };
 
-/** How many curve points and trades a completed result carries over the wire. */
+/** How many curve points a completed result carries over the wire. */
 export const BACKTEST_RESULT_MAX_CURVE_POINTS = 1_500;
-export const BACKTEST_RESULT_MAX_TRADES = 500;
 
 /**
  * A completed run's result, sufficient to render the detail page without replaying the simulation.
  *
- * The curve is downsampled to `BACKTEST_RESULT_MAX_CURVE_POINTS` and the trade log to the most
- * recent `BACKTEST_RESULT_MAX_TRADES`; `totalTrades` on the summary always reports the true count.
- * Every point and every trade remains durably persisted.
+ * The curve is downsampled to `BACKTEST_RESULT_MAX_CURVE_POINTS`; every point remains durably
+ * persisted. The trade log is **not** here: it is paginated from the database through
+ * `GET /backtests/{runId}/trades`, because a long run has tens of thousands of trades and a bounded
+ * tail of them is neither the whole log nor a usable page of one.
+ *
+ * Final holdings are not here either, and deliberately so: a completed run ends in cash.
  */
 export type BacktestResultResponse = {
   summary: BacktestResultSummaryResponse;
+  /** Per-calendar-year returns, non-cumulative. Empty for a run with no simulated year. */
+  annualReturns: BacktestAnnualReturnResponse[];
   curve: BacktestCurvePointResponse[];
-  trades: BacktestTradeResponse[];
-  holdings: BacktestHoldingResponse[];
+};
+
+// ---------------------------------------------------------------------------
+// The paginated trade log
+// ---------------------------------------------------------------------------
+
+/** The default page of the trade log, and the largest page the API will serve. */
+export const BACKTEST_TRADES_PAGE_SIZE = 50;
+export const BACKTEST_TRADES_MAX_PAGE_SIZE = 200;
+
+/**
+ * One page of a completed run's trade log, newest trade first.
+ *
+ * Paged in the database rather than in the browser: an eighteen-thousand-trade run must not ship
+ * eighteen thousand rows to display fifty of them, and `totalCount` comes from a count query rather
+ * than from the length of a list nobody loaded.
+ *
+ * A page past the end is not an error. The API clamps to the last page and reports the `page` it
+ * actually served, so a stale link or a hand-edited query parameter lands somewhere real.
+ */
+export type BacktestTradePageResponse = {
+  items: BacktestTradeResponse[];
+  /** 1-based, and the page actually served after clamping. */
+  page: number;
+  pageSize: number;
+  /** Every trade the run executed, terminal liquidations included. */
+  totalCount: number;
+  /** At least 1, even for a run that traded nothing. */
+  pageCount: number;
 };
 
 export type BacktestRunDetailResponse = {

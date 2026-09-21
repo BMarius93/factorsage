@@ -436,6 +436,37 @@ describe("StrategyBuilder", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
+  it("gives a BUY or SELL header a name, a size and Remove, and no reordering arrows", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-level-SELL"));
+    await user.click(screen.getByTestId("add-level-SELL"));
+
+    // Two levels of each kind: the width at which ↑/↓ used to become enabled, so a header that
+    // still rendered them could not hide behind a disabled state.
+    for (const levelKind of ["BUY", "SELL"] as const) {
+      for (const card of screen.getAllByTestId(`level-card-${levelKind}`)) {
+        expect(
+          within(card).queryByRole("button", { name: /^Move / }),
+        ).toBeNull();
+        expect(within(card).queryByText("↑")).toBeNull();
+        expect(within(card).queryByText("↓")).toBeNull();
+      }
+    }
+    // The header still carries what it is for. Ordering itself is untouched — the `moveLevel`
+    // action and its reducer behaviour are covered by `strategy-draft.test.ts`; only the control
+    // is out of the UI for now.
+    expect(
+      screen.getAllByRole("button", { name: "Remove BUY 2" }),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole("button", { name: "Remove SELL 2" }),
+    ).toHaveLength(1);
+    expect(screen.getAllByTestId("level-percentage").length).toBe(4);
+  });
+
   it("offers no control for anything that belongs to a backtest", () => {
     render(<StrategyBuilder strategy={savedStrategy()} />);
     // Asserted against form controls, not prose: the page copy legitimately mentions that capital

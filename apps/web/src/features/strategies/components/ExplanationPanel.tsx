@@ -8,6 +8,8 @@ import {
   STRATEGY_OPERATOR_HELP,
   conditionOperatorLabel,
   strategyMetricLabel,
+  strategySeriesHelp,
+  strategyValueLabel,
   triggerOperatorLabel,
   type ConditionOperator,
   type StrategyHelpEntry,
@@ -36,6 +38,15 @@ function titleAndHelp(
       help: STRATEGY_OPERATOR_HELP[focus.operator],
     };
   }
+  if (focus.kind === "VALUE") {
+    // Only a series has anything canonical to say. A typed threshold is the user's own number and
+    // gets no invented explanation — the panel simply keeps describing what it already was.
+    const help =
+      focus.value.kind === "SERIES"
+        ? strategySeriesHelp(focus.value.seriesId)
+        : undefined;
+    return help ? { title: strategyValueLabel(focus.value), help } : null;
+  }
   return {
     title: STRATEGY_LEVEL_LABELS[focus.levelKind],
     help: STRATEGY_LEVEL_HELP[focus.levelKind],
@@ -63,11 +74,12 @@ export function ExplanationPanel({
   /** The two placements — beside the editor and inline under a row — are addressed separately. */
   readonly testId?: string;
   /**
-   * Puts the formula, examples and notes behind a disclosure.
+   * Shows the name and the one-line summary, and puts everything else behind a disclosure.
    *
-   * Used by the row-level placement: on a phone the full Margin of Safety explanation is taller
-   * than the level it sits inside and would bury the trigger below it. Same content and the same
-   * semantics — only how much is shown before a tap differs.
+   * Used by the row-level placement: a phone reads this *between* two rules, so anything taller
+   * than a couple of lines pushes the next condition off the screen while the user is still
+   * editing this one. Even `is below` carried a heading, a summary and a paragraph before this.
+   * Same content and the same semantics — only how much is shown before a tap differs.
    */
   readonly compact?: boolean;
 }) {
@@ -78,12 +90,13 @@ export function ExplanationPanel({
   }
 
   const { title, help } = current;
-  const hasDetail = Boolean(
-    help.formula ?? help.examples ?? help.notes ?? help.notEvaluableWhen,
-  );
 
   const detail = (
     <>
+      {/* Compact keeps the longer paragraph with the rest of the detail: on a phone the summary
+          is what answers "what is this field", and everything after it can wait for a tap. */}
+      {compact ? <p className={styles.panelBody}>{help.detail}</p> : null}
+
       {help.formula ? (
         <p className={styles.panelFormula} data-testid="help-formula">
           {help.formula}
@@ -125,17 +138,23 @@ export function ExplanationPanel({
   );
 
   return (
-    <section className={styles.panelCard} data-testid={testId}>
+    <section
+      className={styles.panelCard}
+      data-testid={testId}
+      {...(compact ? { "data-compact": "true" } : {})}
+    >
       <h2 className={styles.panelHeading}>{title}</h2>
       <p className={styles.panelSummary}>{help.summary}</p>
-      <p className={styles.panelBody}>{help.detail}</p>
-      {compact && hasDetail ? (
+      {compact ? (
         <details className={styles.moreDetail}>
-          <summary className={styles.moreSummary}>Formula and examples</summary>
+          <summary className={styles.moreSummary}>More details</summary>
           <div className={styles.moreBody}>{detail}</div>
         </details>
       ) : (
-        detail
+        <>
+          <p className={styles.panelBody}>{help.detail}</p>
+          {detail}
+        </>
       )}
     </section>
   );

@@ -1,11 +1,14 @@
 import {
   BACKTEST_PENDING_POLL_INTERVAL_MS,
   BACKTEST_RUNNING_POLL_INTERVAL_MS,
-  type BacktestHoldingResponse,
 } from "@intrinsic/contracts";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchBacktestProgress, fetchBacktestRun } from "../api/backtests-api";
+import {
+  fetchBacktestProgress,
+  fetchBacktestRun,
+  fetchBacktestTrades,
+} from "../api/backtests-api";
 import {
   TEST_BENCHMARK_NAME,
   TEST_PERIOD_END,
@@ -16,12 +19,28 @@ import {
   testMilestones,
   testProgress,
   testResult,
+  testTrade,
+  testTradePage,
 } from "../utils/backtest.test-helper";
 import { BacktestRunView } from "./BacktestRunView";
 
 vi.mock("../api/backtests-api", () => ({
   fetchBacktestRun: vi.fn(),
   fetchBacktestProgress: vi.fn(),
+  fetchBacktestTrades: vi.fn(),
+}));
+
+/**
+ * The trade log's page lives in the URL, so the router is the one piece of the App Router this
+ * component genuinely depends on. It is mocked at the boundary rather than simulated.
+ */
+const pushMock = vi.fn();
+let searchParams = new URLSearchParams();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, replace: vi.fn() }),
+  usePathname: () => "/backtests/run-1",
+  useSearchParams: () => searchParams,
 }));
 
 // jsdom cannot rasterize a canvas; the library boundary is mocked and the assertions target the
@@ -53,6 +72,7 @@ vi.mock("lightweight-charts", () => ({
 
 const fetchRunMock = vi.mocked(fetchBacktestRun);
 const fetchProgressMock = vi.mocked(fetchBacktestProgress);
+const fetchTradesMock = vi.mocked(fetchBacktestTrades);
 
 async function flush() {
   await act(async () => {
@@ -70,6 +90,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   fetchRunMock.mockReset();
   fetchProgressMock.mockReset();
+  fetchTradesMock.mockReset();
+  fetchTradesMock.mockResolvedValue(testTradePage());
+  pushMock.mockReset();
+  searchParams = new URLSearchParams();
 });
 
 afterEach(() => {
@@ -223,8 +247,220 @@ describe("BacktestRunView", () => {
     expect(screen.getByTestId("metric-max-drawdown").textContent).toContain(
       "-14.20%",
     );
+    // "Open positions" is gone: a completed run liquidates everything it held, so the tile could
+    // only ever read 0. CAGR took the slot.
+    expect(screen.queryByTestId("metric-open-positions")).toBeNull();
+    expect(screen.getByTestId("metric-cagr").textContent).toContain("+6.30%");
     expect(screen.getByText("Trade log")).toBeTruthy();
-    expect(screen.getByText("Final holdings")).toBeTruthy();
+    // The final state is cash, so there is no holdings section to render at all.
+    expect(screen.queryByText("Final holdings")).toBeNull();
+    expect(screen.queryByTestId("backtest-holdings")).toBeNull();
+    // A finished run stays still: only live work wears the activity pulse.
+    expect(
+      screen.getByTestId("backtest-status").getAttribute("data-activity"),
+    ).toBeNull();
+  });
+
+  it("reports each calendar year on its own, directly below the results", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const section = screen.getByTestId("backtest-annual-returns");
+    expect(section.getAttribute("data-year-count")).toBe("3");
+    const cells = [...section.querySelectorAll("[data-year]")];
+    expect(cells.map((cell) => cell.getAttribute("data-year"))).toEqual([
+      "2021",
+      "2022",
+      "2023",
+    ]);
+    // Each year's own figure, including a negative one — never a cumulative badge.
+    expect(cells.map((cell) => cell.textContent)).toEqual([
+      "2021+18.00%",
+      "2022-7.50%",
+      "2023+24.25%",
+    ]);
+    // The heading keeps its one line of copy, and the note that explains the asterisk survives
+    // the reorder. `testResult` reports three whole years, so this run has no partial marker.
+    expect(section.textContent).toContain(
+      "Each calendar year on its own, not cumulative.",
+    );
+    expect(section.querySelector("[data-partial]")).toBeNull();
+  });
+
+  it("marks a part-year and explains the asterisk", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", {
+        result: testResult({
+          annualReturns: [
+            {
+              year: "1996",
+              simulatedThrough: "1996-12-31",
+              returnPercent: 4.5,
+              partial: true,
+            },
+            {
+              year: "1997",
+              simulatedThrough: "1997-12-31",
+              returnPercent: 12,
+              partial: false,
+            },
+          ],
+        }),
+      }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const section = screen.getByTestId("backtest-annual-returns");
+    expect(
+      section.querySelector('[data-year="1996"]')?.getAttribute("data-partial"),
+    ).toBe("true");
+    expect(
+      section.querySelector('[data-year="1997"]')?.getAttribute("data-partial"),
+    ).toBeNull();
+    expect(section.textContent).toContain(
+      "* part of the year only — the run started or ended inside it.",
+    );
+  });
+
+  it("orders a completed result chart, results, years, configuration, trade log", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    fetchTradesMock.mockResolvedValue(testTradePage());
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The shape of the run first, then the numbers that summarise it, then the years that
+    // decompose those, then the inputs, then every trade.
+    const order = [
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ].map((testId) => screen.getByTestId(testId));
+    for (const [index, node] of order.slice(0, -1).entries()) {
+      expect(
+        node.compareDocumentPosition(order[index + 1] as Element) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+        `${node.getAttribute("data-testid")} does not precede the next section`,
+      ).toBeTruthy();
+    }
+
+    // The paragraph that used to set the chart up is gone from the page. The comparison it
+    // described is still named — by the legend, and by the chart's own accessible description.
+    expect(screen.queryByText(/invested three ways/)).toBeNull();
+    expect(
+      screen.getByLabelText(/Strategy portfolio value against/),
+    ).toBeTruthy();
+  });
+
+  it("renders the eight result numbers as one flat section, not a card in a card", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    const results = screen.getByTestId("backtest-results");
+    const years = screen.getByTestId("backtest-annual-returns");
+    const grid = screen.getByTestId("backtest-metrics");
+
+    // Results and Annual returns are peers in the hero's one stack — Results does not sit inside
+    // a surface of its own that Annual returns does without.
+    expect(results.parentElement).toBe(years.parentElement);
+    // And the tiles hang straight off the section: heading, grid, tiles, with nothing wrapped
+    // around the grid to draw a second box.
+    expect(grid.parentElement).toBe(results);
+    expect([...results.children].length).toBe(2);
+
+    // All eight, still, in order.
+    expect(
+      [...grid.children].map((tile) => tile.getAttribute("data-testid")),
+    ).toEqual([
+      "metric-portfolio-return",
+      "metric-benchmark-return",
+      "metric-alpha",
+      "metric-portfolio-value",
+      "metric-net-profit",
+      "metric-max-drawdown",
+      "metric-trades",
+      "metric-cagr",
+    ]);
+  });
+
+  it("pages the trade log from the server and puts the page in the URL", async () => {
+    fetchRunMock.mockResolvedValue(
+      testDetail("COMPLETED", { result: testResult() }),
+    );
+    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
+    fetchTradesMock.mockResolvedValue(
+      testTradePage({
+        items: [
+          testTrade({ sequence: 120 }),
+          testTrade({
+            sequence: 119,
+            action: "SELL",
+            source: "END_OF_BACKTEST",
+            levelPercentage: null,
+            reason: { kind: "END_OF_BACKTEST" },
+          }),
+        ],
+        page: 2,
+        pageSize: 50,
+        totalCount: 18_348,
+        pageCount: 367,
+      }),
+    );
+    searchParams = new URLSearchParams("tradesPage=2");
+
+    render(<BacktestRunView runId="run-1" />);
+    await flush();
+
+    // The server decides the page, not the browser: fifty rows were asked for, not 18,348.
+    expect(fetchTradesMock).toHaveBeenCalledWith(
+      "run-1",
+      { page: 2, pageSize: 50 },
+      expect.anything(),
+    );
+    expect(screen.getAllByTestId("backtest-trade-row")).toHaveLength(2);
+    expect(screen.getByTestId("backtest-trades-footer").textContent).toContain(
+      "Showing 51–100 of 18348 trades",
+    );
+
+    // Each trade says why it happened, in the canonical Strategy language — and the terminal
+    // liquidation says the period ended rather than claiming a FINAL EXIT.
+    const rows = screen.getAllByTestId("backtest-trade-row");
+    expect(rows[0]?.textContent).toContain("SMA 50D is above SMA 200D");
+    expect(rows[0]?.textContent).toContain(
+      "Triggered: Price crosses above SMA 20D",
+    );
+    expect(rows[1]?.textContent).toContain("End of backtest");
+    expect(rows[1]?.textContent).not.toContain("Final exit");
+    expect(
+      rows[1]?.querySelector("[data-source]")?.getAttribute("data-source"),
+    ).toBe("END_OF_BACKTEST");
+
+    // Next writes the page into the URL — a real history entry, so Back returns to page 2 — and
+    // does not scroll the reader back to the top of a long result.
+    await act(async () => {
+      screen.getByRole("button", { name: "Next" }).click();
+    });
+    expect(pushMock).toHaveBeenCalledWith("/backtests/run-1?tradesPage=3", {
+      scroll: false,
+    });
   });
 
   it("shows the sanitized failure message when a run fails", async () => {
@@ -393,19 +629,27 @@ describe("BacktestRunView", () => {
     await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
     await flush();
 
-    const years = screen.getByTestId("backtest-milestone-years");
-    expect(years.getAttribute("data-milestone-count")).toBe("3");
-    expect(
-      [...years.querySelectorAll("[data-year]")].map((node) =>
-        node.getAttribute("data-year"),
-      ),
-    ).toEqual(["1996", "1997", "1998"]);
     expect(screen.getByTestId("backtest-milestones").textContent).toContain(
       "3 simulated years",
     );
+    // A run in flight reports its finished years the same way a completed one does: per year,
+    // chained off the cumulative index each milestone recorded. `testMilestones` grows the
+    // cumulative figure by 5 points a year, which is +5.00%, then +4.76%, then +4.55% — not three
+    // identical numbers, and not the cumulative ladder this replaced.
+    const running = screen.getByTestId("backtest-annual-returns");
+    expect(
+      [...running.querySelectorAll("[data-year]")].map((node) =>
+        node.getAttribute("data-year"),
+      ),
+    ).toEqual(["1996", "1997", "1998"]);
+    expect(running.textContent).toContain("+5.00%");
+    expect(running.textContent).not.toContain("+10.00%");
+    // Live work wears the pulse.
+    expect(
+      screen.getByTestId("backtest-status").getAttribute("data-activity"),
+    ).toBe("pulse");
 
-    // A finished run keeps its progression: the trail is what the run went through, not a
-    // transient loading affordance.
+    // A finished run keeps its progression, now from its durable result.
     fetchRunMock.mockResolvedValue(
       testDetail("COMPLETED", {
         result: testResult(),
@@ -423,35 +667,42 @@ describe("BacktestRunView", () => {
 
     expect(
       screen
-        .getByTestId("backtest-milestone-years")
-        .getAttribute("data-milestone-count"),
-    ).toBe("4");
+        .getByTestId("backtest-annual-returns")
+        .getAttribute("data-year-count"),
+    ).toBe("3");
   });
 
-  it("says when a holding is carried at a price older than the run's last day", async () => {
-    const result = testResult();
-    fetchRunMock.mockResolvedValue(
-      testDetail("COMPLETED", {
-        result: {
-          ...result,
+  it("says when a running holding is carried at a price older than the simulated date", async () => {
+    // Holdings belong to a run that is still executing: a completed one has none, because the end
+    // of the period sells everything it held.
+    const holding = {
+      symbol: "GONE",
+      name: "Gone Inc.",
+      shares: 10,
+      averageCost: 100,
+      lastPrice: 130,
+      lastPriceDate: "2023-04-11",
+      marketValue: 1_300,
+      unrealizedPnlPercent: 30,
+      allocationPercent: 12.5,
+    };
+    fetchRunMock.mockResolvedValue(testDetail("RUNNING"));
+    fetchProgressMock.mockResolvedValue(
+      testProgress("RUNNING", 2, {
+        percent: 40,
+        live: testLive({
+          simulatedThrough: "2024-01-05",
           holdings: [
-            {
-              ...(result.holdings[0] as BacktestHoldingResponse),
-              symbol: "GONE",
-              lastPriceDate: "2023-04-11",
-            },
-            {
-              ...(result.holdings[0] as BacktestHoldingResponse),
-              symbol: "LIVE",
-              lastPriceDate: result.summary.lastSimulatedDate,
-            },
+            holding,
+            { ...holding, symbol: "LIVE", lastPriceDate: "2024-01-05" },
           ],
-        },
+        }),
       }),
     );
-    fetchProgressMock.mockResolvedValue(testProgress("COMPLETED", 2));
 
     render(<BacktestRunView runId="run-1" />);
+    await flush();
+    await tick(BACKTEST_RUNNING_POLL_INTERVAL_MS);
     await flush();
 
     expect(

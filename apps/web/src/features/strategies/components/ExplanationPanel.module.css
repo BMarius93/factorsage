@@ -229,9 +229,27 @@
   margin-top: 4px;
 }
 
+/*
+ * The row-level card.
+ *
+ * It is read between two rules, so it stays roughly the height of the control it explains: a name,
+ * one line of summary and a disclosure. Everything else is a tap away rather than a scroll.
+ */
+.panelCard[data-compact="true"] {
+  gap: 5px;
+  padding: 10px 12px;
+}
+
 .moreDetail {
   border-top: 1px solid var(--color-border);
   padding-top: 8px;
+}
+
+/* No rule above the disclosure here: it follows the summary directly and a border would draw a
+   line through a three-line card. */
+.panelCard[data-compact="true"] .moreDetail {
+  border-top: none;
+  padding-top: 0;
 }
 
 .moreSummary {

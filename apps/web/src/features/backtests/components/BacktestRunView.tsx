@@ -3,7 +3,10 @@
 import {
   BACKTEST_FAILURE_PHASE_LABELS,
   BACKTEST_RUN_STATUS_LABELS,
+  BACKTEST_TRADES_PAGE_SIZE,
+  backtestAnnualReturns,
   isTerminalBacktestStatus,
+  type BacktestAnnualReturnResponse,
   type BacktestCurvePointResponse,
   type BacktestFailureResponse,
   type BacktestHoldingResponse,
@@ -28,6 +31,7 @@ import {
 } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useBacktestRun } from "../hooks/use-backtest-run";
+import { useBacktestTrades } from "../hooks/use-backtest-trades";
 import { failureGuidance } from "../utils/failure";
 import { rerunHref } from "../utils/prefill";
 import {
@@ -36,7 +40,6 @@ import {
   formatDerivedPercent,
   formatMoney,
   formatPeriod,
-  formatSignedPercent,
   formatTimestamp,
 } from "../utils/format";
 import {
@@ -45,6 +48,7 @@ import {
   resultMetrics,
   type BacktestMetricsView,
 } from "../utils/metrics";
+import { BacktestAnnualReturns } from "./BacktestAnnualReturns";
 import { BacktestComparisonChart } from "./BacktestComparisonChart";
 import { BacktestHoldings } from "./BacktestHoldings";
 import { BacktestMetricsRow } from "./BacktestMetricsRow";
@@ -55,6 +59,9 @@ import styles from "./BacktestRunView.module.css";
 /** Everything the result surfaces render, from the live snapshot or the durable result alike. */
 type RunSnapshotView = {
   readonly curve: readonly BacktestCurvePointResponse[];
+  /** Per-calendar-year returns; never cumulative. */
+  readonly annualReturns: readonly BacktestAnnualReturnResponse[];
+  /** The running page's bounded recent trades. A completed log is paged from the server. */
   readonly trades: readonly BacktestTradeResponse[];
   readonly holdings: readonly BacktestHoldingResponse[];
   readonly metrics: BacktestMetricsView;
@@ -76,6 +83,31 @@ function statusTone(status: BacktestRunStatus): StatusTone {
     default:
       return "pending";
   }
+}
+
+/**
+ * A run's own per-year returns while it is still executing.
+ *
+ * A milestone carries the **cumulative** growth to the end of each completed year, which is the
+ * number the result page used to render as if it were that year's return. The canonical chaining
+ * turns the same readings into per-year figures — `(1 + cumulative)` is exactly the return index
+ * `backtestAnnualReturns` divides — so a running page and a finished one report one methodology
+ * rather than two.
+ */
+function annualReturnsFromMilestones(
+  milestones: readonly BacktestMilestoneResponse[],
+  configuration: BacktestRunConfigurationResponse,
+): BacktestAnnualReturnResponse[] {
+  return backtestAnnualReturns(
+    milestones.map((milestone) => ({
+      date: milestone.simulatedThrough,
+      returnIndex: 1 + milestone.portfolioReturnPercent / 100,
+    })),
+    {
+      startDate: configuration.startDate,
+      endDate: configuration.endDate,
+    },
+  );
 }
 
 /**
@@ -175,13 +207,19 @@ export type BacktestRunViewProps = {
  * surfaces stay in place and fill in as checkpoints arrive, so watching a run finish never costs a
  * navigation, a reload or a layout jump — the chart replaces its own placeholder inside a frame
  * that already has the height it will keep.
+ *
+ * The order is header, chart, results, annual returns, run configuration, trade log: the shape of
+ * the run before the numbers that summarise it, and the summary before the year-by-year
+ * decomposition. Chart, results and years are three flat sections inside the one hero surface —
+ * separated by spacing, never by a card apiece.
  */
 /**
- * The run's completed years, in order.
+ * How many years the run has finished, while it is still executing.
  *
  * A thirty-year simulation can finish between two polls, so the live snapshot alone would show a
  * user nothing but the final state. Milestones are persisted per completed year and never
- * overwritten, so this reads the progression the run actually went through — including afterwards.
+ * overwritten, so this reads the progression the run actually went through. The years' *returns*
+ * are rendered by `BacktestAnnualReturns` alongside the results; this is the progress line.
  */
 function BacktestMilestoneTrail({
   milestones,
@@ -193,38 +231,15 @@ function BacktestMilestoneTrail({
   }
   const latest = milestones[milestones.length - 1] as BacktestMilestoneResponse;
   return (
-    <div className={styles.milestones} data-testid="backtest-milestones">
-      <p className={styles.milestoneCaption}>
-        {formatCount(milestones.length)} simulated{" "}
-        {milestones.length === 1 ? "year" : "years"} · through {latest.year}
-      </p>
-      <ol
-        className={styles.milestoneList}
-        data-testid="backtest-milestone-years"
-        data-milestone-count={milestones.length}
-      >
-        {milestones.map((milestone) => (
-          <li
-            key={milestone.sequence}
-            className={styles.milestone}
-            data-year={milestone.year}
-            title={`${milestone.year}: ${formatSignedPercent(
-              milestone.portfolioReturnPercent,
-            )} after ${formatCount(milestone.tradeCount)} trades`}
-          >
-            <span className={styles.milestoneYear}>{milestone.year}</span>
-            <span
-              className={styles.milestoneReturn}
-              data-tone={
-                milestone.portfolioReturnPercent >= 0 ? "positive" : "negative"
-              }
-            >
-              {formatSignedPercent(milestone.portfolioReturnPercent)}
-            </span>
-          </li>
-        ))}
-      </ol>
-    </div>
+    <p
+      className={styles.milestoneCaption}
+      data-testid="backtest-milestones"
+      data-milestone-count={milestones.length}
+    >
+      {formatCount(milestones.length)} simulated{" "}
+      {milestones.length === 1 ? "year" : "years"} · through {latest.year} ·{" "}
+      {formatCount(latest.tradeCount)} trades
+    </p>
   );
 }
 
@@ -343,6 +358,14 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     failure,
     retry,
   } = useBacktestRun(runId);
+  // The trade log is paged from the database, and its page lives in the URL. It is only asked for
+  // once the run has a durable log to page: a queued, running or failed run has none.
+  const {
+    page: tradePage,
+    loading: tradesLoading,
+    setPage: setTradesPage,
+    setPageSize: setTradesPageSize,
+  } = useBacktestTrades(runId, status === "COMPLETED");
   useDocumentTitle(run ? `${run.configuration.strategyName} backtest` : null);
   // The terminal checkpoint arrives one request before the refetched detail that carries the
   // durable result. Retaining the last snapshot is what keeps the chart, KPIs, holdings and trade
@@ -419,8 +442,10 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
   const arrived: RunSnapshotView | null = result
     ? {
         curve: result.curve,
-        trades: result.trades,
-        holdings: result.holdings,
+        annualReturns: result.annualReturns,
+        // A completed log is paged from the database; the result payload carries no trades.
+        trades: [],
+        holdings: [],
         metrics: resultMetrics(result.summary),
         tradeCount: result.summary.totalTrades,
         asOf: result.summary.lastSimulatedDate,
@@ -428,6 +453,9 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
     : live
       ? {
           curve: live.curve,
+          // A run in flight has no durable result yet, so its years come from the milestones it
+          // has already recorded — chained through the same canonical calculation.
+          annualReturns: annualReturnsFromMilestones(milestones, configuration),
           trades: live.recentTrades,
           holdings: live.holdings,
           metrics: liveMetrics(live),
@@ -467,7 +495,13 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               configuration.endDate,
             )} · vs ${configuration.benchmark.name}`}
             badges={
-              <StatusBadge tone={statusTone(status)} testId="backtest-status">
+              <StatusBadge
+                tone={statusTone(status)}
+                // Queued and running are live work, and the pill says so with a small pulse. A
+                // completed or failed run is finished and stays perfectly still.
+                pulse={!terminal}
+                testId="backtest-status"
+              >
                 {BACKTEST_RUN_STATUS_LABELS[status]}
               </StatusBadge>
             }
@@ -488,14 +522,6 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
               : {})}
           />
 
-          {terminal && milestones.length > 0 ? (
-            <div
-              data-testid="backtest-milestones-summary"
-              aria-label="Simulated years"
-            >
-              <BacktestMilestoneTrail milestones={milestones} />
-            </div>
-          ) : null}
           {terminal ? null : (
             <div data-testid="backtest-progress" aria-label="Backtest progress">
               <div className={styles.progressHead}>
@@ -551,10 +577,12 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
 
           {failed ? null : (
             <>
-              <p className={styles.chartCaption}>
-                {`Strategy, ${configuration.benchmark.name} and cash — the same money, invested three ways. Each scenario receives the same initial capital and the same monthly contributions.`}
-              </p>
-              {/* One frame, one height. The chart is mounted as soon as the run exists, curve or not:
+              {/* The chart first: what the run *did* over the period, before the numbers that
+              summarise it. The three series are named by the legend under the plot, which is why
+              there is no paragraph here setting the comparison up — the sentence that used to
+              cost a screen before the curve now lives in the chart's own accessible description.
+
+              One frame, one height. The chart is mounted as soon as the run exists, curve or not:
               its horizontal domain is the configured period, which is known before the first day
               is simulated, so the axis a user watches fill in is the axis the finished run will
               have. Only a run that ended with nothing to draw falls back to a message. */}
@@ -572,7 +600,7 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                   <BacktestComparisonChart
                     points={curve}
                     benchmarkName={configuration.benchmark.name}
-                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash`}
+                    ariaLabel={`Strategy portfolio value against ${configuration.benchmark.name} and cash. The same money invested three ways: each scenario receives the same initial capital and the same monthly contributions.`}
                     periodStart={configuration.startDate}
                     periodEnd={configuration.endDate}
                     populating={populating}
@@ -582,12 +610,26 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                 )}
               </div>
 
+              {/* Then the eight numbers that summarise it. No surface of its own: a heading and a
+                  row of tiles, so the totals do not read as a card inside the hero card. */}
               <BacktestMetricsRow
                 metrics={snapshot?.metrics ?? EMPTY_METRICS}
                 benchmarkName={configuration.benchmark.name}
                 caption={
                   terminal ? undefined : "Updating as the run progresses"
                 }
+              />
+
+              {/* Then what each year did, on its own — directly under the totals it decomposes,
+                  in the same flat grammar. */}
+              <BacktestAnnualReturns
+                years={snapshot?.annualReturns ?? []}
+                {...(terminal
+                  ? {}
+                  : {
+                      caption:
+                        "Each completed year on its own, not cumulative.",
+                    })}
               />
             </>
           )}
@@ -613,29 +655,47 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
         </details>
 
         {/* A failed run never produced holdings or trades. Showing "No positions" and "Trade log
-            0" under a failure read as if the run had executed and simply bought nothing (UI-031). */}
+            0" under a failure read as if the run had executed and simply bought nothing (UI-031).
+
+            A **completed** run has no holdings section at all: it liquidates everything it still
+            holds at the end of its period, so the final state is cash and an empty panel would be
+            a question with a permanent answer. While the run is executing its open positions are
+            real, and are still worth watching. */}
         {failed ? null : (
           <div className={styles.columns}>
-            <BacktestHoldings
-              holdings={snapshot?.holdings ?? []}
-              {...(snapshot ? { asOf: snapshot.asOf } : {})}
-              title={completed ? "Final holdings" : "Holdings"}
-              emptyMessage={
-                completed
-                  ? "The run ended holding nothing."
-                  : "No positions have been opened yet."
-              }
-            />
-            <BacktestTrades
-              trades={snapshot?.trades ?? []}
-              title={terminal ? "Trade log" : "Recent trades"}
-              emptyMessage={
-                terminal
-                  ? "This run made no trades."
-                  : "No trades have been executed yet."
-              }
-              {...(snapshot ? { truncatedFrom: snapshot.tradeCount } : {})}
-            />
+            {completed ? null : (
+              <BacktestHoldings
+                holdings={snapshot?.holdings ?? []}
+                {...(snapshot ? { asOf: snapshot.asOf } : {})}
+                title="Holdings"
+                emptyMessage="No positions have been opened yet."
+              />
+            )}
+            {completed ? (
+              <BacktestTrades
+                trades={tradePage?.items ?? []}
+                title="Trade log"
+                emptyMessage="This run made no trades."
+                paging={{
+                  page: tradePage?.page ?? 1,
+                  pageSize: tradePage?.pageSize ?? BACKTEST_TRADES_PAGE_SIZE,
+                  totalCount:
+                    tradePage?.totalCount ??
+                    run.result?.summary.totalTrades ??
+                    0,
+                  onPageChange: setTradesPage,
+                  onPageSizeChange: setTradesPageSize,
+                  loading: tradesLoading,
+                }}
+              />
+            ) : (
+              <BacktestTrades
+                trades={snapshot?.trades ?? []}
+                title="Recent trades"
+                emptyMessage="No trades have been executed yet."
+                {...(snapshot ? { truncatedFrom: snapshot.tradeCount } : {})}
+              />
+            )}
           </div>
         )}
       </div>

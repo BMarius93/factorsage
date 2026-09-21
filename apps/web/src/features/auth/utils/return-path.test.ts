@@ -70,7 +70,7 @@ describe("sign-in links carrying a return destination", () => {
 
   it("leaves the default destination out of the link", () => {
     expect(signInHref()).toBe("/login");
-    expect(signInHref("/dashboard")).toBe("/login");
+    expect(signInHref("/")).toBe("/login");
     expect(registerHref()).toBe("/register");
   });
 

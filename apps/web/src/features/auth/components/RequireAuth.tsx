@@ -105,7 +105,7 @@ export function RequireAuth({ children, role }: RequireAuthProps) {
             </p>
           }
           actions={
-            <Link className={forms.secondaryButton} href="/dashboard">
+            <Link className={forms.secondaryButton} href="/">
               Back to Dashboard
             </Link>
           }

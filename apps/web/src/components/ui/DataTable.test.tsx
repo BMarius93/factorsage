@@ -41,6 +41,19 @@ const COLUMNS: readonly DataTableColumn<Row>[] = [
     cardRole: "hidden",
     render: () => "desktop only",
   },
+  {
+    key: "age",
+    header: "Age",
+    cardRole: "summary",
+    render: () => "3 days ago",
+  },
+  {
+    key: "why",
+    header: "Why",
+    cardLabel: null,
+    stacked: true,
+    render: () => "Because the conditions hold",
+  },
 ];
 
 function renderTable(overrides: Partial<Parameters<typeof DataTable<Row>>[0]> = {}) {
@@ -55,6 +68,32 @@ function renderTable(overrides: Partial<Parameters<typeof DataTable<Row>>[0]> = 
     />,
   );
 }
+
+describe("DataTable card composition", () => {
+  it("gives a summary cell no visible label, because it is read as itself", () => {
+    renderTable();
+
+    const cell = screen
+      .getAllByTestId("thing-row")[0]!
+      .querySelector<HTMLElement>('td[data-card="summary"]')!;
+    // Only the column header labels it, and that header stays in the accessibility tree on a
+    // phone — so nothing is lost, the card simply stops spending a line on the word "Age".
+    expect(cell.textContent).toBe("3 days ago");
+    expect(within(cell).queryByText("Age")).toBeNull();
+  });
+
+  it("lets a column opt out of its card label, and labels every other one", () => {
+    renderTable();
+
+    const row = screen.getAllByTestId("thing-row")[0]!;
+    const why = row.querySelector<HTMLElement>('td[data-stacked="true"]')!;
+    expect(why.textContent).toBe("Because the conditions hold");
+
+    // A relationship still wears its label: "Deep value" alone would not say which relationship.
+    const links = row.querySelector<HTMLElement>('td[data-card="links"]')!;
+    expect(links.textContent).toBe("StrategyDeep value");
+  });
+});
 
 describe("DataTable", () => {
   it("exposes real table semantics with one row per record", () => {

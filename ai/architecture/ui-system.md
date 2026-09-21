@@ -100,16 +100,24 @@ the inset. Below 880px a `flush` surface **dissolves** — border, background an
 `DataTable` already gives each record its own card there and the wrapper would draw a box around a
 stack of boxes. The heading stays: it is the section's name, not the card's.
 
-**Do not nest a `SectionCard` inside another.** One page-level surface per section is the whole
-point; card-inside-card is the noise this replaced.
+**Do not nest a `SectionCard` inside another**, and do not draw a bordered container around a group
+inside one either. One page-level surface per section is the whole point; card-inside-card is the
+noise this replaced, and a section's own box inside a surface is the same mistake wearing a
+different class name. A section *within* a surface is a heading plus its content — the backtest
+result's `Results` and `Annual returns` are both exactly that, separated from each other and from
+the chart by the hero body's gap. Give the individual cells a border if they need one; do not give
+the group a second.
 
 ### `CollectionFooter` / `usePagination`
 
-Page size, the visible range and page navigation, under every collection. Paging is applied in the
-browser over rows the page already holds — every collection endpoint returns the caller's own records
-in one response — so this is presentation, not a data-loading concern. If a collection ever outgrows
-one response, `usePagination` is the seam to replace. A new `resetKey` (a new query or order)
-returns to the first page.
+Page size, the visible range and page navigation, under every collection. The footer itself is
+presentation: it draws a position in a collection and reports the moves a reader asks for, and where
+the rows come from is the caller's business. Most collections slice rows the page already holds with
+`usePagination`, because their endpoint returns the caller's own records in one response; a new
+`resetKey` (a new query or order) returns such a collection to the first page. A collection that
+outgrows one response pages in the database instead and hands the footer the server's own `page`,
+`pageSize` and `totalCount` — the backtest trade log does, at 18,348 rows. Both read identically,
+which is the point.
 
 ### `useCollection` — search and sort (UI-010, UI-011)
 
@@ -197,14 +205,25 @@ kept in that tree, so every cell keeps its column name.
 
 Each column declares a `cardRole` that says where its cell goes on a phone:
 
-| `cardRole` | Desktop | Phone                                                    |
-| ---------- | ------- | -------------------------------------------------------- |
-| `identity` | cell    | the card's title, top-left                               |
-| `status`   | cell    | top-right, beside the identity                           |
-| `fact`     | cell    | a full-width `LABEL … value` row (the default)           |
-| `links`    | cell    | a labelled relationship row in the card's "linked" block |
-| `actions`  | cell    | a full-width action row under a divider                  |
-| `hidden`   | cell    | omitted                                                  |
+| `cardRole` | Desktop | Phone                                                      |
+| ---------- | ------- | ---------------------------------------------------------- |
+| `identity` | cell    | the card's title, top-left                                 |
+| `status`   | cell    | top-right, beside the identity                             |
+| `summary`  | cell    | shares one unlabelled line with the other `summary` cells  |
+| `fact`     | cell    | a full-width `LABEL … value` row (the default)             |
+| `links`    | cell    | a labelled relationship row in the card's "linked" block   |
+| `actions`  | cell    | a full-width action row under a divider                    |
+| `hidden`   | cell    | omitted                                                    |
+
+**A card is not the desktop row with the columns turned sideways.** Every `fact` costs a label, a
+value and a row, and a record with seven of them becomes a screenful: the Dashboard's match card
+was 333px tall with `SINCE`, `WHY`, `PRICE`, `STRATEGY`, `LIST` and `MONITOR` each owning one. Two
+things bring that back down without dropping anything. `summary` is for the short secondary facts
+that say what they are — a relative time, a price: consecutive `summary` cells share one line, the
+first at the leading edge and the rest at the trailing one, with no visible label. And `cardLabel:
+null` drops the label from a cell whose value is already a sentence, such as a signal's "why". In
+both cases the column header still labels the cell for assistive technology, because the header row
+stays in the accessibility tree; only the visual label goes. The same card is now 248px.
 
 The `OverflowMenu` in an `actions` cell is pinned to the card's top-right, in the same row as the
 identity and status; the contextual action stays at the bottom. It is one DOM node positioned by
@@ -241,10 +260,27 @@ rendered "U." and "QATE…". Where a table is wide enough to squeeze its identit
 cell a floor that fits the whole identifier and let the relationship chips give way instead.
 `DataTable` gives every `identity` column a `12rem` floor in the desktop layout (and lets a single
 unbroken token wrap rather than widen the table); a column overrides it with `minWidth` — the
-Dashboard's ticker column is `7rem`, the mark plus a full seven-character symbol. Width hints travel
-as custom properties that only the desktop layout reads, so they never constrain a phone card.
+Dashboard's ticker column is `8.5rem`, the mark plus a full seven-character symbol. Width hints
+travel as custom properties that only the desktop layout reads, so they never constrain a phone
+card. **`minWidth` is a border-box floor**, so it has to cover the cell's own padding: the
+Dashboard's ticker column was `7rem` while nothing else in the table had a floor, which left 44px
+for a 53px symbol and only held because auto layout handed the column more than its floor. Give the
+other columns floors and that stops being true, so a floor and the columns around it are one
+decision, not several.
 `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880, 1024, 1280
 and 1440 px with no document overflow.
+
+**A name is a column's information, and may take two lines.** An `EntityReferenceChip` truncates
+to one line by default, because most of them sit beside the content that matters. Where the name
+*is* what distinguishes one row from another — the Dashboard's Strategy, List and Monitor columns,
+which at eight columns rendered "Trend C…", "Recent M…" and "New Listin…" — the chip takes
+`lines={2}`: same pill, wrapped to at most two lines and clipped after them, with the whole name in
+`title` either way. Pair it with a `minWidth` on the columns concerned so the wrap has somewhere to
+happen — and size that floor against the **narrowest** width at which every column is shown, with
+the widest content the product can produce. The Dashboard's `9.5rem` is what is left at 1,280px once
+the ticker, a `Waiting for trigger` badge, a relative time, the reason and a price have taken what
+they need; asking for more does not widen the column, it scrolls the table sideways inside its
+surface, which is worse than a name wrapping.
 
 **Fold before scrolling.** In the intermediate desktop band (880–1,279px) a wide table has more
 columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
@@ -280,6 +316,14 @@ without a find-and-replace across features.
 
 The feature supplies the label and the tone from its own canonical map. Never hard-code a colour for
 a status in a feature stylesheet.
+
+`pulse` adds a small breathing dot before the label, and it means exactly one thing: **this job is
+still alive**. It is for work genuinely in flight — a queued or running backtest, on its own page
+and in the collection alike — and never for a finished one, because animating a result implies work
+that is not happening. It says nothing about progress; a percentage is a different affordance. The
+dot is `aria-hidden`, so the label still carries the whole meaning, it is a slow opacity-and-scale
+breath rather than a blink, and under `prefers-reduced-motion: reduce` it stays visible and stops
+moving. Tests assert the `data-activity="pulse"` hook, never an animation frame.
 
 ### `EntityReferenceChip` / `LinkedEntities`
 
@@ -518,6 +562,11 @@ page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-e
   account-menu links, Sign in and Pricing — passes through `guardNavigation`, and Sign out calls
   `canNavigate()` first, so a page with unsaved work (the Strategy Builder) is asked before any of
   them leave it. Browser Back and reload keep the documented limits of `unsaved-changes.ts`.
+- **The Dashboard is the product's home, at `/`.** `app/(app)/page.tsx` renders it; `/dashboard`,
+  the address it used to answer at, is a 307 to `/` declared in `lib/route-redirects.ts` and applied
+  by `next.config.ts`, so an old link keeps working without ever putting the old address in the
+  browser. `APP_HOME_HREF`, the bottom bar's Dashboard item and `DEFAULT_RETURN_PATH` on both sides
+  of the sign-in boundary all resolve to `/`.
 - **Active item.** The brand link carries `aria-current="page"` on the Dashboard, which has no nav
   item of its own. Routes that are not navigation items (Stock Details, Billing) claim no active
   item rather than a false one.

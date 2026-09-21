@@ -75,6 +75,33 @@ async function expectNoHorizontalScroll(page: Page) {
   ).toBeLessThanOrEqual(overflow.clientWidth + 1);
 }
 
+/**
+ * The completed result's sections, in the order the document actually puts them.
+ *
+ * Read from the rendered DOM rather than from a list of assertions per section, because the whole
+ * point of the hierarchy is the sequence: chart, results, years, configuration, trades. Sections a
+ * given run does not have simply do not appear.
+ */
+const RESULT_SECTIONS = [
+  "backtest-chart",
+  "backtest-results",
+  "backtest-annual-returns",
+  "run-configuration",
+  "backtest-trades",
+] as const;
+
+async function sectionOrder(page: Page): Promise<string[]> {
+  return page.evaluate(
+    (ids) =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          ids.map((id) => `[data-testid="${id}"]`).join(","),
+        ),
+      ].map((node) => node.dataset.testid ?? ""),
+    RESULT_SECTIONS as readonly string[],
+  );
+}
+
 async function createStrategy(page: Page, name: string) {
   await page.goto("/strategies/new");
   await page.getByLabel("Name").fill(name);
@@ -234,6 +261,8 @@ type RunObservation = {
   /** Sampled while the simulation itself was in flight — the only phase that can carry a curve. */
   sawSimulating: boolean;
   sawChartWhileRunning: boolean;
+  /** Whether a non-terminal status ever wore the "this job is alive" indicator. */
+  sawActivityWhileRunning: boolean;
   maxPointsWhileRunning: number;
   maxSeriesWhileRunning: number;
   failureMessage: string | null;
@@ -252,6 +281,7 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
     sawNonTerminal: false,
     sawSimulating: false,
     sawChartWhileRunning: false,
+    sawActivityWhileRunning: false,
     maxPointsWhileRunning: 0,
     maxSeriesWhileRunning: 0,
     failureMessage: null,
@@ -264,8 +294,10 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
       const failure = document.querySelector(
         '[data-testid="backtest-failure"]',
       );
+      const badge = document.querySelector('[data-testid="backtest-status"]');
       return {
         status: run?.getAttribute("data-status") ?? "",
+        activity: badge?.getAttribute("data-activity") ?? "",
         hasChart: chart !== null,
         points: Number(chart?.getAttribute("data-strategy-points") ?? "0"),
         series: Number(chart?.getAttribute("data-series-count") ?? "0"),
@@ -278,6 +310,9 @@ async function watchUntilTerminal(page: Page): Promise<RunObservation> {
       sample.status === "COMPLETED" || sample.status === "FAILED";
     if (sample.status !== "" && !terminal) {
       seen.sawNonTerminal = true;
+      if (sample.activity === "pulse") {
+        seen.sawActivityWhileRunning = true;
+      }
       if (sample.status === "RUNNING" || sample.status === "FINALIZING") {
         seen.sawSimulating = true;
       }
@@ -360,6 +395,14 @@ test.describe("PRO_USER backtests", () => {
     // so the browser may only ever sample QUEUED — a phase that correctly has no curve yet. Assert
     // the progressive behaviour when the simulation itself was observed, and record the fact when
     // it was not: being fast is not a defect.
+    if (observation.sawNonTerminal) {
+      // A job that has not finished says so: a small activity indicator on the status pill, and
+      // nothing that implies progress it cannot measure.
+      expect(
+        observation.sawActivityWhileRunning,
+        "A queued or running backtest showed no activity indicator on its status.",
+      ).toBe(true);
+    }
     if (observation.sawSimulating) {
       expect(
         observation.sawChartWhileRunning,
@@ -419,17 +462,90 @@ test.describe("PRO_USER backtests", () => {
       "metric-net-profit",
       "metric-max-drawdown",
       "metric-trades",
-      "metric-open-positions",
+      // Replaced "Open positions", which a terminally liquidated run could only ever report as 0.
+      "metric-cagr",
     ]) {
       await expect(page.getByTestId(metric)).not.toHaveText(/—$/);
     }
     await expect(page.getByText("Trade log")).toBeVisible();
-    await expect(page.getByText("Final holdings")).toBeVisible();
+    // A completed run ends in cash, so there is no holdings section at all.
+    await expect(page.getByText("Final holdings")).toHaveCount(0);
+
+    // Per-calendar-year returns, directly below the results they decompose.
+    const annual = page.getByTestId("backtest-annual-returns");
+    await expect(annual).toBeVisible();
+    expect(
+      Number(await annual.getAttribute("data-year-count")),
+      "A completed run reported no annual returns",
+    ).toBeGreaterThan(0);
+
+    // The shape of the run, then the numbers, then the years, then the inputs, then the trades.
+    expect(
+      await sectionOrder(page),
+      "The completed result is not in its intended order",
+    ).toEqual([
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ]);
+    // The setup paragraph that used to sit above the chart is gone; the legend names the series.
+    await expect(page.getByText(/invested three ways/)).toHaveCount(0);
+
+    // Every trade says why it happened, and the log is paged from the server rather than shipped
+    // whole. The reason is read from its own cell: a BUY's Realized cell is legitimately an em
+    // dash, so the row's text says nothing about whether the rule was described.
+    const firstTrade = page.getByTestId("backtest-trade-row").first();
+    await expect(firstTrade).toBeVisible();
+    await expect(
+      firstTrade.locator('[data-testid="backtest-trade-reason"]'),
+      "The first trade carried no reason",
+    ).not.toBeEmpty();
+    await expect(page.getByTestId("backtest-trades-footer")).toBeVisible();
+
+    // A finished run stays still: no activity pulse on a terminal status.
+    await expect(page.getByTestId("backtest-status")).not.toHaveAttribute(
+      "data-activity",
+      "pulse",
+    );
 
     await expectNoHorizontalScroll(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(chart).toBeVisible();
     await expectNoHorizontalScroll(page);
+
+    // A phone keeps the same order and the same 2 x 4 result block, and the chart that now leads
+    // the page stays compact enough to leave those numbers on the first screen.
+    expect(await sectionOrder(page)).toEqual([
+      "backtest-chart",
+      "backtest-results",
+      "backtest-annual-returns",
+      "run-configuration",
+      "backtest-trades",
+    ]);
+    expect(
+      await page
+        .getByTestId("backtest-metrics")
+        .evaluate(
+          (node) =>
+            getComputedStyle(node).gridTemplateColumns.split(" ").length,
+        ),
+      "The phone's result grid is not two columns across",
+    ).toBe(2);
+    const chartHeight = (await chart.boundingBox())?.height ?? 0;
+    expect(
+      chartHeight,
+      "The chart takes more than half a phone screen",
+    ).toBeLessThan(844 / 2);
+    expect(chartHeight).toBeGreaterThan(200);
+    // The legend still sits with the chart, and still fits its width.
+    const series = page.getByTestId("backtest-chart-series");
+    await expect(series).toBeVisible();
+    expect(
+      await series.evaluate((node) => node.scrollWidth <= node.clientWidth),
+      "The chart legend overflows a 390px screen",
+    ).toBe(true);
 
     // The finished run is listed in the collection.
     await navLink(page, "Backtests").click();
@@ -500,12 +616,12 @@ test.describe("PRO_USER backtests", () => {
     expect(firstPoint, "The chart carried no first point").not.toBeNull();
     expect(firstPoint as string).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
-    // A multi-year run reports the years it finished, and keeps them after it ends.
-    const years = page.getByTestId("backtest-milestone-years");
+    // A multi-year run reports a return for each year it simulated, and keeps them after it ends.
+    const years = page.getByTestId("backtest-annual-returns");
     await expect(years).toBeVisible();
     expect(
-      Number(await years.getAttribute("data-milestone-count")),
-      "A multi-year run recorded no annual milestones",
+      Number(await years.getAttribute("data-year-count")),
+      "A multi-year run reported no annual returns",
     ).toBeGreaterThan(0);
   });
 
@@ -704,7 +820,10 @@ test.describe("PRO_USER backtests", () => {
     expect(full.to <= (periodEnd ?? "")).toBe(true);
 
     // Zoom in, then try to walk out of the period in both directions.
-    await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.5);
+    await page.mouse.move(
+      box!.x + box!.width * 0.5,
+      box!.y + box!.height * 0.5,
+    );
     for (let tick = 0; tick < 8; tick += 1) {
       await page.mouse.wheel(0, -120);
     }

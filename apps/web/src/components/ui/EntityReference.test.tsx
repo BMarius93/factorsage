@@ -38,6 +38,33 @@ describe("EntityReferenceChip", () => {
       screen.getByRole("link").getAttribute("title"),
     ).toBe("A very long stock list name");
   });
+
+  it("stays on one line unless a surface asks for two", () => {
+    const { rerender } = render(
+      <EntityReferenceChip kind="monitor" name="Nasdaq Trend Confirmation" />,
+    );
+    expect(
+      screen
+        .getByText("Nasdaq Trend Confirmation")
+        .closest("[data-kind]")
+        ?.getAttribute("data-lines"),
+    ).toBe("1");
+
+    rerender(
+      <EntityReferenceChip
+        kind="monitor"
+        name="Nasdaq Trend Confirmation"
+        lines={2}
+      />,
+    );
+    const chip = screen
+      .getByText("Nasdaq Trend Confirmation")
+      .closest("[data-kind]");
+    expect(chip?.getAttribute("data-lines")).toBe("2");
+    // Wrapping is a presentation choice, never a shortening one: the name is whole either way.
+    expect(chip?.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
+    expect(chip?.textContent).toBe("Nasdaq Trend Confirmation");
+  });
 });
 
 describe("LinkedEntities", () => {

@@ -376,10 +376,24 @@ describe("annual execution windows", () => {
     expect(dates.at(-1)).toBe(END);
     expect(result?.summary.tradingDays).toBe(dates.length);
 
-    // The position opened in 2019 is still the same position at the end: one BUY, no re-entry,
-    // and the cost basis carried across two New Years.
-    expect(result?.positions).toHaveLength(1);
-    expect(result?.summary.openPositions).toBe(1);
+    // The position opened in 2019 is the same position at the end: one BUY, no re-entry, and the
+    // cost basis carried across two New Years. The run then ends and liquidates it, which is what
+    // makes the final state cash — so the proof that one lifecycle survived both boundaries is the
+    // single terminal sale, dated the run's last simulated day.
+    const trades = result?.trades ?? [];
+    // Nothing exited before the end, so nothing re-entered: one lifecycle across both boundaries.
+    expect(
+      trades.filter(
+        (trade) => trade.source === "STRATEGY" && trade.action !== "BUY",
+      ),
+    ).toHaveLength(0);
+    const closeOut = trades.filter(
+      (trade) => trade.source === "END_OF_BACKTEST",
+    );
+    expect(closeOut).toHaveLength(1);
+    expect(closeOut[0]?.date).toBe(END);
+    expect(result?.positions).toHaveLength(0);
+    expect(result?.summary.openPositions).toBe(0);
 
     // Contributions kept landing once a month across both boundaries.
     const deposits = equity.filter(

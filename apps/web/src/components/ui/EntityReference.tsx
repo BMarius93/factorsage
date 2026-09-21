@@ -24,6 +24,16 @@ type EntityReferenceChipProps = {
    * rather than a link that would 404.
    */
   readonly href?: string;
+  /**
+   * How many lines the name may take before it is clipped. One — the default — is the dense
+   * inline reference: a chip beside other content, which must never grow the row it sits in.
+   *
+   * Two is for a surface where the name *is* the information and a single line cannot hold it:
+   * the Dashboard's Strategy, List and Monitor columns, where "Trend C…", "Recent M…" and "New
+   * Listin…" made three different objects indistinguishable. The full name stays in `title`
+   * either way, so nothing depends on the clip.
+   */
+  readonly lines?: 1 | 2;
   readonly testId?: string;
 };
 
@@ -38,11 +48,13 @@ export function EntityReferenceChip({
   kind,
   name,
   href,
+  lines = 1,
   testId,
 }: EntityReferenceChipProps) {
   const attributes = {
     className: styles.chip,
     "data-kind": kind,
+    "data-lines": String(lines),
     title: name,
     ...(testId ? { "data-testid": testId } : {}),
   } as const;

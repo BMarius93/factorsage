@@ -388,9 +388,10 @@ loser resolves again and finds the row the winner wrote. The retry is bounded at
 second pass reads state that already exists.
 
 Success issues the same HttpOnly session cookie as password login and redirects to
-`WEB_BASE_URL` followed by the validated return path the flow started with, or `/dashboard` (see
-_Return destination after sign-in_). Every failure redirects to `WEB_BASE_URL/login?error=<code>`
-using the stable `OAUTH_ERROR_CODES` contract and sets no session cookie. Provider detail never
+`WEB_BASE_URL` followed by the validated return path the flow started with, or `/` — the
+Dashboard's canonical route (see _Return destination after sign-in_). Every failure redirects to
+`WEB_BASE_URL/login?error=<code>` using the stable `OAUTH_ERROR_CODES` contract and sets no session
+cookie. Provider detail never
 reaches the browser.
 
 ### Return destination after sign-in (UX-003)
@@ -420,7 +421,8 @@ contains no backslash and no control character (C0, DEL, C1), and still satisfie
 each of up to three rounds of percent-decoding (so `/%2F%2Fevil`, `/%5Cevil` and double-encoded
 forms are refused, as are malformed escapes), and a real URL parser resolves it to the same origin.
 Anything else — absent, empty, repeated, `//host`, `/\host`, `https:`, `javascript:`, CR/LF, tab,
-over-length — is `/dashboard`. An accepted value is used verbatim, never re-encoded.
+over-length — is `/`, the Dashboard's canonical route. An accepted value is used verbatim,
+never re-encoded.
 
 - **Password sign-in.** `LoginPanel` validates `next`; `LoginForm` validates it again and
   `router.replace`s to it on success. A refused sign-in navigates nowhere.
@@ -430,7 +432,7 @@ over-length — is `/dashboard`. An accepted value is used verbatim, never re-en
   is not signed (item 4 below): a tampered cookie can at worst choose another page of the app, and
   the redirect is always `WEB_BASE_URL` + a validated path. State, PKCE, nonce, single-use
   clearing and every failure redirect are unchanged; a transaction cookie written before this
-  field existed (three elements) still completes, to `/dashboard`.
+  field existed (three elements) still completes, to `/`.
 - **Registration.** The register page keeps `next` on its links back to sign-in and to Google, so
   a same-tab sign-in returns correctly. It is **not** put into the activation email: verification
   only activates the account and sets its password (AUTH-002/003); carrying a destination through

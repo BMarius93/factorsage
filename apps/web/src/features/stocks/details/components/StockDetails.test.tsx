@@ -253,6 +253,35 @@ describe("StockDetails", () => {
     expect(chart().dataset.pointCount).toBe("6");
   });
 
+  it("opens with a compact quote header instead of an introduction", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+
+    render(<StockDetails symbol="AAPL" />);
+
+    const heading = await screen.findByRole("heading", {
+      level: 1,
+      name: /AAPL/,
+    });
+    const header = heading.closest("[data-density]");
+
+    // The page opens on a readout the user came to compare against the chart below it, so the
+    // header asks for the dense row rather than the page-opening spacing.
+    expect(header?.getAttribute("data-density")).toBe("compact");
+    // The mark hangs beside the whole identity rather than inside the heading: that is what
+    // keeps the ticker, the company name and the listing metadata stacked against it on a
+    // phone instead of pushed under it.
+    expect(heading.querySelector('[data-size="lg"]')).toBeNull();
+    expect(header?.querySelector('[data-size="lg"]')).not.toBeNull();
+    // The close and how far it moved are one fact on one line; only the as-of metadata is a
+    // second one.
+    const price = screen.getByText("$232.00");
+    const change = screen.getByText(/\+\$32\.00 \(\+16\.00%\)/);
+    expect(price.parentElement).toBe(change.parentElement);
+    expect(price.parentElement?.contains(screen.getByText(/At close/))).toBe(
+      false,
+    );
+  });
+
   it("presents the latest valuation, technicals, and key facts from the payload", async () => {
     fetchStockDetailsMock.mockResolvedValue(detailsFixture());
 
@@ -1004,7 +1033,7 @@ describe("StockDetails", () => {
       screen
         .getByRole("link", { name: "Back to Dashboard" })
         .getAttribute("href"),
-    ).toBe("/dashboard");
+    ).toBe("/");
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 

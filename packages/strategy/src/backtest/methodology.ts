@@ -76,8 +76,41 @@ export const EXECUTION_METHODOLOGY_VERSION =
   "same-day-close/fractional-shares/exits-before-entries/contribution-dca@3" as const;
 
 /**
+ * How a run ends.
+ *
+ * `liquidate-remaining-at-final-close@1`: after the final eligible date has executed normally —
+ * contribution, valuation, exits, entries — every position still open is sold into cash at the
+ * canonical price that date's valuation used, which is the position's most recent observed close.
+ * A completed run therefore ends holding nothing but cash, `finalCash == finalValue`, and no value
+ * disappears: the liquidation marks the same shares at the same price the day's `positionsValue`
+ * was computed from.
+ *
+ * **This is execution methodology, not a Strategy signal.** It is emphatically *not* a FINAL EXIT:
+ * FINAL EXIT is the strategy deciding to leave a position, and it keeps its own action, its own
+ * level id and its own product meaning. A terminal liquidation is FactorSage saying the simulated
+ * period is over. The two are kept apart in the trade record by `source`, not by overloading the
+ * action, so "the strategy exited" and "the simulation ended" can never be read as the same event.
+ *
+ * Liquidation runs after entries rather than before them, so the final day's strategy decisions are
+ * the ones the strategy would really have made; a position opened that day is then closed at the
+ * same close, realizing exactly zero.
+ *
+ * Positions are closed in the engine's deterministic position order (symbol, then security id), and
+ * every sale goes through the same cost-basis, fee and quantization seam an ordinary sell uses, so
+ * realized P&L, share scale and monetary scale are unchanged.
+ *
+ * Runs recorded before this version finished holding their open positions and keep that result.
+ */
+export const TERMINAL_LIQUIDATION_METHODOLOGY_VERSION =
+  "liquidate-remaining-at-final-close@1" as const;
+
+/**
  * Fee and slippage assumptions. V1 executes at zero of both, deliberately and visibly, so a later
  * change is a version bump rather than a silent reinterpretation of historical runs.
+ *
+ * Terminal liquidation is priced through the same seam: it is an ordinary sell as far as costs are
+ * concerned, so introducing a fee later charges it once per liquidated position without a second
+ * decision being made anywhere.
  */
 export const EXECUTION_COST_METHODOLOGY_VERSION =
   "zero-fees/zero-slippage@1" as const;
@@ -244,6 +277,7 @@ export const BACKTEST_METHODOLOGY = {
   executionCalendar: EXECUTION_CALENDAR_METHODOLOGY_VERSION,
   candidateOrdering: CANDIDATE_ORDERING_METHODOLOGY_VERSION,
   execution: EXECUTION_METHODOLOGY_VERSION,
+  terminalLiquidation: TERMINAL_LIQUIDATION_METHODOLOGY_VERSION,
   executionCosts: EXECUTION_COST_METHODOLOGY_VERSION,
   cashYield: CASH_YIELD_METHODOLOGY_VERSION,
   strategyEvaluation: STRATEGY_EVALUATION_METHODOLOGY_VERSION,
@@ -277,10 +311,10 @@ export type BacktestMethodology = typeof BACKTEST_METHODOLOGY;
  *
  * **All of them are execution-affecting**, which is why none is excluded: the calendar and its
  * source decide which dates are simulated, `contribution` when money lands, `candidateOrdering`
- * who is funded first, `execution` what a day does, `executionCosts` and `cashYield` what it costs
- * and earns, `strategyEvaluation` what a Strategy document *means*, `costBasis` what a sale
- * realizes, `returns` how the percentage curves report all of it, and `comparisonScenarios` what
- * the absolute Strategy / benchmark / Cash values mean.
+ * who is funded first, `execution` what a day does, `terminalLiquidation` how the run ends,
+ * `executionCosts` and `cashYield` what it costs and earns, `strategyEvaluation` what a Strategy
+ * document *means*, `costBasis` what a sale realizes, `returns` how the percentage curves report
+ * all of it, and `comparisonScenarios` what the absolute Strategy / benchmark / Cash values mean.
  */
 export function methodologyMismatches(
   recorded: unknown,

@@ -40,6 +40,38 @@ describe("PageHeader variants", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
+  it("packs the identity, the fact and the action into one row when a page asks for it", () => {
+    const { rerender } = render(<PageHeader title="Lists" testId="header" />);
+
+    // The default is the page-opening header; compact is the quote-header density, and a
+    // readout screen has to ask for it.
+    expect(screen.getByTestId("header").getAttribute("data-density")).toBe(
+      "comfortable",
+    );
+
+    rerender(<PageHeader title="AAPL" density="compact" testId="header" />);
+
+    expect(screen.getByTestId("header").getAttribute("data-density")).toBe(
+      "compact",
+    );
+  });
+
+  it("hangs an identity mark beside the title rather than inside the heading", () => {
+    render(
+      <PageHeader
+        title="AAPL"
+        mark={<span data-testid="mark" aria-hidden="true" />}
+        badges={<span>NASDAQ</span>}
+      />,
+    );
+
+    const heading = screen.getByRole("heading", { level: 1 });
+    // The mark spans the whole identity — title and the metadata under it — so it must not be
+    // part of the heading it sits beside.
+    expect(heading.contains(screen.getByTestId("mark"))).toBe(false);
+    expect(heading.textContent).toBe("AAPL");
+  });
+
   it("keeps a page-level fact separate from the page's actions", () => {
     render(
       <PageHeader

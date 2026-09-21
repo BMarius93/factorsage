@@ -1,0 +1,111 @@
+/* A strip of per-year figures under the results they decompose.
+
+   Thirty years has to fit without becoming a wall, so the cells are a fixed-track grid that
+   simply gains columns as the viewport allows: five across a phone, up to ten on a wide
+   desktop. The year and its return stack inside each cell, which is what keeps a 390px
+   column legible at this density. */
+
+.section {
+  display: grid;
+  gap: 10px;
+}
+
+/* The explanatory line sits under the heading on a phone and beside it from 600px up. Relying on
+   flex wrapping alone put a 40-character sentence in whatever room "Annual returns" left it, which
+   on a 390px screen is a two-word ragged column. */
+.head {
+  display: grid;
+  gap: 2px;
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+}
+
+.caption {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr));
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+}
+
+.cell {
+  display: grid;
+  gap: 1px;
+  padding: 5px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  text-align: center;
+}
+
+.year {
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.partial {
+  color: var(--color-text-muted);
+}
+
+.value {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
+}
+
+.value[data-tone="positive"] {
+  color: var(--color-positive);
+}
+
+.value[data-tone="negative"] {
+  color: var(--color-negative);
+}
+
+.footnote {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+}
+
+@media (min-width: 600px) {
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+  }
+}
+
+@media (min-width: 880px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
+    gap: 6px;
+  }
+
+  .cell {
+    padding: 6px 8px;
+  }
+
+  .value {
+    font-size: var(--text-secondary);
+  }
+}

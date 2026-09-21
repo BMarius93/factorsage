@@ -172,7 +172,9 @@ For each date, in this fixed order:
    A level that has already fired is skipped unless today deposited a contribution.
 5. **Allocate** — order the candidates, then size them against a portfolio value fixed once for the
    whole date, enforcing cash and the position-slot cap.
-6. **Record** — the position metric that actually held today (for tomorrow's Trigger), the day's
+6. **Liquidate**, on the run's **final** date only — every position still open is sold into cash.
+   See **Terminal liquidation** below.
+7. **Record** — the position metric that actually held today (for tomorrow's Trigger), the day's
    equity point, and the three absolute comparison values.
 
 ## Execution methodology — the V1 rules
@@ -195,6 +197,7 @@ into every run snapshot so a later change cannot reinterpret an old run.
 | SELL level percentage     | a fraction of the position **remaining at execution time**                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Repeated SELL levels      | each SELL level fires at most once per position lifecycle; several matching levels execute in definition order on the same date                                                                                                                                                                                                                                                                                                                                                                                                        |
 | FINAL EXIT                | outranks a matching partial SELL on the same date and closes the whole remaining position                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Terminal liquidation      | `liquidate-remaining-at-final-close@1`: after the final eligible date executes normally, every position still open is sold at the price that date valued it at. **Execution methodology, never a Strategy FINAL EXIT** — see below          |
 | Same-date re-entry        | forbidden. A security whose position closed today cannot open a new one until the next eligible date: selling and rebuying at one close is an economic no-op that would fabricate two trades and reset the position's level state                                                                                                                                                                                                                                                                                                      |
 | Cost basis                | `AVERAGE_COST`. A partial sell reduces shares and cost proportionally, so basis per share is unchanged and `Gain` keeps describing the same position                                                                                                                                                                                                                                                                                                                                                                                   |
 | Position epoch            | incremented on every open. A Trigger can never straddle a closed-and-reopened position, and the previous metric value is the one that _actually held_, recorded when it was computed                                                                                                                                                                                                                                                                                                                                                   |
@@ -259,6 +262,98 @@ re-running it under a newer engine is a new run.
 
 Deliberately **not** covered: a provider later correcting a historical row. V1 does not persist raw
 provider vintages and does not claim to.
+
+## Terminal liquidation — how a run ends
+
+`terminalLiquidation: liquidate-remaining-at-final-close@1`.
+
+At the end of the simulation period, FactorSage liquidates all remaining positions at the canonical
+final execution price. **This is execution methodology, not a Strategy FINAL EXIT signal.**
+
+The final eligible date executes normally first — contribution, valuation, exits, entries — and only
+then is every position still open sold. Liquidating before entries would let the strategy re-enter
+after the sale and leave the run holding something; liquidating instead of the day's execution would
+discard decisions the strategy genuinely made on its last day.
+
+The price is the position's **most recent observed close**: exactly the price the day's
+`positionsValue` marked it at, and for a security whose history ended mid-run the last close that
+was actually quoted rather than a mark that never existed. That is what makes the liquidation
+value-neutral — the day's total value does not move, `finalCash` becomes `finalValue`,
+`finalPositionsValue` is zero, and no value is created or destroyed by the period ending. Positions
+close in the engine's canonical order (symbol, then security id), so the trade sequence is
+deterministic.
+
+Everything below the mutation boundary is the ordinary sell path: `applySell`, the same fee seam,
+the same six-decimal money and ten-decimal share quantization. Realized P&L therefore includes the
+liquidation, and a completed run reconciles as
+`finalValue == investedCapital + realizedPnl`, with `unrealizedPnl` zero.
+
+**What it is not.** FINAL EXIT is the *strategy* deciding to leave a position, and it keeps its own
+action, its own level id and its own product meaning. A terminal liquidation is FactorSage saying the
+simulated period is over. The two are kept apart by `BacktestTrade.source`
+(`STRATEGY | END_OF_BACKTEST`) rather than by overloading the action: a liquidation *is* a sale and
+reads as `Sell 100%`, so making it a fourth action would misdescribe it, and calling it a Final exit
+would attribute an execution rule to the user's strategy. The trade log renders its reason as
+`End of backtest`.
+
+A position the strategy already closed on the final date is not sold twice: the liquidation only
+sees what is still open.
+
+**Old runs are not reinterpreted.** `terminalLiquidation` is a key in the snapshotted methodology, so
+a run submitted before this rule existed recorded no such key and is refused by
+`methodologyMismatches` rather than executed under it — and a run that already *completed* keeps its
+stored result, its final holdings and its `openPositions`. Nothing in the database is rewritten to
+match a later methodology; that is what invariant 12 requires. The read surface simply no longer
+presents final holdings, because the product question "what is this worth now?" is answered by the
+summary either way.
+
+## Annual returns
+
+A completed result reports one figure per calendar year, and it is **that year alone**:
+
+```text
+annualReturn(year) = returnIndex(last simulated day of year)
+                   / returnIndex(last simulated day of the previous year) - 1
+```
+
+The index is the run's own `time-weighted-index@1` growth index, based at 1.0 before the first
+simulated day, so the first year divides by that base rather than by a fabricated starting point.
+Deriving the year off the index rather than off `(end - start) / start` over portfolio value is the
+whole point: a year that received twelve monthly contributions would otherwise report the deposits as
+performance. Chaining every year's `(1 + r)` reproduces the run's total portfolio return exactly, so
+the two readings are one methodology rather than two.
+
+It is **derived, not stored**. `backtestAnnualReturns` in `@intrinsic/contracts` is the one
+implementation; the API feeds it the equity rows it already loads for the curve, and the running page
+feeds it the per-year milestones it already polls — only the last point of each calendar year is
+read, so both produce the same answer. A run completed long before annual returns were reported
+therefore answers with the same arithmetic as one completed today, and no migration or backfill
+exists to go wrong.
+
+A first or last year the run only partly simulated is reported over the part that was simulated and
+marked `partial`; nothing outside the requested period is fabricated.
+
+## The trade log
+
+A run's trades are read a page at a time, from the database:
+`GET /backtests/{runId}/trades?page=&pageSize=`, newest first, fifty per page by default and at most
+two hundred. The validation matrix produced runs of 18,348 trades; shipping a bounded tail of them
+inside the result and paging that in the browser was neither the whole log nor a usable page of one.
+Both the ordered window and the count read `(runId, sequence)`, which is already unique and therefore
+already indexed — **no new index and no migration were needed for paging**. A page past the end is
+clamped to the last real page rather than refused.
+
+Each trade carries a **reason**: the canonical Strategy description of the rule that produced it,
+built from the run's own immutable snapshot and never from the strategy as it stands today. The
+strings come from `describeCondition` / `describeTrigger`, the same primitives the Strategy logic
+preview and the Dashboard's "Why" column use, so a metric is never named two ways. The index is
+prepared once per request, not per row.
+
+FINAL EXIT needs one extra identity to be explainable. It is one action reached through one or more
+alternatives, so the level id alone cannot say which alternative was true, and reciting every OR
+branch would claim they all fired. The engine records the first matching rule in definition order as
+`BacktestTrade.exitRuleId`; a FINAL EXIT executed before that field existed resolves only when the
+level had exactly one alternative, and otherwise reports no reason at all rather than a guess.
 
 ## Allocation tiers, and what consumes one
 

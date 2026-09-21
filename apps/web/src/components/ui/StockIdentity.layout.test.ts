@@ -38,10 +38,10 @@ describe("the mark's layout contract", () => {
     // Compact dropdown row, collection row, and the one page-level identity.
     expect(ruleBody('.logo[data-size="sm"]')).toContain("width: 28px");
     expect(ruleBody('.logo[data-size="md"]')).toContain("width: 32px");
-    expect(ruleBody('.logo[data-size="lg"]')).toContain("width: 48px");
+    expect(ruleBody('.logo[data-size="lg"]')).toContain("width: 40px");
     // …which grows on a wide viewport, the way V1's did.
     expect(stylesheet).toMatch(
-      /@media \(min-width: 880px\) \{\s*\.logo\[data-size="lg"\] \{\s*width: 56px/,
+      /@media \(min-width: 880px\) \{\s*\.logo\[data-size="lg"\] \{\s*width: 44px/,
     );
   });
 

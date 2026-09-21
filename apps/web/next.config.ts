@@ -3,6 +3,7 @@ import {
   assertReleaseBuildConfig,
   isReleaseBuild,
 } from "./src/lib/release-build";
+import { webRedirectRules } from "./src/lib/route-redirects";
 import { webHeaderRules } from "./src/lib/security-headers";
 
 export default function nextConfig(phase: string): NextConfig {
@@ -16,6 +17,10 @@ export default function nextConfig(phase: string): NextConfig {
     poweredByHeader: false,
     async headers() {
       return webHeaderRules({ hsts });
+    },
+    // Routes the product has moved. See `src/lib/route-redirects.ts`.
+    async redirects() {
+      return webRedirectRules();
     },
   };
 }

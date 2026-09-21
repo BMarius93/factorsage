@@ -241,3 +241,19 @@ runs the cycle, then sets the next `dueAt` and releases — so cadence survives 
 processes never scan at once, and no cron, timer or queue library is involved. A crashed holder's
 lease expires and any worker frees it, which is the one failure mode a singleton has that a queue of
 independent jobs does not.
+
+Migration `20260920120000_backtest_trade_source_and_exit_rule` gives `BacktestTrade` the two
+identities a trade log needs in order to explain itself. `source` (`BacktestTradeSource`:
+`STRATEGY | END_OF_BACKTEST`) records whether the Strategy's own signal produced the order or the end
+of the simulated period did — a second axis rather than a fourth `BacktestTradeAction`, because a
+terminal liquidation _is_ a sale and keeps `SELL`, and folding it into `FINAL_EXIT` would attribute
+an execution rule to the user's strategy. It defaults to `STRATEGY`, so every row written before the
+rule existed keeps saying exactly what it always meant. `exitRuleId` records which FINAL EXIT Exit
+Rule matched: FINAL EXIT is one action reached through one or more alternatives, so the level id
+alone cannot say which was true, and a log that recited every OR branch would claim they all fired.
+It is nullable, and a FINAL EXIT recorded before it existed resolves only when its level had exactly
+one alternative.
+
+**No index was added.** The paginated trade log
+(`GET /backtests/{runId}/trades`) orders by `sequence` within a run and counts within a run, and
+`@@unique([runId, sequence])` already covers both.

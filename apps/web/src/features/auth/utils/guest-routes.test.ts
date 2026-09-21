@@ -4,6 +4,9 @@ import { isGuestReadableRoute } from "./guest-routes";
 describe("isGuestReadableRoute", () => {
   it("opens the Dashboard, stock pages and built-in content to a Guest", () => {
     for (const path of [
+      // The Dashboard, at the canonical route and at the legacy one the redirect answers.
+      "/",
+      "/?next=x",
       "/dashboard",
       "/dashboard/",
       "/stocks",

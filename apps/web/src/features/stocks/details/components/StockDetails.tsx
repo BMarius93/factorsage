@@ -92,7 +92,7 @@ export function StockDetails({ symbol }: StockDetailsProps) {
             </p>
           }
           actions={
-            <Link className={forms.secondaryButton} href="/dashboard">
+            <Link className={forms.secondaryButton} href="/">
               Back to Dashboard
             </Link>
           }
@@ -112,7 +112,7 @@ export function StockDetails({ symbol }: StockDetailsProps) {
           body={<p>This is usually temporary — try again in a moment.</p>}
           actions={
             <>
-              <Link className={forms.secondaryButton} href="/dashboard">
+              <Link className={forms.secondaryButton} href="/">
                 Back to Dashboard
               </Link>
               <button

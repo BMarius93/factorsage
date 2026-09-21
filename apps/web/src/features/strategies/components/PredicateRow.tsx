@@ -142,6 +142,9 @@ export function PredicateRow({
               invalid={fieldMessage("VALUE") !== null}
               {...(message ? { describedBy: errorId } : {})}
               onChange={(value) => onSetValue(value)}
+              // The third field explains itself like the first two: focusing or choosing a series
+              // describes that series, on the desktop rail and in this row alike.
+              onFocus={(value) => onFocusHelp({ kind: "VALUE", value, origin })}
               onBlur={() => touch(pathFor("VALUE"))}
             />
           </>

@@ -4,6 +4,7 @@ import type {
   BacktestRunDetailResponse,
   BacktestRunStrategyResponse,
   BacktestRunSummaryResponse,
+  BacktestTradePageResponse,
 } from "@intrinsic/contracts";
 import {
   Body,
@@ -16,6 +17,7 @@ import {
   ServiceUnavailableException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
@@ -24,6 +26,7 @@ import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   backtestInvalid,
   parseCreateBacktestRunRequest,
+  parseTradePageRequest,
 } from "./backtest-requests";
 import {
   BacktestConfigurationError,
@@ -83,6 +86,27 @@ export class BacktestsController {
     @Param("runId") runId: string,
   ): Promise<BacktestProgressResponse> {
     return this.execute(() => this.backtests.getProgress(user.id, runId));
+  }
+
+  /**
+   * One page of the run's trade log, newest first.
+   *
+   * Its own route rather than a field of the result: a long run executes tens of thousands of
+   * trades, so the log is read a page at a time from the database and the result payload stays the
+   * size of a page whatever the run's length. Out-of-range paging is clamped, not refused.
+   */
+  @RateLimit("standard-read")
+  @Get(":runId/trades")
+  async getTrades(
+    @CurrentUser() user: AuthUser,
+    @Param("runId") runId: string,
+    @Query("page") page?: string,
+    @Query("pageSize") pageSize?: string,
+  ): Promise<BacktestTradePageResponse> {
+    const request = parseTradePageRequest({ page, pageSize });
+    return this.execute(() =>
+      this.backtests.getTrades(user.id, runId, request),
+    );
   }
 
   @RateLimit("standard-read")

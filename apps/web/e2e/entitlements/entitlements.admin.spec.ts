@@ -110,7 +110,7 @@ test.describe("ADMIN entitlements", () => {
     expect(after.role).toBe("ADMIN");
 
     // And a browser-side claim is presentation only: the server never reads it back.
-    await page.goto("/dashboard");
+    await page.goto("/");
     await page.evaluate(() => {
       window.localStorage.setItem("role", "ADMIN");
       window.localStorage.setItem("plan", "PRO");

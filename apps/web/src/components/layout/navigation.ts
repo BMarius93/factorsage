@@ -9,7 +9,13 @@
  * Backtests, Lists — and omits Dashboard, because the brand mark already links there.
  * The phone's bottom bar leads with Dashboard, because it is the one destination a thumb
  * reaches for first and there is no brand mark to tap.
+ *
+ * The Dashboard's href is `/`: it is the product's canonical home, not a page under it
+ * (`app/(app)/page.tsx`). `/dashboard` still resolves, as a redirect — see
+ * `lib/route-redirects.ts`.
  */
+
+import { DASHBOARD_PATH } from "../../lib/route-redirects";
 
 export type NavItemId =
   "dashboard" | "lists" | "strategies" | "backtests" | "monitors";
@@ -28,7 +34,7 @@ export const PRIMARY_NAV_ITEMS = [
   {
     id: "dashboard",
     label: "Dashboard",
-    href: "/dashboard",
+    href: DASHBOARD_PATH,
     desktopOrder: null,
     mobileOrder: 1,
   },
@@ -73,7 +79,7 @@ export const MOBILE_NAV_ITEMS: readonly NavItem[] = [...PRIMARY_NAV_ITEMS].sort(
 );
 
 /** Application home; the brand mark links back to it. */
-export const APP_HOME_HREF = "/dashboard";
+export const APP_HOME_HREF: string = DASHBOARD_PATH;
 
 function normalizePath(path: string): string {
   const withoutQuery = path.split(/[?#]/, 1)[0] ?? "";

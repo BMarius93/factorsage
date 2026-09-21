@@ -21,7 +21,7 @@ export default function NotFound() {
   return (
     <main className={styles.shell}>
       <Link
-        href="/dashboard"
+        href="/"
         className={styles.brandLink}
         aria-label={`${BRAND_NAME} home`}
       >
@@ -41,7 +41,7 @@ export default function NotFound() {
           title="This page does not exist"
           body={<p>The address may be mistyped, or the page may have moved.</p>}
           actions={
-            <Link className={forms.primaryButton} href="/dashboard">
+            <Link className={forms.primaryButton} href="/">
               Go to the Dashboard
             </Link>
           }

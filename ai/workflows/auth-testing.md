@@ -207,7 +207,7 @@ Auth suites:
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under
   concurrent first sign-in, registration racing a Google link or a first Google sign-in (AUTH-003),
   log-leak assertions, and the return destination (UX-003): a valid `next` returns to
-  `WEB_BASE_URL` + that path, every hostile or malformed `next` lands on `/dashboard`, a
+  `WEB_BASE_URL` + that path, every hostile or malformed `next` lands on `/`, a
   transaction cookie rewritten to carry a hostile destination is re-validated at the callback, and
   state/PKCE/nonce binding and failure redirects are unchanged when a destination is carried
 - `apps/api/src/auth/return-path.test.ts` and `apps/web/src/features/auth/utils/return-path.test.ts`
@@ -531,7 +531,7 @@ Return-destination coverage (UX-003) signs in as an existing persona through the
 creates nothing: `e2e/builtins/collections.guest.spec.ts` (a built-in strategy's prompt, then
 signing in returns to the strategy with the backtest link prefilled) and
 `e2e/auth/return-path.guest.spec.ts` (a bounce from `/backtests/new?strategyId=…` returns to that
-exact URL; hostile `next` values land on `/dashboard` and the browser never contacts the hostile
+exact URL; hostile `next` values land on `/` and the browser never contacts the hostile
 host). `submitSignInForm` in `e2e/utils/sign-in.ts` fills the form already on screen so a
 `?next=` URL is not replaced by a bare `/login`.
 
@@ -596,7 +596,7 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
      Google account.
   4. Confirm the authorization redirect carries `code_challenge_method=S256`, a `code_challenge`,
      and a `nonce`, and that no `code_verifier` appears in the address bar.
-  5. Expect a redirect to `/dashboard`, an account menu showing that address, and a `User` row with
+  5. Expect a redirect to `/`, an account menu showing that address, and a `User` row with
      a null `passwordHash`, a set `emailVerifiedAt`, and one `OAuthAccount`.
   6. Repeat the sign-in and confirm no second user or second `OAuthAccount` appears.
   7. To exercise the linking refusal by hand, register locally with an address that is neither a
@@ -608,7 +608,7 @@ attached to an issue. Delete them to force a fresh sign-in; the `setup` project 
   9. Return destination (UX-003): as a Guest open a built-in Monitor, click **Backtest this
      monitor**, choose **Sign in** in the prompt, then **Continue with Google** — expect to land back
      on the same Monitor. Then open `/login?next=//example.com` directly and continue with Google —
-     expect `/dashboard` on this site. Neither step was executed in the UX-003 PR, which had no real
+     expect `/` on this site. Neither step was executed in the UX-003 PR, which had no real
      Google client; the automated suite above covers both through the fake identity provider.
 
 ## 11. Email test policy

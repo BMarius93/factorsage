@@ -84,6 +84,8 @@ const RSI_CYCLING_DEFINITION = {
 type Trade = {
   readonly date: string;
   readonly action: "BUY" | "SELL" | "FINAL_EXIT";
+  /** `END_OF_BACKTEST` is the terminal liquidation, which no membership rule decides. */
+  readonly source: "STRATEGY" | "END_OF_BACKTEST";
   readonly symbol: string;
 };
 
@@ -198,10 +200,7 @@ async function runBacktest(
     const detail = (await response.json()) as {
       status: string;
       failure: { message?: string } | null;
-      result: {
-        summary: { totalTrades: number };
-        trades: Trade[];
-      } | null;
+      result: { summary: { totalTrades: number } } | null;
     };
     if (detail.status === "FAILED") {
       test.info().annotations.push({
@@ -213,16 +212,33 @@ async function runBacktest(
     if (detail.status === "COMPLETED") {
       const result = detail.result;
       expect(result, "A completed run carried no result").not.toBeNull();
-      // The wire caps the trade log. Every "no BUY before X" claim below reads the whole log, so
-      // a truncated one would make the assertion vacuous rather than wrong.
+      const totalTrades = (result as NonNullable<typeof result>).summary
+        .totalTrades;
+      // The log is paged in the database, so it is read a page at a time. Every "no BUY before X"
+      // claim below reads the *whole* log, so this walks every page rather than sampling one — and
+      // then checks it collected exactly as many trades as the run says it executed, which is what
+      // stops an absence assertion from passing because a page was missing.
+      const trades: Trade[] = [];
+      for (let page_ = 1; ; page_ += 1) {
+        const tradeResponse = await page.request.get(
+          `${apiBaseUrl()}/backtests/${runId}/trades?page=${page_}&pageSize=200`,
+        );
+        expect(tradeResponse.ok()).toBe(true);
+        const body = (await tradeResponse.json()) as {
+          items: Trade[];
+          page: number;
+          pageCount: number;
+        };
+        trades.push(...body.items);
+        if (body.page >= body.pageCount) {
+          break;
+        }
+      }
       expect(
-        (result as NonNullable<typeof result>).trades.length,
-        "The trade log was truncated; this suite's absence assertions need the complete log",
-      ).toBe((result as NonNullable<typeof result>).summary.totalTrades);
-      return {
-        trades: (result as NonNullable<typeof result>).trades,
-        totalTrades: (result as NonNullable<typeof result>).summary.totalTrades,
-      };
+        trades.length,
+        "The paged trade log did not cover every trade the run executed",
+      ).toBe(totalTrades);
+      return { trades, totalTrades };
     }
     await page.waitForTimeout(250);
   }
@@ -233,8 +249,17 @@ async function runBacktest(
 
 const buysOf = (result: RunResult) =>
   result.trades.filter((trade) => trade.action === "BUY");
+/**
+ * Exits the **strategy** decided.
+ *
+ * The end-of-backtest liquidation is excluded on purpose: every run now ends by selling whatever
+ * it still holds, and counting that as an exit would let "the position was still sold after its
+ * membership ended" pass for a run in which the strategy never exited at all.
+ */
 const exitsOf = (result: RunResult) =>
-  result.trades.filter((trade) => trade.action !== "BUY");
+  result.trades.filter(
+    (trade) => trade.action !== "BUY" && trade.source === "STRATEGY",
+  );
 const datesOf = (trades: readonly Trade[]) =>
   [...new Set(trades.map((trade) => trade.date))].sort();
 

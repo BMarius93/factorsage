@@ -101,6 +101,16 @@ export type BacktestSimulationInput = Omit<
 
 export type BacktestTradeAction = "BUY" | "SELL" | "FINAL_EXIT";
 
+/**
+ * What put a trade in the log: the Strategy's own signal, or the end of the simulated period.
+ *
+ * Deliberately a second axis rather than a fourth action. A terminal liquidation *is* a sale and
+ * reads as one, so it keeps `action: "SELL"`; what it is not is a strategy decision, and confusing
+ * it with FINAL EXIT would attribute an execution rule to the user's strategy. See
+ * `TERMINAL_LIQUIDATION_METHODOLOGY_VERSION`.
+ */
+export type BacktestTradeSource = "STRATEGY" | "END_OF_BACKTEST";
+
 export type BacktestTradeRecord = {
   sequence: number;
   date: LocalDate;
@@ -108,7 +118,17 @@ export type BacktestTradeRecord = {
   symbol: string;
   name: string;
   action: BacktestTradeAction;
+  source: BacktestTradeSource;
   levelId: string | null;
+  /**
+   * Which FINAL EXIT Exit Rule matched, when one did.
+   *
+   * FINAL EXIT is one action reached through one or more alternatives, and the level id alone
+   * cannot say which alternative was true. Recording the rule is what lets a trade log explain the
+   * exit without claiming every OR branch fired. Null for every other trade, and for a FINAL EXIT
+   * whose rule identity a run predating this field never recorded.
+   */
+  exitRuleId: string | null;
   levelPercentage: number | null;
   /**
    * Every monetary and share quantity on a trade is a **canonical decimal string**, at the scale
@@ -188,6 +208,11 @@ export type BacktestSummary = {
   lastSimulatedDate: LocalDate;
   tradingDays: number;
   investedCapital: MoneyString;
+  /**
+   * Cash on the final simulated date — and, under terminal liquidation, the whole final value:
+   * every remaining position is sold at the end of the period, so `finalCash == finalValue` and
+   * `finalPositionsValue == 0`.
+   */
   finalCash: MoneyString;
   finalPositionsValue: MoneyString;
   finalValue: MoneyString;
@@ -202,10 +227,17 @@ export type BacktestSummary = {
   unrealizedPnl: MoneyString;
   totalTrades: number;
   buyTrades: number;
+  /**
+   * Every `SELL`, the end-of-backtest liquidations included: they are sales, and they executed.
+   *
+   * The trades themselves carry `source`, which is where "the strategy sold" is told apart from
+   * "the period ended"; the counters stay counters of what was executed.
+   */
   sellTrades: number;
   finalExitTrades: number;
   winningTrades: number;
   losingTrades: number;
+  /** Zero under terminal liquidation: nothing is still open once the period ends. */
   openPositions: number;
 };
 
@@ -237,6 +269,12 @@ export type BacktestCheckpoint = {
   portfolioReturnPercent: number;
   benchmarkReturnPercent: number | null;
   alphaPercent: number | null;
+  /**
+   * CAGR of the time-weighted index over the part simulated so far — the same calculation the
+   * completed summary reports, so the KPI tile carries a number rather than a placeholder while a
+   * run executes. Null until the run spans a measurable period.
+   */
+  portfolioCagrPercent: number | null;
   maxDrawdownPercent: number;
   /** The funded benchmark scenario's value on `simulatedThrough`, or null while unpriced. */
   benchmarkValue: number | null;
@@ -284,6 +322,13 @@ export type BacktestCheckpointHolding = {
 export type BacktestResult = {
   trades: readonly BacktestTradeRecord[];
   equity: readonly BacktestEquityPoint[];
+  /**
+   * Positions still open after the run finished.
+   *
+   * **Always empty under terminal liquidation.** It stays on the result because the persistence
+   * shape it feeds is shared with runs recorded before that rule existed, and because an empty list
+   * is the honest statement that nothing remained — not an omission.
+   */
   positions: readonly BacktestOpenPosition[];
   summary: BacktestSummary;
 };

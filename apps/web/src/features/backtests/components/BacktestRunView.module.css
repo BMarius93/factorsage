@@ -73,7 +73,11 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* One height for both states: the placeholder and the chart are interchangeable inside it. */
+/* One height for both states: the placeholder and the chart are interchangeable inside it.
+
+   The chart leads the result now, so the phone's height is deliberately the shortest of the three:
+   240px is a readable thirty-year curve and still leaves the eight result numbers on the first
+   screen. A wider viewport has the room to give the plot more of it. */
 .chartFrame {
   position: relative;
   --backtest-chart-height: 240px;
@@ -130,51 +134,14 @@
   }
 }
 
-.milestones {
-  display: grid;
-  gap: 8px;
-}
-
+/* How far a run has got, as one line. The years' *returns* belong to `BacktestAnnualReturns`
+   beside the results; this is progress, not a result. */
 .milestoneCaption {
   margin: 0;
   color: var(--color-text-secondary);
   font-size: 12px;
   font-weight: var(--weight-emphasis);
-}
-
-.milestoneList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.milestone {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-soft);
-  font-size: 12px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.milestoneYear {
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-emphasis);
-}
-
-.milestoneReturn[data-tone="positive"] {
-  color: var(--color-positive);
-}
-
-.milestoneReturn[data-tone="negative"] {
-  color: var(--color-negative);
 }
 
 /* The code, phase and run id of a failure: collapsed by default, for quoting to support. */
@@ -247,16 +214,6 @@
 .copyButton:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-}
-
-/* --- Hero chart caption --- */
-
-.chartCaption {
-  margin: 0;
-  max-width: 70ch;
-  color: var(--color-text-secondary);
-  font-size: var(--text-secondary);
-  line-height: var(--line-height-body);
 }
 
 /* --- Run configuration, below the outcome and collapsed --- */
