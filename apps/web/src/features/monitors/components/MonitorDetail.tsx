@@ -61,19 +61,13 @@ import {
 import { MonitorFormDialog } from "./MonitorFormDialog";
 import { BuiltInEditNotice } from "../../../components/ui/BuiltInEditNotice";
 import { useDocumentTitle } from "../../../lib/use-document-title";
+import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
 import styles from "./MonitorDetail.module.css";
 
 /** What the newest-first Signal window the API returns is capped at. */
 const SIGNAL_WINDOW = 100;
 
 type DialogState = { kind: "closed" } | { kind: "edit" } | { kind: "delete" };
-
-/** The BUY / SELL / FINAL EXIT tone, shared by the evaluation table and the Signal table. */
-const LEVEL_TONES = {
-  BUY: "positive",
-  SELL: "negative",
-  FINAL_EXIT: "warning",
-} as const;
 
 function LevelChip({
   levelKind,
@@ -84,7 +78,7 @@ function LevelChip({
 }) {
   return (
     <StatusBadge
-      tone={LEVEL_TONES[levelKind]}
+      tone={LEVEL_KIND_TONES[levelKind]}
       variant="outline"
       dataAttributes={{ "data-kind": levelKind }}
     >

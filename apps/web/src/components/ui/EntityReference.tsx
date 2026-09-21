@@ -24,13 +24,6 @@ type EntityReferenceChipProps = {
    * rather than a link that would 404.
    */
   readonly href?: string;
-  /**
-   * `quiet` is for a row whose own status badges are what a reader scans first — the Dashboard's
-   * Buy/Sell/Final exit and Active/Waiting beside its Strategy, List and Monitor columns. The same
-   * pill, kind accent, cap and single line, in the badges' type size and one step quieter in weight
-   * and ink, so the metadata never competes with the signal it describes.
-   */
-  readonly variant?: "default" | "quiet";
   readonly testId?: string;
 };
 
@@ -40,20 +33,22 @@ type EntityReferenceChipProps = {
  * A Monitor's Strategy, a Backtest's List, a Signal's Monitor: the same pill everywhere, so the
  * user learns once that a bordered pill is something they can open. Every feature used to style
  * its own inline link, which made a relationship look like emphasis rather than navigation.
+ *
+ * There is deliberately one treatment, not a quieter one for busy rows: the Dashboard, Monitors
+ * and Backtests show the same Strategy, List or Monitor, and it has to look like the same thing
+ * on each. The name sits centred on at most two lines and is clipped with an ellipsis past them.
  */
 export function EntityReferenceChip({
   kind,
   name,
   href,
-  variant = "default",
   testId,
 }: EntityReferenceChipProps) {
   const attributes = {
     className: styles.chip,
     "data-kind": kind,
-    "data-variant": variant,
-    // The whole name as a native tooltip, the product's tooltip pattern: the label is one line and
-    // truncates, so nothing may depend on the visible part.
+    // The whole name as a native tooltip, the product's tooltip pattern: the label clips after two
+    // lines, so nothing may depend on the visible part.
     title: name,
     ...(testId ? { "data-testid": testId } : {}),
   } as const;

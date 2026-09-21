@@ -10,6 +10,7 @@ import Link from "next/link";
 import { createContext, useContext, useState } from "react";
 import { PageContainer } from "../../../components/layout/PageContainer";
 import {
+  CardLinks,
   DataTable,
   IntermediateOnly,
   type DataTableColumn,
@@ -37,7 +38,6 @@ import { useDashboard } from "../hooks/use-dashboard";
 import { DashboardOverview } from "./DashboardOverview";
 import {
   FRESHNESS_TONES,
-  LEVEL_TONES,
   ROW_STATE_FILTER_LABELS,
   ROW_STATE_LABELS,
   ROW_STATE_TONES,
@@ -45,6 +45,7 @@ import {
   freshnessLabel,
   levelLabel,
 } from "../utils/format";
+import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
 import styles from "./DashboardPage.module.css";
 
 type StateFilter = "ALL" | DashboardRowState;
@@ -101,21 +102,52 @@ function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
         kind="strategy"
         name={row.strategy.name}
         href={`/strategies/${row.strategy.id}`}
-        variant="quiet"
       />
       <EntityReferenceChip
         kind="list"
         name={row.stockList.name}
         href={`/lists/${row.stockList.id}`}
-        variant="quiet"
       />
       <EntityReferenceChip
         kind="monitor"
         name={row.monitor.name}
         href={`/monitors/${row.monitor.id}`}
-        variant="quiet"
       />
     </IntermediateOnly>
+  );
+}
+
+/**
+ * Strategy, List and Monitor as one row of pills at the foot of a phone card, in that order.
+ *
+ * Three labelled rows — `STRATEGY`, `LIST`, `MONITOR`, a pill beside each — spent a third of the
+ * card's height saying what three pills say on one line, and their colour already tells a list from
+ * the other two. The three columns are desktop-only (`cardRole: "hidden"`), so each reference is
+ * displayed once at every width. The visible labels are gone; each pill keeps an accessible one,
+ * because the column header that used to name it no longer does.
+ */
+function CardRelationships({ row }: { readonly row: DashboardRowResponse }) {
+  return (
+    <CardLinks testId="dashboard-card-relationships">
+      <span className={styles.srOnly}>Strategy: </span>
+      <EntityReferenceChip
+        kind="strategy"
+        name={row.strategy.name}
+        href={`/strategies/${row.strategy.id}`}
+      />
+      <span className={styles.srOnly}>List: </span>
+      <EntityReferenceChip
+        kind="list"
+        name={row.stockList.name}
+        href={`/lists/${row.stockList.id}`}
+      />
+      <span className={styles.srOnly}>Monitor: </span>
+      <EntityReferenceChip
+        kind="monitor"
+        name={row.monitor.name}
+        href={`/monitors/${row.monitor.id}`}
+      />
+    </CardLinks>
   );
 }
 
@@ -168,10 +200,11 @@ const NowContext = createContext<Date>(new Date(0));
  * The floor under Strategy, List and Monitor.
  *
  * Eight columns sharing a 1,440px table left these three at the width of "Trend C…", which is
- * where three distinguishable objects stopped being distinguishable. Each is now one quiet pill on
- * one line (`EntityReferenceChip variant="quiet"`) that sizes to its name up to the chip's own cap
- * and truncates with an ellipsis past it, the whole name in its tooltip — never a two-line pill.
- * `Why` keeps its own floor and its 26rem ceiling, so it stays the dominant column it should be.
+ * where three distinguishable objects stopped being distinguishable. Each is now the product's one
+ * reference pill (`EntityReferenceChip`), which sizes to its name up to its own cap, wraps onto a
+ * second centred line rather than cutting a name short, and clips with an ellipsis only past two
+ * lines, the whole name in its tooltip. `Why` keeps its own floor and its 26rem ceiling, so it
+ * stays the dominant column it should be.
  *
  * The value is the widest the table can afford at **1,280px** — the narrowest width at which all
  * eight columns are shown, since 880–1,279px folds these three out. What the other five need there
@@ -202,8 +235,9 @@ const RELATIONSHIP_COLUMN_WIDTH = "14%";
  * Strategy, List and Monitor are **three** columns, not one. They are three different objects with
  * three different pages, and collapsing them into one cell made the row's most useful fact — which
  * strategy said this — something the reader had to go looking for. Each is an ordinary entity
- * reference, so the same chip means the same thing here as on a Monitor's own page, and on a phone
- * `DataTable` folds the three into the card's linked block without a second implementation.
+ * reference, so the same chip means the same thing here as on a Monitor's own page. They are
+ * desktop columns only: a phone card carries the same three pills as one unlabelled row under the
+ * reason (`CardRelationships`).
  *
  * There is deliberately no per-row Backtest button: it repeated one call to action on every row of
  * a table whose job is to report, and the same backtest is one click away from the Strategy, the
@@ -246,7 +280,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     render: (row) => (
       <span className={styles.badges}>
         <StatusBadge
-          tone={LEVEL_TONES[row.levelKind]}
+          tone={LEVEL_KIND_TONES[row.levelKind]}
           variant="outline"
           dataAttributes={{ "data-level": row.levelKind }}
         >
@@ -280,7 +314,12 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     // The column header still labels the cell for assistive technology.
     cardLabel: null,
     stacked: true,
-    render: (row) => <ReasonCell row={row} />,
+    render: (row) => (
+      <>
+        <ReasonCell row={row} />
+        <CardRelationships row={row} />
+      </>
+    ),
   },
   {
     key: "price",
@@ -301,9 +340,10 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "strategy",
     foldIntermediate: true,
     header: "Strategy",
-    cardRole: "links",
+    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill truncates inside it rather than the column narrowing past it.
+    // row from another by; the pill wraps inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
@@ -312,7 +352,6 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
           kind="strategy"
           name={row.strategy.name}
           href={`/strategies/${row.strategy.id}`}
-          variant="quiet"
         />
       </span>
     ),
@@ -321,9 +360,10 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "list",
     foldIntermediate: true,
     header: "List",
-    cardRole: "links",
+    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill truncates inside it rather than the column narrowing past it.
+    // row from another by; the pill wraps inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
@@ -332,7 +372,6 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
           kind="list"
           name={row.stockList.name}
           href={`/lists/${row.stockList.id}`}
-          variant="quiet"
         />
       </span>
     ),
@@ -341,9 +380,10 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "monitor",
     foldIntermediate: true,
     header: "Monitor",
-    cardRole: "links",
+    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; the pill truncates inside it rather than the column narrowing past it.
+    // row from another by; the pill wraps inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
     width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
@@ -352,7 +392,6 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
           kind="monitor"
           name={row.monitor.name}
           href={`/monitors/${row.monitor.id}`}
-          variant="quiet"
         />
       </span>
     ),

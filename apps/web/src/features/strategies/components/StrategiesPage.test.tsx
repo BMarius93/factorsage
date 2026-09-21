@@ -159,8 +159,18 @@ describe("StrategiesPage", () => {
     render(<StrategiesPage />);
 
     expect(await screen.findByText("Deep value")).toBeDefined();
-    expect(screen.getByText("1 buy · 2 sells · final exit")).toBeDefined();
-    expect(screen.getByText("1 buy")).toBeDefined();
+    // One badge per level kind, in the level kind's own tone, and none for a kind it lacks.
+    const [deepValue, trend] = screen.getAllByTestId("strategy-levels");
+    const badges = (cell: HTMLElement | undefined) =>
+      Array.from(cell?.querySelectorAll<HTMLElement>("[data-level]") ?? []).map(
+        (badge) => [badge.dataset.level, badge.dataset.tone, badge.textContent],
+      );
+    expect(badges(deepValue)).toEqual([
+      ["BUY", "positive", "1 buy"],
+      ["SELL", "negative", "2 sells"],
+      ["FINAL_EXIT", "warning", "Final exit"],
+    ]);
+    expect(badges(trend)).toEqual([["BUY", "positive", "1 buy"]]);
     expect(screen.getByText("Buy the discount")).toBeDefined();
     // The collection never loads a definition.
     expect(fetchStrategiesMock).toHaveBeenCalledTimes(1);

@@ -39,31 +39,20 @@ describe("EntityReferenceChip", () => {
     ).toBe("A very long stock list name");
   });
 
-  it("renders the quiet variant as the same reference, only marked for its quieter ink", () => {
-    const { rerender } = render(
-      <EntityReferenceChip kind="monitor" name="Nasdaq Trend Confirmation" />,
-    );
-    expect(
-      screen
-        .getByText("Nasdaq Trend Confirmation")
-        .closest("[data-kind]")
-        ?.getAttribute("data-variant"),
-    ).toBe("default");
-
-    rerender(
+  it("is one treatment everywhere, with no quieter variant to drift from it", () => {
+    render(
       <EntityReferenceChip
         kind="monitor"
         name="Nasdaq Trend Confirmation"
         href="/monitors/m-1"
-        variant="quiet"
       />,
     );
     const chip = screen.getByRole("link", {
       name: "Nasdaq Trend Confirmation",
     });
-    expect(chip.getAttribute("data-variant")).toBe("quiet");
-    // Still the same kind of reference, and the name is whole: truncation is the CSS's job.
+    expect(chip.hasAttribute("data-variant")).toBe(false);
     expect(chip.getAttribute("data-kind")).toBe("monitor");
+    // The name is whole in the DOM and in the tooltip: wrapping and clipping are the CSS's job.
     expect(chip.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
     expect(chip.textContent).toBe("Nasdaq Trend Confirmation");
   });

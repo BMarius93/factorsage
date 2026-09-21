@@ -38,6 +38,15 @@
   white-space: nowrap;
 }
 
+/* The Levels cell: the level badges side by side, wrapping only when a phone card is too narrow. */
+.levels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .confirmBody {
   margin: 0;
   color: var(--color-text-body);

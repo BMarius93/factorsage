@@ -11,10 +11,7 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { SectionCard } from "../../../components/ui/SectionCard";
 import { SkeletonList } from "../../../components/ui/Skeleton";
 import { CollectionFooter } from "../../../components/ui/CollectionFooter";
-import {
-  StatusBadge,
-  type StatusTone,
-} from "../../../components/ui/StatusBadge";
+import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
 import {
   formatDay,
@@ -23,20 +20,15 @@ import {
   formatSignedMoney,
   formatSignedPercent,
 } from "../utils/format";
+import { LEVEL_KIND_TONES } from "../../strategies/utils/format";
 import styles from "./BacktestTrades.module.css";
 
-/** One product label per action; the tone follows the established buy/sell/final-exit colours. */
+/** One product label per action; the tone is the product's one buy/sell/final-exit map. */
 const ACTION_LABELS = {
   BUY: "Buy",
   SELL: "Sell",
   FINAL_EXIT: "Final exit",
 } as const satisfies Record<BacktestTradeAction, string>;
-
-const ACTION_TONES = {
-  BUY: "positive",
-  SELL: "negative",
-  FINAL_EXIT: "warning",
-} as const satisfies Record<BacktestTradeAction, StatusTone>;
 
 /**
  * What the end-of-backtest liquidation is called where a user reads it.
@@ -151,7 +143,7 @@ export function BacktestTrades({
       nowrap: true,
       render: (trade) => (
         <StatusBadge
-          tone={ACTION_TONES[trade.action]}
+          tone={LEVEL_KIND_TONES[trade.action]}
           dataAttributes={{
             "data-action": trade.action,
             // The execution source travels beside the action so a test can tell a strategy sale

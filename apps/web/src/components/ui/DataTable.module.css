@@ -323,6 +323,26 @@
   display: none;
 }
 
+/* The phone card's linked block as one row of chips (`CardLinks`): the same divider and air above
+   it as the labelled `links` rows it replaces, then the chips side by side, left-aligned, wrapping
+   only when the card is too narrow for them. */
+.cardLinks {
+  display: none;
+}
+
+@media (max-width: 879px) {
+  .cardLinks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border-subtle);
+  }
+}
+
 @media (min-width: 880px) and (max-width: 1279px) {
   .th[data-fold="true"],
   .td[data-fold="true"] {

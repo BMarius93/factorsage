@@ -30,7 +30,11 @@ import forms from "../../../components/ui/forms.module.css";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
 import { deleteStrategy } from "../api/strategies-api";
 import { useStrategies } from "../hooks/use-strategies";
-import { formatStrategyDate, strategyShapeLabel } from "../utils/format";
+import {
+  LEVEL_KIND_TONES,
+  formatStrategyDate,
+  strategyLevelBadges,
+} from "../utils/format";
 import styles from "./StrategiesPage.module.css";
 import { StrategyRenameDialog } from "./StrategyRenameDialog";
 
@@ -107,10 +111,20 @@ export function StrategiesPage() {
       width: "14rem",
       header: "Levels",
       cardRole: "status",
+      // One badge per level kind, in the Builder's colours: green buys, red sells, amber final exit.
       render: (strategy) => (
-        <StatusBadge tone="neutral" variant="outline">
-          {strategyShapeLabel(strategy)}
-        </StatusBadge>
+        <span className={styles.levels} data-testid="strategy-levels">
+          {strategyLevelBadges(strategy).map((badge) => (
+            <StatusBadge
+              key={badge.kind}
+              tone={LEVEL_KIND_TONES[badge.kind]}
+              variant="outline"
+              dataAttributes={{ "data-level": badge.kind }}
+            >
+              {badge.label}
+            </StatusBadge>
+          ))}
+        </span>
       ),
     },
     {
