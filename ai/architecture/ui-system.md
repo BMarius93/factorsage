@@ -270,17 +270,18 @@ decision, not several.
 `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880, 1024, 1280
 and 1440 px with no document overflow.
 
-**A name is a column's information, and may take two lines.** An `EntityReferenceChip` truncates
-to one line by default, because most of them sit beside the content that matters. Where the name
-*is* what distinguishes one row from another — the Dashboard's Strategy, List and Monitor columns,
-which at eight columns rendered "Trend C…", "Recent M…" and "New Listin…" — the chip takes
-`lines={2}`: same pill, wrapped to at most two lines and clipped after them, with the whole name in
-`title` either way. Pair it with a `minWidth` on the columns concerned so the wrap has somewhere to
-happen — and size that floor against the **narrowest** width at which every column is shown, with
-the widest content the product can produce. The Dashboard's `9.5rem` is what is left at 1,280px once
-the ticker, a `Waiting for trigger` badge, a relative time, the reason and a price have taken what
-they need; asking for more does not widen the column, it scrolls the table sideways inside its
-surface, which is worse than a name wrapping.
+**A name is a column's information, and gets the width to show it — on one line.** An
+`EntityReferenceChip` never wraps: a two-line pill reads as a broken one. It truncates with an
+ellipsis past its cap, the whole name in `title`. Where the name *is* what distinguishes one row
+from another — the Dashboard's Strategy, List and Monitor columns, which at eight columns rendered
+"Trend C…", "Recent M…" and "New Listin…" — the columns get two width hints. A `minWidth` floor,
+sized against the **narrowest** width at which every column is shown with the widest content the
+product can produce: the Dashboard's `9.5rem` is what is left at 1,280px once the ticker, a
+`Waiting for trigger` badge, a relative time, the reason and a price have taken what they need, and
+asking for more scrolls the table sideways inside its surface. And a percentage `width` (`14%`), a
+share of the table that auto layout serves before its auto columns grow. Without it, spare width
+goes in proportion to each column's longest content, and full company names and reason sentences
+outbid a pill at every width — "Trend Confirmation" was still clipped at 1,600px.
 
 **Fold before scrolling.** In the intermediate desktop band (880–1,279px) a wide table has more
 columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
@@ -335,6 +336,12 @@ page of its own, and a Backtest's snapshot can name a Strategy that has since be
 (`BacktestRunConfigurationResponse.strategyId` is `string | null`). Without an `href` the chip
 renders as a static pill instead of a link that would 404 — it still says _what kind of thing_ this
 is.
+
+The chip is always one line: it sizes to its name up to its cap and truncates with an ellipsis,
+the whole name in its native tooltip (`title`). `variant="quiet"` is the same pill in the status
+badges' type size and height, one step lighter in weight and ink. It is for a row whose
+`StatusBadge`s are what a reader scans first, such as the Dashboard's Strategy, List and Monitor
+columns.
 
 `LinkedEntities` is the "Linked" block for detail pages. Inside a `DataTable`, the same shape comes
 from columns with `cardRole: "links"`, so a collection does not need it.

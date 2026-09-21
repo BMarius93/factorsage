@@ -587,7 +587,7 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("lets a Strategy, List or Monitor name wrap instead of truncating it", async () => {
+  it("shows Strategy, List and Monitor as quiet one-line pills with the whole name on hover", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
@@ -602,9 +602,9 @@ describe("DashboardPage", () => {
     );
     expect(chips).toHaveLength(3);
     for (const chip of chips) {
-      // Two lines, clipped after them — the CSS does the clipping, this is the contract it reads.
-      expect(chip.getAttribute("data-lines")).toBe("2");
-      // And the whole name stays reachable however it is clipped.
+      // One quiet line that the CSS truncates — the attribute is the contract it reads.
+      expect(chip.getAttribute("data-variant")).toBe("quiet");
+      // And the whole name stays reachable however it is truncated.
       expect(chip.getAttribute("title")).toBe(chip.textContent);
     }
     expect(chips.map((chip) => chip.textContent)).toEqual([
@@ -613,11 +613,11 @@ describe("DashboardPage", () => {
       "Nasdaq Trend Confirmation",
     ]);
 
-    // The folded copy for the intermediate desktop band wraps the same way.
+    // The folded copy for the intermediate desktop band is the same quiet pill.
     for (const chip of within(
       within(row).getByTestId("dashboard-folded-relationships"),
     ).getAllByRole("link")) {
-      expect(chip.getAttribute("data-lines")).toBe("2");
+      expect(chip.getAttribute("data-variant")).toBe("quiet");
     }
   });
 

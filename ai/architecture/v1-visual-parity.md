@@ -237,21 +237,26 @@ Navigation metadata remains centralized, but it may expose an explicit order/vis
 
 Desktop order from 880px:
 
-1. Strategies
-2. Monitors
-3. Backtests
-4. Lists
+1. Lists
+2. Strategies
+3. Monitors
+4. Backtests
 5. Learn, when the destination exists in V2
 
-The brand links to Dashboard, so Dashboard does not need a desktop navigation label.
+The brand links to Dashboard, so Dashboard does not need a desktop navigation label. The account
+control is anchored to the topbar's far right, apart from the navigation links rather than grouped
+with them.
 
 Mobile bottom-navigation order below 880px:
 
 1. Dashboard
 2. Lists
-3. Monitors
-4. Strategies
+3. Strategies
+4. Monitors
 5. Backtests
+
+Both surfaces order the destinations they share the same way — the product's own chain from the
+universe to the test of it. This departs from V1, whose desktop order led with Strategies.
 
 Search remains directly visible in the topbar at normal phone widths. An icon-only search may be
 used only where the full control genuinely cannot fit, and must open an immediately focused search

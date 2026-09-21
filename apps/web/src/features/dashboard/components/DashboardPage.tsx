@@ -101,19 +101,19 @@ function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
         kind="strategy"
         name={row.strategy.name}
         href={`/strategies/${row.strategy.id}`}
-        lines={2}
+        variant="quiet"
       />
       <EntityReferenceChip
         kind="list"
         name={row.stockList.name}
         href={`/lists/${row.stockList.id}`}
-        lines={2}
+        variant="quiet"
       />
       <EntityReferenceChip
         kind="monitor"
         name={row.monitor.name}
         href={`/monitors/${row.monitor.id}`}
-        lines={2}
+        variant="quiet"
       />
     </IntermediateOnly>
   );
@@ -168,18 +168,33 @@ const NowContext = createContext<Date>(new Date(0));
  * The floor under Strategy, List and Monitor.
  *
  * Eight columns sharing a 1,440px table left these three at the width of "Trend C…", which is
- * where three distinguishable objects stopped being distinguishable. They are now allowed two
- * lines (`EntityReferenceChip lines={2}`) and this much width to wrap inside; `Why` keeps its own
- * floor and its 26rem ceiling, so it stays the dominant column it should be.
+ * where three distinguishable objects stopped being distinguishable. Each is now one quiet pill on
+ * one line (`EntityReferenceChip variant="quiet"`) that sizes to its name up to the chip's own cap
+ * and truncates with an ellipsis past it, the whole name in its tooltip — never a two-line pill.
+ * `Why` keeps its own floor and its 26rem ceiling, so it stays the dominant column it should be.
  *
  * The value is the widest the table can afford at **1,280px** — the narrowest width at which all
  * eight columns are shown, since 880–1,279px folds these three out. What the other five need there
  * is not negotiable (the ticker, a `Waiting for trigger` badge, a relative time, the reason and a
  * price), and what is left over is this. Asking for more does not make the column wider: it makes
  * `DataTable`'s safety valve scroll the table sideways inside its surface, which is worse than a
- * name wrapping. Measured against the QA fixtures, which carry the longest action badge.
+ * name truncating. Measured against the QA fixtures, which carry the longest action badge.
  */
 const RELATIONSHIP_COLUMN_MIN_WIDTH = "9.5rem";
+
+/**
+ * The share of the table Strategy, List and Monitor ask for above their floor.
+ *
+ * Without it they never got the width. Auto table layout shares spare width out in proportion to
+ * each column's longest content, and the Stock column's full company names and the Why sentences
+ * outbid a pill every time: at 1,600px "Trend Confirmation" was still three pixels short. A
+ * percentage is served before the auto columns grow, and because it is a share of the table it
+ * grows with the screen: from 1,440px every list and strategy name of about twenty characters
+ * reads whole, and the width comes out of the two columns that already wrap or truncate gracefully.
+ * At 1,280px it costs Stock and Why about 14px each, and the floors above are untouched, so the
+ * table still never scrolls sideways.
+ */
+const RELATIONSHIP_COLUMN_WIDTH = "14%";
 
 /**
  * The signal table's columns.
@@ -288,15 +303,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Strategy",
     cardRole: "links",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    // row from another by; the pill truncates inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
+    width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="strategy"
           name={row.strategy.name}
           href={`/strategies/${row.strategy.id}`}
-          lines={2}
+          variant="quiet"
         />
       </span>
     ),
@@ -307,15 +323,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "List",
     cardRole: "links",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    // row from another by; the pill truncates inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
+    width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="list"
           name={row.stockList.name}
           href={`/lists/${row.stockList.id}`}
-          lines={2}
+          variant="quiet"
         />
       </span>
     ),
@@ -326,15 +343,16 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     header: "Monitor",
     cardRole: "links",
     // A floor under the name, because these three columns are what the reader distinguishes one
-    // row from another by; below it the chip wraps to its second line instead of narrowing.
+    // row from another by; the pill truncates inside it rather than the column narrowing past it.
     minWidth: RELATIONSHIP_COLUMN_MIN_WIDTH,
+    width: RELATIONSHIP_COLUMN_WIDTH,
     render: (row) => (
       <span className={styles.entityCell}>
         <EntityReferenceChip
           kind="monitor"
           name={row.monitor.name}
           href={`/monitors/${row.monitor.id}`}
-          lines={2}
+          variant="quiet"
         />
       </span>
     ),

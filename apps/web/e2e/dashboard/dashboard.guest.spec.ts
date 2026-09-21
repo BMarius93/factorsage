@@ -210,7 +210,7 @@ test.describe("guest dashboard", () => {
     );
   });
 
-  test("keeps a long Strategy, List and Monitor name readable on two lines", async ({
+  test("keeps a long Strategy, List and Monitor name on one line, whole on hover", async ({
     page,
   }) => {
     for (const width of [1440, 1280]) {
@@ -220,7 +220,7 @@ test.describe("guest dashboard", () => {
 
       const chips = await qaRows(page)
         .first()
-        .locator('td[data-card="links"] [data-lines="2"]')
+        .locator('td[data-card="links"] [data-variant="quiet"]')
         .evaluateAll((nodes) =>
           nodes.map((node) => {
             const label = node.firstElementChild as HTMLElement;
@@ -231,18 +231,19 @@ test.describe("guest dashboard", () => {
               lines: Math.round(
                 label.getBoundingClientRect().height / lineHeight,
               ),
-              clipped: label.scrollHeight > label.clientHeight + 1,
+              ellipsis: getComputedStyle(label).textOverflow,
             };
           }),
         );
 
       expect(chips, `${width}px`).toHaveLength(3);
       for (const chip of chips) {
-        // Two lines at most, and the whole name is always reachable.
-        expect(chip.lines, `${width}px ${chip.name}`).toBeLessThanOrEqual(2);
+        // One line, truncated with an ellipsis when it must be, and the whole name on hover.
+        expect(chip.lines, `${width}px ${chip.name}`).toBe(1);
+        expect(chip.ellipsis).toBe("ellipsis");
         expect(chip.title).toBe(chip.name);
       }
-      // Wrapping must not push the table sideways at any of these widths.
+      // The pills must not push the table sideways at any of these widths.
       await expectNoHorizontalScroll(page);
       const tableOverflow = await page.evaluate(() => {
         const scroll = document.querySelector("table")?.parentElement;

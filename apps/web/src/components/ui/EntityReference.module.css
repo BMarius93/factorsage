@@ -40,36 +40,23 @@
   white-space: nowrap;
 }
 
-/* Two lines, for a surface where the name is the fact — the Dashboard's Strategy, List and
-   Monitor columns. The same pill: same border, radius, accent and hover; it simply grows a
-   line rather than throwing the second half of "New Listings Trend Confirmation" away.
-
-   The cap is still absolute rather than a percentage, for the reason the single-line cap is
-   (a percentage max-width is cyclic while a table computes its columns and is ignored there),
-   and it is one step wider because a name worth wrapping is a name worth a little more room.
-   Line three is clipped, never scrolled, and `title` keeps the whole name reachable. */
-.chip[data-lines="2"] {
-  grid-template-columns: minmax(2.5rem, 1fr);
-  max-width: 13.5rem;
+/* Metadata beside a row's own status badges (the Dashboard's Strategy, List and Monitor): the same
+   pill, kind accent, cap and single truncating line, set in the badges' own type size and geometry
+   so the row's pills share one height — and one step quieter than them in weight and ink, so the
+   Buy/Sell and Active/Waiting badges stay what the eye lands on. */
+.chip[data-variant="quiet"] {
   padding: 3px 9px;
-}
-
-.chip[data-lines="2"] .chipLabel {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: break-word;
-  white-space: normal;
-  line-height: 1.25;
-  text-overflow: clip;
+  color: var(--color-text-secondary);
+  font-size: var(--text-label-size);
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 /* Inside a phone card the chip has the card's width to work with, which is more than any
-   desktop column gives it, so the absolute cap only gets in the way. */
+   desktop column gives it, so the absolute cap only gets in the way. It still truncates
+   rather than wrapping when a name outgrows the card. */
 @media (max-width: 879px) {
-  .chip[data-lines="2"] {
+  .chip[data-variant="quiet"] {
     max-width: 100%;
   }
 }

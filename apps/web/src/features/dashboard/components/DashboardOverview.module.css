@@ -274,24 +274,12 @@ button.actionCard:hover {
 /* ── VIX ────────────────────────────────────────────────────────────────────── */
 
 /* The same card as its neighbours — border, radius, padding, height — read as a dial instead of a
-   trend: title, arc, level, zone. On a phone there is no room for an arc worth drawing in 65px, so
-   the card becomes the three words that matter — `VIX`, `15.43`, `Normal` — in the same rhythm as
-   the other cards' label, value and change. */
-
-.vixHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  min-width: 0;
-}
+   trend. On a phone there is no room for an arc worth drawing in 65px, so the card becomes the
+   three words that matter — `VIX`, `15.43`, `Normal` — in the same rhythm as the other cards'
+   label, value and change, and the session change stays with the desktop card. */
 
 .vixMeta {
   display: none;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  white-space: nowrap;
 }
 
 .vixDial {
@@ -410,27 +398,39 @@ button.actionCard:hover {
     font-size: var(--text-small);
   }
 
+  /* The market cards' anatomy, with the dial where they draw their trend: the title top left and
+     the zone where they label the chart `7D`, the dial in the body, and the change with its
+     session along the bottom, in the same `marketMeta` row and on the same baseline as theirs. */
   .vixCard {
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label zone"
+      "dial dial"
+      "meta meta";
+    align-items: center;
+    column-gap: 6px;
+  }
+
+  .vixLabel {
+    grid-area: label;
   }
 
   .vixMeta {
     display: flex;
+    grid-area: meta;
   }
 
-  /* Secondary to the zone: the same session-over-session number the other cards show, one step
-     smaller, so the dial and its word are what a glance lands on. */
-  .vixMeta .change {
-    font-size: var(--text-label-size);
-  }
-
-  /* The dial: the arc with the level set inside its bowl, as on a gauge face. Sized so title, dial
-     and zone fit the card's 94px of content height without the row growing for one card. */
+  /* The dial: the arc with the level set inside its bowl, as on a gauge face. Sized so the title
+     row, the dial and the bottom row fit the card's 94px of content height without the row of
+     cards growing for one of them. */
   .vixDial {
     position: relative;
+    grid-area: dial;
+    justify-self: center;
     width: 100px;
     height: 54px;
-    margin: 0 auto;
   }
 
   .vixGauge {
@@ -449,9 +449,11 @@ button.actionCard:hover {
     text-align: center;
   }
 
+  /* Pulled into the title's line box by its own padding, so the title sits exactly where the
+     index cards' titles do rather than being pushed down by a taller neighbour. */
   .vixStatus {
-    align-self: center;
-    margin-top: 3px;
+    grid-area: zone;
+    margin: -2px 0;
     padding: 1px 8px;
     border-radius: var(--radius-pill);
     background: color-mix(in srgb, var(--vix-zone) 12%, var(--color-surface));

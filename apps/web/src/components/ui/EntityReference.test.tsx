@@ -39,7 +39,7 @@ describe("EntityReferenceChip", () => {
     ).toBe("A very long stock list name");
   });
 
-  it("stays on one line unless a surface asks for two", () => {
+  it("renders the quiet variant as the same reference, only marked for its quieter ink", () => {
     const { rerender } = render(
       <EntityReferenceChip kind="monitor" name="Nasdaq Trend Confirmation" />,
     );
@@ -47,23 +47,25 @@ describe("EntityReferenceChip", () => {
       screen
         .getByText("Nasdaq Trend Confirmation")
         .closest("[data-kind]")
-        ?.getAttribute("data-lines"),
-    ).toBe("1");
+        ?.getAttribute("data-variant"),
+    ).toBe("default");
 
     rerender(
       <EntityReferenceChip
         kind="monitor"
         name="Nasdaq Trend Confirmation"
-        lines={2}
+        href="/monitors/m-1"
+        variant="quiet"
       />,
     );
-    const chip = screen
-      .getByText("Nasdaq Trend Confirmation")
-      .closest("[data-kind]");
-    expect(chip?.getAttribute("data-lines")).toBe("2");
-    // Wrapping is a presentation choice, never a shortening one: the name is whole either way.
-    expect(chip?.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
-    expect(chip?.textContent).toBe("Nasdaq Trend Confirmation");
+    const chip = screen.getByRole("link", {
+      name: "Nasdaq Trend Confirmation",
+    });
+    expect(chip.getAttribute("data-variant")).toBe("quiet");
+    // Still the same kind of reference, and the name is whole: truncation is the CSS's job.
+    expect(chip.getAttribute("data-kind")).toBe("monitor");
+    expect(chip.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
+    expect(chip.textContent).toBe("Nasdaq Trend Confirmation");
   });
 });
 

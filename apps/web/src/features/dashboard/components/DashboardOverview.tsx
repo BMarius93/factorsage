@@ -184,17 +184,21 @@ function ReferenceCard(props: {
 }
 
 /**
- * VIX as a gauge: the title, a segmented arc with a marker, the level in the middle and its zone
- * underneath — the reading order of a dial, in the same card as its neighbours.
+ * VIX as a gauge, in the same anatomy as the market cards beside it: the title top left, the
+ * reading in the body and the change with its session along the bottom.
  *
- * Three things are deliberately unchanged from the other market cards:
- *
+ * - **the top-right slot holds the zone** (`Normal`), where the index cards label their chart
+ *   `7D`. The gauge is the latest close, not a seven-day window, so a timeframe label there would
+ *   describe data the card does not show;
  * - **the number is the real `^VIX` close.** Not a 0–100 score, not a sentiment reading and not the
  *   clamped gauge position — a VIX of 93.4 says `93.40` while its marker sits at the end of the arc;
- * - **the change is still session over session**, now secondary: beside the title, with the session
- *   the close belongs to. Never "24h";
+ * - **the change is still session over session**, secondary, at the bottom with the session the
+ *   close belongs to, exactly where the index cards put theirs. Never "24h";
  * - **unavailable is unavailable.** No level means no gauge, no zone and no change — never a marker
  *   at zero labelled "Very low".
+ *
+ * On a phone there is no arc: the card reads `VIX`, the level and the zone, in the rhythm of the
+ * other cards' label, value and change.
  *
  * It is called VIX and nothing else. The zone words describe the level of expected volatility; they
  * are not a fear-and-greed reading, and nothing here converts one into the other.
@@ -222,27 +226,7 @@ function VixCard({
       data-variant="gauge"
       aria-label={description}
     >
-      <div className={styles.vixHead}>
-        <p className={styles.label}>{item.label}</p>
-        {value !== undefined ? (
-          <p className={styles.vixMeta}>
-            {item.changePercent === undefined ? null : (
-              <span
-                className={styles.change}
-                data-tone={tone}
-                data-testid={`dashboard-market-change-${item.code}`}
-              >
-                {formatChangePercent(item.changePercent)}
-              </span>
-            )}
-            {item.sessionDate ? (
-              <span className={styles.session}>
-                {formatSessionDate(item.sessionDate)}
-              </span>
-            ) : null}
-          </p>
-        ) : null}
-      </div>
+      <p className={`${styles.label} ${styles.vixLabel}`}>{item.label}</p>
       {value !== undefined && zone !== null ? (
         <>
           <div className={styles.vixDial}>
@@ -262,6 +246,22 @@ function VixCard({
             data-testid="dashboard-vix-status"
           >
             {VIX_STATUS_LABELS[zone]}
+          </p>
+          <p className={`${styles.marketMeta} ${styles.vixMeta}`}>
+            {item.changePercent === undefined ? null : (
+              <span
+                className={styles.change}
+                data-tone={tone}
+                data-testid={`dashboard-market-change-${item.code}`}
+              >
+                {formatChangePercent(item.changePercent)}
+              </span>
+            )}
+            {item.sessionDate ? (
+              <span className={styles.session}>
+                {formatSessionDate(item.sessionDate)}
+              </span>
+            ) : null}
           </p>
         </>
       ) : (

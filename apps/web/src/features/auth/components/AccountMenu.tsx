@@ -181,6 +181,8 @@ export function AccountMenu() {
             </span>
           </div>
 
+          <div className={styles.separator} aria-hidden="true" />
+
           {/*
             Billing lives here rather than in the primary navigation: it is an account setting, not
             one of the five product destinations, and `PRIMARY_NAV_ITEMS` is the single definition of
@@ -205,6 +207,8 @@ export function AccountMenu() {
               Admin
             </Link>
           ) : null}
+
+          <div className={styles.separator} aria-hidden="true" />
 
           <button
             className={styles.signOut}

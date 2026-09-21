@@ -62,12 +62,12 @@ describe("primary navigation configuration", () => {
 });
 
 describe("per-surface navigation ordering", () => {
-  it("leads the desktop topbar with the work, not the dashboard", () => {
+  it("orders the desktop topbar Lists, Strategies, Monitors, Backtests", () => {
     expect(DESKTOP_NAV_ITEMS.map((item) => item.id)).toEqual([
+      "lists",
       "strategies",
       "monitors",
       "backtests",
-      "lists",
     ]);
   });
 
@@ -81,10 +81,18 @@ describe("per-surface navigation ordering", () => {
     expect(MOBILE_NAV_ITEMS.map((item) => item.id)).toEqual([
       "dashboard",
       "lists",
-      "monitors",
       "strategies",
+      "monitors",
       "backtests",
     ]);
+  });
+
+  it("orders the destinations both surfaces share the same way on each", () => {
+    const shared = MOBILE_NAV_ITEMS.filter((item) =>
+      DESKTOP_NAV_ITEMS.includes(item),
+    );
+
+    expect(shared).toEqual(DESKTOP_NAV_ITEMS);
   });
 
   it("keeps every destination reachable on a phone", () => {

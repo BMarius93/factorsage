@@ -25,15 +25,12 @@ type EntityReferenceChipProps = {
    */
   readonly href?: string;
   /**
-   * How many lines the name may take before it is clipped. One — the default — is the dense
-   * inline reference: a chip beside other content, which must never grow the row it sits in.
-   *
-   * Two is for a surface where the name *is* the information and a single line cannot hold it:
-   * the Dashboard's Strategy, List and Monitor columns, where "Trend C…", "Recent M…" and "New
-   * Listin…" made three different objects indistinguishable. The full name stays in `title`
-   * either way, so nothing depends on the clip.
+   * `quiet` is for a row whose own status badges are what a reader scans first — the Dashboard's
+   * Buy/Sell/Final exit and Active/Waiting beside its Strategy, List and Monitor columns. The same
+   * pill, kind accent, cap and single line, in the badges' type size and one step quieter in weight
+   * and ink, so the metadata never competes with the signal it describes.
    */
-  readonly lines?: 1 | 2;
+  readonly variant?: "default" | "quiet";
   readonly testId?: string;
 };
 
@@ -48,13 +45,15 @@ export function EntityReferenceChip({
   kind,
   name,
   href,
-  lines = 1,
+  variant = "default",
   testId,
 }: EntityReferenceChipProps) {
   const attributes = {
     className: styles.chip,
     "data-kind": kind,
-    "data-lines": String(lines),
+    "data-variant": variant,
+    // The whole name as a native tooltip, the product's tooltip pattern: the label is one line and
+    // truncates, so nothing may depend on the visible part.
     title: name,
     ...(testId ? { "data-testid": testId } : {}),
   } as const;

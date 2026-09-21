@@ -38,31 +38,36 @@
   line-height: 1;
 }
 
+/* The same popover as the product's other menu (`OverflowMenu`): one compact surface with a
+   hairline border and the menu shadow, holding full-width rows rather than a stack of buttons. */
 .menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
-  width: min(260px, calc(100vw - 32px));
-  padding: 14px;
+  display: grid;
+  width: min(248px, calc(100vw - 32px));
+  padding: 4px 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   box-shadow: var(--shadow-menu);
+  text-align: left;
 }
 
+/* Who is signed in and on what plan: read rather than acted on, so it sits apart above the rows. */
 .identity {
   display: grid;
   gap: 6px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 8px 14px 12px;
 }
 
 .email {
   overflow-wrap: anywhere;
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: var(--text-secondary);
   font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
 }
 
 .badges {
@@ -72,29 +77,46 @@
   justify-self: start;
 }
 
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border-subtle);
+}
+
 .menuLink,
 .signOut {
   display: block;
   width: 100%;
-  margin-top: 10px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  padding: 8px 14px;
+  border: 0;
   color: var(--color-text-body);
   background: none;
-  font-size: 14px;
+  font: inherit;
+  font-size: var(--text-secondary);
   font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-body);
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.menuLink:hover,
-.signOut:hover:not(:disabled) {
-  background: var(--color-surface-soft);
+.menuLink:hover {
+  background: var(--color-row-hover);
 }
 
-.signOut {
-  color: var(--color-primary);
+/* The topbar's own focus outline, drawn inside the row: the rows run to the panel's edges, and a
+   ring outside them would spill past the panel's border. */
+.menuLink:focus-visible,
+.signOut:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Signing out loses nothing, so it is not red at rest; it takes the destructive tint only under
+   the pointer, the way the maintenance menu's destructive rows read once they are reached. */
+.signOut:hover:not(:disabled) {
+  color: var(--color-negative);
+  background: var(--color-negative-soft);
 }
 
 .signOut:disabled {
@@ -103,9 +125,9 @@
 }
 
 .error {
-  margin: 8px 0 0;
+  margin: 4px 14px 8px;
   color: var(--color-negative);
-  font-size: 13px;
+  font-size: var(--text-small);
   line-height: 1.45;
 }
 
