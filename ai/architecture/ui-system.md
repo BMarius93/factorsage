@@ -588,6 +588,11 @@ page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-e
   `aria-controls`, and the panel is a labelled `group` of ordinary links and buttons that Tab walks
   through. There is no `role="menu"`, because the panel has no arrow-key model. Escape closes it and
   returns focus to the trigger, and so does an outside press or tabbing past the last item.
+  The panel is a tinted account header over full-width rows. The header is the email address — the
+  account's only identity, since there is no display name, on one line that truncates with the whole
+  address in `title` — and under it the plan as quiet text (`Pro plan`, `Free plan · Admin`), never
+  a badge. One hairline separates it from the rows, which have no border or radius of their own;
+  Sign out takes the destructive tint only on hover.
 - **Navigation guard.** Every shell link — primary navigation, brand, `PageHeader` back links,
   account-menu links, Sign in and Pricing — passes through `guardNavigation`, and Sign out calls
   `canNavigate()` first, so a page with unsaved work (the Strategy Builder) is asked before any of

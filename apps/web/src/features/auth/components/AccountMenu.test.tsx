@@ -100,6 +100,14 @@ describe("AccountMenu", () => {
     // The plan is what the customer bought (UI-024); "USER" meant nothing to them.
     expect(screen.getByTestId("account-plan").textContent).toBe("Pro");
     expect(screen.queryByTestId("account-role")).toBeNull();
+    // The plan is a quiet line under the address, not a badge; the address is whole on hover
+    // however it is truncated.
+    expect(screen.getByTestId("account-plan").parentElement?.textContent).toBe(
+      "Pro plan",
+    );
+    expect(screen.getByTestId("account-email").getAttribute("title")).toBe(
+      "person@example.test",
+    );
   });
 
   it("is an honest disclosure: a labelled group, Tab-reachable, closed by Escape back to its button (UI-053)", async () => {

@@ -39,15 +39,17 @@
 }
 
 /* The same popover as the product's other menu (`OverflowMenu`): one compact surface with a
-   hairline border and the menu shadow, holding full-width rows rather than a stack of buttons. */
+   hairline border and the menu shadow, an account header over full-width rows rather than a
+   stack of buttons. It hangs from the avatar's right edge, which is the page gutter, so it never
+   reaches the viewport's edge. `overflow: hidden` lets the header's tint follow the corners. */
 .menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
   display: grid;
-  width: min(248px, calc(100vw - 32px));
-  padding: 4px 0;
+  width: min(260px, calc(100vw - 32px));
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
@@ -55,39 +57,50 @@
   text-align: left;
 }
 
-/* Who is signed in and on what plan: read rather than acted on, so it sits apart above the rows. */
+/* Who is signed in, on a faint tint of its own: the address as the header, the plan as one quiet
+   line under it. The hairline below is the one separator between identity and actions. */
 .identity {
   display: grid;
-  gap: 6px;
-  padding: 8px 14px 12px;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface-soft);
 }
 
+/* One line however long the address: it truncates, and `title` carries the whole of it. */
 .email {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-primary);
-  font-size: var(--text-secondary);
+  font-size: var(--text-body);
   font-weight: var(--weight-emphasis);
-  line-height: var(--line-height-tight);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-self: start;
+.plan {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
 }
 
-.separator {
-  height: 1px;
-  margin: 4px 0;
-  background: var(--color-border-subtle);
+.actions {
+  display: grid;
+  padding: 4px 0;
 }
 
+/* Full-width rows of one height, a link and a button alike, with no border or radius of their
+   own: the row is the target, and the hover fills it edge to edge. */
 .menuLink,
 .signOut {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 8px 14px;
+  min-height: 36px;
+  padding: 0 14px;
   border: 0;
   color: var(--color-text-body);
   background: none;
@@ -105,7 +118,7 @@
 }
 
 /* The topbar's own focus outline, drawn inside the row: the rows run to the panel's edges, and a
-   ring outside them would spill past the panel's border. */
+   ring outside them would be clipped by the panel. */
 .menuLink:focus-visible,
 .signOut:focus-visible {
   outline: 2px solid var(--color-primary);
