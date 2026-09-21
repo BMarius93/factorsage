@@ -16,9 +16,9 @@ import {
  * What each plan card's button offers, per billing state.
  *
  * These are product rules from `docs/decisions/stripe-billing-v1.md`, not styling: a button that
- * says "Upgrade" must request an immediate change and a button that says "Downgrade" must request
- * a scheduled one, Free must never be a purchase, and a subscribed-but-unpaid price must never be
- * presented as the current plan.
+ * says "Upgrade" must request an immediate change and one that switches a subscriber to a lower
+ * tier must request a scheduled one, Free must never be a purchase, and a subscribed-but-unpaid
+ * price must never be presented as the current plan.
  */
 
 function status(
@@ -154,12 +154,12 @@ describe("plan card actions", () => {
     expect(pro.effectHint).toBe("Takes effect immediately");
   });
 
-  it("calls a tier decrease a downgrade that happens at renewal", () => {
+  it("calls a tier decrease a switch that happens at renewal", () => {
     const starter = state("STARTER", "MONTH", subscribed("PRO", "MONTH"));
 
     expect(starter.action).toEqual({
       kind: "CHANGE",
-      label: "Downgrade to Starter",
+      label: "Switch to Starter",
       priceKey: "STARTER_MONTHLY",
       effect: "SCHEDULED",
     });
@@ -174,7 +174,7 @@ describe("plan card actions", () => {
     });
     // Pro monthly -> Starter yearly lengthens the cadence but buys less: scheduled.
     expect(state("STARTER", "YEAR", subscribed("PRO", "MONTH")).action).toMatchObject({
-      label: "Downgrade to Starter",
+      label: "Switch to Starter",
       effect: "SCHEDULED",
     });
   });
@@ -261,9 +261,15 @@ describe("plan card actions", () => {
       kind: "CURRENT",
       label: "Current plan",
     });
-    expect(state("STARTER", "MONTH", billing).action).toMatchObject({
+    // Checkout is still the only way such an account buys anything, but Starter is below Pro:
+    // it is a switch, never an "upgrade" (the comped-Pro case from the 2026-09-18 audit).
+    expect(state("STARTER", "MONTH", billing).action).toEqual({
       kind: "CHECKOUT",
+      label: "Switch to Starter",
+      priceKey: "STARTER_MONTHLY",
     });
+    // And there is no subscription for Free to cancel.
+    expect(state("FREE", "MONTH", billing).action).toEqual({ kind: "NONE" });
   });
 
   it("offers no action at all when billing is not configured", () => {
@@ -313,5 +319,151 @@ describe("guest plan card state", () => {
       kind: "SIGN_IN",
       label: "Choose Pro",
     });
+  });
+});
+
+/**
+ * The CTA matrix, card by card, for each tier a user can be on (BILLING-CTA).
+ *
+ * The verb is decided by the card's tier against the user's: the same tier is the current plan, a
+ * higher paid tier is an upgrade, a lower paid tier is a switch, and Free from a paid subscription
+ * is the cancellation. A Pro subscriber's Starter card once read "Upgrade to Starter"; this table
+ * is what keeps that from coming back, in both cadences and whichever cadence is billed.
+ */
+describe("plan card CTA matrix", () => {
+  const PLANS = ["FREE", "STARTER", "PRO"] as const;
+  const INTERVALS = ["MONTH", "YEAR"] as const;
+  const RENEWAL = "Takes effect at your next renewal";
+  const IMMEDIATE = "Takes effect immediately";
+
+  type Expected = {
+    readonly label: string | null;
+    readonly hint: string | null;
+  };
+
+  /** Card → CTA, for a user on `current` with a live subscription (or none, on Free). */
+  const MATRIX: Record<UserPlan, Record<UserPlan, Expected>> = {
+    FREE: {
+      FREE: { label: "Current plan", hint: null },
+      STARTER: { label: "Upgrade to Starter", hint: null },
+      PRO: { label: "Upgrade to Pro", hint: null },
+    },
+    STARTER: {
+      FREE: { label: "Cancel subscription", hint: RENEWAL },
+      STARTER: { label: "Current plan", hint: null },
+      PRO: { label: "Upgrade to Pro", hint: IMMEDIATE },
+    },
+    PRO: {
+      FREE: { label: "Cancel subscription", hint: RENEWAL },
+      STARTER: { label: "Switch to Starter", hint: RENEWAL },
+      PRO: { label: "Current plan", hint: null },
+    },
+  };
+
+  const labelOf = (card: ReturnType<typeof state>) =>
+    card.action.kind === "NONE" ? null : card.action.label;
+
+  /** Every billing state a user on `current` can be in with a live subscription (or none). */
+  function billingsFor(current: UserPlan) {
+    return current === "FREE"
+      ? [{ billed: "MONTH" as const, billing: status() }]
+      : INTERVALS.map((billed) => ({
+          billed,
+          billing: subscribed(current, billed),
+        }));
+  }
+
+  for (const current of PLANS) {
+    for (const { billed, billing } of billingsFor(current)) {
+      for (const shown of INTERVALS) {
+        it(`${current} user billed ${billed}, ${shown} shown`, () => {
+          for (const card of PLANS) {
+            const result = state(card, shown, billing);
+            const expected = MATRIX[current][card];
+            // The current tier's card on the *other* cadence is the one cadence-dependent case: it
+            // offers that cadence, and is still marked as the plan the user is on.
+            if (card === current && current !== "FREE" && shown !== billed) {
+              expect(result.current, card).toBe(true);
+              expect(labelOf(result), card).toBe(
+                shown === "YEAR" ? "Switch to yearly" : "Switch to monthly",
+              );
+              continue;
+            }
+            expect(labelOf(result), card).toBe(expected.label);
+            expect(result.effectHint, card).toBe(expected.hint);
+            expect(result.current, card).toBe(card === current);
+            if (expected.label === "Current plan") {
+              // Rendered as a disabled button, never a live control.
+              expect(result.action.kind, card).toBe("CURRENT");
+            }
+          }
+        });
+      }
+    }
+  }
+
+  it("uses the same verbs for a plan granted without a subscription, minus the cancellation", () => {
+    // Seeded and administratively set plans: Checkout is how they buy, and there is no
+    // subscription for the Free card to cancel.
+    for (const shown of INTERVALS) {
+      const pro = status({ plan: "PRO" });
+      expect(PLANS.map((card) => labelOf(state(card, shown, pro)))).toEqual([
+        null,
+        "Switch to Starter",
+        "Current plan",
+      ]);
+      const starter = status({ plan: "STARTER" });
+      expect(PLANS.map((card) => labelOf(state(card, shown, starter)))).toEqual(
+        [null, "Current plan", "Upgrade to Pro"],
+      );
+    }
+  });
+
+  it("offers no cancellation for a subscription that has already ended", () => {
+    // A granted Pro whose old subscription was cancelled: the Portal has nothing left to end.
+    const billing = status({
+      plan: "PRO",
+      canOpenPortal: true,
+      subscription: {
+        plan: "PRO",
+        interval: "MONTH",
+        status: "CANCELED",
+        currentPeriodEnd: "2026-10-14T00:00:00.000Z",
+        cancelAtPeriodEnd: false,
+        cancelAt: null,
+        pendingChange: null,
+      },
+    });
+    expect(PLANS.map((card) => labelOf(state(card, "MONTH", billing)))).toEqual(
+      [null, "Switch to Starter", "Current plan"],
+    );
+  });
+
+  it("never says Upgrade for a lower tier, or Switch to a plan for a higher one", () => {
+    const billings = [
+      status(),
+      status({ plan: "STARTER" }),
+      status({ plan: "PRO" }),
+      ...INTERVALS.flatMap((interval) => [
+        subscribed("STARTER", interval),
+        subscribed("PRO", interval),
+      ]),
+    ];
+    for (const billing of billings) {
+      for (const card of ["STARTER", "PRO"] as const) {
+        for (const shown of INTERVALS) {
+          const label = labelOf(state(card, shown, billing));
+          const direction = Math.sign(
+            PLANS.indexOf(card) - PLANS.indexOf(billing.plan),
+          );
+          if (direction < 0) {
+            expect(label, `${billing.plan} → ${card}`).not.toMatch(/^Upgrade/);
+          }
+          if (direction > 0) {
+            expect(label, `${billing.plan} → ${card}`).toMatch(/^Upgrade/);
+          }
+        }
+      }
+    }
   });
 });

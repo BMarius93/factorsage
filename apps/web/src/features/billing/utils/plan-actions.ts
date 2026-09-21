@@ -1,4 +1,5 @@
 import {
+  billingPlanRank,
   billingPriceKeyFor,
   classifyBillingTransition,
   isPaidPlan,
@@ -7,6 +8,7 @@ import {
   type BillingPriceKey,
   type BillingStatusResponse,
   type BillingTransitionEffect,
+  type PaidPlan,
   type UserPlan,
 } from "@intrinsic/contracts";
 import { PLAN_LABEL } from "./format";
@@ -17,7 +19,22 @@ import { PLAN_LABEL } from "./format";
  * The labels are derived from `classifyBillingTransition` — the *same* pure function the API
  * classifies the request with — so a button cannot promise something the server will refuse or
  * schedule something it would apply immediately. That coupling is the point: "Upgrade to Pro" and
- * "Downgrade to Starter" are not adjectives, they are the transition Stripe will be asked for.
+ * "Switch to Starter" are not adjectives, they are the transition Stripe will be asked for.
+ *
+ * The verb follows the card's tier against the user's own, whatever cadence is on screen:
+ *
+ * | Card vs. current tier | Label                                  | When                        |
+ * | --------------------- | -------------------------------------- | --------------------------- |
+ * | same                  | Current plan (disabled)                | —                           |
+ * | higher paid tier      | Upgrade to <Plan>                      | immediately                 |
+ * | lower paid tier       | Switch to <Plan>                       | at renewal, when scheduled  |
+ * | Free, from a paid one | Cancel subscription (Customer Portal)  | at renewal                  |
+ *
+ * Free offers the cancellation only when there is a live subscription to cancel: a plan granted
+ * without one, or whose subscription has already ended, has nothing for the Portal to end.
+ *
+ * The one cadence-dependent label is the current tier's card showing the *other* cadence, which
+ * offers that cadence ("Switch to yearly") because a same-tier cadence change is a real transition.
  *
  * Two rules this file exists to keep honest:
  *
@@ -180,12 +197,7 @@ export function planCardState(input: {
       current,
       action: {
         kind: "CHECKOUT",
-        // A returning customer buys back the plan they left; everything else is an upgrade from
-        // Free. Both are an ordinary Checkout for this price.
-        label:
-          endedPlanOf(billing) === plan
-            ? `Resubscribe to ${PLAN_LABEL[plan]}`
-            : `Upgrade to ${PLAN_LABEL[plan]}`,
+        label: checkoutLabel(plan, billing),
         priceKey,
       },
       effectHint: null,
@@ -244,7 +256,13 @@ function freeCardState(input: {
     };
   }
 
-  if (billing.canOpenPortal && billing.subscription !== null) {
+  // Only a live subscription can be cancelled. An ended one — a granted plan whose old subscription
+  // was already cancelled — leaves the Portal nothing to end, so the card offers nothing.
+  if (
+    billing.canOpenPortal &&
+    billing.subscription !== null &&
+    occupiesPaidSlot(billing.subscription.status)
+  ) {
     return {
       current,
       action: { kind: "PORTAL", label: "Cancel subscription" },
@@ -255,6 +273,24 @@ function freeCardState(input: {
   return { current, action: { kind: "NONE" }, effectHint: null };
 }
 
+/**
+ * What a Checkout button says: an ordinary Checkout for this price, named by the tier it moves the
+ * user to rather than by the fact that it is a purchase.
+ *
+ * A plan granted without a subscription (an administratively set or seeded one) is the case this
+ * exists for: Checkout is the only way such an account can buy anything, so a Pro account with no
+ * subscription reaches Starter through it — and calling that "Upgrade to Starter" was wrong. A
+ * returning customer buys back the plan they left; everything else is an upgrade.
+ */
+function checkoutLabel(plan: PaidPlan, billing: BillingStatusResponse): string {
+  if (billingPlanRank(plan) < billingPlanRank(billing.plan)) {
+    return `Switch to ${PLAN_LABEL[plan]}`;
+  }
+  return endedPlanOf(billing) === plan
+    ? `Resubscribe to ${PLAN_LABEL[plan]}`
+    : `Upgrade to ${PLAN_LABEL[plan]}`;
+}
+
 function changeLabel(
   kind: ReturnType<typeof classifyBillingTransition>["kind"],
   plan: UserPlan,
@@ -263,7 +299,7 @@ function changeLabel(
     case "TIER_UPGRADE":
       return `Upgrade to ${PLAN_LABEL[plan]}`;
     case "TIER_DOWNGRADE":
-      return `Downgrade to ${PLAN_LABEL[plan]}`;
+      return `Switch to ${PLAN_LABEL[plan]}`;
     case "CADENCE_LENGTHENED":
       return "Switch to yearly";
     case "CADENCE_SHORTENED":
