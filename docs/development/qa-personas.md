@@ -232,6 +232,7 @@ For **each of the four persona accounts, and only those**, located by the exact 
 - Stock Lists (and their memberships and buy windows)
 - per-user visibility preferences for built-in Monitors
 - recently-viewed securities
+- legal requests the persona submitted (privacy, withdrawal, nonconformity, support)
 
 Every statement is scoped by `userId: { in: <the resolved persona ids> }`; there is no code path
 that issues a delete without it, and if no persona resolves, nothing runs. `SYSTEM`-owned built-in
@@ -245,6 +246,9 @@ correct, because that is also what a real customer sees.
 - built-in Lists, Strategies and Monitors
 - the `Security` catalog, market data, benchmarks or anything in Redis
 - `BillingSubscription` — reported, never written (see section 2)
+- the persona's **Terms acceptance records** — deliberately kept, because they are what keeps the
+  persona past the acceptance gate. `pnpm qa:seed` re-asserts them anyway
+  (`ai/architecture/legal-compliance.md` section 7)
 
 Before deleting anything it prints the per-persona counts and waits for a `y`. `PRO_USER` is also
 the long-standing default local development account, so in a development database those numbers are

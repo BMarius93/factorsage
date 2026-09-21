@@ -1,7 +1,16 @@
 # FactorSage legal and privacy implementation handoff
 
-Status: implementation specification and draft copy; not a legal opinion or approved public policy.
+Status: **implemented, with draft copy.** The mechanics specified here exist and are tested; the
+wording is not approved and no operator fact is supplied. This is not a legal opinion and not a
+statement of compliance.
+
 Prepared: 2026-09-20. Repository baseline: `7571bba9f5ef6b9d142f8ab60de87d213471d915` (`main`).
+Implemented: 2026-09-21 on `docs/legal-compliance-v1`.
+
+**`ai/architecture/legal-compliance.md` describes what was built.** This directory stays what it
+was: the specification, the draft copy, and the register of facts nobody may invent. Read the
+architecture document for the code, and [acceptance-checklist.md](acceptance-checklist.md) for
+what was verified and how.
 
 ## Owner's objective
 
@@ -11,9 +20,11 @@ permitted. Add the legal pages, acceptance records, privacy/cookie controls and 
 disclosures necessary to support that position. A disclaimer cannot change what the product
 actually does, remove mandatory consumer rights or guarantee immunity from claims.
 
-This commit is documentation only. None of the proposed routes, controls or persistence below
-should be described as already implemented. The next agent implements on this branch; no merge
-or production deployment is requested.
+> The original handoff below said "this commit is documentation only". That is no longer true:
+> the routes, controls and persistence described are implemented. What has **not** changed is the
+> status of the words — every document is `DRAFT`, every operator fact is a placeholder, and a
+> release build refuses to compile while either is true. No merge or production deployment is
+> requested.
 
 ## Read order
 
@@ -23,6 +34,8 @@ or production deployment is requested.
 4. [Owner facts and legal review](owner-inputs-and-review.md).
 5. [Acceptance checklist](acceptance-checklist.md).
 6. [Copilot handoff](copilot-handoff.md).
+7. [Storage inventory](storage-inventory.md) — how the browser storage and network behaviour was
+   verified, and what that verification does not cover.
 
 The existing product/architecture ADRs remain authoritative for billing, auth, entitlements,
 financial calculations and Monitor semantics. This spec adds legal UX and evidence, not a new
@@ -42,6 +55,13 @@ billing engine, financial method, tracking product, trial or subscription plan.
 A targeted source search found no analytics SDK reference in `apps/web/src`; this is not proof
 that a deployed site, proxy, hosted payment page or tag manager performs no tracking. Complete a
 runtime inventory before publishing the policy.
+
+**The runtime inventory has since been completed against this build** — see
+[storage-inventory.md](storage-inventory.md). It found no third-party origin contacted at any
+point (Geist is self-hosted by `next/font` at build time; Stripe and Google are server-side
+redirects with no SDK in the browser), and one optional storage purpose: the guest
+recent-securities key. It has **not** been verified against a production deployment, which is the
+remaining half of `O6`.
 
 ## Primary legal references and limits
 

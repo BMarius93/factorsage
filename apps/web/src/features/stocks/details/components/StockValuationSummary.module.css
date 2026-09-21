@@ -79,3 +79,8 @@
   font-size: 14px;
   line-height: 1.55;
 }
+
+/* The model-estimate disclosure, under the values it describes. */
+.disclosure {
+  margin-top: 16px;
+}

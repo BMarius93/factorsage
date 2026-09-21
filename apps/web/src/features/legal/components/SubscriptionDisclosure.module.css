@@ -1,0 +1,41 @@
+.list {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  max-width: var(--reading-max-width);
+}
+
+.item {
+  display: grid;
+  gap: 4px;
+}
+
+.term {
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.definition {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.note {
+  margin: 16px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+  max-width: var(--reading-max-width);
+}
+
+.note + .note {
+  margin-top: 6px;
+}
+
+.link {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+}

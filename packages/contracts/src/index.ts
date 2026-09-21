@@ -61,6 +61,21 @@ export type RegisterResponse = {
 export type VerifyEmailRequest = {
   token: string;
   password: string;
+  /**
+   * The Terms of Service version the holder of the link accepted, unchecked-to-checked, on the
+   * activation form.
+   *
+   * Required. Activation is the moment the verified mailbox holder becomes the account holder,
+   * so it is the only point on the email path at which acceptance can be bound to a person
+   * rather than to whoever typed an address into a registration form. The server refuses a
+   * missing, unknown or superseded version with `400` and redeems nothing, and it writes the
+   * acceptance inside the same transaction that installs the password — so an account can never
+   * exist without its acceptance, and a failed acceptance can never leave an activated account.
+   *
+   * It is deliberately a version rather than a boolean: a boolean records that a box was ticked,
+   * not what was agreed to.
+   */
+  termsVersion: string;
 };
 
 export type VerifyEmailResponse = {
@@ -163,3 +178,5 @@ export * from "./builtins.js";
 export * from "./dashboard.js";
 export * from "./market.js";
 export * from "./rate-limits.js";
+export * from "./legal.js";
+export * from "./legal-documents.js";

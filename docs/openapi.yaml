@@ -48,6 +48,16 @@ info:
     for authenticated traffic and by client IP otherwise. Exceeding a policy answers `429` with
     `Retry-After`. See `info.x-rate-limit-policies`.
 
+    **Terms acceptance** is a third refusal axis, applied to every authenticated request by one
+    global interceptor. A caller whose account has not recorded acceptance of the currently
+    required Terms version is refused with `403` and `LEGAL_ACCEPTANCE_REQUIRED`, whose body also
+    carries `requiredTermsVersion`. It is `403` rather than `401` on purpose: the session is
+    perfectly valid and signing in again changes nothing — the remedy is `POST /legal/acceptance`.
+    It never applies to a Guest, and it never applies to the `Authentication`, `Legal`,
+    `Entitlements`, health or webhook operations, nor to `GET /billing/status`,
+    `POST /billing/refresh` and `POST /billing/portal`: a user who declines must still be able to
+    cancel a renewal, exercise statutory rights, reach support and sign out.
+
     **Errors** share one machine-readable shape: an HTTP `statusCode`, a human `message`, and — for
     every refusal a client may reasonably branch on — a stable `code`. Clients should branch on
     `code`, never on `message`.
@@ -219,6 +229,13 @@ tags:
     description: Subscription status and the hosted payment surfaces.
   - name: Admin
     description: Operator routes. `ADMIN` role required; there is no plan that grants them.
+  - name: Legal
+    description: |
+      Terms acceptance, and the request channels a user keeps whether or not they accept:
+      statutory withdrawal, data-protection requests, nonconformity reports and support. Every
+      operation here is deliberately outside the acceptance gate described in `info.description`,
+      because accepting cannot require having accepted and a user who declines must not be
+      trapped.
   - name: Operations
     description: Probes and integration endpoints that are not called by a user.
 
@@ -279,8 +296,10 @@ paths:
       summary: Redeem an email-verification token and set the account's password.
       description: |
         The token is single-use. Redeeming it installs the password in the request body as the
-        account's password, marks the address verified and ends every earlier session of the
-        account, in one transaction (AUTH-002). A password given at registration is never activated
+        account's password, marks the address verified, records the submitted Terms acceptance
+        for the account, and ends every earlier session of the account, in one transaction
+        (AUTH-002). Acceptance and activation therefore commit or roll back together: an
+        activated account without its acceptance is not a reachable state. A password given at registration is never activated
         by verification: only the holder of the emailed link has proven control of the mailbox. The
         new password must satisfy the current registration policy. No session is issued; the owner
         signs in with the new password afterwards.
@@ -834,6 +853,7 @@ paths:
                 maxItems: 5
                 items: { $ref: "#/components/schemas/StockSearchResult" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -862,6 +882,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -888,6 +909,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StockListSummary" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -936,6 +958,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StockListDetail" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     patch:
@@ -1099,6 +1122,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/StrategySummary" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -1145,6 +1169,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/StrategyDetail" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     patch:
@@ -1251,6 +1276,7 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/BacktestRunSummary" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -1348,6 +1374,7 @@ paths:
               schema: { $ref: "#/components/schemas/BacktestRunDetail" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /backtests/{runId}/progress:
@@ -1377,6 +1404,7 @@ paths:
               schema: { $ref: "#/components/schemas/BacktestProgress" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /backtests/{runId}/trades:
@@ -1416,6 +1444,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BacktestTradePage" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
@@ -1443,6 +1472,7 @@ paths:
               schema: { $ref: "#/components/schemas/BacktestRunStrategy" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -1469,6 +1499,7 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/Benchmark" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -1525,6 +1556,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/MonitorSummary" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     post:
@@ -1578,6 +1610,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MonitorDetail" }
         "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
     patch:
@@ -1665,6 +1698,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DashboardResponse" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /dashboard/monitors/{monitorId}/visibility:
@@ -1699,6 +1733,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   # ---------------------------------------------------------------------------------------------
@@ -1791,6 +1826,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BillingError" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/BillingUnavailable" }
 
@@ -1860,6 +1896,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BillingError" }
+        "403": { $ref: "#/components/responses/LegalAcceptanceRequired" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/BillingUnavailable" }
 
@@ -1989,6 +2026,144 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReadinessResponse" }
+
+  # ---------------------------------------------------------------------------------------------
+  # Legal
+  # ---------------------------------------------------------------------------------------------
+  /legal/acceptance:
+    get:
+      tags: [Legal]
+      operationId: getLegalAcceptance
+      summary: What this account has accepted, and whether anything is outstanding.
+      description: |
+        `outstanding` is the field the acceptance gate acts on, and the server decides it — a
+        client renders it and never computes its own answer.
+
+        `records` is the account's own append-only evidence: for each document, the version, the
+        SHA-256 digest of the exact text of that version, whether the record is an acceptance or a
+        notice that was presented, the surface it was given on, and the server time. The digest is
+        what lets a record resolve to the text it was given for after the copy moves on.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: session-probe }
+      responses:
+        "200":
+          description: The caller's acceptance state.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalAcceptanceStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+    post:
+      tags: [Legal]
+      operationId: acceptLegalTerms
+      summary: Record acceptance of the current Terms version.
+      description: |
+        Identity-bound by construction: the body carries no address and the URL carries no token,
+        so nothing here can record acceptance on behalf of somebody whose address was merely typed
+        into a registration form. The account is the authenticated session's.
+
+        The body is a **version**, not a boolean. A boolean records that a box was ticked; a
+        version plus the stored document digest records what was agreed to. A missing, unknown or
+        superseded version is `400` with `LEGAL_TERMS_VERSION_MISMATCH` and writes nothing.
+
+        Idempotent: repeated or concurrent submissions for one version produce exactly one record
+        per document and the first one keeps its timestamp. The acceptance **surface** is resolved
+        server-side from persisted state and is never read from the request.
+
+        One acceptance writes three records: the Terms and the Risk Disclosure as `ACCEPTED` —
+        the Terms say the Risk Disclosure forms part of them — and the Privacy Policy as
+        `NOTICE_PRESENTED`, because a privacy notice is information rather than a consent.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegalAcceptanceRequest" }
+      responses:
+        "200":
+          description: Recorded. The body is the caller's acceptance state after the write.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalAcceptanceStatus" }
+        "400":
+          description: |
+            The submitted version is missing, malformed, or not the one currently required
+            (`LEGAL_TERMS_VERSION_MISMATCH`). Nothing is written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalError" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+
+  /legal/requests:
+    get:
+      tags: [Legal]
+      operationId: listLegalRequests
+      summary: This account's own submitted requests, newest first.
+      description: |
+        Scoped to the authenticated account, like every other user-owned collection: somebody
+        else's request is not visible and not addressable.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: standard-read }
+      responses:
+        "200":
+          description: The caller's requests and their receipts.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [requests]
+                properties:
+                  requests:
+                    type: array
+                    items: { $ref: "#/components/schemas/LegalRequestReceipt" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
+    post:
+      tags: [Legal]
+      operationId: submitLegalRequest
+      summary: Submit a withdrawal, privacy, nonconformity or support request.
+      description: |
+        The response **is** the durable receipt: a reference to quote, the server's submission
+        time, and the exact text submitted.
+
+        A receipt acknowledges **receipt** and nothing more. It is not a decision on the request,
+        not a statement that money has been returned, and not a confirmation that data has been
+        erased. Submitting moves no money, changes no subscription and deletes nothing: the
+        operator handles the request, and the rules for doing so are an outstanding owner decision
+        recorded in `docs/legal/owner-inputs-and-review.md`.
+
+        No email is sent, because this deployment has no approved monitored mailbox to send from
+        (owner input `O2`). A client should therefore make the on-screen receipt savable.
+
+        Repeating a submission creates a second request with its own reference rather than being
+        merged: nothing here has a double effect to protect against, and silently swallowing the
+        second would lose a request somebody deliberately sent.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LegalRequestSubmission" }
+      responses:
+        "201":
+          description: Recorded. The body is the durable receipt.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LegalRequestReceipt" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ThrottlingUnavailable" }
 
   /webhooks/stripe:
     post:
@@ -2183,10 +2358,29 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
     RoleForbidden:
-      description: Authenticated, but the caller does not hold the required role.
+      description: |
+        Authenticated, but the caller does not hold the required role — or has not accepted the
+        currently required Terms version (`LEGAL_ACCEPTANCE_REQUIRED`). The acceptance gate runs
+        for every authenticated request to a route outside the allowlist in `info.description`,
+        so it can produce this status on any operation that documents it.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema:
+            oneOf:
+              - { $ref: "#/components/schemas/Error" }
+              - { $ref: "#/components/schemas/LegalError" }
+    LegalAcceptanceRequired:
+      description: |
+        The caller is signed in but their account has not recorded acceptance of the currently
+        required Terms version (`LEGAL_ACCEPTANCE_REQUIRED`). `requiredTermsVersion` names the
+        version to submit to `POST /legal/acceptance`.
+
+        Deliberately `403` and not `401`: the session is valid, so a client that signed the user
+        out here would trap them in a loop. Never produced for a Guest, and never on the
+        allowlisted operations listed in `info.description`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/LegalError" }
     EntitlementDenied:
       description: |
         The caller's plan does not allow this. The body carries a stable `ENTITLEMENT_*` code plus
@@ -2195,27 +2389,42 @@ components:
 
         This is a **product limit**, not a rate limit: retrying identically will fail identically,
         and the remedy is a different plan or a smaller request — never waiting.
+
+        The same status also carries `LEGAL_ACCEPTANCE_REQUIRED` when the account has not accepted
+        the currently required Terms version; that refusal is raised before the handler runs, so
+        the two are never combined in one body.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/EntitlementError" }
+          schema:
+            oneOf:
+              - { $ref: "#/components/schemas/EntitlementError" }
+              - { $ref: "#/components/schemas/LegalError" }
     SystemContentReadOnly:
       description: |
         The resource is built-in content and the caller is not an administrator
         (`SYSTEM_CONTENT_READ_ONLY`). Built-ins are readable by everyone and changeable by
         administrators only.
+
+        The same status also carries `LEGAL_ACCEPTANCE_REQUIRED` when the account has not accepted
+        the currently required Terms version.
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/SystemContentError" }
+          schema:
+            oneOf:
+              - { $ref: "#/components/schemas/SystemContentError" }
+              - { $ref: "#/components/schemas/LegalError" }
     EntitlementOrContentForbidden:
       description: |
-        Either the caller's plan does not allow this (an `ENTITLEMENT_*` code), or the resource is
-        built-in content the caller may not change (`SYSTEM_CONTENT_READ_ONLY`).
+        Either the caller's plan does not allow this (an `ENTITLEMENT_*` code), the resource is
+        built-in content the caller may not change (`SYSTEM_CONTENT_READ_ONLY`), or the account
+        has not accepted the currently required Terms version (`LEGAL_ACCEPTANCE_REQUIRED`).
       content:
         application/json:
           schema:
             oneOf:
               - { $ref: "#/components/schemas/EntitlementError" }
               - { $ref: "#/components/schemas/SystemContentError" }
+              - { $ref: "#/components/schemas/LegalError" }
     OwnedResourceNotFound:
       description: |
         No such resource for this caller. A resource that exists but belongs to somebody else
@@ -2324,6 +2533,134 @@ components:
           }
       examples:
         - { statusCode: 404, message: "Stock symbol was not found" }
+
+    LegalError:
+      allOf:
+        - { $ref: "#/components/schemas/Error" }
+        - type: object
+          required: [code]
+          properties:
+            code:
+              type: string
+              enum:
+                - LEGAL_ACCEPTANCE_REQUIRED
+                - LEGAL_TERMS_VERSION_MISMATCH
+                - LEGAL_REQUEST_INVALID
+            requiredTermsVersion:
+              type: string
+              description: |
+                The Terms version the server currently requires. Present on the two refusals that
+                are about a version, so a client can submit the right one without guessing.
+              examples: ["0.1.0-draft"]
+
+    LegalDocumentKind:
+      type: string
+      enum:
+        - TERMS
+        - PRIVACY
+        - COOKIES
+        - RISK_DISCLOSURE
+        - CANCELLATION_AND_REFUNDS
+        - CONTACT
+
+    LegalAcceptanceRequest:
+      type: object
+      required: [termsVersion]
+      description: |
+        Deliberately a version rather than a boolean: a boolean records that a checkbox was
+        ticked, while a version — together with the digest the server stores — records what was
+        agreed to.
+      properties:
+        termsVersion:
+          type: string
+          maxLength: 64
+          description: Must equal the version the server currently requires.
+      examples:
+        - { termsVersion: "0.1.0-draft" }
+
+    LegalAcceptanceRecord:
+      type: object
+      required:
+        [documentKind, documentVersion, documentHash, record, surface, recordedAt]
+      properties:
+        documentKind: { $ref: "#/components/schemas/LegalDocumentKind" }
+        documentVersion: { type: string }
+        documentHash:
+          type: string
+          description: |
+            SHA-256, lowercase hex, of the canonical text of exactly that document version. What
+            makes the record resolve to the text that was accepted after the copy moves on.
+        record:
+          type: string
+          description: |
+            `ACCEPTED` is contractual acceptance. `NOTICE_PRESENTED` records only that a document
+            was shown — a privacy notice is information, not a consent.
+          enum: [ACCEPTED, NOTICE_PRESENTED]
+        surface:
+          type: string
+          description: |
+            Where the acceptance was given. Resolved server-side from persisted state and never
+            submitted by a client: evidence a caller can choose is not evidence.
+          enum: [EMAIL_ACTIVATION, GOOGLE_ONBOARDING, EXISTING_ACCOUNT]
+        recordedAt: { type: string, format: date-time }
+
+    LegalAcceptanceStatus:
+      type: object
+      required: [requiredTermsVersion, outstanding, records]
+      properties:
+        requiredTermsVersion: { type: string }
+        outstanding:
+          type: boolean
+          description: |
+            True while the account has no `ACCEPTED` record for the required Terms version. The
+            one field the acceptance gate acts on; the server decides it.
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/LegalAcceptanceRecord" }
+
+    LegalRequestKind:
+      type: string
+      description: |
+        Kept apart because the rules differ: statutory withdrawal is a consumer right with its own
+        period, a nonconformity claim survives that period, and a data-protection request is a
+        different law entirely. Cancelling a renewal is none of these — it is a billing action and
+        lives in the hosted customer portal.
+      enum: [PRIVACY_REQUEST, WITHDRAWAL, NONCONFORMITY, SUPPORT]
+
+    LegalRequestSubmission:
+      type: object
+      required: [kind, details]
+      properties:
+        kind: { $ref: "#/components/schemas/LegalRequestKind" }
+        details:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: What the person is asking for, in their own words.
+
+    LegalRequestReceipt:
+      type: object
+      required: [reference, kind, status, details, submittedAt]
+      description: |
+        An acknowledgment of **receipt**, and deliberately nothing more: not a decision, not a
+        refund, not a deletion.
+      properties:
+        reference:
+          type: string
+          description: Short, human-quotable identifier to use when following up.
+          examples: ["WI-7K3QP-2XBHM"]
+        kind: { $ref: "#/components/schemas/LegalRequestKind" }
+        status:
+          type: string
+          description: |
+            `RECEIVED` is the only value this implementation writes. A status implying an outcome
+            would be a statement about a legal decision nobody has made.
+          enum: [RECEIVED]
+        details: { type: string }
+        submittedAt:
+          type: string
+          format: date-time
+          description: Server clock — the submission time the receipt attests to.
 
     RateLimitError:
       allOf:
@@ -2553,10 +2890,23 @@ components:
         status: { type: string, const: accepted }
     VerifyEmailRequest:
       type: object
-      required: [token, password]
+      required: [token, password, termsVersion]
       properties:
         token: { type: string, minLength: 1, maxLength: 512 }
         password: { type: string, minLength: 12, maxLength: 1024 }
+        termsVersion:
+          type: string
+          maxLength: 64
+          description: |
+            The Terms version the holder of the link accepted on the activation form. Required,
+            and deliberately a version rather than a boolean.
+
+            Activation is the moment the verified mailbox holder becomes the account holder, so
+            it is the only point on the email path at which acceptance can be bound to a person
+            rather than to whoever typed an address into a registration form. A missing, unknown
+            or superseded version is `400` and redeems nothing — the link stays usable and the
+            account stays pending. A client built before this field existed therefore cannot
+            activate an account without recording an acceptance.
     VerifyEmailResponse:
       type: object
       required: [status]

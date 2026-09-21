@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { getApiConfig, getAuthConfig, loadRootEnv } from "@intrinsic/config";
 import { RATE_LIMIT_HEADERS } from "@intrinsic/contracts";
 import { UserRole } from "@intrinsic/database";
-import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
+import {
+  acceptCurrentTermsByEmail,
+  acceptCurrentTermsForTestUsers,
+  useIsolatedRateLimits,
+  useTestDatabase,
+} from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Test } from "@nestjs/testing";
@@ -81,6 +86,16 @@ describe("authentication and role authorization", () => {
         },
       ],
     });
+    // Ordinary customers who have accepted the Terms. Without it the acceptance gate refuses
+    // the protected routes below with `403` before the authentication and role behaviour this
+    // suite is about is reached (`ai/architecture/legal-compliance.md`). The gate itself has its
+    // own suite, `src/legal/legal-acceptance.integration.test.ts`.
+    await acceptCurrentTermsByEmail(prisma, [
+      adminEmail,
+      userEmail,
+      externalOnlyEmail,
+      unverifiedEmail,
+    ]);
   });
 
   afterAll(async () => {
@@ -294,10 +309,14 @@ describe("authentication and role authorization", () => {
     ): Promise<{ id: string; email: string }> {
       const email = `${prefix}-${suffix}-${sessionEmails.length}@example.test`;
       sessionEmails.push(email);
-      return prisma.user.create({
+      const user = await prisma.user.create({
         data: { email, passwordHash, emailVerifiedAt: new Date(), role },
         select: { id: true, email: true },
       });
+      // Same reason as the accounts above: this block is about session revocation, not about
+      // the acceptance gate.
+      await acceptCurrentTermsForTestUsers(prisma, [user.id]);
+      return user;
     }
 
     /** One browser: password sign-in, returning the raw token its cookie holds. */

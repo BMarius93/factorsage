@@ -3,15 +3,16 @@
   flex-direction: column;
   min-height: 100dvh;
   background: var(--color-background);
+  /* Reserve room for the fixed bottom navigation and the device safe area so nothing in the
+     shell is hidden behind it. Applied here rather than to `.main` because the legal footer
+     sits *below* main and would otherwise be the thing the bottom bar covers. */
+  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
 }
 
 .main {
   flex: 1;
   width: 100%;
   min-width: 0;
-  /* Reserve room for the fixed bottom navigation and the device safe area so
-     content is never hidden behind it. */
-  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
 }
 
 .skipLink {
@@ -35,7 +36,8 @@
 }
 
 @media (min-width: 880px) {
-  .main {
+  /* No fixed bottom navigation on desktop, so nothing to reserve. */
+  .shell {
     padding-bottom: 0;
   }
 }

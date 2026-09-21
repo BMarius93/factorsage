@@ -1,3 +1,4 @@
+import { REQUIRED_TERMS_VERSION } from "@intrinsic/contracts";
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
@@ -135,7 +136,7 @@ describe("registration and email verification", () => {
   function verify(token: string) {
     return request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password });
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION });
   }
 
   /**
@@ -301,7 +302,7 @@ describe("registration and email verification", () => {
 
     const verified = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(200);
     expect(verified.body).toEqual({ status: "verified" });
 
@@ -315,7 +316,7 @@ describe("registration and email verification", () => {
 
     const replay = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(401);
     expect(replay.body.message).toBe(INVALID_VERIFICATION_TOKEN_MESSAGE);
   });
@@ -323,7 +324,11 @@ describe("registration and email verification", () => {
   it("rejects an unknown token", async () => {
     const response = await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: "not-a-real-verification-token", password })
+      .send({
+        token: "not-a-real-verification-token",
+        password,
+        termsVersion: REQUIRED_TERMS_VERSION,
+      })
       .expect(401);
 
     expect(response.body.message).toBe(INVALID_VERIFICATION_TOKEN_MESSAGE);
@@ -341,7 +346,7 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(401);
 
     expect(
@@ -364,6 +369,7 @@ describe("registration and email verification", () => {
       verification.redeemToken({
         token,
         passwordHash: await passwords.hash(password),
+        acceptance: [],
       }),
     ).rejects.toThrow("write failed");
     vi.restoreAllMocks();
@@ -381,7 +387,7 @@ describe("registration and email verification", () => {
     // The rolled-back link is still usable, which is the point of the transaction.
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(200);
     expect(
       (await prisma.user.findUniqueOrThrow({ where: { id: user.id } }))
@@ -519,10 +525,10 @@ describe("registration and email verification", () => {
     const responses = await Promise.all([
       request(app.getHttpServer())
         .post("/auth/verify-email")
-        .send({ token, password }),
+        .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION }),
       request(app.getHttpServer())
         .post("/auth/verify-email")
-        .send({ token, password }),
+        .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION }),
     ]);
     const statuses = responses.map((response) => response.status).sort();
 
@@ -554,11 +560,11 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: firstToken, password })
+      .send({ token: firstToken, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(401);
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token: secondToken, password })
+      .send({ token: secondToken, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(200);
   });
 
@@ -567,7 +573,7 @@ describe("registration and email verification", () => {
     const token = await register(email);
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(200);
     sender.reset();
 
@@ -604,7 +610,7 @@ describe("registration and email verification", () => {
 
     await request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password })
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION })
       .expect(200);
 
     const agent = request.agent(app.getHttpServer());

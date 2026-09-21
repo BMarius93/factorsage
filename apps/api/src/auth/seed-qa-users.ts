@@ -1,4 +1,8 @@
-import type { AuthUser } from "@intrinsic/contracts";
+import {
+  LEGAL_ACCEPTANCE_BUNDLE,
+  legalDocument,
+  type AuthUser,
+} from "@intrinsic/contracts";
 import { PrismaClient, UserPlan, UserRole } from "@intrinsic/database";
 import { isValidEmail, normalizeEmail } from "./email";
 import { PasswordService } from "./password.service";
@@ -53,6 +57,12 @@ export function assertQaSeedingAllowed(
  * normalized email, its password hash is refreshed from the environment, its role is re-asserted,
  * and it is left email-verified so browser tests can sign in through the normal UI. No other row
  * is touched.
+ *
+ * **Personas are also recorded as having accepted the current Terms**, with the synthetic
+ * `EXISTING_ACCOUNT` surface. Without it every persona would land on the acceptance screen and
+ * every browser journey would be testing that screen instead of its own subject. This is a
+ * property of the seeder, not a bypass: there is no production switch, no header and no route
+ * that skips the gate, and a spec that wants to see the gate creates its own account.
  */
 export async function seedQaUsers(
   prisma: PrismaClient,
@@ -96,6 +106,20 @@ export async function seedQaUsers(
     // A persona is permanently verified, so any leftover token from earlier manual testing is
     // meaningless and is removed rather than left redeemable.
     await prisma.emailVerificationToken.deleteMany({ where: { userId: user.id } });
+
+    // Synthetic acceptance of the current versions. `skipDuplicates` keeps reseeding idempotent
+    // and keeps the original timestamp, exactly as a real repeated acceptance does.
+    await prisma.legalRecord.createMany({
+      data: LEGAL_ACCEPTANCE_BUNDLE.map(({ kind, record }) => ({
+        userId: user.id,
+        documentKind: kind,
+        documentVersion: legalDocument(kind).version,
+        documentHash: legalDocument(kind).contentHash,
+        record,
+        surface: "EXISTING_ACCOUNT" as const,
+      })),
+      skipDuplicates: true,
+    });
 
     seeded.push({ ...user, name: persona.name });
   }

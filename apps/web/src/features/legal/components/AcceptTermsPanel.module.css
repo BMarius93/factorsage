@@ -1,0 +1,38 @@
+.form {
+  display: grid;
+  gap: 14px;
+  margin-top: var(--section-gap);
+}
+
+.primaryButton {
+  composes: primaryButton from "../../../components/ui/forms.module.css";
+  /* Full width on a phone, where it is the page's one action; intrinsic on desktop. */
+  width: 100%;
+}
+
+.error {
+  composes: error from "../../../components/ui/forms.module.css";
+}
+
+.escapes {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+  max-width: var(--reading-max-width);
+}
+
+.link {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+}
+
+@media (min-width: 880px) {
+  .primaryButton {
+    width: auto;
+    justify-self: start;
+  }
+}

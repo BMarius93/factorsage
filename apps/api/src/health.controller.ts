@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { PrismaService } from "./database/prisma.service";
+import { LegalAcceptanceExempt } from "./legal/legal-acceptance.decorator";
 import { RateLimitExempt } from "./rate-limit/rate-limit.decorator";
 import { STOCK_DATA_REDIS } from "./stocks/stock-data.tokens";
 
@@ -37,6 +38,9 @@ const DEFAULT_CHECK_TIMEOUT_MS = 2_000;
  * the probe itself — a readiness endpoint that can hang is one an orchestrator times out on.
  */
 @Controller("health")
+@LegalAcceptanceExempt(
+  "Orchestrator probes. The caller is not a user and has no acceptance to be missing.",
+)
 @RateLimitExempt(
   "Orchestrator liveness and readiness probes. A throttled probe reads as a failed one, so a " +
     "burst of health checks would take a healthy instance out of rotation or restart it — the " +

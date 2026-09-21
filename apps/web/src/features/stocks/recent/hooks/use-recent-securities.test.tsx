@@ -1,8 +1,13 @@
-import type { StockSearchResultResponse } from "@intrinsic/contracts";
+import {
+  STORAGE_CONSENT_KEY,
+  STORAGE_CONSENT_VERSION,
+  type StockSearchResultResponse,
+} from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthState } from "../../../auth/hooks/use-auth-session";
+import { StorageConsentProvider } from "../../../legal/consent/use-storage-consent";
 import {
   GUEST_RECENT_SECURITIES_KEY,
   readGuestRecentSecurityIds,
@@ -44,11 +49,31 @@ function Probe({ record }: { readonly record?: StockSearchResultResponse }) {
   );
 }
 
+/**
+ * Pre-records a storage decision, as a returning visitor's browser would hold it.
+ *
+ * A Guest's recents are optional storage, so every case that expects `localStorage` to be read or
+ * written has to establish permission first — which is the property under test as much as it is
+ * setup.
+ */
+function decideStorage(preferences: boolean) {
+  window.localStorage.setItem(
+    STORAGE_CONSENT_KEY,
+    JSON.stringify({
+      version: STORAGE_CONSENT_VERSION,
+      preferences,
+      decidedAt: new Date().toISOString(),
+    }),
+  );
+}
+
 function renderProvider(record?: StockSearchResultResponse) {
   return render(
-    <RecentSecuritiesProvider>
-      <Probe {...(record ? { record } : {})} />
-    </RecentSecuritiesProvider>,
+    <StorageConsentProvider>
+      <RecentSecuritiesProvider>
+        <Probe {...(record ? { record } : {})} />
+      </RecentSecuritiesProvider>
+    </StorageConsentProvider>,
   );
 }
 
@@ -102,7 +127,8 @@ describe("RecentSecuritiesProvider", () => {
     expect(url).not.toContain("ids=");
   });
 
-  it("resolves a guest's stored ids against the catalog", async () => {
+  it("resolves a guest's stored ids against the catalog once storage is allowed", async () => {
+    decideStorage(true);
     window.localStorage.setItem(
       GUEST_RECENT_SECURITIES_KEY,
       JSON.stringify(["id-nvda", "id-aapl"]),
@@ -128,7 +154,8 @@ describe("RecentSecuritiesProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("persists a guest's view locally and promotes it immediately", async () => {
+  it("persists a guest's view locally and promotes it immediately once storage is allowed", async () => {
+    decideStorage(true);
     respondWith([]);
     state = { status: "unauthenticated" };
     const user = userEvent.setup();
@@ -165,30 +192,115 @@ describe("RecentSecuritiesProvider", () => {
   });
 
   it("promotes a re-viewed security rather than listing it twice", async () => {
+    decideStorage(true);
     respondWith([]);
     state = { status: "unauthenticated" };
     const user = userEvent.setup();
 
-    const { rerender } = render(
-      <RecentSecuritiesProvider>
-        <Probe record={AAPL} />
-      </RecentSecuritiesProvider>,
+    const tree = (record: StockSearchResultResponse) => (
+      <StorageConsentProvider>
+        <RecentSecuritiesProvider>
+          <Probe record={record} />
+        </RecentSecuritiesProvider>
+      </StorageConsentProvider>
     );
+
+    const { rerender } = render(tree(AAPL));
     await user.click(screen.getByRole("button", { name: "record" }));
-    rerender(
-      <RecentSecuritiesProvider>
-        <Probe record={NVDA} />
-      </RecentSecuritiesProvider>,
-    );
+    rerender(tree(NVDA));
     await user.click(screen.getByRole("button", { name: "record" }));
-    rerender(
-      <RecentSecuritiesProvider>
-        <Probe record={AAPL} />
-      </RecentSecuritiesProvider>,
-    );
+    rerender(tree(AAPL));
     await user.click(screen.getByRole("button", { name: "record" }));
 
     expect(recents()).toBe("AAPL,NVDA");
+  });
+
+  /**
+   * The rules that make the guest recents lawful optional storage rather than a convenience
+   * somebody forgot to ask about. Each of these is a separate way to get it wrong.
+   */
+  describe("optional storage is gated on the visitor's choice", () => {
+    it("writes nothing to this browser before a guest has chosen", async () => {
+      respondWith([]);
+      state = { status: "unauthenticated" };
+      const user = userEvent.setup();
+
+      renderProvider(NVDA);
+      await user.click(screen.getByRole("button", { name: "record" }));
+
+      // The feature still works for this page session…
+      expect(recents()).toBe("NVDA");
+      // …and nothing reached the device.
+      expect(window.localStorage.getItem(GUEST_RECENT_SECURITIES_KEY)).toBeNull();
+    });
+
+    it("writes nothing after a guest has refused", async () => {
+      decideStorage(false);
+      respondWith([]);
+      state = { status: "unauthenticated" };
+      const user = userEvent.setup();
+
+      renderProvider(NVDA);
+      await user.click(screen.getByRole("button", { name: "record" }));
+
+      expect(recents()).toBe("NVDA");
+      expect(window.localStorage.getItem(GUEST_RECENT_SECURITIES_KEY)).toBeNull();
+    });
+
+    it("does not read ids already on the device before a guest has chosen", async () => {
+      // Storage left by an earlier visit, before this choice existed. It must not be read, and
+      // it must not cost a request either.
+      window.localStorage.setItem(
+        GUEST_RECENT_SECURITIES_KEY,
+        JSON.stringify(["id-nvda"]),
+      );
+      const fetchMock = respondWith([NVDA]);
+      state = { status: "unauthenticated" };
+
+      renderProvider();
+
+      await waitFor(() => expect(recents()).toBe(""));
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does not read ids already on the device after a refusal", async () => {
+      decideStorage(false);
+      window.localStorage.setItem(
+        GUEST_RECENT_SECURITIES_KEY,
+        JSON.stringify(["id-nvda"]),
+      );
+      const fetchMock = respondWith([NVDA]);
+      state = { status: "unauthenticated" };
+
+      renderProvider();
+
+      await waitFor(() => expect(recents()).toBe(""));
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps storing an authenticated user's views on the server whatever the choice", async () => {
+      // The choice governs *browser* storage. A signed-in user's recents are account data and
+      // never touch `localStorage`, so refusing optional storage must not disable them.
+      decideStorage(false);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => [AAPL] })
+        .mockResolvedValueOnce({ ok: true, status: 204, json: async () => null });
+      vi.stubGlobal("fetch", fetchMock);
+      state = {
+        status: "authenticated",
+        user: { id: "u1", email: "u@example.test", role: "USER", plan: "PRO" },
+      };
+      const user = userEvent.setup();
+
+      renderProvider(NVDA);
+      await waitFor(() => expect(recents()).toBe("AAPL"));
+      await user.click(screen.getByRole("button", { name: "record" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+      expect(window.localStorage.getItem(GUEST_RECENT_SECURITIES_KEY)).toBeNull();
+    });
   });
 
   /**

@@ -29,6 +29,15 @@ const GUEST_ROUTE_PATTERNS: readonly RegExp[] = [
   /^\/monitors(\/[^/]+)?$/,
   // The public price list (PRICING-001, DEC-001). `/billing`, which acts on a subscription, is not.
   /^\/pricing$/,
+  // The legal documents. Readable by anyone, with no session and no API call: a policy that
+  // asked somebody to sign in before reading it would fail the transparency requirement it
+  // exists to satisfy, and an expired cookie must not turn the Terms into a sign-in prompt.
+  /^\/terms$/,
+  /^\/privacy$/,
+  /^\/cookies$/,
+  /^\/risk-disclosure$/,
+  /^\/cancellation-and-refunds$/,
+  /^\/contact$/,
 ];
 
 export function isGuestReadableRoute(pathname: string): boolean {

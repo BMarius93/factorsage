@@ -134,3 +134,9 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* The signals disclosure sits under the table inside the same surface. A flush section removes
+   the body padding so the table can run edge to edge, so the note supplies its own. */
+.disclosure {
+  padding: 12px var(--surface-inset) 0;
+}

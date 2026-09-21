@@ -1,3 +1,4 @@
+import { REQUIRED_TERMS_VERSION } from "@intrinsic/contracts";
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import { RATE_LIMIT_HEADERS } from "@intrinsic/contracts";
@@ -167,7 +168,7 @@ describe("email-first registration does not enumerate accounts (AUTH-003)", () =
   function verify(token: string, password = ownerPassword) {
     return request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password });
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION });
   }
 
   function login(email: string, password = ownerPassword) {

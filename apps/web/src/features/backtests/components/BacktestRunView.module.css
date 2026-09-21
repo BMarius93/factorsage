@@ -246,3 +246,8 @@
   font-size: var(--text-secondary);
   line-height: var(--line-height-body);
 }
+
+/* The hypothetical-results disclosure, under the metrics row inside the outcome hero. */
+.disclosure {
+  margin-top: 16px;
+}

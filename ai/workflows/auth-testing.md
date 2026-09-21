@@ -65,7 +65,13 @@ name, never by address.
 | `ADMIN_USER`      | `ADMIN` | `FREE`    | `QA_ADMIN_EMAIL`       | `QA_ADMIN_PASSWORD`       |
 | `DOWNGRADED_USER` | `USER`  | `FREE`    | `QA_DOWNGRADED_EMAIL`  | `QA_DOWNGRADED_PASSWORD`  |
 
-All are email-verified. `GUEST` is a sixth access state with no row at all: it is derived from the
+All are email-verified, and all are recorded as having **accepted the current Terms version**
+(`EXISTING_ACCOUNT` surface, written by `seedQaUsers`). Without that every persona would land on
+the acceptance screen and every spec would be testing that screen instead of its own subject. It
+is a property of the seeder, not a bypass: there is no production switch, no header and no route
+that skips the gate, and a spec that wants to see the gate creates or clears its own account —
+`apps/api/src/legal/legal-acceptance.integration.test.ts` does the former,
+`apps/web/e2e/legal/` the latter. `GUEST` is a sixth access state with no row at all: it is derived from the
 absence of a session (`docs/decisions/entitlements-v1.md`), so there is nothing to seed and nothing
 to sign in as.
 
@@ -202,6 +208,14 @@ Auth suites:
   superseded token must not reach the Argon2id hash, a real one must reach it exactly once, and
   the cheap pre-check must still lose to the transaction when the token is taken mid-hash, and the
   same rotation races the verification suite covers
+- `apps/api/src/legal/legal-acceptance.integration.test.ts` — the Terms gate: acceptance bound to
+  the verified account holder (a registration submission records nothing; the activation
+  transaction records it), the direct-API bypass refused on reads and mutations alike, the
+  escape hatches a declining user keeps (billing status, the portal, statutory and privacy
+  requests, `/auth/me`, logout), idempotency under concurrency, server-resolved surfaces, and the
+  refusal of a missing or superseded version
+- `apps/api/src/legal/legal-acceptance-coverage.test.ts` — the exemption allowlist, pinned exactly
+  in both directions
 - `apps/api/src/auth/google-auth.integration.test.ts` — Google identity resolution, the
   authoritative-email linking rule (Gmail, matching `hd`, mismatched `hd`, external), OAuth state
   and PKCE transaction binding, transaction-cookie clearing, provider failures, uniqueness under

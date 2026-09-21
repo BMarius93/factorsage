@@ -22,6 +22,14 @@ export type QaPersonaContentCounts = {
   readonly backtestRuns: number;
   readonly builtInMonitorPreferences: number;
   readonly recentSecurityViews: number;
+  /**
+   * Privacy, withdrawal, nonconformity and support requests the persona submitted.
+   *
+   * Cleared because a manual pass and the E2E suite both submit them, and a persona is meant to
+   * start a release pass empty. The **acceptance** records are deliberately *not* cleared: they
+   * are what keeps a persona past the Terms gate, and `pnpm qa:seed` re-asserts them anyway.
+   */
+  readonly legalRequests: number;
 };
 
 export type QaPersonaReset = {
@@ -48,6 +56,7 @@ const EMPTY_COUNTS: QaPersonaContentCounts = {
   backtestRuns: 0,
   builtInMonitorPreferences: 0,
   recentSecurityViews: 0,
+  legalRequests: 0,
 };
 
 /** Locates the persona rows to act on. Missing personas are simply absent from the result. */
@@ -87,6 +96,7 @@ export async function countQaPersonaContent(
     backtestRuns,
     builtInMonitorPreferences,
     recentSecurityViews,
+    legalRequests,
   ] = await Promise.all([
     prisma.stockList.count({ where: { userId } }),
     prisma.strategy.count({ where: { userId } }),
@@ -94,6 +104,7 @@ export async function countQaPersonaContent(
     prisma.backtestRun.count({ where: { userId } }),
     prisma.userBuiltInMonitorPreference.count({ where: { userId } }),
     prisma.recentSecurityView.count({ where: { userId } }),
+    prisma.legalRequest.count({ where: { userId } }),
   ]);
   return {
     stockLists,
@@ -102,6 +113,7 @@ export async function countQaPersonaContent(
     backtestRuns,
     builtInMonitorPreferences,
     recentSecurityViews,
+    legalRequests,
   };
 }
 
@@ -147,6 +159,9 @@ export async function resetQaPersonaContent(
         const recentSecurityViews = await tx.recentSecurityView.deleteMany({
           where: { userId },
         });
+        const legalRequests = await tx.legalRequest.deleteMany({
+          where: { userId },
+        });
         return {
           monitors: monitors.count,
           backtestRuns: backtestRuns.count,
@@ -154,6 +169,7 @@ export async function resetQaPersonaContent(
           stockLists: stockLists.count,
           builtInMonitorPreferences: builtInMonitorPreferences.count,
           recentSecurityViews: recentSecurityViews.count,
+          legalRequests: legalRequests.count,
         };
       },
       // A persona that ran a long manual session can own a few thousand equity rows behind its
@@ -185,7 +201,8 @@ export function totalDeleted(counts: QaPersonaContentCounts): number {
     counts.monitors +
     counts.backtestRuns +
     counts.builtInMonitorPreferences +
-    counts.recentSecurityViews
+    counts.recentSecurityViews +
+    counts.legalRequests
   );
 }
 
@@ -200,6 +217,7 @@ export function describeDeletedCounts(counts: QaPersonaContentCounts): string {
     `${counts.backtestRuns} backtest run(s)`,
     `${counts.builtInMonitorPreferences} built-in preference(s)`,
     `${counts.recentSecurityViews} recent view(s)`,
+    `${counts.legalRequests} legal request(s)`,
   ].join(", ");
 }
 

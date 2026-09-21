@@ -53,6 +53,7 @@ import {
   oauthSecretsMatch,
   type OAuthTransaction,
 } from "./google/oauth-transaction";
+import { LegalAcceptanceExempt } from "../legal/legal-acceptance.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { RegistrationService } from "./registration.service";
 import { DEFAULT_RETURN_PATH, safeReturnPath } from "./return-path";
@@ -61,6 +62,11 @@ import type { SessionGrant } from "./users.service";
 const LOGIN_PATH = "/login";
 
 @Controller("auth")
+@LegalAcceptanceExempt(
+  "Authentication itself. Accepting the Terms requires a session, so signing in cannot require " +
+    "acceptance, and a user who declines must still be able to sign out. `POST /auth/verify-email` " +
+    "is where the email path records its acceptance, in the transaction that activates the account.",
+)
 export class AuthController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,

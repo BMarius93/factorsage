@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { Prisma } from "@intrinsic/database";
 import { Inject, Injectable } from "@nestjs/common";
 import { AUTH_CONFIG, type AuthConfig } from "../config/configuration.module";
 import { PrismaService } from "../database/prisma.service";
@@ -117,6 +118,15 @@ export class EmailVerificationService {
   redeemToken(input: {
     token: string;
     passwordHash: string;
+    /**
+     * The legal-acceptance rows to write for the account this token activates.
+     *
+     * Passed in rather than built here so this service keeps owning tokens and nothing else, and
+     * written inside the transaction below so activation and acceptance are one atomic step: an
+     * activated account without its acceptance, or an acceptance for an account that was never
+     * activated, are both unreachable states rather than states somebody has to clean up.
+     */
+    acceptance: readonly Prisma.LegalRecordCreateManyInput[];
   }): Promise<string | null> {
     const tokenHash = hashVerificationToken(input.token);
 
@@ -173,6 +183,16 @@ export class EmailVerificationService {
       // replaced, so it goes with it; changing the password from here takes a fresh request.
       await tx.passwordResetToken.deleteMany({
         where: { userId: record.userId },
+      });
+      // The verified mailbox holder's acceptance, bound to the account they have just taken
+      // control of. `skipDuplicates` makes a retry of the same activation idempotent rather than
+      // a uniqueness failure that would roll back a legitimate redemption.
+      await tx.legalRecord.createMany({
+        data: input.acceptance.map((row) => ({
+          ...row,
+          userId: record.userId,
+        })),
+        skipDuplicates: true,
       });
 
       return record.userId;

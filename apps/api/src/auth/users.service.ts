@@ -1,4 +1,4 @@
-import type { AuthUser } from "@intrinsic/contracts";
+import { REQUIRED_TERMS_VERSION, type AuthUser } from "@intrinsic/contracts";
 import { OAuthProvider, type Prisma, type User } from "@intrinsic/database";
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
@@ -15,10 +15,17 @@ export type SessionGrant = {
 
 type SafeUser = Pick<User, "id" | "email" | "role" | "plan">;
 /**
- * A user as a session sees it: the safe projection plus the version its tokens must carry.
- * `sessionVersion` is authentication state, never a response field — `toAuthUser` drops it.
+ * A user as a session sees it: the safe projection, the version its tokens must carry, and
+ * whether the account has accepted the required Terms version.
+ *
+ * `sessionVersion` is authentication state and `legalRecords` is compliance state; neither is a
+ * response field, and `toAuthUser` drops both.
  */
-type SessionUser = SafeUser & Pick<User, "sessionVersion">;
+type SessionUser = SafeUser &
+  Pick<User, "sessionVersion"> & {
+    /** At most one row: the required Terms acceptance, or nothing. See `TERMS_ACCEPTANCE_SELECT`. */
+    readonly legalRecords: readonly { readonly id: string }[];
+  };
 type PasswordLoginUser = SessionUser &
   Pick<User, "passwordHash" | "emailVerifiedAt">;
 type IdentityUser = SessionUser &
@@ -58,9 +65,32 @@ const SAFE_USER_SELECT = {
  * Kept separate so the version is read on the same row, in the same query, as the identity it
  * authorises — a later second read could miss a concurrent revocation.
  */
+/**
+ * The one acceptance question a session asks: has this account accepted **the required** Terms
+ * version?
+ *
+ * It rides on the session read rather than being a second query, which matters twice over. It
+ * costs the acceptance gate nothing per request, and — more importantly — the acceptance state is
+ * read on the same row, in the same statement, as the identity it is about, so an acceptance
+ * committed between two reads can never be missed by one and seen by the other.
+ *
+ * `take: 1` because the unique index means there is at most one such row anyway; the point is to
+ * fetch a presence, not a record.
+ */
+const TERMS_ACCEPTANCE_SELECT = {
+  where: {
+    documentKind: "TERMS",
+    documentVersion: REQUIRED_TERMS_VERSION,
+    record: "ACCEPTED",
+  },
+  select: { id: true },
+  take: 1,
+} as const;
+
 const SESSION_USER_SELECT = {
   ...SAFE_USER_SELECT,
   sessionVersion: true,
+  legalRecords: TERMS_ACCEPTANCE_SELECT,
 } as const;
 const ACTIVATION_CANDIDATE_SELECT = {
   id: true,
@@ -348,6 +378,16 @@ export class UsersService {
       user: this.toAuthUser(user),
       sessionVersion: user.sessionVersion,
     };
+  }
+
+  /**
+   * Whether this session's account has accepted the Terms version the product requires.
+   *
+   * Derived from the projection above rather than asked separately, so the answer belongs to the
+   * same read as the identity. `LegalAcceptanceInterceptor` is its only consumer.
+   */
+  hasAcceptedRequiredTerms(user: SessionUser): boolean {
+    return user.legalRecords.length > 0;
   }
 
   toAuthUser(user: SafeUser): AuthUser {

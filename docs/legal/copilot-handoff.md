@@ -1,5 +1,12 @@
 # Copilot implementation handoff
 
+> **Completed 2026-09-21 on `docs/legal-compliance-v1`.** Kept as the record of what was asked.
+> `ai/architecture/legal-compliance.md` describes what was built,
+> [acceptance-checklist.md](acceptance-checklist.md) records what was verified and how, and
+> [owner-inputs-and-review.md](owner-inputs-and-review.md) is the still-open register. Nothing
+> here is legally certified or production-ready: every document is `DRAFT` and every operator
+> fact is unresolved.
+
 Work on the existing `docs/legal-compliance-v1` branch. Read `AGENTS.md`, `ai/README.md` and all
 documents linked by `docs/legal/README.md` before implementation. Start by checking the working
 tree and current branch; preserve unrelated work. Do not restart from main and lose this handoff.

@@ -532,7 +532,11 @@ the very next request.
 | Global kill switch | Rotating `AUTH_JWT_SECRET` invalidates every session of every user                                                                                                                      |
 
 `sessionVersion` is authentication state, never a response field: `/auth/me` and every other
-contract still return only `id`, `email`, `role` and `plan`. `UsersService` keeps it in a separate
+contract still return only `id`, `email`, `role` and `plan`. The same read now also carries
+whether the account has accepted the required Terms version — compliance state, likewise never a
+response field, reaching `LegalAcceptanceInterceptor` on `request.legalAcceptance` and dropped by
+`toAuthUser`. It rides on this query rather than a second one so that the acceptance state and
+the identity it is about are read on the same row, in the same statement. `UsersService` keeps it in a separate
 `SESSION_USER_SELECT`, and `toAuthUser` drops it.
 
 #### The comparison rule
@@ -629,8 +633,11 @@ refuses it before anything is written. Both clients land on `/login`.
 - `POST /auth/register`: email-first (AUTH-003). Always `202 { status: "accepted" }` for a
   well-formed address; creates a pending account without a password, re-mails a pending one, or
   mails a verified one's owner a neutral notice — at most once per address per cooldown window.
-- `POST /auth/verify-email`: redeems a token once and installs the password in the body as the
-  account's password (AUTH-002). No session is issued.
+- `POST /auth/verify-email`: redeems a token once, installs the password in the body as the
+  account's password (AUTH-002) and records the submitted Terms acceptance for the account, all
+  in one transaction. No session is issued. The body now requires `termsVersion`; a missing,
+  unknown or superseded one is a `400` that redeems nothing, so an activated account without its
+  acceptance is not a reachable state. See `legal-compliance.md`.
 - `POST /auth/resend-verification`: re-mails a pending account's activation link under the same
   cooldown; always `202`.
 - `POST /auth/login`: validates and normalizes credentials, returns a safe `AuthUser`, and sets the
@@ -646,6 +653,12 @@ refuses it before anything is written. Both clients land on `/login`.
   out everywhere"), clears this browser's cookie and returns `204`.
 - `GET /auth/google`, `GET /auth/google/callback`: the Google flow described above.
 - `GET /admin/health`: proves ADMIN authorization (`401` anonymous, `403` USER, `200` ADMIN).
+
+- `GET /legal/acceptance`, `POST /legal/acceptance`, `GET /legal/requests`,
+  `POST /legal/requests`: Terms acceptance and the request channels a declining user keeps. All
+  four are outside the acceptance gate — accepting cannot require having accepted, and a user who
+  declines must still be able to cancel, exercise statutory rights and reach support
+  (`legal-compliance.md`).
 
 `CookieAuthGuard` validates the token and reloads the user from PostgreSQL, then exposes the safe
 user context through `CurrentUser`. `Roles` metadata and `RolesGuard` provide the intentionally

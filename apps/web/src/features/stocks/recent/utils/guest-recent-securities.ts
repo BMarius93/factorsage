@@ -14,6 +14,13 @@ export const GUEST_RECENT_SECURITIES_KEY = "factorsage.recent-securities.v1";
  *
  * Every access is wrapped: `localStorage` throws outright in a browser configured to block site
  * data, and recents are convenience UI that must never be the reason a page fails.
+ *
+ * **This is optional storage, not strictly necessary storage.** It makes a dropdown nicer; the
+ * product works without it. So none of these functions is called until the visitor has allowed
+ * optional storage — `use-recent-securities.tsx` holds the set in memory until then — and
+ * withdrawing permission calls `clearGuestRecentSecurityIds`. Nothing here consults the consent
+ * state itself: these are the storage mechanics, and putting the decision in one place upstream
+ * is what stops two callers disagreeing about it.
  */
 export function readGuestRecentSecurityIds(): string[] {
   let raw: string | null = null;
@@ -59,6 +66,24 @@ export function rememberGuestRecentSecurityId(securityId: string): string[] {
     // A full or blocked store costs the visitor their recents and nothing else.
   }
   return next;
+}
+
+/**
+ * Removes this browser's stored recents.
+ *
+ * Called when the visitor refuses or withdraws permission for optional storage, in this tab and
+ * (through the `storage` event) in every other one. Stopping future writes while leaving
+ * yesterday's data in place would not be a withdrawal, so the key goes with the permission.
+ *
+ * Scoped to exactly this key: the session cookie, the consent record itself and anything another
+ * feature or origin wrote are deliberately untouched.
+ */
+export function clearGuestRecentSecurityIds(): void {
+  try {
+    window.localStorage.removeItem(GUEST_RECENT_SECURITIES_KEY);
+  } catch {
+    // A blocked store had nothing to remove.
+  }
 }
 
 /** Newest first, no duplicates, at most `RECENT_SECURITY_LIMIT` — the one ordering rule. */

@@ -384,6 +384,26 @@ describe("OpenAPI document describes the API that exists", () => {
       }
     });
 
+    it("documents 403 on every operation the Terms-acceptance gate can refuse", () => {
+      // The gate reads the session a route's own guard resolved, so any route with either cookie
+      // guard can answer `403 LEGAL_ACCEPTANCE_REQUIRED` for a signed-in caller who has not
+      // accepted — including the read-only ones a Guest may also call. A route that documents no
+      // `403` would be telling an integrator that status is impossible.
+      const gated = routes.filter(
+        (route) =>
+          !route.legalExemptReason &&
+          (route.guards.includes("CookieAuthGuard") ||
+            route.guards.includes("OptionalCookieAuthGuard")),
+      );
+      expect(gated.length).toBeGreaterThan(0);
+      for (const route of gated) {
+        expect(
+          Object.keys(operations.get(routeKey(route))?.responses ?? {}),
+          `${routeKey(route)} is behind the acceptance gate and must document 403`,
+        ).toContain("403");
+      }
+    });
+
     it("declares no session on a route a guest may call", () => {
       // The inverse of the first case, stated separately because the failure mode is different:
       // documenting authentication on a public route sends integrators looking for a cookie they

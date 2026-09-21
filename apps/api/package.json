@@ -30,7 +30,9 @@
     "billing:reconcile": "tsx src/reconcile-billing.ts",
     "billing:verify-catalog": "tsx src/verify-stripe-catalog.ts",
     "test:billing:sandbox": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/domain build && pnpm --filter @intrinsic/database build && pnpm --filter @intrinsic/fmp build && pnpm --filter @intrinsic/observability build && pnpm --filter @intrinsic/stock-data build && pnpm --filter @intrinsic/strategy build && pnpm --filter @intrinsic/testing build && vitest run src/billing/billing.sandbox.smoke.test.ts",
-    "openapi:validate": "tsx src/openapi/validate-openapi.ts"
+    "openapi:validate": "tsx src/openapi/validate-openapi.ts",
+    "legal:hashes": "tsx src/legal/legal-document-hashes.cli.ts",
+    "legal:check": "tsx src/legal/legal-readiness.cli.ts"
   },
   "dependencies": {
     "@intrinsic/config": "workspace:*",

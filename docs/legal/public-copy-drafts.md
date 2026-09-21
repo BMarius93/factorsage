@@ -1,5 +1,11 @@
 # Draft public copy
 
+> **Superseded as the source of the shipped text.** The implemented copy lives in
+> `packages/contracts/src/legal-documents.ts`, where it is versioned and hashed so an acceptance
+> record resolves to the exact text it was given for. This file remains the drafting notes and
+> the review brief it was written as; edit the registry, run `pnpm legal:hashes`, and the
+> contracts test keeps the two in step.
+
 DRAFT — not approved for publication. English matches the existing product UI. All bracketed
 owner fields below must be resolved; translations/language requirements need territorial review.
 Read `owner-inputs-and-review.md`. Public text must match actual implementation and contracts.

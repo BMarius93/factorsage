@@ -30,6 +30,13 @@ export const REGISTRATION_ACCEPTED_MESSAGE =
  * `returnPath` is only carried on the links back to sign-in and to Google, so a visitor who signs
  * in from here in the same tab still returns to where they started. It is deliberately **not**
  * put into the activation email: verification activates an account and nothing else.
+ *
+ * **No acceptance is recorded here, and no checkbox is shown.** Anybody can type somebody else's
+ * address into this form, so a tick here would record a contract on behalf of a person who has
+ * not been asked. The links below make the documents available at the point somebody decides to
+ * sign up, which is what they are for; the binding acceptance happens on the activation page,
+ * where the holder of the mailbox has proven it is theirs. The Google buttons converge on the
+ * same rule through legal onboarding after the callback.
  */
 export function RegisterForm({
   returnPath = DEFAULT_RETURN_PATH,
@@ -73,9 +80,10 @@ export function RegisterForm({
           {REGISTRATION_ACCEPTED_MESSAGE}
         </p>
         <p className={styles.status}>
-          The link in that email lets you choose your password. It can take a
-          few minutes to arrive, so check your spam folder too. Nothing arrived?
-          You can ask again from this page a little later.
+          The link in that email lets you choose your password and accept our
+          Terms of Service. It can take a few minutes to arrive, so check your
+          spam folder too. Nothing arrived? You can ask again from this page a
+          little later.
         </p>
         <p className={styles.footerNote}>
           Already have an account?{" "}
@@ -156,6 +164,18 @@ export function RegisterForm({
       </form>
 
       <GoogleSignInButton returnPath={destination} />
+
+      <p className={styles.footerNote}>
+        By continuing you will be asked to accept our{" "}
+        <Link className={styles.link} href="/terms">
+          Terms of Service
+        </Link>{" "}
+        when you activate the account. Read our{" "}
+        <Link className={styles.link} href="/privacy">
+          Privacy Policy
+        </Link>{" "}
+        to see how your personal data is used.
+      </p>
 
       <p className={styles.footerNote}>
         Already have an account?{" "}

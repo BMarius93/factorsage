@@ -218,9 +218,13 @@ The `(app)` shell renders for Guests, and `RouteAccessGate` decides per route wh
 required: `/` — the Dashboard, and the product's canonical home — `/stocks`, `/stocks/[symbol]`
 and **both the collections and the detail pages** of Lists, Strategies and Monitors are public,
 because built-in content is public product content (`AGENTS.md` invariant 21) and a visitor who
-cannot browse it cannot discover what the product does. `/strategies/new` and everything else goes
-through `RequireAuth`. The list is `isGuestReadableRoute` in
-`features/auth/utils/guest-routes.ts`, with its own test. The API still
+cannot browse it cannot discover what the product does. The six legal pages — `/terms`,
+`/privacy`, `/cookies`, `/risk-disclosure`, `/cancellation-and-refunds`, `/contact` — are public
+for a different reason: a policy behind a sign-in wall would fail the transparency requirement it
+exists to satisfy, and they are server components with no API call so an expired cookie cannot
+turn one into a sign-in prompt. `/strategies/new` and everything else goes through `RequireAuth`.
+The list is `isGuestReadableRoute` in `features/auth/utils/guest-routes.ts`, with its own test.
+The API still
 authorizes every request — a page for another customer's object reads as not found.
 
 **A Guest is never redirected for navigating.** Reaching a protected *action* — New list, New
@@ -251,6 +255,23 @@ when it bounces a Guest from a protected route, and the sign-in and register pag
 password sign-in, Google and each other. Every hop validates it with `safeReturnPath`
 (`features/auth/utils/return-path.ts`) — see `authentication.md`, _Return destination after sign-in_.
 Build these links with `signInHref(next)` / `registerHref(next)`, never by concatenating a query.
+
+**The shell carries the legal chrome** (`ai/architecture/legal-compliance.md`). `AppShell` renders
+one `SiteFooter` and the storage-consent banner for every product route, and `AuthCard` renders
+the same two for the sign-in screens, which sit outside the shell and are where those links are
+usually forgotten. Do not add a second footer in a route. The banner is `position: sticky` as the
+last child of the shell rather than `fixed`: a fixed bar permanently covers whatever is at the
+bottom of the page, which here is the footer, so the links to the very policy it asks about would
+be unclickable until somebody answered it.
+
+`LegalAcceptanceGate` is the innermost wrapper inside the shell, so a user who owes a Terms
+acceptance sees the acceptance screen **in place of the route** while the topbar, the account menu
+(so signing out always works) and the footer stay put. It is presentation: the API refuses every
+gated route on its own, and this gate deliberately fails *open* on a failed probe.
+
+Contextual disclosures are `DisclosureNote` over `LEGAL_DISCLOSURES` in `@intrinsic/contracts`.
+There is one wording per claim in the product; a feature that needs a new one adds it to that
+constant rather than writing a sentence.
 
 ## Request failures
 

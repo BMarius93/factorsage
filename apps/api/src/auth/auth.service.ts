@@ -18,6 +18,19 @@ type LoginResult = {
   user: AuthUser;
 };
 
+/**
+ * A validated session: who the caller is, plus the compliance state the acceptance gate reads.
+ *
+ * `termsAccepted` rides on the identity read rather than being fetched separately, so the two
+ * can never describe different moments. It is never a response field — `/auth/me` still returns
+ * `id`, `email`, `role` and `plan` and nothing else; `GET /legal/acceptance` is where a client
+ * asks about acceptance.
+ */
+export type AuthenticatedSession = {
+  readonly user: AuthUser;
+  readonly termsAccepted: boolean;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -82,7 +95,7 @@ export class AuthService {
    * — throws the same detail-free exception, so a caller cannot tell a revoked token from an
    * expired or forged one. Both cookie guards call this and nothing else validates a session.
    */
-  async authenticateToken(token: string): Promise<AuthUser> {
+  async authenticateToken(token: string): Promise<AuthenticatedSession> {
     let payload: unknown;
 
     try {
@@ -105,7 +118,10 @@ export class AuthService {
       throw new UnauthorizedException();
     }
 
-    return this.users.toAuthUser(user);
+    return {
+      user: this.users.toAuthUser(user),
+      termsAccepted: this.users.hasAcceptedRequiredTerms(user),
+    };
   }
 
   /**

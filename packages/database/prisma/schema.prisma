@@ -60,6 +60,54 @@ enum BillingSubscriptionStatus {
   UNKNOWN
 }
 
+/// Which public legal document an acceptance or notice record refers to.
+///
+/// The text of every version lives in `@intrinsic/contracts` (`legal-documents.ts`) and is
+/// hashed; a record stores the version and the digest, so it always resolves to the exact text.
+enum LegalDocumentKind {
+  TERMS
+  PRIVACY
+  COOKIES
+  RISK_DISCLOSURE
+  CANCELLATION_AND_REFUNDS
+  CONTACT
+}
+
+/// What a legal record actually is.
+///
+/// `ACCEPTED` is contractual acceptance. `NOTICE_PRESENTED` records only that a document was
+/// shown — the Privacy Policy is information, and recording it as an acceptance would
+/// misrepresent a notice as a blanket consent to every processing purpose.
+enum LegalRecordKind {
+  ACCEPTED
+  NOTICE_PRESENTED
+}
+
+/// Where an acceptance was given. Decided server-side from persisted state, never submitted by a
+/// client: evidence a caller can choose is not evidence.
+enum LegalAcceptanceSurface {
+  EMAIL_ACTIVATION
+  GOOGLE_ONBOARDING
+  EXISTING_ACCOUNT
+}
+
+/// The request channels the operator answers. Kept apart because their rules differ: cancelling
+/// a renewal is billing, statutory withdrawal is a consumer right with its own period, a
+/// nonconformity claim survives that period, and a privacy request is a different law.
+enum LegalRequestKind {
+  PRIVACY_REQUEST
+  WITHDRAWAL
+  NONCONFORMITY
+  SUPPORT
+}
+
+/// What a submitted request is. `RECEIVED` is deliberately the only value this implementation
+/// writes: the product records that a request arrived and acknowledges it, and deciding it is
+/// operator work whose rules are still outstanding (`docs/legal/owner-inputs-and-review.md` O7).
+enum LegalRequestStatus {
+  RECEIVED
+}
+
 enum OAuthProvider {
   GOOGLE
 }
@@ -171,6 +219,8 @@ model User {
   updatedStockLists          StockList[]                    @relation("StockListUpdatedBy")
   updatedStrategies          Strategy[]                     @relation("StrategyUpdatedBy")
   updatedMonitors            Monitor[]                      @relation("MonitorUpdatedBy")
+  legalRecords               LegalRecord[]
+  legalRequests              LegalRequest[]
 }
 
 /// External identity linked to a product `User`. FactorSage uses external providers for
@@ -214,6 +264,57 @@ model PasswordResetToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// One immutable record that a user accepted a legal document version, or was shown one.
+///
+/// **Append-only.** There is no update path and no writer that changes a row after it is
+/// inserted: the application inserts with `createMany({ skipDuplicates: true })` and nothing
+/// else. That is what makes the row evidence rather than a mutable flag.
+///
+/// `documentHash` is the SHA-256 of the canonical text of exactly that version
+/// (`canonicalLegalDocumentText` in `@intrinsic/contracts`), so a record always resolves to the
+/// text that was accepted even after the copy moves on.
+///
+/// Deliberately absent: IP address and user agent. Collecting them for this purpose alone was
+/// not approved and has no retention policy (`docs/legal/owner-inputs-and-review.md` O5), and the
+/// authenticated account identifier is already the thing the record is about.
+model LegalRecord {
+  id              String                 @id @default(uuid())
+  userId          String
+  documentKind    LegalDocumentKind
+  documentVersion String
+  documentHash    String
+  record          LegalRecordKind
+  surface         LegalAcceptanceSurface
+  recordedAt      DateTime               @default(now())
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Idempotency: repeated or concurrent submissions for one user and one document version
+  /// produce exactly one row, and the first one wins.
+  @@unique([userId, documentKind, documentVersion])
+  @@index([userId])
+}
+
+/// A privacy, withdrawal, nonconformity or support request a signed-in user submitted.
+///
+/// The product records that a request arrived, gives the submitter a durable receipt quoting its
+/// reference, its submission time and its content, and stops there. It does not decide the
+/// request, calculate a refund, erase anything, or write a status that would amount to a legal
+/// outcome nobody reviewed.
+model LegalRequest {
+  id          String             @id @default(uuid())
+  userId      String
+  kind        LegalRequestKind
+  status      LegalRequestStatus @default(RECEIVED)
+  /// What the person asked for, in their own words. Bounded at the API boundary.
+  details     String
+  /// Short human-quotable identifier, unique across the table, shown on the receipt.
+  reference   String             @unique
+  submittedAt DateTime           @default(now())
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, submittedAt])
 }
 
 model Security {

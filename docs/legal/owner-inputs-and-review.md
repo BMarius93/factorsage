@@ -3,6 +3,21 @@
 This is an explicit unknowns register, not a request to pause engineering. Complete reversible
 implementation with draft configuration; never substitute plausible invented facts.
 
+**Status after the 2026-09-21 implementation: every entry below is still open.** Nothing here was
+guessed, defaulted or quietly resolved. What changed is that each one now has a mechanism waiting
+for it and a build that refuses to publish without it:
+
+- `O1`, `O2`, `O3`, `O8`, `O9`, `O12` are the ten `NEXT_PUBLIC_LEGAL_*` variables in
+  `.env.example`. Unset, each renders on the page as a marker naming the fact and this register's
+  entry; a declared release build fails and lists them.
+- `O4`, `O5`, `O7`, `O10`, `O11` are marked in place in the draft copy as pending passages, so a
+  reviewer sees the gap on the page rather than only in this table.
+- `O6` is half done: the inventory was verified in a browser against this build
+  ([storage-inventory.md](storage-inventory.md)) and found one optional purpose and no
+  third-party request. It has **not** been verified against a production deployment.
+
+`pnpm legal:check` prints the outstanding list at any time.
+
 | ID | Needed decision/evidence | Responsible party | Release consequence |
 | --- | --- | --- | --- |
 | O1 | Contracting entity, country, registered address, registration/tax identifiers, required contact details | Owner/accountant | No public paid launch with unidentified seller. |
@@ -10,7 +25,7 @@ implementation with draft configuration; never substitute plausible invented fac
 | O3 | Markets served, B2C/B2B scope, age policy, required policy languages | Owner/counsel | Determines law, wording and territorial limits. |
 | O4 | Hosting, email, identity, billing, logging providers; regions; agreements and transfers | Owner/engineer/privacy counsel | Complete truthful Privacy Policy and supplier safeguards. |
 | O5 | Data retention per category, dormant/pending accounts, logs, backups, billing/legal evidence | Owner/counsel/engineer | Implement and disclose actual durations/criteria; do not invent 30/90-day rules. |
-| O6 | Full deployed cookie/storage inventory and category decisions, including guest recents | Engineer/privacy reviewer | Determines banner need and blocked purposes; source-only search insufficient. |
+| O6 | Full **deployed** cookie/storage inventory and category decisions | Engineer/privacy reviewer | Partly done: verified in a browser against this build (guest recents classified optional, one banner therefore required, no third-party request). Re-verify against production before publishing. |
 | O7 | SaaS consumer classification, withdrawal rules, immediate service request, online function, model form, refund handling | Romanian consumer-law counsel | Unresolved financial outcomes must not be auto-decided by Copilot. |
 | O8 | Taxes, display of tax-inclusive total, invoices and Stripe configuration | Owner/accountant | Stripe integration alone does not establish tax compliance. |
 | O9 | Liability exclusion, any cap, termination, governing law, jurisdiction and ADR wording | Counsel | Draft clauses must not be represented as enforceable legal protection. |

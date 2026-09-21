@@ -92,3 +92,8 @@
   font-size: var(--text-secondary);
   line-height: var(--line-height-body);
 }
+
+/* The signals disclosure, inside the flush signals surface, which supplies no body padding. */
+.disclosure {
+  padding: 12px var(--surface-inset) 0;
+}

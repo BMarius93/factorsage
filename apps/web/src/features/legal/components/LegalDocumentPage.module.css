@@ -1,0 +1,137 @@
+/* A legal document is prose, not a data surface: one reading column, real heading hierarchy,
+   generous leading, and a print stylesheet so Ctrl+P yields the document rather than the app. */
+
+.document {
+  display: grid;
+  gap: var(--section-gap);
+  padding: var(--card-pad);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-surface);
+  color: var(--color-text-body);
+  font-size: var(--text-body);
+  line-height: var(--line-height-body);
+}
+
+/* Version, effective date and status as a compact fact row — the three things a reviewer and a
+   regulator both look for first. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 0;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.metaItem {
+  display: grid;
+  gap: 2px;
+}
+
+.metaItem dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.metaItem dd {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+.section {
+  display: grid;
+  gap: 12px;
+  /* Anchored headings: a deep link from another page must not land under the sticky topbar. */
+  scroll-margin-top: calc(var(--topbar-height) + 16px);
+}
+
+.heading {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-tight);
+}
+
+.paragraph {
+  margin: 0;
+  max-width: var(--reading-max-width);
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  max-width: var(--reading-max-width);
+}
+
+/* An owner fact nobody has supplied. Marked rather than blank: a sentence with a hole in it
+   reads as an oversight, while a named placeholder reads as a decision somebody still owes. */
+.placeholder {
+  padding: 1px 6px;
+  border: 1px dashed var(--color-warning);
+  border-radius: var(--radius-sm);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+}
+
+/* A whole passage waiting on a legal decision. */
+.pending {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--color-warning);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  line-height: 1.5;
+  max-width: var(--reading-max-width);
+}
+
+.pendingTag {
+  color: var(--color-warning);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+@media (min-width: 880px) {
+  .document {
+    padding: 32px;
+  }
+}
+
+/* Printing a legal document is a normal thing to do with one — a consumer keeping a copy of the
+   terms they agreed to. The page frame, the shell and the interactive controls are not part of
+   the document, so they go. */
+@media print {
+  .document {
+    padding: 0;
+    border: none;
+    box-shadow: none;
+  }
+
+  .section {
+    break-inside: avoid;
+  }
+
+  .placeholder,
+  .pending {
+    /* Backgrounds usually do not print. Keep these legible by outline and weight instead, so a
+       printed draft is still visibly a draft. */
+    background: none;
+    border-style: dashed;
+  }
+}

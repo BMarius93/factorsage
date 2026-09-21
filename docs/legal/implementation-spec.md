@@ -1,6 +1,11 @@
 # Legal UX and compliance implementation specification
 
-Status: proposed implementation; read [README](README.md) and [open facts](owner-inputs-and-review.md).
+> **Implemented 2026-09-21.** This stays the specification; `ai/architecture/legal-compliance.md`
+> describes what was actually built, and where the two differ that document is the accurate one.
+> Read it alongside this when changing any of the behaviour below.
+
+Status: implemented, with draft copy; read [README](README.md) and
+[open facts](owner-inputs-and-review.md).
 
 ## 1. Scope and boundaries
 

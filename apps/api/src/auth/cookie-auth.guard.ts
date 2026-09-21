@@ -35,8 +35,10 @@ export class CookieAuthGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    request.authUser = await this.auth.authenticateToken(token);
-    setLogContext({ actorUserId: request.authUser.id });
+    const session = await this.auth.authenticateToken(token);
+    request.authUser = session.user;
+    request.legalAcceptance = { termsAccepted: session.termsAccepted };
+    setLogContext({ actorUserId: session.user.id });
     return true;
   }
 }

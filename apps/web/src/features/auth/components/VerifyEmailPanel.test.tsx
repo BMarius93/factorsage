@@ -1,4 +1,7 @@
-import { PASSWORD_MIN_LENGTH } from "@intrinsic/contracts";
+import {
+  PASSWORD_MIN_LENGTH,
+  REQUIRED_TERMS_VERSION,
+} from "@intrinsic/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -36,16 +39,29 @@ vi.mock("../api/auth-api", () => ({
 const TOKEN = "link-token";
 const OWNER_PASSWORD = "Mailbox-owner-password-42";
 
-async function submit(options: { password: string; confirmPassword?: string }) {
+const SUBMIT_LABEL = "Accept and create account";
+
+/**
+ * Fills the form and submits it.
+ *
+ * `acceptTerms` defaults to true because most cases are about something else; the acceptance
+ * rules have their own cases below, which pass `false`.
+ */
+async function submit(options: {
+  password: string;
+  confirmPassword?: string;
+  acceptTerms?: boolean;
+}) {
   const user = userEvent.setup();
   await user.type(screen.getByLabelText("New password"), options.password);
   await user.type(
     screen.getByLabelText("Confirm password"),
     options.confirmPassword ?? options.password,
   );
-  await user.click(
-    screen.getByRole("button", { name: "Verify and set password" }),
-  );
+  if (options.acceptTerms !== false) {
+    await user.click(screen.getByTestId("accept-terms-checkbox"));
+  }
+  await user.click(screen.getByRole("button", { name: SUBMIT_LABEL }));
   return user;
 }
 
@@ -65,6 +81,59 @@ describe("VerifyEmailPanel", () => {
     expect(verifyEmail).not.toHaveBeenCalled();
   });
 
+  /**
+   * Acceptance is bound to the person holding the link, and to nobody else.
+   *
+   * Registration takes an address and nothing else, so anybody can submit somebody else's;
+   * this is the first and only point on the email path where an acceptance can honestly be
+   * recorded, and it must not be possible to complete the form without performing it.
+   */
+  describe("Terms acceptance", () => {
+    it("starts unchecked, and keeps the submit button disabled until it is ticked", () => {
+      render(<VerifyEmailPanel token={TOKEN} />);
+
+      const checkbox = screen.getByTestId(
+        "accept-terms-checkbox",
+      ) as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+      expect(
+        (screen.getByRole("button", { name: SUBMIT_LABEL }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true);
+    });
+
+    it("names the version being accepted, and links the documents", () => {
+      render(<VerifyEmailPanel token={TOKEN} />);
+
+      expect(screen.getByText(/Version/).textContent).toContain(
+        REQUIRED_TERMS_VERSION,
+      );
+      expect(
+        screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href"),
+      ).toBe("/terms");
+      expect(
+        screen.getByRole("link", { name: "Risk Disclosure" }).getAttribute("href"),
+      ).toBe("/risk-disclosure");
+      // The Privacy Policy is linked as information, not as something being accepted.
+      expect(
+        screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href"),
+      ).toBe("/privacy");
+    });
+
+    it("does not call the API when the box has not been ticked", async () => {
+      render(<VerifyEmailPanel token={TOKEN} />);
+      const user = userEvent.setup();
+
+      await user.type(screen.getByLabelText("New password"), OWNER_PASSWORD);
+      await user.type(screen.getByLabelText("Confirm password"), OWNER_PASSWORD);
+      // Submitting from the keyboard bypasses the disabled button.
+      await user.type(screen.getByLabelText("Confirm password"), "{Enter}");
+
+      expect(verifyEmail).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("verify-success")).toBeNull();
+    });
+  });
+
   it("sends the token with the chosen password and then points to sign-in", async () => {
     verifyEmail.mockResolvedValue({ status: "verified" });
     render(<VerifyEmailPanel token={TOKEN} />);
@@ -76,6 +145,8 @@ describe("VerifyEmailPanel", () => {
     expect(verifyEmail).toHaveBeenCalledWith({
       token: TOKEN,
       password: OWNER_PASSWORD,
+      // A version, not a boolean: what was agreed to, rather than that a box was ticked.
+      termsVersion: REQUIRED_TERMS_VERSION,
     });
     // Verification is not a sign-in: the owner authenticates with the password they just chose.
     expect(
@@ -167,9 +238,7 @@ describe("VerifyEmailPanel", () => {
     expect(screen.queryByTestId("verify-success")).toBeNull();
     expect(screen.queryByTestId("verify-failure")).toBeNull();
 
-    await user.click(
-      screen.getByRole("button", { name: "Verify and set password" }),
-    );
+    await user.click(screen.getByRole("button", { name: SUBMIT_LABEL }));
     expect(await screen.findByTestId("verify-success")).toBeDefined();
     expect(verifyEmail).toHaveBeenCalledTimes(2);
   });
