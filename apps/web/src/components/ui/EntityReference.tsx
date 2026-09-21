@@ -24,16 +24,6 @@ type EntityReferenceChipProps = {
    * rather than a link that would 404.
    */
   readonly href?: string;
-  /**
-   * How many lines the name may take before it is clipped. One — the default — is the dense
-   * inline reference: a chip beside other content, which must never grow the row it sits in.
-   *
-   * Two is for a surface where the name *is* the information and a single line cannot hold it:
-   * the Dashboard's Strategy, List and Monitor columns, where "Trend C…", "Recent M…" and "New
-   * Listin…" made three different objects indistinguishable. The full name stays in `title`
-   * either way, so nothing depends on the clip.
-   */
-  readonly lines?: 1 | 2;
   readonly testId?: string;
 };
 
@@ -43,18 +33,22 @@ type EntityReferenceChipProps = {
  * A Monitor's Strategy, a Backtest's List, a Signal's Monitor: the same pill everywhere, so the
  * user learns once that a bordered pill is something they can open. Every feature used to style
  * its own inline link, which made a relationship look like emphasis rather than navigation.
+ *
+ * There is deliberately one treatment, not a quieter one for busy rows: the Dashboard, Monitors
+ * and Backtests show the same Strategy, List or Monitor, and it has to look like the same thing
+ * on each. The name sits centred on at most two lines and is clipped with an ellipsis past them.
  */
 export function EntityReferenceChip({
   kind,
   name,
   href,
-  lines = 1,
   testId,
 }: EntityReferenceChipProps) {
   const attributes = {
     className: styles.chip,
     "data-kind": kind,
-    "data-lines": String(lines),
+    // The whole name as a native tooltip, the product's tooltip pattern: the label clips after two
+    // lines, so nothing may depend on the visible part.
     title: name,
     ...(testId ? { "data-testid": testId } : {}),
   } as const;

@@ -38,63 +38,98 @@
   line-height: 1;
 }
 
+/* The same popover as the product's other menu (`OverflowMenu`): one compact surface with a
+   hairline border and the menu shadow, an account header over full-width rows rather than a
+   stack of buttons. It hangs from the avatar's right edge, which is the page gutter, so it never
+   reaches the viewport's edge. `overflow: hidden` lets the header's tint follow the corners. */
 .menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   z-index: 30;
+  display: grid;
   width: min(260px, calc(100vw - 32px));
-  padding: 14px;
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
   box-shadow: var(--shadow-menu);
+  text-align: left;
 }
 
+/* Who is signed in, on a faint tint of its own: the address as the header, the plan as one quiet
+   line under it. The hairline below is the one separator between identity and actions. */
 .identity {
   display: grid;
-  gap: 6px;
-  padding-bottom: 12px;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--color-border);
-}
-
-.email {
-  overflow-wrap: anywhere;
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: var(--weight-emphasis);
-}
-
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-self: start;
-}
-
-.menuLink,
-.signOut {
-  display: block;
-  width: 100%;
-  margin-top: 10px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--color-text-body);
-  background: none;
-  font-size: 14px;
-  font-weight: var(--weight-emphasis);
-  text-align: left;
-  cursor: pointer;
-}
-
-.menuLink:hover,
-.signOut:hover:not(:disabled) {
   background: var(--color-surface-soft);
 }
 
+/* One line however long the address: it truncates, and `title` carries the whole of it. */
+.email {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan {
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.actions {
+  display: grid;
+  padding: 4px 0;
+}
+
+/* Full-width rows of one height, a link and a button alike, with no border or radius of their
+   own: the row is the target, and the hover fills it edge to edge. */
+.menuLink,
 .signOut {
-  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  color: var(--color-text-body);
+  background: none;
+  font: inherit;
+  font-size: var(--text-secondary);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--line-height-body);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.menuLink:hover {
+  background: var(--color-row-hover);
+}
+
+/* The topbar's own focus outline, drawn inside the row: the rows run to the panel's edges, and a
+   ring outside them would be clipped by the panel. */
+.menuLink:focus-visible,
+.signOut:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Signing out loses nothing, so it is not red at rest; it takes the destructive tint only under
+   the pointer, the way the maintenance menu's destructive rows read once they are reached. */
+.signOut:hover:not(:disabled) {
+  color: var(--color-negative);
+  background: var(--color-negative-soft);
 }
 
 .signOut:disabled {
@@ -103,9 +138,9 @@
 }
 
 .error {
-  margin: 8px 0 0;
+  margin: 4px 14px 8px;
   color: var(--color-negative);
-  font-size: 13px;
+  font-size: var(--text-small);
   line-height: 1.45;
 }
 

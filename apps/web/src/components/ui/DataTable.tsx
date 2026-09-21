@@ -310,3 +310,32 @@ export function IntermediateOnly({
     </span>
   );
 }
+
+/**
+ * The phone card's linked block, composed by the feature: shown only below 880px, as one
+ * left-aligned row of reference chips that wraps when it must, under the card's divider.
+ *
+ * It is the phone's counterpart of `IntermediateOnly`. Each `links` cell is a full-width row of the
+ * card grid with a label beside its chip, and three of them cost a card three rows of height to say
+ * what three pills say on one line. A feature that wants the one line marks those columns
+ * `cardRole: "hidden"` — they stay ordinary desktop columns — and renders their chips here, inside
+ * the cell the block belongs after. Above 880px it is not displayed, so a fact is never exposed
+ * twice. The visible labels go; give each chip an accessible one instead, because the column
+ * header that used to name it no longer applies.
+ */
+export function CardLinks({
+  children,
+  testId,
+}: {
+  readonly children: ReactNode;
+  readonly testId?: string;
+}) {
+  return (
+    <span
+      className={styles.cardLinks}
+      {...(testId ? { "data-testid": testId } : {})}
+    >
+      {children}
+    </span>
+  );
+}

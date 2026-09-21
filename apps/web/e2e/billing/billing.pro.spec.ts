@@ -52,6 +52,26 @@ test.describe("PRO billing", () => {
     await expect(page.getByTestId("billing-pending-change")).toHaveCount(0);
   });
 
+  test("names Starter a switch, never an upgrade, in both cadences", async ({
+    page,
+  }) => {
+    const status = await readBillingStatus(page);
+    test.skip(!status.billingEnabled, "Stripe billing is not configured here");
+    await openBillingPage(page);
+
+    for (const cadence of ["Monthly", "Yearly"]) {
+      await page.getByRole("radio", { name: cadence }).check();
+      await expect(page.getByTestId("plan-action-STARTER")).toHaveText(
+        "Switch to Starter",
+      );
+      await expect(page.getByTestId("plan-action-PRO")).toHaveText(
+        "Current plan",
+      );
+      // A seeded plan has no subscription, so there is nothing for Free to cancel.
+      await expect(page.getByTestId("plan-action-FREE")).toHaveCount(0);
+    }
+  });
+
   test("keeps entitlements independent of billing", async ({ page }) => {
     // The boundary, from the browser: entitlements answer PRO from the plan column while billing
     // reports no subscription at all.

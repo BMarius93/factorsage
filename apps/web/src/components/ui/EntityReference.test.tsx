@@ -39,31 +39,22 @@ describe("EntityReferenceChip", () => {
     ).toBe("A very long stock list name");
   });
 
-  it("stays on one line unless a surface asks for two", () => {
-    const { rerender } = render(
-      <EntityReferenceChip kind="monitor" name="Nasdaq Trend Confirmation" />,
-    );
-    expect(
-      screen
-        .getByText("Nasdaq Trend Confirmation")
-        .closest("[data-kind]")
-        ?.getAttribute("data-lines"),
-    ).toBe("1");
-
-    rerender(
+  it("is one treatment everywhere, with no quieter variant to drift from it", () => {
+    render(
       <EntityReferenceChip
         kind="monitor"
         name="Nasdaq Trend Confirmation"
-        lines={2}
+        href="/monitors/m-1"
       />,
     );
-    const chip = screen
-      .getByText("Nasdaq Trend Confirmation")
-      .closest("[data-kind]");
-    expect(chip?.getAttribute("data-lines")).toBe("2");
-    // Wrapping is a presentation choice, never a shortening one: the name is whole either way.
-    expect(chip?.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
-    expect(chip?.textContent).toBe("Nasdaq Trend Confirmation");
+    const chip = screen.getByRole("link", {
+      name: "Nasdaq Trend Confirmation",
+    });
+    expect(chip.hasAttribute("data-variant")).toBe(false);
+    expect(chip.getAttribute("data-kind")).toBe("monitor");
+    // The name is whole in the DOM and in the tooltip: wrapping and clipping are the CSS's job.
+    expect(chip.getAttribute("title")).toBe("Nasdaq Trend Confirmation");
+    expect(chip.textContent).toBe("Nasdaq Trend Confirmation");
   });
 });
 

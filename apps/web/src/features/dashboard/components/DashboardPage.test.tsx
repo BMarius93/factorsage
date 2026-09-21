@@ -311,12 +311,13 @@ describe("DashboardPage", () => {
       entry.querySelector('a[href="/stocks/AAPL"]'),
     )!;
     // The identity cell is the row's own link to Stock Details; the three relationship cells
-    // each go somewhere else, and none of them is the row's destination.
+    // (desktop columns, so `hidden` from the phone card) each go somewhere else, and none of them
+    // is the row's destination.
     expect(
       within(active).getByRole("link", { name: /AAPL/ }).getAttribute("href"),
     ).toBe("/stocks/AAPL");
     const relationshipCells = Array.from(
-      active.querySelectorAll<HTMLElement>('td[data-card="links"]'),
+      active.querySelectorAll<HTMLElement>('td[data-card="hidden"]'),
     );
     expect(
       relationshipCells.map((cell) => [
@@ -344,7 +345,7 @@ describe("DashboardPage", () => {
     // The three columns step out between 880 and 1,279px, and the same references are folded
     // into the identity cell instead. CSS shows exactly one of the two at any width.
     expect(
-      active.querySelectorAll('td[data-card="links"][data-fold="true"]'),
+      active.querySelectorAll('td[data-card="hidden"][data-fold="true"]'),
     ).toHaveLength(3);
     const folded = within(active).getByTestId("dashboard-folded-relationships");
     expect(folded.closest('td')?.getAttribute("data-card")).toBe("identity");
@@ -587,7 +588,7 @@ describe("DashboardPage", () => {
     );
   });
 
-  it("lets a Strategy, List or Monitor name wrap instead of truncating it", async () => {
+  it("shows Strategy, List and Monitor as the shared reference pill with the whole name on hover", async () => {
     fetchDashboardMock.mockResolvedValue(dashboard());
     render(<DashboardPage />);
 
@@ -598,13 +599,11 @@ describe("DashboardPage", () => {
       entry.querySelector('a[href="/monitors/monitor-b"]'),
     )!;
     const chips = Array.from(
-      row.querySelectorAll<HTMLElement>('td[data-card="links"] [data-kind]'),
+      row.querySelectorAll<HTMLElement>('td[data-card="hidden"] [data-kind]'),
     );
     expect(chips).toHaveLength(3);
     for (const chip of chips) {
-      // Two lines, clipped after them — the CSS does the clipping, this is the contract it reads.
-      expect(chip.getAttribute("data-lines")).toBe("2");
-      // And the whole name stays reachable however it is clipped.
+      // The whole name stays reachable however the CSS clips it.
       expect(chip.getAttribute("title")).toBe(chip.textContent);
     }
     expect(chips.map((chip) => chip.textContent)).toEqual([
@@ -613,11 +612,20 @@ describe("DashboardPage", () => {
       "Nasdaq Trend Confirmation",
     ]);
 
-    // The folded copy for the intermediate desktop band wraps the same way.
-    for (const chip of within(
-      within(row).getByTestId("dashboard-folded-relationships"),
-    ).getAllByRole("link")) {
-      expect(chip.getAttribute("data-lines")).toBe("2");
+    // The folded copy for the intermediate desktop band and the phone card's row are the same
+    // pill, with the same references in the same order.
+    for (const testId of [
+      "dashboard-folded-relationships",
+      "dashboard-card-relationships",
+    ]) {
+      const copies = within(within(row).getByTestId(testId)).getAllByRole(
+        "link",
+      );
+      expect(
+        copies.map((chip) => [chip.className, chip.getAttribute("title")]),
+      ).toEqual(
+        chips.map((chip) => [chip.className, chip.getAttribute("title")]),
+      );
     }
   });
 
@@ -644,15 +652,24 @@ describe("DashboardPage", () => {
     expect(why.textContent).toMatch(/Margin of Safety/);
     expect(why.textContent).not.toMatch(/^Why/);
 
-    // … while the three origin references keep theirs, because a bare name would not say which.
-    const links = Array.from(
-      row.querySelectorAll<HTMLElement>('td[data-card="links"]'),
-    );
-    expect(links.map((cell) => cell.textContent)).toEqual([
-      "StrategyValue & Trend",
-      "ListS&P 500 Growth Leaders",
-      "MonitorS&P Value & Trend",
+    // … and the origin is one unlabelled row of pills under it, Strategy, List, Monitor: the three
+    // desktop columns leave the card rather than taking a labelled row each.
+    expect(row.querySelectorAll('td[data-card="links"]')).toHaveLength(0);
+    expect(row.querySelectorAll('td[data-card="hidden"]')).toHaveLength(3);
+    const origin = within(why).getByTestId("dashboard-card-relationships");
+    expect(
+      Array.from(origin.querySelectorAll<HTMLElement>("[data-kind]")).map(
+        (chip) => [chip.getAttribute("data-kind"), chip.textContent],
+      ),
+    ).toEqual([
+      ["strategy", "Value & Trend"],
+      ["list", "S&P 500 Growth Leaders"],
+      ["monitor", "S&P Value & Trend"],
     ]);
+    // The only labels left are for assistive technology, which lost the column headers with them.
+    expect(origin.textContent).toBe(
+      "Strategy: Value & TrendList: S&P 500 Growth LeadersMonitor: S&P Value & Trend",
+    );
 
     // Everything the card has to carry is still on it, once each.
     expect(within(row).getByTestId("dashboard-stock").textContent).toMatch(/AAPL/);

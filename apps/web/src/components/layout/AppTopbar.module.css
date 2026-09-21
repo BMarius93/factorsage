@@ -112,6 +112,13 @@
   .brandLink {
     margin-right: 0;
   }
+
+  /* The account control is anchored to the far right of the bar rather than parked after the
+     last navigation link: the search field stops growing at its cap, and the space that leaves
+     belongs between the navigation and the account, not after both of them. */
+  .actions {
+    margin-left: auto;
+  }
 }
 
 @media (min-width: 600px) {
@@ -129,6 +136,12 @@
 
   .desktopNav {
     display: block;
+  }
+
+  /* Where the bar is too narrow for the auto margin to open a gap, the account still keeps more
+     air from "Backtests" than the links keep from each other, so it never reads as a fifth one. */
+  .actions {
+    padding-left: 12px;
   }
 }
 

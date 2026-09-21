@@ -130,6 +130,70 @@ test.describe("guest dashboard overview cards", () => {
     await expect(vix).not.toContainText(/24h/i);
   });
 
+  test("lays VIX out like the index cards: title and zone on top, change and session along the bottom", async ({
+    page,
+  }) => {
+    for (const width of [1440, 900]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/");
+      await expect(page.getByTestId("dashboard-vix-status")).toBeVisible();
+
+      const layout = await page.evaluate(() => {
+        const within = (code: string, selector: string) => {
+          const card = document.querySelector(
+            `[data-testid="dashboard-market-card-${code}"]`,
+          )!;
+          const box = card.getBoundingClientRect();
+          const node = card.querySelector(selector)!.getBoundingClientRect();
+          return {
+            top: node.top - box.top,
+            bottom: node.bottom - box.top,
+            right: box.right - node.right,
+          };
+        };
+        return {
+          spTitle: within("SP500_INDEX", "p"),
+          vixTitle: within("VIX_INDEX", "p"),
+          spChange: within(
+            "SP500_INDEX",
+            '[data-testid^="dashboard-market-change-"]',
+          ),
+          vixChange: within(
+            "VIX_INDEX",
+            '[data-testid^="dashboard-market-change-"]',
+          ),
+          vixZone: within("VIX_INDEX", '[data-testid="dashboard-vix-status"]'),
+          vixValue: within(
+            "VIX_INDEX",
+            '[data-testid^="dashboard-market-value-"]',
+          ),
+        };
+      });
+
+      // Same title position and the same bottom row as S&P 500 …
+      expect(
+        Math.abs(layout.vixTitle.top - layout.spTitle.top),
+        `${width}px`,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(layout.vixChange.bottom - layout.spChange.bottom),
+        `${width}px`,
+      ).toBeLessThanOrEqual(1);
+      // … the zone in the top-right slot, on the title's line, and the dial's level between them.
+      expect(
+        Math.abs(layout.vixZone.top - layout.vixTitle.top),
+        `${width}px`,
+      ).toBeLessThanOrEqual(3);
+      expect(layout.vixZone.right, `${width}px`).toBeLessThan(20);
+      expect(layout.vixValue.top, `${width}px`).toBeGreaterThan(
+        layout.vixZone.bottom,
+      );
+      expect(layout.vixValue.bottom, `${width}px`).toBeLessThan(
+        layout.vixChange.top,
+      );
+    }
+  });
+
   test("serves the API the same numbers the cards render, and calls them closes", async ({
     page,
   }) => {

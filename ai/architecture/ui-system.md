@@ -244,11 +244,11 @@ Mark numeric columns `numeric` so digits align with tabular figures, and `align:
 `--content-max-width`, so fixed widths that sum past it starve the identity column until a name
 wraps to three lines. Instead mark the short columns `nowrap` — timestamps, counts, money, badges —
 so they size to their own content, and let the identity column absorb the remainder. A relationship
-chip caps its own width and truncates, so one long name cannot widen a column. If a table still
+chip caps its own width and wraps, so one long name cannot widen a column. If a table still
 exceeds the content width it scrolls inside its surface; the page body never scrolls sideways.
 
 **Why the chip contains itself** (UI-001, UI-002). The chip is an `inline-grid` with one
-`minmax(2.5rem, max-content)` track and an **absolute** `max-width: 12rem`. A percentage cap looks
+`minmax(3rem, max-content)` track and an **absolute** `max-width: 10rem`. A percentage cap looks
 equivalent but is cyclic while an auto-layout table computes its column widths and is ignored
 there — which is how a visibly truncated chip once kept its 700px label width, widened the
 Backtests table to 1,735px and pushed `View results` off-screen, and made the phone Dashboard
@@ -270,17 +270,20 @@ decision, not several.
 `e2e/dashboard/ticker-width.guest.spec.ts` asserts the full ticker, unclipped, at 880, 1024, 1280
 and 1440 px with no document overflow.
 
-**A name is a column's information, and may take two lines.** An `EntityReferenceChip` truncates
-to one line by default, because most of them sit beside the content that matters. Where the name
-*is* what distinguishes one row from another — the Dashboard's Strategy, List and Monitor columns,
-which at eight columns rendered "Trend C…", "Recent M…" and "New Listin…" — the chip takes
-`lines={2}`: same pill, wrapped to at most two lines and clipped after them, with the whole name in
-`title` either way. Pair it with a `minWidth` on the columns concerned so the wrap has somewhere to
-happen — and size that floor against the **narrowest** width at which every column is shown, with
-the widest content the product can produce. The Dashboard's `9.5rem` is what is left at 1,280px once
-the ticker, a `Waiting for trigger` badge, a relative time, the reason and a price have taken what
-they need; asking for more does not widen the column, it scrolls the table sideways inside its
-surface, which is worse than a name wrapping.
+**A name is a column's information, and gets the width to show it — in at most two lines.** An
+`EntityReferenceChip` wraps a name that outgrows its column or its cap onto a second, centred line
+rather than cutting it to "Trend C…", and clips with an ellipsis only past two lines, the whole name
+in `title`. Where the name *is* what distinguishes one row from another — the Dashboard's Strategy,
+List and Monitor columns, which at eight columns rendered "Trend C…", "Recent M…" and "New Listin…"
+on one line — the columns get two width hints. A `minWidth` floor,
+sized against the **narrowest** width at which every column is shown with the widest content the
+product can produce: the Dashboard's `9.5rem` is what is left at 1,280px once the ticker, a
+`Waiting for trigger` badge, a relative time, the reason and a price have taken what they need, and
+asking for more scrolls the table sideways inside its surface. And a percentage `width` (`14%`), a
+share of the table that auto layout serves before its auto columns grow. Without it, spare width
+goes in proportion to each column's longest content, and full company names and reason sentences
+outbid a pill at every width — "Trend Confirmation" was still clipped at 1,600px. With both, every
+built-in Strategy, List and Monitor name reads whole at 1,280px, the longest in two lines.
 
 **Fold before scrolling.** In the intermediate desktop band (880–1,279px) a wide table has more
 columns than room. A column marked `foldIntermediate` steps out there, and the feature renders the
@@ -289,6 +292,14 @@ a fact is never exposed twice): the Dashboard folds Strategy · List · Monitor 
 Monitors collection folds Strategy and Stock list under the monitor's name, and Backtests folds the
 Benchmark under the Stock list and drops the low-priority Queued column. Every collection then fits
 its surface at 880, 1,024, 1,280 and 1,440px with its actions visible.
+
+**One row of pills on a phone card.** Each `links` cell is a full-width row of the phone card with
+a label beside its chip. Where the chips say enough on their own, and three labelled rows would cost
+a card its height, mark those columns `cardRole: "hidden"` (they stay ordinary desktop columns). Then
+render the same chips in `CardLinks` inside the cell the block belongs after. `CardLinks` is shown
+only below 880px, as one left-aligned wrapping row under the card's divider. The Dashboard does this
+for Strategy · List · Monitor under the reason. Give each chip a visually hidden label, because the
+column header no longer names it.
 
 When a table needs one column too many, **fold a fact into the cell it belongs to** rather than
 adding a column: the Monitors table carries the universe size beside the Stock List chip, and the
@@ -317,6 +328,13 @@ without a find-and-replace across features.
 The feature supplies the label and the tone from its own canonical map. Never hard-code a colour for
 a status in a feature stylesheet.
 
+**Buy, Sell and Final exit have one map.** `LEVEL_KIND_TONES` (`features/strategies/utils/format.ts`)
+is the Builder's mapping — BUY `positive`, SELL `negative`, FINAL EXIT `warning` — and every surface
+that names a level kind reads it: the Strategies collection's Levels cell (`3 buys`, `2 sells`,
+`Final exit`, one `outline` badge per kind the strategy has), a Dashboard match, a Monitor's
+evaluations and Signals, and a Backtest's trades. So a Buy is the same green everywhere; do not add
+a second map.
+
 `pulse` adds a small breathing dot before the label, and it means exactly one thing: **this job is
 still alive**. It is for work genuinely in flight — a queued or running backtest, on its own page
 and in the collection alike — and never for a finished one, because animating a result implies work
@@ -336,8 +354,20 @@ page of its own, and a Backtest's snapshot can name a Strategy that has since be
 renders as a static pill instead of a link that would 404 — it still says _what kind of thing_ this
 is.
 
+There is **one** treatment, with no variants: the Strategy, List or Monitor a Dashboard row, a
+Monitors row and a Backtests row name must look like the same thing. The chip is set in the status
+badges' type size and, on one line, their 24px height, one step lighter than them in weight and ink
+so a row's `StatusBadge`s stay what a reader scans first. It sizes to its name up to its `10rem`
+cap. Past the cap, or where its column is narrower, the name wraps onto a second line — both lines
+centred and balanced, the pill's padding unchanged — and past two lines it clips with an ellipsis,
+the whole name in its native tooltip (`title`). Inside a table the pill keeps the column's alignment;
+only its text is centred. Below 880px the cap gives way to the phone card's width, so a name that
+fits the card stays on one line there. The track's `3rem` floor is what stops a short name such as
+"S&P 500" breaking one word per line when a cell squeezes it.
+
 `LinkedEntities` is the "Linked" block for detail pages. Inside a `DataTable`, the same shape comes
-from columns with `cardRole: "links"`, so a collection does not need it.
+from columns with `cardRole: "links"` (or from `CardLinks`, see `DataTable`), so a collection does
+not need it.
 
 ### `StockIdentity` / `StockLogo`
 
@@ -558,6 +588,11 @@ page's one solid-blue slot — on pages, in dialogs and in `error.tsx`/`global-e
   `aria-controls`, and the panel is a labelled `group` of ordinary links and buttons that Tab walks
   through. There is no `role="menu"`, because the panel has no arrow-key model. Escape closes it and
   returns focus to the trigger, and so does an outside press or tabbing past the last item.
+  The panel is a tinted account header over full-width rows. The header is the email address — the
+  account's only identity, since there is no display name, on one line that truncates with the whole
+  address in `title` — and under it the plan as quiet text (`Pro plan`, `Free plan · Admin`), never
+  a badge. One hairline separates it from the rows, which have no border or radius of their own;
+  Sign out takes the destructive tint only on hover.
 - **Navigation guard.** Every shell link — primary navigation, brand, `PageHeader` back links,
   account-menu links, Sign in and Pricing — passes through `guardNavigation`, and Sign out calls
   `canNavigate()` first, so a page with unsaved work (the Strategy Builder) is asked before any of

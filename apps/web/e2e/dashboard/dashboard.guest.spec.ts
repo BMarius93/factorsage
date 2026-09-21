@@ -210,7 +210,7 @@ test.describe("guest dashboard", () => {
     );
   });
 
-  test("keeps a long Strategy, List and Monitor name readable on two lines", async ({
+  test("wraps a long Strategy, List and Monitor name onto at most two centred lines, whole on hover", async ({
     page,
   }) => {
     for (const width of [1440, 1280]) {
@@ -218,31 +218,38 @@ test.describe("guest dashboard", () => {
       await page.goto("/");
       await expect(qaRows(page)).toHaveCount(3);
 
+      // The Strategy, List and Monitor columns — desktop-only, so `hidden` from the phone card.
       const chips = await qaRows(page)
         .first()
-        .locator('td[data-card="links"] [data-lines="2"]')
+        .locator('td[data-card="hidden"] [data-kind]')
         .evaluateAll((nodes) =>
           nodes.map((node) => {
             const label = node.firstElementChild as HTMLElement;
-            const lineHeight = parseFloat(getComputedStyle(label).lineHeight);
+            const style = getComputedStyle(label);
+            const lineHeight = parseFloat(style.lineHeight);
+            const pill = node.getBoundingClientRect();
+            const text = label.getBoundingClientRect();
             return {
               name: node.textContent ?? "",
               title: node.getAttribute("title") ?? "",
-              lines: Math.round(
-                label.getBoundingClientRect().height / lineHeight,
-              ),
-              clipped: label.scrollHeight > label.clientHeight + 1,
+              lines: Math.round(text.height / lineHeight),
+              align: style.textAlign,
+              // The label's own box, centred vertically inside the pill.
+              above: text.top - pill.top,
+              below: pill.bottom - text.bottom,
             };
           }),
         );
 
       expect(chips, `${width}px`).toHaveLength(3);
       for (const chip of chips) {
-        // Two lines at most, and the whole name is always reachable.
+        // Centred, never a third line, and the whole name on hover.
         expect(chip.lines, `${width}px ${chip.name}`).toBeLessThanOrEqual(2);
+        expect(chip.align).toBe("center");
+        expect(Math.abs(chip.above - chip.below)).toBeLessThanOrEqual(1);
         expect(chip.title).toBe(chip.name);
       }
-      // Wrapping must not push the table sideways at any of these widths.
+      // The pills must not push the table sideways at any of these widths.
       await expectNoHorizontalScroll(page);
       const tableOverflow = await page.evaluate(() => {
         const scroll = document.querySelector("table")?.parentElement;
@@ -277,6 +284,29 @@ test.describe("guest dashboard", () => {
       cells.map((cell) => Math.round(cell.getBoundingClientRect().top)),
     );
     expect(summaryTops[0]).toBe(summaryTops[1]);
+
+    // The origin is one unlabelled row of pills — Strategy, List, Monitor — not three labelled
+    // rows: left-aligned under the reason, sharing a line while they fit.
+    await expect(card.locator('td[data-card="links"]')).toHaveCount(0);
+    const origin = card.getByTestId("dashboard-card-relationships");
+    await expect(origin).toBeVisible();
+    const pills = await origin.evaluate((row) => {
+      const left = row.getBoundingClientRect().left;
+      return Array.from(row.querySelectorAll<HTMLElement>("[data-kind]")).map(
+        (chip) => ({
+          kind: chip.dataset.kind,
+          left: Math.round(chip.getBoundingClientRect().left - left),
+          top: Math.round(chip.getBoundingClientRect().top),
+        }),
+      );
+    });
+    expect(pills.map((pill) => pill.kind)).toEqual([
+      "strategy",
+      "list",
+      "monitor",
+    ]);
+    expect(pills[0]?.left).toBe(0);
+    expect(pills[1]?.top).toBe(pills[0]?.top);
 
     // A card with a trigger and three relationships stays well inside a phone screen.
     const box = await card.boundingBox();

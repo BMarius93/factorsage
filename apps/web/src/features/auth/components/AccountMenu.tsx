@@ -9,7 +9,6 @@ import {
   guardNavigation,
 } from "../../../components/layout/unsaved-changes";
 import { signInHref } from "../utils/guest-routes";
-import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { PLAN_LABEL } from "../../billing/utils/format";
 import styles from "./AccountMenu.module.css";
 
@@ -158,69 +157,74 @@ export function AccountMenu() {
           aria-label="Account"
           data-testid="account-menu"
         >
+          {/* Who is signed in, read rather than acted on: the address is the account's only
+              identity (there is no display name), so it is the header, and the plan — what every
+              limit follows from (UI-024) — is the quiet line under it rather than a badge. The
+              role is internal; only an administrator's adds meaning. */}
           <div className={styles.identity}>
-            <span className={styles.email} data-testid="account-email">
+            <span
+              className={styles.email}
+              data-testid="account-email"
+              // One line, so a long address cannot grow the panel; the whole of it on hover.
+              title={user.email}
+            >
               {user.email}
             </span>
-            {/* The plan is what a customer bought and what every limit follows from, so it is the
-                badge here (UI-024). The role is internal, and only an administrator's adds
-                meaning. */}
-            <span className={styles.badges}>
-              <StatusBadge tone="active" testId="account-plan">
-                {PLAN_LABEL[user.plan]}
-              </StatusBadge>
+            <span className={styles.plan}>
+              <span data-testid="account-plan">{PLAN_LABEL[user.plan]}</span>
+              {" plan"}
               {isAdmin ? (
-                <StatusBadge
-                  tone="neutral"
-                  variant="outline"
-                  testId="account-role"
-                >
-                  Admin
-                </StatusBadge>
+                <>
+                  {" · "}
+                  <span data-testid="account-role">Admin</span>
+                </>
               ) : null}
             </span>
           </div>
 
-          {/*
-            Billing lives here rather than in the primary navigation: it is an account setting, not
-            one of the five product destinations, and `PRIMARY_NAV_ITEMS` is the single definition of
-            those. Shown to everyone, because a Free user needs it more than a paying one does.
-          */}
-          <Link
-            className={styles.menuLink}
-            href="/billing"
-            data-testid="account-billing-link"
-            onNavigate={guardNavigation}
-            onClick={() => setOpen(false)}
-          >
-            Plan and billing
-          </Link>
-
-          {isAdmin ? (
+          <div className={styles.actions}>
+            {/*
+              Billing lives here rather than in the primary navigation: it is an account setting,
+              not one of the five product destinations, and `PRIMARY_NAV_ITEMS` is the single
+              definition of those. Shown to everyone, because a Free user needs it more than a
+              paying one does.
+            */}
             <Link
               className={styles.menuLink}
-              href="/admin"
+              href="/billing"
+              data-testid="account-billing-link"
+              onNavigate={guardNavigation}
               onClick={() => setOpen(false)}
             >
-              Admin
+              Plan and billing
             </Link>
-          ) : null}
 
-          <button
-            className={styles.signOut}
-            type="button"
-            disabled={signingOut}
-            data-testid="sign-out"
-            onClick={() => void handleSignOut()}
-          >
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
+            {isAdmin ? (
+              <Link
+                className={styles.menuLink}
+                href="/admin"
+                onClick={() => setOpen(false)}
+              >
+                Admin
+              </Link>
+            ) : null}
 
-          {error ? (
-            <p className={styles.error} role="alert">
-              Sign out failed. Please try again.
-            </p>
-          ) : null}
+            <button
+              className={styles.signOut}
+              type="button"
+              disabled={signingOut}
+              data-testid="sign-out"
+              onClick={() => void handleSignOut()}
+            >
+              {signingOut ? "Signing out…" : "Sign out"}
+            </button>
+
+            {error ? (
+              <p className={styles.error} role="alert">
+                Sign out failed. Please try again.
+              </p>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </div>

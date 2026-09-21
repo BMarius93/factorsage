@@ -1,14 +1,15 @@
 /**
  * Single source of truth for the application shell's primary destinations.
  *
- * One registry, two surfaces. The desktop topbar and the mobile bottom navigation order
- * the same destinations differently and show different subsets of them, so each item
- * carries explicit per-surface metadata rather than the layouts keeping duplicate lists.
+ * One registry, two surfaces. The desktop topbar and the mobile bottom navigation show
+ * different subsets of the same destinations, so each item carries explicit per-surface
+ * metadata rather than the layouts keeping duplicate lists.
  *
- * Desktop leads with the things a returning user came to work on — Strategies, Monitors,
- * Backtests, Lists — and omits Dashboard, because the brand mark already links there.
- * The phone's bottom bar leads with Dashboard, because it is the one destination a thumb
- * reaches for first and there is no brand mark to tap.
+ * Both surfaces follow the product's own chain — Lists, Strategies, Monitors, Backtests: the
+ * universe, the logic applied to it, the watch that runs it and the test of it. Desktop omits
+ * Dashboard, because the brand mark already links there. The phone's bottom bar leads with
+ * Dashboard, because it is the one destination a thumb reaches for first and there is no brand
+ * mark to tap.
  *
  * The Dashboard's href is `/`: it is the product's canonical home, not a page under it
  * (`app/(app)/page.tsx`). `/dashboard` still resolves, as a redirect — see
@@ -42,28 +43,28 @@ export const PRIMARY_NAV_ITEMS = [
     id: "lists",
     label: "Lists",
     href: "/lists",
-    desktopOrder: 4,
+    desktopOrder: 1,
     mobileOrder: 2,
-  },
-  {
-    id: "monitors",
-    label: "Monitors",
-    href: "/monitors",
-    desktopOrder: 2,
-    mobileOrder: 3,
   },
   {
     id: "strategies",
     label: "Strategies",
     href: "/strategies",
-    desktopOrder: 1,
+    desktopOrder: 2,
+    mobileOrder: 3,
+  },
+  {
+    id: "monitors",
+    label: "Monitors",
+    href: "/monitors",
+    desktopOrder: 3,
     mobileOrder: 4,
   },
   {
     id: "backtests",
     label: "Backtests",
     href: "/backtests",
-    desktopOrder: 3,
+    desktopOrder: 4,
     mobileOrder: 5,
   },
 ] as const satisfies readonly NavItem[];

@@ -773,7 +773,14 @@ the browser:
   saving, from the two published list prices — not a proration estimate, which stays Stripe's.
 - **`plan-actions.ts`** decides what each card's button does, labelling it from
   `classifyBillingTransition` — the same pure function the API classifies the request with — so
-  "Upgrade to Pro" cannot promise something `POST /billing/change` would schedule. It also encodes the
+  "Upgrade to Pro" cannot promise something `POST /billing/change` would schedule. The verb follows
+  the card's tier against the user's, never the cadence on screen: the same tier is `Current plan`
+  (disabled), a higher paid tier is `Upgrade to <Plan>`, a lower paid tier is `Switch to <Plan>`
+  (at renewal for a subscriber), and Free from a paid subscription is `Cancel subscription`. The
+  only cadence-dependent label is the current tier's card on the other cadence (`Switch to yearly`).
+  A plan granted without a subscription buys through Checkout, so its lower tier is still a switch,
+  and its Free card offers nothing, because there is no live subscription to cancel. `plan-actions.test.ts`
+  holds the whole matrix. It also encodes the
   three refusals the server already makes: Free is reached through Portal and never bought, a
   subscribed-but-unpaid price is never shown as the current plan, and no change is offered while a
   cancellation is scheduled.

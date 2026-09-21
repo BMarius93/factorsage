@@ -1,30 +1,41 @@
-/* One pill shape for every cross-entity reference. The kind changes only the accent,
-   so the product stays calm while the relationship stays recognisable. */
+/* One pill for every cross-entity reference: the same type, geometry, cap and wrapping on the
+   Dashboard, Monitors, Backtests and every detail page. The kind changes only the accent, so the
+   product stays calm while the relationship stays recognisable.
+
+   It is set in the status badges' own type size, and on one line it is their height, so a row's
+   pills line up; it is one step quieter than them in weight and ink, so a row's Buy/Sell and
+   Active/Waiting badges stay what the eye lands on. */
 .chip {
   /* The cap is intrinsic, so one long strategy or list name cannot widen whatever the chip
      sits in (UI-001, UI-002). Two properties do it together:
-     - the single `minmax(2.5rem, max-content)` track gives the chip a small, absolute
+     - the single `minmax(3rem, max-content)` track gives the chip a small, absolute
        min-content width, so an auto-layout table cell or a flex/grid parent can shrink it
-       below its label — but never to an empty pill;
+       below its label — but never to an empty pill, and never so far that a short name such
+       as "S&P 500" breaks into one word per line;
      - `max-width` is an absolute length, not a percentage. A percentage cap is cyclic while a
        table computes its column widths and is ignored there, which is how a "truncated" chip
        used to keep its full 700px max-content width and push a row's actions off-screen.
      An inline-grid with a small min-content fits its container anyway, so no percentage is
-     needed. The label truncates and the full name stays in the title attribute. */
+     needed. Past the cap the label wraps (see `.chipLabel`); the full name stays in `title`. */
   display: inline-grid;
-  grid-template-columns: minmax(2.5rem, max-content);
+  grid-template-columns: minmax(3rem, max-content);
   align-items: center;
   min-width: 0;
-  max-width: 12rem;
+  max-width: 10rem;
   vertical-align: middle;
-  padding: 3px 10px;
+  /* The status badges' 24px height on one line; two lines keep the same padding, so the pair
+     sits centred in the pill. The sides are a pixel tighter than a badge's, because the name is
+     what needs the room: at 1,280px the Dashboard's last column leaves "Trend Confirmation"
+     exactly the width it needs on the second line of "New Listings Trend Confirmation". */
+  padding: 4px 8px;
   border: 1px solid var(--color-primary-border);
   border-radius: var(--radius-pill);
-  color: var(--color-text-body);
+  color: var(--color-text-secondary);
   background: var(--color-surface);
-  font-size: 12px;
-  font-weight: var(--weight-emphasis);
-  line-height: 1.5;
+  font-size: var(--text-label-size);
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: center;
   text-decoration: none;
   transition:
     border-color 120ms ease,
@@ -32,44 +43,29 @@
     color 120ms ease;
 }
 
+/* At most two lines, both centred, then an ellipsis: a long name reads whole where it fits in
+   two lines instead of being cut to "Trend C…" on one, and a longer one still cannot grow the
+   row a third line. The lines are balanced, so a wrapped name reads "New Listings / Trend
+   Confirmation" rather than a full line over a stray word. */
 .chipLabel {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Two lines, for a surface where the name is the fact — the Dashboard's Strategy, List and
-   Monitor columns. The same pill: same border, radius, accent and hover; it simply grows a
-   line rather than throwing the second half of "New Listings Trend Confirmation" away.
-
-   The cap is still absolute rather than a percentage, for the reason the single-line cap is
-   (a percentage max-width is cyclic while a table computes its columns and is ignored there),
-   and it is one step wider because a name worth wrapping is a name worth a little more room.
-   Line three is clipped, never scrolled, and `title` keeps the whole name reachable. */
-.chip[data-lines="2"] {
-  grid-template-columns: minmax(2.5rem, 1fr);
-  max-width: 13.5rem;
-  padding: 3px 9px;
-}
-
-.chip[data-lines="2"] .chipLabel {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
+  min-width: 0;
   overflow: hidden;
-  overflow-wrap: break-word;
+  /* Its own wrapping, whatever the cell it sits in says (`nowrap` columns included). */
   white-space: normal;
-  line-height: 1.25;
-  text-overflow: clip;
+  overflow-wrap: break-word;
+  text-wrap: balance;
 }
 
-/* Inside a phone card the chip has the card's width to work with, which is more than any
-   desktop column gives it, so the absolute cap only gets in the way. */
+/* A phone card has no column to protect, and more width than any desktop column gives a pill, so
+   the cap gives way to the card's own width: a name that fits the row stays on one line there
+   instead of wrapping beside empty space, which keeps the card short. Past the card's width it
+   still wraps, and still stops at two lines. */
 @media (max-width: 879px) {
-  .chip[data-lines="2"] {
+  .chip {
     max-width: 100%;
   }
 }

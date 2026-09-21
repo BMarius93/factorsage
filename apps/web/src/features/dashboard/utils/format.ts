@@ -30,12 +30,6 @@ export const ROW_STATE_TONES: Record<DashboardRowState, StatusTone> = {
   PENDING_TRIGGER: "active",
 };
 
-export const LEVEL_TONES = {
-  BUY: "positive",
-  SELL: "negative",
-  FINAL_EXIT: "warning",
-} as const satisfies Record<DashboardRowResponse["levelKind"], StatusTone>;
-
 /** `Buy 100%`, `Sell 50%`, `Final exit`. */
 export function levelLabel(
   row: Pick<DashboardRowResponse, "levelKind" | "levelPercentage">,

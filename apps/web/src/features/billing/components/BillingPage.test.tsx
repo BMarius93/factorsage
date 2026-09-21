@@ -313,6 +313,103 @@ describe("BillingPage", () => {
     );
   });
 
+  it("renders the CTA matrix for a Free, Starter and Pro user in both cadences (BILLING-CTA)", async () => {
+    const subscription = (plan: "STARTER" | "PRO") => ({
+      plan,
+      interval: "MONTH" as const,
+      status: "ACTIVE" as const,
+      currentPeriodEnd: "2026-10-12T00:00:00.000Z",
+      cancelAtPeriodEnd: false,
+      cancelAt: null,
+      pendingChange: null,
+    });
+    const renewal = "Takes effect at your next renewal";
+    const cases = [
+      {
+        billing: billingStatus(),
+        expected: {
+          FREE: ["Current plan", true, ""],
+          STARTER: ["Upgrade to Starter", false, ""],
+          PRO: ["Upgrade to Pro", false, ""],
+        },
+      },
+      {
+        billing: paid({
+          plan: "STARTER",
+          subscription: subscription("STARTER"),
+        }),
+        expected: {
+          FREE: ["Cancel subscription", false, renewal],
+          STARTER: ["Current plan", true, ""],
+          PRO: ["Upgrade to Pro", false, "Takes effect immediately"],
+        },
+      },
+      {
+        // The regression: this card used to read "Upgrade to Starter" / "Downgrade to Starter".
+        billing: paid({ plan: "PRO", subscription: subscription("PRO") }),
+        expected: {
+          FREE: ["Cancel subscription", false, renewal],
+          STARTER: ["Switch to Starter", false, renewal],
+          PRO: ["Current plan", true, ""],
+        },
+      },
+    ] as const;
+
+    const read = (plan: string) => {
+      const button = screen.getByTestId(
+        `plan-action-${plan}`,
+      ) as HTMLButtonElement;
+      return [
+        button.textContent,
+        button.disabled,
+        screen.getByTestId(`plan-hint-${plan}`).textContent,
+      ];
+    };
+
+    for (const { billing, expected } of cases) {
+      fetchBillingStatus.mockResolvedValue(billing);
+      const view = render(<BillingPage />);
+      await screen.findByTestId("billing-catalog");
+
+      for (const plan of ["FREE", "STARTER", "PRO"] as const) {
+        expect(
+          read(plan),
+          `${billing.plan} user, ${plan} card, monthly`,
+        ).toEqual(expected[plan]);
+      }
+      // Yearly re-prices the cards; it does not re-decide which way each one moves the user. The
+      // current tier's own card is the exception, and offers the other cadence.
+      await userEvent.click(screen.getByTestId("billing-interval-YEAR"));
+      for (const plan of ["FREE", "STARTER", "PRO"] as const) {
+        if (plan === billing.plan && plan !== "FREE") {
+          expect(read(plan)[0]).toBe("Switch to yearly");
+          continue;
+        }
+        expect(
+          read(plan),
+          `${billing.plan} user, ${plan} card, yearly`,
+        ).toEqual(expected[plan]);
+      }
+      view.unmount();
+    }
+  });
+
+  it("names a lower tier a switch for a plan granted without a subscription", async () => {
+    // A seeded or administratively set Pro: Checkout is still how it buys, but Starter is below
+    // it, and there is no subscription for the Free card to cancel.
+    fetchBillingStatus.mockResolvedValue(billingStatus({ plan: "PRO" }));
+    render(<BillingPage />);
+    await screen.findByTestId("billing-catalog");
+
+    expect(screen.getByTestId("plan-action-STARTER").textContent).toBe(
+      "Switch to Starter",
+    );
+    expect(screen.getByTestId("plan-action-PRO").textContent).toBe(
+      "Current plan",
+    );
+    expect(screen.queryByTestId("plan-action-FREE")).toBeNull();
+  });
+
   it("asks the API to change plan rather than to buy a second subscription", async () => {
     fetchBillingStatus.mockResolvedValue(
       paid({
