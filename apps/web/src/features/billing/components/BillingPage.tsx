@@ -24,6 +24,7 @@ import {
   statusNotice,
 } from "../utils/format";
 import { currentPriceKeyOf, planCardState } from "../utils/plan-actions";
+import { SubscriptionDisclosure } from "../../legal/components/SubscriptionDisclosure";
 import { BillingUnavailableNote, PlanCatalog } from "./PlanCatalog";
 import styles from "./BillingPage.module.css";
 
@@ -218,6 +219,11 @@ function BillingContent({
           notice={notice}
         />
       ) : null}
+
+      {/* The same panel `/pricing` shows, from one source: renewal, statutory withdrawal and a
+          nonconformity claim are three different things with different rules, and this is the
+          page where somebody has to be able to tell them apart. */}
+      <SubscriptionDisclosure />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   PATH_METADATA,
 } from "@nestjs/common/constants";
 import { DiscoveryService, MetadataScanner, Reflector } from "@nestjs/core";
+import { LEGAL_ACCEPTANCE_EXEMPT_KEY } from "./legal/legal-acceptance.decorator";
 import {
   UNDECLARED_ROUTE_POLICY,
   type RateLimitPolicyName,
@@ -23,10 +24,12 @@ import {
  * what is **mounted** — a controller left out of a module, or a route shadowed by another, is
  * absent here exactly as it is absent at runtime.
  *
- * Two suites consume it, and between them they are what keep three things from drifting apart:
- * `rate-limit-coverage.test.ts` proves every operation declares a policy or an exemption, and
- * `openapi.contract.test.ts` proves `docs/openapi.yaml` documents these operations and no others,
- * with the `429` and authentication semantics these declarations imply.
+ * Three suites consume it, and between them they are what keep four things from drifting apart:
+ * `rate-limit-coverage.test.ts` proves every operation declares a policy or an exemption,
+ * `legal-acceptance-coverage.test.ts` proves the Terms-acceptance allowlist is exactly the set of
+ * routes a declining user must keep, and `openapi.contract.test.ts` proves `docs/openapi.yaml`
+ * documents these operations and no others, with the `429` and authentication semantics these
+ * declarations imply.
  */
 export type RouteDescriptor = {
   /** Uppercase HTTP method. */
@@ -39,6 +42,12 @@ export type RouteDescriptor = {
   readonly policy?: RateLimitPolicyName;
   /** The reason text from `@RateLimitExempt`, when the route is exempt. */
   readonly exemptReason?: string;
+  /**
+   * The reason text from `@LegalAcceptanceExempt`, when the route stays reachable for a signed-in
+   * user who has not accepted the required Terms version. Absent means the route is gated, which
+   * is the default for every route.
+   */
+  readonly legalExemptReason?: string;
   /** Names of the guards applied at controller or method level, in Nest's order. */
   readonly guards: readonly string[];
   /**
@@ -115,6 +124,10 @@ export function routeInventory(app: INestApplication): RouteDescriptor[] {
         RATE_LIMIT_EXEMPT_KEY,
         [handler, controller],
       );
+      const legalExemptReason = reflector.getAllAndOverride<string>(
+        LEGAL_ACCEPTANCE_EXEMPT_KEY,
+        [handler, controller],
+      );
 
       const method = METHOD_NAMES[verb] ?? String(verb);
       const explicitStatus = Reflect.getMetadata(
@@ -129,6 +142,7 @@ export function routeInventory(app: INestApplication): RouteDescriptor[] {
         handler: handlerName,
         ...(policy && policy !== UNDECLARED_ROUTE_POLICY ? { policy } : {}),
         ...(exemptReason ? { exemptReason } : {}),
+        ...(legalExemptReason ? { legalExemptReason } : {}),
         guards: guardNames(controller, handler),
         successStatus: explicitStatus ?? (method === "POST" ? 201 : 200),
       });

@@ -1,12 +1,16 @@
 "use client";
 
-import { PASSWORD_MIN_LENGTH } from "@intrinsic/contracts";
+import {
+  PASSWORD_MIN_LENGTH,
+  REQUIRED_TERMS_VERSION,
+} from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 import { ApiError } from "../../../lib/api/client";
 import { verifyEmail } from "../api/auth-api";
 import { describeRequestError } from "../utils/auth-errors";
 import styles from "./auth-form.module.css";
+import { LegalAcceptanceCheckbox } from "../../legal/components/LegalAcceptanceCheckbox";
 import { signInHref } from "../utils/guest-routes";
 import { ResendVerificationForm } from "./ResendVerificationForm";
 import {
@@ -15,6 +19,10 @@ import {
 } from "./ResetPasswordForm";
 
 type VerificationState = "form" | "verified" | "invalid";
+
+/** Shown if the form is submitted without the box ticked — keyboard submit, or a stale render. */
+export const TERMS_NOT_ACCEPTED_MESSAGE =
+  "Accept the Terms of Service to finish creating your account.";
 
 /**
  * Completes verification for the link in the user's inbox **and sets the account's password**.
@@ -26,10 +34,22 @@ type VerificationState = "form" | "verified" | "invalid";
  * spend the token.
  *
  * The token is carried straight through to the API in a POST body and never interpreted here.
+ *
+ * **This is also where the email path records its Terms acceptance**, and it is the only point on
+ * that path where it can honestly be recorded. Registration takes an address and nothing else, so
+ * anybody can submit somebody else's; binding an acceptance to that submission would record a
+ * contract on behalf of a person who has not been asked. Here the mailbox holder has proven
+ * control of the address by holding this link, and is choosing the account's password in the same
+ * step. The checkbox starts unchecked, the submit button stays disabled until it is ticked, and
+ * the API applies the same requirement again — the client-side disable is convenience, not the
+ * enforcement.
  */
 export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // Unchecked to start, and never defaulted, pre-ticked or remembered: an acceptance the user did
+  // not perform is not an acceptance.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [state, setState] = useState<VerificationState>("form");
@@ -53,13 +73,23 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
       setError(PASSWORD_MISMATCH_MESSAGE);
       return;
     }
+    if (!acceptedTerms) {
+      setError(TERMS_NOT_ACCEPTED_MESSAGE);
+      return;
+    }
 
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
 
     try {
-      await verifyEmail({ token, password });
+      await verifyEmail({
+        token,
+        password,
+        // The version, not a boolean: what was agreed to, rather than that a box was ticked. The
+        // server refuses anything but the version it currently requires and redeems nothing.
+        termsVersion: REQUIRED_TERMS_VERSION,
+      });
       setState("verified");
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 401) {
@@ -80,7 +110,8 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
     return (
       <div data-testid="verify-success">
         <p className={styles.success} role="status">
-          Your email address is verified and your password is set.
+          Your email address is verified, your password is set, and your acceptance of the Terms
+          of Service has been recorded.
         </p>
         <p className={styles.footerNote}>
           <Link className={styles.link} href={signInHref()}>
@@ -117,7 +148,8 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
   return (
     <>
       <p className={styles.status} data-testid="verify-intro">
-        Choose the password you will use to sign in to FactorSage.
+        Choose the password you will use to sign in to FactorSage, and confirm you accept the
+        terms this account is provided under.
       </p>
 
       <form
@@ -164,6 +196,13 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
           />
         </div>
 
+        <LegalAcceptanceCheckbox
+          id="verify-accept-terms"
+          checked={acceptedTerms}
+          onChange={setAcceptedTerms}
+          disabled={submitting}
+        />
+
         {error ? (
           <p className={styles.error} role="alert" data-testid="verify-error">
             {error}
@@ -173,9 +212,9 @@ export function VerifyEmailPanel({ token }: { readonly token: string | null }) {
         <button
           className={styles.primaryButton}
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !acceptedTerms}
         >
-          {submitting ? "Verifying…" : "Verify and set password"}
+          {submitting ? "Verifying…" : "Accept and create account"}
         </button>
       </form>
 

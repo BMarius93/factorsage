@@ -1,3 +1,4 @@
+import { REQUIRED_TERMS_VERSION } from "@intrinsic/contracts";
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import { OAuthProvider } from "@intrinsic/database";
@@ -1307,6 +1308,7 @@ describe("Google authentication", () => {
         .send({
           token: tokenFromLastEmail("verify-email"),
           password: "Owner-chosen-password-42",
+          termsVersion: REQUIRED_TERMS_VERSION,
         })
         .expect(200);
       const { id } = await prisma.user.findUniqueOrThrow({ where: { email } });
@@ -1387,6 +1389,7 @@ describe("Google authentication", () => {
             .send({
               token: decodeURIComponent(match[1]),
               password: "Late-link-password-42",
+              termsVersion: REQUIRED_TERMS_VERSION,
             })
             .expect(401);
         }

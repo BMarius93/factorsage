@@ -21,6 +21,7 @@ import {
   planCardState,
   type PlanCardState,
 } from "../utils/plan-actions";
+import { SubscriptionDisclosure } from "../../legal/components/SubscriptionDisclosure";
 import { BillingUnavailableNote, PlanCatalog } from "./PlanCatalog";
 import billingStyles from "./BillingPage.module.css";
 import styles from "./PricingPage.module.css";
@@ -102,6 +103,7 @@ export function PricingPage() {
         )}
 
         <BillingFacts />
+        <SubscriptionDisclosure />
       </div>
       {gate.prompt}
     </PageContainer>
@@ -214,6 +216,14 @@ function BillingFacts() {
         <li>
           Moving to a smaller plan never deletes anything you have saved: your
           lists, strategies, backtests and monitors stay readable.
+        </li>
+        <li>
+          A subscription renews automatically at the price shown for its plan
+          until you cancel the renewal. The amount, the currency, the billing
+          interval and the total payable including any applicable taxes are
+          shown on Stripe&apos;s checkout page before you pay, and an annual
+          plan is charged as the annual amount shown on its card — not twelve
+          monthly ones.
         </li>
       </ul>
     </SectionCard>

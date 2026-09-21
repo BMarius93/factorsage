@@ -176,6 +176,25 @@ Read `ai/README.md` before substantial work.
     administrator's edits; `pnpm builtins:reset` is the explicit restore. `docs/decisions/builtin-dashboard-signals-v1.md`
     is the decision; `docs/development/builtin-content.md` holds the catalog's verified sources.
 
+22. Legal acceptance, the public legal documents and the browser-storage consent control are one
+    slice with one central definition. `docs/legal/` is the specification and the register of
+    facts nobody may invent; `ai/architecture/legal-compliance.md` is how it is implemented.
+    The versioned document text lives in `@intrinsic/contracts` and is **hashed**: an acceptance
+    event stores the digest of the exact text, so editing copy without bumping the version and
+    running `pnpm legal:hashes` fails the build. Acceptance is bound to a **verified account
+    holder** and never to a submitted email address — registration records nothing, and the email
+    path records its acceptance inside the transaction that activates the account. Every mounted
+    route is gated on the required Terms version by the global `LegalAcceptanceInterceptor`;
+    an exemption is declared with `@LegalAcceptanceExempt(reason)` and the allowlist is pinned
+    *exactly* by `legal-acceptance-coverage.test.ts`, because a missing exemption traps a paying
+    customer — cancellation, statutory withdrawal, privacy requests, support and logout must stay
+    reachable for a user who declines. Operator identity, contacts and legal conclusions are
+    never committed or invented: they are `NEXT_PUBLIC_LEGAL_*` placeholders, and a release build
+    refuses to compile while one is unresolved or any document is still `DRAFT`. Storage that is
+    merely convenient is not strictly necessary: the guest recents key is gated on consent, and
+    nothing optional is read or written before a choice. Nothing in this slice writes
+    `User.plan`, calculates a refund, or decides a legal outcome.
+
 ## Dependency rules
 
 Allowed direction:
@@ -320,5 +339,10 @@ pnpm openapi:validate
 ```
 
 When E2E exists for the changed flow, run it as well.
+
+`pnpm legal:check` is a **release** readiness report, not part of the gate: it lists the operator
+facts and document approvals still outstanding and exits non-zero. A draft legal page must stay
+reviewable locally, so nothing in the gate fails because of one; `apps/web/src/lib/legal-release.ts`
+is what stops a declared release build publishing it.
 
 If a command cannot be run, report exactly why.

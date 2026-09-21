@@ -91,7 +91,26 @@ export function parseVerifyEmailRequest(body: unknown): VerifyEmailRequest {
   return {
     token: requireToken(body, "Invalid verification request"),
     password: requirePolicyPassword(body),
+    // Only bounded here. Whether it is the version currently required is decided by
+    // `LegalService.assertRequiredTermsVersion`, which is the one place that decides, and which
+    // runs before anything is redeemed.
+    termsVersion: requireTermsVersion(body),
   };
+}
+
+/**
+ * The accepted Terms version. Missing, non-string, empty or absurdly long is a `400` before any
+ * token is looked at, so a client built before legal acceptance existed cannot activate an
+ * account without recording one — its link stays unspent and works once the page is reloaded.
+ */
+function requireTermsVersion(body: unknown): string {
+  const version = stringField(body, "termsVersion").trim();
+  if (version.length === 0 || version.length > 64) {
+    throw new BadRequestException(
+      "Invalid request: termsVersion is required",
+    );
+  }
+  return version;
 }
 
 export function parseForgotPasswordRequest(

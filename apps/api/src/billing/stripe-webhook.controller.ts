@@ -17,6 +17,7 @@ import {
 import { RateLimitExempt } from "../rate-limit/rate-limit.decorator";
 import { BILLING_LOGGER, STRIPE_GATEWAY } from "./billing.tokens";
 import type { StripeGateway, StripeWebhookEnvelope } from "./stripe-gateway";
+import { LegalAcceptanceExempt } from "../legal/legal-acceptance.decorator";
 
 /**
  * `POST /webhooks/stripe` — the authoritative billing synchronization path.
@@ -74,6 +75,10 @@ const HANDLED_EVENT_TYPES: ReadonlySet<string> = new Set([
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @Controller("webhooks")
+@LegalAcceptanceExempt(
+  "Stripe's own delivery, authenticated by a signature over the raw body. There is no session " +
+    "and no account acting, and refusing one would lose a billing event.",
+)
 @RateLimitExempt(
   "The caller is Stripe, not a user. Authentication here is a signature over the raw body, and " +
     "delivery volume is Stripe's retry schedule rather than anybody's behaviour — a 429 would " +

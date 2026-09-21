@@ -24,6 +24,7 @@ import { FactGrid } from "../../../components/ui/FactGrid";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { DisclosureNote } from "../../legal/components/DisclosureNote";
 import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { StockIdentity } from "../../../components/ui/StockIdentity";
@@ -712,6 +713,9 @@ export function MonitorDetail({ monitorId }: { readonly monitorId: string }) {
               kept but are not listed here yet.
             </p>
           ) : null}
+          {/* The same sentence the Dashboard shows, from the same source: what a signal is, and
+              that an active one may be latched rather than newly fired. */}
+          <DisclosureNote id="signals" className={styles.disclosure} />
         </SectionCard>
       </div>
 

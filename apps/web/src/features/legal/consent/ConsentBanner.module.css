@@ -1,0 +1,114 @@
+/* Docked to the bottom of the viewport, above the phone's bottom navigation and its safe area so
+   it never covers the primary nav or a mobile action bar. Not a modal: it does not cover the
+   page, does not trap focus, and does not stop anyone reading the policy it links to.
+
+   `sticky` rather than `fixed`, and rendered as the last child of the shell. A fixed bar is
+   permanently on top of whatever is at the bottom of the page — which here is the legal footer,
+   so the links to the very policy this banner is about would be unclickable until somebody
+   answered it. Sticky keeps it in view while there is page below, and lets it settle into flow
+   under the footer once the reader reaches the end, so nothing is ever unreachable. */
+
+.banner {
+  position: sticky;
+  bottom: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+  z-index: 40;
+  width: 100%;
+  padding: 12px var(--page-pad-mobile);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-background-translucent);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-menu);
+}
+
+.inner {
+  display: grid;
+  gap: 12px;
+  margin: 0 auto;
+  max-width: var(--content-max-width);
+}
+
+.copy {
+  display: grid;
+  gap: 6px;
+  max-width: var(--reading-max-width);
+}
+
+.title {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.body {
+  margin: 0;
+  color: var(--color-text-body);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.link {
+  color: var(--color-primary-ink);
+  font-weight: var(--weight-emphasis);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* One button treatment for both choices. Refusing must cost exactly as little as accepting, so
+   there is deliberately no primary/secondary distinction here — the shared `tintedButton` look,
+   worn by both. */
+.button {
+  flex: 1 1 auto;
+  min-width: 140px;
+  min-height: var(--button-height);
+  padding: 0 16px;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-md);
+  color: var(--color-primary-ink);
+  background: var(--color-primary-soft);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--color-primary-soft-hover);
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+@media (min-width: 880px) {
+  .banner {
+    /* No bottom navigation on desktop. */
+    bottom: 0;
+    padding: 16px var(--page-pad-wide);
+  }
+
+  .inner {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .actions {
+    flex-wrap: nowrap;
+  }
+
+  .button {
+    flex: 0 0 auto;
+  }
+}
+
+@media print {
+  .banner {
+    display: none;
+  }
+}

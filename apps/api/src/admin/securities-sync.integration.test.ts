@@ -9,7 +9,11 @@ import {
   InMemoryLoadCoordinator,
   NullStockDataCache,
 } from "@intrinsic/stock-data";
-import { useIsolatedRateLimits, useTestDatabase } from "@intrinsic/testing";
+import {
+  acceptCurrentTermsByEmail,
+  useIsolatedRateLimits,
+  useTestDatabase,
+} from "@intrinsic/testing";
 import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
@@ -158,6 +162,11 @@ describe("admin security catalog synchronization", () => {
         { email: userEmail, passwordHash, emailVerifiedAt, role: UserRole.USER },
       ],
     });
+    // Both accounts are ordinary customers of this installation, so they have accepted the
+    // Terms. Without it the acceptance gate refuses the admin routes below with `403` before
+    // the role check this suite is about is ever reached
+    // (`ai/architecture/legal-compliance.md`).
+    await acceptCurrentTermsByEmail(prisma, [adminEmail, userEmail]);
   });
 
   afterAll(async () => {

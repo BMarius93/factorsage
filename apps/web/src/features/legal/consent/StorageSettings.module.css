@@ -1,0 +1,158 @@
+.controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: var(--section-gap);
+}
+
+.state {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Both choices wear the same treatment, at the same size. Making "allow" the primary button
+   would be the nudge the consent rules exist to prevent. */
+.button {
+  flex: 1 1 auto;
+  min-width: 180px;
+  min-height: var(--button-height);
+  padding: 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-soft);
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+/* The current choice, as a selected state rather than as a colour-only cue. */
+.button[aria-pressed="true"] {
+  border-color: var(--color-primary-border);
+  color: var(--color-primary-ink);
+  background: var(--color-surface-selected);
+}
+
+.note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  line-height: var(--line-height-body);
+}
+
+.note + .note {
+  margin-top: 8px;
+}
+
+/* The inventory is genuinely tabular — five attributes per entry — so it stays a table and
+   scrolls horizontally on a phone rather than being crushed into unreadable columns. */
+.tableWrap {
+  margin-bottom: 12px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: var(--text-secondary);
+  text-align: left;
+}
+
+.caption {
+  margin-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: var(--text-secondary);
+  text-align: left;
+}
+
+.table thead th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-label-size);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table tbody th,
+.table tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-body);
+  font-weight: 400;
+  vertical-align: top;
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.name {
+  display: block;
+  color: var(--color-text-primary);
+  font-weight: var(--weight-emphasis);
+  /* Storage keys and cookie names are identifiers; a proportional face makes them hard to
+     transcribe into a browser's site-data panel. */
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.provider {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+}
+
+.category {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: var(--text-small);
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+}
+
+/* Optional entries are the ones the buttons above govern, so they are the ones worth finding at
+   a glance. */
+tr[data-category="PREFERENCES"] .category {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+tr[data-category="NECESSARY"] .category {
+  border-color: var(--color-positive-border);
+  color: var(--color-positive);
+  background: var(--color-positive-soft);
+}

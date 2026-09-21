@@ -17,6 +17,7 @@ import {
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { EntityReferenceChip } from "../../../components/ui/EntityReference";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { DisclosureNote } from "../../legal/components/DisclosureNote";
 import { SegmentedControl } from "../../../components/ui/SegmentedControl";
 import { SelectControl } from "../../../components/ui/SelectControl";
 import { SkeletonList } from "../../../components/ui/Skeleton";
@@ -529,6 +530,10 @@ export function DashboardPage() {
               />
               </NowContext.Provider>
             )}
+            {/* What the rows above are, in one sentence, from the one shared copy source. Placed
+                inside the section so it travels with the signals rather than floating at the
+                bottom of a page that may also be showing market cards. */}
+            <DisclosureNote id="signals" className={styles.disclosure} />
           </SectionCard>
         ) : null}
       </div>

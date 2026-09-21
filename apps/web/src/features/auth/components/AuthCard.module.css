@@ -1,5 +1,14 @@
-.shell {
+/* The auth screens sit outside the application shell but still carry its legal footer, so the
+   page is a column: the centered card takes the remaining height, the footer sits under it. */
+.page {
+  display: flex;
+  flex-direction: column;
   min-height: 100dvh;
+  background: var(--color-background);
+}
+
+.shell {
+  flex: 1;
   display: grid;
   place-items: center;
   padding: 24px 16px calc(24px + var(--safe-area-bottom));

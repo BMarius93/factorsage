@@ -1,0 +1,28 @@
+/* Quiet by design. A disclosure that competes with the result it describes gets read once and
+   ignored afterwards; this one reads as a caption on the data above it. */
+
+.note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+  max-width: var(--reading-max-width);
+}
+
+.link {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-emphasis);
+  text-decoration: underline;
+}
+
+.link:hover {
+  color: var(--color-primary-ink);
+}
+
+.link:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}

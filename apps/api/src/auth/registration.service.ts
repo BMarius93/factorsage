@@ -5,6 +5,10 @@ import type {
 } from "@intrinsic/contracts";
 import type { StructuredLogger } from "@intrinsic/observability";
 import { Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+  acceptanceRows,
+  assertRequiredTermsVersion,
+} from "../legal/legal-acceptance-records";
 import { AUTH_LOGGER } from "./auth.tokens";
 import { AuthEmailService } from "./auth-email.service";
 import { BackgroundEmailDispatcher } from "./background-email-dispatcher";
@@ -101,6 +105,11 @@ export class RegistrationService {
    * address, and only the holder of the link has proven control of the mailbox.
    */
   async verifyEmail(request: VerifyEmailRequest): Promise<void> {
+    // Before anything is looked up or hashed. A missing, unknown or superseded Terms version is
+    // a `400` that redeems nothing and activates nothing, so the link stays usable and the
+    // account stays pending — the failure mode the acceptance checklist requires.
+    assertRequiredTermsVersion(request.termsVersion);
+
     // Cheap first, expensive second, exactly as a reset: a SHA-256 and one indexed read keep
     // invented tokens from costing a full Argon2id each. Not authoritative — the transaction
     // re-checks everything, and both rejection paths answer identically.
@@ -120,6 +129,16 @@ export class RegistrationService {
     const userId = await this.verification.redeemToken({
       token: request.token,
       passwordHash,
+      // Bound to the account the token belongs to, inside the same transaction. Whoever
+      // submitted the address at registration never accepted anything on the mailbox owner's
+      // behalf: this is the first and only acceptance on the email path, and it belongs to the
+      // person who proved control of the mailbox by holding this link.
+      acceptance: acceptanceRows({
+        // Replaced with the token's real owner inside the transaction; the redeemer is the only
+        // thing that knows which account the link belongs to.
+        userId: "",
+        surface: "EMAIL_ACTIVATION",
+      }),
     });
     if (!userId) {
       this.logger.info({
@@ -132,6 +151,11 @@ export class RegistrationService {
     this.logger.info({
       event: "auth.email.verification.completed",
       actorUserId: userId,
+    });
+    this.logger.info({
+      event: "legal.acceptance.recorded",
+      actorUserId: userId,
+      surface: "EMAIL_ACTIVATION",
     });
     this.logger.info({
       event: "auth.sessions.revoked",

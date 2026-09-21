@@ -19,6 +19,8 @@
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "openapi:validate": "pnpm --filter @intrinsic/api openapi:validate",
+    "legal:hashes": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/api legal:hashes && pnpm --filter @intrinsic/contracts build",
+    "legal:check": "pnpm --filter @intrinsic/config build && pnpm --filter @intrinsic/contracts build && pnpm --filter @intrinsic/api legal:check",
     "infra:up": "docker compose up -d postgres redis",
     "infra:down": "docker compose down",
     "infra:logs": "docker compose logs -f postgres redis",

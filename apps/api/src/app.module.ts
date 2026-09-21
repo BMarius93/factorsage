@@ -9,6 +9,7 @@ import { DashboardModule } from "./dashboard/dashboard.module";
 import { DatabaseModule } from "./database/database.module";
 import { EntitlementsModule } from "./entitlements/entitlements.module";
 import { HealthController } from "./health.controller";
+import { LegalModule } from "./legal/legal.module";
 import { ListsModule } from "./lists/lists.module";
 import { MarketModule } from "./market/market.module";
 import { RateLimitModule } from "./rate-limit/rate-limit.module";
@@ -25,6 +26,10 @@ import { StrategiesModule } from "./strategies/strategies.module";
     RateLimitModule,
     DatabaseModule,
     AuthModule,
+    // Installs the global Terms-acceptance interceptor and its filter. Listed before the feature
+    // modules for the same reason as `RateLimitModule`: the gate every route is subject to is
+    // part of the application, not of any one feature.
+    LegalModule,
     EntitlementsModule,
     AdminModule,
     BenchmarksModule,

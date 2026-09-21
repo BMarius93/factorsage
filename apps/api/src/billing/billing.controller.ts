@@ -19,6 +19,7 @@ import { getLogContext } from "@intrinsic/observability";
 import { CookieAuthGuard } from "../auth/cookie-auth.guard";
 import { CurrentUser } from "../auth/current-user.decorator";
 import type { AuthenticatedRequest } from "../auth/authenticated-request";
+import { LegalAcceptanceExempt } from "../legal/legal-acceptance.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { parseBillingTargetRequest } from "./billing-requests";
 import { BillingReconciliationService } from "./billing-reconciliation.service";
@@ -49,6 +50,10 @@ export class BillingController {
   ) {}
 
   @RateLimit("standard-read")
+  @LegalAcceptanceExempt(
+    "A user who has not accepted the Terms must still see what they are paying for and when it " +
+      "renews, so the cancellation path on the same page means something.",
+  )
   @Get("status")
   async status(@CurrentUser() user: AuthUser): Promise<BillingStatusResponse> {
     return this.billing.readStatus(user);
@@ -68,6 +73,10 @@ export class BillingController {
    * therefore not fatal here — the persisted status is still returned and the webhook will converge.
    */
   @RateLimit("billing-refresh")
+  @LegalAcceptanceExempt(
+    "Re-reads authoritative Stripe state and grants nothing. It is what keeps the status above " +
+      "honest after a hosted round trip, so it travels with it.",
+  )
   @Post("refresh")
   async refresh(
     @CurrentUser() user: AuthUser,
@@ -108,6 +117,12 @@ export class BillingController {
   }
 
   @RateLimit("billing-mutation")
+  @LegalAcceptanceExempt(
+    "The cancellation path. A compliance gate that stops a paying customer ending their " +
+      "subscription is worse than no gate, and the specification requires cancellation to stay " +
+      "reachable for a user who declines. Checkout and plan changes are deliberately not exempt: " +
+      "buying more while refusing the Terms is exactly what the gate is for.",
+  )
   @Post("portal")
   async portal(
     @CurrentUser() user: AuthUser,

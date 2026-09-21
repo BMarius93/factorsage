@@ -2,6 +2,7 @@ import { formatLocalDate, formatMoney } from "../utils/format";
 import { priceVersusValue, type ValuationSnapshot } from "../utils/valuation";
 import { PriceRelative } from "./PriceRelative";
 import { SectionCard } from "../../../../components/ui/SectionCard";
+import { DisclosureNote } from "../../../legal/components/DisclosureNote";
 import styles from "./StockValuationSummary.module.css";
 
 type LatestClose = {
@@ -119,6 +120,10 @@ export function StockValuationSummary({
           No intrinsic-value estimates are available for this stock yet.
         </p>
       )}
+
+      {/* Beside the figures, not at the foot of the page: these are model outputs, and the one
+          sentence that says so belongs where somebody reads the number. */}
+      <DisclosureNote id="valuations" className={styles.disclosure} />
     </SectionCard>
   );
 }

@@ -134,6 +134,16 @@ The HTTP API itself is specified in `../docs/openapi.yaml` (OpenAPI 3.1). Valida
 `pnpm openapi:validate`; `apps/api/src/openapi/openapi.contract.test.ts` is what stops it drifting
 from the routes that actually exist.
 
+For anything touching the public legal pages, Terms acceptance, browser-storage consent, the
+contextual research disclosures, or the privacy/withdrawal/support request channels, read
+`../docs/legal/README.md` (the specification and the register of outstanding owner facts) and then
+`architecture/legal-compliance.md` (how it is implemented: the hashed document registry, where
+acceptance is bound to a verified account holder, the global acceptance gate and its pinned
+allowlist, the verified storage inventory behind the consent control, and the release-readiness
+guard). `../docs/legal/storage-inventory.md` records how the browser inventory was verified.
+Do not invent an operator fact, a retention period, a provider name or a legal conclusion: those
+are the `O`-numbered entries in `../docs/legal/owner-inputs-and-review.md`.
+
 For frontend/UI work, also read `architecture/frontend.md`. For the V1 visual-parity pass, read
 `architecture/v1-visual-parity.md` after it; that document defines the target surface hierarchy,
 action placement and responsive acceptance criteria.

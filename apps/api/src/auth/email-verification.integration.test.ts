@@ -1,3 +1,4 @@
+import { REQUIRED_TERMS_VERSION } from "@intrinsic/contracts";
 import { randomUUID } from "node:crypto";
 import { loadRootEnv } from "@intrinsic/config";
 import { createLogger, type StructuredLogger } from "@intrinsic/observability";
@@ -196,7 +197,7 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
   function verify(token: string, password: string) {
     return request(app.getHttpServer())
       .post("/auth/verify-email")
-      .send({ token, password });
+      .send({ token, password, termsVersion: REQUIRED_TERMS_VERSION });
   }
 
   function login(email: string, password: string) {
@@ -337,16 +338,25 @@ describe("email verification sets the mailbox owner's password (AUTH-002)", () =
       const { email, token, before } =
         await pendingAccountWithResetLink("malformed");
 
+      const terms = REQUIRED_TERMS_VERSION;
       const cases: unknown[] = [
-        { token: "", password: ownerPassword },
-        { token: "x".repeat(513), password: ownerPassword },
-        { token: 42, password: ownerPassword },
+        { token: "", password: ownerPassword, termsVersion: terms },
+        { token: "x".repeat(513), password: ownerPassword, termsVersion: terms },
+        { token: 42, password: ownerPassword, termsVersion: terms },
         // The pre-AUTH-002 request shape: a real token with no password must not verify anything.
         { token },
-        { token, password: 42 },
+        { token, password: 42, termsVersion: terms },
         // The shared password policy applies to the password being set.
-        { token, password: "too-short" },
-        { token, password: "a".repeat(1025) },
+        { token, password: "too-short", termsVersion: terms },
+        { token, password: "a".repeat(1025), termsVersion: terms },
+        // Acceptance is required, and it is a version rather than a boolean. A client built
+        // before legal acceptance existed sends neither and must not be able to activate an
+        // account without recording one.
+        { token, password: ownerPassword },
+        { token, password: ownerPassword, termsVersion: "" },
+        { token, password: ownerPassword, termsVersion: true },
+        // A superseded or invented version is refused before anything is redeemed.
+        { token, password: ownerPassword, termsVersion: "0.0.1-ancient" },
       ];
       for (const body of cases) {
         const response = await request(app.getHttpServer())

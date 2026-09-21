@@ -1,3 +1,4 @@
+import { REQUIRED_TERMS_VERSION } from "@intrinsic/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { register, verifyEmail } from "./auth-api";
 
@@ -16,11 +17,15 @@ describe("verifyEmail", () => {
     apiPost.mockResolvedValue({ status: "verified" });
   });
 
-  it("posts the token and the new password in the body, never in the URL", async () => {
+  it("posts the token, the new password and the accepted Terms version in the body, never in the URL", async () => {
     const password = "Mailbox-owner-password-42";
 
     await expect(
-      verifyEmail({ token: "link-token", password }),
+      verifyEmail({
+        token: "link-token",
+        password,
+        termsVersion: REQUIRED_TERMS_VERSION,
+      }),
     ).resolves.toEqual({ status: "verified" });
 
     expect(apiPost).toHaveBeenCalledTimes(1);
@@ -28,7 +33,13 @@ describe("verifyEmail", () => {
     expect(path).toBe("/auth/verify-email");
     expect(path).not.toContain("?");
     expect(path).not.toContain(password);
-    expect(body).toEqual({ token: "link-token", password });
+    // The acceptance travels as a version, not a boolean: what was agreed to, rather than that
+    // a box was ticked.
+    expect(body).toEqual({
+      token: "link-token",
+      password,
+      termsVersion: REQUIRED_TERMS_VERSION,
+    });
   });
 });
 

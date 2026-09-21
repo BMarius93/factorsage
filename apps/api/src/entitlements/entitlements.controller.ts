@@ -2,6 +2,7 @@ import type { AuthUser, EntitlementsResponse } from "@intrinsic/contracts";
 import { Controller, Get, Inject, Req, UseGuards } from "@nestjs/common";
 import type { AuthenticatedRequest } from "../auth/authenticated-request";
 import { OptionalCookieAuthGuard } from "../auth/optional-cookie-auth.guard";
+import { LegalAcceptanceExempt } from "../legal/legal-acceptance.decorator";
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import { EntitlementsService } from "./entitlements.service";
 
@@ -19,6 +20,10 @@ import { EntitlementsService } from "./entitlements.service";
  */
 @Controller("entitlements")
 @UseGuards(OptionalCookieAuthGuard)
+@LegalAcceptanceExempt(
+  "Advisory capability probe the shell issues on every navigation, including on the acceptance " +
+    "screen itself. It grants nothing: every limit is enforced again at its own mutation boundary.",
+)
 export class EntitlementsController {
   constructor(
     @Inject(EntitlementsService)

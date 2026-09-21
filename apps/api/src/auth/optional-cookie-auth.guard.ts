@@ -48,8 +48,10 @@ export class OptionalCookieAuthGuard implements CanActivate {
     }
 
     try {
-      request.authUser = await this.auth.authenticateToken(token);
-      setLogContext({ actorUserId: request.authUser.id });
+      const session = await this.auth.authenticateToken(token);
+      request.authUser = session.user;
+      request.legalAcceptance = { termsAccepted: session.termsAccepted };
+      setLogContext({ actorUserId: session.user.id });
     } catch {
       // Deliberately silent: an unusable cookie is the signed-out state, not a failure.
     }

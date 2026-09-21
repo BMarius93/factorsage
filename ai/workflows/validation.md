@@ -12,6 +12,14 @@ pnpm openapi:validate
 
 Do not suppress failing type checks.
 
+`pnpm legal:check` is **not** in the gate, on purpose. It reports the operator facts and document
+approvals still outstanding before the legal pages may be published and exits non-zero, so it
+would fail every run while the copy is in draft — and a draft legal page has to stay reviewable
+locally. What actually stops a draft shipping is the web release build:
+`FACTORSAGE_RELEASE_BUILD=true next build` refuses to compile and lists the blockers
+(`apps/web/src/lib/legal-release.ts`). Run `pnpm legal:check` when preparing a release, not when
+finishing a change.
+
 ## What CI adds to the gate
 
 `.github/workflows/ci.yml` runs the gate above plus three checks worth running locally when they

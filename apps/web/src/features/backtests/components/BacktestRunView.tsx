@@ -24,6 +24,7 @@ import { LinkedEntities } from "../../../components/ui/EntityReference";
 import { FactGrid } from "../../../components/ui/FactGrid";
 import { PageHeader } from "../../../components/ui/PageHeader";
 import { SectionCard } from "../../../components/ui/SectionCard";
+import { DisclosureNote } from "../../legal/components/DisclosureNote";
 import { DetailSkeleton } from "../../../components/ui/Skeleton";
 import {
   StatusBadge,
@@ -631,6 +632,14 @@ export function BacktestRunView({ runId }: BacktestRunViewProps) {
                         "Each completed year on its own, not cumulative.",
                     })}
               />
+
+              {/* What all of these numbers are, inside the hero rather than at the foot of the
+                  page: a hypothetical-results disclosure that a reader has to scroll past the
+                  result to find has not been read. Last, so it reads as the caption for the
+                  chart, the totals and the per-year breakdown together. One shared copy source,
+                  and it says only what this engine actually does — the costs modelled are the
+                  ones the run's own methodology describes. */}
+              <DisclosureNote id="backtests" className={styles.disclosure} />
             </>
           )}
         </SectionCard>
