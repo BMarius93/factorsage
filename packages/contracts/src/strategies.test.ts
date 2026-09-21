@@ -18,6 +18,7 @@ import {
   emptyStrategyDefinition,
   IS_CLOSE_TO_TOLERANCE,
   normalizeStrategyDefinition,
+  rekeyStrategyDefinition,
   SELL_LEVEL_PERCENTAGES,
   STRATEGY_LEVEL_KINDS,
   STRATEGY_METRIC_DEFINITIONS,
@@ -26,6 +27,9 @@ import {
   STRATEGY_METRIC_KINDS,
   STRATEGY_OPERATOR_HELP,
   STRATEGY_SCHEMA_VERSION,
+  strategyDefinitionFingerprint,
+  strategyFinalExitFingerprint,
+  strategySignalFingerprint,
   strategyMetricLabel,
   strategySeriesHelp,
   strategyMetricOptions,
@@ -1468,6 +1472,132 @@ describe("normalization", () => {
         validateStrategyDefinition(definition),
       );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Re-keying a copy
+// ---------------------------------------------------------------------------
+
+describe("rekeyStrategyDefinition", () => {
+  /** `completeDefinition` with a second Exit Rule, so the OR inside FINAL EXIT is covered too. */
+  function withTwoExitRules(): StrategyDefinition {
+    const definition = normalizeStrategyDefinition(completeDefinition());
+    return normalizeStrategyDefinition({
+      ...definition,
+      finalExit: {
+        id: "exit-1",
+        rules: [
+          ...(definition.finalExit?.rules ?? []),
+          {
+            id: "exit-rule-2",
+            signal: signal(
+              [
+                condition(
+                  { kind: "PRICE" },
+                  "IS_BELOW",
+                  series("SMA_200D"),
+                  "c6",
+                ),
+              ],
+              trigger(
+                { kind: "PRICE" },
+                "CROSSES_BELOW",
+                series("SMA_50D"),
+                "t3",
+              ),
+            ),
+          },
+        ],
+      },
+    });
+  }
+
+  /**
+   * Every `id` anywhere in a document, found by walking it rather than by naming the row kinds, so
+   * a row kind the model gains later is covered without this test knowing about it.
+   */
+  function idsIn(node: unknown): string[] {
+    if (Array.isArray(node)) {
+      return node.flatMap(idsIn);
+    }
+    if (node !== null && typeof node === "object") {
+      return Object.entries(node).flatMap(([key, value]) =>
+        key === "id" && typeof value === "string" ? [value] : idsIn(value),
+      );
+    }
+    return [];
+  }
+
+  function withoutIds(node: unknown): unknown {
+    if (Array.isArray(node)) {
+      return node.map(withoutIds);
+    }
+    if (node !== null && typeof node === "object") {
+      return Object.fromEntries(
+        Object.entries(node)
+          .filter(([key]) => key !== "id")
+          .map(([key, value]) => [key, withoutIds(value)]),
+      );
+    }
+    return node;
+  }
+
+  function sequence(): () => string {
+    let issued = 0;
+    return () => `copy-${(issued += 1)}`;
+  }
+
+  it("gives every level, exit rule, condition and trigger a new id", () => {
+    const source = withTwoExitRules();
+    const copy = rekeyStrategyDefinition(source, sequence());
+
+    const before = idsIn(source);
+    const after = idsIn(copy);
+    // Two BUY levels, one SELL, FINAL EXIT and two Exit Rules, six conditions, three triggers.
+    expect(before).toHaveLength(15);
+    expect(after).toHaveLength(before.length);
+    expect(new Set(after).size).toBe(after.length);
+    expect(after.filter((id) => before.includes(id))).toEqual([]);
+  });
+
+  it("changes nothing but identity, so every fingerprint is the source's", () => {
+    const source = withTwoExitRules();
+    const copy = rekeyStrategyDefinition(source, sequence());
+
+    // Level order, percentages, operators, values, triggers and Exit Rule order all survive.
+    expect(withoutIds(copy)).toEqual(withoutIds(source));
+    expect(strategyDefinitionFingerprint(copy)).toBe(
+      strategyDefinitionFingerprint(source),
+    );
+    for (const kind of ["buyLevels", "sellLevels"] as const) {
+      copy[kind].forEach((level, index) => {
+        expect(strategySignalFingerprint(level.signal)).toBe(
+          strategySignalFingerprint(source[kind][index]!.signal),
+        );
+      });
+    }
+    expect(strategyFinalExitFingerprint(copy.finalExit!)).toBe(
+      strategyFinalExitFingerprint(source.finalExit!),
+    );
+    // Still a canonical definition the validator accepts as it is.
+    expect(normalizeStrategyDefinition(copy)).toEqual(copy);
+  });
+
+  it("builds a separate document and leaves the source exactly as it was", () => {
+    const source = withTwoExitRules();
+    const snapshot = structuredClone(source);
+    const copy = rekeyStrategyDefinition(source, sequence());
+
+    // Nothing is shared, down to the metric and value objects, so editing one cannot reach the other.
+    const copied = copy.buyLevels[0]!.signal.conditions[0]!;
+    const original = source.buyLevels[0]!.signal.conditions[0]!;
+    expect(copied.metric).not.toBe(original.metric);
+    expect(copied.value).not.toBe(original.value);
+    (copied.value as { seriesId: string }).seriesId = "EMA_200D";
+    copy.finalExit!.rules.pop();
+    copy.sellLevels.length = 0;
+    expect(source).toEqual(snapshot);
   });
 });
 

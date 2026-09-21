@@ -49,8 +49,10 @@ correct only until either side moves and then is silently wrong.
 | Boundary | Guard |
 | --- | --- |
 | `POST /lists` | `assertCanCreateCustomList`, `assertListSymbolLimit` |
+| `POST /lists/:id/duplicate` | the same two, for the copy's size — a copy of a built-in is a customer list |
 | `POST /lists/:id/items` | `assertListSymbolLimitIn` — transactional, inside the list row lock |
 | `POST /strategies` | `assertCanCreateCustomStrategy` |
+| `POST /strategies/:id/duplicate` | `assertCanCreateCustomStrategy` |
 | `POST /backtests` | `assertCanRunLiveBacktest`, `assertBacktestHistoricalDepth`, `assertBacktestSymbolLimit`, `assertBacktestConcurrency` (transactional) |
 | `POST /monitors`, `PATCH /monitors/:id` | `assertCanEnableMonitor` — transactional |
 | backtest worker claim | `PrismaBacktestJobRepository.claimNextJob` |
@@ -58,9 +60,11 @@ correct only until either side moves and then is silently wrong.
 
 Built-in (`SYSTEM`) content is outside every one of these: a built-in List is not a customer List
 and no symbol limit applies to it, and a built-in Monitor has no owner, consumes no active-Monitor
-slot and runs on its global switch alone. Built-ins are selectable in a Backtest wherever the plan
-allows a Backtest at all; the Backtest's own depth, symbol and concurrency gates still apply to it
-unchanged. A customer's Dashboard preference for a built-in Monitor is not an entitlement — any
+slot and runs on its global switch alone. The exemption belongs to the built-in, not to its
+contents: a customer's **copy** of a built-in List is a customer List, so duplicating one on a plan
+that could not hold its members is refused exactly as creating it would be. Built-ins are
+selectable in a Backtest wherever the plan allows a Backtest at all; the Backtest's own depth,
+symbol and concurrency gates still apply to it unchanged. A customer's Dashboard preference for a built-in Monitor is not an entitlement — any
 signed-in plan may store it, and a Guest may not store anything
 (`docs/decisions/builtin-dashboard-signals-v1.md` section 15).
 

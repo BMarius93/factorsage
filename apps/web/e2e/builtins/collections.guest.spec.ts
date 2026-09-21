@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
+import { chooseFromOverflowMenu } from "../utils/overflow-menu";
 import { submitSignInForm } from "../utils/sign-in";
 import { qaPersona } from "../utils/env";
 
@@ -134,6 +135,29 @@ test.describe("guest built-in collections", () => {
       await page.getByTestId(action).first().click();
       const prompt = await expectSignInPrompt(page);
       // Still on the page they were reading: nothing navigated.
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+      await prompt.getByRole("button", { name: "Close dialog" }).click();
+      await expect(prompt).toHaveCount(0);
+    }
+  });
+
+  test("asks for an account in place when a Guest duplicates a built-in list or strategy", async ({
+    page,
+  }) => {
+    for (const [path, section, name] of [
+      ["/lists", "built-in-lists", QA_LIST],
+      ["/strategies", "built-in-strategies", QA_STRATEGY],
+    ] as const) {
+      await open(page, path);
+      const row = page
+        .getByTestId(section)
+        .locator("tbody tr")
+        .filter({ hasText: name });
+      await chooseFromOverflowMenu(page, name, "Duplicate", row);
+
+      const prompt = await expectSignInPrompt(page);
+      // A copy needs an owner: no dialog, nothing created, and still on the page being read.
+      await expect(page.getByTestId("duplicate-dialog")).toHaveCount(0);
       await expect(page).toHaveURL(new RegExp(`${path}$`));
       await prompt.getByRole("button", { name: "Close dialog" }).click();
       await expect(prompt).toHaveCount(0);

@@ -1,6 +1,7 @@
 import {
   STRATEGY_DESCRIPTION_MAX_LENGTH,
   STRATEGY_NAME_MAX_LENGTH,
+  type DuplicateStrategyRequest,
 } from "@intrinsic/contracts";
 import { BadRequestException } from "@nestjs/common";
 
@@ -116,6 +117,26 @@ export function parseUpdateStrategyRequest(
       ? {}
       : { description: parseDescription(record.description) }),
   };
+}
+
+/**
+ * The copy's name, validated exactly as a new strategy's name is.
+ *
+ * Nothing else may be sent. What a copy contains is decided by the server from the source, so a
+ * `definition` or `description` here is refused rather than silently ignored — a client must not
+ * believe it shaped a copy it did not.
+ */
+export function parseDuplicateStrategyRequest(
+  body: unknown,
+): DuplicateStrategyRequest {
+  const record = asRecord(body);
+  const unexpected = Object.keys(record).find((key) => key !== "name");
+  if (unexpected !== undefined) {
+    throw new BadRequestException(
+      `Invalid request: a copy takes only a name. \`${unexpected}\` comes from the strategy being copied.`,
+    );
+  }
+  return { name: parseName(record.name) };
 }
 
 /** The definition is handed to the canonical normalizer unexamined; only the envelope is checked. */

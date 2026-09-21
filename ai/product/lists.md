@@ -44,6 +44,20 @@ compliant. A customer sees a built-in list read-only; an administrator gets the 
 without a delete action. The browser UI is presentation only — the API/service layer is the
 authorization authority.
 
+### Duplicating a list
+
+A signed-in user may **duplicate** any list they can read — their own or a built-in
+(`POST /lists/:listId/duplicate`, from the collection row's `…` menu only). The copy is an
+ordinary `USER` list owned by the caller: the source's description, its members in their order and
+every member's buy-window mode and canonical ranges, all under new ids. Nothing built-in carries
+over (`systemKey`, `displayOrder`, `updatedByUserId`), nothing historical is copied (backtest runs
+and Monitors keep referencing the source), and the source is only read. Only the name comes from
+the request, validated exactly like a new list's; names are not unique, so no numbering is needed.
+The copy is a new custom list, so `POST /lists`' entitlement checks apply to its size — a built-in
+is exempt from the symbol limit, a customer's copy of one is not. Source read and copy write are one
+`REPEATABLE READ` transaction, so a concurrent membership edit can never hand the copy a
+half-written configuration and a failure leaves nothing behind.
+
 ## Buy windows
 
 > A Buy Window represents the period during which a List member is eligible for new BUY actions.
@@ -134,13 +148,14 @@ POST   /lists                                   create; optional initial securit
 GET    /lists/:listId                           detail with items + buy windows
 PATCH  /lists/:listId                           rename / update or clear description
 DELETE /lists/:listId                           delete with cascades
+POST   /lists/:listId/duplicate                 copy an own or built-in list into a new own list -> detail
 POST   /lists/:listId/items                     idempotent batch add by securityIds -> detail
 DELETE /lists/:listId/items/:itemId             remove one membership
 PUT    /lists/:listId/items/:itemId/buy-windows replace complete configuration -> canonical item
 ```
 
 Structured events (`component: stock-lists`, `actorUserId` from the request context):
-`stock-list.created/updated/deleted`, `stock-list.items.added`, `stock-list.item.removed`,
+`stock-list.created/updated/deleted/duplicated`, `stock-list.items.added`, `stock-list.item.removed`,
 `stock-list.buy-windows.updated`.
 
 ## Frontend
@@ -196,7 +211,9 @@ closing it, and re-reading the API must return both periods unchanged.
 
 - Normalization: `packages/domain/src/stock-lists.test.ts`.
 - API + ownership + cascades: `apps/api/src/lists/stock-lists.integration.test.ts`
-  (`useTestDatabase()`, randomized isolated users and catalog rows — never QA personas).
+  (`useTestDatabase()`, randomized isolated users and catalog rows — never QA personas);
+  duplication in `stock-lists.duplicate.integration.test.ts`, and `e2e/lists/duplicate.user.spec.ts`
+  in the browser.
 - UI: `apps/web/src/features/lists/**` component suites.
 - E2E: `apps/web/e2e/lists/lists.user.spec.ts` needs the deterministic fictional QA catalog rows
   (`pnpm test:securities:seed`, `QATEST1`/`QATEST2`); it never assumes real market symbols exist.

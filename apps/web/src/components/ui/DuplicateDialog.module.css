@@ -1,0 +1,7 @@
+/* The one sentence under the title that says what a copy is; quieter than the field it leads to. */
+.lead {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}

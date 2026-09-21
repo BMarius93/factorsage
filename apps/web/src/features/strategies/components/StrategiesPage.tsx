@@ -2,6 +2,7 @@
 
 import {
   describeCondition,
+  STRATEGY_NAME_MAX_LENGTH,
   type StrategySummaryResponse,
 } from "@intrinsic/contracts";
 import Link from "next/link";
@@ -16,6 +17,7 @@ import {
   type CollectionSort,
 } from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
+import { DuplicateDialog } from "../../../components/ui/DuplicateDialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import {
@@ -28,7 +30,7 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import forms from "../../../components/ui/forms.module.css";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
-import { deleteStrategy } from "../api/strategies-api";
+import { deleteStrategy, duplicateStrategy } from "../api/strategies-api";
 import { useStrategies } from "../hooks/use-strategies";
 import {
   LEVEL_KIND_TONES,
@@ -54,9 +56,15 @@ const SIGN_IN_TO_CREATE = {
   body: "Built-in strategies are free to read. Your own buy, sell and final-exit logic is saved to your account, so creating one needs somewhere to keep it.",
 };
 
+const SIGN_IN_TO_DUPLICATE = {
+  title: "Sign in to duplicate a strategy",
+  body: "Built-in strategies are free to read. A copy is a strategy of your own that you can edit, so making one needs an account to keep it in.",
+};
+
 type DialogState =
   | { kind: "closed" }
   | { kind: "rename"; strategy: StrategySummaryResponse }
+  | { kind: "duplicate"; strategy: StrategySummaryResponse }
   | { kind: "delete"; strategy: StrategySummaryResponse };
 
 /**
@@ -65,7 +73,7 @@ type DialogState =
  *
  * Two sections rather than one mixed table, because the two are owned differently and only one of
  * them can be edited. A Guest reads the built-in section — public product content — and is asked
- * for an account when they reach for the Builder, not on arrival.
+ * for an account when they reach for the Builder or for a copy, not on arrival.
  *
  * Creating goes through the Builder rather than a dialog, because a strategy is not saveable until
  * it has at least one BUY level — there is no name-only strategy to create here. Rendering needs
@@ -159,29 +167,41 @@ export function StrategiesPage() {
           >
             Open
           </Link>
-          {strategy.canEdit ? (
-            <OverflowMenu
-              label={strategy.name}
-              testId="strategy-actions"
-              items={[
-                {
-                  label: "Rename",
-                  onSelect: () => setDialog({ kind: "rename", strategy }),
-                },
-                // Built-in strategies are never deleted, not even by an administrator.
-                ...(strategy.ownership === "SYSTEM"
-                  ? []
-                  : [
-                      {
-                        label: "Delete",
-                        tone: "danger" as const,
-                        separated: true,
-                        onSelect: () => setDialog({ kind: "delete", strategy }),
-                      },
-                    ]),
-              ]}
-            />
-          ) : null}
+          <OverflowMenu
+            label={strategy.name}
+            testId="strategy-actions"
+            items={[
+              ...(strategy.canEdit
+                ? [
+                    {
+                      label: "Rename",
+                      onSelect: () => setDialog({ kind: "rename", strategy }),
+                    },
+                  ]
+                : []),
+              // Any strategy the viewer can read can be copied into one they own, a built-in
+              // included; a Guest is asked for an account first.
+              {
+                label: "Duplicate",
+                disabled: !gate.resolved,
+                onSelect: () =>
+                  gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
+                    setDialog({ kind: "duplicate", strategy }),
+                  ),
+              },
+              // Built-in strategies are never deleted, not even by an administrator.
+              ...(strategy.canEdit && strategy.ownership !== "SYSTEM"
+                ? [
+                    {
+                      label: "Delete",
+                      tone: "danger" as const,
+                      separated: true,
+                      onSelect: () => setDialog({ kind: "delete", strategy }),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </span>
       ),
     },
@@ -321,6 +341,21 @@ export function StrategiesPage() {
           onUpdated={(summary) => {
             applyUpdated(summary);
             closeDialog();
+          }}
+        />
+      ) : null}
+
+      {dialog.kind === "duplicate" ? (
+        <DuplicateDialog
+          thing="strategy"
+          sourceName={dialog.strategy.name}
+          maxNameLength={STRATEGY_NAME_MAX_LENGTH}
+          onClose={closeDialog}
+          onDuplicate={async (name) => {
+            const copy = await duplicateStrategy(dialog.strategy.id, { name });
+            closeDialog();
+            // Straight into the Builder for the copy.
+            router.push(`/strategies/${copy.id}`);
           }}
         />
       ) : null}

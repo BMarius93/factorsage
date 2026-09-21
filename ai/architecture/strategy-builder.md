@@ -449,11 +449,22 @@ New slice `apps/api/src/strategies/`, mirroring `apps/api/src/lists/` file for f
 | `PATCH`  | `/strategies/:id`            | `UpdateStrategyRequest` (name/description) | `StrategySummaryResponse`   |
 | `PUT`    | `/strategies/:id/definition` | `ReplaceStrategyDefinitionRequest`         | `StrategyDetailResponse`    |
 | `DELETE` | `/strategies/:id`            | —                                          | `204`                       |
+| `POST`   | `/strategies/:id/duplicate`  | `DuplicateStrategyRequest` (name only)     | `StrategyDetailResponse`    |
 
 The shape is deliberately the lists slice's: `POST` create, `GET` detail, `PATCH` metadata,
 `PUT` whole-configuration replace, `DELETE`. `PUT /definition` is the direct analogue of
 `PUT /lists/:listId/items/:itemId/buy-windows` — it replaces the **complete** configuration
 atomically and returns the canonical normalized result, which is exactly what was persisted.
+
+**Duplicating** copies a strategy the caller can read — their own or a built-in — into a new
+`USER` strategy they own, and is `POST /lists/:listId/duplicate`'s twin. Only the name comes from the
+request (any other key is refused); the server copies the description and the **current**
+definition, which becomes version 1 of the copy — earlier versions, runs and Monitors stay with the
+source. `rekeyStrategyDefinition` in `@intrinsic/contracts` gives every level, FINAL EXIT, Exit Rule,
+condition and trigger a fresh id by walking the document with the canonical builder, so a level id —
+the identity Monitor state is keyed by — can never be shared between a strategy and its copy, while
+every fingerprint, and so the `definitionHash`, stays the source's. It answers the same entitlement
+question creating does (`assertCanCreateCustomStrategy`).
 
 ```ts
 export type StrategySummaryResponse = {

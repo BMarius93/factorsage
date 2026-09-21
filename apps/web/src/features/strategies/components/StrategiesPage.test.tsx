@@ -1,8 +1,15 @@
-import type { StrategySummaryResponse } from "@intrinsic/contracts";
+import {
+  emptyStrategyDefinition,
+  type StrategyDetailResponse,
+  type StrategySummaryResponse,
+} from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
+import {
+  chooseFromOverflowMenu,
+  findOverflowTrigger,
+} from "../../../components/ui/__testing__/overflow-menu";
 import { ApiError } from "../../../lib/api/client";
 import {
   guestSession,
@@ -11,6 +18,7 @@ import {
 import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import {
   deleteStrategy,
+  duplicateStrategy,
   fetchStrategies,
   updateStrategy,
 } from "../api/strategies-api";
@@ -28,12 +36,30 @@ vi.mock("../api/strategies-api", () => ({
   fetchStrategies: vi.fn(),
   updateStrategy: vi.fn(),
   deleteStrategy: vi.fn(),
+  duplicateStrategy: vi.fn(),
 }));
 
 const useAuthSessionMock = vi.mocked(useAuthSession);
 const fetchStrategiesMock = vi.mocked(fetchStrategies);
 const updateStrategyMock = vi.mocked(updateStrategy);
 const deleteStrategyMock = vi.mocked(deleteStrategy);
+const duplicateStrategyMock = vi.mocked(duplicateStrategy);
+
+/** The actions one row's menu offers, in order. Leaves the menu open. */
+async function menuActions(
+  user: ReturnType<typeof userEvent.setup>,
+  entityName: string,
+  scope?: HTMLElement,
+) {
+  const trigger = await findOverflowTrigger(entityName, scope);
+  await user.click(trigger);
+  const popup = document.getElementById(
+    trigger.getAttribute("aria-controls") ?? "",
+  );
+  return within(popup as HTMLElement)
+    .getAllByRole("button")
+    .map((button) => button.textContent);
+}
 
 function summary(
   id: string,
@@ -60,6 +86,7 @@ beforeEach(() => {
   fetchStrategiesMock.mockReset();
   updateStrategyMock.mockReset();
   deleteStrategyMock.mockReset();
+  duplicateStrategyMock.mockReset();
   useAuthSessionMock.mockReturnValue(signedInSession());
 });
 
@@ -112,10 +139,10 @@ describe("StrategiesPage", () => {
     expect(own.compareDocumentPosition(builtIns)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    // Read-only for a customer: the built-in row offers nothing but Open.
+    // Read-only for a customer: the built-in row can be opened and copied, and changes nothing.
     expect(
-      within(builtIns).queryByRole("button", { name: /Trend Confirmation/ }),
-    ).toBeNull();
+      await menuActions(userEvent.setup(), "Trend Confirmation", builtIns),
+    ).toEqual(["Duplicate"]);
   });
 
   it("asks a Guest for an account instead of opening the builder", async () => {
@@ -257,5 +284,120 @@ describe("StrategiesPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByText("Recovered")).toBeDefined();
+  });
+
+  describe("Duplicate", () => {
+    function copyOf(id: string, name: string): StrategyDetailResponse {
+      return { ...summary(id, name), definition: emptyStrategyDefinition() };
+    }
+
+    it("sits between Rename and Delete in a strategy's menu, and nowhere as a visible button", async () => {
+      const user = userEvent.setup();
+      fetchStrategiesMock.mockResolvedValue([
+        summary("s1", "Deep value"),
+        builtIn("b1", "Value & Trend"),
+      ]);
+      render(<StrategiesPage />);
+      await screen.findByText("Deep value");
+
+      expect(screen.queryByRole("button", { name: "Duplicate" })).toBeNull();
+      expect(await menuActions(user, "Deep value")).toEqual([
+        "Rename",
+        "Duplicate",
+        "Delete",
+      ]);
+    });
+
+    it("copies the viewer's own strategy under the name they give it, then opens the copy in the Builder", async () => {
+      const user = userEvent.setup();
+      fetchStrategiesMock.mockResolvedValue([summary("s1", "Deep value")]);
+      duplicateStrategyMock.mockResolvedValue(copyOf("copy-1", "Deeper value"));
+      render(<StrategiesPage />);
+
+      await chooseFromOverflowMenu(user, "Deep value", "Duplicate");
+      const dialog = screen.getByTestId("duplicate-dialog");
+      expect(
+        within(dialog).getByRole("heading", { name: "Duplicate strategy" }),
+      ).toBeDefined();
+      const name = within(dialog).getByLabelText("Name") as HTMLInputElement;
+      expect(name.value).toBe("Deep value — Copy");
+
+      await user.clear(name);
+      await user.type(name, "Deeper value{Enter}");
+
+      await waitFor(() => {
+        expect(push).toHaveBeenCalledWith("/strategies/copy-1");
+      });
+      expect(duplicateStrategyMock).toHaveBeenCalledWith("s1", {
+        name: "Deeper value",
+      });
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+    });
+
+    it("lets a signed-in customer copy a built-in strategy, which offers nothing else", async () => {
+      const user = userEvent.setup();
+      fetchStrategiesMock.mockResolvedValue([builtIn("b1", "Value & Trend")]);
+      duplicateStrategyMock.mockResolvedValue(
+        copyOf("copy-2", "Value & Trend — Copy"),
+      );
+      render(<StrategiesPage />);
+      const builtIns = await screen.findByTestId("built-in-strategies");
+
+      expect(await menuActions(user, "Value & Trend", builtIns)).toEqual([
+        "Duplicate",
+      ]);
+      await user.click(screen.getByRole("button", { name: "Duplicate" }));
+      await user.click(
+        within(screen.getByTestId("duplicate-dialog")).getByRole("button", {
+          name: "Duplicate",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(push).toHaveBeenCalledWith("/strategies/copy-2");
+      });
+      expect(duplicateStrategyMock).toHaveBeenCalledWith("b1", {
+        name: "Value & Trend — Copy",
+      });
+    });
+
+    it("creates nothing when the dialog is cancelled", async () => {
+      const user = userEvent.setup();
+      fetchStrategiesMock.mockResolvedValue([summary("s1", "Deep value")]);
+      render(<StrategiesPage />);
+
+      await chooseFromOverflowMenu(user, "Deep value", "Duplicate");
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+      expect(duplicateStrategyMock).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("asks a Guest for an account instead of copying a built-in strategy", async () => {
+      window.history.replaceState(null, "", "/strategies");
+      const user = userEvent.setup();
+      useAuthSessionMock.mockReturnValue(guestSession());
+      fetchStrategiesMock.mockResolvedValue([builtIn("b1", "Value & Trend")]);
+      render(<StrategiesPage />);
+      await screen.findByTestId("built-in-strategies");
+
+      await chooseFromOverflowMenu(user, "Value & Trend", "Duplicate");
+
+      const prompt = await screen.findByTestId("sign-in-prompt");
+      expect(
+        within(prompt).getByRole("heading", {
+          name: "Sign in to duplicate a strategy",
+        }),
+      ).toBeDefined();
+      expect(
+        within(prompt)
+          .getByRole("link", { name: "Sign in" })
+          .getAttribute("href"),
+      ).toBe("/login?next=%2Fstrategies");
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+      expect(duplicateStrategyMock).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+    });
   });
 });

@@ -30,6 +30,7 @@ import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseAddStockListItemsRequest,
   parseCreateStockListRequest,
+  parseDuplicateStockListRequest,
   parseReplaceBuyWindowsRequest,
   parseUpdateStockListRequest,
 } from "./stock-list-requests";
@@ -73,6 +74,22 @@ export class ListsController {
   ): Promise<StockListDetailResponse> {
     const input = parseCreateStockListRequest(body);
     return this.execute(() => this.lists.createList(user, input));
+  }
+
+  /**
+   * Copies a list the caller can read — their own, or a built-in — into a new list they own, and
+   * answers with the copy. The source is only read.
+   */
+  @RateLimit("mutation")
+  @Post(":listId/duplicate")
+  @UseGuards(CookieAuthGuard)
+  async duplicate(
+    @CurrentUser() user: AuthUser,
+    @Param("listId") listId: string,
+    @Body() body: unknown,
+  ): Promise<StockListDetailResponse> {
+    const input = parseDuplicateStockListRequest(body);
+    return this.execute(() => this.lists.duplicateList(user, listId, input));
   }
 
   @RateLimit("standard-read")

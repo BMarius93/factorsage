@@ -4,8 +4,12 @@ import type {
 } from "@intrinsic/contracts";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { chooseFromOverflowMenu } from "../../../components/ui/__testing__/overflow-menu";
+import {
+  chooseFromOverflowMenu,
+  findOverflowTrigger,
+} from "../../../components/ui/__testing__/overflow-menu";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { entitlementRefusal } from "../../../lib/api/__testing__/request-failures";
 import {
   guestSession,
   signedInSession,
@@ -14,6 +18,7 @@ import { useAuthSession } from "../../auth/hooks/use-auth-session";
 import {
   createStockList,
   deleteStockList,
+  duplicateStockList,
   fetchStockLists,
   updateStockList,
 } from "../api/stock-lists-api";
@@ -35,6 +40,7 @@ vi.mock("../api/stock-lists-api", () => ({
   createStockList: vi.fn(),
   updateStockList: vi.fn(),
   deleteStockList: vi.fn(),
+  duplicateStockList: vi.fn(),
 }));
 
 const useAuthSessionMock = vi.mocked(useAuthSession);
@@ -42,6 +48,19 @@ const fetchStockListsMock = vi.mocked(fetchStockLists);
 const createStockListMock = vi.mocked(createStockList);
 const updateStockListMock = vi.mocked(updateStockList);
 const deleteStockListMock = vi.mocked(deleteStockList);
+const duplicateStockListMock = vi.mocked(duplicateStockList);
+
+/** The actions one row's menu offers, in order. Leaves the menu open. */
+async function menuActions(entityName: string, scope?: HTMLElement) {
+  const trigger = await findOverflowTrigger(entityName, scope);
+  await userEvent.click(trigger);
+  const popup = document.getElementById(
+    trigger.getAttribute("aria-controls") ?? "",
+  );
+  return within(popup as HTMLElement)
+    .getAllByRole("button")
+    .map((button) => button.textContent);
+}
 
 function summary(
   id: string,
@@ -129,10 +148,10 @@ describe("ListsPage", () => {
     expect(own.compareDocumentPosition(builtIns)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    // A built-in is read-only for a customer: no row menu at all.
-    expect(
-      within(builtIns).queryByRole("button", { name: /Recent Market Debuts/ }),
-    ).toBeNull();
+    // A built-in is read-only for a customer: its row menu can copy it, and change nothing.
+    expect(await menuActions("Recent Market Debuts", builtIns)).toEqual([
+      "Duplicate",
+    ]);
   });
 
   it("opens the create dialog when another surface links to /lists?new=1 (UI-009)", async () => {
@@ -301,6 +320,164 @@ describe("ListsPage", () => {
     });
     await waitFor(() => {
       expect(screen.queryByText("Doomed")).toBeNull();
+    });
+  });
+
+  describe("Duplicate", () => {
+    const builtIn = summary("builtin-1", "S&P 500 Growth Leaders", {
+      ownership: "SYSTEM",
+      systemKey: "sp500-growth-leaders",
+      canEdit: false,
+      itemCount: 10,
+    });
+
+    it("sits between Rename and Delete in a list's menu, and nowhere as a visible button", async () => {
+      fetchStockListsMock.mockResolvedValue([
+        summary("list-1", "Dividend picks"),
+        builtIn,
+      ]);
+      render(<ListsPage />);
+      await screen.findByText("Dividend picks");
+
+      // Every row keeps its one visible action; copying is a menu action like Rename.
+      expect(screen.queryByRole("button", { name: "Duplicate" })).toBeNull();
+      expect(await menuActions("Dividend picks")).toEqual([
+        "Rename",
+        "Duplicate",
+        "Delete",
+      ]);
+    });
+
+    it("copies the viewer's own list under the name they give it, then opens the copy", async () => {
+      fetchStockListsMock.mockResolvedValue([
+        summary("list-1", "Dividend picks"),
+      ]);
+      duplicateStockListMock.mockResolvedValue(detail("copy-1", "My copy"));
+      render(<ListsPage />);
+      await screen.findByText("Dividend picks");
+
+      await chooseFromOverflowMenu(userEvent, "Dividend picks", "Duplicate");
+      const dialog = screen.getByTestId("duplicate-dialog");
+      expect(
+        within(dialog).getByRole("heading", { name: "Duplicate list" }),
+      ).toBeDefined();
+      const name = within(dialog).getByLabelText("Name");
+      expect((name as HTMLInputElement).value).toBe("Dividend picks — Copy");
+
+      await userEvent.clear(name);
+      await userEvent.type(name, "My copy");
+      await userEvent.click(
+        within(dialog).getByRole("button", { name: "Duplicate" }),
+      );
+
+      await waitFor(() => {
+        expect(push).toHaveBeenCalledWith("/lists/copy-1");
+      });
+      expect(duplicateStockListMock).toHaveBeenCalledWith("list-1", {
+        name: "My copy",
+      });
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+    });
+
+    it("lets a signed-in customer copy a built-in list, which offers nothing else", async () => {
+      fetchStockListsMock.mockResolvedValue([builtIn]);
+      duplicateStockListMock.mockResolvedValue(
+        detail("copy-2", "S&P 500 Growth Leaders — Copy"),
+      );
+      render(<ListsPage />);
+      const builtIns = await screen.findByTestId("built-in-lists");
+
+      expect(await menuActions("S&P 500 Growth Leaders", builtIns)).toEqual([
+        "Duplicate",
+      ]);
+      await userEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+      await userEvent.click(
+        within(screen.getByTestId("duplicate-dialog")).getByRole("button", {
+          name: "Duplicate",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(push).toHaveBeenCalledWith("/lists/copy-2");
+      });
+      expect(duplicateStockListMock).toHaveBeenCalledWith("builtin-1", {
+        name: "S&P 500 Growth Leaders — Copy",
+      });
+    });
+
+    it("creates nothing when the dialog is cancelled", async () => {
+      fetchStockListsMock.mockResolvedValue([
+        summary("list-1", "Dividend picks"),
+      ]);
+      render(<ListsPage />);
+      await screen.findByText("Dividend picks");
+
+      await chooseFromOverflowMenu(userEvent, "Dividend picks", "Duplicate");
+      await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+      expect(duplicateStockListMock).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("keeps the dialog open with the API's reason when the plan refuses the copy", async () => {
+      fetchStockListsMock.mockResolvedValue([builtIn]);
+      duplicateStockListMock.mockRejectedValue(
+        entitlementRefusal(
+          "ENTITLEMENT_LIST_SYMBOL_LIMIT",
+          "Your plan allows 5 stocks per list; this change would make 10",
+        ),
+      );
+      render(<ListsPage />);
+      await screen.findByTestId("built-in-lists");
+
+      await chooseFromOverflowMenu(
+        userEvent,
+        "S&P 500 Growth Leaders",
+        "Duplicate",
+      );
+      await userEvent.click(
+        within(screen.getByTestId("duplicate-dialog")).getByRole("button", {
+          name: "Duplicate",
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          "Your plan allows 5 stocks per list; this change would make 10",
+        ),
+      ).toBeDefined();
+      expect(screen.getByTestId("duplicate-dialog")).toBeDefined();
+      expect(push).not.toHaveBeenCalled();
+    });
+
+    it("asks a Guest for an account instead of copying a built-in list", async () => {
+      window.history.replaceState(null, "", "/lists");
+      useAuthSessionMock.mockReturnValue(guestSession());
+      fetchStockListsMock.mockResolvedValue([builtIn]);
+      render(<ListsPage />);
+      await screen.findByTestId("built-in-lists");
+
+      await chooseFromOverflowMenu(
+        userEvent,
+        "S&P 500 Growth Leaders",
+        "Duplicate",
+      );
+
+      const prompt = await screen.findByTestId("sign-in-prompt");
+      expect(
+        within(prompt).getByRole("heading", {
+          name: "Sign in to duplicate a list",
+        }),
+      ).toBeDefined();
+      expect(
+        within(prompt)
+          .getByRole("link", { name: "Sign in" })
+          .getAttribute("href"),
+      ).toBe("/login?next=%2Flists");
+      expect(screen.queryByTestId("duplicate-dialog")).toBeNull();
+      expect(duplicateStockListMock).not.toHaveBeenCalled();
+      expect(push).not.toHaveBeenCalled();
     });
   });
 });

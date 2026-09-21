@@ -48,3 +48,23 @@ export async function openOverflowMenu(
 ) {
   await trigger(page, entityName, scope).click();
 }
+
+/** Opens a record's popup and reads the actions it offers, in order. Leaves it open. */
+export async function overflowMenuActions(
+  page: Page,
+  entityName: string,
+  scope?: Locator,
+): Promise<string[]> {
+  const control = trigger(page, entityName, scope);
+  await control.click();
+  const popupId = await control.getAttribute("aria-controls");
+  if (!popupId) {
+    throw new Error(
+      `The overflow trigger for "${entityName}" did not open: it has no aria-controls.`,
+    );
+  }
+  return page
+    .locator(`[id="${popupId}"]`)
+    .getByRole("button")
+    .allTextContents();
+}

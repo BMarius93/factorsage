@@ -1,6 +1,9 @@
 "use client";
 
-import type { StockListSummaryResponse } from "@intrinsic/contracts";
+import {
+  STOCK_LIST_NAME_MAX_LENGTH,
+  type StockListSummaryResponse,
+} from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +15,7 @@ import {
   type CollectionSort,
 } from "../../../components/ui/Collection";
 import type { DataTableColumn } from "../../../components/ui/DataTable";
+import { DuplicateDialog } from "../../../components/ui/DuplicateDialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { OverflowMenu } from "../../../components/ui/OverflowMenu";
 import {
@@ -24,7 +28,7 @@ import { SkeletonList } from "../../../components/ui/Skeleton";
 import { StatusBadge } from "../../../components/ui/StatusBadge";
 import { EntitlementNotice } from "../../../components/ui/EntitlementNotice";
 import { useSignInPrompt } from "../../auth/hooks/use-sign-in-prompt";
-import { deleteStockList } from "../api/stock-lists-api";
+import { deleteStockList, duplicateStockList } from "../api/stock-lists-api";
 import { useStockLists } from "../hooks/use-stock-lists";
 import { formatListDate, stockCountLabel } from "../utils/format";
 import { DeleteListDialog } from "./DeleteListDialog";
@@ -36,11 +40,17 @@ type DialogState =
   | { kind: "closed" }
   | { kind: "create" }
   | { kind: "rename"; list: StockListSummaryResponse }
+  | { kind: "duplicate"; list: StockListSummaryResponse }
   | { kind: "delete"; list: StockListSummaryResponse };
 
 const SIGN_IN_TO_CREATE = {
   title: "Sign in to create a list",
   body: "Built-in lists are free to read. Your own lists are saved to your account, so creating one needs somewhere to keep it.",
+};
+
+const SIGN_IN_TO_DUPLICATE = {
+  title: "Sign in to duplicate a list",
+  body: "Built-in lists are free to read. A copy is a list of your own that you can edit, so making one needs an account to keep it in.",
 };
 
 /**
@@ -197,29 +207,41 @@ export function ListsPage() {
             >
               Open
             </Link>
-            {list.canEdit ? (
-              <OverflowMenu
-                label={list.name}
-                testId="list-actions"
-                items={[
-                  {
-                    label: "Rename",
-                    onSelect: () => setDialog({ kind: "rename", list }),
-                  },
-                  // Built-in lists are never deleted, not even by an administrator.
-                  ...(list.ownership === "SYSTEM"
-                    ? []
-                    : [
-                        {
-                          label: "Delete",
-                          tone: "danger" as const,
-                          separated: true,
-                          onSelect: () => setDialog({ kind: "delete", list }),
-                        },
-                      ]),
-                ]}
-              />
-            ) : null}
+            <OverflowMenu
+              label={list.name}
+              testId="list-actions"
+              items={[
+                ...(list.canEdit
+                  ? [
+                      {
+                        label: "Rename",
+                        onSelect: () => setDialog({ kind: "rename", list }),
+                      },
+                    ]
+                  : []),
+                // Any list the viewer can read can be copied into one they own, a built-in
+                // included; a Guest is asked for an account first.
+                {
+                  label: "Duplicate",
+                  disabled: !gate.resolved,
+                  onSelect: () =>
+                    gate.attempt(SIGN_IN_TO_DUPLICATE, () =>
+                      setDialog({ kind: "duplicate", list }),
+                    ),
+                },
+                // Built-in lists are never deleted, not even by an administrator.
+                ...(list.canEdit && list.ownership !== "SYSTEM"
+                  ? [
+                      {
+                        label: "Delete",
+                        tone: "danger" as const,
+                        separated: true,
+                        onSelect: () => setDialog({ kind: "delete", list }),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
           </span>
         ),
       },
@@ -353,6 +375,22 @@ export function ListsPage() {
           onUpdated={(summary) => {
             applyUpdated(summary);
             closeDialog();
+          }}
+        />
+      ) : null}
+
+      {dialog.kind === "duplicate" ? (
+        <DuplicateDialog
+          thing="list"
+          sourceName={dialog.list.name}
+          maxNameLength={STOCK_LIST_NAME_MAX_LENGTH}
+          onClose={closeDialog}
+          onDuplicate={async (name) => {
+            const copy = await duplicateStockList(dialog.list.id, { name });
+            applyCreated(copy);
+            closeDialog();
+            // Straight to the copy's own page, where it is edited.
+            router.push(`/lists/${copy.id}`);
           }}
         />
       ) : null}

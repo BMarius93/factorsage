@@ -171,7 +171,9 @@ Read `ai/README.md` before substantial work.
     identity (never the display name). Everybody may read it, Guests included; only `role = ADMIN`
     changes it, through the ordinary routes and editors; nobody deletes it. It never counts against a
     customer's capacity and is never cloned per user — a customer's Dashboard visibility of a
-    built-in Monitor is the only per-user state (`UserBuiltInMonitorPreference`). Deploys run
+    built-in Monitor is the only per-user state (`UserBuiltInMonitorPreference`). A signed-in
+    customer may still **duplicate** a built-in List or Strategy on purpose: the copy is ordinary
+    USER content they own, detached from the built-in and held to their plan. Deploys run
     `pnpm builtins:bootstrap`, which creates missing built-ins and never overwrites an
     administrator's edits; `pnpm builtins:reset` is the explicit restore. `docs/decisions/builtin-dashboard-signals-v1.md`
     is the decision; `docs/development/builtin-content.md` holds the catalog's verified sources.
