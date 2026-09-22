@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { FinancialStatement } from "./financial-statements.js";
 import {
   ANNUAL_REPORT_DEADLINE_DAYS,
-  hasUnusableProviderFilingDate,
   QUARTERLY_REPORT_DEADLINE_DAYS,
   selectFinancialStatements,
   statementPublicAvailabilityDate,
@@ -143,7 +142,6 @@ describe("public availability of a statement", () => {
       filingDate: "2015-03-31",
       period: "Q2",
     } as const;
-    expect(hasUnusableProviderFilingDate(statement)).toBe(true);
     expect(statementPublicAvailabilityDate(statement)).toBe("2015-05-16");
     expect(QUARTERLY_REPORT_DEADLINE_DAYS).toBe(45);
   });

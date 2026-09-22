@@ -269,14 +269,6 @@ export function statementPublicAvailabilityDate(statement: {
   return addCalendarDays(due, 1);
 }
 
-/** Whether the provider's filing date for this statement cannot be a real filing date. */
-export function hasUnusableProviderFilingDate(statement: {
-  fiscalDate: LocalDate;
-  filingDate: LocalDate;
-}): boolean {
-  return statement.filingDate <= statement.fiscalDate;
-}
-
 export type FinancialStatementDraft<
   T extends FinancialStatementType = FinancialStatementType,
 > = {
