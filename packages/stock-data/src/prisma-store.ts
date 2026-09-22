@@ -15,7 +15,10 @@ import type {
   SecurityProfile,
   SecurityWithLogo,
 } from "@intrinsic/domain";
-import { selectFinancialStatements } from "@intrinsic/domain";
+import {
+  selectFinancialStatements,
+  statementPublicAvailabilityDate,
+} from "@intrinsic/domain";
 import type { MappedFmpProfile } from "@intrinsic/fmp";
 import {
   FinancialPeriod as FinancialPeriodEnum,
@@ -1122,13 +1125,21 @@ export class PrismaStockDataStore implements StockDataStore {
         const canUseInitialAvailability =
           !latestKnownFilingDate ||
           filingDate.valueOf() > latestKnownFilingDate.valueOf();
+        // The one point-in-time rule, owned by the domain: a real filing date plus a day, or the
+        // statutory deadline when the provider gave the period end instead of a filing date
+        // (AUD-03). A restatement that carries no newer filing date cannot be claimed to have been
+        // public before it was observed.
+        const publicFrom = toDatabaseDate(
+          statementPublicAvailabilityDate({
+            fiscalDate: statement.fiscalDate,
+            filingDate: statement.filingDate,
+            period: statement.period,
+          }),
+        );
         const availableFromDate = canUseInitialAvailability
-          ? new Date(filingDate.valueOf() + 24 * 60 * 60 * 1_000)
+          ? publicFrom
           : new Date(
-              Math.max(
-                filingDate.valueOf() + 24 * 60 * 60 * 1_000,
-                observedAtCalendarDate.valueOf(),
-              ),
+              Math.max(publicFrom.valueOf(), observedAtCalendarDate.valueOf()),
             );
         rowsToInsert.push({
           securityId: statement.securityId,
