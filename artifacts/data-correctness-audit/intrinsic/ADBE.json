@@ -1,12 +1,12 @@
 {
   "symbol": "ADBE",
-  "compared": 78081,
+  "compared": 78070,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7557,
-    "RESIDUAL_INCOME": 7449,
-    "DDM": 2619,
-    "GRAHAM": 7557
+    "DCF_FCFF": 7556,
+    "RESIDUAL_INCOME": 7448,
+    "DDM": 2618,
+    "GRAHAM": 7556
   },
   "valuesAbsent": {
     "DDM": 4938,
@@ -26,7 +26,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 10.077139729725321,

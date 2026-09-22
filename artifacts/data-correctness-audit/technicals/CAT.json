@@ -3,9 +3,9 @@
   "securityId": "d1a89fe2-9ff4-4f1b-bb07-ddcf7aee2deb",
   "priceRows": 8568,
   "derivedRows": 8568,
-  "visibleFrom": "1996-09-09",
-  "compared": 128456,
-  "failed": 1,
+  "visibleFrom": "1996-09-10",
+  "compared": 128439,
+  "failed": 0,
   "samples": [
     {
       "date": "1998-08-17",
@@ -363,13 +363,5 @@
       }
     }
   ],
-  "mismatches": [
-    {
-      "date": "2026-09-18",
-      "field": "ema200w",
-      "expected": 484.6385073737604,
-      "actual": 484.63850738,
-      "difference": 6.239645244932035e-9
-    }
-  ]
+  "mismatches": []
 }

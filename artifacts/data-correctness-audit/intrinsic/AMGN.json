@@ -1,21 +1,21 @@
 {
   "symbol": "AMGN",
-  "compared": 78813,
+  "compared": 78803,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7557,
-    "RESIDUAL_INCOME": 7309,
-    "GRAHAM": 7309,
+    "DCF_FCFF": 7556,
+    "RESIDUAL_INCOME": 7308,
+    "GRAHAM": 7308,
     "DDM": 3739
   },
   "valuesAbsent": {
-    "DDM": 3818,
+    "DDM": 3817,
     "RESIDUAL_INCOME": 248,
     "GRAHAM": 248
   },
   "unavailableReasons": {
     "DDM": {
-      "NON_POSITIVE_DIVIDEND": 3818
+      "NON_POSITIVE_DIVIDEND": 3817
     },
     "RESIDUAL_INCOME": {
       "NON_POSITIVE_EQUITY_VALUE": 248
@@ -30,7 +30,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 18.691470956252445,

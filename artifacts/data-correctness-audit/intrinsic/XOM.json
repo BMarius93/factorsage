@@ -1,12 +1,12 @@
 {
   "symbol": "XOM",
-  "compared": 80701,
+  "compared": 80690,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 6894,
-    "RESIDUAL_INCOME": 7305,
-    "DDM": 7557,
-    "GRAHAM": 6046
+    "DCF_FCFF": 6893,
+    "RESIDUAL_INCOME": 7304,
+    "DDM": 7556,
+    "GRAHAM": 6045
   },
   "valuesAbsent": {
     "DCF_FCFF": 663,
@@ -32,7 +32,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 15.49002740991937,
@@ -4907,11 +4907,11 @@
       }
     },
     {
-      "effectiveFrom": "2012-10-01",
+      "effectiveFrom": "2012-11-15",
       "expected": {
         "DCF_FCFF": {
           "value": 71.77998814499263,
-          "sourceAsOf": "2012-10-01",
+          "sourceAsOf": "2012-11-15",
           "inputs": {
             "ocf": 53697000000,
             "capex": -32848000000,
@@ -4924,7 +4924,7 @@
         },
         "RESIDUAL_INCOME": {
           "value": 130.27172644886852,
-          "sourceAsOf": "2012-10-01",
+          "sourceAsOf": "2012-11-15",
           "inputs": {
             "netIncome": 44330000000,
             "bookValue": 166713000000,
@@ -4934,14 +4934,14 @@
         },
         "DDM": {
           "value": 28.433188917626225,
-          "sourceAsOf": "2012-10-01",
+          "sourceAsOf": "2012-11-15",
           "inputs": {
             "dps": 2.08047723787509
           }
         },
         "GRAHAM": {
           "value": 162.71047904787298,
-          "sourceAsOf": "2012-10-01",
+          "sourceAsOf": "2012-11-15",
           "inputs": {
             "eps": 9.469999999999999,
             "growthUsed": 0.04340838386899315
@@ -4951,19 +4951,19 @@
       "actual": {
         "DCF_FCFF": {
           "value": "71.77998814",
-          "sourceAsOf": "2012-10-01"
+          "sourceAsOf": "2012-11-15"
         },
         "RESIDUAL_INCOME": {
           "value": "130.27172645",
-          "sourceAsOf": "2012-10-01"
+          "sourceAsOf": "2012-11-15"
         },
         "DDM": {
           "value": "28.43318892",
-          "sourceAsOf": "2012-10-01"
+          "sourceAsOf": "2012-11-15"
         },
         "GRAHAM": {
           "value": "162.71047905",
-          "sourceAsOf": "2012-10-01"
+          "sourceAsOf": "2012-11-15"
         }
       },
       "blends": {

@@ -1,7 +1,7 @@
 {
   "sessions": [
-    "2026-09-17",
-    "2026-09-18"
+    "2026-09-18",
+    "2026-09-21"
   ],
   "monitors": [
     "DCA-AUDIT-S01xL08-conditions",
@@ -13,14 +13,14 @@
   ],
   "scans": [
     {
-      "asOf": "2026-09-17",
+      "asOf": "2026-09-18",
       "summary": {
         "monitors": 6,
         "symbols": 30,
         "evaluations": 191,
-        "signalsEmitted": 29,
+        "signalsEmitted": 26,
         "signalsResolved": 0,
-        "transitionsRecorded": 29,
+        "transitionsRecorded": 26,
         "levelsReconstructed": 191,
         "reconstructionHistoryExtensions": 3,
         "notEvaluable": 0,
@@ -34,14 +34,14 @@
       }
     },
     {
-      "asOf": "2026-09-18",
+      "asOf": "2026-09-21",
       "summary": {
         "monitors": 6,
         "symbols": 30,
         "evaluations": 191,
-        "signalsEmitted": 0,
-        "signalsResolved": 3,
-        "transitionsRecorded": 3,
+        "signalsEmitted": 4,
+        "signalsResolved": 0,
+        "transitionsRecorded": 4,
         "levelsReconstructed": 0,
         "reconstructionHistoryExtensions": 0,
         "notEvaluable": 0,
@@ -50,20 +50,12 @@
         "symbolsWithoutSnapshot": 0,
         "transitionsContended": 0,
         "transitionsStaleConfiguration": 0,
-        "transitionsUnchanged": 188,
+        "transitionsUnchanged": 187,
         "aborted": false
       }
     }
   ],
   "firstSession": {
-    "pairs": 191,
-    "active": 29,
-    "pending": 0,
-    "none": 162,
-    "dashboardRows": 29,
-    "absentChecked": 162
-  },
-  "secondSession": {
     "pairs": 191,
     "active": 26,
     "pending": 0,
@@ -71,104 +63,132 @@
     "dashboardRows": 26,
     "absentChecked": 165
   },
+  "secondSession": {
+    "pairs": 191,
+    "active": 30,
+    "pending": 0,
+    "none": 161,
+    "dashboardRows": 30,
+    "absentChecked": 161
+  },
   "transitions": {
     "continued": 26,
-    "ended": 3,
-    "opened": 0,
+    "ended": 0,
+    "opened": 4,
     "reopenedEvents": 0
   },
   "markovChecked": 61,
   "sinceEvidence": [
     {
-      "phase": "[2026-09-17]",
+      "phase": "[2026-09-18]",
       "reconstructedRows": 26,
-      "sinceLaterThanActivation": 26,
+      "sinceLaterThanActivation": 0,
       "examples": [
         {
+          "symbol": "JNJ",
+          "reconstructed": true,
+          "observationDate": "2026-09-17",
+          "since": "2026-09-17T20:00:00.000Z",
+          "close": "2026-09-17T20:00:00.000Z",
+          "days": 0
+        },
+        {
           "symbol": "GOOGL",
+          "reconstructed": true,
           "observationDate": "2026-09-11",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 6
+          "since": "2026-09-11T20:00:00.000Z",
+          "close": "2026-09-11T20:00:00.000Z",
+          "days": 0
         },
         {
           "symbol": "AAPL",
+          "reconstructed": true,
           "observationDate": "2026-09-10",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 7
+          "since": "2026-09-10T20:00:00.000Z",
+          "close": "2026-09-10T20:00:00.000Z",
+          "days": 0
         },
         {
           "symbol": "CRM",
+          "reconstructed": true,
           "observationDate": "2026-08-19",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 29
-        },
-        {
-          "symbol": "DIS",
-          "observationDate": "2026-08-19",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 29
+          "since": "2026-08-19T20:00:00.000Z",
+          "close": "2026-08-19T20:00:00.000Z",
+          "days": 0
         },
         {
           "symbol": "AMZN",
+          "reconstructed": true,
           "observationDate": "2026-07-30",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 49
+          "since": "2026-07-30T20:00:00.000Z",
+          "close": "2026-07-30T20:00:00.000Z",
+          "days": 0
         }
       ]
     },
     {
-      "phase": "[2026-09-18]",
-      "reconstructedRows": 25,
-      "sinceLaterThanActivation": 25,
+      "phase": "[2026-09-21]",
+      "reconstructedRows": 26,
+      "sinceLaterThanActivation": 0,
       "examples": [
         {
-          "symbol": "GOOGL",
-          "observationDate": "2026-09-11",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 6
+          "symbol": "DIS",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
         },
         {
-          "symbol": "AAPL",
-          "observationDate": "2026-09-10",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 7
+          "symbol": "GS",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
         },
         {
-          "symbol": "CRM",
-          "observationDate": "2026-08-19",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 29
+          "symbol": "KO",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
         },
         {
-          "symbol": "AMZN",
-          "observationDate": "2026-07-30",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 49
+          "symbol": "XOM",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
         },
         {
-          "symbol": "MSFT",
-          "observationDate": "2026-07-30",
-          "since": "2026-09-17T21:00:00.000Z",
-          "days": 49
+          "symbol": "JNJ",
+          "reconstructed": true,
+          "observationDate": "2026-09-17",
+          "since": "2026-09-17T20:00:00.000Z",
+          "close": "2026-09-17T20:00:00.000Z",
+          "days": 0
         }
       ]
     }
   ],
   "comparisons": {
-    "compared": 1525,
-    "passed": 1525,
+    "compared": 1636,
+    "passed": 1636,
     "failed": 0,
     "skipped": 0,
     "tolerancePasses": 0
   },
   "byCategory": {
     "dashboard": {
-      "compared": 661,
+      "compared": 774,
       "failed": 0,
       "skipped": 0
     },
     "signals-persisted": {
-      "compared": 167,
+      "compared": 170,
       "failed": 0,
       "skipped": 0
     },
@@ -178,12 +198,12 @@
       "skipped": 0
     },
     "signals-state": {
-      "compared": 439,
+      "compared": 440,
       "failed": 0,
       "skipped": 0
     },
     "signals-transitions": {
-      "compared": 197,
+      "compared": 191,
       "failed": 0,
       "skipped": 0
     }
@@ -234,6 +254,15 @@
       "state": "ACTIVE",
       "price": 174.01,
       "observationDate": "2026-07-07"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "DIS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 104.23,
+      "observationDate": "2026-09-21"
     },
     {
       "monitor": "DCA-AUDIT-S01xL08-conditions",
@@ -336,6 +365,15 @@
     },
     {
       "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "GS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 959.39,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
       "symbol": "CRM",
       "levelKind": "BUY",
       "levelPercentage": 100,
@@ -423,6 +461,24 @@
       "state": "ACTIVE",
       "price": 383.77,
       "observationDate": "2026-01-23"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "KO",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 87.12,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "XOM",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 158.3,
+      "observationDate": "2026-09-21"
     }
   ]
 }

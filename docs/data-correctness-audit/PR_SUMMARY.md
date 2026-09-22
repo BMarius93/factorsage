@@ -6,10 +6,12 @@ the audit again.
 
 ## Result
 
-**All 1,000 matrix backtests reproduce exactly.** An independent reference backtester re-ran every
-scenario and matched every trade, equity row and metric. The audit also found and fixed one
-loader defect: a real trading session could go permanently missing from price history. Its
-worst finding is a look-ahead in the fundamentals data, which is left for a product decision.
+**All 1,000 matrix backtests reproduce exactly, and all six findings are fixed.** An independent
+reference backtester re-ran every scenario and matched every trade, equity row and metric. The
+audit's worst finding — a look-ahead in the fundamentals data — now has a stated point-in-time
+rule, and the audit's own independent probe can no longer find a single trade that depended on the
+old one. The manifest is at **1 failure in 69,814,984 comparisons**, and that one is a provider
+volume revision after the close, explained below rather than tolerated away.
 
 ## What was audited
 
@@ -43,35 +45,44 @@ Every area in the correctness map was checked against independent reference impl
 
 ## Counts
 
-| Area                        |    Comparisons |                   Failed |
-| --------------------------- | -------------: | -----------------------: |
-| **Total** (manifest)        | **69,806,380** |  **188** (all explained) |
-| Backtests                   |     57,509,875 |                        0 |
-| Technical indicators        |      3,983,691 | 146 (AUD-02, max 2.1e‑8) |
-| Frame provenance            |      3,511,155 |                        0 |
-| Intrinsic value             |      2,459,422 |                        0 |
-| Backtest API                |      1,761,982 |                        0 |
-| Lists and Buy Windows       |        283,598 |                        0 |
-| Source data                 |        209,149 |               9 (AUD-04) |
-| Stock Details API           |         71,692 |              32 (AUD-02) |
-| Strategies (constructed)    |         13,041 |                        0 |
-| Monitor, Signals, Dashboard |          1,525 |                        0 |
-| UI (Playwright)             |          1,248 |                        0 |
-| Look-ahead                  |              2 |               1 (AUD-03) |
+The rerun, after every fix and every dataset repair. The first pass is in the last column.
 
-Nothing was skipped. 7,694,153 of the passes fall within a stated tolerance, all of it storage
-quantization. Two more checks are counted inside the Backtests row: strategy evaluation on real
-frames (17,748,544 comparisons, 0 failed) and a poisoned-future look-ahead probe (60 runs, 0
-differences).
+| Area                        |    Comparisons |     Failed | First pass |
+| --------------------------- | -------------: | ---------: | ---------: |
+| **Total** (manifest)        | **69,814,984** |      **1** |    **188** |
+| Backtests                   |     57,518,181 |          0 |          0 |
+| Technical indicators        |      3,983,283 |          0 |        146 |
+| Frame provenance            |      3,511,665 |          0 |          0 |
+| Intrinsic value             |      2,459,197 |          0 |          0 |
+| Backtest API                |      1,762,271 |          0 |          0 |
+| Lists and Buy Windows       |        283,598 |          0 |          0 |
+| Source data                 |        209,359 | 1 (volume) |          9 |
+| Stock Details API           |         71,433 |          0 |         32 |
+| Strategies (constructed)    |         13,041 |          0 |          0 |
+| Monitor, Signals, Dashboard |          1,636 |          0 |          0 |
+| UI (Playwright)             |          1,318 |          0 |          0 |
+| Look-ahead                  |              2 |          0 |          1 |
+
+Nothing was skipped. 7,694,254 of the passes fall within a stated tolerance, all of it storage
+quantization, and no tolerance was widened. Two more checks are counted inside the Backtests row:
+strategy evaluation on real frames (17,751,128 comparisons, 0 failed) and a poisoned-future
+look-ahead probe (60 runs, 0 differences).
+
+**The one failure.** DIS 2026-09-22 volume: 7,167,667 stored against 7,173,330 in a provider
+snapshot taken 96 minutes later. The consolidated tape is revised after the close, and the dataset
+was frozen before the revision. Every open, high, low and close of all six compared symbols matches
+exactly, no Strategy metric can reference volume, and the leading-edge rule from AUD-04 adopts the
+revision on the next sync.
 
 ## The 10×10×10 matrix
 
-The matrix gate was **GREEN**:
+The matrix gate was **GREEN**, on the repaired dataset:
 
-- 1,000 of 1,000 runs completed
-- 0 invariant failures
+- 1,000 of 1,000 runs submitted, completed and archived (1,000 of 1,000 archives verified)
+- 0 invariant failures, 0 runner errors
 - 0 provider requests
 - 0 differences in the determinism reruns
+- 3,870 s at 15.5 runs/min
 - the invariants that need archives (36–38) verified on all 1,000 runs, where before they covered
   6
 
@@ -80,31 +91,40 @@ The independent oracle then compared every run:
 | Output compared     |      Count |   Mismatches |
 | ------------------- | ---------: | -----------: |
 | Scenarios           |      1,000 | 0 (all PASS) |
-| Trades              |    184,692 |            0 |
-| Equity rows         |  3,620,600 |            0 |
-| Benchmark rows      |  3,620,600 |            0 |
+| Trades              |    184,785 |            0 |
+| Equity rows         |  3,621,000 |            0 |
+| Benchmark rows      |  3,621,000 |            0 |
 | Metrics             |     23,000 |            0 |
 | Annual-return years |     15,400 |            0 |
-| Ledger steps        |  3,805,292 |            0 |
-| Invariant checks    | 23,459,537 |            0 |
+| Ledger steps        |  3,805,785 |            0 |
+| Invariant checks    | 23,462,808 |            0 |
+
+Trades moved from 184,692 to 184,785 between the two passes: statements now become available on
+their statutory deadline rather than the day after the period end, and the price history gained the
+sessions the old coverage had lost.
 
 ## Bugs
 
-- **AUD-04, fixed** (`b4e45c80`). The price and benchmark loaders could permanently miss a real
-  session, or keep an in-session bar, while their coverage claimed the data was complete. Seen in
-  the development database: MRNA, GOOG and BRK-A on 2026-09-04, and ADBE and AAL on 2026-09-16.
-  Regression tests fail before the fix and pass after it. Rows already damaged need an operator
-  re-sync.
-- **AUD-03, open, High.** Provider filing dates that equal the fiscal period end make 2,391
-  statements available before any filing existed. This is a look-ahead: it changes 9 of the 100
-  Margin-of-Safety runs, by up to +4.5% of final value. Fixing it needs a product decision on the
-  availability rule.
-- **AUD-05, open.** The Dashboard's "Since" shows the scan time for reconstructed signals, up to 49
-  days late.
-- **AUD-02, AUD-06 and AUD-01, open, Low or informational.** In order:
-  - stored EMA values depend on the date the derived state was rebuilt;
-  - the QA-matrix copy keeps stale rows;
-  - Prisma double-rounds float ratios.
+All six are fixed. `FINAL_DATA_CORRECTNESS_AUDIT.md` carries each one's root cause, code change,
+regression coverage, dataset remediation and before/after evidence.
+
+| Id     | What it was                                                                         | Fix                                                                                        | What the rerun shows                                            |
+| ------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| AUD-03 | 2,391 statements available the day after the period closed, before any filing existed | availability from the real filing date, else the statutory 45/90-day deadline (`beecf337`) | 0 of 100 Margin-of-Safety cases trade differently; 0 of 16,793 available too early |
+| AUD-04 | a session could go missing, or an in-session bar stay, while coverage claimed complete | loader (`b4e45c80`) plus both dataset version bumps (`07aa6a8b`) and `pnpm data:resync`     | 0 sessions absent across 36 securities; MRNA 2026-09-09 is the final bar |
+| AUD-02 | stored EMA depended on the date the derived state was rebuilt                        | one calculation anchor: the earliest persisted bar (`a008018c`)                            | 3,983,283 technical comparisons, 0 failed                        |
+| AUD-05 | the Dashboard's "Since" showed the scan time for reconstructed signals               | the observation session's close, projected at the read edge (`7d46110e`)                   | `sinceLaterThanActivation: 0`, was 26 of 26                      |
+| AUD-06 | the QA-matrix copy kept stale rows                                                   | mirror the market data, reconcile the identity tables (`71351499`)                         | ADBE 2026-09-09 is now the final bar in the matrix copy too      |
+| AUD-01 | Prisma double-rounded float ratios into Decimal columns                              | render every ratio at its column's scale (`08ff74f3`)                                      | 0 mismatches; 6,488 rows the old binding would have stored otherwise |
+
+Two defects in the **audit itself** were found by the rerun and are recorded as AUD-07 and AUD-08:
+the UI stage compared the page against the oracle's float instead of the stored value (a 1.4e‑14
+difference becomes a cent at a display midpoint), and the look-ahead section asserted a property of
+the provider's data rather than the availability bound that matters.
+
+Re-provisioning also turned out to leave the matrix Redis projections describing the previous copy —
+the runs priced the benchmark from a cached in-session bar and 494 of them failed invariant 17.
+Provisioning now discards those projections, with unit tests.
 
 ## Commands run
 

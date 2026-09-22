@@ -1,10 +1,10 @@
 {
   "symbol": "MRNA",
   "securityId": "6ad3be0e-a56a-4724-8d1d-a7fd5a371f70",
-  "priceRows": 1956,
-  "derivedRows": 1956,
-  "visibleFrom": "1996-09-09",
-  "compared": 33239,
+  "priceRows": 1957,
+  "derivedRows": 1957,
+  "visibleFrom": "1996-09-10",
+  "compared": 33256,
   "failed": 0,
   "samples": [
     {

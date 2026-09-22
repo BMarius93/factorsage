@@ -1,12 +1,12 @@
 {
   "symbol": "MMM",
-  "compared": 81822,
+  "compared": 81811,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7298,
-    "RESIDUAL_INCOME": 7304,
-    "DDM": 7557,
-    "GRAHAM": 6764
+    "DCF_FCFF": 7297,
+    "RESIDUAL_INCOME": 7303,
+    "DDM": 7556,
+    "GRAHAM": 6763
   },
   "valuesAbsent": {
     "DCF_FCFF": 259,
@@ -32,7 +32,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 17.243634145946665,

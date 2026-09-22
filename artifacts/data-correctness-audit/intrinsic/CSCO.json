@@ -1,21 +1,21 @@
 {
   "symbol": "CSCO",
-  "compared": 78481,
+  "compared": 78471,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7557,
-    "RESIDUAL_INCOME": 6997,
-    "GRAHAM": 7175,
+    "DCF_FCFF": 7556,
+    "RESIDUAL_INCOME": 6996,
+    "GRAHAM": 7174,
     "DDM": 3853
   },
   "valuesAbsent": {
-    "DDM": 3704,
+    "DDM": 3703,
     "RESIDUAL_INCOME": 560,
     "GRAHAM": 382
   },
   "unavailableReasons": {
     "DDM": {
-      "NON_POSITIVE_DIVIDEND": 3704
+      "NON_POSITIVE_DIVIDEND": 3703
     },
     "RESIDUAL_INCOME": {
       "NON_POSITIVE_EQUITY_VALUE": 560
@@ -30,7 +30,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 3.382340261651229,

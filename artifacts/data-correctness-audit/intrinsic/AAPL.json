@@ -1,28 +1,28 @@
 {
   "symbol": "AAPL",
-  "compared": 76845,
+  "compared": 76837,
   "failed": 0,
   "valuesPresent": {
-    "DDM": 3663,
+    "DDM": 3662,
     "DCF_FCFF": 7329,
     "RESIDUAL_INCOME": 7038,
     "GRAHAM": 5916
   },
   "valuesAbsent": {
-    "DCF_FCFF": 228,
-    "RESIDUAL_INCOME": 519,
-    "GRAHAM": 1641,
+    "DCF_FCFF": 227,
+    "RESIDUAL_INCOME": 518,
+    "GRAHAM": 1640,
     "DDM": 3894
   },
   "unavailableReasons": {
     "DCF_FCFF": {
-      "NON_POSITIVE_FCFF": 228
+      "NON_POSITIVE_FCFF": 227
     },
     "RESIDUAL_INCOME": {
-      "NON_POSITIVE_EQUITY_VALUE": 519
+      "NON_POSITIVE_EQUITY_VALUE": 518
     },
     "GRAHAM": {
-      "NON_POSITIVE_EPS": 672,
+      "NON_POSITIVE_EPS": 671,
       "NON_POSITIVE_MULTIPLIER": 969
     },
     "DDM": {
@@ -35,7 +35,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"

@@ -151,3 +151,22 @@ gap.
   path exercises real data. `QATEST1`'s intrinsic values are seeded constants.
 - **Monitor integration.** Frames are built by the production projector, so an indicator defect
   would be consistent on both sides.
+
+## What the remediation added
+
+The gaps above were what the suites looked like before the audit. The remediation pass added tests
+of its own, each written against a stated rule rather than against the code's own output:
+
+| Suite                                                             | Closes                                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `domain/financial-statements.test.ts` (availability)              | Point-in-time availability: the day after a real filing date, the statutory deadline when the provider has none, the annual/Q4 case, the weekend shift, a 400-date property check that availability is never before the period end, and that selection hides a statement until its date (AUD-03) |
+| `stock-data/service.test.ts` ("derived-state determinism")        | The same stored row must come out of two different load windows: 7,600 sessions rebuilt twice, every overlapping row identical (AUD-02)                                                                                                       |
+| `api/qa-matrix/mirror-table.test.ts`                              | The matrix copy is a mirror: a stale destination row is removed, a corrected row is replaced, an identity row is updated but never deleted (AUD-06)                                                                                           |
+| `api/monitors/signal-since.test.ts` + Dashboard integration cases | "Since" is the observation's own session, and the scan's clock only while that session is open (AUD-05)                                                                                                                                       |
+| `worker/monitor/monitor-transitions.fixture.test.ts`              | The lifecycle as a table: eleven scenarios with every expected state, Signal count and since-session written out, including a reconstruction and a waiting setup                                                                              |
+| `worker/backtest/ratio-binding.test.ts`                           | A stored ratio is the float rounded once, with the audited two-step values as the negative control (AUD-01)                                                                                                                                   |
+| `api/data-correctness-audit/oracle/oracle.test.ts`                | The oracle's own session clock and both storage models                                                                                                                                                                                       |
+
+The mocks listed above still stand, with one correction: the Dashboard's API suite now also drives
+a reconstructed state and an in-session one through `GET /dashboard`, so the "Since" semantics are
+covered there and not only by the audit harness.

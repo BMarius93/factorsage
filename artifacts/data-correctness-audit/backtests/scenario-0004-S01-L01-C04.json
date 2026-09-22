@@ -1,15 +1,15 @@
 {
   "scenario": "S01-L01-C04",
   "index": 4,
-  "runId": "177ad4c9-dd89-4f2e-998f-65f974449977",
+  "runId": "fbaea1f8-50e6-4a3a-9fa1-7869b30393b5",
   "status": "PASS",
   "inputs": {
     "strategy": "QA-MATRIX-S01-price-above-sma200-hold",
     "list": "QA-MATRIX-L01-single-security-full",
     "config": "QA-MATRIX-C04-one-year-baseline",
     "period": {
-      "endDate": "2026-09-21",
-      "startDate": "2025-09-21"
+      "endDate": "2026-09-22",
+      "startDate": "2025-09-22"
     },
     "capital": {
       "initialCapital": 100000,
@@ -23,45 +23,45 @@
         "buyWindows": []
       }
     ],
-    "executionDates": 251,
+    "executionDates": 252,
     "contributionDates": 0
   },
   "result": {
     "finalValue": {
-      "expected": "103237.269603",
-      "actual": "103237.269603"
+      "expected": "103267.338332",
+      "actual": "103267.338332"
     },
     "finalCash": {
-      "expected": "103237.269603",
-      "actual": "103237.269603"
+      "expected": "103267.338332",
+      "actual": "103267.338332"
     },
     "investedCapital": {
       "expected": "100000.000000",
       "actual": "100000.000000"
     },
     "netProfit": {
-      "expected": "3237.269603",
-      "actual": "3237.269603"
+      "expected": "3267.338332",
+      "actual": "3267.338332"
     },
     "realizedPnl": {
-      "expected": "3237.269603",
-      "actual": "3237.269603"
+      "expected": "3267.338332",
+      "actual": "3267.338332"
     },
     "portfolioReturnPercent": {
-      "expected": 3.2372696029999926,
-      "actual": "3.23726960"
+      "expected": 3.267338332000014,
+      "actual": "3.26733833"
     },
     "benchmarkReturnPercent": {
-      "expected": 15.994841341251265,
-      "actual": "15.99484134"
+      "expected": 15.976846020034774,
+      "actual": "15.97684602"
     },
     "alphaPercent": {
-      "expected": -12.757571738251272,
-      "actual": "-12.75757174"
+      "expected": -12.70950768803476,
+      "actual": "-12.70950769"
     },
     "cagrPercent": {
-      "expected": 3.2485652508372986,
-      "actual": "3.24856525"
+      "expected": 3.269612428138191,
+      "actual": "3.26961243"
     },
     "maxDrawdownPercent": {
       "expected": 1.5286726310955179,
@@ -85,14 +85,14 @@
     },
     {
       "year": "2026",
-      "simulatedThrough": "2026-09-21",
-      "returnPercent": 2.6050035317945808,
+      "simulatedThrough": "2026-09-22",
+      "returnPercent": 2.634888107947231,
       "partial": true
     }
   ],
   "comparisons": {
-    "compared": 2574,
-    "passed": 2574,
+    "compared": 2584,
+    "passed": 2584,
     "failed": 0,
     "skipped": 0,
     "tolerancePasses": 0,
@@ -103,12 +103,12 @@
         "skipped": 0
       },
       "benchmark": {
-        "compared": 502,
+        "compared": 504,
         "failed": 0,
         "skipped": 0
       },
       "equity": {
-        "compared": 2009,
+        "compared": 2017,
         "failed": 0,
         "skipped": 0
       },
@@ -147,17 +147,17 @@
     "tradesExpected": 2,
     "tradesActual": 2,
     "tradesCompared": 2,
-    "equityRowsCompared": 251,
-    "benchmarkRowsCompared": 251,
+    "equityRowsCompared": 252,
+    "benchmarkRowsCompared": 252,
     "metricComparisons": 23,
     "annualReturnYears": 2,
-    "invariantChecks": 1524,
+    "invariantChecks": 1530,
     "invariantViolations": 0,
-    "ledgerSteps": 253,
+    "ledgerSteps": 254,
     "ledgerViolations": 0,
     "liquidationChecks": 12,
     "liquidationFailures": 0,
-    "decisionsEvaluated": 251,
+    "decisionsEvaluated": 252,
     "ratioDoubleRoundings": 3
   },
   "differences": [],
@@ -208,14 +208,14 @@
     },
     {
       "sequence": 2,
-      "date": "2026-09-21",
+      "date": "2026-09-22",
       "symbol": "AAPL",
       "action": "SELL",
       "source": "END_OF_BACKTEST",
       "reason": "final date: every open position is sold at its most recent observed close",
       "executionPrice": {
-        "expected": "338.98000000",
-        "actual": "338.98000000"
+        "expected": "339.75000000",
+        "actual": "339.75000000"
       },
       "cashBefore": "90000.000000",
       "shares": {
@@ -223,16 +223,16 @@
         "actual": "39.0502967822"
       },
       "amount": {
-        "expected": "13237.269603",
-        "actual": "13237.269603"
+        "expected": "13267.338332",
+        "actual": "13267.338332"
       },
       "cashAfter": {
-        "expected": "103237.269603",
-        "actual": "103237.269603"
+        "expected": "103267.338332",
+        "actual": "103267.338332"
       },
       "realizedPnl": {
-        "expected": "3237.269603",
-        "actual": "3237.269603"
+        "expected": "3267.338332",
+        "actual": "3267.338332"
       },
       "match": true
     }
@@ -284,23 +284,23 @@
       }
     },
     {
-      "date": "2026-09-21",
+      "date": "2026-09-22",
       "expected": {
-        "cash": "103237.269603",
+        "cash": "103267.338332",
         "positionsValue": "0.000000",
-        "totalValue": "103237.269603",
-        "returnIndex": 1.03237269603,
-        "benchmarkValue": "115994.841341"
+        "totalValue": "103267.338332",
+        "returnIndex": 1.0326733833200001,
+        "benchmarkValue": "115976.846020"
       },
       "actual": {
-        "date": "2026-09-21",
-        "cash": "103237.269603",
+        "date": "2026-09-22",
+        "cash": "103267.338332",
         "positionsValue": "0.000000",
-        "totalValue": "103237.269603",
+        "totalValue": "103267.338332",
         "investedCapital": "100000.000000",
-        "returnIndex": "1.0323726960",
-        "benchmarkIndex": "1.1599484134",
-        "benchmarkValue": "115994.841341",
+        "returnIndex": "1.0326733833",
+        "benchmarkIndex": "1.1597684602",
+        "benchmarkValue": "115976.846020",
         "cashBaselineValue": "100000.000000",
         "openPositions": 0
       }

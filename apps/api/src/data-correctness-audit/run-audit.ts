@@ -430,7 +430,7 @@ async function main(): Promise<void> {
               : null,
           },
           notes: [
-            "See FINAL_DATA_CORRECTNESS_AUDIT.md AUD-03 for the provider filing-date look-ahead.",
+            "The provider leaves 2,391 statements undated; availability comes from the statutory deadline instead. See FINAL_DATA_CORRECTNESS_AUDIT.md AUD-03.",
           ],
         }),
       );

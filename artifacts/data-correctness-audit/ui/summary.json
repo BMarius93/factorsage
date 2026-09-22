@@ -1,8 +1,8 @@
 {
   "playwrightExitCode": 0,
   "comparisons": {
-    "compared": 1248,
-    "passed": 1248,
+    "compared": 1318,
+    "passed": 1318,
     "failed": 0,
     "skipped": 0,
     "tolerancePasses": 0
@@ -14,7 +14,7 @@
       "skipped": 0
     },
     "ui-dashboard": {
-      "compared": 53,
+      "compared": 123,
       "failed": 0,
       "skipped": 0
     },

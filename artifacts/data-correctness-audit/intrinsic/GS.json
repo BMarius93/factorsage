@@ -1,15 +1,15 @@
 {
   "symbol": "GS",
-  "compared": 69311,
+  "compared": 69373,
   "failed": 0,
   "valuesPresent": {
     "RESIDUAL_INCOME": 6494,
     "DDM": 6690,
     "GRAHAM": 5689,
-    "DCF_FCFF": 2215
+    "DCF_FCFF": 2277
   },
   "valuesAbsent": {
-    "DCF_FCFF": 4674,
+    "DCF_FCFF": 4612,
     "RESIDUAL_INCOME": 395,
     "DDM": 199,
     "GRAHAM": 1200
@@ -17,8 +17,8 @@
   "unavailableReasons": {
     "DCF_FCFF": {
       "MISSING_TTM_WINDOW": 199,
-      "NON_POSITIVE_FCFF": 3119,
-      "NON_POSITIVE_EQUITY_VALUE": 1356
+      "NON_POSITIVE_FCFF": 3087,
+      "NON_POSITIVE_EQUITY_VALUE": 1326
     },
     "RESIDUAL_INCOME": {
       "MISSING_TTM_WINDOW": 199,
@@ -347,11 +347,11 @@
       }
     },
     {
-      "effectiveFrom": "2000-12-01",
+      "effectiveFrom": "2001-03-01",
       "expected": {
         "DCF_FCFF": {
           "value": 386.6368657611089,
-          "sourceAsOf": "2000-12-01",
+          "sourceAsOf": "2001-03-01",
           "inputs": {
             "ocf": 11135000000,
             "capex": -3540000000,
@@ -364,7 +364,7 @@
         },
         "RESIDUAL_INCOME": {
           "value": 76.66401790013364,
-          "sourceAsOf": "2000-12-01",
+          "sourceAsOf": "2001-03-01",
           "inputs": {
             "netIncome": 3067000000,
             "bookValue": 16530000000,
@@ -374,14 +374,14 @@
         },
         "DDM": {
           "value": 5.808348713979824,
-          "sourceAsOf": "2000-12-01",
+          "sourceAsOf": "2001-03-01",
           "inputs": {
             "dps": 0.425001125413158
           }
         },
         "GRAHAM": {
           "value": 111.37,
-          "sourceAsOf": "2000-12-01",
+          "sourceAsOf": "2001-03-01",
           "inputs": {
             "eps": 6.0200000000000005,
             "growthUsed": 0.05
@@ -391,19 +391,19 @@
       "actual": {
         "DCF_FCFF": {
           "value": "386.63686576",
-          "sourceAsOf": "2000-12-01"
+          "sourceAsOf": "2001-03-01"
         },
         "RESIDUAL_INCOME": {
           "value": "76.66401790",
-          "sourceAsOf": "2000-12-01"
+          "sourceAsOf": "2001-03-01"
         },
         "DDM": {
           "value": "5.80834871",
-          "sourceAsOf": "2000-12-01"
+          "sourceAsOf": "2001-03-01"
         },
         "GRAHAM": {
           "value": "111.37000000",
-          "sourceAsOf": "2000-12-01"
+          "sourceAsOf": "2001-03-01"
         }
       },
       "blends": {
@@ -647,14 +647,14 @@
       }
     },
     {
-      "effectiveFrom": "2001-12-03",
+      "effectiveFrom": "2002-03-01",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 49.089006859531864,
-          "sourceAsOf": "2001-12-01",
+          "sourceAsOf": "2002-03-01",
           "inputs": {
             "netIncome": 2310000000,
             "bookValue": 18231000000,
@@ -664,14 +664,14 @@
         },
         "DDM": {
           "value": 5.824711188556779,
-          "sourceAsOf": "2001-12-01",
+          "sourceAsOf": "2002-03-01",
           "inputs": {
             "dps": 0.4261983796504961
           }
         },
         "GRAHAM": {
           "value": 78.81,
-          "sourceAsOf": "2001-12-01",
+          "sourceAsOf": "2002-03-01",
           "inputs": {
             "eps": 4.26,
             "growthUsed": 0.05
@@ -685,15 +685,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "49.08900686",
-          "sourceAsOf": "2001-12-01"
+          "sourceAsOf": "2002-03-01"
         },
         "DDM": {
           "value": "5.82471119",
-          "sourceAsOf": "2001-12-01"
+          "sourceAsOf": "2002-03-01"
         },
         "GRAHAM": {
           "value": "78.81000000",
-          "sourceAsOf": "2001-12-01"
+          "sourceAsOf": "2002-03-01"
         }
       },
       "blends": {
@@ -777,14 +777,14 @@
       }
     },
     {
-      "effectiveFrom": "2002-06-03",
+      "effectiveFrom": "2002-07-16",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_EQUITY_VALUE"
         },
         "RESIDUAL_INCOME": {
           "value": 40.64554123586294,
-          "sourceAsOf": "2002-06-01",
+          "sourceAsOf": "2002-07-16",
           "inputs": {
             "netIncome": 2052000000,
             "bookValue": 18858000000,
@@ -794,14 +794,14 @@
         },
         "DDM": {
           "value": 5.826534028999954,
-          "sourceAsOf": "2002-06-01",
+          "sourceAsOf": "2002-07-16",
           "inputs": {
             "dps": 0.42633175821950897
           }
         },
         "GRAHAM": {
           "value": 71.04,
-          "sourceAsOf": "2002-06-01",
+          "sourceAsOf": "2002-07-16",
           "inputs": {
             "eps": 3.8400000000000003,
             "growthUsed": 0.05
@@ -815,15 +815,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "40.64554124",
-          "sourceAsOf": "2002-06-01"
+          "sourceAsOf": "2002-07-16"
         },
         "DDM": {
           "value": "5.82653403",
-          "sourceAsOf": "2002-06-01"
+          "sourceAsOf": "2002-07-16"
         },
         "GRAHAM": {
           "value": "71.04000000",
-          "sourceAsOf": "2002-06-01"
+          "sourceAsOf": "2002-07-16"
         }
       },
       "blends": {
@@ -972,14 +972,14 @@
       }
     },
     {
-      "effectiveFrom": "2003-03-03",
+      "effectiveFrom": "2003-04-15",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 47.73870387014245,
-          "sourceAsOf": "2003-03-01",
+          "sourceAsOf": "2003-04-15",
           "inputs": {
             "netIncome": 2252000000,
             "bookValue": 19514000000,
@@ -989,14 +989,14 @@
         },
         "DDM": {
           "value": 5.998598790219817,
-          "sourceAsOf": "2003-03-01",
+          "sourceAsOf": "2003-04-15",
           "inputs": {
             "dps": 0.4389218626990111
           }
         },
         "GRAHAM": {
           "value": 80.105,
-          "sourceAsOf": "2003-03-01",
+          "sourceAsOf": "2003-04-15",
           "inputs": {
             "eps": 4.33,
             "growthUsed": 0.05
@@ -1010,15 +1010,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "47.73870387",
-          "sourceAsOf": "2003-03-01"
+          "sourceAsOf": "2003-04-15"
         },
         "DDM": {
           "value": "5.99859879",
-          "sourceAsOf": "2003-03-01"
+          "sourceAsOf": "2003-04-15"
         },
         "GRAHAM": {
           "value": "80.10500000",
-          "sourceAsOf": "2003-03-01"
+          "sourceAsOf": "2003-04-15"
         }
       },
       "blends": {
@@ -2207,14 +2207,14 @@
       }
     },
     {
-      "effectiveFrom": "2007-12-03",
+      "effectiveFrom": "2008-02-29",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 677.0780762275656,
-          "sourceAsOf": "2007-12-01",
+          "sourceAsOf": "2008-02-29",
           "inputs": {
             "netIncome": 11599000000,
             "bookValue": 42800000000,
@@ -2224,14 +2224,14 @@
         },
         "DDM": {
           "value": 24.897094979123622,
-          "sourceAsOf": "2007-12-01",
+          "sourceAsOf": "2008-02-29",
           "inputs": {
             "dps": 1.8217386570090461
           }
         },
         "GRAHAM": {
           "value": 980.5949999999999,
-          "sourceAsOf": "2007-12-01",
+          "sourceAsOf": "2008-02-29",
           "inputs": {
             "eps": 25.47,
             "growthUsed": 0.15
@@ -2245,15 +2245,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "677.07807623",
-          "sourceAsOf": "2007-12-01"
+          "sourceAsOf": "2008-02-29"
         },
         "DDM": {
           "value": "24.89709498",
-          "sourceAsOf": "2007-12-01"
+          "sourceAsOf": "2008-02-29"
         },
         "GRAHAM": {
           "value": "980.59500000",
-          "sourceAsOf": "2007-12-01"
+          "sourceAsOf": "2008-02-29"
         }
       },
       "blends": {
@@ -2746,11 +2746,11 @@
       }
     },
     {
-      "effectiveFrom": "2010-01-04",
+      "effectiveFrom": "2010-04-01",
       "expected": {
         "DCF_FCFF": {
           "value": 2649.5608590681823,
-          "sourceAsOf": "2010-01-01",
+          "sourceAsOf": "2010-04-01",
           "inputs": {
             "ocf": 48875000000,
             "capex": -1556000000,
@@ -2763,7 +2763,7 @@
         },
         "RESIDUAL_INCOME": {
           "value": 409.1085203303177,
-          "sourceAsOf": "2010-01-01",
+          "sourceAsOf": "2010-04-01",
           "inputs": {
             "netIncome": 13385000000,
             "bookValue": 70714000000,
@@ -2773,14 +2773,14 @@
         },
         "DDM": {
           "value": 55.50629762270011,
-          "sourceAsOf": "2010-01-01",
+          "sourceAsOf": "2010-04-01",
           "inputs": {
             "dps": 4.061436411417082
           }
         },
         "GRAHAM": {
           "value": 759.2878894466586,
-          "sourceAsOf": "2010-01-01",
+          "sourceAsOf": "2010-04-01",
           "inputs": {
             "eps": 23.940000000000005,
             "growthUsed": 0.11608143054441489
@@ -2790,19 +2790,19 @@
       "actual": {
         "DCF_FCFF": {
           "value": "2649.56085907",
-          "sourceAsOf": "2010-01-01"
+          "sourceAsOf": "2010-04-01"
         },
         "RESIDUAL_INCOME": {
           "value": "409.10852033",
-          "sourceAsOf": "2010-01-01"
+          "sourceAsOf": "2010-04-01"
         },
         "DDM": {
           "value": "55.50629762",
-          "sourceAsOf": "2010-01-01"
+          "sourceAsOf": "2010-04-01"
         },
         "GRAHAM": {
           "value": "759.28788945",
-          "sourceAsOf": "2010-01-01"
+          "sourceAsOf": "2010-04-01"
         }
       },
       "blends": {
@@ -3046,14 +3046,14 @@
       }
     },
     {
-      "effectiveFrom": "2011-01-03",
+      "effectiveFrom": "2011-04-01",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 144.72773663447566,
-          "sourceAsOf": "2011-01-01",
+          "sourceAsOf": "2011-04-01",
           "inputs": {
             "netIncome": 8354000000,
             "bookValue": 77356000000,
@@ -3063,14 +3063,14 @@
         },
         "DDM": {
           "value": 33.70321542956733,
-          "sourceAsOf": "2011-01-01",
+          "sourceAsOf": "2011-04-01",
           "inputs": {
             "dps": 2.4660889338707808
           }
         },
         "GRAHAM": {
           "value": 154.0799820138141,
-          "sourceAsOf": "2011-01-01",
+          "sourceAsOf": "2011-04-01",
           "inputs": {
             "eps": 14.239999999999998,
             "growthUsed": 0.011601117280131357
@@ -3084,15 +3084,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "144.72773663",
-          "sourceAsOf": "2011-01-01"
+          "sourceAsOf": "2011-04-01"
         },
         "DDM": {
           "value": "33.70321543",
-          "sourceAsOf": "2011-01-01"
+          "sourceAsOf": "2011-04-01"
         },
         "GRAHAM": {
           "value": "154.07998201",
-          "sourceAsOf": "2011-01-01"
+          "sourceAsOf": "2011-04-01"
         }
       },
       "blends": {
@@ -3366,14 +3366,14 @@
       }
     },
     {
-      "effectiveFrom": "2012-04-02",
+      "effectiveFrom": "2012-05-16",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_EQUITY_VALUE"
         },
         "RESIDUAL_INCOME": {
           "value": 103.32745660860233,
-          "sourceAsOf": "2012-04-01",
+          "sourceAsOf": "2012-05-16",
           "inputs": {
             "netIncome": 3816000000,
             "bookValue": 71656000000,
@@ -3383,7 +3383,7 @@
         },
         "DDM": {
           "value": 64.49533295732999,
-          "sourceAsOf": "2012-04-01",
+          "sourceAsOf": "2012-05-16",
           "inputs": {
             "dps": 4.7191707041948785
           }
@@ -3399,11 +3399,11 @@
         },
         "RESIDUAL_INCOME": {
           "value": "103.32745661",
-          "sourceAsOf": "2012-04-01"
+          "sourceAsOf": "2012-05-16"
         },
         "DDM": {
           "value": "64.49533296",
-          "sourceAsOf": "2012-04-01"
+          "sourceAsOf": "2012-05-16"
         },
         "GRAHAM": {
           "value": null,
@@ -3786,14 +3786,14 @@
       }
     },
     {
-      "effectiveFrom": "2014-01-02",
+      "effectiveFrom": "2014-04-01",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_EQUITY_VALUE"
         },
         "RESIDUAL_INCOME": {
           "value": 163.67894661399973,
-          "sourceAsOf": "2014-01-01",
+          "sourceAsOf": "2014-04-01",
           "inputs": {
             "netIncome": 8040000000,
             "bookValue": 78467000000,
@@ -3803,7 +3803,7 @@
         },
         "DDM": {
           "value": 35.6442073577379,
-          "sourceAsOf": "2014-01-01",
+          "sourceAsOf": "2014-04-01",
           "inputs": {
             "dps": 2.6081127334930176
           }
@@ -3819,11 +3819,11 @@
         },
         "RESIDUAL_INCOME": {
           "value": "163.67894661",
-          "sourceAsOf": "2014-01-01"
+          "sourceAsOf": "2014-04-01"
         },
         "DDM": {
           "value": "35.64420736",
-          "sourceAsOf": "2014-01-01"
+          "sourceAsOf": "2014-04-01"
         },
         "GRAHAM": {
           "value": null,
@@ -4026,14 +4026,14 @@
       }
     },
     {
-      "effectiveFrom": "2015-01-02",
+      "effectiveFrom": "2015-04-01",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 182.10150036788227,
-          "sourceAsOf": "2015-01-01",
+          "sourceAsOf": "2015-04-01",
           "inputs": {
             "netIncome": 8477000000,
             "bookValue": 82797000000,
@@ -4043,7 +4043,7 @@
         },
         "DDM": {
           "value": 42.037849970076216,
-          "sourceAsOf": "2015-01-01",
+          "sourceAsOf": "2015-04-01",
           "inputs": {
             "dps": 3.0759402417128947
           }
@@ -4059,11 +4059,11 @@
         },
         "RESIDUAL_INCOME": {
           "value": "182.10150037",
-          "sourceAsOf": "2015-01-01"
+          "sourceAsOf": "2015-04-01"
         },
         "DDM": {
           "value": "42.03784997",
-          "sourceAsOf": "2015-01-01"
+          "sourceAsOf": "2015-04-01"
         },
         "GRAHAM": {
           "value": null,
@@ -5216,14 +5216,14 @@
       }
     },
     {
-      "effectiveFrom": "2019-07-01",
+      "effectiveFrom": "2019-08-15",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_FCFF"
         },
         "RESIDUAL_INCOME": {
           "value": 268.5871071393998,
-          "sourceAsOf": "2019-07-01",
+          "sourceAsOf": "2019-08-15",
           "inputs": {
             "netIncome": 9734000000,
             "bookValue": 90892000000,
@@ -5233,14 +5233,14 @@
         },
         "DDM": {
           "value": 64.64247492095963,
-          "sourceAsOf": "2019-07-01",
+          "sourceAsOf": "2019-08-15",
           "inputs": {
             "dps": 4.729937189338511
           }
         },
         "GRAHAM": {
           "value": 451.61539236311864,
-          "sourceAsOf": "2019-07-01",
+          "sourceAsOf": "2019-08-15",
           "inputs": {
             "eps": 24.2,
             "growthUsed": 0.0508089653642807
@@ -5254,15 +5254,15 @@
         },
         "RESIDUAL_INCOME": {
           "value": "268.58710714",
-          "sourceAsOf": "2019-07-01"
+          "sourceAsOf": "2019-08-15"
         },
         "DDM": {
           "value": "64.64247492",
-          "sourceAsOf": "2019-07-01"
+          "sourceAsOf": "2019-08-15"
         },
         "GRAHAM": {
           "value": "451.61539236",
-          "sourceAsOf": "2019-07-01"
+          "sourceAsOf": "2019-08-15"
         }
       },
       "blends": {

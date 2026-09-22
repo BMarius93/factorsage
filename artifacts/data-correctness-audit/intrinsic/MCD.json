@@ -1,22 +1,22 @@
 {
   "symbol": "MCD",
-  "compared": 78395,
+  "compared": 78385,
   "failed": 0,
   "valuesPresent": {
-    "RESIDUAL_INCOME": 5076,
-    "DDM": 7266,
-    "GRAHAM": 6799,
+    "RESIDUAL_INCOME": 5075,
+    "DDM": 7265,
+    "GRAHAM": 6798,
     "DCF_FCFF": 6355
   },
   "valuesAbsent": {
-    "DCF_FCFF": 1202,
+    "DCF_FCFF": 1201,
     "DDM": 291,
     "RESIDUAL_INCOME": 2481,
     "GRAHAM": 758
   },
   "unavailableReasons": {
     "DCF_FCFF": {
-      "NON_POSITIVE_EQUITY_VALUE": 1104,
+      "NON_POSITIVE_EQUITY_VALUE": 1103,
       "NON_POSITIVE_FCFF": 98
     },
     "DDM": {
@@ -35,7 +35,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "unavailable": "NON_POSITIVE_EQUITY_VALUE"

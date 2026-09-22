@@ -1,261 +1,11 @@
 {
   "assumption": "statements whose provider filing date is on or before the fiscal period end made available no earlier than fiscalDate + 40 days (quarters) / + 60 days (fiscal year, Q4)",
-  "securitiesAffected": [
-    "AAPL",
-    "ADBE",
-    "AMGN",
-    "AMZN",
-    "AXP",
-    "BA",
-    "CAT",
-    "CRM",
-    "CSCO",
-    "CVX",
-    "DIS",
-    "GOOGL",
-    "GS",
-    "HD",
-    "HON",
-    "IBM",
-    "JNJ",
-    "JPM",
-    "KO",
-    "MCD",
-    "MMM",
-    "MRK",
-    "MRNA",
-    "MSFT",
-    "NKE",
-    "NVDA",
-    "PG",
-    "SHW",
-    "TRV",
-    "UNH",
-    "V",
-    "WMT",
-    "XOM"
-  ],
+  "securitiesAffected": [],
   "s09Cases": 100,
-  "casesWithDifferentTrades": 9,
-  "tradesPersisted": 3441,
-  "tradesCorrected": 3465,
+  "casesWithDifferentTrades": 0,
+  "tradesPersisted": 3469,
+  "tradesCorrected": 3469,
   "perCase": [
-    {
-      "caseId": "S09-L08-C10",
-      "tradesPersisted": 731,
-      "tradesCorrected": 746,
-      "tradesOnlyWithLookAhead": 15,
-      "tradesOnlyWithoutLookAhead": 30,
-      "finalValuePersisted": 1712476.070241,
-      "finalValueCorrected": 1713695.912619,
-      "finalValueChangePercent": 0.07123266708353826,
-      "examples": {
-        "onlyWithLookAhead": [
-          "1996-11-11|DIS|SELL",
-          "1999-01-04|DIS|FINAL_EXIT",
-          "1999-10-01|DIS|BUY",
-          "1999-11-01|DIS|BUY",
-          "2000-12-01|GS|BUY"
-        ],
-        "onlyWithoutLookAhead": [
-          "1996-11-29|DIS|SELL",
-          "1999-02-09|DIS|FINAL_EXIT",
-          "1999-11-29|DIS|BUY",
-          "1999-12-01|DIS|BUY",
-          "2000-12-01|DIS|BUY"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L08-C08",
-      "tradesPersisted": 299,
-      "tradesCorrected": 301,
-      "tradesOnlyWithLookAhead": 12,
-      "tradesOnlyWithoutLookAhead": 14,
-      "finalValuePersisted": 3887443578.397292,
-      "finalValueCorrected": 3891112834.719406,
-      "finalValueChangePercent": 0.09438738461708412,
-      "examples": {
-        "onlyWithLookAhead": [
-          "1996-11-11|DIS|SELL",
-          "1999-01-04|DIS|FINAL_EXIT",
-          "1999-10-01|DIS|BUY",
-          "2000-12-01|GS|BUY",
-          "2001-01-03|GS|BUY"
-        ],
-        "onlyWithoutLookAhead": [
-          "1996-11-29|DIS|SELL",
-          "1999-02-09|DIS|FINAL_EXIT",
-          "1999-11-29|DIS|BUY",
-          "2001-01-29|GS|BUY",
-          "2001-08-09|DIS|FINAL_EXIT"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L08-C01",
-      "tradesPersisted": 228,
-      "tradesCorrected": 228,
-      "tradesOnlyWithLookAhead": 8,
-      "tradesOnlyWithoutLookAhead": 8,
-      "finalValuePersisted": 776820.193593,
-      "finalValueCorrected": 811548.542477,
-      "finalValueChangePercent": 4.470577512071648,
-      "examples": {
-        "onlyWithLookAhead": [
-          "1996-11-11|DIS|SELL",
-          "1999-01-04|DIS|FINAL_EXIT",
-          "1999-10-01|DIS|BUY",
-          "2000-12-01|GS|BUY",
-          "2001-01-03|GS|BUY"
-        ],
-        "onlyWithoutLookAhead": [
-          "1996-11-29|DIS|SELL",
-          "1999-02-09|DIS|FINAL_EXIT",
-          "1999-11-29|DIS|BUY",
-          "2001-01-18|XOM|BUY",
-          "2001-08-09|DIS|FINAL_EXIT"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L06-C10",
-      "tradesPersisted": 146,
-      "tradesCorrected": 153,
-      "tradesOnlyWithLookAhead": 6,
-      "tradesOnlyWithoutLookAhead": 13,
-      "finalValuePersisted": 856408.299833,
-      "finalValueCorrected": 857407.09338,
-      "finalValueChangePercent": 0.1166258602578567,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2000-12-01|GS|BUY",
-          "2001-01-03|GS|BUY",
-          "2008-10-01|GOOGL|BUY",
-          "2008-11-03|NVDA|FINAL_EXIT",
-          "2008-11-03|GOOGL|BUY"
-        ],
-        "onlyWithoutLookAhead": [
-          "2001-01-29|GS|BUY",
-          "2007-08-27|NVDA|SELL",
-          "2007-10-01|NVDA|BUY",
-          "2007-11-01|NVDA|BUY",
-          "2007-12-03|NVDA|BUY"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L06-C01",
-      "tradesPersisted": 71,
-      "tradesCorrected": 71,
-      "tradesOnlyWithLookAhead": 5,
-      "tradesOnlyWithoutLookAhead": 5,
-      "finalValuePersisted": 237905.700937,
-      "finalValueCorrected": 244478.916855,
-      "finalValueChangePercent": 2.762950148782126,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2000-12-01|GS|BUY",
-          "2001-01-03|GS|BUY",
-          "2008-10-01|GOOGL|BUY",
-          "2008-11-03|NVDA|FINAL_EXIT",
-          "2014-01-14|GOOGL|SELL"
-        ],
-        "onlyWithoutLookAhead": [
-          "2001-01-29|GS|BUY",
-          "2007-08-27|NVDA|SELL",
-          "2008-10-07|GOOGL|BUY",
-          "2008-12-10|NVDA|FINAL_EXIT",
-          "2014-01-31|GOOGL|SELL"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L06-C08",
-      "tradesPersisted": 71,
-      "tradesCorrected": 71,
-      "tradesOnlyWithLookAhead": 5,
-      "tradesOnlyWithoutLookAhead": 5,
-      "finalValuePersisted": 1642261186.357665,
-      "finalValueCorrected": 1675642291.995074,
-      "finalValueChangePercent": 2.0326307358846,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2000-12-01|GS|BUY",
-          "2001-01-03|GS|BUY",
-          "2008-10-01|GOOGL|BUY",
-          "2008-11-03|NVDA|FINAL_EXIT",
-          "2014-01-14|GOOGL|SELL"
-        ],
-        "onlyWithoutLookAhead": [
-          "2001-01-29|GS|BUY",
-          "2007-08-27|NVDA|SELL",
-          "2008-10-07|GOOGL|BUY",
-          "2008-12-10|NVDA|FINAL_EXIT",
-          "2014-01-31|GOOGL|SELL"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L07-C01",
-      "tradesPersisted": 27,
-      "tradesCorrected": 27,
-      "tradesOnlyWithLookAhead": 2,
-      "tradesOnlyWithoutLookAhead": 2,
-      "finalValuePersisted": 146948.208411,
-      "finalValueCorrected": 153640.374355,
-      "finalValueChangePercent": 4.554098356396877,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2008-10-01|GOOGL|BUY",
-          "2014-01-14|GOOGL|SELL"
-        ],
-        "onlyWithoutLookAhead": [
-          "2008-10-07|GOOGL|BUY",
-          "2014-01-31|GOOGL|SELL"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L07-C08",
-      "tradesPersisted": 27,
-      "tradesCorrected": 27,
-      "tradesOnlyWithLookAhead": 2,
-      "tradesOnlyWithoutLookAhead": 2,
-      "finalValuePersisted": 1226735008.476148,
-      "finalValueCorrected": 1259153508.266772,
-      "finalValueChangePercent": 2.642665250981502,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2008-10-01|GOOGL|BUY",
-          "2014-01-14|GOOGL|SELL"
-        ],
-        "onlyWithoutLookAhead": [
-          "2008-10-07|GOOGL|BUY",
-          "2014-01-31|GOOGL|SELL"
-        ]
-      }
-    },
-    {
-      "caseId": "S09-L07-C10",
-      "tradesPersisted": 50,
-      "tradesCorrected": 50,
-      "tradesOnlyWithLookAhead": 2,
-      "tradesOnlyWithoutLookAhead": 2,
-      "finalValuePersisted": 693489.588654,
-      "finalValueCorrected": 695154.720328,
-      "finalValueChangePercent": 0.2401091092415577,
-      "examples": {
-        "onlyWithLookAhead": [
-          "2008-10-01|GOOGL|BUY",
-          "2014-01-14|GOOGL|SELL"
-        ],
-        "onlyWithoutLookAhead": [
-          "2008-10-07|GOOGL|BUY",
-          "2014-01-31|GOOGL|SELL"
-        ]
-      }
-    },
     {
       "caseId": "S09-L01-C01",
       "tradesPersisted": 16,
@@ -276,8 +26,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 108375.356866,
-      "finalValueCorrected": 108375.356866,
+      "finalValuePersisted": 108261.834036,
+      "finalValueCorrected": 108261.834036,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -318,8 +68,8 @@
       "tradesCorrected": 15,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 71826.289814,
-      "finalValueCorrected": 71826.289814,
+      "finalValuePersisted": 71821.29481,
+      "finalValueCorrected": 71821.29481,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -332,8 +82,8 @@
       "tradesCorrected": 23,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 3115425.462726,
-      "finalValueCorrected": 3115425.462726,
+      "finalValuePersisted": 3115424.397152,
+      "finalValueCorrected": 3115424.397152,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -346,8 +96,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.083754,
-      "finalValueCorrected": 1.083754,
+      "finalValuePersisted": 1.082618,
+      "finalValueCorrected": 1.082618,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -374,8 +124,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 192396.159383,
-      "finalValueCorrected": 192396.159383,
+      "finalValuePersisted": 191120.377815,
+      "finalValueCorrected": 191120.377815,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -402,8 +152,8 @@
       "tradesCorrected": 17,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 110594.374241,
-      "finalValueCorrected": 110594.374241,
+      "finalValuePersisted": 110608.361997,
+      "finalValueCorrected": 110608.361997,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -416,8 +166,8 @@
       "tradesCorrected": 5,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 103088.696163,
-      "finalValueCorrected": 103088.696163,
+      "finalValuePersisted": 103101.734616,
+      "finalValueCorrected": 103101.734616,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -430,8 +180,8 @@
       "tradesCorrected": 5,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 100388.113032,
-      "finalValueCorrected": 100388.113032,
+      "finalValuePersisted": 100392.580597,
+      "finalValueCorrected": 100392.580597,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -444,8 +194,8 @@
       "tradesCorrected": 2,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 100140.9457,
-      "finalValueCorrected": 100140.9457,
+      "finalValuePersisted": 100153.611328,
+      "finalValueCorrected": 100153.611328,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -458,8 +208,8 @@
       "tradesCorrected": 5,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 71350.751209,
-      "finalValueCorrected": 71350.751209,
+      "finalValuePersisted": 71359.712271,
+      "finalValueCorrected": 71359.712271,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -472,8 +222,8 @@
       "tradesCorrected": 8,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 3106901.653585,
-      "finalValueCorrected": 3106901.653585,
+      "finalValuePersisted": 3107680.143451,
+      "finalValueCorrected": 3107680.143451,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -486,8 +236,8 @@
       "tradesCorrected": 5,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.030887,
-      "finalValueCorrected": 1.030887,
+      "finalValuePersisted": 1.031017,
+      "finalValueCorrected": 1.031017,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -500,8 +250,8 @@
       "tradesCorrected": 17,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1052270460.624154,
-      "finalValueCorrected": 1052270460.624154,
+      "finalValuePersisted": 1052337052.023377,
+      "finalValueCorrected": 1052337052.023377,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -514,8 +264,8 @@
       "tradesCorrected": 5,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 131260.360819,
-      "finalValueCorrected": 131260.360819,
+      "finalValuePersisted": 131424.299654,
+      "finalValueCorrected": 131424.299654,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -528,8 +278,8 @@
       "tradesCorrected": 25,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 625351.928832,
-      "finalValueCorrected": 625351.928832,
+      "finalValuePersisted": 625378.275817,
+      "finalValueCorrected": 625378.275817,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -836,8 +586,8 @@
       "tradesCorrected": 9,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 109943.047386,
-      "finalValueCorrected": 109943.047386,
+      "finalValuePersisted": 109827.882404,
+      "finalValueCorrected": 109827.882404,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -878,8 +628,8 @@
       "tradesCorrected": 18,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 72526.962848,
-      "finalValueCorrected": 72526.962848,
+      "finalValuePersisted": 72521.895383,
+      "finalValueCorrected": 72521.895383,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -892,8 +642,8 @@
       "tradesCorrected": 26,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 3170997.670448,
-      "finalValueCorrected": 3170997.670448,
+      "finalValuePersisted": 3170996.574316,
+      "finalValueCorrected": 3170996.574316,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -906,8 +656,8 @@
       "tradesCorrected": 9,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.09943,
-      "finalValueCorrected": 1.09943,
+      "finalValuePersisted": 1.098279,
+      "finalValueCorrected": 1.098279,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -934,8 +684,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 193633.711665,
-      "finalValueCorrected": 193633.711665,
+      "finalValuePersisted": 192349.723872,
+      "finalValueCorrected": 192349.723872,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -957,13 +707,27 @@
       }
     },
     {
+      "caseId": "S09-L06-C01",
+      "tradesPersisted": 72,
+      "tradesCorrected": 72,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 264387.660662,
+      "finalValueCorrected": 264387.660662,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
       "caseId": "S09-L06-C02",
       "tradesPersisted": 29,
       "tradesCorrected": 29,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 139106.267749,
-      "finalValueCorrected": 139106.267749,
+      "finalValuePersisted": 138434.737363,
+      "finalValueCorrected": 138434.737363,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -976,8 +740,8 @@
       "tradesCorrected": 11,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 114377.305498,
-      "finalValueCorrected": 114377.305498,
+      "finalValuePersisted": 114388.741244,
+      "finalValueCorrected": 114388.741244,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -990,8 +754,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 100809.480471,
-      "finalValueCorrected": 100809.480471,
+      "finalValuePersisted": 100692.086369,
+      "finalValueCorrected": 100692.086369,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1000,12 +764,12 @@
     },
     {
       "caseId": "S09-L06-C05",
-      "tradesPersisted": 84,
-      "tradesCorrected": 84,
+      "tradesPersisted": 86,
+      "tradesCorrected": 86,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 86603.774601,
-      "finalValueCorrected": 86603.774601,
+      "finalValuePersisted": 86330.575274,
+      "finalValueCorrected": 86330.575274,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1014,12 +778,12 @@
     },
     {
       "caseId": "S09-L06-C06",
-      "tradesPersisted": 94,
-      "tradesCorrected": 94,
+      "tradesPersisted": 97,
+      "tradesCorrected": 97,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 4241976.985601,
-      "finalValueCorrected": 4241976.985601,
+      "finalValuePersisted": 4219271.290581,
+      "finalValueCorrected": 4219271.290581,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1032,8 +796,22 @@
       "tradesCorrected": 29,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.391064,
-      "finalValueCorrected": 1.391064,
+      "finalValuePersisted": 1.384346,
+      "finalValueCorrected": 1.384346,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C08",
+      "tradesPersisted": 72,
+      "tradesCorrected": 72,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1768343706.987675,
+      "finalValueCorrected": 1768343706.987675,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1046,8 +824,36 @@
       "tradesCorrected": 7,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 336642.350249,
-      "finalValueCorrected": 336642.350249,
+      "finalValuePersisted": 331254.460284,
+      "finalValueCorrected": 331254.460284,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C10",
+      "tradesPersisted": 156,
+      "tradesCorrected": 156,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 864473.330434,
+      "finalValueCorrected": 864473.330434,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C01",
+      "tradesPersisted": 27,
+      "tradesCorrected": 27,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 153640.374355,
+      "finalValueCorrected": 153640.374355,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1060,8 +866,8 @@
       "tradesCorrected": 13,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 110249.506932,
-      "finalValueCorrected": 110249.506932,
+      "finalValuePersisted": 110113.057474,
+      "finalValueCorrected": 110113.057474,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1074,8 +880,8 @@
       "tradesCorrected": 4,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 103697.34275,
-      "finalValueCorrected": 103697.34275,
+      "finalValuePersisted": 103707.399775,
+      "finalValueCorrected": 103707.399775,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1102,8 +908,8 @@
       "tradesCorrected": 39,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 74319.438801,
-      "finalValueCorrected": 74319.438801,
+      "finalValuePersisted": 74311.983338,
+      "finalValueCorrected": 74311.983338,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1116,8 +922,8 @@
       "tradesCorrected": 44,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 3326658.915727,
-      "finalValueCorrected": 3326658.915727,
+      "finalValuePersisted": 3326657.263421,
+      "finalValueCorrected": 3326657.263421,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1130,8 +936,22 @@
       "tradesCorrected": 13,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.102494,
-      "finalValueCorrected": 1.102494,
+      "finalValuePersisted": 1.101131,
+      "finalValueCorrected": 1.101131,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C08",
+      "tradesPersisted": 27,
+      "tradesCorrected": 27,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1259153508.266772,
+      "finalValueCorrected": 1259153508.266772,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1144,8 +964,36 @@
       "tradesCorrected": 13,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 270878.550909,
-      "finalValueCorrected": 270878.550909,
+      "finalValuePersisted": 268477.213204,
+      "finalValueCorrected": 268477.213204,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C10",
+      "tradesPersisted": 50,
+      "tradesCorrected": 50,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 695154.720328,
+      "finalValueCorrected": 695154.720328,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C01",
+      "tradesPersisted": 228,
+      "tradesCorrected": 228,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 801809.856724,
+      "finalValueCorrected": 801809.856724,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1154,12 +1002,12 @@
     },
     {
       "caseId": "S09-L08-C02",
-      "tradesPersisted": 92,
-      "tradesCorrected": 92,
+      "tradesPersisted": 93,
+      "tradesCorrected": 93,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 228248.959689,
-      "finalValueCorrected": 228248.959689,
+      "finalValuePersisted": 224873.200507,
+      "finalValueCorrected": 224873.200507,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1172,8 +1020,8 @@
       "tradesCorrected": 42,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 142023.977271,
-      "finalValueCorrected": 142023.977271,
+      "finalValuePersisted": 140694.283289,
+      "finalValueCorrected": 140694.283289,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1186,8 +1034,8 @@
       "tradesCorrected": 23,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 105600.648386,
-      "finalValueCorrected": 105600.648386,
+      "finalValuePersisted": 104947.889834,
+      "finalValueCorrected": 104947.889834,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1196,12 +1044,12 @@
     },
     {
       "caseId": "S09-L08-C05",
-      "tradesPersisted": 304,
-      "tradesCorrected": 304,
+      "tradesPersisted": 305,
+      "tradesCorrected": 305,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 119690.929757,
-      "finalValueCorrected": 119690.929757,
+      "finalValuePersisted": 118291.066166,
+      "finalValueCorrected": 118291.066166,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1210,12 +1058,12 @@
     },
     {
       "caseId": "S09-L08-C06",
-      "tradesPersisted": 240,
-      "tradesCorrected": 240,
+      "tradesPersisted": 225,
+      "tradesCorrected": 225,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 5220108.696158,
-      "finalValueCorrected": 5220108.696158,
+      "finalValuePersisted": 5135514.95747,
+      "finalValueCorrected": 5135514.95747,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1224,12 +1072,26 @@
     },
     {
       "caseId": "S09-L08-C07",
-      "tradesPersisted": 92,
-      "tradesCorrected": 92,
+      "tradesPersisted": 93,
+      "tradesCorrected": 93,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 2.282489,
-      "finalValueCorrected": 2.282489,
+      "finalValuePersisted": 2.248733,
+      "finalValueCorrected": 2.248733,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C08",
+      "tradesPersisted": 302,
+      "tradesCorrected": 302,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 4031044315.989188,
+      "finalValueCorrected": 4031044315.989188,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1238,12 +1100,26 @@
     },
     {
       "caseId": "S09-L08-C09",
-      "tradesPersisted": 2,
-      "tradesCorrected": 2,
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 320132.838782,
-      "finalValueCorrected": 320132.838782,
+      "finalValuePersisted": 479522.827406,
+      "finalValueCorrected": 479522.827406,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C10",
+      "tradesPersisted": 747,
+      "tradesCorrected": 747,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1720711.299484,
+      "finalValueCorrected": 1720711.299484,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1270,8 +1146,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 111457.765053,
-      "finalValueCorrected": 111457.765053,
+      "finalValuePersisted": 111343.602919,
+      "finalValueCorrected": 111343.602919,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1312,8 +1188,8 @@
       "tradesCorrected": 21,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 72594.045055,
-      "finalValueCorrected": 72594.045055,
+      "finalValuePersisted": 72588.824293,
+      "finalValueCorrected": 72588.824293,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1326,8 +1202,8 @@
       "tradesCorrected": 33,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 3144217.362298,
-      "finalValueCorrected": 3144217.362298,
+      "finalValuePersisted": 3144216.203446,
+      "finalValueCorrected": 3144216.203446,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1340,8 +1216,8 @@
       "tradesCorrected": 6,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 1.114578,
-      "finalValueCorrected": 1.114578,
+      "finalValuePersisted": 1.113436,
+      "finalValueCorrected": 1.113436,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],
@@ -1368,8 +1244,8 @@
       "tradesCorrected": 3,
       "tradesOnlyWithLookAhead": 0,
       "tradesOnlyWithoutLookAhead": 0,
-      "finalValuePersisted": 168844.663614,
-      "finalValueCorrected": 168844.663614,
+      "finalValuePersisted": 167725.052338,
+      "finalValueCorrected": 167725.052338,
       "finalValueChangePercent": 0,
       "examples": {
         "onlyWithLookAhead": [],

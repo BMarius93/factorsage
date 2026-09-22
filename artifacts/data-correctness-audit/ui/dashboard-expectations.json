@@ -1,5 +1,5 @@
 {
-  "session": "2026-09-18",
+  "session": "2026-09-21",
   "rows": [
     {
       "monitor": "DCA-AUDIT-S01xL08-conditions",
@@ -45,6 +45,15 @@
       "state": "ACTIVE",
       "price": 174.01,
       "observationDate": "2026-07-07"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "DIS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 104.23,
+      "observationDate": "2026-09-21"
     },
     {
       "monitor": "DCA-AUDIT-S01xL08-conditions",
@@ -147,6 +156,15 @@
     },
     {
       "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "GS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 959.39,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
       "symbol": "CRM",
       "levelKind": "BUY",
       "levelPercentage": 100,
@@ -234,6 +252,24 @@
       "state": "ACTIVE",
       "price": 383.77,
       "observationDate": "2026-01-23"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "KO",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 87.12,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "XOM",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 158.3,
+      "observationDate": "2026-09-21"
     }
   ]
 }

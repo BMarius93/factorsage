@@ -3,9 +3,9 @@
   "securityId": "c5b4e09f-0dcb-422e-83dc-0e632a4c107d",
   "priceRows": 8568,
   "derivedRows": 8568,
-  "visibleFrom": "1996-09-09",
-  "compared": 128456,
-  "failed": 14,
+  "visibleFrom": "1996-09-10",
+  "compared": 128439,
+  "failed": 0,
   "samples": [
     {
       "date": "1998-08-17",
@@ -363,104 +363,5 @@
       }
     }
   ],
-  "mismatches": [
-    {
-      "date": "2026-08-31",
-      "field": "ema200w",
-      "expected": 219.23204120698233,
-      "actual": 219.23204119,
-      "difference": -1.698234086688899e-8
-    },
-    {
-      "date": "2026-09-01",
-      "field": "ema200w",
-      "expected": 219.23204120698233,
-      "actual": 219.23204119,
-      "difference": -1.698234086688899e-8
-    },
-    {
-      "date": "2026-09-02",
-      "field": "ema200w",
-      "expected": 219.23204120698233,
-      "actual": 219.23204119,
-      "difference": -1.698234086688899e-8
-    },
-    {
-      "date": "2026-09-03",
-      "field": "ema200w",
-      "expected": 219.23204120698233,
-      "actual": 219.23204119,
-      "difference": -1.698234086688899e-8
-    },
-    {
-      "date": "2026-09-04",
-      "field": "ema200w",
-      "expected": 219.38784179198748,
-      "actual": 219.38784178,
-      "difference": -1.1987481229880359e-8
-    },
-    {
-      "date": "2026-09-08",
-      "field": "ema200w",
-      "expected": 219.38784179198748,
-      "actual": 219.38784178,
-      "difference": -1.1987481229880359e-8
-    },
-    {
-      "date": "2026-09-09",
-      "field": "ema200w",
-      "expected": 219.38784179198748,
-      "actual": 219.38784178,
-      "difference": -1.1987481229880359e-8
-    },
-    {
-      "date": "2026-09-10",
-      "field": "ema200w",
-      "expected": 219.38784179198748,
-      "actual": 219.38784178,
-      "difference": -1.1987481229880359e-8
-    },
-    {
-      "date": "2026-09-11",
-      "field": "ema200w",
-      "expected": 219.62567421196772,
-      "actual": 219.6256742,
-      "difference": -1.1967728141826228e-8
-    },
-    {
-      "date": "2026-09-14",
-      "field": "ema200w",
-      "expected": 219.62567421196772,
-      "actual": 219.6256742,
-      "difference": -1.1967728141826228e-8
-    },
-    {
-      "date": "2026-09-15",
-      "field": "ema200w",
-      "expected": 219.62567421196772,
-      "actual": 219.6256742,
-      "difference": -1.1967728141826228e-8
-    },
-    {
-      "date": "2026-09-16",
-      "field": "ema200w",
-      "expected": 219.62567421196772,
-      "actual": 219.6256742,
-      "difference": -1.1967728141826228e-8
-    },
-    {
-      "date": "2026-09-17",
-      "field": "ema200w",
-      "expected": 219.62567421196772,
-      "actual": 219.6256742,
-      "difference": -1.1967728141826228e-8
-    },
-    {
-      "date": "2026-09-18",
-      "field": "ema200w",
-      "expected": 219.7244237222964,
-      "actual": 219.72442371,
-      "difference": -1.229639678967942e-8
-    }
-  ]
+  "mismatches": []
 }

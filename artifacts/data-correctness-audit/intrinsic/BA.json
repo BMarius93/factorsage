@@ -1,12 +1,12 @@
 {
   "symbol": "BA",
-  "compared": 76026,
+  "compared": 76015,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 5786,
-    "RESIDUAL_INCOME": 4982,
-    "DDM": 6556,
-    "GRAHAM": 5803
+    "DCF_FCFF": 5785,
+    "RESIDUAL_INCOME": 4981,
+    "DDM": 6555,
+    "GRAHAM": 5802
   },
   "valuesAbsent": {
     "RESIDUAL_INCOME": 2575,
@@ -36,7 +36,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 14.151300959571083,

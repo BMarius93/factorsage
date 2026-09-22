@@ -1,20 +1,20 @@
 {
   "symbol": "AXP",
-  "compared": 82417,
+  "compared": 82407,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7492,
-    "RESIDUAL_INCOME": 7557,
-    "DDM": 7557,
+    "DCF_FCFF": 7491,
+    "RESIDUAL_INCOME": 7556,
+    "DDM": 7556,
     "GRAHAM": 6912
   },
   "valuesAbsent": {
-    "GRAHAM": 645,
+    "GRAHAM": 644,
     "DCF_FCFF": 65
   },
   "unavailableReasons": {
     "GRAHAM": {
-      "NON_POSITIVE_MULTIPLIER": 645
+      "NON_POSITIVE_MULTIPLIER": 644
     },
     "DCF_FCFF": {
       "NON_POSITIVE_EQUITY_VALUE": 65
@@ -26,7 +26,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 9.08336211315715,

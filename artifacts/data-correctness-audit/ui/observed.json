@@ -3,36 +3,36 @@
     {
       "area": "backtest S01-L01-C04",
       "id": "Portfolio return",
-      "expected": "+3.24%",
-      "actual": "+3.24%",
+      "expected": "+3.27%",
+      "actual": "+3.27%",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
       "id": "S&P 500 return",
-      "expected": "+15.99%",
-      "actual": "+15.99%",
+      "expected": "+15.98%",
+      "actual": "+15.98%",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
       "id": "Excess return",
-      "expected": "-12.76%",
-      "actual": "-12.76%",
+      "expected": "-12.71%",
+      "actual": "-12.71%",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
       "id": "Portfolio value",
-      "expected": "$103,237.27",
-      "actual": "$103,237.27",
+      "expected": "$103,267.34",
+      "actual": "$103,267.34",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
       "id": "Net profit",
-      "expected": "+$3,237.27",
-      "actual": "+$3,237.27",
+      "expected": "+$3,267.34",
+      "actual": "+$3,267.34",
       "pass": true
     },
     {
@@ -52,8 +52,8 @@
     {
       "area": "backtest S01-L01-C04",
       "id": "CAGR",
-      "expected": "+3.25%",
-      "actual": "+3.25%",
+      "expected": "+3.27%",
+      "actual": "+3.27%",
       "pass": true
     },
     {
@@ -80,8 +80,8 @@
     {
       "area": "backtest S01-L01-C04",
       "id": "annual 2026",
-      "expected": "+2.61%",
-      "actual": "+2.61%",
+      "expected": "+2.63%",
+      "actual": "+2.63%",
       "pass": true
     },
     {
@@ -101,8 +101,8 @@
     {
       "area": "backtest S01-L01-C04",
       "id": "chart points",
-      "expected": "251",
-      "actual": "251",
+      "expected": "252",
+      "actual": "252",
       "pass": true
     },
     {
@@ -115,15 +115,15 @@
     {
       "area": "backtest S01-L01-C04",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
       "id": "configuration period",
-      "expected": "Sep 21, 2025 – Sep 21, 2026",
-      "actual": "Sep 21, 2025 – Sep 21, 2026",
+      "expected": "Sep 22, 2025 – Sep 22, 2026",
+      "actual": "Sep 22, 2025 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -149,51 +149,51 @@
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL symbol",
+      "id": "trade 1 2026-09-22 AAPL symbol",
       "expected": "AAPL",
       "actual": "AAPL",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 AAPL date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL action",
+      "id": "trade 1 2026-09-22 AAPL action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL amount",
-      "expected": "$13,237.27",
-      "actual": "$13,237.27",
+      "id": "trade 1 2026-09-22 AAPL amount",
+      "expected": "$13,267.34",
+      "actual": "$13,267.34",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL shares @ price",
-      "expected": "39.0503 @ $338.98",
-      "actual": "39.0503 @ $338.98",
+      "id": "trade 1 2026-09-22 AAPL shares @ price",
+      "expected": "39.0503 @ $339.75",
+      "actual": "39.0503 @ $339.75",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL reason",
+      "id": "trade 1 2026-09-22 AAPL reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S01-L01-C04",
-      "id": "trade 1 2026-09-21 AAPL realized",
-      "expected": "+$3,237.27 · +32.37%",
-      "actual": "+$3,237.27 · +32.37%",
+      "id": "trade 1 2026-09-22 AAPL realized",
+      "expected": "+$3,267.34 · +32.67%",
+      "actual": "+$3,267.34 · +32.67%",
       "pass": true
     },
     {
@@ -241,36 +241,36 @@
     {
       "area": "backtest S04-L05-C05",
       "id": "Portfolio return",
-      "expected": "+38.95%",
-      "actual": "+38.95%",
+      "expected": "+39.28%",
+      "actual": "+39.28%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "S&P 500 return",
-      "expected": "+258.40%",
-      "actual": "+258.40%",
+      "expected": "+256.10%",
+      "actual": "+256.10%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "Excess return",
-      "expected": "-219.45%",
-      "actual": "-219.45%",
+      "expected": "-216.83%",
+      "actual": "-216.83%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "Portfolio value",
-      "expected": "$86,227.50",
-      "actual": "$86,227.50",
+      "expected": "$86,428.15",
+      "actual": "$86,428.15",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "Net profit",
-      "expected": "+$16,227.50",
-      "actual": "+$16,227.50",
+      "expected": "+$16,428.15",
+      "actual": "+$16,428.15",
       "pass": true
     },
     {
@@ -290,8 +290,8 @@
     {
       "area": "backtest S04-L05-C05",
       "id": "CAGR",
-      "expected": "+3.34%",
-      "actual": "+3.34%",
+      "expected": "+3.37%",
+      "actual": "+3.37%",
       "pass": true
     },
     {
@@ -444,8 +444,8 @@
     {
       "area": "backtest S04-L05-C05",
       "id": "annual 2026",
-      "expected": "+3.82%",
-      "actual": "+3.82%",
+      "expected": "+4.06%",
+      "actual": "+4.06%",
       "pass": true
     },
     {
@@ -472,22 +472,22 @@
     {
       "area": "backtest S04-L05-C05",
       "id": "chart from",
-      "expected": "2016-09-21",
-      "actual": "2016-09-21",
+      "expected": "2016-09-22",
+      "actual": "2016-09-22",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
       "id": "configuration period",
-      "expected": "Sep 21, 2016 – Sep 21, 2026",
-      "actual": "Sep 21, 2016 – Sep 21, 2026",
+      "expected": "Sep 22, 2016 – Sep 22, 2026",
+      "actual": "Sep 22, 2016 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -513,247 +513,247 @@
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT symbol",
+      "id": "trade 1 2026-09-22 MSFT symbol",
       "expected": "MSFT",
       "actual": "MSFT",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 MSFT date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT action",
+      "id": "trade 1 2026-09-22 MSFT action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT amount",
-      "expected": "$4,152.64",
-      "actual": "$4,152.64",
+      "id": "trade 1 2026-09-22 MSFT amount",
+      "expected": "$4,122.75",
+      "actual": "$4,122.75",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT shares @ price",
-      "expected": "8.2786 @ $501.61",
-      "actual": "8.2786 @ $501.61",
+      "id": "trade 1 2026-09-22 MSFT shares @ price",
+      "expected": "8.2786 @ $498.00",
+      "actual": "8.2786 @ $498.00",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT reason",
+      "id": "trade 1 2026-09-22 MSFT reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 1 2026-09-21 MSFT realized",
-      "expected": "+$199.90 · +5.06%",
-      "actual": "+$199.90 · +5.06%",
+      "id": "trade 1 2026-09-22 MSFT realized",
+      "expected": "+$170.02 · +4.30%",
+      "actual": "+$170.02 · +4.30%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO symbol",
+      "id": "trade 2 2026-09-22 KO symbol",
       "expected": "KO",
       "actual": "KO",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 2 2026-09-22 KO date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO action",
+      "id": "trade 2 2026-09-22 KO action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO amount",
-      "expected": "$1,138.69",
-      "actual": "$1,138.69",
+      "id": "trade 2 2026-09-22 KO amount",
+      "expected": "$1,158.17",
+      "actual": "$1,158.17",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO shares @ price",
-      "expected": "13.0704 @ $87.12",
-      "actual": "13.0704 @ $87.12",
+      "id": "trade 2 2026-09-22 KO shares @ price",
+      "expected": "13.0704 @ $88.61",
+      "actual": "13.0704 @ $88.61",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO reason",
+      "id": "trade 2 2026-09-22 KO reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 2 2026-09-21 KO realized",
-      "expected": "+$145.73 · +14.68%",
-      "actual": "+$145.73 · +14.68%",
+      "id": "trade 2 2026-09-22 KO realized",
+      "expected": "+$165.21 · +16.64%",
+      "actual": "+$165.21 · +16.64%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ symbol",
+      "id": "trade 3 2026-09-22 JNJ symbol",
       "expected": "JNJ",
       "actual": "JNJ",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 3 2026-09-22 JNJ date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ action",
+      "id": "trade 3 2026-09-22 JNJ action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ amount",
-      "expected": "$2,410.50",
-      "actual": "$2,410.50",
+      "id": "trade 3 2026-09-22 JNJ amount",
+      "expected": "$2,407.99",
+      "actual": "$2,407.99",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ shares @ price",
-      "expected": "8.9453 @ $269.47",
-      "actual": "8.9453 @ $269.47",
+      "id": "trade 3 2026-09-22 JNJ shares @ price",
+      "expected": "8.9453 @ $269.19",
+      "actual": "8.9453 @ $269.19",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ reason",
+      "id": "trade 3 2026-09-22 JNJ reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 3 2026-09-21 JNJ realized",
-      "expected": "+$351.37 · +17.06%",
-      "actual": "+$351.37 · +17.06%",
+      "id": "trade 3 2026-09-22 JNJ realized",
+      "expected": "+$348.86 · +16.94%",
+      "actual": "+$348.86 · +16.94%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD symbol",
+      "id": "trade 4 2026-09-22 HD symbol",
       "expected": "HD",
       "actual": "HD",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 4 2026-09-22 HD date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD action",
+      "id": "trade 4 2026-09-22 HD action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD amount",
-      "expected": "$6,882.83",
-      "actual": "$6,882.83",
+      "id": "trade 4 2026-09-22 HD amount",
+      "expected": "$7,071.58",
+      "actual": "$7,071.58",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD shares @ price",
-      "expected": "23.1589 @ $297.20",
-      "actual": "23.1589 @ $297.20",
+      "id": "trade 4 2026-09-22 HD shares @ price",
+      "expected": "23.1589 @ $305.35",
+      "actual": "23.1589 @ $305.35",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD reason",
+      "id": "trade 4 2026-09-22 HD reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 4 2026-09-21 HD realized",
-      "expected": "-$1,012.34 · -12.82%",
-      "actual": "-$1,012.34 · -12.82%",
+      "id": "trade 4 2026-09-22 HD realized",
+      "expected": "-$823.60 · -10.43%",
+      "actual": "-$823.60 · -10.43%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL symbol",
+      "id": "trade 5 2026-09-22 AAPL symbol",
       "expected": "AAPL",
       "actual": "AAPL",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 5 2026-09-22 AAPL date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL action",
+      "id": "trade 5 2026-09-22 AAPL action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL amount",
-      "expected": "$10,923.47",
-      "actual": "$10,923.47",
+      "id": "trade 5 2026-09-22 AAPL amount",
+      "expected": "$10,948.28",
+      "actual": "$10,948.28",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL shares @ price",
-      "expected": "32.2245 @ $338.98",
-      "actual": "32.2245 @ $338.98",
+      "id": "trade 5 2026-09-22 AAPL shares @ price",
+      "expected": "32.2245 @ $339.75",
+      "actual": "32.2245 @ $339.75",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL reason",
+      "id": "trade 5 2026-09-22 AAPL reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S04-L05-C05",
-      "id": "trade 5 2026-09-21 AAPL realized",
-      "expected": "+$3,111.23 · +39.83%",
-      "actual": "+$3,111.23 · +39.83%",
+      "id": "trade 5 2026-09-22 AAPL realized",
+      "expected": "+$3,136.04 · +40.14%",
+      "actual": "+$3,136.04 · +40.14%",
       "pass": true
     },
     {
@@ -766,36 +766,36 @@
     {
       "area": "backtest S10-L08-C09",
       "id": "Portfolio return",
-      "expected": "+370.05%",
-      "actual": "+370.05%",
+      "expected": "+366.45%",
+      "actual": "+366.45%",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "S&P 500 return",
-      "expected": "+258.40%",
-      "actual": "+258.40%",
+      "expected": "+256.10%",
+      "actual": "+256.10%",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "Excess return",
-      "expected": "+111.65%",
-      "actual": "+111.65%",
+      "expected": "+110.35%",
+      "actual": "+110.35%",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "Portfolio value",
-      "expected": "$470,046.64",
-      "actual": "$470,046.64",
+      "expected": "$466,447.14",
+      "actual": "$466,447.14",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "Net profit",
-      "expected": "+$370,046.64",
-      "actual": "+$370,046.64",
+      "expected": "+$366,447.14",
+      "actual": "+$366,447.14",
       "pass": true
     },
     {
@@ -815,8 +815,8 @@
     {
       "area": "backtest S10-L08-C09",
       "id": "CAGR",
-      "expected": "+16.74%",
-      "actual": "+16.74%",
+      "expected": "+16.65%",
+      "actual": "+16.65%",
       "pass": true
     },
     {
@@ -969,8 +969,8 @@
     {
       "area": "backtest S10-L08-C09",
       "id": "annual 2026",
-      "expected": "+21.15%",
-      "actual": "+21.15%",
+      "expected": "+20.22%",
+      "actual": "+20.22%",
       "pass": true
     },
     {
@@ -997,22 +997,22 @@
     {
       "area": "backtest S10-L08-C09",
       "id": "chart from",
-      "expected": "2016-09-21",
-      "actual": "2016-09-21",
+      "expected": "2016-09-22",
+      "actual": "2016-09-22",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
       "id": "configuration period",
-      "expected": "Sep 21, 2016 – Sep 21, 2026",
-      "actual": "Sep 21, 2016 – Sep 21, 2026",
+      "expected": "Sep 22, 2016 – Sep 22, 2026",
+      "actual": "Sep 22, 2016 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -1038,51 +1038,51 @@
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT symbol",
+      "id": "trade 1 2026-09-22 CAT symbol",
       "expected": "CAT",
       "actual": "CAT",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 CAT date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT action",
+      "id": "trade 1 2026-09-22 CAT action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT amount",
-      "expected": "$346,171.20",
-      "actual": "$346,171.20",
+      "id": "trade 1 2026-09-22 CAT amount",
+      "expected": "$342,571.69",
+      "actual": "$342,571.69",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT shares @ price",
-      "expected": "423.9696 @ $816.50",
-      "actual": "423.9696 @ $816.50",
+      "id": "trade 1 2026-09-22 CAT shares @ price",
+      "expected": "423.9696 @ $808.01",
+      "actual": "423.9696 @ $808.01",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT reason",
+      "id": "trade 1 2026-09-22 CAT reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S10-L08-C09",
-      "id": "trade 1 2026-09-21 CAT realized",
-      "expected": "+$14,325.93 · +4.32%",
-      "actual": "+$14,325.93 · +4.32%",
+      "id": "trade 1 2026-09-22 CAT realized",
+      "expected": "+$10,726.43 · +3.23%",
+      "actual": "+$10,726.43 · +3.23%",
       "pass": true
     },
     {
@@ -1249,22 +1249,22 @@
     {
       "area": "backtest S05-L02-C07",
       "id": "Portfolio return",
-      "expected": "+14.74%",
-      "actual": "+14.74%",
+      "expected": "+14.77%",
+      "actual": "+14.77%",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
       "id": "S&P 500 return",
-      "expected": "+258.40%",
-      "actual": "+258.40%",
+      "expected": "+256.10%",
+      "actual": "+256.10%",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
       "id": "Excess return",
-      "expected": "-243.66%",
-      "actual": "-243.66%",
+      "expected": "-241.33%",
+      "actual": "-241.33%",
       "pass": true
     },
     {
@@ -1298,8 +1298,8 @@
     {
       "area": "backtest S05-L02-C07",
       "id": "CAGR",
-      "expected": "+1.38%",
-      "actual": "+1.38%",
+      "expected": "+1.39%",
+      "actual": "+1.39%",
       "pass": true
     },
     {
@@ -1452,8 +1452,8 @@
     {
       "area": "backtest S05-L02-C07",
       "id": "annual 2026",
-      "expected": "+2.80%",
-      "actual": "+2.80%",
+      "expected": "+2.83%",
+      "actual": "+2.83%",
       "pass": true
     },
     {
@@ -1480,22 +1480,22 @@
     {
       "area": "backtest S05-L02-C07",
       "id": "chart from",
-      "expected": "2016-09-21",
-      "actual": "2016-09-21",
+      "expected": "2016-09-22",
+      "actual": "2016-09-22",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
       "id": "configuration period",
-      "expected": "Sep 21, 2016 – Sep 21, 2026",
-      "actual": "Sep 21, 2016 – Sep 21, 2026",
+      "expected": "Sep 22, 2016 – Sep 22, 2026",
+      "actual": "Sep 22, 2016 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -1521,51 +1521,51 @@
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM symbol",
+      "id": "trade 1 2026-09-22 XOM symbol",
       "expected": "XOM",
       "actual": "XOM",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 XOM date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM action",
+      "id": "trade 1 2026-09-22 XOM action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM amount",
-      "expected": "$0.11",
-      "actual": "$0.11",
+      "id": "trade 1 2026-09-22 XOM amount",
+      "expected": "$0.12",
+      "actual": "$0.12",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM shares @ price",
-      "expected": "0.0007 @ $158.30",
-      "actual": "0.0007 @ $158.30",
+      "id": "trade 1 2026-09-22 XOM shares @ price",
+      "expected": "0.0007 @ $158.69",
+      "actual": "0.0007 @ $158.69",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM reason",
+      "id": "trade 1 2026-09-22 XOM reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S05-L02-C07",
-      "id": "trade 1 2026-09-21 XOM realized",
-      "expected": "$0.00 · 0.00%",
-      "actual": "$0.00 · 0.00%",
+      "id": "trade 1 2026-09-22 XOM realized",
+      "expected": "$0.00 · +0.25%",
+      "actual": "$0.00 · +0.25%",
       "pass": true
     },
     {
@@ -1732,36 +1732,36 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "Portfolio return",
-      "expected": "+240.16%",
-      "actual": "+240.16%",
+      "expected": "+237.62%",
+      "actual": "+237.62%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "S&P 500 return",
-      "expected": "+258.40%",
-      "actual": "+258.40%",
+      "expected": "+256.10%",
+      "actual": "+256.10%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "Excess return",
-      "expected": "-18.24%",
-      "actual": "-18.24%",
+      "expected": "-18.49%",
+      "actual": "-18.49%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "Portfolio value",
-      "expected": "$6,688,251.84",
-      "actual": "$6,688,251.84",
+      "expected": "$6,631,616.85",
+      "actual": "$6,631,616.85",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "Net profit",
-      "expected": "+$3,687,251.84",
-      "actual": "+$3,687,251.84",
+      "expected": "+$3,630,616.85",
+      "actual": "+$3,630,616.85",
       "pass": true
     },
     {
@@ -1781,8 +1781,8 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "CAGR",
-      "expected": "+13.03%",
-      "actual": "+13.03%",
+      "expected": "+12.94%",
+      "actual": "+12.94%",
       "pass": true
     },
     {
@@ -1795,8 +1795,8 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "annual 2016",
-      "expected": "+5.28%",
-      "actual": "+5.28%",
+      "expected": "+5.40%",
+      "actual": "+5.40%",
       "pass": true
     },
     {
@@ -1823,8 +1823,8 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "annual 2018",
-      "expected": "-5.74%",
-      "actual": "-5.74%",
+      "expected": "-5.75%",
+      "actual": "-5.75%",
       "pass": true
     },
     {
@@ -1935,8 +1935,8 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "annual 2026",
-      "expected": "+12.40%",
-      "actual": "+12.40%",
+      "expected": "+11.46%",
+      "actual": "+11.46%",
       "pass": true
     },
     {
@@ -1963,22 +1963,22 @@
     {
       "area": "backtest S08-L06-C06",
       "id": "chart from",
-      "expected": "2016-09-21",
-      "actual": "2016-09-21",
+      "expected": "2016-09-22",
+      "actual": "2016-09-22",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
       "id": "configuration period",
-      "expected": "Sep 21, 2016 – Sep 21, 2026",
-      "actual": "Sep 21, 2016 – Sep 21, 2026",
+      "expected": "Sep 22, 2016 – Sep 22, 2026",
+      "actual": "Sep 22, 2016 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -2004,247 +2004,247 @@
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V symbol",
+      "id": "trade 1 2026-09-22 V symbol",
       "expected": "V",
       "actual": "V",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 V date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V action",
+      "id": "trade 1 2026-09-22 V action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V amount",
-      "expected": "$1,139,549.32",
-      "actual": "$1,139,549.32",
+      "id": "trade 1 2026-09-22 V amount",
+      "expected": "$1,115,128.17",
+      "actual": "$1,115,128.17",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V shares @ price",
-      "expected": "3,080.2793 @ $369.95",
-      "actual": "3,080.2793 @ $369.95",
+      "id": "trade 1 2026-09-22 V shares @ price",
+      "expected": "3,080.1242 @ $362.04",
+      "actual": "3,080.1242 @ $362.04",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V reason",
+      "id": "trade 1 2026-09-22 V reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 1 2026-09-21 V realized",
-      "expected": "+$443,009.66 · +63.60%",
-      "actual": "+$443,009.66 · +63.60%",
+      "id": "trade 1 2026-09-22 V realized",
+      "expected": "+$418,615.54 · +60.10%",
+      "actual": "+$418,615.54 · +60.10%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA symbol",
+      "id": "trade 2 2026-09-22 NVDA symbol",
       "expected": "NVDA",
       "actual": "NVDA",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 2 2026-09-22 NVDA date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA action",
+      "id": "trade 2 2026-09-22 NVDA action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA amount",
-      "expected": "$1,570,044.10",
-      "actual": "$1,570,044.10",
+      "id": "trade 2 2026-09-22 NVDA amount",
+      "expected": "$1,580,237.27",
+      "actual": "$1,580,237.27",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA shares @ price",
-      "expected": "6,904.9349 @ $227.38",
-      "actual": "6,904.9349 @ $227.38",
+      "id": "trade 2 2026-09-22 NVDA shares @ price",
+      "expected": "6,904.519 @ $228.87",
+      "actual": "6,904.519 @ $228.87",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA reason",
+      "id": "trade 2 2026-09-22 NVDA reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 2 2026-09-21 NVDA realized",
-      "expected": "+$1,028,116.04 · +189.71%",
-      "actual": "+$1,028,116.04 · +189.71%",
+      "id": "trade 2 2026-09-22 NVDA realized",
+      "expected": "+$1,038,338.03 · +191.61%",
+      "actual": "+$1,038,338.03 · +191.61%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS symbol",
+      "id": "trade 3 2026-09-22 GS symbol",
       "expected": "GS",
       "actual": "GS",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 3 2026-09-22 GS date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS action",
+      "id": "trade 3 2026-09-22 GS action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS amount",
-      "expected": "$1,226,206.97",
-      "actual": "$1,226,206.97",
+      "id": "trade 3 2026-09-22 GS amount",
+      "expected": "$1,213,492.39",
+      "actual": "$1,213,492.39",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS shares @ price",
-      "expected": "1,278.1111 @ $959.39",
-      "actual": "1,278.1111 @ $959.39",
+      "id": "trade 3 2026-09-22 GS shares @ price",
+      "expected": "1,278.0465 @ $949.49",
+      "actual": "1,278.0465 @ $949.49",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS reason",
+      "id": "trade 3 2026-09-22 GS reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 3 2026-09-21 GS realized",
-      "expected": "+$761,346.76 · +163.78%",
-      "actual": "+$761,346.76 · +163.78%",
+      "id": "trade 3 2026-09-22 GS realized",
+      "expected": "+$748,650.62 · +161.05%",
+      "actual": "+$748,650.62 · +161.05%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL symbol",
+      "id": "trade 4 2026-09-22 GOOGL symbol",
       "expected": "GOOGL",
       "actual": "GOOGL",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 4 2026-09-22 GOOGL date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL action",
+      "id": "trade 4 2026-09-22 GOOGL action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL amount",
-      "expected": "$1,505,199.67",
-      "actual": "$1,505,199.67",
+      "id": "trade 4 2026-09-22 GOOGL amount",
+      "expected": "$1,488,954.44",
+      "actual": "$1,488,954.44",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL shares @ price",
-      "expected": "4,240.3574 @ $354.97",
-      "actual": "4,240.3574 @ $354.97",
+      "id": "trade 4 2026-09-22 GOOGL shares @ price",
+      "expected": "4,240.1026 @ $351.16",
+      "actual": "4,240.1026 @ $351.16",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL reason",
+      "id": "trade 4 2026-09-22 GOOGL reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 4 2026-09-21 GOOGL realized",
-      "expected": "+$1,046,320.50 · +228.02%",
-      "actual": "+$1,046,320.50 · +228.02%",
+      "id": "trade 4 2026-09-22 GOOGL realized",
+      "expected": "+$1,030,116.62 · +224.51%",
+      "actual": "+$1,030,116.62 · +224.51%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN symbol",
+      "id": "trade 5 2026-09-22 AMZN symbol",
       "expected": "AMZN",
       "actual": "AMZN",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 5 2026-09-22 AMZN date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN action",
+      "id": "trade 5 2026-09-22 AMZN action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN amount",
-      "expected": "$997,251.78",
-      "actual": "$997,251.78",
+      "id": "trade 5 2026-09-22 AMZN amount",
+      "expected": "$983,804.59",
+      "actual": "$983,804.59",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN shares @ price",
-      "expected": "3,858.5869 @ $258.45",
-      "actual": "3,858.5869 @ $258.45",
+      "id": "trade 5 2026-09-22 AMZN shares @ price",
+      "expected": "3,858.3598 @ $254.98",
+      "actual": "3,858.3598 @ $254.98",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN reason",
+      "id": "trade 5 2026-09-22 AMZN reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S08-L06-C06",
-      "id": "trade 5 2026-09-21 AMZN realized",
-      "expected": "+$501,487.36 · +101.15%",
-      "actual": "+$501,487.36 · +101.15%",
+      "id": "trade 5 2026-09-22 AMZN realized",
+      "expected": "+$488,052.32 · +98.45%",
+      "actual": "+$488,052.32 · +98.45%",
       "pass": true
     },
     {
@@ -2264,15 +2264,15 @@
     {
       "area": "backtest S02-L10-C03",
       "id": "S&P 500 return",
-      "expected": "+79.30%",
-      "actual": "+79.30%",
+      "expected": "+79.68%",
+      "actual": "+79.68%",
       "pass": true
     },
     {
       "area": "backtest S02-L10-C03",
       "id": "Excess return",
-      "expected": "-79.30%",
-      "actual": "-79.30%",
+      "expected": "-79.68%",
+      "actual": "-79.68%",
       "pass": true
     },
     {
@@ -2390,22 +2390,22 @@
     {
       "area": "backtest S02-L10-C03",
       "id": "chart from",
-      "expected": "2023-09-21",
-      "actual": "2023-09-21",
+      "expected": "2023-09-22",
+      "actual": "2023-09-22",
       "pass": true
     },
     {
       "area": "backtest S02-L10-C03",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S02-L10-C03",
       "id": "configuration period",
-      "expected": "Sep 21, 2023 – Sep 21, 2026",
-      "actual": "Sep 21, 2023 – Sep 21, 2026",
+      "expected": "Sep 22, 2023 – Sep 22, 2026",
+      "actual": "Sep 22, 2023 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -2439,43 +2439,43 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "Portfolio return",
-      "expected": "+676.82%",
-      "actual": "+676.82%",
+      "expected": "+701.81%",
+      "actual": "+701.81%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "S&P 500 return",
-      "expected": "+1,027.06%",
-      "actual": "+1,027.06%",
+      "expected": "+1,026.88%",
+      "actual": "+1,026.88%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "Excess return",
-      "expected": "-350.24%",
-      "actual": "-350.24%",
+      "expected": "-325.07%",
+      "actual": "-325.07%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "Portfolio value",
-      "expected": "$776,820.19",
-      "actual": "$776,820.19",
+      "expected": "$801,809.86",
+      "actual": "$801,809.86",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "Net profit",
-      "expected": "+$676,820.19",
-      "actual": "+$676,820.19",
+      "expected": "+$701,809.86",
+      "actual": "+$701,809.86",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "Max drawdown",
-      "expected": "-32.17%",
-      "actual": "-32.17%",
+      "expected": "-34.17%",
+      "actual": "-34.17%",
       "pass": true
     },
     {
@@ -2488,8 +2488,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "CAGR",
-      "expected": "+7.07%",
-      "actual": "+7.07%",
+      "expected": "+7.19%",
+      "actual": "+7.19%",
       "pass": true
     },
     {
@@ -2502,8 +2502,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 1996",
-      "expected": "+2.97%",
-      "actual": "+2.97%",
+      "expected": "+2.95%",
+      "actual": "+2.95%",
       "pass": true
     },
     {
@@ -2516,8 +2516,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 1997",
-      "expected": "+10.55%",
-      "actual": "+10.55%",
+      "expected": "+10.58%",
+      "actual": "+10.58%",
       "pass": true
     },
     {
@@ -2544,8 +2544,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 1999",
-      "expected": "+8.66%",
-      "actual": "+8.66%",
+      "expected": "+8.38%",
+      "actual": "+8.38%",
       "pass": true
     },
     {
@@ -2558,8 +2558,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2000",
-      "expected": "+7.26%",
-      "actual": "+7.26%",
+      "expected": "+5.69%",
+      "actual": "+5.69%",
       "pass": true
     },
     {
@@ -2572,8 +2572,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2001",
-      "expected": "-1.36%",
-      "actual": "-1.36%",
+      "expected": "+1.49%",
+      "actual": "+1.49%",
       "pass": true
     },
     {
@@ -2586,8 +2586,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2002",
-      "expected": "-5.72%",
-      "actual": "-5.72%",
+      "expected": "-6.38%",
+      "actual": "-6.38%",
       "pass": true
     },
     {
@@ -2600,8 +2600,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2003",
-      "expected": "+17.76%",
-      "actual": "+17.76%",
+      "expected": "+18.69%",
+      "actual": "+18.69%",
       "pass": true
     },
     {
@@ -2614,8 +2614,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2004",
-      "expected": "+7.41%",
-      "actual": "+7.41%",
+      "expected": "+7.48%",
+      "actual": "+7.48%",
       "pass": true
     },
     {
@@ -2628,8 +2628,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2005",
-      "expected": "+7.35%",
-      "actual": "+7.35%",
+      "expected": "+7.83%",
+      "actual": "+7.83%",
       "pass": true
     },
     {
@@ -2642,8 +2642,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2006",
-      "expected": "+9.54%",
-      "actual": "+9.54%",
+      "expected": "+11.00%",
+      "actual": "+11.00%",
       "pass": true
     },
     {
@@ -2656,8 +2656,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2007",
-      "expected": "+4.59%",
-      "actual": "+4.59%",
+      "expected": "+4.78%",
+      "actual": "+4.78%",
       "pass": true
     },
     {
@@ -2670,8 +2670,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2008",
-      "expected": "-20.76%",
-      "actual": "-20.76%",
+      "expected": "-22.59%",
+      "actual": "-22.59%",
       "pass": true
     },
     {
@@ -2684,8 +2684,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2009",
-      "expected": "+17.68%",
-      "actual": "+17.68%",
+      "expected": "+19.73%",
+      "actual": "+19.73%",
       "pass": true
     },
     {
@@ -2698,8 +2698,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2010",
-      "expected": "+5.73%",
-      "actual": "+5.73%",
+      "expected": "+5.64%",
+      "actual": "+5.64%",
       "pass": true
     },
     {
@@ -2712,8 +2712,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2011",
-      "expected": "+2.26%",
-      "actual": "+2.26%",
+      "expected": "+0.80%",
+      "actual": "+0.80%",
       "pass": true
     },
     {
@@ -2726,8 +2726,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2012",
-      "expected": "+11.19%",
-      "actual": "+11.19%",
+      "expected": "+11.92%",
+      "actual": "+11.92%",
       "pass": true
     },
     {
@@ -2740,8 +2740,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2013",
-      "expected": "+17.34%",
-      "actual": "+17.34%",
+      "expected": "+18.10%",
+      "actual": "+18.10%",
       "pass": true
     },
     {
@@ -2754,8 +2754,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2014",
-      "expected": "+10.79%",
-      "actual": "+10.79%",
+      "expected": "+11.03%",
+      "actual": "+11.03%",
       "pass": true
     },
     {
@@ -2768,8 +2768,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2015",
-      "expected": "-0.38%",
-      "actual": "-0.38%",
+      "expected": "-0.55%",
+      "actual": "-0.55%",
       "pass": true
     },
     {
@@ -2782,8 +2782,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2016",
-      "expected": "+6.01%",
-      "actual": "+6.01%",
+      "expected": "+6.23%",
+      "actual": "+6.23%",
       "pass": true
     },
     {
@@ -2796,8 +2796,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2017",
-      "expected": "+19.95%",
-      "actual": "+19.95%",
+      "expected": "+19.88%",
+      "actual": "+19.88%",
       "pass": true
     },
     {
@@ -2810,8 +2810,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2018",
-      "expected": "-2.83%",
-      "actual": "-2.83%",
+      "expected": "-3.23%",
+      "actual": "-3.23%",
       "pass": true
     },
     {
@@ -2824,8 +2824,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2019",
-      "expected": "+23.79%",
-      "actual": "+23.79%",
+      "expected": "+24.02%",
+      "actual": "+24.02%",
       "pass": true
     },
     {
@@ -2838,8 +2838,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2020",
-      "expected": "+3.09%",
-      "actual": "+3.09%",
+      "expected": "+3.21%",
+      "actual": "+3.21%",
       "pass": true
     },
     {
@@ -2852,8 +2852,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2021",
-      "expected": "+8.18%",
-      "actual": "+8.18%",
+      "expected": "+8.61%",
+      "actual": "+8.61%",
       "pass": true
     },
     {
@@ -2866,8 +2866,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2022",
-      "expected": "+2.64%",
-      "actual": "+2.64%",
+      "expected": "+2.48%",
+      "actual": "+2.48%",
       "pass": true
     },
     {
@@ -2880,8 +2880,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2023",
-      "expected": "+10.68%",
-      "actual": "+10.68%",
+      "expected": "+10.81%",
+      "actual": "+10.81%",
       "pass": true
     },
     {
@@ -2894,8 +2894,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2024",
-      "expected": "+10.75%",
-      "actual": "+10.75%",
+      "expected": "+11.29%",
+      "actual": "+11.29%",
       "pass": true
     },
     {
@@ -2908,8 +2908,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2025",
-      "expected": "+10.55%",
-      "actual": "+10.55%",
+      "expected": "+11.33%",
+      "actual": "+11.33%",
       "pass": true
     },
     {
@@ -2922,8 +2922,8 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "annual 2026",
-      "expected": "+4.88%",
-      "actual": "+4.88%",
+      "expected": "+3.95%",
+      "actual": "+3.95%",
       "pass": true
     },
     {
@@ -2957,15 +2957,15 @@
     {
       "area": "backtest S09-L08-C01",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
       "id": "configuration period",
-      "expected": "Sep 22, 1996 – Sep 21, 2026",
-      "actual": "Sep 22, 1996 – Sep 21, 2026",
+      "expected": "Sep 22, 1996 – Sep 22, 2026",
+      "actual": "Sep 22, 1996 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -2991,247 +2991,247 @@
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM symbol",
+      "id": "trade 1 2026-09-22 XOM symbol",
       "expected": "XOM",
       "actual": "XOM",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 XOM date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM action",
+      "id": "trade 1 2026-09-22 XOM action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM amount",
-      "expected": "$40,213.38",
-      "actual": "$40,213.38",
+      "id": "trade 1 2026-09-22 XOM amount",
+      "expected": "$42,005.01",
+      "actual": "$42,005.01",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM shares @ price",
-      "expected": "254.0327 @ $158.30",
-      "actual": "254.0327 @ $158.30",
+      "id": "trade 1 2026-09-22 XOM shares @ price",
+      "expected": "264.6985 @ $158.69",
+      "actual": "264.6985 @ $158.69",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM reason",
+      "id": "trade 1 2026-09-22 XOM reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 1 2026-09-21 XOM realized",
-      "expected": "+$1,102.50 · +2.82%",
-      "actual": "+$1,102.50 · +2.82%",
+      "id": "trade 1 2026-09-22 XOM realized",
+      "expected": "+$1,252.02 · +3.07%",
+      "actual": "+$1,252.02 · +3.07%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH symbol",
+      "id": "trade 2 2026-09-22 UNH symbol",
       "expected": "UNH",
       "actual": "UNH",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 2 2026-09-22 UNH date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH action",
+      "id": "trade 2 2026-09-22 UNH action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH amount",
-      "expected": "$42,313.49",
-      "actual": "$42,313.49",
+      "id": "trade 2 2026-09-22 UNH amount",
+      "expected": "$43,356.09",
+      "actual": "$43,356.09",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH shares @ price",
-      "expected": "112.0709 @ $377.56",
-      "actual": "112.0709 @ $377.56",
+      "id": "trade 2 2026-09-22 UNH shares @ price",
+      "expected": "116.2517 @ $372.95",
+      "actual": "116.2517 @ $372.95",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH reason",
+      "id": "trade 2 2026-09-22 UNH reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 2 2026-09-21 UNH realized",
-      "expected": "+$7,829.27 · +22.70%",
-      "actual": "+$7,829.27 · +22.70%",
+      "id": "trade 2 2026-09-22 UNH realized",
+      "expected": "+$7,585.43 · +21.21%",
+      "actual": "+$7,585.43 · +21.21%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV symbol",
+      "id": "trade 3 2026-09-22 TRV symbol",
       "expected": "TRV",
       "actual": "TRV",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 3 2026-09-22 TRV date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV action",
+      "id": "trade 3 2026-09-22 TRV action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV amount",
-      "expected": "$94,474.56",
-      "actual": "$94,474.56",
+      "id": "trade 3 2026-09-22 TRV amount",
+      "expected": "$94,072.92",
+      "actual": "$94,072.92",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV shares @ price",
-      "expected": "254.5592 @ $371.13",
-      "actual": "254.5592 @ $371.13",
+      "id": "trade 3 2026-09-22 TRV shares @ price",
+      "expected": "259.8628 @ $362.01",
+      "actual": "259.8628 @ $362.01",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV reason",
+      "id": "trade 3 2026-09-22 TRV reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 3 2026-09-21 TRV realized",
-      "expected": "+$73,318.94 · +346.57%",
-      "actual": "+$73,318.94 · +346.57%",
+      "id": "trade 3 2026-09-22 TRV realized",
+      "expected": "+$72,367.45 · +333.41%",
+      "actual": "+$72,367.45 · +333.41%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM symbol",
+      "id": "trade 4 2026-09-22 JPM symbol",
       "expected": "JPM",
       "actual": "JPM",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 4 2026-09-22 JPM date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM action",
+      "id": "trade 4 2026-09-22 JPM action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM amount",
-      "expected": "$62,945.23",
-      "actual": "$62,945.23",
+      "id": "trade 4 2026-09-22 JPM amount",
+      "expected": "$62,484.23",
+      "actual": "$62,484.23",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM shares @ price",
-      "expected": "178.8014 @ $352.04",
-      "actual": "178.8014 @ $352.04",
+      "id": "trade 4 2026-09-22 JPM shares @ price",
+      "expected": "183.7772 @ $340.00",
+      "actual": "183.7772 @ $340.00",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM reason",
+      "id": "trade 4 2026-09-22 JPM reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 4 2026-09-21 JPM realized",
-      "expected": "+$36,359.25 · +136.76%",
-      "actual": "+$36,359.25 · +136.76%",
+      "id": "trade 4 2026-09-22 JPM realized",
+      "expected": "+$35,158.41 · +128.66%",
+      "actual": "+$35,158.41 · +128.66%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS symbol",
+      "id": "trade 5 2026-09-22 GS symbol",
       "expected": "GS",
       "actual": "GS",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 5 2026-09-22 GS date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS action",
+      "id": "trade 5 2026-09-22 GS action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS amount",
-      "expected": "$39,355.28",
-      "actual": "$39,355.28",
+      "id": "trade 5 2026-09-22 GS amount",
+      "expected": "$40,615.29",
+      "actual": "$40,615.29",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS shares @ price",
-      "expected": "41.0211 @ $959.39",
-      "actual": "41.0211 @ $959.39",
+      "id": "trade 5 2026-09-22 GS shares @ price",
+      "expected": "42.7759 @ $949.49",
+      "actual": "42.7759 @ $949.49",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS reason",
+      "id": "trade 5 2026-09-22 GS reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S09-L08-C01",
-      "id": "trade 5 2026-09-21 GS realized",
-      "expected": "+$2,302.11 · +6.21%",
-      "actual": "+$2,302.11 · +6.21%",
+      "id": "trade 5 2026-09-22 GS realized",
+      "expected": "+$1,977.10 · +5.12%",
+      "actual": "+$1,977.10 · +5.12%",
       "pass": true
     },
     {
@@ -3244,36 +3244,36 @@
     {
       "area": "backtest S03-L09-C10",
       "id": "Portfolio return",
-      "expected": "+50.11%",
-      "actual": "+50.11%",
+      "expected": "+50.13%",
+      "actual": "+50.13%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
       "id": "S&P 500 return",
-      "expected": "+1,027.06%",
-      "actual": "+1,027.06%",
+      "expected": "+1,026.88%",
+      "actual": "+1,026.88%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
       "id": "Excess return",
-      "expected": "-976.95%",
-      "actual": "-976.95%",
+      "expected": "-976.76%",
+      "actual": "-976.76%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
       "id": "Portfolio value",
-      "expected": "$883,855.22",
-      "actual": "$883,855.22",
+      "expected": "$883,984.35",
+      "actual": "$883,984.35",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
       "id": "Net profit",
-      "expected": "+$273,855.22",
-      "actual": "+$273,855.22",
+      "expected": "+$273,984.35",
+      "actual": "+$273,984.35",
       "pass": true
     },
     {
@@ -3727,8 +3727,8 @@
     {
       "area": "backtest S03-L09-C10",
       "id": "annual 2026",
-      "expected": "+2.55%",
-      "actual": "+2.55%",
+      "expected": "+2.57%",
+      "actual": "+2.57%",
       "pass": true
     },
     {
@@ -3762,15 +3762,15 @@
     {
       "area": "backtest S03-L09-C10",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
       "id": "configuration period",
-      "expected": "Sep 22, 1996 – Sep 21, 2026",
-      "actual": "Sep 22, 1996 – Sep 21, 2026",
+      "expected": "Sep 22, 1996 – Sep 22, 2026",
+      "actual": "Sep 22, 1996 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -3796,100 +3796,100 @@
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA symbol",
+      "id": "trade 1 2026-09-22 NVDA symbol",
       "expected": "NVDA",
       "actual": "NVDA",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 NVDA date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA action",
+      "id": "trade 1 2026-09-22 NVDA action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA amount",
-      "expected": "$99,003.55",
-      "actual": "$99,003.55",
+      "id": "trade 1 2026-09-22 NVDA amount",
+      "expected": "$99,652.32",
+      "actual": "$99,652.32",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA shares @ price",
-      "expected": "435.4101 @ $227.38",
-      "actual": "435.4101 @ $227.38",
+      "id": "trade 1 2026-09-22 NVDA shares @ price",
+      "expected": "435.4101 @ $228.87",
+      "actual": "435.4101 @ $228.87",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA reason",
+      "id": "trade 1 2026-09-22 NVDA reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 1 2026-09-21 NVDA realized",
-      "expected": "+$87,351.98 · +749.70%",
-      "actual": "+$87,351.98 · +749.70%",
+      "id": "trade 1 2026-09-22 NVDA realized",
+      "expected": "+$88,000.74 · +755.27%",
+      "actual": "+$88,000.74 · +755.27%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN symbol",
+      "id": "trade 2 2026-09-22 AMZN symbol",
       "expected": "AMZN",
       "actual": "AMZN",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 2 2026-09-22 AMZN date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN action",
+      "id": "trade 2 2026-09-22 AMZN action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN amount",
-      "expected": "$38,702.54",
-      "actual": "$38,702.54",
+      "id": "trade 2 2026-09-22 AMZN amount",
+      "expected": "$38,182.91",
+      "actual": "$38,182.91",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN shares @ price",
-      "expected": "149.7486 @ $258.45",
-      "actual": "149.7486 @ $258.45",
+      "id": "trade 2 2026-09-22 AMZN shares @ price",
+      "expected": "149.7486 @ $254.98",
+      "actual": "149.7486 @ $254.98",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN reason",
+      "id": "trade 2 2026-09-22 AMZN reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S03-L09-C10",
-      "id": "trade 2 2026-09-21 AMZN realized",
-      "expected": "+$15,453.51 · +66.47%",
-      "actual": "+$15,453.51 · +66.47%",
+      "id": "trade 2 2026-09-22 AMZN realized",
+      "expected": "+$14,933.88 · +64.23%",
+      "actual": "+$14,933.88 · +64.23%",
       "pass": true
     },
     {
@@ -4021,36 +4021,36 @@
     {
       "area": "backtest S07-L07-C08",
       "id": "Portfolio return",
-      "expected": "+176.62%",
-      "actual": "+176.62%",
+      "expected": "+175.45%",
+      "actual": "+175.45%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
       "id": "S&P 500 return",
-      "expected": "+1,027.06%",
-      "actual": "+1,027.06%",
+      "expected": "+1,026.88%",
+      "actual": "+1,026.88%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
       "id": "Excess return",
-      "expected": "-850.44%",
-      "actual": "-850.44%",
+      "expected": "-851.43%",
+      "actual": "-851.43%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
       "id": "Portfolio value",
-      "expected": "$2,766,189,620.27",
-      "actual": "$2,766,189,620.27",
+      "expected": "$2,754,549,512.39",
+      "actual": "$2,754,549,512.39",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
       "id": "Net profit",
-      "expected": "+$1,766,189,620.27",
-      "actual": "+$1,766,189,620.27",
+      "expected": "+$1,754,549,512.39",
+      "actual": "+$1,754,549,512.39",
       "pass": true
     },
     {
@@ -4070,8 +4070,8 @@
     {
       "area": "backtest S07-L07-C08",
       "id": "CAGR",
-      "expected": "+3.45%",
-      "actual": "+3.45%",
+      "expected": "+3.44%",
+      "actual": "+3.44%",
       "pass": true
     },
     {
@@ -4504,8 +4504,8 @@
     {
       "area": "backtest S07-L07-C08",
       "id": "annual 2026",
-      "expected": "+13.55%",
-      "actual": "+13.55%",
+      "expected": "+13.07%",
+      "actual": "+13.07%",
       "pass": true
     },
     {
@@ -4539,15 +4539,15 @@
     {
       "area": "backtest S07-L07-C08",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
       "id": "configuration period",
-      "expected": "Sep 22, 1996 – Sep 21, 2026",
-      "actual": "Sep 22, 1996 – Sep 21, 2026",
+      "expected": "Sep 22, 1996 – Sep 22, 2026",
+      "actual": "Sep 22, 1996 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -4573,247 +4573,247 @@
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V symbol",
+      "id": "trade 1 2026-09-22 V symbol",
       "expected": "V",
       "actual": "V",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 1 2026-09-22 V date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V action",
+      "id": "trade 1 2026-09-22 V action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V amount",
-      "expected": "$344,806,830.73",
-      "actual": "$344,806,830.73",
+      "id": "trade 1 2026-09-22 V amount",
+      "expected": "$337,434,423.56",
+      "actual": "$337,434,423.56",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V shares @ price",
-      "expected": "932,036.3042 @ $369.95",
-      "actual": "932,036.3042 @ $369.95",
+      "id": "trade 1 2026-09-22 V shares @ price",
+      "expected": "932,036.3042 @ $362.04",
+      "actual": "932,036.3042 @ $362.04",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V reason",
+      "id": "trade 1 2026-09-22 V reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 1 2026-09-21 V realized",
-      "expected": "+$319,774,334.82 · +1,277.44%",
-      "actual": "+$319,774,334.82 · +1,277.44%",
+      "id": "trade 1 2026-09-22 V realized",
+      "expected": "+$312,401,927.65 · +1,247.99%",
+      "actual": "+$312,401,927.65 · +1,247.99%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA symbol",
+      "id": "trade 2 2026-09-22 MRNA symbol",
       "expected": "MRNA",
       "actual": "MRNA",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 2 2026-09-22 MRNA date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA action",
+      "id": "trade 2 2026-09-22 MRNA action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA amount",
-      "expected": "$89,143,767.03",
-      "actual": "$89,143,767.03",
+      "id": "trade 2 2026-09-22 MRNA amount",
+      "expected": "$94,102,498.61",
+      "actual": "$94,102,498.61",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA shares @ price",
-      "expected": "515,460.6628 @ $172.94",
-      "actual": "515,460.6628 @ $172.94",
+      "id": "trade 2 2026-09-22 MRNA shares @ price",
+      "expected": "515,460.6628 @ $182.56",
+      "actual": "515,460.6628 @ $182.56",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA reason",
+      "id": "trade 2 2026-09-22 MRNA reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 2 2026-09-21 MRNA realized",
-      "expected": "+$28,190,543.65 · +46.25%",
-      "actual": "+$28,190,543.65 · +46.25%",
+      "id": "trade 2 2026-09-22 MRNA realized",
+      "expected": "+$33,149,275.23 · +54.38%",
+      "actual": "+$33,149,275.23 · +54.38%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO symbol",
+      "id": "trade 3 2026-09-22 KO symbol",
       "expected": "KO",
       "actual": "KO",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 3 2026-09-22 KO date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO action",
+      "id": "trade 3 2026-09-22 KO action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO amount",
-      "expected": "$110,127,793.92",
-      "actual": "$110,127,793.92",
+      "id": "trade 3 2026-09-22 KO amount",
+      "expected": "$112,011,292.69",
+      "actual": "$112,011,292.69",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO shares @ price",
-      "expected": "1,264,093.135 @ $87.12",
-      "actual": "1,264,093.135 @ $87.12",
+      "id": "trade 3 2026-09-22 KO shares @ price",
+      "expected": "1,264,093.135 @ $88.61",
+      "actual": "1,264,093.135 @ $88.61",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO reason",
+      "id": "trade 3 2026-09-22 KO reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 3 2026-09-21 KO realized",
-      "expected": "+$76,879,882.12 · +231.23%",
-      "actual": "+$76,879,882.12 · +231.23%",
+      "id": "trade 3 2026-09-22 KO realized",
+      "expected": "+$78,763,380.89 · +236.90%",
+      "actual": "+$78,763,380.89 · +236.90%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ symbol",
+      "id": "trade 4 2026-09-22 JNJ symbol",
       "expected": "JNJ",
       "actual": "JNJ",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 4 2026-09-22 JNJ date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ action",
+      "id": "trade 4 2026-09-22 JNJ action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ amount",
-      "expected": "$426,747,047.58",
-      "actual": "$426,747,047.58",
+      "id": "trade 4 2026-09-22 JNJ amount",
+      "expected": "$426,303,624.67",
+      "actual": "$426,303,624.67",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ shares @ price",
-      "expected": "1,583,653.2734 @ $269.47",
-      "actual": "1,583,653.2734 @ $269.47",
+      "id": "trade 4 2026-09-22 JNJ shares @ price",
+      "expected": "1,583,653.2734 @ $269.19",
+      "actual": "1,583,653.2734 @ $269.19",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ reason",
+      "id": "trade 4 2026-09-22 JNJ reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 4 2026-09-21 JNJ realized",
-      "expected": "+$387,602,253.47 · +990.18%",
-      "actual": "+$387,602,253.47 · +990.18%",
+      "id": "trade 4 2026-09-22 JNJ realized",
+      "expected": "+$387,158,830.55 · +989.04%",
+      "actual": "+$387,158,830.55 · +989.04%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL symbol",
+      "id": "trade 5 2026-09-22 GOOGL symbol",
       "expected": "GOOGL",
       "actual": "GOOGL",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL date",
-      "expected": "Sep 21, 2026",
-      "actual": "Sep 21, 2026",
+      "id": "trade 5 2026-09-22 GOOGL date",
+      "expected": "Sep 22, 2026",
+      "actual": "Sep 22, 2026",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL action",
+      "id": "trade 5 2026-09-22 GOOGL action",
       "expected": "Sell 100%",
       "actual": "Sell 100%",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL amount",
-      "expected": "$993,777,006.86",
-      "actual": "$993,777,006.86",
+      "id": "trade 5 2026-09-22 GOOGL amount",
+      "expected": "$983,110,498.71",
+      "actual": "$983,110,498.71",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL shares @ price",
-      "expected": "2,799,608.4369 @ $354.97",
-      "actual": "2,799,608.4369 @ $354.97",
+      "id": "trade 5 2026-09-22 GOOGL shares @ price",
+      "expected": "2,799,608.4369 @ $351.16",
+      "actual": "2,799,608.4369 @ $351.16",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL reason",
+      "id": "trade 5 2026-09-22 GOOGL reason",
       "expected": "End of backtest",
       "actual": "End of backtest",
       "pass": true
     },
     {
       "area": "backtest S07-L07-C08",
-      "id": "trade 5 2026-09-21 GOOGL realized",
-      "expected": "+$953,742,606.21 · +2,382.31%",
-      "actual": "+$953,742,606.21 · +2,382.31%",
+      "id": "trade 5 2026-09-22 GOOGL realized",
+      "expected": "+$943,076,098.07 · +2,355.66%",
+      "actual": "+$943,076,098.07 · +2,355.66%",
       "pass": true
     },
     {
@@ -4833,15 +4833,15 @@
     {
       "area": "backtest S06-L04-C02",
       "id": "S&P 500 return",
-      "expected": "+258.40%",
-      "actual": "+258.40%",
+      "expected": "+256.10%",
+      "actual": "+256.10%",
       "pass": true
     },
     {
       "area": "backtest S06-L04-C02",
       "id": "Excess return",
-      "expected": "-258.40%",
-      "actual": "-258.40%",
+      "expected": "-256.10%",
+      "actual": "-256.10%",
       "pass": true
     },
     {
@@ -5057,22 +5057,22 @@
     {
       "area": "backtest S06-L04-C02",
       "id": "chart from",
-      "expected": "2016-09-21",
-      "actual": "2016-09-21",
+      "expected": "2016-09-22",
+      "actual": "2016-09-22",
       "pass": true
     },
     {
       "area": "backtest S06-L04-C02",
       "id": "chart through",
-      "expected": "2026-09-21",
-      "actual": "2026-09-21",
+      "expected": "2026-09-22",
+      "actual": "2026-09-22",
       "pass": true
     },
     {
       "area": "backtest S06-L04-C02",
       "id": "configuration period",
-      "expected": "Sep 21, 2016 – Sep 21, 2026",
-      "actual": "Sep 21, 2016 – Sep 21, 2026",
+      "expected": "Sep 22, 2016 – Sep 22, 2026",
+      "actual": "Sep 22, 2016 – Sep 22, 2026",
       "pass": true
     },
     {
@@ -5106,15 +5106,15 @@
     {
       "area": "stock KO",
       "id": "latest close",
-      "expected": "$88.15",
-      "actual": "$88.15",
+      "expected": "$88.61",
+      "actual": "$88.61",
       "pass": true
     },
     {
       "area": "stock KO",
       "id": "change",
-      "expected": "+$1.03 (+1.18%)",
-      "actual": "+$1.03 (+1.18%)",
+      "expected": "+$1.49 (+1.71%)",
+      "actual": "+$1.49 (+1.71%)",
       "pass": true
     },
     {
@@ -5141,8 +5141,8 @@
     {
       "area": "stock KO",
       "id": "day range high",
-      "expected": "$88.25",
-      "actual": "$88.25",
+      "expected": "$88.97",
+      "actual": "$88.97",
       "pass": true
     },
     {
@@ -5162,8 +5162,8 @@
     {
       "area": "stock KO",
       "id": "volume",
-      "expected": "2.7M",
-      "actual": "2.7M",
+      "expected": "17.2M",
+      "actual": "17.2M",
       "pass": true
     },
     {
@@ -5253,8 +5253,8 @@
     {
       "area": "stock KO",
       "id": "SMA 20D value",
-      "expected": "$88.59",
-      "actual": "$88.59",
+      "expected": "$88.61",
+      "actual": "$88.61",
       "pass": true
     },
     {
@@ -5267,8 +5267,8 @@
     {
       "area": "stock KO",
       "id": "SMA 50D value",
-      "expected": "$87.20",
-      "actual": "$87.20",
+      "expected": "$87.21",
+      "actual": "$87.21",
       "pass": true
     },
     {
@@ -5309,8 +5309,8 @@
     {
       "area": "stock KO",
       "id": "EMA 20D value",
-      "expected": "$88.24",
-      "actual": "$88.24",
+      "expected": "$88.28",
+      "actual": "$88.28",
       "pass": true
     },
     {
@@ -5323,8 +5323,8 @@
     {
       "area": "stock KO",
       "id": "EMA 50D value",
-      "expected": "$86.99",
-      "actual": "$86.99",
+      "expected": "$87.00",
+      "actual": "$87.00",
       "pass": true
     },
     {
@@ -5337,8 +5337,8 @@
     {
       "area": "stock KO",
       "id": "EMA 200D value",
-      "expected": "$80.56",
-      "actual": "$80.56",
+      "expected": "$80.57",
+      "actual": "$80.57",
       "pass": true
     },
     {
@@ -5442,15 +5442,15 @@
     {
       "area": "stock AAPL",
       "id": "latest close",
-      "expected": "$339.64",
-      "actual": "$339.64",
+      "expected": "$339.75",
+      "actual": "$339.75",
       "pass": true
     },
     {
       "area": "stock AAPL",
       "id": "change",
-      "expected": "+$0.66 (+0.19%)",
-      "actual": "+$0.66 (+0.19%)",
+      "expected": "+$0.77 (+0.23%)",
+      "actual": "+$0.77 (+0.23%)",
       "pass": true
     },
     {
@@ -5470,8 +5470,8 @@
     {
       "area": "stock AAPL",
       "id": "day range low",
-      "expected": "$338.77",
-      "actual": "$338.77",
+      "expected": "$338.75",
+      "actual": "$338.75",
       "pass": true
     },
     {
@@ -5498,8 +5498,8 @@
     {
       "area": "stock AAPL",
       "id": "volume",
-      "expected": "10.7M",
-      "actual": "10.7M",
+      "expected": "39.5M",
+      "actual": "39.5M",
       "pass": true
     },
     {
@@ -5645,8 +5645,8 @@
     {
       "area": "stock AAPL",
       "id": "EMA 20D value",
-      "expected": "$327.61",
-      "actual": "$327.61",
+      "expected": "$327.62",
+      "actual": "$327.62",
       "pass": true
     },
     {
@@ -5673,8 +5673,8 @@
     {
       "area": "stock AAPL",
       "id": "EMA 200D value",
-      "expected": "$291.17",
-      "actual": "$291.17",
+      "expected": "$291.18",
+      "actual": "$291.18",
       "pass": true
     },
     {
@@ -5778,15 +5778,15 @@
     {
       "area": "stock NVDA",
       "id": "latest close",
-      "expected": "$228.19",
-      "actual": "$228.19",
+      "expected": "$228.87",
+      "actual": "$228.87",
       "pass": true
     },
     {
       "area": "stock NVDA",
       "id": "change",
-      "expected": "+$0.81 (+0.36%)",
-      "actual": "+$0.81 (+0.36%)",
+      "expected": "+$1.49 (+0.66%)",
+      "actual": "+$1.49 (+0.66%)",
       "pass": true
     },
     {
@@ -5813,8 +5813,8 @@
     {
       "area": "stock NVDA",
       "id": "day range high",
-      "expected": "$229.60",
-      "actual": "$229.60",
+      "expected": "$229.98",
+      "actual": "$229.98",
       "pass": true
     },
     {
@@ -5834,8 +5834,8 @@
     {
       "area": "stock NVDA",
       "id": "volume",
-      "expected": "26.1M",
-      "actual": "26.1M",
+      "expected": "92M",
+      "actual": "92M",
       "pass": true
     },
     {
@@ -5925,8 +5925,8 @@
     {
       "area": "stock NVDA",
       "id": "SMA 20D value",
-      "expected": "$220.50",
-      "actual": "$220.50",
+      "expected": "$220.53",
+      "actual": "$220.53",
       "pass": true
     },
     {
@@ -5939,8 +5939,8 @@
     {
       "area": "stock NVDA",
       "id": "SMA 50D value",
-      "expected": "$215.09",
-      "actual": "$215.09",
+      "expected": "$215.11",
+      "actual": "$215.11",
       "pass": true
     },
     {
@@ -5953,8 +5953,8 @@
     {
       "area": "stock NVDA",
       "id": "SMA 100D value",
-      "expected": "$212.09",
-      "actual": "$212.09",
+      "expected": "$212.10",
+      "actual": "$212.10",
       "pass": true
     },
     {
@@ -5981,8 +5981,8 @@
     {
       "area": "stock NVDA",
       "id": "EMA 20D value",
-      "expected": "$220.19",
-      "actual": "$220.19",
+      "expected": "$220.26",
+      "actual": "$220.26",
       "pass": true
     },
     {
@@ -5995,8 +5995,8 @@
     {
       "area": "stock NVDA",
       "id": "EMA 50D value",
-      "expected": "$216.10",
-      "actual": "$216.10",
+      "expected": "$216.13",
+      "actual": "$216.13",
       "pass": true
     },
     {
@@ -6009,8 +6009,8 @@
     {
       "area": "stock NVDA",
       "id": "EMA 200D value",
-      "expected": "$200.03",
-      "actual": "$200.03",
+      "expected": "$200.04",
+      "actual": "$200.04",
       "pass": true
     },
     {
@@ -6114,15 +6114,15 @@
     {
       "area": "stock MRNA",
       "id": "latest close",
-      "expected": "$180.58",
-      "actual": "$180.58",
+      "expected": "$182.56",
+      "actual": "$182.56",
       "pass": true
     },
     {
       "area": "stock MRNA",
       "id": "change",
-      "expected": "+$7.64 (+4.42%)",
-      "actual": "+$7.64 (+4.42%)",
+      "expected": "+$9.62 (+5.56%)",
+      "actual": "+$9.62 (+5.56%)",
       "pass": true
     },
     {
@@ -6149,8 +6149,8 @@
     {
       "area": "stock MRNA",
       "id": "day range high",
-      "expected": "$182.65",
-      "actual": "$182.65",
+      "expected": "$187.20",
+      "actual": "$187.20",
       "pass": true
     },
     {
@@ -6163,15 +6163,15 @@
     {
       "area": "stock MRNA",
       "id": "52-week high",
-      "expected": "$182.65",
-      "actual": "$182.65",
+      "expected": "$187.20",
+      "actual": "$187.20",
       "pass": true
     },
     {
       "area": "stock MRNA",
       "id": "volume",
-      "expected": "7.5M",
-      "actual": "7.5M",
+      "expected": "23.7M",
+      "actual": "23.7M",
       "pass": true
     },
     {
@@ -6184,8 +6184,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 20D value",
-      "expected": "$149.12",
-      "actual": "$149.12",
+      "expected": "$149.47",
+      "actual": "$149.47",
       "pass": true
     },
     {
@@ -6198,8 +6198,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 50D value",
-      "expected": "$101.00",
-      "actual": "$101.00",
+      "expected": "$102.57",
+      "actual": "$102.57",
       "pass": true
     },
     {
@@ -6212,8 +6212,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 100D value",
-      "expected": "$78.08",
-      "actual": "$78.08",
+      "expected": "$79.08",
+      "actual": "$79.08",
       "pass": true
     },
     {
@@ -6226,8 +6226,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 200D value",
-      "expected": "$61.18",
-      "actual": "$61.18",
+      "expected": "$61.78",
+      "actual": "$61.78",
       "pass": true
     },
     {
@@ -6240,8 +6240,8 @@
     {
       "area": "stock MRNA",
       "id": "EMA 20D value",
-      "expected": "$143.80",
-      "actual": "$143.80",
+      "expected": "$144.68",
+      "actual": "$144.68",
       "pass": true
     },
     {
@@ -6254,8 +6254,8 @@
     {
       "area": "stock MRNA",
       "id": "EMA 50D value",
-      "expected": "$114.29",
-      "actual": "$114.29",
+      "expected": "$115.64",
+      "actual": "$115.64",
       "pass": true
     },
     {
@@ -6268,8 +6268,8 @@
     {
       "area": "stock MRNA",
       "id": "EMA 200D value",
-      "expected": "$70.61",
-      "actual": "$70.61",
+      "expected": "$71.36",
+      "actual": "$71.36",
       "pass": true
     },
     {
@@ -6282,8 +6282,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 20W value",
-      "expected": "$79.86",
-      "actual": "$79.86",
+      "expected": "$79.70",
+      "actual": "$79.70",
       "pass": true
     },
     {
@@ -6296,8 +6296,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 50W value",
-      "expected": "$55.35",
-      "actual": "$55.35",
+      "expected": "$55.29",
+      "actual": "$55.29",
       "pass": true
     },
     {
@@ -6310,8 +6310,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 100W value",
-      "expected": "$44.04",
-      "actual": "$44.04",
+      "expected": "$44.00",
+      "actual": "$44.00",
       "pass": true
     },
     {
@@ -6324,8 +6324,8 @@
     {
       "area": "stock MRNA",
       "id": "SMA 200W value",
-      "expected": "$81.10",
-      "actual": "$81.10",
+      "expected": "$81.08",
+      "actual": "$81.08",
       "pass": true
     },
     {
@@ -6338,8 +6338,8 @@
     {
       "area": "stock MRNA",
       "id": "EMA 20W value",
-      "expected": "$91.77",
-      "actual": "$91.77",
+      "expected": "$91.51",
+      "actual": "$91.51",
       "pass": true
     },
     {
@@ -6352,8 +6352,8 @@
     {
       "area": "stock MRNA",
       "id": "EMA 50W value",
-      "expected": "$66.70",
-      "actual": "$66.70",
+      "expected": "$66.58",
+      "actual": "$66.58",
       "pass": true
     },
     {
@@ -6366,22 +6366,22 @@
     {
       "area": "stock MRNA",
       "id": "EMA 200W value",
-      "expected": "$72.82",
-      "actual": "$72.82",
+      "expected": "$72.79",
+      "actual": "$72.79",
       "pass": true
     },
     {
       "area": "stock AMZN",
       "id": "latest close",
-      "expected": "$256.87",
-      "actual": "$256.87",
+      "expected": "$254.98",
+      "actual": "$254.98",
       "pass": true
     },
     {
       "area": "stock AMZN",
       "id": "change",
-      "expected": "-$1.58 (-0.61%)",
-      "actual": "-$1.58 (-0.61%)",
+      "expected": "-$3.47 (-1.34%)",
+      "actual": "-$3.47 (-1.34%)",
       "pass": true
     },
     {
@@ -6401,15 +6401,15 @@
     {
       "area": "stock AMZN",
       "id": "day range low",
-      "expected": "$253.79",
-      "actual": "$253.79",
+      "expected": "$253.78",
+      "actual": "$253.78",
       "pass": true
     },
     {
       "area": "stock AMZN",
       "id": "day range high",
-      "expected": "$258.93",
-      "actual": "$258.93",
+      "expected": "$259.00",
+      "actual": "$259.00",
       "pass": true
     },
     {
@@ -6429,8 +6429,8 @@
     {
       "area": "stock AMZN",
       "id": "volume",
-      "expected": "10.5M",
-      "actual": "10.5M",
+      "expected": "41M",
+      "actual": "41M",
       "pass": true
     },
     {
@@ -6499,8 +6499,8 @@
     {
       "area": "stock AMZN",
       "id": "SMA 20D value",
-      "expected": "$255.86",
-      "actual": "$255.86",
+      "expected": "$255.77",
+      "actual": "$255.77",
       "pass": true
     },
     {
@@ -6513,8 +6513,8 @@
     {
       "area": "stock AMZN",
       "id": "SMA 50D value",
-      "expected": "$256.29",
-      "actual": "$256.29",
+      "expected": "$256.26",
+      "actual": "$256.26",
       "pass": true
     },
     {
@@ -6527,8 +6527,8 @@
     {
       "area": "stock AMZN",
       "id": "SMA 100D value",
-      "expected": "$255.01",
-      "actual": "$255.01",
+      "expected": "$254.99",
+      "actual": "$254.99",
       "pass": true
     },
     {
@@ -6541,8 +6541,8 @@
     {
       "area": "stock AMZN",
       "id": "SMA 200D value",
-      "expected": "$240.54",
-      "actual": "$240.54",
+      "expected": "$240.53",
+      "actual": "$240.53",
       "pass": true
     },
     {
@@ -6555,8 +6555,8 @@
     {
       "area": "stock AMZN",
       "id": "EMA 20D value",
-      "expected": "$255.52",
-      "actual": "$255.52",
+      "expected": "$255.34",
+      "actual": "$255.34",
       "pass": true
     },
     {
@@ -6569,8 +6569,8 @@
     {
       "area": "stock AMZN",
       "id": "EMA 50D value",
-      "expected": "$255.22",
-      "actual": "$255.22",
+      "expected": "$255.14",
+      "actual": "$255.14",
       "pass": true
     },
     {
@@ -6583,8 +6583,8 @@
     {
       "area": "stock AMZN",
       "id": "EMA 200D value",
-      "expected": "$243.38",
-      "actual": "$243.38",
+      "expected": "$243.36",
+      "actual": "$243.36",
       "pass": true
     },
     {
@@ -6688,15 +6688,15 @@
     {
       "area": "stock DIS",
       "id": "latest close",
-      "expected": "$104.27",
-      "actual": "$104.27",
+      "expected": "$103.82",
+      "actual": "$103.82",
       "pass": true
     },
     {
       "area": "stock DIS",
       "id": "change",
-      "expected": "+$0.04 (+0.04%)",
-      "actual": "+$0.04 (+0.04%)",
+      "expected": "-$0.41 (-0.39%)",
+      "actual": "-$0.41 (-0.39%)",
       "pass": true
     },
     {
@@ -6716,8 +6716,8 @@
     {
       "area": "stock DIS",
       "id": "day range low",
-      "expected": "$103.81",
-      "actual": "$103.81",
+      "expected": "$103.33",
+      "actual": "$103.33",
       "pass": true
     },
     {
@@ -6744,8 +6744,8 @@
     {
       "area": "stock DIS",
       "id": "volume",
-      "expected": "938.1K",
-      "actual": "938.1K",
+      "expected": "7.2M",
+      "actual": "7.2M",
       "pass": true
     },
     {
@@ -6835,8 +6835,8 @@
     {
       "area": "stock DIS",
       "id": "SMA 20D value",
-      "expected": "$106.51",
-      "actual": "$106.51",
+      "expected": "$106.49",
+      "actual": "$106.49",
       "pass": true
     },
     {
@@ -6849,8 +6849,8 @@
     {
       "area": "stock DIS",
       "id": "SMA 50D value",
-      "expected": "$103.05",
-      "actual": "$103.05",
+      "expected": "$103.04",
+      "actual": "$103.04",
       "pass": true
     },
     {
@@ -6863,8 +6863,8 @@
     {
       "area": "stock DIS",
       "id": "SMA 100D value",
-      "expected": "$102.21",
-      "actual": "$102.21",
+      "expected": "$102.20",
+      "actual": "$102.20",
       "pass": true
     },
     {
@@ -6891,8 +6891,8 @@
     {
       "area": "stock DIS",
       "id": "EMA 20D value",
-      "expected": "$105.51",
-      "actual": "$105.51",
+      "expected": "$105.46",
+      "actual": "$105.46",
       "pass": true
     },
     {
@@ -6905,8 +6905,8 @@
     {
       "area": "stock DIS",
       "id": "EMA 50D value",
-      "expected": "$104.12",
-      "actual": "$104.12",
+      "expected": "$104.10",
+      "actual": "$104.10",
       "pass": true
     },
     {
@@ -6919,8 +6919,8 @@
     {
       "area": "stock DIS",
       "id": "EMA 200D value",
-      "expected": "$104.09",
-      "actual": "$104.09",
+      "expected": "$104.08",
+      "actual": "$104.08",
       "pass": true
     },
     {
@@ -7024,15 +7024,15 @@
     {
       "area": "stock V",
       "id": "latest close",
-      "expected": "$364.91",
-      "actual": "$364.91",
+      "expected": "$362.04",
+      "actual": "$362.04",
       "pass": true
     },
     {
       "area": "stock V",
       "id": "change",
-      "expected": "-$5.04 (-1.36%)",
-      "actual": "-$5.04 (-1.36%)",
+      "expected": "-$7.91 (-2.14%)",
+      "actual": "-$7.91 (-2.14%)",
       "pass": true
     },
     {
@@ -7052,8 +7052,8 @@
     {
       "area": "stock V",
       "id": "day range low",
-      "expected": "$363.27",
-      "actual": "$363.27",
+      "expected": "$359.80",
+      "actual": "$359.80",
       "pass": true
     },
     {
@@ -7080,8 +7080,8 @@
     {
       "area": "stock V",
       "id": "volume",
-      "expected": "852.7K",
-      "actual": "852.7K",
+      "expected": "8.8M",
+      "actual": "8.8M",
       "pass": true
     },
     {
@@ -7171,8 +7171,8 @@
     {
       "area": "stock V",
       "id": "SMA 20D value",
-      "expected": "$374.11",
-      "actual": "$374.11",
+      "expected": "$373.96",
+      "actual": "$373.96",
       "pass": true
     },
     {
@@ -7185,8 +7185,8 @@
     {
       "area": "stock V",
       "id": "SMA 50D value",
-      "expected": "$367.64",
-      "actual": "$367.64",
+      "expected": "$367.59",
+      "actual": "$367.59",
       "pass": true
     },
     {
@@ -7199,8 +7199,8 @@
     {
       "area": "stock V",
       "id": "SMA 100D value",
-      "expected": "$349.09",
-      "actual": "$349.09",
+      "expected": "$349.06",
+      "actual": "$349.06",
       "pass": true
     },
     {
@@ -7213,8 +7213,8 @@
     {
       "area": "stock V",
       "id": "SMA 200D value",
-      "expected": "$336.32",
-      "actual": "$336.32",
+      "expected": "$336.30",
+      "actual": "$336.30",
       "pass": true
     },
     {
@@ -7227,8 +7227,8 @@
     {
       "area": "stock V",
       "id": "EMA 20D value",
-      "expected": "$370.82",
-      "actual": "$370.82",
+      "expected": "$370.54",
+      "actual": "$370.54",
       "pass": true
     },
     {
@@ -7241,8 +7241,8 @@
     {
       "area": "stock V",
       "id": "EMA 50D value",
-      "expected": "$364.93",
-      "actual": "$364.93",
+      "expected": "$364.81",
+      "actual": "$364.81",
       "pass": true
     },
     {
@@ -7255,8 +7255,8 @@
     {
       "area": "stock V",
       "id": "EMA 200D value",
-      "expected": "$344.09",
-      "actual": "$344.09",
+      "expected": "$344.06",
+      "actual": "$344.06",
       "pass": true
     },
     {
@@ -7360,15 +7360,15 @@
     {
       "area": "stock GOOGL",
       "id": "latest close",
-      "expected": "$360.88",
-      "actual": "$360.88",
+      "expected": "$351.16",
+      "actual": "$351.16",
       "pass": true
     },
     {
       "area": "stock GOOGL",
       "id": "change",
-      "expected": "+$5.91 (+1.66%)",
-      "actual": "+$5.91 (+1.66%)",
+      "expected": "-$3.81 (-1.07%)",
+      "actual": "-$3.81 (-1.07%)",
       "pass": true
     },
     {
@@ -7388,15 +7388,15 @@
     {
       "area": "stock GOOGL",
       "id": "day range low",
-      "expected": "$357.15",
-      "actual": "$357.15",
+      "expected": "$350.22",
+      "actual": "$350.22",
       "pass": true
     },
     {
       "area": "stock GOOGL",
       "id": "day range high",
-      "expected": "$364.14",
-      "actual": "$364.14",
+      "expected": "$364.17",
+      "actual": "$364.17",
       "pass": true
     },
     {
@@ -7416,8 +7416,8 @@
     {
       "area": "stock GOOGL",
       "id": "volume",
-      "expected": "8.6M",
-      "actual": "8.6M",
+      "expected": "29.4M",
+      "actual": "29.4M",
       "pass": true
     },
     {
@@ -7507,8 +7507,8 @@
     {
       "area": "stock GOOGL",
       "id": "SMA 20D value",
-      "expected": "$342.94",
-      "actual": "$342.94",
+      "expected": "$342.45",
+      "actual": "$342.45",
       "pass": true
     },
     {
@@ -7521,8 +7521,8 @@
     {
       "area": "stock GOOGL",
       "id": "SMA 50D value",
-      "expected": "$345.70",
-      "actual": "$345.70",
+      "expected": "$345.51",
+      "actual": "$345.51",
       "pass": true
     },
     {
@@ -7535,8 +7535,8 @@
     {
       "area": "stock GOOGL",
       "id": "SMA 100D value",
-      "expected": "$359.25",
-      "actual": "$359.25",
+      "expected": "$359.15",
+      "actual": "$359.15",
       "pass": true
     },
     {
@@ -7549,8 +7549,8 @@
     {
       "area": "stock GOOGL",
       "id": "SMA 200D value",
-      "expected": "$337.90",
-      "actual": "$337.90",
+      "expected": "$337.85",
+      "actual": "$337.85",
       "pass": true
     },
     {
@@ -7563,8 +7563,8 @@
     {
       "area": "stock GOOGL",
       "id": "EMA 20D value",
-      "expected": "$345.82",
-      "actual": "$345.82",
+      "expected": "$344.89",
+      "actual": "$344.89",
       "pass": true
     },
     {
@@ -7577,8 +7577,8 @@
     {
       "area": "stock GOOGL",
       "id": "EMA 50D value",
-      "expected": "$347.04",
-      "actual": "$347.04",
+      "expected": "$346.65",
+      "actual": "$346.65",
       "pass": true
     },
     {
@@ -7591,8 +7591,8 @@
     {
       "area": "stock GOOGL",
       "id": "EMA 200D value",
-      "expected": "$328.14",
-      "actual": "$328.14",
+      "expected": "$328.04",
+      "actual": "$328.04",
       "pass": true
     },
     {
@@ -7696,15 +7696,15 @@
     {
       "area": "stock CRM",
       "id": "latest close",
-      "expected": "$232.68",
-      "actual": "$232.68",
+      "expected": "$233.28",
+      "actual": "$233.28",
       "pass": true
     },
     {
       "area": "stock CRM",
       "id": "change",
-      "expected": "-$3.74 (-1.58%)",
-      "actual": "-$3.74 (-1.58%)",
+      "expected": "-$3.14 (-1.33%)",
+      "actual": "-$3.14 (-1.33%)",
       "pass": true
     },
     {
@@ -7724,15 +7724,15 @@
     {
       "area": "stock CRM",
       "id": "day range low",
-      "expected": "$231.99",
-      "actual": "$231.99",
+      "expected": "$229.81",
+      "actual": "$229.81",
       "pass": true
     },
     {
       "area": "stock CRM",
       "id": "day range high",
-      "expected": "$242.44",
-      "actual": "$242.44",
+      "expected": "$242.42",
+      "actual": "$242.42",
       "pass": true
     },
     {
@@ -7752,8 +7752,8 @@
     {
       "area": "stock CRM",
       "id": "volume",
-      "expected": "2.7M",
-      "actual": "2.7M",
+      "expected": "11.9M",
+      "actual": "11.9M",
       "pass": true
     },
     {
@@ -7843,8 +7843,8 @@
     {
       "area": "stock CRM",
       "id": "SMA 20D value",
-      "expected": "$245.75",
-      "actual": "$245.75",
+      "expected": "$245.78",
+      "actual": "$245.78",
       "pass": true
     },
     {
@@ -7857,8 +7857,8 @@
     {
       "area": "stock CRM",
       "id": "SMA 50D value",
-      "expected": "$209.62",
-      "actual": "$209.62",
+      "expected": "$209.63",
+      "actual": "$209.63",
       "pass": true
     },
     {
@@ -7871,8 +7871,8 @@
     {
       "area": "stock CRM",
       "id": "SMA 100D value",
-      "expected": "$191.15",
-      "actual": "$191.15",
+      "expected": "$191.16",
+      "actual": "$191.16",
       "pass": true
     },
     {
@@ -7899,8 +7899,8 @@
     {
       "area": "stock CRM",
       "id": "EMA 20D value",
-      "expected": "$238.45",
-      "actual": "$238.45",
+      "expected": "$238.51",
+      "actual": "$238.51",
       "pass": true
     },
     {
@@ -7913,8 +7913,8 @@
     {
       "area": "stock CRM",
       "id": "EMA 50D value",
-      "expected": "$218.29",
-      "actual": "$218.29",
+      "expected": "$218.32",
+      "actual": "$218.32",
       "pass": true
     },
     {
@@ -7927,8 +7927,8 @@
     {
       "area": "stock CRM",
       "id": "EMA 200D value",
-      "expected": "$207.58",
-      "actual": "$207.58",
+      "expected": "$207.59",
+      "actual": "$207.59",
       "pass": true
     },
     {
@@ -8032,15 +8032,15 @@
     {
       "area": "stock XOM",
       "id": "latest close",
-      "expected": "$159.15",
-      "actual": "$159.15",
+      "expected": "$158.69",
+      "actual": "$158.69",
       "pass": true
     },
     {
       "area": "stock XOM",
       "id": "change",
-      "expected": "+$0.85 (+0.54%)",
-      "actual": "+$0.85 (+0.54%)",
+      "expected": "+$0.39 (+0.25%)",
+      "actual": "+$0.39 (+0.25%)",
       "pass": true
     },
     {
@@ -8067,8 +8067,8 @@
     {
       "area": "stock XOM",
       "id": "day range high",
-      "expected": "$159.19",
-      "actual": "$159.19",
+      "expected": "$159.97",
+      "actual": "$159.97",
       "pass": true
     },
     {
@@ -8088,8 +8088,8 @@
     {
       "area": "stock XOM",
       "id": "volume",
-      "expected": "2.9M",
-      "actual": "2.9M",
+      "expected": "13.8M",
+      "actual": "13.8M",
       "pass": true
     },
     {
@@ -8179,8 +8179,8 @@
     {
       "area": "stock XOM",
       "id": "SMA 20D value",
-      "expected": "$162.03",
-      "actual": "$162.03",
+      "expected": "$162.05",
+      "actual": "$162.05",
       "pass": true
     },
     {
@@ -8193,8 +8193,8 @@
     {
       "area": "stock XOM",
       "id": "SMA 50D value",
-      "expected": "$158.45",
-      "actual": "$158.45",
+      "expected": "$158.46",
+      "actual": "$158.46",
       "pass": true
     },
     {
@@ -8235,8 +8235,8 @@
     {
       "area": "stock XOM",
       "id": "EMA 20D value",
-      "expected": "$161.99",
-      "actual": "$161.99",
+      "expected": "$161.98",
+      "actual": "$161.98",
       "pass": true
     },
     {
@@ -8368,8 +8368,8 @@
     {
       "area": "dashboard",
       "id": "audit monitor rows shown",
-      "expected": "26",
-      "actual": "26",
+      "expected": "30",
+      "actual": "30",
       "pass": true
     },
     {
@@ -8440,6 +8440,20 @@
       "id": "DCA-AUDIT-S01xL08-conditions CVX Buy 100% price",
       "expected": "$174.01",
       "actual": "$174.01",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S01xL08-conditions DIS Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S01xL08-conditions DIS Buy 100% price",
+      "expected": "$104.23",
+      "actual": "$104.23",
       "pass": true
     },
     {
@@ -8598,6 +8612,20 @@
     },
     {
       "area": "dashboard",
+      "id": "DCA-AUDIT-S01xL08-conditions GS Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S01xL08-conditions GS Buy 100% price",
+      "expected": "$959.39",
+      "actual": "$959.39",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
       "id": "DCA-AUDIT-S01xL08-conditions CRM Buy 100% present with state ACTIVE",
       "expected": "true",
       "actual": "true",
@@ -8734,6 +8762,468 @@
       "id": "DCA-AUDIT-S03xL05-weekly HD Final exit price",
       "expected": "$383.77",
       "actual": "$383.77",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S10xL02-rsi-events KO Buy 25% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S10xL02-rsi-events KO Buy 25% price",
+      "expected": "$87.12",
+      "actual": "$87.12",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S10xL02-rsi-events XOM Buy 25% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard",
+      "id": "DCA-AUDIT-S10xL02-rsi-events XOM Buy 25% price",
+      "expected": "$158.30",
+      "actual": "$158.30",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "audit monitor rows shown at 390x844",
+      "expected": "30",
+      "actual": "30",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AAPL Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AAPL Buy 100% price",
+      "expected": "$253.79",
+      "actual": "$253.79",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AMGN Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AMGN Buy 100% price",
+      "expected": "$338.22",
+      "actual": "$338.22",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CAT Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CAT Buy 100% price",
+      "expected": "$359.80",
+      "actual": "$359.80",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CSCO Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CSCO Buy 100% price",
+      "expected": "$56.29",
+      "actual": "$56.29",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CVX Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CVX Buy 100% price",
+      "expected": "$174.01",
+      "actual": "$174.01",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions DIS Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions DIS Buy 100% price",
+      "expected": "$104.23",
+      "actual": "$104.23",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions JNJ Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions JNJ Buy 100% price",
+      "expected": "$164.78",
+      "actual": "$164.78",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions JPM Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions JPM Buy 100% price",
+      "expected": "$310.89",
+      "actual": "$310.89",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions KO Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions KO Buy 100% price",
+      "expected": "$70.51",
+      "actual": "$70.51",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MMM Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MMM Buy 100% price",
+      "expected": "$160.53",
+      "actual": "$160.53",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MRK Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MRK Buy 100% price",
+      "expected": "$84.39",
+      "actual": "$84.39",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MSFT Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions MSFT Buy 100% price",
+      "expected": "$451.10",
+      "actual": "$451.10",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions TRV Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions TRV Buy 100% price",
+      "expected": "$272.65",
+      "actual": "$272.65",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions UNH Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions UNH Buy 100% price",
+      "expected": "$313.00",
+      "actual": "$313.00",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions XOM Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions XOM Buy 100% price",
+      "expected": "$109.85",
+      "actual": "$109.85",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AMZN Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions AMZN Buy 100% price",
+      "expected": "$235.50",
+      "actual": "$235.50",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions NVDA Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions NVDA Buy 100% price",
+      "expected": "$195.04",
+      "actual": "$195.04",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions GS Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions GS Buy 100% price",
+      "expected": "$959.39",
+      "actual": "$959.39",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CRM Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions CRM Buy 100% price",
+      "expected": "$206.09",
+      "actual": "$206.09",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions GOOGL Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S01xL08-conditions GOOGL Buy 100% price",
+      "expected": "$338.50",
+      "actual": "$338.50",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly AAPL Buy 50% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly AAPL Buy 50% price",
+      "expected": "$227.76",
+      "actual": "$227.76",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly AAPL Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly AAPL Buy 100% price",
+      "expected": "$326.57",
+      "actual": "$326.57",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly KO Buy 50% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly KO Buy 50% price",
+      "expected": "$70.51",
+      "actual": "$70.51",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly JNJ Buy 50% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly JNJ Buy 50% price",
+      "expected": "$164.78",
+      "actual": "$164.78",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly JNJ Buy 100% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly JNJ Buy 100% price",
+      "expected": "$270.22",
+      "actual": "$270.22",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly MSFT Final exit present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly MSFT Final exit price",
+      "expected": "$356.77",
+      "actual": "$356.77",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly HD Sell 50% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly HD Sell 50% price",
+      "expected": "$370.81",
+      "actual": "$370.81",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly HD Final exit present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S03xL05-weekly HD Final exit price",
+      "expected": "$383.77",
+      "actual": "$383.77",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S10xL02-rsi-events KO Buy 25% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S10xL02-rsi-events KO Buy 25% price",
+      "expected": "$87.12",
+      "actual": "$87.12",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S10xL02-rsi-events XOM Buy 25% present with state ACTIVE",
+      "expected": "true",
+      "actual": "true",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "DCA-AUDIT-S10xL02-rsi-events XOM Buy 25% price",
+      "expected": "$158.30",
+      "actual": "$158.30",
+      "pass": true
+    },
+    {
+      "area": "dashboard-mobile",
+      "id": "no horizontal overflow",
+      "expected": "0",
+      "actual": "0",
       "pass": true
     }
   ]

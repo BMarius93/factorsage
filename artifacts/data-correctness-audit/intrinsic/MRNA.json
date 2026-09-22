@@ -1,6 +1,6 @@
 {
   "symbol": "MRNA",
-  "compared": 15894,
+  "compared": 15901,
   "failed": 0,
   "valuesPresent": {
     "DCF_FCFF": 692,
@@ -9,23 +9,23 @@
     "GRAHAM": 629
   },
   "valuesAbsent": {
-    "DCF_FCFF": 1264,
-    "RESIDUAL_INCOME": 1327,
-    "DDM": 1704,
-    "GRAHAM": 1327
+    "DCF_FCFF": 1265,
+    "RESIDUAL_INCOME": 1328,
+    "DDM": 1705,
+    "GRAHAM": 1328
   },
   "unavailableReasons": {
     "DCF_FCFF": {
-      "NON_POSITIVE_FCFF": 1264
+      "NON_POSITIVE_FCFF": 1265
     },
     "RESIDUAL_INCOME": {
-      "NON_POSITIVE_EQUITY_VALUE": 1327
+      "NON_POSITIVE_EQUITY_VALUE": 1328
     },
     "DDM": {
-      "NON_POSITIVE_DIVIDEND": 1704
+      "NON_POSITIVE_DIVIDEND": 1705
     },
     "GRAHAM": {
-      "NON_POSITIVE_EPS": 1327
+      "NON_POSITIVE_EPS": 1328
     }
   },
   "pitViolations": 0,

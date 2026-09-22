@@ -1,9 +1,13 @@
 # FactorSage data-correctness audit: final report
 
-**Date:** 2026-09-22.
+**Date:** 2026-09-22. The audit and, later the same day, a remediation pass that fixed every
+finding and re-ran the whole audit against the repaired data. The findings below are reported as
+they were first found, each followed by what was done about it.
 **Branch:** `audit-large`.
-**Dataset:** the frozen QA-matrix database `intrinsic_value_matrix`, with data as of the
-2026-09-21 session. This is a read-only copy of the development database's canonical market data.
+**Dataset:** the frozen QA-matrix database `intrinsic_value_matrix`. The first pass read data as of
+the 2026-09-21 session; the rerun reads the 2026-09-22 session, after the price and benchmark
+history was re-verified against the provider and the derived state rebuilt. This is a read-only
+copy of the development database's canonical market data.
 **Command:** `pnpm audit:data-correctness` (see [README](README.md)).
 **Evidence:** `artifacts/data-correctness-audit/`. The main files are `manifest.json`, `SUMMARY.md`
 and one directory per section.
@@ -21,17 +25,18 @@ user is shown exactly that value.
 
 **Backtests.** All 1,000 matrix scenarios were run through the real API and worker. They were then
 re-executed by an independent reference backtester that imports no production logic. Every scenario
-matched exactly:
+matched exactly. The counts are from the rerun on the repaired data; the first pass's are in
+brackets where they differ:
 
-| Output compared                                             |      Count |   Mismatches |
-| ----------------------------------------------------------- | ---------: | -----------: |
-| Trades, every field                                         |    184,692 |            0 |
-| Daily equity rows                                           |  3,620,600 |            0 |
-| Benchmark rows                                              |  3,620,600 |            0 |
-| Summary metrics (money exact, ratios at their stored scale) |     23,000 |            0 |
-| Annual returns                                              |     15,400 |            0 |
-| Ledger steps reconstructed                                  |  3,805,292 |            0 |
-| Invariant checks                                            | 23,459,537 | 0 violations |
+| Output compared                                             |                Count |   Mismatches |
+| ----------------------------------------------------------- | -------------------: | -----------: |
+| Trades, every field                                         |  184,785 (184,692)   |            0 |
+| Daily equity rows                                           | 3,621,000 (3,620,600)|            0 |
+| Benchmark rows                                              | 3,621,000 (3,620,600)|            0 |
+| Summary metrics (money exact, ratios at their stored scale) |               23,000 |            0 |
+| Annual returns                                              |               15,400 |            0 |
+| Ledger steps reconstructed                                  | 3,805,785 (3,805,292)|            0 |
+| Invariant checks                                            |23,462,808 (23,459,537)| 0 violations |
 
 - **API.** For all 1,000 runs, the Backtests service returns the same numbers the oracle expects:
   1,761,982 comparisons, 0 failures.
@@ -40,34 +45,47 @@ matched exactly:
 **Calculated series.** Independent recomputation over the full history of all 33 matrix securities
 agrees with the stored values:
 
-| Series                                                     | Comparisons | Failures | Explanation                                  |
-| ---------------------------------------------------------- | ----------: | -------: | -------------------------------------------- |
-| Technical indicators                                       |   3,983,691 |      146 | All in EMA 200W, all at most 2.1e‑8 (AUD-02) |
-| Intrinsic values and blends                                |   2,459,422 |        0 | Unavailable days included                    |
-| IV point-in-time checks                                    |     921,487 |        0 |                                              |
-| Every operand a backtest decided from ("frame provenance") |   3,511,155 |        0 |                                              |
+| Series                                                     | Comparisons | Failures | Explanation                                        |
+| ---------------------------------------------------------- | ----------: | -------: | -------------------------------------------------- |
+| Technical indicators                                       |   3,983,283 |    **0** | 146 in the first pass, all EMA 200W (AUD-02, fixed) |
+| Intrinsic values and blends                                |   2,459,197 |        0 | Unavailable days included                          |
+| IV point-in-time checks                                    |     921,487 |        0 |                                                    |
+| Every operand a backtest decided from ("frame provenance") |   3,511,665 |        0 |                                              |
 
 **Monitor, Signals and Dashboard.** Two real Monitor cycles ran on real data. Across the reference
-lifecycle, the persisted state and Signals, and the Dashboard service, there were 1,525
-comparisons and 0 failures. That includes 327 checks that a Signal which should not exist is
-absent. The Dashboard in the browser showed exactly the expected rows: 53 checks, 0 failures.
+lifecycle, the persisted state and Signals, and the Dashboard service, there were 1,636
+comparisons and 0 failures. That includes 326 checks that a Signal which should not exist is
+absent, and — new in the rerun — that every row's "Since" is its own observation's session and a
+reconstructed row's is exactly that session's close (`sinceLaterThanActivation: 0`, against 26 of
+26 wrong in the first pass). The Dashboard in the browser showed exactly the expected rows at
+desktop width and again at 390x844: 123 checks, 0 failures.
 
 **Stock Details.** On 10 deliberately different symbols, the DB, the reference series and the API
-agree: 71,692 comparisons, with 32 failures (the same EMA 200W effect as above). The page agrees
-with them: 466 checks, 0 failures.
+agree: 71,433 comparisons, **0 failures** (32 in the first pass, the same EMA 200W effect as
+above). The page agrees with them: 466 checks, 0 failures.
 
-**The audit found real defects:**
+**The audit found real defects. All six are now fixed, and the rerun demonstrates it:**
 
-- **AUD-03 (High, not fixed):** point-in-time look-ahead from provider filing dates. 2,391 of
-  16,793 statements have a provider filing date on or before the fiscal period end, so FactorSage
-  treats them as public the day after the quarter closed. It changes the trades of 9 of the 100
-  Margin-of-Safety matrix runs, by up to 4.5% of final value.
-- **AUD-04 (Medium, fixed):** the price loader could permanently miss a real trading session, or
-  keep an in-session bar as final history, while its coverage record claimed the data was complete.
-  It was found in live data for MRNA, GOOG, BRK-A, ADBE and AAL. It is fixed for both the stock
-  loader and the benchmark loader, with regression tests.
+- **AUD-03 (High):** point-in-time look-ahead from provider filing dates. 2,391 of 16,793
+  statements have a provider filing date on or before the fiscal period end, so FactorSage treated
+  them as public the day after the quarter closed. It changed the trades of 9 of the 100
+  Margin-of-Safety matrix runs, by up to 4.5% of final value. Availability is now derived from the
+  statutory deadline when the provider has no filing date, and the audit's independent probe finds
+  **0 of 100** cases trading differently under its own deadline assumption.
+- **AUD-04 (Medium):** the price loader could permanently miss a real trading session, or keep an
+  in-session bar as final history, while its coverage record claimed the data was complete. Found
+  in live data for MRNA, GOOG, BRK-A, ADBE and AAL. The loader was fixed with regression tests; the
+  damaged rows have now been re-verified against the provider and replaced, and **0 of 36**
+  securities miss a session inside their own range.
 - **Four lower-severity findings** (AUD-01, 02, 05, 06): precision, reproducibility and
-  presentation issues. None of them changes a matrix decision.
+  presentation. None of them changed a matrix decision, and all four are fixed.
+
+**The rerun also corrected two defects in the audit itself**, both of which would have reported a
+product failure that was not one: the UI stage compared the page against the oracle's float instead
+of the value FactorSage stores (a 1.4e‑14 difference becomes a whole cent at a display midpoint),
+and the look-ahead section asserted a property of the provider's data (how many filings it leaves
+undated) rather than the invariant that matters (that none of them is available too early). Both
+are described under their findings.
 
 **What this does not show:**
 
@@ -75,16 +93,23 @@ with them: 466 checks, 0 failures.
 - That provider data is right. Raw provider data was compared only for 6 symbols plus SPY, and
   against one fetch.
 
-Manifest totals: 69,806,380 comparisons.
+Manifest totals, rerun (first pass in brackets):
 
-| Result                                      |      Count |
-| ------------------------------------------- | ---------: |
-| Passed                                      | 69,806,192 |
-| … of which passed within a stated tolerance |  7,694,153 |
-| Failed                                      |        188 |
-| Skipped                                     |          0 |
+| Result                                      |                    Count |
+| ------------------------------------------- | -----------------------: |
+| Comparisons                                 | 69,814,984 (69,806,380)  |
+| Passed                                      | 69,814,983 (69,806,192)  |
+| … of which passed within a stated tolerance |  7,694,254 (7,694,153)   |
+| Failed                                      |              **1** (188) |
+| Skipped                                     |                    0 (0) |
 
-Every one of the 188 failures is explained by AUD-02, AUD-03 or AUD-04.
+The one remaining failure is **DIS 2026-09-22 volume**: 7,167,667 stored against 7,173,330 in a
+provider snapshot taken 96 minutes later. The consolidated tape was revised after the close, in the
+window between the dataset's final sync and the audit's own fetch. It is not a FactorSage defect
+and it is not hidden: every open, high, low and close of all six compared symbols matches exactly,
+no Strategy metric can reference volume (the definition validator rejects `VOLUME`), and the
+leading-edge rule from AUD-04 re-reads that session on the next sync and adopts the revision. No
+tolerance was widened and nothing was re-frozen to make it disappear.
 
 ## Scope
 
@@ -476,14 +501,23 @@ and a sign.
 
 ## Bugs discovered
 
-| Id     | Severity      | Subsystem                               | Status                                          |
-| ------ | ------------- | --------------------------------------- | ----------------------------------------------- |
-| AUD-04 | Medium        | Price and benchmark loading             | **Fixed** (`b4e45c80`)                          |
-| AUD-03 | High          | Fundamentals point in time (input data) | Documented, not fixed: needs a product decision |
-| AUD-05 | Low–Medium    | Dashboard "Since"                       | Documented                                      |
-| AUD-02 | Low           | EMA reproducibility                     | Documented                                      |
-| AUD-06 | Low           | QA-matrix provisioning                  | Documented                                      |
-| AUD-01 | Informational | Persistence precision                   | Documented                                      |
+Each finding below keeps the text it was first reported with, followed by the remediation pass of
+the same day. The statuses are the ones the reruns demonstrate, not the ones the fixes intended:
+
+| Id     | Severity      | Subsystem                               | Status                                                                        |
+| ------ | ------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| AUD-03 | High          | Fundamentals point in time (input data) | **FIXED** — rule, migration and rebuild; availability moved for 2,391 rows     |
+| AUD-04 | Medium        | Price and benchmark loading             | **FIXED** — loader (`b4e45c80`) and the damaged rows re-verified and replaced |
+| AUD-05 | Low–Medium    | Dashboard "Since"                       | **FIXED** — the observation's session, projected at the read edge             |
+| AUD-02 | Low           | EMA reproducibility                     | **FIXED** — one canonical calculation anchor, all derived state rebuilt       |
+| AUD-06 | Low           | QA-matrix provisioning                  | **FIXED** — the copy is a mirror, and the stale row is gone                   |
+| AUD-01 | Informational | Persistence precision                   | **FIXED** — ratios are rendered at their column's scale                       |
+| AUD-07 | Low           | The audit's own UI expectation          | **FIXED** — the display expectation comes from the stored value              |
+| AUD-08 | Low           | The audit's own look-ahead check        | **FIXED** — it asserts the availability bound, not the provider's dating     |
+
+AUD-07 and AUD-08 were found by the rerun: both are defects in the audit harness that reported a
+product failure which was not one. They are recorded here because an audit that quietly corrects
+its own checks is worth no more than one that quietly widens a tolerance.
 
 ### AUD-04: a missed session or an in-session bar becomes permanent history (fixed)
 
@@ -516,6 +550,30 @@ sync reaches back over them. That is 5 sessions in the development database, and
 in the matrix copy. Repairing them needs either a targeted re-sync or a `PRICE_DATASET_VERSION`
 bump. That is an operator decision.
 
+**Remediation — dataset repair.** Both bumps were taken: `PRICE_DATASET_VERSION` 2 → 3 and
+`BENCHMARK_PRICE_DATASET_VERSION` 1 → 2 (`07aa6a8b`). Coverage recorded before the leading-edge
+rule is therefore invisible to the loader, and the rows the provider returns replace what was
+stored for those dates. Repairing only the rows the audit noticed would have left the rest of the
+universe unexamined; a version bump re-verifies all of it.
+
+`pnpm data:resync` (`c3296a3c`) drives that deliberately instead of waiting for a page read, and
+reports what the data says afterwards. It ran over the 33 matrix securities plus the three symbols
+named in this finding that are not in the matrix universe, from 1992-01-01:
+
+| Check                                                        | Before                                                                                       | After                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Execution-calendar sessions absent inside a security's range | ADBE 2026-09-16, MRNA 2026-09-04 (and, outside the matrix set, AAL 2026-09-16, GOOG/BRK-A 2026-09-04) | **0 across all 36 securities**            |
+| MRNA 2026-09-04                                              | missing                                                                                      | 145.55 / 14,966,547                       |
+| MRNA 2026-09-09                                              | 137.395 / 3,911,148 (in-session)                                                             | **135.61 / 8,650,500** (the final bar)    |
+| Coverage against dataset state                               | not checked                                                                                  | agrees for every dataset that records it  |
+| Price dataset variant                                        | `split-adjusted-eod-full:v2`                                                                 | `split-adjusted-eod-full:v3`, synced today |
+
+The benchmark side was re-verified the same way with `pnpm benchmarks:prewarm`: `SP500` (the
+execution calendar and the comparison) and the three index series the Dashboard overview reads now
+carry `provider-eod-full:v2` coverage. Asking for `SP500` from 1996-01-01 also extended it back to
+1996-01-02 — 175 bars earlier than the previous start, all of them before the 30-year product
+horizon, so no run can reach them. Its per-year bar counts are 248–254 throughout.
+
 ### AUD-03: statements treated as public before any filing existed (not fixed)
 
 **Example.** DIS FY2018: fiscal period end 2018-09-29, provider `filingDate` 2018-09-30. FactorSage
@@ -534,6 +592,43 @@ statement as not point-in-time usable. That requires a fundamentals variant or d
 revision bump and a rebuild. `lookahead/filing-date-impact.json` shows the impact of the 40/60-day
 choice.
 
+**Remediation — what the source data actually offers.** The raw payloads were re-read before
+choosing a rule (`artifacts/data-correctness-audit/source-data/raw/`). For the affected statements
+the provider's `filingDate` *is* the fiscal period end, and its `acceptedDate` is the day **before**
+that end. Neither field carries a publication date, so no arithmetic on them can recover one:
+reading either as a filing date would be inventing precision the data does not have. The affected
+set is not random — it is DIS before 2019 and GOOGL before Q3 2015, i.e. whole stretches of one
+provider's history.
+
+**Remediation — the rule.** `statementPublicAvailabilityDate` in `packages/domain` (`beecf337`):
+
+- when `filingDate > fiscalDate`, the provider dated the filing, and availability is that date
+  plus one day — unchanged from before;
+- otherwise availability is the **statutory deadline for the widest filer class**: 45 calendar days
+  after a quarter's end, 90 after an annual period (`FY` and `Q4`, which is published with the
+  annual report), a due date falling on a Saturday or Sunday moved to the following Monday, plus
+  one day.
+
+This is deliberately conservative in one direction only. A large accelerated filer reports well
+inside those deadlines, so the rule can make a statement visible up to about a month later than it
+really was; it can never make one visible earlier. Better late than early is the only safe error
+for a point-in-time rule, and 45/90 are the deadlines a filer of unknown class is bound by.
+
+**Remediation — the data.** `20260922170000_point_in_time_statement_availability` recomputes
+availability for the affected rows only, and never moves one earlier
+(`GREATEST(availableFromDate, deadline + 1 day)`). In the matrix database it moved exactly the
+2,391 rows this finding names; DIS Q2 2015 went from 2015-04-01 to 2015-05-16, and DIS FY/Q4 2018
+from 2018-10-01 to 2019-01-01 (90 days lands on Saturday 2018-12-29 → Monday 2018-12-31 → plus a
+day). `DERIVED_STATE_REVISION` 4 → 5 then rebuilt every stored intrinsic value under the new
+availability, so no materialized row still encodes the old one.
+
+**Remediation — coverage.** Eight cases in `packages/domain/src/financial-statements.test.ts`: the
+day after a real filing date; the DIS Q2 2015 fallback with its 45-day deadline; the FY and Q4
+annual case with the weekend shift; a 400-date property check that availability is always after the
+period end, always after the statutory due date, within three days of it, and never a Sunday; and a
+selection test proving the statement is invisible at 2015-04-01 and 2015-05-15 and visible on
+2015-05-16. The audit's own look-ahead probe is unchanged and still independent.
+
 ### AUD-05: the Dashboard "Since" column shows the scan time for reconstructed signals
 
 **Example.** AMZN (S01 × L08) has been ACTIVE since 2026-07-30. Its `since` field is the scan
@@ -546,6 +641,34 @@ contradicts `ai/product/monitors.md`.
 
 **Not fixed.** It is a presentation decision. Either render the activation session, or stamp the
 activation session's close.
+
+**Remediation.** The second option, at the read edge (`7d46110e`). A lifecycle row already records
+both facts: `lifecycleSinceDate` is the observation the state was entered on, `lifecycleSince` the
+write that persisted it. `monitorStateSince` projects the **earlier** of
+
+- that session's close — 16:00 in `America/New_York`, the one timezone every supported venue trades
+  in, from the new `tradingSessionCloseInstant` in `packages/domain`; and
+- the write instant itself.
+
+A reconstruction is dated to its own session however long after the fact the scan ran, and a match
+found while its own session is still open keeps the scan's instant, because a close still to come
+must never be presented as a past "since". Both columns keep their meaning in the database and the
+worker keeps stamping them with its clock: this is a projection, not a redefinition. The Monitor
+detail page's "waiting since" had the same defect and reads the same projection now.
+
+**Remediation — coverage.** `signal-since.test.ts` covers the reconstructed case (2026-07-30
+observed, 2026-09-17 written → 2026-07-30T20:00:00Z), the in-session case, the re-persisted case,
+the winter offset and the missing-observation fallback. Two cases in
+`builtins.integration.test.ts` drive a reconstructed and an in-session state through
+`GET /dashboard`; the first fails before the fix with exactly the 49-day error this finding
+describes. `tradingSessionCloseInstant` is pinned in both offsets, on both 2026 daylight-saving
+transition days, and by a decade-long round-trip against `tradingSessionDate`.
+
+**Remediation — the audit now asserts it.** What used to be recorded as evidence
+(`sinceLaterThanActivation`) is a comparison: no Dashboard row may claim a "since" later than its
+own observation session's close, and a reconstructed row must claim exactly that close. The oracle
+computes the close itself (`oracle/sessions.ts`, a search over the two possible offsets rather than
+the product's offset-correction algorithm), so the check stays independent.
 
 ### AUD-02: stored EMA values depend on when the derived state was rebuilt
 
@@ -563,6 +686,23 @@ technicals failures and the 32 Stock Details failures is this effect. The larges
 
 **Recommended.** Anchor the seed to a fixed epoch, or document the non-convergence.
 
+**Remediation.** Anchored, and the root cause turned out to be two causes (`a008018c`). The
+rebuild computed the series over *the load window it was asked for*, so a caller asking for recent
+dates seeded the recursion later than a caller asking for the whole horizon; and the weekly
+aggregation took its history context from that same window, so whether the first ISO week was
+dropped as artificial depended on the request too. The second one was worth 1e‑5 on `ema200w`,
+three orders of magnitude more than the effect this finding measured.
+
+Both now anchor on the **earliest persisted bar** for the security, which prices are never pruned
+below, so a stored derived row is a pure function of the stored prices. `DERIVED_STATE_REVISION`
+4 → 5 rebuilt every stored row under that anchor — and under the new statement availability with
+it.
+
+**Remediation — coverage.** "derived-state determinism" in `packages/stock-data/src/service.test.ts`
+rebuilds 7,600 synthetic sessions through a whole-horizon window and a recent window and requires
+every one of the thousand-plus overlapping stored rows to be identical. It fails on both causes
+before the fix (verified by reverting `service.ts` alone). The audit's tolerance was not touched.
+
 ### AUD-06: the QA-matrix copy keeps stale rows
 
 `provision-matrix-database.ts` inserts with `skipDuplicates`. A row the development database later
@@ -571,6 +711,28 @@ in the matrix copy and 254.86 / 4.17M in development.
 
 This affects only the audit and QA environment. It did not affect this audit's equality checks,
 because both sides read the same copy. It does mean the "canonical" copy can hold provisional bars.
+
+**Remediation.** The copy now has two explicit semantics (`71351499`), both in `mirror-table.ts`
+behind a port so the algorithms are testable without two databases:
+
+- market data is **mirrored** scope by scope, one scope per security or series — the target's rows
+  for that scope are deleted and the source's inserted, so the result cannot depend on what was
+  there;
+- the three identity tables (`Security`, `Benchmark`, `BenchmarkSeries`) are reconciled: inserted
+  when missing, updated when their content differs, never deleted, because the QA account's lists,
+  strategies and runs reference them.
+
+The delete precedes the inserts without a transaction around both, which leaves a crash short
+rather than stale — provisioning is re-runnable and the preflight verifies per-security coverage
+before any run executes.
+
+**Remediation — evidence.** Re-provisioning reported what it replaced: `Security` 0 inserted and 27
+updated, `FinancialStatement` 16,793 replacing 16,793, `DailyPrice` 259,636 replacing 259,635,
+`DailyDerivedState` 259,636 replacing 259,635, `BenchmarkDailyPrice` 11,456 replacing 11,278. This
+finding's own example is settled: ADBE 2026-09-09 in the matrix database was 255.7246 / 1,167,260
+and is now **254.86 / 4,165,500**, the same bar the development database holds. The regression test
+seeds a stale destination row and requires the next copy to remove it, and a corrected row and
+requires it to be replaced.
 
 ### AUD-01: float ratios are rounded twice on their way into PostgreSQL
 
@@ -583,41 +745,113 @@ sampled. Correct rounding of the float matched 289,474 of them. Across the matri
 
 **Recommended.** Bind ratios as decimal strings if exactness at the stored scale matters.
 
+**Remediation.** Done, at the write boundary (`08ff74f3`). Every persisted ratio — the two growth
+indices at scale 10, the percentages at scale 8 — is rendered as a decimal literal at its column's
+scale before it is bound, so PostgreSQL receives a value it stores unchanged. The engine's
+arithmetic is untouched and nothing invents precision: the stored value is exactly the float,
+rounded once.
+
+The audit's model of storage follows the write path. `storedAtScale` is now single rounding;
+`prismaFloatBoundAtScale` keeps the measured pre-fix model, so the audit can still report how many
+rows the old binding would have stored differently and an archive written before the fix can be
+read with the model that was true for it. `correctlyRoundedAtScale` also had to change: it built
+its Decimal from the float's *shortest* decimal form, which for one audited ratio
+(`8.84411177645`) rounds up at ten places while the double it names is below that midpoint and
+rounds down. It now expands the float to its exact binary value, which is what PostgreSQL sees.
+
+**Remediation — coverage.** `ratio-binding.test.ts` pins the audited pair — the matrix's
+`1.0009891328499996`, stored as `1.0009891329` and now as `1.0009891328` — renders at exactly the
+column scale, refuses a non-finite or unstorable value, and keeps a null null.
+
+### AUD-07: the UI stage compared the page against the oracle, not against the stored value
+
+**Found by the rerun.** The Stock Details display expectation took its moving averages from the
+reference recomputation. DIS held `sma20d` 106.48500000 on 2026-09-22, which the page renders as
+`$106.49`; the reference's own value for the same session is 106.48499999999999, which formats as
+`$106.48`. The technicals comparison legitimately passes that 1.4e‑14 difference inside its stated
+tolerance, but a display string has no tolerance, and at a rounding midpoint the difference becomes
+a whole cent. It was reported as the page showing a wrong number.
+
+**Fix.** The display expectation now comes from the **stored** row — the database, never the API,
+so the check stays non-circular. Whether the stored value is right is the question the 42,670
+technicals comparisons answer one section earlier, independently and with a stated tolerance; this
+stage's question is only whether the page shows the value FactorSage holds.
+
+### AUD-08: the look-ahead section asserted a property of the provider's data
+
+**Found by the rerun.** One check required that no statement carry a provider filing date on or
+before its fiscal period end. 2,391 do, and always will: that is what the provider sends. The
+assertion could therefore never pass, whatever FactorSage did with those statements — it measured
+the provider, and it kept the manifest red after the defect it stood for was gone.
+
+**Fix.** The check now states the invariant that matters, in its own SQL and independently of the
+rule the product applies: a statement the provider leaves undated may not be available before the
+earliest deadline a filer is bound by — 40 days after a quarter, 60 after a fiscal year. **0 of
+16,793** violate it. The 2,391 undated filings remain reported as evidence, under the section's
+`implausibleFilingDates`, because they are a real property of the source data and a reader should
+see them.
+
 ## Remaining risks
 
 - **Provider semantics.** The audit trusts the provider's split adjustment and statement values
   beyond the 6 symbols compared. Restated values (vintages) are not stored, so a historical
   restatement is invisible.
-- **Filing-date look-ahead (AUD-03)** is unresolved.
-- **Already-damaged price rows (AUD-04).** Rows damaged before the fix remain until they are
-  re-synced.
-- **Monitor coverage.** On real data, only 2 sessions and 6 Monitors were exercised. No
-  `PENDING_TRIGGER` state and no second-session activation occurred on these dates. The Monitor's
-  live frame recomputes daily indicators over a bounded window; that deliberate divergence
-  (deep-discovery §5) was not provoked here.
+- **Statement availability is now conservative, not exact (AUD-03).** Where the provider supplies
+  no filing date, availability is the statutory deadline for the widest filer class. For a large
+  accelerated filer that is up to about a month later than the real publication, so a backtest over
+  those years is pessimistic about when it knew a number. The error is one-directional by
+  construction; removing it needs a source that dates those filings, not a different rule.
+- **Monitor coverage on real data.** The rerun still exercises 2 sessions and 6 Monitors, and no
+  `PENDING_TRIGGER` state or second-session activation occurs on those dates. The lifecycle
+  scenarios that real data does not reach — including `PENDING_TRIGGER`, re-emission and a removed
+  and re-added member — are covered by the fixture table in
+  `worker/monitor/monitor-transitions.fixture.test.ts`, against written-out expectations, not by
+  the real-data scan. The Monitor's live frame recomputes daily indicators over a bounded window;
+  that deliberate divergence (deep-discovery §5) was not provoked here.
 - **UI breadth.** 10 backtest runs, 10 symbols and one Dashboard were checked in the browser, and
-  only the newest 5 trade-log rows of each run. Mobile layouts were not checked.
+  only the newest 5 trade-log rows of each run. The Dashboard is now also checked at 390x844 — the
+  same rows, states and prices, and no horizontal overflow — but no other surface is.
 - **Matrix scope.** Fees and slippage are zero in V1. Delisting is not modelled. The execution
   calendar is SPY bars.
-- **Tolerances.** 7,694,153 comparisons passed within a stated tolerance: the storage quantum of
-  `Decimal(20,8)` series plus float accumulation. No tolerance is relative to portfolio size.
+- **Tolerances.** 7,694,254 comparisons passed within a stated tolerance: the storage quantum of
+  `Decimal(20,8)` series plus float accumulation. No tolerance is relative to portfolio size, and
+  none was widened for this rerun.
+- **Provider revisions after the close.** A session's consolidated volume keeps moving for hours
+  after 16:00, which is what the one remaining source failure is. A dataset frozen minutes after a
+  close holds numbers the provider will still revise; the loader adopts the revision on its next
+  read, but an audit run against that dataset sees the difference.
 
 ## Final audit table
 
-| Area                        |                    Comparisons |           Pass |         Fail | Skipped | Independent oracle | E2E verified      |
-| --------------------------- | -----------------------------: | -------------: | -----------: | ------: | ------------------ | ----------------- |
-| Source data                 |                        209,149 |        209,140 |   9 (AUD-04) |       0 | yes (raw provider) | —                 |
-| Technical indicators        |                      3,983,691 |      3,983,545 | 146 (AUD-02) |       0 | yes                | via Stock Details |
-| Intrinsic value             |                      2,459,422 |      2,459,422 |            0 |       0 | yes                | via Stock Details |
-| Strategy evaluation         | 13,041 + 17,748,544 real-frame |            all |            0 |       0 | yes                | —                 |
-| Lists and Buy Windows       |                        283,598 |        283,598 |            0 |       0 | yes                | via backtests     |
-| Backtests (1,000 runs)      |                     57,509,875 |     57,509,875 |            0 |       0 | yes                | API + UI          |
-| Frame provenance            |                      3,511,155 |      3,511,155 |            0 |       0 | yes                | —                 |
-| Backtest API                |                      1,761,982 |      1,761,982 |            0 |       0 | yes                | yes               |
-| Look-ahead                  |              2 checks + probes |              1 |   1 (AUD-03) |       0 | yes                | —                 |
-| Monitor, Signals, Dashboard |                          1,525 |          1,525 |            0 |       0 | yes                | yes               |
-| Stock Details API           |                         71,692 |         71,660 |  32 (AUD-02) |       0 | yes                | yes               |
-| UI (Playwright)             |                          1,248 |          1,248 |            0 |       0 | yes                | yes               |
-| **Total** (manifest)        |                 **69,806,380** | **69,806,192** |      **188** |   **0** |                    |                   |
+The rerun, after every finding was fixed and the datasets repaired. The first pass's failures are
+in the last column.
+
+| Area                        |                    Comparisons |           Pass |    Fail | Skipped | First pass | Independent oracle | E2E verified      |
+| --------------------------- | -----------------------------: | -------------: | ------: | ------: | ---------: | ------------------ | ----------------- |
+| Source data                 |                        209,359 |        209,358 |   **1** |       0 | 9 (AUD-04) | yes (raw provider) | —                 |
+| Technical indicators        |                      3,983,283 |      3,983,283 |       0 |       0 | 146        | yes                | via Stock Details |
+| Intrinsic value             |                      2,459,197 |      2,459,197 |       0 |       0 | 0          | yes                | via Stock Details |
+| Strategy evaluation         | 13,041 + 17,751,128 real-frame |            all |       0 |       0 | 0          | yes                | —                 |
+| Lists and Buy Windows       |                        283,598 |        283,598 |       0 |       0 | 0          | yes                | via backtests     |
+| Backtests (1,000 runs)      |                     57,518,181 |     57,518,181 |       0 |       0 | 0          | yes                | API + UI          |
+| Frame provenance            |                      3,511,665 |      3,511,665 |       0 |       0 | 0          | yes                | —                 |
+| Backtest API                |                      1,762,271 |      1,762,271 |       0 |       0 | 0          | yes                | yes               |
+| Look-ahead                  |              2 checks + probes |              2 |       0 |       0 | 1 (AUD-03) | yes                | —                 |
+| Monitor, Signals, Dashboard |                          1,636 |          1,636 |       0 |       0 | 0          | yes                | yes               |
+| Stock Details API           |                         71,433 |         71,433 |       0 |       0 | 32         | yes                | yes               |
+| UI (Playwright)             |                          1,318 |          1,318 |       0 |       0 | 0          | yes                | yes               |
+| **Total** (manifest)        |                 **69,814,984** | **69,814,983** |   **1** |   **0** | **188**    |                    |                   |
 
 The strategy real-frame comparisons are counted inside the Backtests row of the manifest.
+
+## The rerun's evidence, per finding
+
+| Finding | The check that now demonstrates it                                                                                             | Result                                                              |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| AUD-03  | The audit's own deadline assumption (40/60 days) re-priced every Margin-of-Safety case                                         | 0 of 100 cases trade differently; no security's statements move      |
+| AUD-03  | Undated filings available before the earliest deadline a filer is bound by (the audit's SQL, independent of the product's rule) | 0 of 16,793                                                          |
+| AUD-04  | Execution-calendar sessions absent inside a security's own range, over the whole universe                                       | 0 across 36 securities; coverage agrees with state everywhere        |
+| AUD-02  | Every stored SMA, EMA and RSI of all 33 securities against the reference indicators                                            | 3,983,283 comparisons, 0 failed (was 146)                            |
+| AUD-05  | Every Dashboard row's "Since" against its own observation session's close                                                      | `sinceLaterThanActivation: 0` on both sessions (was 26 of 26 wrong)  |
+| AUD-06  | Re-provisioning reports what it replaced, and the finding's own example row                                                     | ADBE 2026-09-09 is now 254.86 / 4,165,500, as in development         |
+| AUD-01  | 1,000 runs' stored ratios against single rounding of the engine's float                                                         | 0 mismatches; 6,488 rows the old binding would have stored otherwise |

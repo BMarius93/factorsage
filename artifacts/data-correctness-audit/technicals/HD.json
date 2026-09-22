@@ -3,9 +3,9 @@
   "securityId": "287bf3da-b140-405f-add6-f8103342e0dc",
   "priceRows": 8568,
   "derivedRows": 8568,
-  "visibleFrom": "1996-09-09",
-  "compared": 128456,
-  "failed": 9,
+  "visibleFrom": "1996-09-10",
+  "compared": 128439,
+  "failed": 0,
   "samples": [
     {
       "date": "1998-08-17",
@@ -363,69 +363,5 @@
       }
     }
   ],
-  "mismatches": [
-    {
-      "date": "2026-09-04",
-      "field": "ema200w",
-      "expected": 344.7607296365555,
-      "actual": 344.76072963,
-      "difference": -6.555467280122684e-9
-    },
-    {
-      "date": "2026-09-08",
-      "field": "ema200w",
-      "expected": 344.7607296365555,
-      "actual": 344.76072963,
-      "difference": -6.555467280122684e-9
-    },
-    {
-      "date": "2026-09-09",
-      "field": "ema200w",
-      "expected": 344.7607296365555,
-      "actual": 344.76072963,
-      "difference": -6.555467280122684e-9
-    },
-    {
-      "date": "2026-09-10",
-      "field": "ema200w",
-      "expected": 344.7607296365555,
-      "actual": 344.76072963,
-      "difference": -6.555467280122684e-9
-    },
-    {
-      "date": "2026-09-11",
-      "field": "ema200w",
-      "expected": 344.40231441629123,
-      "actual": 344.40231441,
-      "difference": -6.291259069257649e-9
-    },
-    {
-      "date": "2026-09-14",
-      "field": "ema200w",
-      "expected": 344.40231441629123,
-      "actual": 344.40231441,
-      "difference": -6.291259069257649e-9
-    },
-    {
-      "date": "2026-09-15",
-      "field": "ema200w",
-      "expected": 344.40231441629123,
-      "actual": 344.40231441,
-      "difference": -6.291259069257649e-9
-    },
-    {
-      "date": "2026-09-16",
-      "field": "ema200w",
-      "expected": 344.40231441629123,
-      "actual": 344.40231441,
-      "difference": -6.291259069257649e-9
-    },
-    {
-      "date": "2026-09-17",
-      "field": "ema200w",
-      "expected": 344.40231441629123,
-      "actual": 344.40231441,
-      "difference": -6.291259069257649e-9
-    }
-  ]
+  "mismatches": []
 }

@@ -1,10 +1,10 @@
 {
   "description": "Production buildStrategyGates versus the reference evaluator, every level x security x simulated date of the C01 (30-year) matrix runs.",
   "cases": 100,
-  "comparisons": 17748544,
+  "comparisons": 17751128,
   "failed": 0,
-  "trueDays": 5931719,
-  "notEvaluableDays": 331302,
+  "trueDays": 5932957,
+  "notEvaluableDays": 331064,
   "differences": [],
   "traces": [
     {

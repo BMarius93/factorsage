@@ -1,12 +1,12 @@
 {
   "symbol": "JPM",
-  "compared": 79599,
+  "compared": 79588,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 4780,
-    "RESIDUAL_INCOME": 6806,
-    "DDM": 7557,
-    "GRAHAM": 7557
+    "DCF_FCFF": 4779,
+    "RESIDUAL_INCOME": 6805,
+    "DDM": 7556,
+    "GRAHAM": 7556
   },
   "valuesAbsent": {
     "DCF_FCFF": 2777,
@@ -27,7 +27,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 32.510030537560084,

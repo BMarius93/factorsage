@@ -1,22 +1,22 @@
 {
   "symbol": "TRV",
-  "compared": 77282,
+  "compared": 77272,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 6965,
-    "RESIDUAL_INCOME": 6672,
-    "GRAHAM": 7120,
+    "DCF_FCFF": 6964,
+    "RESIDUAL_INCOME": 6671,
+    "GRAHAM": 7119,
     "DDM": 3626
   },
   "valuesAbsent": {
-    "DDM": 3931,
+    "DDM": 3930,
     "RESIDUAL_INCOME": 885,
     "DCF_FCFF": 592,
     "GRAHAM": 437
   },
   "unavailableReasons": {
     "DDM": {
-      "NON_POSITIVE_DIVIDEND": 3931
+      "NON_POSITIVE_DIVIDEND": 3930
     },
     "RESIDUAL_INCOME": {
       "NON_POSITIVE_EQUITY_VALUE": 885
@@ -35,7 +35,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 88.24752625330177,
@@ -7800,86 +7800,86 @@
       }
     },
     {
-      "effectiveFrom": "2024-01-02",
+      "effectiveFrom": "2024-02-16",
       "expected": {
         "DCF_FCFF": {
-          "value": 865.8874466508742,
-          "sourceAsOf": "2024-01-01",
+          "value": 958.0595432319659,
+          "sourceAsOf": "2024-02-16",
           "inputs": {
-            "ocf": 6947000000,
+            "ocf": 7711000000,
             "capex": 0,
-            "interest": 366000000,
-            "cash": 89460000000,
+            "interest": 376000000,
+            "cash": 83549000000,
             "debt": 8031000000,
             "shares": 231100000,
-            "growthUsed": 0.05005072176135794
+            "growthUsed": 0.06440398447542339
           }
         },
         "RESIDUAL_INCOME": {
-          "value": 85.97123180207005,
-          "sourceAsOf": "2024-01-01",
+          "value": 164.74255497300783,
+          "sourceAsOf": "2024-02-16",
           "inputs": {
-            "netIncome": 2184000000,
-            "bookValue": 24921000000,
+            "netIncome": 2991000000,
+            "bookValue": 19978000000,
             "shares": 231100000,
-            "growthUsed": 0.05005072176135794
+            "growthUsed": 0.06440398447542339
           }
         },
         "DDM": {
-          "value": 52.54764400632627,
-          "sourceAsOf": "2023-10-19",
+          "value": 53.60143197348354,
+          "sourceAsOf": "2024-02-16",
           "inputs": {
-            "dps": 3.8449495614385087
+            "dps": 3.9220559980597725
           }
         },
         "GRAHAM": {
-          "value": 171.20217612859514,
-          "sourceAsOf": "2023-10-19",
+          "value": 273.4411495709275,
+          "sourceAsOf": "2024-02-16",
           "inputs": {
-            "eps": 9.2491,
-            "growthUsed": 0.05005072176135794
+            "eps": 12.789100000000001,
+            "growthUsed": 0.06440398447542339
           }
         }
       },
       "actual": {
         "DCF_FCFF": {
-          "value": "865.88744665",
-          "sourceAsOf": "2024-01-01"
+          "value": "958.05954323",
+          "sourceAsOf": "2024-02-16"
         },
         "RESIDUAL_INCOME": {
-          "value": "85.97123180",
-          "sourceAsOf": "2024-01-01"
+          "value": "164.74255497",
+          "sourceAsOf": "2024-02-16"
         },
         "DDM": {
-          "value": "52.54764401",
-          "sourceAsOf": "2023-10-19"
+          "value": "53.60143197",
+          "sourceAsOf": "2024-02-16"
         },
         "GRAHAM": {
-          "value": "171.20217613",
-          "sourceAsOf": "2023-10-19"
+          "value": "273.44114957",
+          "sourceAsOf": "2024-02-16"
         }
       },
       "blends": {
         "BALANCED": {
-          "expected": 492.9755280917771,
-          "actual": "492.97552809"
+          "expected": 583.1407680220708,
+          "actual": "583.14076802"
         },
         "CONSERVATIVE": {
-          "expected": 423.5070010395492,
-          "actual": "423.50700104"
+          "expected": 514.678928655967,
+          "actual": "514.67892866"
         },
         "DIVIDEND": {
-          "expected": 384.5682826232942,
-          "actual": "384.56828262"
+          "expected": 437.6129010767814,
+          "actual": "437.61290108"
         }
       }
     },
     {
-      "effectiveFrom": "2024-02-16",
+      "effectiveFrom": "2024-04-02",
       "expected": {
         "DCF_FCFF": {
           "value": 983.6372152354276,
-          "sourceAsOf": "2024-02-16",
+          "sourceAsOf": "2024-04-02",
           "inputs": {
             "ocf": 7711000000,
             "capex": 0,
@@ -7892,7 +7892,7 @@
         },
         "RESIDUAL_INCOME": {
           "value": 147.16531096977127,
-          "sourceAsOf": "2024-02-16",
+          "sourceAsOf": "2024-04-02",
           "inputs": {
             "netIncome": 2991000000,
             "bookValue": 24921000000,
@@ -7919,11 +7919,11 @@
       "actual": {
         "DCF_FCFF": {
           "value": "983.63721524",
-          "sourceAsOf": "2024-02-16"
+          "sourceAsOf": "2024-04-02"
         },
         "RESIDUAL_INCOME": {
           "value": "147.16531097",
-          "sourceAsOf": "2024-02-16"
+          "sourceAsOf": "2024-04-02"
         },
         "DDM": {
           "value": "53.60143197",

@@ -1,12 +1,12 @@
 {
   "symbol": "CVX",
-  "compared": 78888,
+  "compared": 78877,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 5526,
-    "RESIDUAL_INCOME": 6944,
-    "DDM": 7557,
-    "GRAHAM": 5962
+    "DCF_FCFF": 5525,
+    "RESIDUAL_INCOME": 6943,
+    "DDM": 7556,
+    "GRAHAM": 5961
   },
   "valuesAbsent": {
     "DCF_FCFF": 2031,
@@ -32,7 +32,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 18.182058997908815,

@@ -1,22 +1,22 @@
 {
   "symbol": "MSFT",
-  "compared": 81874,
+  "compared": 81864,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7545,
-    "RESIDUAL_INCOME": 7545,
-    "GRAHAM": 7545,
+    "DCF_FCFF": 7544,
+    "RESIDUAL_INCOME": 7544,
+    "GRAHAM": 7544,
     "DDM": 6340
   },
   "valuesAbsent": {
-    "DDM": 1217,
+    "DDM": 1216,
     "DCF_FCFF": 12,
     "RESIDUAL_INCOME": 12,
     "GRAHAM": 12
   },
   "unavailableReasons": {
     "DDM": {
-      "NON_POSITIVE_DIVIDEND": 1205,
+      "NON_POSITIVE_DIVIDEND": 1204,
       "MISSING_TTM_WINDOW": 12
     },
     "DCF_FCFF": {
@@ -35,7 +35,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 9.519135616986762,

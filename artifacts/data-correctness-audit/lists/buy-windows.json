@@ -11,13 +11,13 @@
   },
   "differences": [],
   "matrixEvidence": {
-    "tradesInCustomWindowLists": 69115,
-    "buysInsideWindow": 19885,
+    "tradesInCustomWindowLists": 69118,
+    "buysInsideWindow": 19886,
     "buysOutsideWindow": 0,
     "buysOnWindowStart": 423,
-    "buysOnWindowEnd": 136,
+    "buysOnWindowEnd": 117,
     "sellsOutsideWindow": 135,
-    "finalExitsOutsideWindow": 684,
+    "finalExitsOutsideWindow": 676,
     "liquidationsOutsideWindow": 335
   }
 }

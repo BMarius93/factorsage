@@ -1,20 +1,20 @@
 {
   "comparisons": {
-    "compared": 209149,
-    "passed": 209140,
-    "failed": 9,
+    "compared": 209359,
+    "passed": 209358,
+    "failed": 1,
     "skipped": 0,
     "tolerancePasses": 0
   },
   "byCategory": {
     "source-benchmark": {
-      "compared": 7556,
+      "compared": 7731,
       "failed": 0,
       "skipped": 0
     },
     "source-prices": {
-      "compared": 200861,
-      "failed": 9,
+      "compared": 200896,
+      "failed": 1,
       "skipped": 0
     },
     "source-splits": {
@@ -30,54 +30,52 @@
   },
   "perSymbol": {
     "AAPL": {
-      "rows": 8567,
-      "compared": 42835,
-      "mismatched": 1,
+      "rows": 8568,
+      "compared": 42840,
+      "mismatched": 0,
       "missingInProvider": 0,
       "providerOnlyDates": [],
-      "snapshotFetchedAt": "2026-09-22T15:32:16.512Z"
+      "snapshotFetchedAt": "2026-09-22T22:28:03.226Z"
     },
     "NVDA": {
-      "rows": 6958,
-      "compared": 34790,
+      "rows": 6959,
+      "compared": 34795,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:04.263Z"
+    },
+    "KO": {
+      "rows": 8568,
+      "compared": 42840,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:05.237Z"
+    },
+    "MRNA": {
+      "rows": 1957,
+      "compared": 9785,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:06.597Z"
+    },
+    "DIS": {
+      "rows": 8568,
+      "compared": 42840,
       "mismatched": 1,
       "missingInProvider": 0,
       "providerOnlyDates": [],
-      "snapshotFetchedAt": "2026-09-22T15:32:17.768Z"
-    },
-    "KO": {
-      "rows": 8567,
-      "compared": 42835,
-      "mismatched": 0,
-      "missingInProvider": 0,
-      "providerOnlyDates": [],
-      "snapshotFetchedAt": "2026-09-22T15:32:18.850Z"
-    },
-    "MRNA": {
-      "rows": 1955,
-      "compared": 9775,
-      "mismatched": 6,
-      "missingInProvider": 0,
-      "providerOnlyDates": [
-        "2026-09-04"
-      ],
-      "snapshotFetchedAt": "2026-09-22T15:32:20.399Z"
-    },
-    "DIS": {
-      "rows": 8567,
-      "compared": 42835,
-      "mismatched": 0,
-      "missingInProvider": 0,
-      "providerOnlyDates": [],
-      "snapshotFetchedAt": "2026-09-22T15:32:21.188Z"
+      "snapshotFetchedAt": "2026-09-22T22:28:07.375Z"
     },
     "GOOGL": {
-      "rows": 5557,
-      "compared": 27785,
+      "rows": 5558,
+      "compared": 27790,
       "mismatched": 0,
       "missingInProvider": 0,
       "providerOnlyDates": [],
-      "snapshotFetchedAt": "2026-09-22T15:32:22.356Z"
+      "snapshotFetchedAt": "2026-09-22T22:28:08.282Z"
     }
   },
   "samples": [
@@ -885,71 +883,16 @@
     }
   ],
   "benchmark": {
-    "rows": 7556,
+    "rows": 7731,
     "mismatches": 0
   },
   "differences": [
     {
-      "path": "AAPL 2026-09-08 volume",
-      "expected": "35477100",
-      "actual": "35477090",
+      "path": "DIS 2026-09-22 volume",
+      "expected": "7173330",
+      "actual": "7167667",
       "rule": "exact-decimal",
-      "difference": -10
-    },
-    {
-      "path": "NVDA 2026-09-08 volume",
-      "expected": "122965600",
-      "actual": "122965555",
-      "rule": "exact-decimal",
-      "difference": -45
-    },
-    {
-      "path": "MRNA 2026-09-03 open",
-      "expected": "145.95",
-      "actual": "146.04000000",
-      "rule": "exact-decimal",
-      "difference": 0.09
-    },
-    {
-      "path": "MRNA 2026-09-03 volume",
-      "expected": "13290400",
-      "actual": "13270498",
-      "rule": "exact-decimal",
-      "difference": -19902
-    },
-    {
-      "path": "MRNA 2026-09-09 open",
-      "expected": "140.29",
-      "actual": "140.29500000",
-      "rule": "exact-decimal",
-      "difference": 0.005
-    },
-    {
-      "path": "MRNA 2026-09-09 low",
-      "expected": "135.52",
-      "actual": "136.70000000",
-      "rule": "exact-decimal",
-      "difference": 1.18
-    },
-    {
-      "path": "MRNA 2026-09-09 close",
-      "expected": "135.61",
-      "actual": "137.39500000",
-      "rule": "exact-decimal",
-      "difference": 1.785
-    },
-    {
-      "path": "MRNA 2026-09-09 volume",
-      "expected": "8650500",
-      "actual": "3911148",
-      "rule": "exact-decimal",
-      "difference": -4739352
-    },
-    {
-      "path": "MRNA provider dates missing from DailyPrice",
-      "expected": 0,
-      "actual": 1,
-      "rule": "exact-number"
+      "difference": -5663
     }
   ]
 }

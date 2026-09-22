@@ -51,7 +51,7 @@
         },
         "GRAHAM": {
           "value": 0.18131149775,
-          "sourceAsOf": "2004-05-01",
+          "sourceAsOf": "2004-06-15",
           "inputs": {
             "eps": 0.0098006215,
             "growthUsed": 0.05
@@ -73,7 +73,7 @@
         },
         "GRAHAM": {
           "value": "0.18131150",
-          "sourceAsOf": "2004-05-01"
+          "sourceAsOf": "2004-06-15"
         }
       },
       "blends": {

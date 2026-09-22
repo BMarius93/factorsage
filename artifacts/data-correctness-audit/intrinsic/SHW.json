@@ -1,12 +1,12 @@
 {
   "symbol": "SHW",
-  "compared": 82736,
+  "compared": 82725,
   "failed": 0,
   "valuesPresent": {
-    "DCF_FCFF": 7557,
-    "RESIDUAL_INCOME": 7308,
-    "DDM": 7557,
-    "GRAHAM": 7415
+    "DCF_FCFF": 7556,
+    "RESIDUAL_INCOME": 7307,
+    "DDM": 7556,
+    "GRAHAM": 7414
   },
   "valuesAbsent": {
     "RESIDUAL_INCOME": 249,
@@ -26,7 +26,7 @@
   "mismatches": [],
   "quarterlyHistory": [
     {
-      "effectiveFrom": "1996-09-09",
+      "effectiveFrom": "1996-09-10",
       "expected": {
         "DCF_FCFF": {
           "value": 7.519000903905928,
