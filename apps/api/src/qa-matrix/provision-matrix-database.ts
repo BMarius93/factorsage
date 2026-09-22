@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { PrismaClient, type Prisma } from "@intrinsic/database";
 import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
 import { DEFAULT_BENCHMARK_CODE } from "@intrinsic/contracts";
+import { createStockDataRedisClient } from "@intrinsic/stock-data";
 import { QA_MATRIX_SECURITIES } from "@intrinsic/testing";
 import type { MatrixEnvironment } from "./matrix-environment";
 import {
@@ -550,6 +551,54 @@ async function assertCalendarCopied(target: PrismaClient): Promise<void> {
   }
 }
 
+/** The little of a Redis client this needs, so the flush can be tested without a server. */
+export type MatrixProjectionStore = {
+  flushdb(): Promise<unknown>;
+  disconnect(): void;
+};
+
+/**
+ * Discards the matrix environment's Redis projections.
+ *
+ * Redis holds *projections* of the copied data — yearly price chunks, derived-state chunks, the
+ * per-security manifest, the benchmark series. They are disposable by design and rebuilt from
+ * PostgreSQL, but nothing invalidates them when the copy underneath changes: a manifest whose
+ * dataset versions still match is trusted, so a projection built from the previous copy keeps being
+ * served. That is the same defect as AUD-06 one layer up, and it showed itself as one: after the
+ * matrix data was re-copied with a settled final bar, the runs still priced the benchmark from the
+ * cached in-session bar (SPY 2026-09-22 close 773.44 against the stored 773.38) and invariant 17
+ * failed on the final date of 494 of them.
+ *
+ * So provisioning ends by emptying the matrix Redis index. `resolveMatrixEnvironment` has already
+ * required that index to be the matrix's own and not the development one; this additionally
+ * requires the URL to name exactly the index the environment reports, because `FLUSHDB` is
+ * irreversible and a client connected to the wrong index would empty a live cache.
+ */
+export async function discardMatrixProjections(
+  environment: MatrixEnvironment,
+  progress: ProvisionProgress,
+  connect: (url: string) => MatrixProjectionStore = (url) =>
+    createStockDataRedisClient(url),
+): Promise<void> {
+  const index = Number(new URL(environment.redisUrl).pathname.slice(1));
+  if (!Number.isInteger(index) || index !== environment.redisDb) {
+    throw new Error(
+      `The matrix Redis URL names index \`${new URL(environment.redisUrl).pathname}\` while the ` +
+        `environment reports database ${environment.redisDb}. Refusing to flush: the two must ` +
+        "agree, or the flush could empty a cache that belongs to something else.",
+    );
+  }
+  const redis = connect(environment.redisUrl);
+  try {
+    await redis.flushdb();
+    progress(
+      `discarded the Redis projections in database ${index}; they rebuild from PostgreSQL on first read`,
+    );
+  } finally {
+    redis.disconnect();
+  }
+}
+
 export async function provisionMatrixDatabase(
   environment: MatrixEnvironment,
   progress: ProvisionProgress,
@@ -564,6 +613,9 @@ export async function provisionMatrixDatabase(
     environment,
     progress,
   );
+  // After the copy, not before: a projection rebuilt from the half-copied data would be exactly
+  // what this is here to prevent.
+  await discardMatrixProjections(environment, progress);
   return {
     databaseCreated,
     migrationsApplied,

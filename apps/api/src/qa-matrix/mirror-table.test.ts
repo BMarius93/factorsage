@@ -5,6 +5,7 @@ import {
   type IdentityPort,
   type MirrorPort,
 } from "./mirror-table";
+import { discardMatrixProjections } from "./provision-matrix-database";
 
 type Bar = { readonly date: string; readonly close: number; volume?: bigint };
 
@@ -246,5 +247,78 @@ describe("reconcileIdentityRows", () => {
 
     expect(result.extra).toBe(1);
     expect(stored.has("seeded")).toBe(true);
+  });
+});
+
+describe("discardMatrixProjections", () => {
+  const environment = {
+    databaseName: "intrinsic_value_matrix",
+    databaseUrl: "postgresql://u:p@localhost:5432/intrinsic_value_matrix",
+    adminDatabaseUrl: "postgresql://u:p@localhost:5432/postgres",
+    sourceDatabaseUrl: "postgresql://u:p@localhost:5432/intrinsic_value",
+    redisUrl: "redis://localhost:6379/3",
+    redisDb: 3,
+  } as unknown as Parameters<typeof discardMatrixProjections>[0];
+
+  it("empties the matrix Redis index and disconnects", async () => {
+    const calls: string[] = [];
+    const messages: string[] = [];
+    await discardMatrixProjections(
+      environment,
+      (m) => messages.push(m),
+      (url) => {
+        calls.push(`connect ${url}`);
+        return {
+          async flushdb() {
+            calls.push("flushdb");
+          },
+          disconnect() {
+            calls.push("disconnect");
+          },
+        };
+      },
+    );
+
+    expect(calls).toEqual([
+      "connect redis://localhost:6379/3",
+      "flushdb",
+      "disconnect",
+    ]);
+    expect(messages[0]).toContain("database 3");
+  });
+
+  it("refuses when the URL's index is not the one the environment reports", async () => {
+    // A client connected to another index would empty a cache that belongs to something else.
+    await expect(
+      discardMatrixProjections(
+        {
+          ...environment,
+          redisUrl: "redis://localhost:6379/0",
+        } as typeof environment,
+        () => {},
+        () => {
+          throw new Error("must not connect");
+        },
+      ),
+    ).rejects.toThrow(/must agree/);
+  });
+
+  it("disconnects even when the flush fails", async () => {
+    let disconnected = false;
+    await expect(
+      discardMatrixProjections(
+        environment,
+        () => {},
+        () => ({
+          async flushdb() {
+            throw new Error("READONLY");
+          },
+          disconnect() {
+            disconnected = true;
+          },
+        }),
+      ),
+    ).rejects.toThrow("READONLY");
+    expect(disconnected).toBe(true);
   });
 });
