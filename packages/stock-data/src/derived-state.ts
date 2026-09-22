@@ -43,8 +43,18 @@ import {
  *   for every oscillator column, which is indistinguishable from warm-up, so r3 coverage and
  *   manifests must report nothing and the canonical history is rebuilt and replaced as r4. One
  *   bump covers the whole family: the three periods are one methodology addition.
+ * - r5: one canonical calculation anchor, and point-in-time statement availability. Two things an
+ *   r4 row cannot be trusted to carry. The recursive series (EMA, Wilder RSI) have unbounded
+ *   memory, so their values depend on where the calculation starts, and r4 rows were calculated
+ *   over whichever load window the caller happened to ask for — a window whose start moves with
+ *   the clock, so consecutive rebuilds seeded neighbouring rows differently (measured at 2.1e-8 on
+ *   `ema200w`; audit finding AUD-02). A rebuild now always calculates from the security's earliest
+ *   persisted bar. Separately, `statementPublicAvailabilityDate` replaced `filingDate + 1 day` for
+ *   statements whose provider filing date is the fiscal period end (AUD-03), so every materialized
+ *   intrinsic value derived from one of those has to be recomputed. Both make an r4 row a row
+ *   calculated under a superseded methodology, which is exactly what a revision bump means.
  */
-export const DERIVED_STATE_REVISION = 4;
+export const DERIVED_STATE_REVISION = 5;
 
 export const DAILY_DERIVED_STATE_VARIANT = `daily-derived-state:r${DERIVED_STATE_REVISION}`;
 

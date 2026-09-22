@@ -193,6 +193,14 @@ export function priceRetentionYears(productHistoryYears: number): number {
  */
 const PROVIDER_BOUNDARY_MIN_GAP_DAYS = 7;
 
+/**
+ * Lower bound for "every bar this security has", used when asking the store for its earliest one.
+ *
+ * A date rather than an unbounded query, because the store's bounds read takes a range. No equity
+ * series this product can hold starts before it.
+ */
+const EARLIEST_PERSISTED_PRICE_DATE = "1900-01-01";
+
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
 const FUNDAMENTALS_REFRESH_QUARTERLY_LIMIT = 12;
@@ -1388,10 +1396,22 @@ export class CanonicalStockDataService implements StockDataService {
     from: string,
     lease: LoadLease,
   ): Promise<DailyDerivedState[]> {
+    // The canonical calculation window: every bar this security has, not the window the caller
+    // happened to ask for. `movingAverage` seeds an EMA from the first complete window of the
+    // series it is given and Wilder's RSI from the first `period` changes of it, so both carry the
+    // start of the series in every later value. Calculating over a load window whose start moves
+    // with the clock therefore made consecutive rebuilds disagree about rows they both wrote
+    // (AUD-02). Anchoring on the earliest persisted bar makes the stored series a pure function of
+    // the stored prices: it moves only when an earlier bar actually arrives, and the backfill that
+    // brings one reports it as the earliest changed date, which rebuilds from there.
+    const calculation = await this.calculationPrices(security, target, prices);
     const weeklyBars = aggregateCompletedWeeks(
-      prices,
+      calculation.prices,
       target.to,
-      this.weeklyHistoryContext(security, target),
+      this.weeklyHistoryContext(
+        security,
+        calculation.prices[0]?.date ?? calculation.range.from,
+      ),
     );
     // One bounded read of immutable revisions, not the latest-revision selector: the materializer
     // needs each revision's own availableFromDate as a distinct evaluation event.
@@ -1403,11 +1423,11 @@ export class CanonicalStockDataService implements StockDataService {
     });
     const intrinsicStates = materializeDailyIntrinsicValues({
       securityId: security.id,
-      tradingDates: prices.map((price) => price.date),
+      tradingDates: calculation.prices.map((price) => price.date),
       statements,
     });
     const rows = buildDailyDerivedState({
-      prices,
+      prices: calculation.prices,
       weeklyBars,
       intrinsicStates,
     }).filter((row) => row.date >= from);
@@ -1427,6 +1447,35 @@ export class CanonicalStockDataService implements StockDataService {
       assertOwned: lease.assertOwned,
     });
     return rows;
+  }
+
+  /**
+   * The bars a derived rebuild calculates from, and the range they cover.
+   *
+   * `prices` is what the caller already loaded for its own window. When the security has older
+   * persisted bars than that, they are read as well: the series' start is part of every recursive
+   * value, so it must be a property of the stored data rather than of the request that triggered
+   * the rebuild. One read of at most the retained history, on a path that is already writing
+   * thousands of rows.
+   */
+  private async calculationPrices(
+    security: Security,
+    target: Required<DateRange>,
+    prices: readonly DailyPrice[],
+  ): Promise<{ prices: readonly DailyPrice[]; range: Required<DateRange> }> {
+    const bounds = await this.store.getDailyPriceBounds(security.id, {
+      from: EARLIEST_PERSISTED_PRICE_DATE,
+      to: target.to,
+    });
+    const earliest = bounds?.firstDate;
+    if (!earliest || earliest >= target.from) {
+      return { prices, range: target };
+    }
+    const range = { from: earliest, to: target.to };
+    return {
+      prices: await this.store.getDailyPrices(security.id, range),
+      range,
+    };
   }
 
   /**
@@ -2095,14 +2144,20 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
-  private weeklyHistoryContext(
-    security: Security,
-    target: Required<DateRange>,
-  ) {
+  /**
+   * Whether the first week of a calculation is a real trading week or one the history's start cut
+   * in half, given the earliest bar the calculation actually has.
+   *
+   * Anchored on that bar rather than on the requested range for the same reason the calculation
+   * itself is (AUD-02): a partial first week changes every later weekly average, so which week the
+   * series starts with must be a property of the stored prices and not of the read that triggered
+   * the rebuild.
+   */
+  private weeklyHistoryContext(security: Security, historyStart: LocalDate) {
     return {
-      historyStart: target.from,
+      historyStart,
       historyStartOrigin:
-        security.ipoDate && security.ipoDate >= target.from
+        security.ipoDate && security.ipoDate >= historyStart
           ? ("LISTING" as const)
           : ("HORIZON" as const),
     };
