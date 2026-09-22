@@ -2169,10 +2169,15 @@ function buildValue(value: StrategyValue): StrategyValue {
   }
 }
 
-function buildSignal(signal: StrategySignal): StrategySignal {
+/** The id the builders below give a row: the one it was authored with, unless a copy is re-keyed. */
+type RowIdOf = (id: string) => string;
+
+const keepRowId: RowIdOf = (id) => id;
+
+function buildSignal(signal: StrategySignal, idOf: RowIdOf): StrategySignal {
   const normalized: StrategySignal = {
     conditions: signal.conditions.map((condition) => ({
-      id: condition.id,
+      id: idOf(condition.id),
       metric: buildMetric(condition.metric),
       operator: condition.operator,
       value: buildValue(condition.value),
@@ -2180,7 +2185,7 @@ function buildSignal(signal: StrategySignal): StrategySignal {
   };
   if (signal.trigger) {
     normalized.trigger = {
-      id: signal.trigger.id,
+      id: idOf(signal.trigger.id),
       metric: buildMetric(signal.trigger.metric),
       operator: signal.trigger.operator,
       value: buildValue(signal.trigger.value),
@@ -2189,29 +2194,32 @@ function buildSignal(signal: StrategySignal): StrategySignal {
   return normalized;
 }
 
-function buildDefinition(definition: StrategyDefinition): StrategyDefinition {
+function buildDefinition(
+  definition: StrategyDefinition,
+  idOf: RowIdOf = keepRowId,
+): StrategyDefinition {
   const normalized: StrategyDefinition = {
     schemaVersion: STRATEGY_SCHEMA_VERSION,
     buyLevels: definition.buyLevels.map((level) => ({
-      id: level.id,
-      signal: buildSignal(level.signal),
+      id: idOf(level.id),
+      signal: buildSignal(level.signal, idOf),
       percentage: level.percentage,
     })),
     sellLevels: definition.sellLevels.map((level) => ({
-      id: level.id,
-      signal: buildSignal(level.signal),
+      id: idOf(level.id),
+      signal: buildSignal(level.signal, idOf),
       percentage: level.percentage,
     })),
   };
   if (definition.finalExit) {
     normalized.finalExit = {
-      id: definition.finalExit.id,
+      id: idOf(definition.finalExit.id),
       // Exit Rule order is preserved exactly, like level and condition order. OR is commutative, so
       // reordering does not change what the strategy does — but it is what the user wrote, it is
       // what the Builder renumbers, and rewriting it would move their rules for them.
       rules: definition.finalExit.rules.map((rule) => ({
-        id: rule.id,
-        signal: buildSignal(rule.signal),
+        id: idOf(rule.id),
+        signal: buildSignal(rule.signal, idOf),
       })),
     };
   }
@@ -2240,6 +2248,29 @@ export function normalizeStrategyDefinition(
     throw new StrategyValidationError(issues);
   }
   return buildDefinition(upgraded as StrategyDefinition);
+}
+
+/**
+ * The same logic under entirely new identities: every level, FINAL EXIT, Exit Rule, condition and
+ * trigger id is replaced by a fresh one from `nextId`, and nothing else changes — not a value, not
+ * an operator, not the order of anything.
+ *
+ * This is what makes a copy of a strategy a different strategy rather than a second name for the
+ * same one. A level id is the identity a Monitor's durable state is keyed by, and row ids are what
+ * diagnostics address, so a copy that kept them would share its source's identities; a re-keyed
+ * copy shares only its logic. The fingerprints ignore ids, so `strategyDefinitionFingerprint` —
+ * and the persisted `definitionHash` derived from it — is unchanged, which is the proof that
+ * nothing but identity moved.
+ *
+ * It walks the document with the canonical builder, so a row kind added to the document later is
+ * re-keyed as soon as normalization learns to build it. `nextId` must return a value not used
+ * anywhere else in the definition; a UUID per call does.
+ */
+export function rekeyStrategyDefinition(
+  definition: StrategyDefinition,
+  nextId: () => string,
+): StrategyDefinition {
+  return buildDefinition(definition, () => nextId());
 }
 
 // ---------------------------------------------------------------------------
@@ -2401,6 +2432,17 @@ export type UpdateStrategyRequest = {
 /** Replaces the COMPLETE definition atomically and returns the canonical normalized result. */
 export type ReplaceStrategyDefinitionRequest = {
   definition: StrategyDefinition;
+};
+
+/**
+ * Copies a strategy the caller can read — their own, or a built-in — into a new one they own.
+ *
+ * The name is the only thing the caller chooses. What a copy contains is decided by the server
+ * from the source: its description and its current definition, re-keyed. There is deliberately no
+ * `definition` field, so a copy can never be anything but the strategy it was made from.
+ */
+export type DuplicateStrategyRequest = {
+  name: string;
 };
 
 /** The `code` a 400 carries when the canonical validator rejected a submitted strategy. */

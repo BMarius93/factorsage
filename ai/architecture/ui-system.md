@@ -141,7 +141,7 @@ Dashboard.
 
 ### `OverflowMenu`
 
-The product's one maintenance-action menu: Rename, Edit, Enable/Disable, Delete. Every collection row
+The product's one maintenance-action menu: Rename, Edit, Duplicate, Enable/Disable, Delete. Every collection row
 and every entity header uses it rather than exposing those as visible buttons, so one trigger glyph,
 one hit area, one accessible-label pattern (`More actions for {name}`) and one alignment hold across
 Lists, Strategies, Monitors and Backtests.

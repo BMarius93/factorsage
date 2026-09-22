@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import {
   emptyStrategyDefinition,
   normalizeStrategyDefinition,
+  rekeyStrategyDefinition,
   type StrategyDefinition,
   type AuthUser,
   type StrategyDetailResponse,
@@ -214,6 +216,67 @@ export class StrategiesService {
       strategyId: row.id,
       buyLevelCount: definition.buyLevels.length,
       sellLevelCount: definition.sellLevels.length,
+    });
+    return detailOf(row, user);
+  }
+
+  /**
+   * Copies a strategy the caller can read — their own, or a built-in — into a new one they own.
+   *
+   * The copy holds the description and the **current** definition, as its own version 1; the
+   * source's earlier versions are the source's history and stay with it. Every level, Exit Rule,
+   * condition and trigger is re-keyed (`rekeyStrategyDefinition`): a level id is the identity a
+   * Monitor's durable state is keyed by, so a copy that kept them would be the same strategy under
+   * a second name rather than a new one. The logic is untouched, which is why the copy's
+   * `definitionHash` equals the source's.
+   *
+   * Ownership is the caller's alone — no `SYSTEM` ownership, `systemKey`, display order or audit
+   * column is carried over — and the source is only read. The strategy and its first version are
+   * one nested write, so the copy exists whole or not at all.
+   */
+  async duplicateStrategy(
+    user: AuthUser,
+    strategyId: string,
+    input: { name: string },
+  ): Promise<StrategyDetailResponse> {
+    // A copy is a new custom strategy, so it asks exactly what `createStrategy` asks.
+    this.entitlements.assertCanCreateCustomStrategy(user);
+    const userId = user.id;
+    // Another customer's strategy reads as missing, exactly as it does on every other route.
+    const source = await this.prisma.strategy.findFirst({
+      where: { id: strategyId, ...readableWhere(user) },
+      include: STRATEGY_INCLUDE,
+    });
+    if (!source) {
+      throw new StrategyNotFoundError();
+    }
+    const definition = normalizeStrategyDefinition(
+      rekeyStrategyDefinition(readDefinition(source), randomUUID),
+    );
+
+    const row = await this.prisma.strategy.create({
+      data: {
+        userId,
+        name: input.name,
+        description: source.description,
+        versions: {
+          create: {
+            versionNumber: 1,
+            definition: definition as unknown as Prisma.InputJsonValue,
+            definitionHash: definitionHashOf(definition),
+          },
+        },
+      },
+      include: STRATEGY_INCLUDE,
+    });
+
+    this.logger.info({
+      event: "strategy.duplicated",
+      actorUserId: userId,
+      strategyId: row.id,
+      sourceStrategyId: strategyId,
+      sourceOwnership: source.ownership,
+      sourceVersionNumber: source.versions[0]?.versionNumber ?? 0,
     });
     return detailOf(row, user);
   }

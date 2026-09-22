@@ -1010,6 +1010,50 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  /lists/{listId}/duplicate:
+    parameters:
+      - { $ref: "#/components/parameters/ListId" }
+    post:
+      tags: [Stock lists]
+      operationId: duplicateStockList
+      summary: Copy a list into a new list the caller owns.
+      description: |
+        The source may be the caller's own list or a built-in one; a list that belongs to another
+        customer answers `404`, exactly like one that does not exist. Only the name comes from the
+        request: the server copies the source's description, its members in their order and every
+        member's buy-window mode and canonical ranges, under new identities. Nothing that records
+        past activity is copied — backtest runs and monitors keep referencing the source — and the
+        source is never changed.
+
+        The copy is an ordinary list owned by the caller, whatever the source's ownership: no
+        `systemKey` or built-in status carries over, and the caller may edit and delete it like any
+        list they created. It is a new custom list, so the plan's symbol limit applies to it exactly
+        as it does to `POST /lists`; a built-in's exemption from that limit does not travel with a
+        copy.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DuplicateStockListRequest" }
+            examples:
+              copy:
+                value:
+                  name: "Dividend watchlist — Copy"
+      responses:
+        "201":
+          description: The copy, with its members and buy windows.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StockListDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
   /lists/{listId}/items:
     parameters:
       - { $ref: "#/components/parameters/ListId" }
@@ -1222,6 +1266,49 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
+  /strategies/{strategyId}/duplicate:
+    parameters:
+      - { $ref: "#/components/parameters/StrategyId" }
+    post:
+      tags: [Strategies]
+      operationId: duplicateStrategy
+      summary: Copy a strategy into a new strategy the caller owns.
+      description: |
+        The source may be the caller's own strategy or a built-in one; a strategy that belongs to
+        another customer answers `404`, exactly like one that does not exist. Only the name comes
+        from the request, and any other property is refused: the server copies the source's
+        description and its **current** definition, which becomes version 1 of the copy. Earlier
+        versions, backtest runs, monitors and their signals stay with the source, which is never
+        changed.
+
+        Every level, FINAL EXIT, exit rule, condition and trigger id in the copy is new, so no
+        monitor state keyed by the source's level ids can ever apply to it; the logic is otherwise
+        identical, rule for rule and in the same order. The copy is an ordinary strategy owned by
+        the caller, whatever the source's ownership, and is edited and deleted like any other.
+      security: [{ cookieAuth: [] }]
+      x-rate-limit: { policy: mutation }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DuplicateStrategyRequest" }
+            examples:
+              copy:
+                value:
+                  name: "Value & Trend — Copy"
+      responses:
+        "201":
+          description: The copy, with its re-keyed canonical definition at version 1.
+          headers: *rateLimitHeaders
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategyDetail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/EntitlementDenied" }
+        "404": { $ref: "#/components/responses/OwnedResourceNotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
   /strategies/{strategyId}/definition:
@@ -3376,6 +3463,13 @@ components:
             - { type: string, maxLength: 500 }
             - { type: "null" }
 
+    DuplicateStockListRequest:
+      type: object
+      required: [name]
+      description: Only the copy's name; everything the copy holds is taken from the source.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+
     AddStockListItemsRequest:
       type: object
       required: [securityIds]
@@ -3671,6 +3765,14 @@ components:
       required: [definition]
       properties:
         definition: { $ref: "#/components/schemas/StrategyDefinitionInput" }
+
+    DuplicateStrategyRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      description: Only the copy's name; everything the copy holds is taken from the source.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
 
     # -------------------------------------------------------------------------------------------
     # Benchmarks

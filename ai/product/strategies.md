@@ -59,6 +59,12 @@ buys and holds is valid.
 Strategy identity is the Strategy id. Names are **not** unique per user: the same person may keep
 two strategies both called `Value Strategy`, and they remain distinct records.
 
+A signed-in user may **duplicate** a strategy they can read — their own or a built-in. The copy is
+a new strategy they own with the same logic and new identities: every level, Exit Rule, condition
+and trigger id is new, so no Monitor state keyed by the source's level ids can ever apply to it.
+It starts its own version history from the source's current definition
+(`../architecture/strategy-builder.md` § 6).
+
 ## Signal model
 
 A Signal contains:

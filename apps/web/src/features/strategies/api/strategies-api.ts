@@ -1,5 +1,6 @@
 import type {
   CreateStrategyRequest,
+  DuplicateStrategyRequest,
   StrategyDefinition,
   StrategyDetailResponse,
   StrategySummaryResponse,
@@ -58,6 +59,20 @@ export async function replaceStrategyDefinition(
 
 export async function deleteStrategy(strategyId: string): Promise<void> {
   await apiDelete(`/strategies/${strategyId}`);
+}
+
+/**
+ * Copies a strategy the viewer can read — their own or a built-in — into a new one they own. The
+ * API decides what the copy holds, re-keying every level and rule; the answer is the copy.
+ */
+export async function duplicateStrategy(
+  strategyId: string,
+  input: DuplicateStrategyRequest,
+): Promise<StrategyDetailResponse> {
+  return (await apiPost<StrategyDetailResponse>(
+    `/strategies/${strategyId}/duplicate`,
+    input,
+  )) as StrategyDetailResponse;
 }
 
 /**

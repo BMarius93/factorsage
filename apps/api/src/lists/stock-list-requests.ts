@@ -7,6 +7,7 @@ import {
   type AddStockListItemsRequest,
   type BuyWindowMode,
   type CreateStockListRequest,
+  type DuplicateStockListRequest,
   type UpdateStockListRequest,
 } from "@intrinsic/contracts";
 import type { BuyWindowRange } from "@intrinsic/domain";
@@ -113,6 +114,17 @@ export function parseUpdateStockListRequest(
       ? {}
       : { description: parseDescription(record.description) }),
   };
+}
+
+/**
+ * The copy's name, validated exactly as a new list's name is. Nothing else in the body is read:
+ * what a copy contains is taken from the source by the server, never from the request.
+ */
+export function parseDuplicateStockListRequest(
+  body: unknown,
+): DuplicateStockListRequest {
+  const record = asRecord(body);
+  return { name: parseName(record.name) };
 }
 
 export function parseAddStockListItemsRequest(

@@ -6,6 +6,7 @@ import {
   type Page,
 } from "../fixtures";
 import { apiBaseUrl } from "../utils/entitlements";
+import { overflowMenuActions } from "../utils/overflow-menu";
 
 /**
  * A signed-in customer meeting the same built-in content: their own first, the platform's under it.
@@ -78,13 +79,17 @@ test.describe("PRO_USER built-in collections", () => {
 
   test("keeps built-ins read-only for a customer", async ({ page }) => {
     await page.goto("/lists");
-    await expect(
-      page
-        .getByTestId("built-in-lists")
-        .locator("tbody tr")
-        .filter({ hasText: QA_LIST })
-        .getByTestId("list-actions"),
-    ).toHaveCount(0);
+    // A customer can copy a built-in list into one of their own, and change nothing about it.
+    expect(
+      await overflowMenuActions(
+        page,
+        QA_LIST,
+        page
+          .getByTestId("built-in-lists")
+          .locator("tbody tr")
+          .filter({ hasText: QA_LIST }),
+      ),
+    ).toEqual(["Duplicate"]);
 
     await page.goto("/monitors");
     await expect(builtInRow(page, QA_MONITOR).getByTestId("monitor-actions")).toHaveCount(0);

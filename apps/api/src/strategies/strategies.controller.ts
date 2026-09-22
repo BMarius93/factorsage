@@ -35,6 +35,7 @@ import {
 } from "./strategies.service";
 import {
   parseCreateStrategyRequest,
+  parseDuplicateStrategyRequest,
   parseReplaceStrategyDefinitionRequest,
   parseUpdateStrategyRequest,
 } from "./strategy-requests";
@@ -71,6 +72,24 @@ export class StrategiesController {
   ): Promise<StrategyDetailResponse> {
     const input = parseCreateStrategyRequest(body);
     return this.execute(() => this.strategies.createStrategy(user, input));
+  }
+
+  /**
+   * Copies a strategy the caller can read — their own, or a built-in — into a new one they own, and
+   * answers with the copy. The source is only read.
+   */
+  @RateLimit("mutation")
+  @Post(":strategyId/duplicate")
+  @UseGuards(CookieAuthGuard)
+  async duplicate(
+    @CurrentUser() user: AuthUser,
+    @Param("strategyId") strategyId: string,
+    @Body() body: unknown,
+  ): Promise<StrategyDetailResponse> {
+    const input = parseDuplicateStrategyRequest(body);
+    return this.execute(() =>
+      this.strategies.duplicateStrategy(user, strategyId, input),
+    );
   }
 
   @RateLimit("standard-read")

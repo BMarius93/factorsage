@@ -119,6 +119,16 @@ export type UpdateStockListRequest = {
 };
 
 /**
+ * Copies a list the caller can read — their own, or a built-in — into a new list they own.
+ *
+ * The name is the only thing the caller chooses. What a copy contains is decided by the server
+ * from the source: its description, its members in their order, and each member's buy windows.
+ */
+export type DuplicateStockListRequest = {
+  name: string;
+};
+
+/**
  * Adds catalog securities to a list. Idempotent: ids already in the list are skipped rather than
  * duplicated or rejected, so the response is stable under retries and concurrent submissions.
  */

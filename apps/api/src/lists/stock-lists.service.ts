@@ -330,6 +330,108 @@ export class StockListsService {
   }
 
   /**
+   * Copies a List the caller can read — their own, or a built-in — into a new List they own.
+   *
+   * The copy is configuration, not history: the description, every member in the source's order,
+   * and each member's buy-window mode and canonical ranges, all under new identities. Nothing that
+   * records past activity comes with it — backtest runs and Monitors keep referencing the source —
+   * and the source is only read. Ownership is the caller's alone: no `SYSTEM` ownership,
+   * `systemKey`, display order or administrator audit column is carried over, so a copy of a
+   * built-in is an ordinary customer List, editable and deletable like any other.
+   *
+   * It is a new custom List, so it answers exactly the entitlement questions `createList` does, for
+   * the size the copy will have. A built-in is exempt from the symbol limit because it is platform
+   * content; a customer's copy of one is not, so duplicating is never a way past the plan.
+   *
+   * The source is read and the copy written in one transaction, so a failure part-way leaves
+   * nothing behind. It runs at `REPEATABLE READ` because the source is read by more than one
+   * statement — the members, then their windows — and at the default isolation a membership edit
+   * committing between the two could hand the copy a `CUSTOM` member with no ranges, a state no
+   * writer may persist. Nothing here updates an existing row, so the stricter snapshot costs no
+   * serialization failures.
+   */
+  async duplicateList(
+    user: AuthUser,
+    listId: string,
+    input: { name: string },
+  ): Promise<StockListDetailResponse> {
+    const userId = user.id;
+    this.entitlements.assertCanCreateCustomList(user);
+
+    const { list, sourceOwnership } = await this.prisma.$transaction(
+      async (tx) => {
+        // Another customer's List reads as missing, exactly as it does on every other route.
+        const source = await tx.stockList.findFirst({
+          where: { id: listId, ...readableWhere(user) },
+          select: {
+            ownership: true,
+            description: true,
+            items: {
+              orderBy: ITEMS_ORDER,
+              select: {
+                securityId: true,
+                buyWindowMode: true,
+                buyWindows: {
+                  orderBy: { startDate: "asc" },
+                  select: { startDate: true, endDate: true },
+                },
+              },
+            },
+          },
+        });
+        if (!source) {
+          throw new StockListNotFoundError();
+        }
+        this.entitlements.assertListSymbolLimit(user, {
+          current: 0,
+          adding: source.items.length,
+        });
+
+        // Members render in the order they were added, so each gets its own creation instant, in the
+        // source's order. Sharing one would leave the copy's order to its new, random ids.
+        const createdAt = Date.now();
+        const list = await tx.stockList.create({
+          data: {
+            userId,
+            name: input.name,
+            description: source.description,
+            items: {
+              create: source.items.map((item, index) => ({
+                securityId: item.securityId,
+                buyWindowMode: item.buyWindowMode,
+                createdAt: new Date(createdAt + index),
+                buyWindows: {
+                  create: item.buyWindows.map((window) => ({
+                    startDate: window.startDate,
+                    endDate: window.endDate,
+                  })),
+                },
+              })),
+            },
+          },
+          include: { items: { include: ITEM_INCLUDE, orderBy: ITEMS_ORDER } },
+        });
+        return { list, sourceOwnership: source.ownership };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+
+    this.logger.info({
+      event: "stock-list.duplicated",
+      actorUserId: userId,
+      listId: list.id,
+      sourceListId: listId,
+      sourceOwnership,
+      itemCount: list.items.length,
+    });
+    return detailResponse(
+      list,
+      this.complianceOf(list, user, list.items.length),
+      user,
+    );
+  }
+
+  /**
    * Reads one of the caller's Lists, or a built-in.
    *
    * Never refused for exceeding the current plan: grandfathered content stays readable, and the

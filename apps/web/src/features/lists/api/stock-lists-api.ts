@@ -1,6 +1,7 @@
 import type {
   AddStockListItemsRequest,
   CreateStockListRequest,
+  DuplicateStockListRequest,
   ReplaceBuyWindowsRequest,
   StockListDetailResponse,
   StockListItemResponse,
@@ -47,6 +48,20 @@ export async function updateStockList(
 
 export async function deleteStockList(listId: string): Promise<void> {
   await apiDelete(`/lists/${listId}`);
+}
+
+/**
+ * Copies a list the viewer can read — their own or a built-in — into a new list they own. The API
+ * decides what the copy holds; the answer is the copy.
+ */
+export async function duplicateStockList(
+  listId: string,
+  input: DuplicateStockListRequest,
+): Promise<StockListDetailResponse> {
+  return (await apiPost<StockListDetailResponse>(
+    `/lists/${listId}/duplicate`,
+    input,
+  )) as StockListDetailResponse;
 }
 
 /** Idempotent batch add; the API answers with the complete updated list. */

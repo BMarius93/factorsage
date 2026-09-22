@@ -48,6 +48,12 @@ Ownership boundaries and invariants:
 - Built-ins are ordinary domain objects: the same evaluator, snapshot rules and Buy Window
   semantics apply. A customer's Dashboard preference hides a built-in Monitor from that customer
   only; nothing is cloned per user.
+- A signed-in user may **duplicate** a List or Strategy they can read — their own or a built-in —
+  from its collection row. That is the user's own action, not per-user cloning: the copy is ordinary
+  USER content owned by them, holding the source's configuration under new ids and none of its
+  history, detached from later changes to the source, editable and deletable, and counted against
+  their plan exactly as content they created. The built-in itself stays SYSTEM-owned and unchanged.
+  Monitors are not duplicated.
 - A Backtest keeps working after its Strategy or List is deleted (the references are nullable and
   the snapshot is the authority). A Monitor does not: deleting a Strategy or List a Monitor still
   references is **refused**, because a Monitor owns Signal history that must not silently vanish.
