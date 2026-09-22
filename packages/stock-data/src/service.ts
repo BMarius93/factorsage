@@ -64,6 +64,7 @@ import {
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
 import {
+  DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
   PRICE_DATASET_VERSION,
   type DailyPriceBounds,
@@ -1054,9 +1055,15 @@ export class CanonicalStockDataService implements StockDataService {
       DAILY_PRICE_VARIANT,
       target,
     );
-    const missing = missingCoverageRanges(target, coverage).map((range) =>
-      this.requireBoundedRange(range),
-    );
+    const unsettledFrom = await this.unsettledTailStart(security, target);
+    const missing = missingCoverageRanges(target, coverage).map((range) => {
+      const bounded = this.requireBoundedRange(range);
+      // A gap that extends the leading edge also re-reads what the previous sync fetched while it
+      // was still unsettled; see `unsettledTailStart`.
+      return unsettledFrom !== undefined && bounded.to >= target.to
+        ? { from: minDate(bounded.from, unsettledFrom), to: bounded.to }
+        : bounded;
+    });
     const loaded = [];
     for (const delta of missing) {
       this.onProviderRequest({
@@ -1459,11 +1466,16 @@ export class CanonicalStockDataService implements StockDataService {
     lastPriceRefreshAt: string;
     derivedRebuildStart: string;
   }> {
+    const unsettledFrom = await this.unsettledTailStart(security, target);
+    const tailFrom = maxDate(
+      addDays(target.to, -this.recentTailCalendarDays),
+      target.from,
+    );
     const refreshRange = {
-      from: maxDate(
-        addDays(target.to, -this.recentTailCalendarDays),
-        target.from,
-      ),
+      from:
+        unsettledFrom === undefined
+          ? tailFrom
+          : minDate(tailFrom, unsettledFrom),
       to: target.to,
     };
     const previousState = await this.store.getDatasetState(
@@ -2169,6 +2181,38 @@ export class CanonicalStockDataService implements StockDataService {
       throw new StockDataValidationError("Invalid stock symbol");
     }
     return normalized;
+  }
+
+  /**
+   * Where the previous leading-edge price sync stopped being trustworthy, or undefined.
+   *
+   * The provider's EOD feed serves the current session as an in-progress bar, and a request whose
+   * `to` is the UTC day can run before the New York session of that date exists. Either way the
+   * previous sync's recent tail (`recentTailCalendarDays` behind its tail date) may hold a bar that
+   * later changed or a session that was not yet published — while coverage already claims it.
+   * Refreshing only the tail behind *today* re-reads that window only if the next sync happens
+   * within those days; after a longer pause the provisional bar or the missing session would be
+   * permanent (data-correctness audit AUD-04: MRNA 2026-09-04 missing, MRNA 2026-09-09 left at an
+   * in-session 137.395 against a final 135.61). So every leading-edge sync reaches back to the
+   * previous sync's own tail window as well: each date is fetched again once after it settles.
+   */
+  private async unsettledTailStart(
+    security: Security,
+    target: Required<DateRange>,
+  ): Promise<string | undefined> {
+    const freshness = await this.store.getDatasetState(
+      security.id,
+      "DAILY_PRICE",
+      DAILY_PRICE_FRESHNESS_VARIANT,
+    );
+    const previousTail = freshness?.latestDate;
+    if (previousTail === undefined || previousTail > target.to) {
+      return undefined;
+    }
+    return maxDate(
+      addDays(previousTail, -this.recentTailCalendarDays),
+      target.from,
+    );
   }
 
   private today(): string {

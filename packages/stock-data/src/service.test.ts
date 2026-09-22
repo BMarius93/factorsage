@@ -2396,6 +2396,113 @@ describe("canonical full-stock hydration", () => {
   });
 });
 
+/**
+ * A provider bar that did not exist when a range was fetched must still be fetched later.
+ *
+ * Found by the data-correctness audit (`docs/data-correctness-audit/`, AUD-04): real sessions were
+ * missing from `DailyPrice` while coverage claimed them — MRNA, GOOG and BRK-A on 2026-09-04, ADBE
+ * and AAL on 2026-09-16 — and an in-session bar (MRNA 2026-09-09, close 137.395 against a final
+ * 135.61) was never replaced by the final one.
+ */
+describe("the leading edge of price coverage", () => {
+  class MarketProvider extends FakeProvider {
+    market: DailyPrice[] = [];
+    override async getDailyPrices(
+      _symbol: string,
+      _securityId: string,
+      range: DateRange,
+    ) {
+      if (!range.from || !range.to) throw new Error("Expected bounded range");
+      this.ranges.push({ from: range.from, to: range.to });
+      return this.market.filter(
+        (row) => row.date >= range.from! && row.date <= range.to!,
+      );
+    }
+  }
+  const sessions = (from: string, to: string): string[] => {
+    const dates: string[] = [];
+    for (let date = from; date <= to; date = addDays(date, 1)) {
+      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      if (weekday !== 0 && weekday !== 6 && date !== "2026-09-07") {
+        dates.push(date);
+      }
+    }
+    return dates;
+  };
+
+  it("fetches a session later when it was not yet published at the earlier fetch", async () => {
+    const store = new FakeStore();
+    const provider = new MarketProvider();
+    const cache = new MemoryCache();
+    let now = new Date("2026-09-04T01:00:00.000Z"); // Thursday 2026-09-03, 21:00 in New York
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => now,
+    );
+    provider.market = sessions("2026-08-03", "2026-09-03").map((date) =>
+      price(date, 100),
+    );
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-24",
+      to: "2026-09-03",
+    });
+
+    // Eleven days later the provider has every session; the Friday was never fetched before.
+    now = new Date("2026-09-15T15:00:00.000Z");
+    provider.market = sessions("2026-08-03", "2026-09-15").map((date) =>
+      price(date, 100),
+    );
+    const rows = await loader.getDailyPrices("AAPL", {
+      from: "2026-09-01",
+      to: "2026-09-15",
+    });
+
+    expect(rows.map((row) => row.date)).toEqual(
+      sessions("2026-09-01", "2026-09-15"),
+    );
+  });
+
+  it("replaces an in-session bar with the final one however long the next read takes", async () => {
+    const store = new FakeStore();
+    const provider = new MarketProvider();
+    const cache = new MemoryCache();
+    let now = new Date("2026-09-09T15:00:00.000Z"); // 11:00 in New York: the session is open
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => now,
+    );
+    provider.market = [
+      ...sessions("2026-08-03", "2026-09-08").map((date) => price(date, 100)),
+      price("2026-09-09", 137.395),
+    ];
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-24",
+      to: "2026-09-09",
+    });
+
+    // The session closed at 135.61. The next read comes thirteen days later, when 09-09 is already
+    // outside the ten-day tail behind the new day.
+    now = new Date("2026-09-22T15:00:00.000Z");
+    provider.market = [
+      ...sessions("2026-08-03", "2026-09-08").map((date) => price(date, 100)),
+      price("2026-09-09", 135.61),
+      ...sessions("2026-09-10", "2026-09-22").map((date) => price(date, 100)),
+    ];
+    const rows = await loader.getDailyPrices("AAPL", {
+      from: "2026-09-01",
+      to: "2026-09-22",
+    });
+
+    expect(rows.find((row) => row.date === "2026-09-09")?.close).toBe(135.61);
+  });
+});
+
 describe("daily materialized intrinsic projections", () => {
   function withDailyState(rows: DailyDerivedState[]) {
     const store = new FakeStore();

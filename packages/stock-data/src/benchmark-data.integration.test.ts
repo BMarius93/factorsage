@@ -360,6 +360,56 @@ describeBenchmark("benchmark loading", () => {
     );
   });
 
+  it("fetches a session later when it was not yet published at the earlier sync (AUD-04)", async () => {
+    // Start from nothing durable for this series, so the two syncs below are the whole history.
+    await prisma.benchmarkDailyPrice.deleteMany({
+      where: { seriesId: benchmark.series.id },
+    });
+    await prisma.benchmarkDatasetCoverage.deleteMany({
+      where: { seriesId: benchmark.series.id },
+    });
+    await prisma.benchmarkDatasetState.deleteMany({
+      where: { seriesId: benchmark.series.id },
+    });
+    const published = (through: string) =>
+      new RecordingBenchmarkProvider(rows.filter((row) => row.date <= through));
+    const at = (instant: string) =>
+      new CanonicalBenchmarkDataService(
+        store,
+        published(
+          instant.slice(0, 10) === "2020-06-10" ? "2020-06-09" : "2020-06-30",
+        ),
+        cache,
+        new InMemoryLoadCoordinator(),
+        {
+          now: () => new Date(instant),
+        },
+      );
+
+    // 21:00 in New York on 2020-06-09 is already 2020-06-10 in UTC: that session does not exist yet.
+    await at("2020-06-10T01:00:00.000Z").getBenchmarkDailyPrices(
+      benchmark.series,
+      { from: "2020-05-01", to: "2020-06-10" },
+    );
+    await redis.del(`${namespace}:benchmark:${benchmark.series.id}:manifest`);
+
+    // Twenty days later the provider has every session; the next read must include 2020-06-10.
+    const loaded = await at("2020-06-30T12:00:00.000Z").getBenchmarkDailyPrices(
+      benchmark.series,
+      {
+        from: "2020-06-01",
+        to: "2020-06-30",
+      },
+    );
+
+    expect(loaded.map((row) => row.date)).toContain("2020-06-10");
+    expect(loaded.map((row) => row.date)).toEqual(
+      rows
+        .filter((row) => row.date >= "2020-06-01" && row.date <= "2020-06-30")
+        .map((row) => row.date),
+    );
+  });
+
   it("ships the V1 SP500 catalog entry backed by an FMP symbol", () => {
     const sp500 = BENCHMARK_CATALOG.find((entry) => entry.code === "SP500");
     expect(sp500).toBeDefined();
