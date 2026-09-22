@@ -45,8 +45,28 @@ export function planMatrixArchives(input: {
   readonly goldenCases: number;
   readonly determinismEnabled: boolean;
   readonly totalCases?: number;
+  /**
+   * `--archive-all`: capture every selected case, the full sweep included.
+   *
+   * The data-correctness audit (`docs/data-correctness-audit/`) re-executes every case with an
+   * independent reference backtester, and the only complete record of the inputs a run decided
+   * from is its archive. It is an explicit, separate flag precisely because the default must stay
+   * six: asking for a thousand archives has to be a decision, never a side effect of `--archive`.
+   */
+  readonly archiveAll?: boolean;
 }): MatrixArchivePlan {
   const total = input.totalCases ?? QA_MATRIX_TOTAL_CASES;
+  if (input.archiveAll) {
+    return {
+      mainPool: "full",
+      rerunPool: "off",
+      expectedArchives: input.selectedCases,
+      reason:
+        "--archive-all captures every case the sweep executes, for the independent reference " +
+        "backtester; the determinism rerun does not capture them a second time",
+      refusal: null,
+    };
+  }
   if (!input.archiveRequested) {
     return {
       mainPool: "off",

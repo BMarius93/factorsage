@@ -77,6 +77,7 @@ import { MatrixWorkerPool } from "./qa-matrix/matrix-worker-pool";
  * pnpm qa:matrix:run                        # all 1,000 combinations
  * pnpm qa:matrix:run --case S03-L07-C04     # exactly one, reproducing a failure
  * pnpm qa:matrix:run --golden --archive     # the golden set with forensic archives
+ * pnpm qa:matrix:run --archive-all          # every case archived (data-correctness audit)
  * pnpm qa:matrix:run --concurrency 2        # override the machine-derived default
  * ```
  *
@@ -89,6 +90,7 @@ type Flags = {
   readonly cases: readonly string[];
   readonly concurrency: string | undefined;
   readonly archive: boolean;
+  readonly archiveAll: boolean;
   readonly golden: boolean;
   readonly determinism: boolean;
   readonly cleanup: boolean;
@@ -100,6 +102,7 @@ function parseFlags(argv: readonly string[]): Flags {
   const cases: string[] = [];
   let concurrency: string | undefined;
   let archive = false;
+  let archiveAll = false;
   let golden = false;
   let determinism = true;
   let cleanup = true;
@@ -131,6 +134,11 @@ function parseFlags(argv: readonly string[]): Flags {
       case "--archive":
         archive = true;
         break;
+      case "--archive-all":
+        // Every case, for the data-correctness audit's reference backtester. Implies --archive.
+        archive = true;
+        archiveAll = true;
+        break;
       case "--golden":
         golden = true;
         break;
@@ -148,7 +156,7 @@ function parseFlags(argv: readonly string[]): Flags {
         break;
       default:
         throw new Error(
-          `Unknown option \`${arg}\`. Supported: --case, --concurrency, --archive, --golden, ` +
+          `Unknown option \`${arg}\`. Supported: --case, --concurrency, --archive, --archive-all, --golden, ` +
             "--no-determinism, --no-cleanup, --no-warmup, --timeout.",
         );
     }
@@ -160,6 +168,7 @@ function parseFlags(argv: readonly string[]): Flags {
     cases,
     concurrency,
     archive,
+    archiveAll,
     golden,
     determinism,
     cleanup,
@@ -332,6 +341,7 @@ async function main(): Promise<void> {
     // the user asked for is a request to refuse, not a sweep to run and then explain.
     const archivePlan = planMatrixArchives({
       archiveRequested: flags.archive,
+      archiveAll: flags.archiveAll,
       selectedCases: selected.length,
       goldenCases: golden.length,
       determinismEnabled: flags.determinism,
