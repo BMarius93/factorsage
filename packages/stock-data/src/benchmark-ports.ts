@@ -13,8 +13,14 @@ import type {
  * The same mechanism `PRICE_DATASET_VERSION` uses for stocks: it is a rebuild trigger, never a row
  * identity. Bumping it makes every earlier coverage interval and cache manifest invisible to the
  * loader, and the affected range is re-verified against the provider lazily on the next read.
+ *
+ * Revision history:
+ * - v1: coverage recorded from the requested range, re-read only behind today.
+ * - v2: re-established after the leading-edge rule (AUD-04). These bars are the backtest execution
+ *   calendar, so a session lost the way stock prices lost 2026-09-04 would remove a date from
+ *   every run; this bump re-verifies every interval recorded before the rule existed.
  */
-export const BENCHMARK_PRICE_DATASET_VERSION = 1;
+export const BENCHMARK_PRICE_DATASET_VERSION = 2;
 
 export const BENCHMARK_DAILY_PRICE_VARIANT_FAMILY = "provider-eod-full";
 export const BENCHMARK_DAILY_PRICE_VARIANT = `${BENCHMARK_DAILY_PRICE_VARIANT_FAMILY}:v${BENCHMARK_PRICE_DATASET_VERSION}`;

@@ -59,8 +59,17 @@ export type PersistedSecurityCatalogEntry = {
  * - v2: the adapter paginates every request to completeness, so coverage means "asked for every
  *   date in the interval with complete requests, and every returned row persisted". v1 coverage
  *   and manifests are not trusted; a stock heals itself on its next read.
+ * - v3: coverage means the same thing, but it is re-established **after** the leading-edge rule
+ *   that keeps it honest. Under v2 a sync recorded the requested range as covered even where the
+ *   provider had returned nothing for a date — a session it had not published yet — and only the
+ *   ten days behind *today* were ever re-read, so a session the provider published later and an
+ *   in-progress bar persisted as final both stayed wrong while coverage claimed otherwise. The
+ *   data-correctness audit found five such sessions and one stale bar in live data (AUD-04). The
+ *   loader now also re-reads the previous sync's own tail window, and this bump re-verifies every
+ *   interval that was recorded before it did: rows the provider returns replace what v2 stored,
+ *   so a stock heals itself on its next read.
  */
-export const PRICE_DATASET_VERSION = 2;
+export const PRICE_DATASET_VERSION = 3;
 
 /** The provider dataset every price-dataset revision describes; revisions share this prefix. */
 export const DAILY_PRICE_VARIANT_FAMILY = "split-adjusted-eod-full";
