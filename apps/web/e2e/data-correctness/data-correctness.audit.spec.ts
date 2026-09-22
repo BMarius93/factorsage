@@ -428,7 +428,7 @@ test("backtest results, stock details and dashboard show the audited values", as
       await text(page, 'p[class*="asOf"]'),
       day(stock.latest.date),
     );
-    const facts = await text(page, "#key-facts");
+    const facts = await text(page, '[aria-labelledby="key-facts-title"]');
     contains(
       area,
       "previous close",
@@ -492,7 +492,7 @@ test("backtest results, stock details and dashboard show the audited values", as
         money(value.value, stock.currency),
       );
     }
-    const technicals = await text(page, "#technicals");
+    const technicals = await text(page, '[aria-labelledby="technicals-title"]');
     for (const [column, value] of Object.entries(stock.movingAverages)) {
       if (value === null) {
         continue;
