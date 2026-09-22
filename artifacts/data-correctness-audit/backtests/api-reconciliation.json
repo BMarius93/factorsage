@@ -1,0 +1,7046 @@
+{
+  "runs": 1000,
+  "summaryFields": 23000,
+  "annualReturns": 15400,
+  "curvePoints": 1300300,
+  "tradesServed": 184692,
+  "maxAnnualReturnRoundingEffectPercentPoints": 2.9250486477394588e-8,
+  "comparisons": {
+    "compared": 1761982,
+    "passed": 1761982,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "api": {
+      "compared": 1000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api-annual": {
+      "compared": 62600,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api-curve": {
+      "compared": 1303300,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api-summary": {
+      "compared": 23000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "api-trades": {
+      "compared": 372082,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "failedRuns": [],
+  "differences": [],
+  "perRun": [
+    {
+      "caseId": "S01-L01-C01",
+      "runId": "4975a783-b0b7-4acd-ae7e-73e671c27e16",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C02",
+      "runId": "ca7189da-9af1-41eb-bac0-17aacdf6aaa5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C03",
+      "runId": "9bd82f22-3ff3-4c47-8245-99918dc751a4",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C04",
+      "runId": "177ad4c9-dd89-4f2e-998f-65f974449977",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C05",
+      "runId": "61f14a30-e5fd-45c6-b3ac-23c597cf9375",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S01-L01-C06",
+      "runId": "23b782d6-26ac-48b4-836c-b6c7161fd76d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S01-L01-C07",
+      "runId": "a9c327e6-cdd6-4a63-be76-116834ec4a0e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C08",
+      "runId": "a5ff8db4-1cfe-4f15-ab25-05fd85a78daa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C09",
+      "runId": "b66ae398-a3af-45f7-a665-8e0700a47083",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L01-C10",
+      "runId": "abfa4ea5-0ae3-456e-b59d-7c61241c7365",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S01-L02-C01",
+      "runId": "331b3cc6-e5ec-4f0e-81a6-6262eadb4da4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C02",
+      "runId": "739c35e6-31bb-460f-b498-9f3a1bb16ae5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C03",
+      "runId": "6028ce67-51e6-4ed5-bbce-48555ad9b9b0",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C04",
+      "runId": "b364e0ed-bace-4a31-9a46-f1047127f396",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C05",
+      "runId": "517ed81c-0e40-4e77-bcb8-4b298db1dd20",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 97
+    },
+    {
+      "caseId": "S01-L02-C06",
+      "runId": "6a0ce77f-22be-4436-a5d1-78d2c44660e9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 114
+    },
+    {
+      "caseId": "S01-L02-C07",
+      "runId": "21928f95-0c6a-49ed-a596-7af7eed8d0e2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C08",
+      "runId": "a2d9c053-40d1-4134-9c29-d5082c19fb61",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L02-C09",
+      "runId": "71607aef-34c2-4e25-88d1-33a59ad7c39e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L02-C10",
+      "runId": "d8be17b6-e285-4199-a2c5-93ad46cd3c41",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S01-L03-C01",
+      "runId": "3096c857-e91f-4a16-a9fb-2e04910298a7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L03-C02",
+      "runId": "9ebda887-5c97-4ca5-b537-ae9465f2e4c5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L03-C03",
+      "runId": "35fb051e-fdbd-45f7-97b9-4f6b0a660597",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S01-L03-C04",
+      "runId": "95cd97b5-919b-4feb-a989-1dcde1c1eb75",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S01-L03-C05",
+      "runId": "54b3c938-4755-4373-a7d9-5bcecf7557a5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 41
+    },
+    {
+      "caseId": "S01-L03-C06",
+      "runId": "7ee5d716-c25d-4915-b4c8-a8d0a41484ae",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 70
+    },
+    {
+      "caseId": "S01-L03-C07",
+      "runId": "709dee95-ad33-4e05-9670-4ccc087b7f06",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L03-C08",
+      "runId": "5c5b67b7-ff70-4014-89d1-f7f97c454471",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L03-C09",
+      "runId": "8f1c5454-2488-44e9-932f-54317d49c046",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L03-C10",
+      "runId": "487d09b6-d38d-4600-a2f3-8a5ca4674be3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 21
+    },
+    {
+      "caseId": "S01-L04-C01",
+      "runId": "d6fdc41d-0cdc-4707-994d-e1cdc788890c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L04-C02",
+      "runId": "20c5ea96-55ac-475b-9406-1d5053782a6e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S01-L04-C03",
+      "runId": "bba4fe1d-fb7e-48d6-b89b-08e565262b46",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L04-C04",
+      "runId": "60bc74ee-0c27-4dfe-9932-77a63754668a",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L04-C05",
+      "runId": "795b377e-fac7-4073-ac7f-37821106abe6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S01-L04-C06",
+      "runId": "0dfacd02-41a5-4041-afb7-6b2d9dcfb10a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 47
+    },
+    {
+      "caseId": "S01-L04-C07",
+      "runId": "214a60c8-dbe3-47dd-a6e3-6c32bd631994",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S01-L04-C08",
+      "runId": "e786c285-84f0-49c6-a99d-122b8daf7ad8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L04-C09",
+      "runId": "c615f6b9-537f-46b7-91a7-9eb1c2d4881c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L04-C10",
+      "runId": "7755e061-2bea-4070-97ee-ea427e2dc6ef",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L05-C01",
+      "runId": "43a46724-c404-4b76-8a15-a7cb1d8430db",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S01-L05-C02",
+      "runId": "a28cf446-9261-412c-b10e-363ad881cf58",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L05-C03",
+      "runId": "242b5f64-c5ca-4f83-99bb-2dc7a400ba58",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L05-C04",
+      "runId": "7226b57d-c455-4b9d-b73e-36e0939ed452",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L05-C05",
+      "runId": "914c2e8f-66b2-40d4-a04c-c4de6ba0cb51",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 135
+    },
+    {
+      "caseId": "S01-L05-C06",
+      "runId": "01aa7c7a-28ac-49e4-967a-16b1aa1f38a2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 181
+    },
+    {
+      "caseId": "S01-L05-C07",
+      "runId": "a16a72ef-203a-4954-867e-c4400a2ad852",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L05-C08",
+      "runId": "b0b9df8a-c47b-47d5-93ad-f9dee6abb087",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L05-C09",
+      "runId": "feb012b9-bcc4-4b96-9c2e-8b8c8c50ce41",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L05-C10",
+      "runId": "65daeacb-83c0-4d19-8d10-934c8afb38d5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 200
+    },
+    {
+      "caseId": "S01-L06-C01",
+      "runId": "7edaecc5-99d0-4612-9e58-3ef189111191",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L06-C02",
+      "runId": "a54901c5-c2ea-41c6-970f-d217f78d6256",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L06-C03",
+      "runId": "40903246-2bd2-4b2c-b40c-50952c580507",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L06-C04",
+      "runId": "ee4af589-1eb0-4f92-8ebe-f633024b540b",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L06-C05",
+      "runId": "f0440fa5-a2b4-4603-be8f-e68aec122866",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 222
+    },
+    {
+      "caseId": "S01-L06-C06",
+      "runId": "607987f8-604a-4e31-9f1f-87cdab88bb78",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 206
+    },
+    {
+      "caseId": "S01-L06-C07",
+      "runId": "0863e720-d4de-4f2e-ba2d-febd2e6a5ae3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L06-C08",
+      "runId": "73212ccc-7b12-4905-9131-d79b26635272",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S01-L06-C09",
+      "runId": "e362570a-5b3b-405d-af54-b409e32be850",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L06-C10",
+      "runId": "260aa1b7-bc37-424d-ba1a-8290f13d3c42",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 146
+    },
+    {
+      "caseId": "S01-L07-C01",
+      "runId": "fc162ed2-c0e6-4df7-802e-b069bb46b82b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C02",
+      "runId": "e696fefa-fd67-4489-8eae-389499189bbf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C03",
+      "runId": "f11ac9a9-2695-4969-91f1-d0e1eaa77551",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C04",
+      "runId": "69a75b71-1465-4510-8779-5a7f3eab6fae",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C05",
+      "runId": "47ccd070-fb30-4b28-b0ff-00086a379fe2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 119
+    },
+    {
+      "caseId": "S01-L07-C06",
+      "runId": "a1dbd234-1b67-4a2c-a473-26cfa553416b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 206
+    },
+    {
+      "caseId": "S01-L07-C07",
+      "runId": "369e1c7f-97f5-4bb6-8229-ec3860c30fe7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C08",
+      "runId": "132267d3-b878-40e5-a778-92b818b3c11c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L07-C09",
+      "runId": "5a1ddb69-3de9-4d9c-85e3-5fb4aa29fc88",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L07-C10",
+      "runId": "0e2920ce-3d2a-44be-a9ab-9ad98f5321b6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 31
+    },
+    {
+      "caseId": "S01-L08-C01",
+      "runId": "6cd462b7-7ce8-4c28-b63f-0f1353fc0906",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S01-L08-C02",
+      "runId": "597da826-bcda-455f-916c-518145a4d3f5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S01-L08-C03",
+      "runId": "4f5cadd1-c067-4518-834b-620e9a620496",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 20
+    },
+    {
+      "caseId": "S01-L08-C04",
+      "runId": "07303455-8a48-4d12-979f-d98917841524",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 20
+    },
+    {
+      "caseId": "S01-L08-C05",
+      "runId": "5b4e8509-f40f-4559-a97e-fb477af1bf0f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 258
+    },
+    {
+      "caseId": "S01-L08-C06",
+      "runId": "e4b6063c-937f-4d2b-b2c7-07bd1a8146f2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 208
+    },
+    {
+      "caseId": "S01-L08-C07",
+      "runId": "3578acf6-94a6-4e28-891b-4e825d01c4ef",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S01-L08-C08",
+      "runId": "a26182c0-cf57-4aa8-92f1-fa32571d25f5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 40
+    },
+    {
+      "caseId": "S01-L08-C09",
+      "runId": "6e898c55-1d83-4ec0-a192-eedb51ee8b53",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L08-C10",
+      "runId": "5adcc3ed-a907-4996-a8a9-9b965159a0eb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 496
+    },
+    {
+      "caseId": "S01-L09-C01",
+      "runId": "37a97711-9774-4a84-9849-05ae44872ef5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L09-C02",
+      "runId": "0825058b-a693-445c-baef-64a61bfa2b0a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L09-C03",
+      "runId": "811f3305-ea50-44f0-8d67-d270724585ba",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S01-L09-C04",
+      "runId": "0739f0ac-ebc7-45bd-9ecd-63e1323e5fbc",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L09-C05",
+      "runId": "50a0134e-f2fc-4d7a-88e2-b55212c01615",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 63
+    },
+    {
+      "caseId": "S01-L09-C06",
+      "runId": "bbbedb55-eb84-4ff2-bce2-83cd5c44598c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 105
+    },
+    {
+      "caseId": "S01-L09-C07",
+      "runId": "beccd782-69b8-4b25-9631-33f5bef46d55",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L09-C08",
+      "runId": "9f9418c5-cf1a-46db-867d-83e095244609",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L09-C09",
+      "runId": "703c5242-535c-4150-b72c-4947525b2730",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L09-C10",
+      "runId": "0e055e7f-67af-45e5-8f5d-bc9f797e9cb5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S01-L10-C01",
+      "runId": "95c92654-a440-4674-9ca5-fd64e88f6739",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L10-C02",
+      "runId": "cfa44f4b-e02a-4d7b-a27f-4aa6a7c0c6ba",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L10-C03",
+      "runId": "9699cb6b-6684-4331-9a17-8e51cb50a4a1",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 8
+    },
+    {
+      "caseId": "S01-L10-C04",
+      "runId": "a593a7a2-a155-47d1-b3ec-0ea2bb7ff0bf",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 6
+    },
+    {
+      "caseId": "S01-L10-C05",
+      "runId": "e009afb4-2613-43bd-942b-f625e7e3819c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S01-L10-C06",
+      "runId": "5140207c-2748-4286-beb2-ee810b853e69",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S01-L10-C07",
+      "runId": "50ca553e-91bc-44db-a2f3-df300391c05c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S01-L10-C08",
+      "runId": "a89a232c-dc63-4242-892d-d29185c747b3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S01-L10-C09",
+      "runId": "7c0f3b51-6657-4ca3-802d-abd21774d98d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S01-L10-C10",
+      "runId": "39b12ac9-19c9-4343-87ef-c05a10ebfdab",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S02-L01-C01",
+      "runId": "ae6026fa-ff44-4d6c-ace8-fdd1c106b887",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S02-L01-C02",
+      "runId": "ef42dbe7-50df-42c1-a593-a8332a38d634",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L01-C03",
+      "runId": "ed1cbdfc-9c29-4adc-866e-17919dffefc9",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S02-L01-C04",
+      "runId": "b279d2c3-361d-4969-b709-166014963eb6",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L01-C05",
+      "runId": "0b3f9580-d6ed-4e21-88d2-18e75b52b543",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L01-C06",
+      "runId": "8693b3a8-d279-43fd-b6b6-676373befe93",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L01-C07",
+      "runId": "9334b75a-6f3c-4e2c-a18d-c73fe3558998",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L01-C08",
+      "runId": "f05842b9-30da-4528-9355-7ccfcd618923",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S02-L01-C09",
+      "runId": "4b4a228b-a70e-4584-a2a6-cb9488f3b563",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L01-C10",
+      "runId": "54ad9a85-f2f7-42a1-ba7d-7d8a712f8ffd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S02-L02-C01",
+      "runId": "62997e03-0040-40ff-a956-86fb992f82d5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 148
+    },
+    {
+      "caseId": "S02-L02-C02",
+      "runId": "d0ada2a0-ccca-413a-a10f-89be1a033257",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 54
+    },
+    {
+      "caseId": "S02-L02-C03",
+      "runId": "042fc348-d43f-496e-aa1d-ce8ee3e9b170",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 20
+    },
+    {
+      "caseId": "S02-L02-C04",
+      "runId": "6757757b-556c-4b37-8e81-4d018c6e5dc4",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S02-L02-C05",
+      "runId": "652f20d0-68d0-4699-8913-5565d7d2a03c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 54
+    },
+    {
+      "caseId": "S02-L02-C06",
+      "runId": "a56c308f-7613-44c5-8d4e-f1b1c777fc2f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 54
+    },
+    {
+      "caseId": "S02-L02-C07",
+      "runId": "4c7a386e-33f6-45de-8c0d-9067ad8c8ca5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 54
+    },
+    {
+      "caseId": "S02-L02-C08",
+      "runId": "2cc9763b-bf23-4822-8ae8-9b7dcad5dd1c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 148
+    },
+    {
+      "caseId": "S02-L02-C09",
+      "runId": "1733f273-6eab-419a-bb41-03237bcfd0a2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 22
+    },
+    {
+      "caseId": "S02-L02-C10",
+      "runId": "4014ac1a-18ed-46e8-bf2e-11784c978ed5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 148
+    },
+    {
+      "caseId": "S02-L03-C01",
+      "runId": "43e555e8-f2cc-4c69-8f7c-2fdcedd3af45",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L03-C02",
+      "runId": "18807100-0333-4125-a9ab-8c8e96536b65",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L03-C03",
+      "runId": "6e67681f-1336-4804-a0e6-a664c1ad06d7",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L03-C04",
+      "runId": "37fb8597-22c9-45b6-8d2e-1e84dcd827ce",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L03-C05",
+      "runId": "c3016c6b-559f-4169-b9d4-efb949a858b9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L03-C06",
+      "runId": "a7ea00ec-cb2d-4d9e-a683-edc4685d444e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L03-C07",
+      "runId": "2fdf4570-1d73-41bf-a301-1aa6ae65465f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L03-C08",
+      "runId": "e5b85cac-efbc-4608-95ed-ceeeb9bd8765",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L03-C09",
+      "runId": "120da7cc-5ef9-42ee-aff8-80f4c1777c16",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S02-L03-C10",
+      "runId": "96826c55-475c-4c40-b228-9c54c9f67c12",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L04-C01",
+      "runId": "5da41b6d-97d0-468f-8035-7e0bbf0fcad2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L04-C02",
+      "runId": "8a1194cc-c220-4e4b-a5d1-842989939bfd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S02-L04-C03",
+      "runId": "f9eb52cf-8e17-4082-be9f-1726c7db176d",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L04-C04",
+      "runId": "bbc08f72-c6b9-4739-9b1e-d03ec3384413",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L04-C05",
+      "runId": "97bfcfe3-bef2-494f-b382-5d59cf7f39be",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S02-L04-C06",
+      "runId": "154c27a9-3819-4d95-8496-db426f2379fc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S02-L04-C07",
+      "runId": "8739595f-96f6-46eb-898b-9ae9213fefc5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S02-L04-C08",
+      "runId": "4ea3edaf-bbcb-4724-834d-cd3f1a57817a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L04-C09",
+      "runId": "1b0925a1-6350-477c-9566-39b43d1eaedc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S02-L04-C10",
+      "runId": "d763e30d-34da-4832-9b72-9242b0f2e88c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S02-L05-C01",
+      "runId": "ccdda18b-edd1-420b-90d9-1383869822b5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 226
+    },
+    {
+      "caseId": "S02-L05-C02",
+      "runId": "b8cff1d6-47e3-428b-9975-467644a6fd85",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 78
+    },
+    {
+      "caseId": "S02-L05-C03",
+      "runId": "25e2b30b-1a72-4281-bda2-abf3108346cf",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 30
+    },
+    {
+      "caseId": "S02-L05-C04",
+      "runId": "e4a05103-d42d-46ac-b5ff-983eca277bcc",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 4
+    },
+    {
+      "caseId": "S02-L05-C05",
+      "runId": "7ce40bb7-ecfb-48dc-a291-7411a49183b5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 78
+    },
+    {
+      "caseId": "S02-L05-C06",
+      "runId": "30ae41ad-f8ee-4440-a8a1-2550d84624a1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 78
+    },
+    {
+      "caseId": "S02-L05-C07",
+      "runId": "eb31fa1c-7afc-4595-b77d-1569a77aee65",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 78
+    },
+    {
+      "caseId": "S02-L05-C08",
+      "runId": "cec25e7d-236a-4d1c-b074-028b756404df",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 226
+    },
+    {
+      "caseId": "S02-L05-C09",
+      "runId": "ed3e1a26-5abe-4d62-92af-35e5431dcec5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 22
+    },
+    {
+      "caseId": "S02-L05-C10",
+      "runId": "debcb4e2-dc80-4180-8688-662f7a82bc79",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 226
+    },
+    {
+      "caseId": "S02-L06-C01",
+      "runId": "bdd02623-64d9-440f-b413-7791c61b85ea",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 228
+    },
+    {
+      "caseId": "S02-L06-C02",
+      "runId": "eff3460e-c3ee-46fc-a472-5dd92d305e5c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 98
+    },
+    {
+      "caseId": "S02-L06-C03",
+      "runId": "71cf2b74-cf0b-4374-a89a-2937f1f96625",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 32
+    },
+    {
+      "caseId": "S02-L06-C04",
+      "runId": "86cd89b3-7112-4778-9051-c208b69bf3db",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 10
+    },
+    {
+      "caseId": "S02-L06-C05",
+      "runId": "b17f4f4d-c3a7-413a-887d-d429aea29559",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 98
+    },
+    {
+      "caseId": "S02-L06-C06",
+      "runId": "783b8577-dcd3-45a6-8235-e35aa3331242",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 72
+    },
+    {
+      "caseId": "S02-L06-C07",
+      "runId": "4535492d-43e0-4d90-b2c1-5ee20aef0fc6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 98
+    },
+    {
+      "caseId": "S02-L06-C08",
+      "runId": "43d2d5f6-603b-4434-ae5f-34c051051398",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 228
+    },
+    {
+      "caseId": "S02-L06-C09",
+      "runId": "fc7fecd9-949c-4dfe-ba11-f0586ed3ece3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S02-L06-C10",
+      "runId": "58a83d05-f98a-45a4-b80c-90734062edaa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 228
+    },
+    {
+      "caseId": "S02-L07-C01",
+      "runId": "261ee695-c8ff-4fb6-b085-ff0525772c30",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 158
+    },
+    {
+      "caseId": "S02-L07-C02",
+      "runId": "0509a7f6-27af-427b-b416-102c0259b9fb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 70
+    },
+    {
+      "caseId": "S02-L07-C03",
+      "runId": "81caf684-81a0-4ed8-9dd3-be62daa8733a",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 24
+    },
+    {
+      "caseId": "S02-L07-C04",
+      "runId": "8f80f307-13a9-424a-a157-2d5dff81a3d0",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 6
+    },
+    {
+      "caseId": "S02-L07-C05",
+      "runId": "c692a244-38ba-4f77-8afa-a183660f1a38",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 70
+    },
+    {
+      "caseId": "S02-L07-C06",
+      "runId": "7aba6cf9-249f-4280-94f8-898664f5164e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 70
+    },
+    {
+      "caseId": "S02-L07-C07",
+      "runId": "f76eca61-6857-4fea-88dc-35ecbb99ec59",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 70
+    },
+    {
+      "caseId": "S02-L07-C08",
+      "runId": "acaacdd7-a482-4d4b-a4d1-ff9509f7a782",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 158
+    },
+    {
+      "caseId": "S02-L07-C09",
+      "runId": "22c6697e-6239-404c-a5e1-45d4e3f03117",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S02-L07-C10",
+      "runId": "c1805888-3586-421f-9481-431cadbae741",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 158
+    },
+    {
+      "caseId": "S02-L08-C01",
+      "runId": "c0d7a29a-e616-4f78-be78-c095ce124f06",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 602
+    },
+    {
+      "caseId": "S02-L08-C02",
+      "runId": "18e5df6e-1ab2-4202-92c3-d06dc21b1650",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 214
+    },
+    {
+      "caseId": "S02-L08-C03",
+      "runId": "b84ba246-5f8e-4f18-a219-8f01d58e781c",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 80
+    },
+    {
+      "caseId": "S02-L08-C04",
+      "runId": "f266d69c-4c48-4626-b019-f7939c867103",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 34
+    },
+    {
+      "caseId": "S02-L08-C05",
+      "runId": "99a0c922-4e7d-4239-9a1b-c0b0142ae2d6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 212
+    },
+    {
+      "caseId": "S02-L08-C06",
+      "runId": "15afd964-0aa2-4a83-9d34-af793a5b8da9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 108
+    },
+    {
+      "caseId": "S02-L08-C07",
+      "runId": "e729004c-62a4-4eee-9d07-3eeca909da93",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 214
+    },
+    {
+      "caseId": "S02-L08-C08",
+      "runId": "89ba4961-c832-4334-be9a-02bd391d398f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1042
+    },
+    {
+      "caseId": "S02-L08-C09",
+      "runId": "08e0fba7-9616-4314-9c70-e554b4f27d5a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S02-L08-C10",
+      "runId": "5acb8e97-e6f5-46ec-a4f6-84e1427bdf53",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1286
+    },
+    {
+      "caseId": "S02-L09-C01",
+      "runId": "de5115cc-d99a-4799-a663-6f55ab7f8cfe",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S02-L09-C02",
+      "runId": "e9ad09f4-dbb7-478a-9974-1faa676dbf65",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S02-L09-C03",
+      "runId": "942d9109-4444-417c-a8f3-cbf42c6665d4",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S02-L09-C04",
+      "runId": "fd358995-a662-4e8d-8b3a-41b9dfc476e9",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S02-L09-C05",
+      "runId": "75867396-e1e2-4e1b-8db9-4da42b517a73",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S02-L09-C06",
+      "runId": "be546637-8260-445d-8949-aa34fd66e834",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S02-L09-C07",
+      "runId": "b0c4951f-d646-4579-ad56-915be8351d6a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S02-L09-C08",
+      "runId": "7cd7781c-1c3a-41d9-ba99-be6aa89e1774",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S02-L09-C09",
+      "runId": "7a7cb48e-78d7-4123-ad6f-f831fea24ede",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S02-L09-C10",
+      "runId": "745d2ac5-f97d-4e69-8b6e-9731e239f6cf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S02-L10-C01",
+      "runId": "8c6dc36b-ba50-4475-8844-5aee5e6f3ec5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C02",
+      "runId": "3cb661d7-ecd0-4399-acd1-a227c11df8ca",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C03",
+      "runId": "166c72fb-6920-40d4-ab80-a2d8f7fd923b",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C04",
+      "runId": "96fd8767-b6f6-4804-bc9a-ee3a2b2ba86c",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C05",
+      "runId": "d1cab169-4173-4c94-aca3-95971806045e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C06",
+      "runId": "a289f24f-a55c-4afd-8dd7-10cfadca0d10",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C07",
+      "runId": "30c6aa98-d49f-46d0-8f9f-2b7939eaf0bc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C08",
+      "runId": "56bf4a29-04c6-45c7-8f8c-41314654e26b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C09",
+      "runId": "079089b5-8b65-45c9-8c29-b94ec9f8f265",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S02-L10-C10",
+      "runId": "232a9110-73c7-441a-a32b-780d046f008a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S03-L01-C01",
+      "runId": "f3ae4ae4-f145-4bca-880f-bef00f58ec50",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S03-L01-C02",
+      "runId": "2e5eea86-2abe-49c1-b8fd-f0f75ac735e3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L01-C03",
+      "runId": "3b3e9aa2-6e22-438a-8340-f56b7583ee9f",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S03-L01-C04",
+      "runId": "79f8a9c1-1e8e-4b63-8f37-b9ebb79627a6",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S03-L01-C05",
+      "runId": "cb5a08ed-aebc-44a4-936d-bf821d13a8a0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S03-L01-C06",
+      "runId": "35e51a1e-8090-449e-be79-46bd6a58d79e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S03-L01-C07",
+      "runId": "6eb022c9-e93e-48b3-9d2b-6e735153aece",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L01-C08",
+      "runId": "f436a862-b121-46df-9357-b9a6447da091",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S03-L01-C09",
+      "runId": "5902e7dc-4d57-47d9-86db-92b1a2e798c5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L01-C10",
+      "runId": "e46202a1-4cf8-48b8-8722-34642c588856",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S03-L02-C01",
+      "runId": "d74b3e0e-2ed9-47fb-bbe8-aaa72b6d05b2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 103
+    },
+    {
+      "caseId": "S03-L02-C02",
+      "runId": "f7ea4127-c469-45d4-8439-a81c6f5f5af3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 43
+    },
+    {
+      "caseId": "S03-L02-C03",
+      "runId": "5f83b1d6-b05c-469c-b494-52c95ee1e8e5",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 14
+    },
+    {
+      "caseId": "S03-L02-C04",
+      "runId": "05f0995d-bfcb-446f-8dca-6372a94bb1ff",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 8
+    },
+    {
+      "caseId": "S03-L02-C05",
+      "runId": "2101ea6c-a574-4062-9ab3-923db5e5c5e5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 100
+    },
+    {
+      "caseId": "S03-L02-C06",
+      "runId": "e9ce029c-7df5-46e4-8fac-ad86234ad7da",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 119
+    },
+    {
+      "caseId": "S03-L02-C07",
+      "runId": "05fbd95a-6c0b-4e00-9a55-a68495962b33",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 43
+    },
+    {
+      "caseId": "S03-L02-C08",
+      "runId": "432bea6a-2480-49af-9b7e-b9bd476660fb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 103
+    },
+    {
+      "caseId": "S03-L02-C09",
+      "runId": "1902e1e3-c43d-470f-a28e-d0d2e5d7bd26",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 21
+    },
+    {
+      "caseId": "S03-L02-C10",
+      "runId": "b729151c-8ce9-441f-8b4c-5b0ca776f514",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 150
+    },
+    {
+      "caseId": "S03-L03-C01",
+      "runId": "a015c962-70cc-493e-bce8-283787f5457d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L03-C02",
+      "runId": "2e7769fc-84b0-45cb-9e7c-0dd37d5126cf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S03-L03-C03",
+      "runId": "3135bc38-c085-4e7a-b14e-f4b688c846d8",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S03-L03-C04",
+      "runId": "e9301625-f242-4bdb-85d0-9c6bf2bf5c08",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S03-L03-C05",
+      "runId": "c9a4f016-9073-4404-948b-4f8714b152cc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 32
+    },
+    {
+      "caseId": "S03-L03-C06",
+      "runId": "8e7c4a26-7d8d-4c83-92c8-cb444bbdc945",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 53
+    },
+    {
+      "caseId": "S03-L03-C07",
+      "runId": "af072832-dd4d-41c8-b22e-14eb60eb51ed",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S03-L03-C08",
+      "runId": "49dc32d7-88aa-47fe-b735-2e15213fbfd5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L03-C09",
+      "runId": "d6f9748d-cb5c-4799-8451-33beabf4beb2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S03-L03-C10",
+      "runId": "d1e3e514-64c2-468b-9be3-73f3ff781412",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 43
+    },
+    {
+      "caseId": "S03-L04-C01",
+      "runId": "e5ba3ed2-f179-494e-974e-bf9ae19db37c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L04-C02",
+      "runId": "6c87ed56-d1cb-453a-ab08-874bd89d8e35",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L04-C03",
+      "runId": "c40b68b3-533c-4488-a1da-572b5a2e4f0e",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S03-L04-C04",
+      "runId": "b44db968-e469-4328-943f-3f7fb99e0b99",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 3
+    },
+    {
+      "caseId": "S03-L04-C05",
+      "runId": "5937bf01-34e4-45ba-9502-b32a425b4910",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 31
+    },
+    {
+      "caseId": "S03-L04-C06",
+      "runId": "acae24c2-a93f-4aba-b1e7-90b516cf699a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 43
+    },
+    {
+      "caseId": "S03-L04-C07",
+      "runId": "cf9b7ce0-a826-465d-bb1e-0a18b3e53897",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L04-C08",
+      "runId": "4d0ae699-0249-4a58-8393-ba2ec4aa5e36",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L04-C09",
+      "runId": "860f01e9-b5ec-48bf-8db6-4c4495479351",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S03-L04-C10",
+      "runId": "bc9bb745-54c3-45e0-aa56-9b5a1e96fc53",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 41
+    },
+    {
+      "caseId": "S03-L05-C01",
+      "runId": "44b6ee30-8939-4d55-8b74-a80a6315643a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 155
+    },
+    {
+      "caseId": "S03-L05-C02",
+      "runId": "f0770c90-dd71-4952-9935-ac360d0cfc2d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S03-L05-C03",
+      "runId": "a5ceb263-2a96-4d97-83d5-1fd60123845d",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 19
+    },
+    {
+      "caseId": "S03-L05-C04",
+      "runId": "7da08b0a-96e4-4966-9905-64579519d207",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L05-C05",
+      "runId": "0c3c8f53-6dd1-4ac8-8ce3-891bda15f626",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 136
+    },
+    {
+      "caseId": "S03-L05-C06",
+      "runId": "e077951e-f9b4-4541-a873-9eac35379e90",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 183
+    },
+    {
+      "caseId": "S03-L05-C07",
+      "runId": "f6e06604-d0f3-4aeb-a23f-c4eb177745c4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S03-L05-C08",
+      "runId": "11721d5e-d7fc-413a-a179-e2ee706c575b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 155
+    },
+    {
+      "caseId": "S03-L05-C09",
+      "runId": "0809d800-cf12-418b-9b01-90bb76a89e22",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S03-L05-C10",
+      "runId": "72e65c5c-8ad1-40e5-9769-cc09752959a6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 241
+    },
+    {
+      "caseId": "S03-L06-C01",
+      "runId": "8b0180ec-9592-44a5-8f58-eae2d75b33d5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 147
+    },
+    {
+      "caseId": "S03-L06-C02",
+      "runId": "d720b7dc-2bfa-4c12-8a38-2b75ee5542f7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 80
+    },
+    {
+      "caseId": "S03-L06-C03",
+      "runId": "f1e2e398-5898-4592-9b6d-cabb0a282643",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 34
+    },
+    {
+      "caseId": "S03-L06-C04",
+      "runId": "8bcc43b4-a4ed-4cb4-8d2f-ab782eedcb19",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 22
+    },
+    {
+      "caseId": "S03-L06-C05",
+      "runId": "ac8bee15-989d-49e6-88f8-76a5c7000334",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 239
+    },
+    {
+      "caseId": "S03-L06-C06",
+      "runId": "123ffd27-5bed-460e-b707-cae572841302",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 230
+    },
+    {
+      "caseId": "S03-L06-C07",
+      "runId": "de5294cc-b3be-4d6a-b592-7ae48fb4dea1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 80
+    },
+    {
+      "caseId": "S03-L06-C08",
+      "runId": "4dab89a4-bf87-42bf-b321-1acb91124665",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 147
+    },
+    {
+      "caseId": "S03-L06-C09",
+      "runId": "cdea9f6a-19a7-41eb-97bd-441acb3a75ff",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S03-L06-C10",
+      "runId": "f4d604b2-33c7-41eb-a5cb-46f08dbce6c5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 211
+    },
+    {
+      "caseId": "S03-L07-C01",
+      "runId": "c6fa3986-0910-4c76-91fd-cad62c951c1e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 109
+    },
+    {
+      "caseId": "S03-L07-C02",
+      "runId": "9a545151-e4fd-436a-852d-338188236b6d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 49
+    },
+    {
+      "caseId": "S03-L07-C03",
+      "runId": "46a0a96e-05d6-443e-851f-1638029f4659",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 18
+    },
+    {
+      "caseId": "S03-L07-C04",
+      "runId": "8b7562ef-4714-4684-87a4-70cc520fbe36",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L07-C05",
+      "runId": "3e9f663f-e04e-4d81-909d-9ce14d3172d1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 130
+    },
+    {
+      "caseId": "S03-L07-C06",
+      "runId": "6ecc9c49-5e09-4278-9d36-c42413ac05ac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 168
+    },
+    {
+      "caseId": "S03-L07-C07",
+      "runId": "82af2274-0b3b-4be2-88dc-77e191e4f3a3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 49
+    },
+    {
+      "caseId": "S03-L07-C08",
+      "runId": "c0621f01-a8d1-48ee-9440-7c2af2734963",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 109
+    },
+    {
+      "caseId": "S03-L07-C09",
+      "runId": "0b442162-d46f-4642-88fc-9369f146535b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S03-L07-C10",
+      "runId": "9d8c5822-2d45-43e4-8e23-8a185d04c87a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 167
+    },
+    {
+      "caseId": "S03-L08-C01",
+      "runId": "8f65a621-a222-428f-8d06-5e648e6cf771",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 404
+    },
+    {
+      "caseId": "S03-L08-C02",
+      "runId": "3369b6ab-31fa-4c78-b071-32996bf19bf5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 153
+    },
+    {
+      "caseId": "S03-L08-C03",
+      "runId": "4c07d450-4b77-47c6-baae-ca389715abb3",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 56
+    },
+    {
+      "caseId": "S03-L08-C04",
+      "runId": "af884a3a-5266-49ab-a4de-b2dac61c0742",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 30
+    },
+    {
+      "caseId": "S03-L08-C05",
+      "runId": "7b85e3cd-3199-46e1-b89a-8b81a31eb596",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 379
+    },
+    {
+      "caseId": "S03-L08-C06",
+      "runId": "e7aebfd9-9478-4838-aba4-55817ae97f14",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 230
+    },
+    {
+      "caseId": "S03-L08-C07",
+      "runId": "314d7ad8-8a24-4f67-b396-41f4e0cf90ed",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 153
+    },
+    {
+      "caseId": "S03-L08-C08",
+      "runId": "3d2885d6-052a-4a68-9f53-ce868abd2052",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 740
+    },
+    {
+      "caseId": "S03-L08-C09",
+      "runId": "aba52e2b-1d47-4513-9e27-3922d2083d77",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S03-L08-C10",
+      "runId": "b6db21a1-ed88-4ea8-a9c0-16a0b1cbc94a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1567
+    },
+    {
+      "caseId": "S03-L09-C01",
+      "runId": "83a00b24-dfe2-4bd7-8b5b-b592bfdd188e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L09-C02",
+      "runId": "6130f043-c8e4-4764-b6a2-1c6cee4fdae2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L09-C03",
+      "runId": "cb79374d-e066-49bf-976a-6440d54754c7",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 8
+    },
+    {
+      "caseId": "S03-L09-C04",
+      "runId": "575cfec3-8d5c-4f0e-8b02-f44f68c4d076",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 4
+    },
+    {
+      "caseId": "S03-L09-C05",
+      "runId": "a058b587-b6d0-4424-9e58-81869854852f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S03-L09-C06",
+      "runId": "4ad060f0-efd0-414b-b4b9-5776647cbfef",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 99
+    },
+    {
+      "caseId": "S03-L09-C07",
+      "runId": "98a1be19-c8de-4d27-add0-90821a04abfa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L09-C08",
+      "runId": "f805f20b-bbc5-4576-836f-9e1dec726c27",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S03-L09-C09",
+      "runId": "24d701be-c6c8-46d8-99fe-dd3533a835bc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S03-L09-C10",
+      "runId": "3623d790-eecd-4688-aae5-4c5f7c3f6393",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S03-L10-C01",
+      "runId": "cd111423-1876-448f-b34e-fd917629b645",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L10-C02",
+      "runId": "cc89b3b7-3699-457f-b4ef-678de50a0e5c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L10-C03",
+      "runId": "de85e58d-36e5-450e-b28f-b93fb886fad0",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 9
+    },
+    {
+      "caseId": "S03-L10-C04",
+      "runId": "e2744f39-f25a-49b1-9792-a3f1202079fe",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 5
+    },
+    {
+      "caseId": "S03-L10-C05",
+      "runId": "8d645870-8ba3-44be-8618-ed420ef8e3ba",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L10-C06",
+      "runId": "a1504e57-0039-4cd8-b3b9-69d69ed0eac6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L10-C07",
+      "runId": "5ce91889-e9cb-4f3f-9275-9d5de45a0bbd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S03-L10-C08",
+      "runId": "1bcfd056-6537-41df-986b-01ee3fc84096",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S03-L10-C09",
+      "runId": "1c59741c-0f71-4c23-b1a6-d5cdeff861d4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S03-L10-C10",
+      "runId": "9d3c8ecc-bd5a-480c-a454-376f854a116d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S04-L01-C01",
+      "runId": "2c55cb25-0381-46b0-afcd-f873d57626bb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 84
+    },
+    {
+      "caseId": "S04-L01-C02",
+      "runId": "784947ba-d78b-4b53-9195-6b923d0f11eb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S04-L01-C03",
+      "runId": "ab266cf4-e382-4da6-b771-beb796c49eee",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 9
+    },
+    {
+      "caseId": "S04-L01-C04",
+      "runId": "72e52e4d-6f1f-4bbc-849c-9f4537e990b9",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 5
+    },
+    {
+      "caseId": "S04-L01-C05",
+      "runId": "e6ddd764-2aa3-49d1-b603-964861083082",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 35
+    },
+    {
+      "caseId": "S04-L01-C06",
+      "runId": "5c9ec73f-e234-4b98-ba3f-df4520dd41f4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 35
+    },
+    {
+      "caseId": "S04-L01-C07",
+      "runId": "65b221f6-486f-495e-ba71-63fadd649945",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S04-L01-C08",
+      "runId": "aeb9ac8b-2713-4b62-92ce-111277b1f2d3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 84
+    },
+    {
+      "caseId": "S04-L01-C09",
+      "runId": "43fdecda-d4f1-4f28-92a4-d86a2e454ffd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S04-L01-C10",
+      "runId": "65ec7afe-17b2-4cfc-90eb-6d36bd80dabd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 91
+    },
+    {
+      "caseId": "S04-L02-C01",
+      "runId": "912847c1-6c9a-4e95-bab4-1fd1ac9d6a19",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 115
+    },
+    {
+      "caseId": "S04-L02-C02",
+      "runId": "9a972cea-332f-42cb-ba83-cf4b93fe1657",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S04-L02-C03",
+      "runId": "eb33aac2-664d-4cd5-9b7a-62f4b8b7378e",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 34
+    },
+    {
+      "caseId": "S04-L02-C04",
+      "runId": "7e0db6a8-3a98-415a-8e1f-17af2cf2013d",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 13
+    },
+    {
+      "caseId": "S04-L02-C05",
+      "runId": "603b62ad-d85a-4257-aab7-6592fd3be1ad",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 85
+    },
+    {
+      "caseId": "S04-L02-C06",
+      "runId": "2a945035-c043-46ac-82d3-79eab071236c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 90
+    },
+    {
+      "caseId": "S04-L02-C07",
+      "runId": "b63b69a6-79ac-4496-b36d-7c59cf21bca9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S04-L02-C08",
+      "runId": "7459d73e-f0aa-4d6a-b6e6-589217180ac0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 115
+    },
+    {
+      "caseId": "S04-L02-C09",
+      "runId": "b2a5e449-2181-4dea-8e2e-fe96975289fc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S04-L02-C10",
+      "runId": "5561ae7b-3c59-42dd-a9f2-a452ea1fa063",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 146
+    },
+    {
+      "caseId": "S04-L03-C01",
+      "runId": "07db9785-972e-4585-90a6-eed7803598c2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S04-L03-C02",
+      "runId": "30c262d3-df70-41e1-9126-0e736e54da93",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S04-L03-C03",
+      "runId": "2c0ffbb6-0c20-417e-a1d3-15322bb1d38e",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S04-L03-C04",
+      "runId": "9fe43263-373c-4c57-825c-ffe1f1c5caf7",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S04-L03-C05",
+      "runId": "521a7408-bdcc-47b3-b1e5-c1a943e2e89e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 30
+    },
+    {
+      "caseId": "S04-L03-C06",
+      "runId": "50e899ef-baba-4b01-b578-b17dfda0577c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 30
+    },
+    {
+      "caseId": "S04-L03-C07",
+      "runId": "7e747eb8-9833-40a5-9b8e-c2e92efd8328",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S04-L03-C08",
+      "runId": "354783a6-c4b2-4309-a213-c64ef1d4b4af",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S04-L03-C09",
+      "runId": "971d4c32-511f-4d95-88b3-e8abe218de1f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S04-L03-C10",
+      "runId": "f615c999-51f0-4eca-b8d8-f3859137aa0a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 50
+    },
+    {
+      "caseId": "S04-L04-C01",
+      "runId": "6b9c9f9f-e2b9-41f7-9ff2-bfd425b5c3f2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 56
+    },
+    {
+      "caseId": "S04-L04-C02",
+      "runId": "3d14f81c-1422-46b6-9910-7594f2386a08",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 30
+    },
+    {
+      "caseId": "S04-L04-C03",
+      "runId": "5640ef76-60a4-45cb-a29b-a119c27b0d6c",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 10
+    },
+    {
+      "caseId": "S04-L04-C04",
+      "runId": "c0b02feb-b87b-4a03-a16b-14876ce62c27",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L04-C05",
+      "runId": "f66493e8-7377-4740-9d7a-9f9bd16c8c54",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 36
+    },
+    {
+      "caseId": "S04-L04-C06",
+      "runId": "5a7b952b-d22c-44df-beb2-414035b43514",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 38
+    },
+    {
+      "caseId": "S04-L04-C07",
+      "runId": "1a032153-9e4f-4e57-ac5e-828370473916",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 30
+    },
+    {
+      "caseId": "S04-L04-C08",
+      "runId": "e2baf6d1-a58a-40db-bc35-497c9dbc6a38",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 56
+    },
+    {
+      "caseId": "S04-L04-C09",
+      "runId": "2000890d-d649-4d45-a223-21eebed9ea2c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S04-L04-C10",
+      "runId": "990ea995-dfc7-4fda-bee2-0f0dbd6f3a66",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 65
+    },
+    {
+      "caseId": "S04-L05-C01",
+      "runId": "add6432c-3b3f-4e11-b3c0-e5c491afb603",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 282
+    },
+    {
+      "caseId": "S04-L05-C02",
+      "runId": "de848175-4dc4-4c77-93c2-98cbe1374bb4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 119
+    },
+    {
+      "caseId": "S04-L05-C03",
+      "runId": "1a7807de-769e-4849-8a39-ecf16062e168",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 47
+    },
+    {
+      "caseId": "S04-L05-C04",
+      "runId": "b0a5f9d4-7939-479a-aa56-2bb57f5f50ed",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 24
+    },
+    {
+      "caseId": "S04-L05-C05",
+      "runId": "f745f7c1-0745-4054-8a19-7d1f632b667c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 151
+    },
+    {
+      "caseId": "S04-L05-C06",
+      "runId": "696f5914-72f0-4e20-b781-67f754b93088",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 144
+    },
+    {
+      "caseId": "S04-L05-C07",
+      "runId": "f7f97c65-dd96-4d2f-90b6-9834e8c19800",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 119
+    },
+    {
+      "caseId": "S04-L05-C08",
+      "runId": "8e52be98-7826-47ab-b2da-d1d205dc37be",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 282
+    },
+    {
+      "caseId": "S04-L05-C09",
+      "runId": "56b50f3a-522b-4eb0-a415-80f032b5569f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 31
+    },
+    {
+      "caseId": "S04-L05-C10",
+      "runId": "33c3bd24-e11f-4e30-90b1-22547e071277",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 344
+    },
+    {
+      "caseId": "S04-L06-C01",
+      "runId": "43418e41-40f5-4e89-9681-bf119c588b3d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 375
+    },
+    {
+      "caseId": "S04-L06-C02",
+      "runId": "cf40d113-fe81-4d06-86dd-cfe94a82a261",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 190
+    },
+    {
+      "caseId": "S04-L06-C03",
+      "runId": "311f33a7-beec-4b82-a58a-ced45cb990ce",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 85
+    },
+    {
+      "caseId": "S04-L06-C04",
+      "runId": "a88a194a-43ab-4052-993e-404f1b16671c",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 42
+    },
+    {
+      "caseId": "S04-L06-C05",
+      "runId": "2649245a-8799-486e-9b85-7e2b4c8cfd53",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 247
+    },
+    {
+      "caseId": "S04-L06-C06",
+      "runId": "fa6ad864-d799-4d51-9811-2ada206d1823",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 172
+    },
+    {
+      "caseId": "S04-L06-C07",
+      "runId": "92659c90-4827-4305-8fc4-4c397e3b5449",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 190
+    },
+    {
+      "caseId": "S04-L06-C08",
+      "runId": "f7dfda1e-dcda-4f14-b680-d3c40f5fbd95",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 375
+    },
+    {
+      "caseId": "S04-L06-C09",
+      "runId": "4a6602f5-2837-4b54-b368-e1ad5565abe2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S04-L06-C10",
+      "runId": "82e558c8-19fb-402c-99b9-9910e1cc67eb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 465
+    },
+    {
+      "caseId": "S04-L07-C01",
+      "runId": "438f76bf-61e3-4012-8151-ee6f03b0bb3f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 198
+    },
+    {
+      "caseId": "S04-L07-C02",
+      "runId": "faa920e2-1ae9-44c9-aa06-7a62e99208e0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 112
+    },
+    {
+      "caseId": "S04-L07-C03",
+      "runId": "d150559b-dfe5-428a-b61c-0711b18c7143",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 61
+    },
+    {
+      "caseId": "S04-L07-C04",
+      "runId": "3e701b70-f64e-410f-892f-b6f1f3166a18",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 28
+    },
+    {
+      "caseId": "S04-L07-C05",
+      "runId": "06c3900d-0cc4-43cf-9040-f1065502ea97",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 156
+    },
+    {
+      "caseId": "S04-L07-C06",
+      "runId": "3b4ef8b3-d960-4d6c-88c0-a0ba3e81fc37",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 156
+    },
+    {
+      "caseId": "S04-L07-C07",
+      "runId": "1675b86e-62eb-4695-a3c3-35d45edad413",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 112
+    },
+    {
+      "caseId": "S04-L07-C08",
+      "runId": "abd4a206-10b1-4cdb-ae0e-ed639147cb8d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 198
+    },
+    {
+      "caseId": "S04-L07-C09",
+      "runId": "f94463e8-02bb-44ad-970f-3b2296477508",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S04-L07-C10",
+      "runId": "62c4666d-d523-4523-8313-cb6f829e1a86",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 253
+    },
+    {
+      "caseId": "S04-L08-C01",
+      "runId": "74e725de-fdf0-4132-9415-a4f41048fa55",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 523
+    },
+    {
+      "caseId": "S04-L08-C02",
+      "runId": "c5096da9-b182-4b8b-872b-df66212415c6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 255
+    },
+    {
+      "caseId": "S04-L08-C03",
+      "runId": "7f93d4ac-4a2d-48c7-aa4a-633ad96a9bde",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 113
+    },
+    {
+      "caseId": "S04-L08-C04",
+      "runId": "1d1d95a2-5c45-4ca8-98cb-493998f4a27c",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 58
+    },
+    {
+      "caseId": "S04-L08-C05",
+      "runId": "c3301a56-e5f3-4b5c-8de3-e737564dc43c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 347
+    },
+    {
+      "caseId": "S04-L08-C06",
+      "runId": "f8c2299f-94f8-4c6b-9390-28ba4778e930",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 172
+    },
+    {
+      "caseId": "S04-L08-C07",
+      "runId": "cbd34b05-9b11-424b-959c-1807fbcc11a9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 255
+    },
+    {
+      "caseId": "S04-L08-C08",
+      "runId": "06cc5730-888a-4ace-9e66-fa8d3cd080bd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 984
+    },
+    {
+      "caseId": "S04-L08-C09",
+      "runId": "068a4e16-bc14-4a3e-b61d-42d8fc11faf9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 26
+    },
+    {
+      "caseId": "S04-L08-C10",
+      "runId": "84feced0-7c44-4b8b-bc1e-6aa23a1bb74a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1802
+    },
+    {
+      "caseId": "S04-L09-C01",
+      "runId": "6416de7f-87b2-4bf3-a258-00c4e9cf117d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 66
+    },
+    {
+      "caseId": "S04-L09-C02",
+      "runId": "c764efa3-4960-417d-b961-8121fd04dd5a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 63
+    },
+    {
+      "caseId": "S04-L09-C03",
+      "runId": "dd33ba4a-69b8-4c1c-be5d-4efd0a0463d3",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 16
+    },
+    {
+      "caseId": "S04-L09-C04",
+      "runId": "76a2b2a2-6714-4249-a170-aab03bf55f4d",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 7
+    },
+    {
+      "caseId": "S04-L09-C05",
+      "runId": "c6943f92-26ba-4a80-b061-991c40ae453e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 72
+    },
+    {
+      "caseId": "S04-L09-C06",
+      "runId": "a26dbcd5-4ecc-4d1e-a2d2-aa2f4da6a4e6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 72
+    },
+    {
+      "caseId": "S04-L09-C07",
+      "runId": "26711c44-8ce7-4646-9206-3c2553bbe6ac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 63
+    },
+    {
+      "caseId": "S04-L09-C08",
+      "runId": "426ba5c1-5239-4abb-abb0-6dde6259db9c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 66
+    },
+    {
+      "caseId": "S04-L09-C09",
+      "runId": "77a5cb4e-70b3-447d-a160-10bb177afcf7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S04-L09-C10",
+      "runId": "a4de0827-2536-432c-852b-5af32a8d707b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 74
+    },
+    {
+      "caseId": "S04-L10-C01",
+      "runId": "ef2380f4-cf0b-494e-a473-62d9d470a090",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C02",
+      "runId": "697ff232-1995-4b2e-885e-6e2968e4373e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C03",
+      "runId": "c591309e-a012-4df7-9c8b-37d449855344",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C04",
+      "runId": "526defa6-1f9f-4697-8dec-2fce1d4d8895",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S04-L10-C05",
+      "runId": "3158c8a1-86a9-4cfa-8529-6055a1e9b85b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S04-L10-C06",
+      "runId": "ed7bc54e-fdcf-4c0b-8896-906a1a3732a9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S04-L10-C07",
+      "runId": "bf54583b-2571-48fb-9776-77560c5350fa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C08",
+      "runId": "73c9cd3c-511c-4973-9e2d-65583fd5ecc3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C09",
+      "runId": "bac73fa2-21e6-4675-888a-89e59627ae8e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S04-L10-C10",
+      "runId": "299abe33-a577-4aa3-9b10-dd84946c7210",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S05-L01-C01",
+      "runId": "be532221-3c37-4d14-a788-bca21884b46e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 342
+    },
+    {
+      "caseId": "S05-L01-C02",
+      "runId": "e17f13eb-dd88-4838-a033-269c145ff455",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 93
+    },
+    {
+      "caseId": "S05-L01-C03",
+      "runId": "00d82c42-7c4a-4e9e-8528-ffa753f2784b",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 40
+    },
+    {
+      "caseId": "S05-L01-C04",
+      "runId": "43def8a8-ab1d-4aa3-9676-3805712c47a3",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 11
+    },
+    {
+      "caseId": "S05-L01-C05",
+      "runId": "10fca933-4945-428a-9906-ab365a103109",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 95
+    },
+    {
+      "caseId": "S05-L01-C06",
+      "runId": "421dc44a-9e18-4c8f-9271-c187b4ada2cd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 95
+    },
+    {
+      "caseId": "S05-L01-C07",
+      "runId": "3890799b-50ac-4b65-b1fa-084988634e46",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 93
+    },
+    {
+      "caseId": "S05-L01-C08",
+      "runId": "9d10a6ef-b4a2-437c-a1d6-a60332ccfc14",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 342
+    },
+    {
+      "caseId": "S05-L01-C09",
+      "runId": "9e663862-8e5a-40ea-9998-b856d173edfa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 93
+    },
+    {
+      "caseId": "S05-L01-C10",
+      "runId": "a1b925e0-139c-4d58-b80a-1e23e3c6ef03",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 347
+    },
+    {
+      "caseId": "S05-L02-C01",
+      "runId": "761b2621-7dd6-4651-8628-1d49fe3deded",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 929
+    },
+    {
+      "caseId": "S05-L02-C02",
+      "runId": "18ceb7dd-c4db-4fcd-955d-2b29539575e5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 315
+    },
+    {
+      "caseId": "S05-L02-C03",
+      "runId": "bbaa3332-eb7d-4121-9c31-00f0e5e9246c",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 96
+    },
+    {
+      "caseId": "S05-L02-C04",
+      "runId": "0df0bda2-e3ec-4770-a510-106f3bf9eedb",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 37
+    },
+    {
+      "caseId": "S05-L02-C05",
+      "runId": "f8dce7f5-cde7-483e-a29a-db307841d357",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 323
+    },
+    {
+      "caseId": "S05-L02-C06",
+      "runId": "36db9011-bb72-4822-b0e5-5bf87672b2de",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 323
+    },
+    {
+      "caseId": "S05-L02-C07",
+      "runId": "b07ab125-bc76-4ca9-9e0d-decd27eb0454",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 315
+    },
+    {
+      "caseId": "S05-L02-C08",
+      "runId": "68053d9e-2372-46dc-ad9c-c79a18e7b0ba",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 929
+    },
+    {
+      "caseId": "S05-L02-C09",
+      "runId": "407f0dd1-8323-4f65-b63d-c647e14eae1c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 161
+    },
+    {
+      "caseId": "S05-L02-C10",
+      "runId": "483fe307-8ca6-4cce-be34-73d4c71f1f25",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 958
+    },
+    {
+      "caseId": "S05-L03-C01",
+      "runId": "ac953763-6a82-4ad6-9f3d-b9bbf6e8e2c2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 311
+    },
+    {
+      "caseId": "S05-L03-C02",
+      "runId": "ca4d6688-3011-46ee-ae23-6d7f52c9e29a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 92
+    },
+    {
+      "caseId": "S05-L03-C03",
+      "runId": "d8b358c2-58d6-403e-9287-36dfbc5039d3",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S05-L03-C04",
+      "runId": "1649ed94-2b77-4a00-8f9b-43bc7d98c871",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S05-L03-C05",
+      "runId": "b4e971ca-dafc-40da-a6b5-bdc35b0eed5c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 95
+    },
+    {
+      "caseId": "S05-L03-C06",
+      "runId": "e2e395f3-a5c6-47fd-86a1-b5bd7424fa23",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 95
+    },
+    {
+      "caseId": "S05-L03-C07",
+      "runId": "1be918fe-dce0-45fb-b0ce-8e6b52b3973f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 92
+    },
+    {
+      "caseId": "S05-L03-C08",
+      "runId": "c9110bb5-4aef-4f23-9e99-acf942f55f8f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 311
+    },
+    {
+      "caseId": "S05-L03-C09",
+      "runId": "a99f37d0-1ad7-441b-8ee1-319349e34863",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 53
+    },
+    {
+      "caseId": "S05-L03-C10",
+      "runId": "2d805740-9a6f-4040-b503-51c7179ab005",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 325
+    },
+    {
+      "caseId": "S05-L04-C01",
+      "runId": "cc75d56d-99e9-4ad0-a74e-c979cbf172a9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 322
+    },
+    {
+      "caseId": "S05-L04-C02",
+      "runId": "0ae67514-2f38-4ba9-b7b5-5ce652eaaa79",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 102
+    },
+    {
+      "caseId": "S05-L04-C03",
+      "runId": "0c7ef689-d2b4-4427-a5db-143b40fc9537",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 32
+    },
+    {
+      "caseId": "S05-L04-C04",
+      "runId": "8c9c5c8f-5d2f-4df0-9b36-b0f3031f1f03",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 11
+    },
+    {
+      "caseId": "S05-L04-C05",
+      "runId": "d0a5cc52-ab34-444f-b6a8-97a526a348f3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 105
+    },
+    {
+      "caseId": "S05-L04-C06",
+      "runId": "f7bdac35-5a10-468e-9621-1619a5591c08",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 105
+    },
+    {
+      "caseId": "S05-L04-C07",
+      "runId": "0f9e8807-5513-497a-89f1-6a22c7e3488f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 102
+    },
+    {
+      "caseId": "S05-L04-C08",
+      "runId": "8b7ec8c0-3862-4b7c-aaaf-c839e75c0fe4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 322
+    },
+    {
+      "caseId": "S05-L04-C09",
+      "runId": "75e1f753-32c8-49c0-a547-7524f70a14d2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 97
+    },
+    {
+      "caseId": "S05-L04-C10",
+      "runId": "697858df-18e8-4990-ba68-17a7942c8916",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 335
+    },
+    {
+      "caseId": "S05-L05-C01",
+      "runId": "46a736bb-88e0-40ba-bf4c-f8bb0d6a935a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1600
+    },
+    {
+      "caseId": "S05-L05-C02",
+      "runId": "a3ef35ad-f208-41c6-877b-8fcd0c60f076",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 524
+    },
+    {
+      "caseId": "S05-L05-C03",
+      "runId": "28d83ed6-4156-4af5-bb42-9dfcc824e4a9",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 163
+    },
+    {
+      "caseId": "S05-L05-C04",
+      "runId": "fd46dda5-bb11-4845-bdaf-6c50c17c712f",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 50
+    },
+    {
+      "caseId": "S05-L05-C05",
+      "runId": "451cead0-6ee6-40b7-ab7a-8de7bad10271",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 541
+    },
+    {
+      "caseId": "S05-L05-C06",
+      "runId": "40b188a7-7b4c-4934-b738-084fce16ccd7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 540
+    },
+    {
+      "caseId": "S05-L05-C07",
+      "runId": "0cfcec7f-81c4-4f3d-b07c-059f1a252428",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 524
+    },
+    {
+      "caseId": "S05-L05-C08",
+      "runId": "ef35c437-8acf-4cd8-aed4-3aceee4e07fa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1600
+    },
+    {
+      "caseId": "S05-L05-C09",
+      "runId": "703aa91e-dc36-4715-9abd-617d5820aacb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 198
+    },
+    {
+      "caseId": "S05-L05-C10",
+      "runId": "a7734c7c-58a5-4a04-81bd-a757a74cce2a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1649
+    },
+    {
+      "caseId": "S05-L06-C01",
+      "runId": "8bc44975-56cb-41c0-a8e1-02433360951d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2093
+    },
+    {
+      "caseId": "S05-L06-C02",
+      "runId": "0351d228-67a7-4b86-8509-3faa31c56718",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 895
+    },
+    {
+      "caseId": "S05-L06-C03",
+      "runId": "fa5f1d40-8194-41d5-a1cd-2a788954e8f9",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 288
+    },
+    {
+      "caseId": "S05-L06-C04",
+      "runId": "995f5449-8c9a-449b-a15e-615478e9381e",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 116
+    },
+    {
+      "caseId": "S05-L06-C05",
+      "runId": "c5218d05-6677-4db0-9383-139b0891a37d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 925
+    },
+    {
+      "caseId": "S05-L06-C06",
+      "runId": "7d6817ad-ac75-4a5c-b7e2-dd0ad5454b88",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 786
+    },
+    {
+      "caseId": "S05-L06-C07",
+      "runId": "47427ff0-031c-4507-8f9b-da136e913bcb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 895
+    },
+    {
+      "caseId": "S05-L06-C08",
+      "runId": "8f72ec9f-372f-4662-a551-2564d8ca36a3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2093
+    },
+    {
+      "caseId": "S05-L06-C09",
+      "runId": "741e3c2e-01e3-42e1-aa72-7af7780239bc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 227
+    },
+    {
+      "caseId": "S05-L06-C10",
+      "runId": "a5079185-97e0-49c2-ae01-abd852ee2692",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2168
+    },
+    {
+      "caseId": "S05-L07-C01",
+      "runId": "14dfb88b-637b-4ebb-b26e-5467fe736843",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1175
+    },
+    {
+      "caseId": "S05-L07-C02",
+      "runId": "76555a97-efef-4f10-818a-1c4fa2a39f05",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 534
+    },
+    {
+      "caseId": "S05-L07-C03",
+      "runId": "c7fedaf2-224b-4abb-90af-bdd4088d983b",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 164
+    },
+    {
+      "caseId": "S05-L07-C04",
+      "runId": "5b714345-56f1-483b-acc2-8adbfa18c7ca",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 58
+    },
+    {
+      "caseId": "S05-L07-C05",
+      "runId": "f2979817-bf96-4974-8521-985910dc987d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 552
+    },
+    {
+      "caseId": "S05-L07-C06",
+      "runId": "c3a1e83e-e2ba-46c8-bac5-131e6b106a8e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 552
+    },
+    {
+      "caseId": "S05-L07-C07",
+      "runId": "6079e3f7-0c5e-46b9-adb6-3c8b7c37c27d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 534
+    },
+    {
+      "caseId": "S05-L07-C08",
+      "runId": "fad14d8e-5b0a-4f9e-8e75-34a74a3aeec8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1175
+    },
+    {
+      "caseId": "S05-L07-C09",
+      "runId": "d4a8828c-5ce3-490c-b00d-91c4c5d0e13f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 190
+    },
+    {
+      "caseId": "S05-L07-C10",
+      "runId": "8fc1a0c7-ce80-49c1-b6ac-8d779894407f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1214
+    },
+    {
+      "caseId": "S05-L08-C01",
+      "runId": "59db241c-e1ea-43d8-ae71-abdb211948e4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5856
+    },
+    {
+      "caseId": "S05-L08-C02",
+      "runId": "f1ce8b1f-f9b6-4d5f-9cc0-0d35060b01c1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2016
+    },
+    {
+      "caseId": "S05-L08-C03",
+      "runId": "5f8f8763-9c68-473e-8549-17a71f82f8e5",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 645
+    },
+    {
+      "caseId": "S05-L08-C04",
+      "runId": "cb1de1a8-fc37-43e5-8625-973a377b18f3",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 233
+    },
+    {
+      "caseId": "S05-L08-C05",
+      "runId": "eebbde95-c14d-47ba-a3d7-0f2be6752b6f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2075
+    },
+    {
+      "caseId": "S05-L08-C06",
+      "runId": "6aea0a00-dacd-47d7-9310-095471cd4529",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1109
+    },
+    {
+      "caseId": "S05-L08-C07",
+      "runId": "5a218284-327a-4e8d-86fa-765cb10b72fb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2016
+    },
+    {
+      "caseId": "S05-L08-C08",
+      "runId": "cf3d3920-d9fd-433e-a8ce-26e0234b5426",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8865
+    },
+    {
+      "caseId": "S05-L08-C09",
+      "runId": "87b780db-8e6e-42e2-a82c-09e951e94ccb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 219
+    },
+    {
+      "caseId": "S05-L08-C10",
+      "runId": "1b31653f-c6fd-4855-ae84-03dd1b6562ea",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10034
+    },
+    {
+      "caseId": "S05-L09-C01",
+      "runId": "3dda581a-8086-44c5-9660-30ac9ad6c75b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 202
+    },
+    {
+      "caseId": "S05-L09-C02",
+      "runId": "6b25303e-a9f3-42db-b554-a7eff9df8f82",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 190
+    },
+    {
+      "caseId": "S05-L09-C03",
+      "runId": "09d4d4ee-51ce-43fd-8384-795369897ef4",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 56
+    },
+    {
+      "caseId": "S05-L09-C04",
+      "runId": "aef4629b-6c3f-4961-8e9d-97f85a7a8ad5",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 20
+    },
+    {
+      "caseId": "S05-L09-C05",
+      "runId": "3778d627-9394-4691-bdd2-e958000685aa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 193
+    },
+    {
+      "caseId": "S05-L09-C06",
+      "runId": "1fb459f9-ecda-48ef-8b24-e826a4321e38",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 193
+    },
+    {
+      "caseId": "S05-L09-C07",
+      "runId": "b20b40a4-cb22-46fb-af19-d25288d6f8e0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 190
+    },
+    {
+      "caseId": "S05-L09-C08",
+      "runId": "1d6c707a-a191-483b-af0d-f1b7fc260fcd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 202
+    },
+    {
+      "caseId": "S05-L09-C09",
+      "runId": "497e3da1-24d0-4fcb-bb06-35ebdf39f4dc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 121
+    },
+    {
+      "caseId": "S05-L09-C10",
+      "runId": "f82ac654-d645-486b-ae69-67a78f55e94d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 205
+    },
+    {
+      "caseId": "S05-L10-C01",
+      "runId": "edddbae3-6bd7-4973-8c0b-51ad8e69a2ba",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C02",
+      "runId": "cd8c7900-85f5-4583-95a1-b9b1cba3c669",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C03",
+      "runId": "c78bb1a6-feed-4daf-bfe0-6536a2e07c68",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S05-L10-C04",
+      "runId": "8c0146dc-c5fc-4ea6-aca7-461ff2d6f318",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S05-L10-C05",
+      "runId": "60c73d42-1139-4e9e-bc6c-8cd09c323dba",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C06",
+      "runId": "ebde2e9f-913f-4755-8ef6-3b6e842f152e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C07",
+      "runId": "a98ab081-70b9-42d8-ab68-be646f6d711b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C08",
+      "runId": "7522feb1-9bbf-434f-b240-296cebe398fa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C09",
+      "runId": "0ec13196-b19b-4301-8945-da36d2bc5f4f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S05-L10-C10",
+      "runId": "13de6074-6df1-4014-9bbc-73a7b2680712",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L01-C01",
+      "runId": "74936b6f-ae30-4a2c-83c1-89e2aef0b4b6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C02",
+      "runId": "74511ffe-3b06-4568-8927-c81169308417",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C03",
+      "runId": "8e0d7518-5675-480d-ba6e-7ebbd992e35c",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C04",
+      "runId": "d36ddc85-edab-4126-bd46-8bf2a5889fdd",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C05",
+      "runId": "52cc7e9e-8936-43ce-b37a-99d1f08ed1f9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C06",
+      "runId": "ec6c9b3b-98fa-4f4e-aec0-5988046c7d19",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C07",
+      "runId": "e0713b47-5478-4938-97ce-4dfbd6ab6440",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C08",
+      "runId": "2b4db122-dfe8-4f5f-b080-d6e06f3d7c04",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C09",
+      "runId": "e160f3fb-115e-4ec3-80bc-407dd8776678",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L01-C10",
+      "runId": "c65975a1-882f-48a5-b7b8-faf9c7598830",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L02-C01",
+      "runId": "e0e323a0-59fc-4105-93bf-2eef97f61663",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L02-C02",
+      "runId": "c8274805-0eae-4000-947f-ac3790e9dc86",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L02-C03",
+      "runId": "276735ba-9bd3-4590-9844-a5cb5d3c1f2b",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L02-C04",
+      "runId": "d8010591-267b-4e8c-99a1-68281b820838",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L02-C05",
+      "runId": "003d7897-6fab-4192-9242-8df52ad68499",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L02-C06",
+      "runId": "aff1d1b0-64b3-40bb-84ee-fcd5ec129ad4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L02-C07",
+      "runId": "a5018e56-81a6-4f70-8b83-6c1f57957622",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L02-C08",
+      "runId": "42e86138-cee0-4c9d-8761-b84b4dd70146",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L02-C09",
+      "runId": "194276a7-5449-4b1b-9c64-074051915d62",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L02-C10",
+      "runId": "5febcc74-a9fc-48cd-bf5c-bb2e12af1e11",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L03-C01",
+      "runId": "c876d96f-a84d-4c80-8d0d-b8d2fdb49d33",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L03-C02",
+      "runId": "76f550d0-cc99-40f6-950b-2903a8b95493",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C03",
+      "runId": "889cf481-9b82-4b46-ab50-ca7b1267bcce",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C04",
+      "runId": "6be03dd6-854d-466d-bc65-7f1e5d3b89f3",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C05",
+      "runId": "4d8ef4c8-8bff-4460-a184-3539d26cf273",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C06",
+      "runId": "f8b9665e-eeb9-482d-bb74-ad9486f0caea",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C07",
+      "runId": "1eca72a8-4390-46c9-88df-8da3e78f5786",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C08",
+      "runId": "e23c650f-6429-459e-b31f-a20dd91882e9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L03-C09",
+      "runId": "615adb97-d7b3-4c08-9f5e-a36c0d6c5313",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L03-C10",
+      "runId": "e26eac21-cb0f-49a2-8c2f-cb3f94fcb1c6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L04-C01",
+      "runId": "2ef638a4-ce70-41e4-9f02-032cfcd9b1a4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L04-C02",
+      "runId": "285334bf-7613-4177-bae1-16d42d787daf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C03",
+      "runId": "e9c75420-f20c-43eb-b9c5-85203d129883",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C04",
+      "runId": "07c461c0-e5fc-439c-94df-94ba01f2b1fd",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C05",
+      "runId": "55c2bb48-0384-4e9a-81f8-8f9233167c4a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C06",
+      "runId": "d74c0a23-8f1d-4622-a192-8e3bd4de064f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C07",
+      "runId": "32847770-e8eb-405f-814c-f84284da56ab",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C08",
+      "runId": "b35a67cc-b48c-49f0-ad78-319efc556c81",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L04-C09",
+      "runId": "ff96d17e-7b91-4024-b6d1-877f7dd537fa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L04-C10",
+      "runId": "d7706be1-6a7a-4bee-aa58-1292cbf6bb6b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L05-C01",
+      "runId": "3cb5de36-b1ce-4edf-ae45-3002e30fd529",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S06-L05-C02",
+      "runId": "22a6cb7b-2069-4dcd-950f-ca30527ea92b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L05-C03",
+      "runId": "49c73d7c-229d-4d40-84e7-ed840f910f80",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L05-C04",
+      "runId": "24622938-dab7-4ead-a5b6-7bfb289a6d2d",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L05-C05",
+      "runId": "7cab3d93-2b1f-4c2f-9e1d-e72e1f1f5443",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L05-C06",
+      "runId": "3bb0c3f4-1925-470b-af80-2ea42d5675bb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L05-C07",
+      "runId": "245fffda-334a-47af-a3d5-535c69eb985a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L05-C08",
+      "runId": "1659e92a-ec07-4de2-96e1-a92a8a688959",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S06-L05-C09",
+      "runId": "075f4c21-585a-4da8-bce3-d74156ce30ff",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L05-C10",
+      "runId": "71fed931-f57d-4035-b1ee-8db91410ccdf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S06-L06-C01",
+      "runId": "5378df53-7325-4e37-aeab-6c9134826c14",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S06-L06-C02",
+      "runId": "9543f8ff-9af1-4b19-812b-4cf16e821800",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L06-C03",
+      "runId": "89cfd8df-84ea-43a9-9b79-fe8b57017362",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L06-C04",
+      "runId": "9dde9807-1e54-4a7e-92ad-038d49c89e89",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L06-C05",
+      "runId": "4f1c7e22-dd64-402a-aee5-e8be4576c829",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L06-C06",
+      "runId": "84a3dc72-a70b-4310-8b86-c299597e96c9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L06-C07",
+      "runId": "4f2e6b6a-3769-4f36-ada2-03305a404139",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L06-C08",
+      "runId": "a5bfa5f7-02dd-4462-9fd7-1c73101c6e7b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S06-L06-C09",
+      "runId": "83058dd4-4a55-4e21-86a9-b3cbe5442746",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S06-L06-C10",
+      "runId": "f8782ebb-39c8-4c2a-8ef5-fe308613dd3c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S06-L07-C01",
+      "runId": "e7125634-1952-4286-b9d1-19e356339ac5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L07-C02",
+      "runId": "b1efd672-9558-4f9d-ab88-2bf362e0e6d1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L07-C03",
+      "runId": "82bc366e-54df-40bf-9311-bd9b41c5d6b4",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L07-C04",
+      "runId": "3c793a37-bf27-4f2d-ae7a-c54ca54cd8a7",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L07-C05",
+      "runId": "6ce8c57e-0942-45d5-b875-e5baef703c82",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L07-C06",
+      "runId": "d9545751-85a0-46eb-ad90-cdfceac5e90e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L07-C07",
+      "runId": "eb0edf71-dc90-4ccd-a08c-e01adccf516b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S06-L07-C08",
+      "runId": "a2594358-6205-4088-8885-781a2eacedd8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L07-C09",
+      "runId": "151c4c50-3f56-458a-8470-413b6fbda9e7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L07-C10",
+      "runId": "ada1fbed-3227-4dbe-a2ee-7fabc4aeef8b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L08-C01",
+      "runId": "733ab9f6-1259-47df-b954-c8ed68ce9910",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 104
+    },
+    {
+      "caseId": "S06-L08-C02",
+      "runId": "2853f138-9754-4a8a-9aca-b8a5fcd5351f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S06-L08-C03",
+      "runId": "fca27547-32ed-485a-b772-06eef3e73423",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 12
+    },
+    {
+      "caseId": "S06-L08-C04",
+      "runId": "a3fb73c4-65ae-48f9-8620-2fd4cadabfef",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S06-L08-C05",
+      "runId": "0590535f-4e92-412f-911b-8ba9da07ba43",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S06-L08-C06",
+      "runId": "2525c599-e51c-4cdf-b061-2dc4457627a7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 22
+    },
+    {
+      "caseId": "S06-L08-C07",
+      "runId": "6a472b69-9379-4e89-8888-03da02207b94",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S06-L08-C08",
+      "runId": "8b3e6b33-6b02-409c-affa-d944af844e3e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 114
+    },
+    {
+      "caseId": "S06-L08-C09",
+      "runId": "c71bb3c5-6edd-448a-9500-c18ac4b18246",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S06-L08-C10",
+      "runId": "15d6fffb-8eb8-49aa-8f49-42ee52cb7ae9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 114
+    },
+    {
+      "caseId": "S06-L09-C01",
+      "runId": "53dc5cfa-d0df-426a-a3c7-5cc5b2dfc7db",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C02",
+      "runId": "7c3e6982-81b7-412f-883c-ec9621bf398f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C03",
+      "runId": "bb88d690-dcfa-4507-b6e7-564ba5859a91",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C04",
+      "runId": "66bed519-93dd-4c83-aab9-fd2f1b193595",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C05",
+      "runId": "229d48a2-9b8d-4765-8681-ce72635ab612",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C06",
+      "runId": "c06b12c2-62b5-47ea-b644-205e58114944",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C07",
+      "runId": "2e9cdb2c-6653-4ba4-9141-7c0fdc6407d5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C08",
+      "runId": "6e8f4970-747d-4e00-ada1-644da18518dc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C09",
+      "runId": "d189be14-463d-492d-badf-245001635e1d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L09-C10",
+      "runId": "8b000678-724e-4241-b6b3-aeb3bc51c8f4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C01",
+      "runId": "a4d8334d-c957-4764-8e2d-651231a47bb4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C02",
+      "runId": "2cff31e9-8d39-459a-a087-722f363fc996",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C03",
+      "runId": "d8c6a4f4-9209-4bf1-8625-9e37d91e6bbe",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C04",
+      "runId": "4a91fa07-a884-40cb-a766-ba515727ee1d",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C05",
+      "runId": "1eba4579-0764-45cc-9a23-af2e6a0f38cf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C06",
+      "runId": "37b8c01c-ff48-42d2-b0d4-5da54f906e03",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C07",
+      "runId": "0971e3a0-f45d-427e-9cd6-187c42dfab69",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C08",
+      "runId": "99497da0-6bfb-4a58-bbe2-46400aac96b1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C09",
+      "runId": "85814a69-715c-4d8c-9a74-de18b0174b22",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S06-L10-C10",
+      "runId": "ba22b0db-b63d-430a-a453-b887f7268643",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S07-L01-C01",
+      "runId": "86533178-aae1-4b12-9e84-eaa86ecc6ee2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C02",
+      "runId": "2b808733-85c9-4412-ac5e-89f17f511c9c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C03",
+      "runId": "0db1087a-e85b-49ae-be50-dc42e3306120",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 3
+    },
+    {
+      "caseId": "S07-L01-C04",
+      "runId": "6e80157f-32f8-4980-b4b1-ae1e26fb1c36",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C05",
+      "runId": "22ac61f9-d35a-4dd8-b193-ae01924a2bd1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L01-C06",
+      "runId": "a88b565d-2f96-4ddb-8263-1750276ea54e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S07-L01-C07",
+      "runId": "2630c24c-3dab-4e76-bc5c-0877c02a43c0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C08",
+      "runId": "2f8e1e07-3d22-4520-99ec-6263bd9ccbe9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C09",
+      "runId": "17a96ead-69f9-4c33-ba06-d0e7324d3b47",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L01-C10",
+      "runId": "97d53445-03e9-4fcc-b113-08c4988f33f1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S07-L02-C01",
+      "runId": "52d54050-60d1-4a85-a7a4-56dea6bd9c1f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L02-C02",
+      "runId": "953fdd97-e831-4fe4-a51c-e940fbb21695",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S07-L02-C03",
+      "runId": "81dcefe4-ca8f-442a-b748-49e77307cc02",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 8
+    },
+    {
+      "caseId": "S07-L02-C04",
+      "runId": "c7a18431-8bb6-41ff-a781-b0cf1b7496ed",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 8
+    },
+    {
+      "caseId": "S07-L02-C05",
+      "runId": "819333d9-a2f1-4ec6-b469-b3d8e4f1546c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 72
+    },
+    {
+      "caseId": "S07-L02-C06",
+      "runId": "da546cf1-4fcd-4dbd-85f6-fac79db32ca1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 84
+    },
+    {
+      "caseId": "S07-L02-C07",
+      "runId": "33f06f9a-22eb-4cbc-9308-75f3abd3d717",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S07-L02-C08",
+      "runId": "709bb656-6d4b-4dab-9a47-a5a55600b473",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L02-C09",
+      "runId": "ee457c8f-56cd-47ad-826f-4311c00e540d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L02-C10",
+      "runId": "e321d26e-4103-406e-9e28-52fca43b5866",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 20
+    },
+    {
+      "caseId": "S07-L03-C01",
+      "runId": "56204145-bc5f-4d34-8fd4-f523b2538355",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L03-C02",
+      "runId": "daabb63f-59ff-497a-9837-bc8a1d135071",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S07-L03-C03",
+      "runId": "5fe5e8e5-f5bf-4b51-bbd0-38c2534ae734",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S07-L03-C04",
+      "runId": "ce1a7259-c133-4153-80a4-205d33e35137",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S07-L03-C05",
+      "runId": "0f7f6440-44ee-4b54-8d2e-b2c25fc206fe",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S07-L03-C06",
+      "runId": "6358e6cc-b818-4d65-986a-0329af2ec89c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 42
+    },
+    {
+      "caseId": "S07-L03-C07",
+      "runId": "8aa0d9dc-d7ff-4849-8e8a-8940674219fc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S07-L03-C08",
+      "runId": "9da9635b-8716-404a-9de7-88ba42cc047b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L03-C09",
+      "runId": "1618fe61-7d55-4afb-a962-93b1c2bde5f4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L03-C10",
+      "runId": "b718a420-9c34-4fe5-8113-3d75785c1f27",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S07-L04-C01",
+      "runId": "aad598ed-8a72-4032-856b-444008b9cf4d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 11
+    },
+    {
+      "caseId": "S07-L04-C02",
+      "runId": "8b8110cc-e1ae-4299-8e2e-c7ed7009059b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S07-L04-C03",
+      "runId": "e72e0306-e4e0-4b66-ab8b-a57e7239c717",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S07-L04-C04",
+      "runId": "15e4ff70-ff79-4ba9-8dc4-5938b50d6c0e",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L04-C05",
+      "runId": "ecc8fc2c-3822-4b89-9355-8480046283de",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 26
+    },
+    {
+      "caseId": "S07-L04-C06",
+      "runId": "6580297e-f668-490d-ba07-0238ee228ef1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 32
+    },
+    {
+      "caseId": "S07-L04-C07",
+      "runId": "74e84d9b-ab0f-497e-bb8c-35fb6dda12d9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S07-L04-C08",
+      "runId": "e47b825b-8cbf-4a89-bdf8-d24c085b524b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 11
+    },
+    {
+      "caseId": "S07-L04-C09",
+      "runId": "658cbf9d-ba79-4351-8421-191104b636be",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L04-C10",
+      "runId": "1e5cc916-4f44-4fac-bea0-492cbb4f125d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S07-L05-C01",
+      "runId": "0a55edf2-0aca-4370-8d03-2ab2d3df04e5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S07-L05-C02",
+      "runId": "7b8819ea-be84-457a-b68b-a26b58545c4d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S07-L05-C03",
+      "runId": "dc12af32-341c-4b64-8e4f-69d9812a9b02",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L05-C04",
+      "runId": "5d65621f-ccfe-47b1-b814-2ce19d3d12ca",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 17
+    },
+    {
+      "caseId": "S07-L05-C05",
+      "runId": "361156db-733f-430e-bf4f-ca4e4ff2a291",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 112
+    },
+    {
+      "caseId": "S07-L05-C06",
+      "runId": "5b1812d9-a394-40ac-a0c3-c8037f1c6626",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 123
+    },
+    {
+      "caseId": "S07-L05-C07",
+      "runId": "c3115535-5f12-482b-871d-e4baf4046eee",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S07-L05-C08",
+      "runId": "a65c9622-f92b-4832-9056-f8fe0b4bd15f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S07-L05-C09",
+      "runId": "3ad29ebc-61f5-45ca-8bf6-25563f304b57",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L05-C10",
+      "runId": "6943702f-24a6-4606-8f56-50d4a073f578",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 108
+    },
+    {
+      "caseId": "S07-L06-C01",
+      "runId": "f3a04df6-4b8c-4574-bfe7-b420395c6c33",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S07-L06-C02",
+      "runId": "28e47f56-f24b-4045-b742-68c3ec453feb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S07-L06-C03",
+      "runId": "469b1dfd-75da-4f04-a311-3699869ecab8",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 22
+    },
+    {
+      "caseId": "S07-L06-C04",
+      "runId": "0e2bf6f0-e92b-4916-a46a-264d2a62bbc4",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 24
+    },
+    {
+      "caseId": "S07-L06-C05",
+      "runId": "caa15207-8af8-441a-ae52-51e8023cb98a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 143
+    },
+    {
+      "caseId": "S07-L06-C06",
+      "runId": "01b40258-b15a-4916-b464-643d64adce3e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 143
+    },
+    {
+      "caseId": "S07-L06-C07",
+      "runId": "a9c0c688-f732-4476-9bee-af30613089f4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S07-L06-C08",
+      "runId": "353a03e5-ee8d-4e0d-8656-d0a6c92e2f8c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S07-L06-C09",
+      "runId": "010239af-5a1a-494a-953e-e6677e99a555",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L06-C10",
+      "runId": "9465e9a6-5d82-4869-b992-7997adfda5a3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 93
+    },
+    {
+      "caseId": "S07-L07-C01",
+      "runId": "eb760720-db04-4321-a878-2c47bc653ba2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S07-L07-C02",
+      "runId": "f76bbd19-bf0f-425d-ac8b-49397b1231e7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S07-L07-C03",
+      "runId": "f77cae7a-7c7b-44b3-abca-a747747f8bab",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 12
+    },
+    {
+      "caseId": "S07-L07-C04",
+      "runId": "4a2b3034-79fb-4758-8559-3d09988435f6",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 14
+    },
+    {
+      "caseId": "S07-L07-C05",
+      "runId": "06743cea-e376-4448-9e97-c6479a071595",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 85
+    },
+    {
+      "caseId": "S07-L07-C06",
+      "runId": "b5d6cb81-1908-4b5d-b828-d3334321e26d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 115
+    },
+    {
+      "caseId": "S07-L07-C07",
+      "runId": "4f9d19de-316c-49ed-83aa-6a1878350d64",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S07-L07-C08",
+      "runId": "572dede0-ef3a-45e8-830f-e5575824466e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S07-L07-C09",
+      "runId": "f074d4de-0cb8-4737-8766-b440bc63e016",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L07-C10",
+      "runId": "248ea632-588b-4151-af09-1a894070edb6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S07-L08-C01",
+      "runId": "0254d5c8-2925-410d-95f8-f478d1116068",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S07-L08-C02",
+      "runId": "aa86eea8-e669-4be8-8b3d-274866a1af71",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 22
+    },
+    {
+      "caseId": "S07-L08-C03",
+      "runId": "f540505c-83c9-4bef-b33b-aa00fe69c2d1",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 22
+    },
+    {
+      "caseId": "S07-L08-C04",
+      "runId": "6238593d-95b8-47bd-9891-ee69ba5c3ca9",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 24
+    },
+    {
+      "caseId": "S07-L08-C05",
+      "runId": "d5f79ea5-18eb-4beb-8d7b-ef5d4d55363b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 199
+    },
+    {
+      "caseId": "S07-L08-C06",
+      "runId": "da53e211-935e-40d9-a888-c0cad02e4323",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 138
+    },
+    {
+      "caseId": "S07-L08-C07",
+      "runId": "aabb0ce3-ed0d-476b-a621-3c04f6c75a74",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 22
+    },
+    {
+      "caseId": "S07-L08-C08",
+      "runId": "1b115852-3583-43aa-89fb-16a0ca5fbfb7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 74
+    },
+    {
+      "caseId": "S07-L08-C09",
+      "runId": "2d0726cf-b086-4204-99dd-6026ed7c7169",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S07-L08-C10",
+      "runId": "865af574-0c0a-49eb-9574-83f16517da1b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 555
+    },
+    {
+      "caseId": "S07-L09-C01",
+      "runId": "345d0d59-9734-4c4e-9d5a-2aa13eea31e9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S07-L09-C02",
+      "runId": "585e5796-8013-45ec-9a4d-78aceb761ac3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S07-L09-C03",
+      "runId": "1483c887-4a70-4c43-905a-d7e2080f0b77",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 6
+    },
+    {
+      "caseId": "S07-L09-C04",
+      "runId": "14559c68-4185-4b76-88dc-a31aca097163",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 3
+    },
+    {
+      "caseId": "S07-L09-C05",
+      "runId": "f3130528-7a38-4fb4-8a88-a7e0568f33ec",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 49
+    },
+    {
+      "caseId": "S07-L09-C06",
+      "runId": "65905b8a-78d6-4bd5-8b1a-2dd6589a1a37",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 59
+    },
+    {
+      "caseId": "S07-L09-C07",
+      "runId": "46b72c37-fd40-4329-b677-25bfc6a22a07",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S07-L09-C08",
+      "runId": "651860f6-e377-4570-88f6-dd8b8a8fa3ea",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S07-L09-C09",
+      "runId": "2e60ba4b-18bf-4618-9e3a-7ff824947e25",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S07-L09-C10",
+      "runId": "0ccc1311-c3c7-4b45-94fc-41fb79e165af",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S07-L10-C01",
+      "runId": "006f94d2-9869-43a2-a80f-c2295f8220d8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S07-L10-C02",
+      "runId": "dfce031f-e68c-45c2-9495-168466886391",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S07-L10-C03",
+      "runId": "6b921789-d02b-4be9-ae30-5782fd1ebe93",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 10
+    },
+    {
+      "caseId": "S07-L10-C04",
+      "runId": "a0729c56-0d52-4595-9bb3-6262bbb2d41c",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 7
+    },
+    {
+      "caseId": "S07-L10-C05",
+      "runId": "7a1ebdad-4189-4ed2-a12d-cd6ff238d7d8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S07-L10-C06",
+      "runId": "0a3f5b2f-f4c3-488f-92f2-6a50f8eb10f1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S07-L10-C07",
+      "runId": "add17f46-02cd-40b0-ad49-c141a44bb374",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S07-L10-C08",
+      "runId": "ee9b00f5-093c-4c83-844e-7743efd64799",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S07-L10-C09",
+      "runId": "a527ef3a-9631-43a9-870b-acfd90d9c124",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S07-L10-C10",
+      "runId": "a3e2be9e-57f0-4325-a73f-757eac80ba16",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S08-L01-C01",
+      "runId": "60d3cd17-c3f2-4e65-9696-50bf91fd9d57",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S08-L01-C02",
+      "runId": "3adff98f-55f0-451c-876f-a507ff8a14cc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L01-C03",
+      "runId": "8357bde1-d614-4bcf-a4e9-ef8eb5c1424e",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L01-C04",
+      "runId": "2bc29705-4d37-4cc1-82a5-e833c0bd4cb5",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L01-C05",
+      "runId": "05f6a068-4020-430f-b25e-13b49d8c528a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S08-L01-C06",
+      "runId": "cc8817d3-b9d0-4d55-9896-e1da32906d5e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S08-L01-C07",
+      "runId": "4363a599-153f-4b03-a9ac-f37215f3e0fd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L01-C08",
+      "runId": "b58a96a0-425e-4711-bdc9-61d271097a08",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S08-L01-C09",
+      "runId": "0cfe4198-cdeb-484e-9d33-5de61c999a82",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L01-C10",
+      "runId": "3d869dbe-928a-490e-b36d-03396be0f05c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S08-L02-C01",
+      "runId": "4417c549-55c1-4650-8be8-21346defc18f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S08-L02-C02",
+      "runId": "f51f42f6-613a-442d-bcf5-8a7fd0f491a5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S08-L02-C03",
+      "runId": "f66c0a82-a9d1-474d-ac4f-d0813ac4bebf",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 10
+    },
+    {
+      "caseId": "S08-L02-C04",
+      "runId": "8315587d-01ef-4d00-a90d-4b1b69dc6a4f",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 8
+    },
+    {
+      "caseId": "S08-L02-C05",
+      "runId": "0764d454-5e11-4576-8819-459b5ac99b2b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 45
+    },
+    {
+      "caseId": "S08-L02-C06",
+      "runId": "e09583bc-dc15-4f57-99d3-b3edc1d56e34",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 53
+    },
+    {
+      "caseId": "S08-L02-C07",
+      "runId": "2ff2052a-c074-4e71-a8da-0e7f15c94ab7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S08-L02-C08",
+      "runId": "27adb3b7-e916-4a07-a09f-06a3398fae25",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S08-L02-C09",
+      "runId": "6e3de41c-fb3b-47b1-ab55-7e77aca824bd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S08-L02-C10",
+      "runId": "02eeb015-67ce-46fd-bfe2-2c8af488d16e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 35
+    },
+    {
+      "caseId": "S08-L03-C01",
+      "runId": "21100631-7d79-41c8-91e3-ca0a2be4a049",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S08-L03-C02",
+      "runId": "53935658-d78c-468b-9085-aebd933b919d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S08-L03-C03",
+      "runId": "686ec682-b1ba-4243-bd20-95f4808986d0",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S08-L03-C04",
+      "runId": "3ec72ac7-4aef-4ccc-847f-5d1b26bd9e92",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S08-L03-C05",
+      "runId": "ab4cc03e-4f1c-4770-a31a-12452f0d4288",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S08-L03-C06",
+      "runId": "96b67254-3249-43f3-af2b-12d988f6dee2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S08-L03-C07",
+      "runId": "49f133e7-7a22-4d0b-b0d2-1c766aeabf56",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 14
+    },
+    {
+      "caseId": "S08-L03-C08",
+      "runId": "e42b258b-1447-4744-99a1-3aafccb55722",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S08-L03-C09",
+      "runId": "86b2244b-0333-4614-85d7-34258891c656",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S08-L03-C10",
+      "runId": "b229c1a9-6e2a-4771-8253-0b633658941d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 28
+    },
+    {
+      "caseId": "S08-L04-C01",
+      "runId": "f5936443-a31b-4022-bb2e-8e1061dcb611",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S08-L04-C02",
+      "runId": "3662c896-3ea1-4c64-a3c9-7b3a8893bc0a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 7
+    },
+    {
+      "caseId": "S08-L04-C03",
+      "runId": "f5b6048b-dcc5-4d8f-b9bc-6834a2fd1c7a",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L04-C04",
+      "runId": "578cf446-f3ea-4661-987b-7a34fcd18a45",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S08-L04-C05",
+      "runId": "6aa657d3-540a-4484-a198-bae98486f139",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S08-L04-C06",
+      "runId": "78eb8b05-a066-460c-9ea2-956233508248",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S08-L04-C07",
+      "runId": "da12ed26-4358-490d-b8c2-a25111f552b4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 7
+    },
+    {
+      "caseId": "S08-L04-C08",
+      "runId": "6c11e1e7-905b-45f0-914e-a81fd24350de",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10
+    },
+    {
+      "caseId": "S08-L04-C09",
+      "runId": "1df957d4-40a8-46ce-b2ed-50f188e5c9e8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S08-L04-C10",
+      "runId": "64edb0fc-f932-4fa9-a254-aba647b71fbf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S08-L05-C01",
+      "runId": "80bb0033-eebc-437e-9fb1-b5b6816f0048",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 41
+    },
+    {
+      "caseId": "S08-L05-C02",
+      "runId": "80cf20e3-5ca3-413c-ac67-398ad50c3d2b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S08-L05-C03",
+      "runId": "1c61bea6-317b-4fc3-9a5d-26ba6974e165",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 16
+    },
+    {
+      "caseId": "S08-L05-C04",
+      "runId": "5dd85e78-7e95-41e3-9133-4d948bbcf9c7",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 15
+    },
+    {
+      "caseId": "S08-L05-C05",
+      "runId": "932b3667-0243-42d2-b535-93ab2d40f36b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 64
+    },
+    {
+      "caseId": "S08-L05-C06",
+      "runId": "0938e289-c749-4735-89ff-36492cf0c448",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 65
+    },
+    {
+      "caseId": "S08-L05-C07",
+      "runId": "ca090f02-75ff-47ed-9f69-ab5932e2c96f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S08-L05-C08",
+      "runId": "9188a024-2acf-4030-a87b-709ef8c7d1a6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 42
+    },
+    {
+      "caseId": "S08-L05-C09",
+      "runId": "f7422492-af9f-462b-9d6c-a8819f666fc8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 7
+    },
+    {
+      "caseId": "S08-L05-C10",
+      "runId": "28a583e0-43e6-478e-ad2a-f34f353650a4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 116
+    },
+    {
+      "caseId": "S08-L06-C01",
+      "runId": "1b83c09c-226a-41ca-bf16-d97c4635b2ac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 73
+    },
+    {
+      "caseId": "S08-L06-C02",
+      "runId": "b9cda154-d1b5-43ec-ba55-fd4fc21c7d25",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S08-L06-C03",
+      "runId": "381a1c05-2bfd-4343-b5b6-459ecfcded48",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 39
+    },
+    {
+      "caseId": "S08-L06-C04",
+      "runId": "b01130be-bfa1-4fcd-861f-0ee9a549927e",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 27
+    },
+    {
+      "caseId": "S08-L06-C05",
+      "runId": "5443cf80-cd1b-43cb-94cf-26a8bc724599",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 104
+    },
+    {
+      "caseId": "S08-L06-C06",
+      "runId": "e9cb91b6-e932-4d1c-ae5c-a9a0a3fb73fd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 64
+    },
+    {
+      "caseId": "S08-L06-C07",
+      "runId": "34496a07-43c8-40c6-b11f-78bec9233cad",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 34
+    },
+    {
+      "caseId": "S08-L06-C08",
+      "runId": "ded95572-f6a7-48a0-aec9-2dcc4ab280a2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 79
+    },
+    {
+      "caseId": "S08-L06-C09",
+      "runId": "0dce9391-6ae0-4d52-aea8-0460f2659633",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S08-L06-C10",
+      "runId": "62046faf-dea2-4fb1-b9c5-87f26f31d3e0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 131
+    },
+    {
+      "caseId": "S08-L07-C01",
+      "runId": "6b776c46-94e0-491c-ba6f-11911bcc7ca6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S08-L07-C02",
+      "runId": "b0fea860-72a8-4bda-838e-95048f8a9df4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S08-L07-C03",
+      "runId": "0055946f-5b81-4339-bd69-cafef802d746",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 22
+    },
+    {
+      "caseId": "S08-L07-C04",
+      "runId": "eb7576e7-f257-4c82-93c0-2b36f0a86882",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 13
+    },
+    {
+      "caseId": "S08-L07-C05",
+      "runId": "1cf6462d-724d-48f9-a941-eeb4be02e6c2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S08-L07-C06",
+      "runId": "3859a9d5-3f38-4d73-b776-f43e1918e51a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 49
+    },
+    {
+      "caseId": "S08-L07-C07",
+      "runId": "5f2c3c0b-0c4e-4661-81cc-d1352706cebe",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 19
+    },
+    {
+      "caseId": "S08-L07-C08",
+      "runId": "da03f8b8-5de3-4d3d-b2de-7991f950a65e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S08-L07-C09",
+      "runId": "724423ef-09ee-4a92-bd84-68d33469674f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S08-L07-C10",
+      "runId": "034de017-ae92-4aeb-8164-bb49bd7cec4e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 52
+    },
+    {
+      "caseId": "S08-L08-C01",
+      "runId": "050c96d9-01a0-4603-8692-c7b387658128",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 95
+    },
+    {
+      "caseId": "S08-L08-C02",
+      "runId": "547a1159-024d-4567-b0c4-cfc28e4a0317",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 56
+    },
+    {
+      "caseId": "S08-L08-C03",
+      "runId": "596bdc8e-a071-4ddb-9549-95e0c16c08b6",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 47
+    },
+    {
+      "caseId": "S08-L08-C04",
+      "runId": "84c2fb3e-124f-43a3-89ec-05eadc639c1b",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 35
+    },
+    {
+      "caseId": "S08-L08-C05",
+      "runId": "64fe7857-895d-4fd5-807d-c0aaa8513957",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 151
+    },
+    {
+      "caseId": "S08-L08-C06",
+      "runId": "e991872f-69a6-4583-b18b-e269a923d9fa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 76
+    },
+    {
+      "caseId": "S08-L08-C07",
+      "runId": "0d7bdb3b-3de6-4301-a6aa-9e687de3575e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 56
+    },
+    {
+      "caseId": "S08-L08-C08",
+      "runId": "7d0d02be-2ea2-4c5f-9fd1-f56393111b95",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 168
+    },
+    {
+      "caseId": "S08-L08-C09",
+      "runId": "2c8a0bb3-2a8c-4d9e-bd5a-03c277d8999d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L08-C10",
+      "runId": "775d7e2a-179d-4dc2-b4b0-4f1de0dad6ef",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 642
+    },
+    {
+      "caseId": "S08-L09-C01",
+      "runId": "8b07ae22-162e-4608-a1e6-a45252c91be7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S08-L09-C02",
+      "runId": "47b49b2a-5a37-4ff5-8a45-fcd2dec8096b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 21
+    },
+    {
+      "caseId": "S08-L09-C03",
+      "runId": "5aa1dbae-9217-4f4f-b2af-a75a5a49bfe9",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L09-C04",
+      "runId": "31f421c0-c6ba-466a-829d-d18db3653c81",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L09-C05",
+      "runId": "2c2bccd3-e635-408a-89fe-6bf4f56b8d59",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 24
+    },
+    {
+      "caseId": "S08-L09-C06",
+      "runId": "aba2b505-b53d-4146-b63b-2076dec51505",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S08-L09-C07",
+      "runId": "68e25f11-900e-49cc-a576-309f726f1132",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 21
+    },
+    {
+      "caseId": "S08-L09-C08",
+      "runId": "eaac0216-19a2-4e9c-af93-a0bcc5007e6e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S08-L09-C09",
+      "runId": "02716ae3-4071-432c-87eb-c3950640b93b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L09-C10",
+      "runId": "0c04468f-61f5-49d4-b89c-666818679119",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 26
+    },
+    {
+      "caseId": "S08-L10-C01",
+      "runId": "c6ad269e-627d-49c2-b620-f897467695fd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C02",
+      "runId": "f2cc73ea-71fe-4a45-b816-1b647cebd282",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C03",
+      "runId": "3b563f3b-e548-4518-b64c-e367bd7f8a71",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C04",
+      "runId": "019e9533-e371-4e1f-803c-56c843fe04bd",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S08-L10-C05",
+      "runId": "bcfafc2d-d801-47db-a0bd-ad8b605eb3e3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C06",
+      "runId": "fda2a883-de6a-4df9-ab58-7527f2971152",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C07",
+      "runId": "c6c81bc3-02b0-49bd-b152-76292b05dda4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C08",
+      "runId": "3abd8605-bf2f-4556-9602-7843c5fea6a0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C09",
+      "runId": "0c92cc0c-533d-4a6f-83cf-fa0bf1c3a9d5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S08-L10-C10",
+      "runId": "2c604291-8cb9-4340-9fc4-0e37aea263a6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S09-L01-C01",
+      "runId": "24d8de2f-8c72-4c7c-8f50-68938ce986a7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S09-L01-C02",
+      "runId": "a27d2c61-04d7-4bc0-b429-f1d7d779893e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L01-C03",
+      "runId": "15a5f412-12e6-4812-aa45-2a740c3fe90f",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L01-C04",
+      "runId": "bf88b94b-a084-4272-adb1-6f96317bf81f",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L01-C05",
+      "runId": "ba7ce517-55c9-45cd-818f-73ccea19183d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 15
+    },
+    {
+      "caseId": "S09-L01-C06",
+      "runId": "1bcd2953-4c6f-478d-ab95-06ba66b6568f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 23
+    },
+    {
+      "caseId": "S09-L01-C07",
+      "runId": "a3f62642-0114-43e2-83c1-b9cb66978e17",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L01-C08",
+      "runId": "ad397cb8-3590-4789-b37a-fc705e664115",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 16
+    },
+    {
+      "caseId": "S09-L01-C09",
+      "runId": "49aaaf9a-5897-4bf8-a63d-db7c02b9b4fc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L01-C10",
+      "runId": "56ca3e22-e0d4-4d32-b479-133672d59af1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S09-L02-C01",
+      "runId": "b5ef345b-37f6-42d1-a0a4-ef19404ac8ec",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S09-L02-C02",
+      "runId": "45b7e51f-2d85-4dd9-a6e4-a0e978239a68",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S09-L02-C03",
+      "runId": "fb7a5072-9031-43e0-9443-bc0788bf1fe5",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 5
+    },
+    {
+      "caseId": "S09-L02-C04",
+      "runId": "e7a7a329-6f5f-49f8-ba6b-54f5455a6855",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S09-L02-C05",
+      "runId": "7ad7e82e-1408-4c7b-88a0-0efdbfca61aa",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S09-L02-C06",
+      "runId": "ca7b96a7-12f0-4a38-a029-249c900ca4d9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S09-L02-C07",
+      "runId": "ffeee39a-06dc-4c15-b181-48a10177f8f0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S09-L02-C08",
+      "runId": "979fe87b-399b-46be-8c70-da3bd7aa5115",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 17
+    },
+    {
+      "caseId": "S09-L02-C09",
+      "runId": "4dd6f40f-04e8-4cad-b2de-1d6aa9499701",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 5
+    },
+    {
+      "caseId": "S09-L02-C10",
+      "runId": "0b8aa70c-bb48-4629-95ff-de1daea62e06",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 25
+    },
+    {
+      "caseId": "S09-L03-C01",
+      "runId": "cbb67d53-d66a-4cfb-881c-b8caab0ab9cc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L03-C02",
+      "runId": "a01f4fcf-13d0-4b98-a919-d120cd0ff1f0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C03",
+      "runId": "9bf3ce79-09a7-4e27-a287-2c69d62464f2",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C04",
+      "runId": "518504b0-b263-4a2e-a23d-fe78b1d4ea74",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C05",
+      "runId": "600d1997-d093-42f8-8b03-a0ab24e205db",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C06",
+      "runId": "9155f4af-aee8-4132-b3e3-e58dc8868e08",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C07",
+      "runId": "20ee301a-dfd5-4039-8afd-986fba81f60c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C08",
+      "runId": "a4cc3e9b-dac2-41f6-b095-68befb2afd6b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L03-C09",
+      "runId": "936d0ce4-619c-4877-a965-e7ce0292bacd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L03-C10",
+      "runId": "74795072-70e3-4736-befd-569fafef1b6b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S09-L04-C01",
+      "runId": "6d56048e-c7aa-43f7-b0eb-a68081b2ac0a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L04-C02",
+      "runId": "22d5266a-7440-481f-883e-3abf3f23b901",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S09-L04-C03",
+      "runId": "e53558f4-f016-4cb1-980c-3e987288e4d3",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L04-C04",
+      "runId": "2b7483ff-a00f-4b48-bae4-7c13b370db27",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L04-C05",
+      "runId": "ff7aedae-059b-4278-80a7-5b9d96b662d9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S09-L04-C06",
+      "runId": "5f1eca4f-3954-4b4c-99c0-6bbc2ee0fce1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 4
+    },
+    {
+      "caseId": "S09-L04-C07",
+      "runId": "0eb7e77a-b3ef-4f32-92fd-c0c624bb7bfe",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S09-L04-C08",
+      "runId": "84d49b04-7872-4a28-a5c4-e1d9904ae875",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L04-C09",
+      "runId": "a678ffcb-0bcf-4c2a-b520-20ffadc7b318",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S09-L04-C10",
+      "runId": "4b0a4a09-bba6-4bb4-b77f-ab5b54bf9633",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S09-L05-C01",
+      "runId": "dc39b47d-ee66-475a-9d13-a4b49dfe72df",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 40
+    },
+    {
+      "caseId": "S09-L05-C02",
+      "runId": "1ca68a18-a8f6-45fa-bc96-f8aa92aa3f96",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S09-L05-C03",
+      "runId": "4d49140b-ffc3-4c05-b4ef-04955a9e1d18",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L05-C04",
+      "runId": "2383bfda-d587-4841-a1ec-cb22dcae475b",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L05-C05",
+      "runId": "8de4cc25-7449-4cde-881d-a49e5a62a384",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 18
+    },
+    {
+      "caseId": "S09-L05-C06",
+      "runId": "cf07a0da-a131-4d8b-8ddb-48a9b0d6bf5e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 26
+    },
+    {
+      "caseId": "S09-L05-C07",
+      "runId": "ff3f437f-2ca8-4b56-a9a2-d07fee61fd68",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S09-L05-C08",
+      "runId": "3d7586ac-3298-473d-b7e9-2810a0011a08",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 40
+    },
+    {
+      "caseId": "S09-L05-C09",
+      "runId": "fdb4cc20-429f-4966-b293-e1d17a65f7f1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L05-C10",
+      "runId": "c9ea2ea7-3d01-47c2-a19f-03044dd0a1dd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 85
+    },
+    {
+      "caseId": "S09-L06-C01",
+      "runId": "ed5ab97b-48da-4c0f-8f7f-b011adf8905b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 71
+    },
+    {
+      "caseId": "S09-L06-C02",
+      "runId": "03e2a076-0310-4af7-bac3-e15daa6825eb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S09-L06-C03",
+      "runId": "0a9a3f6e-8c53-4c7b-86fc-7de435fca6e4",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 11
+    },
+    {
+      "caseId": "S09-L06-C04",
+      "runId": "eb5a5c13-39b6-4b9c-abc3-e32e8b777c90",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L06-C05",
+      "runId": "1bcecd70-afa7-4f41-b9a0-29497722760c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 84
+    },
+    {
+      "caseId": "S09-L06-C06",
+      "runId": "18953edf-8a46-447d-8eec-d8c4d425fbb7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 94
+    },
+    {
+      "caseId": "S09-L06-C07",
+      "runId": "b90baf9c-43db-486e-904a-9b74a22659f7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 29
+    },
+    {
+      "caseId": "S09-L06-C08",
+      "runId": "bcde41d8-3033-437d-b0ea-deed6199017a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 71
+    },
+    {
+      "caseId": "S09-L06-C09",
+      "runId": "f2e1cb8d-eaf7-4e9c-a889-ae32a6c891c8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 7
+    },
+    {
+      "caseId": "S09-L06-C10",
+      "runId": "f17ce42f-832b-4798-afa5-ee12d1f00405",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 146
+    },
+    {
+      "caseId": "S09-L07-C01",
+      "runId": "680c3e3a-8edf-4340-a209-7c388d5178df",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S09-L07-C02",
+      "runId": "34165bfc-2142-49c1-be93-20380d76f111",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S09-L07-C03",
+      "runId": "8d710b95-c7b6-4056-a87e-9ffc206d2e6e",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S09-L07-C04",
+      "runId": "bcee2d47-6b95-46a3-a652-240023694e82",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L07-C05",
+      "runId": "31579fbe-fd2d-4ab5-a557-476dd40b496e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 39
+    },
+    {
+      "caseId": "S09-L07-C06",
+      "runId": "c9c5a44e-9544-457e-8287-cbbeede805fb",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 44
+    },
+    {
+      "caseId": "S09-L07-C07",
+      "runId": "7c681881-14fa-4cbd-b7c3-13c0a2766279",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S09-L07-C08",
+      "runId": "43ee0cec-233f-417d-bf06-0a34d74c19f6",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 27
+    },
+    {
+      "caseId": "S09-L07-C09",
+      "runId": "abccbb89-906d-4d3e-80c6-a53cf8cd316f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S09-L07-C10",
+      "runId": "d81b341b-c64a-4278-afa7-dd76ad1487b3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 50
+    },
+    {
+      "caseId": "S09-L08-C01",
+      "runId": "ad7da84b-dfc6-4ea4-a8a4-7ac3f6532187",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 228
+    },
+    {
+      "caseId": "S09-L08-C02",
+      "runId": "da05b2df-1c61-4002-9c87-b22a4e46217d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 92
+    },
+    {
+      "caseId": "S09-L08-C03",
+      "runId": "77b3d856-a42d-476b-8157-8eb99d80a3b6",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 42
+    },
+    {
+      "caseId": "S09-L08-C04",
+      "runId": "a480f140-db02-4f90-80b2-ad46d84559e0",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 23
+    },
+    {
+      "caseId": "S09-L08-C05",
+      "runId": "a8ac3e30-abd8-4c14-b9d9-d643129e1561",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 304
+    },
+    {
+      "caseId": "S09-L08-C06",
+      "runId": "4831ab7f-3d42-4111-bbd4-ece12a948a7a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 240
+    },
+    {
+      "caseId": "S09-L08-C07",
+      "runId": "14f1d870-99ae-49ae-9059-faaea1751c8f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 92
+    },
+    {
+      "caseId": "S09-L08-C08",
+      "runId": "82373d75-40de-4a0e-be66-adfff3f3c291",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 299
+    },
+    {
+      "caseId": "S09-L08-C09",
+      "runId": "feaa2869-d798-48a7-846e-a3954e1971c0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2
+    },
+    {
+      "caseId": "S09-L08-C10",
+      "runId": "49eae02e-5985-41f5-b122-8820e838a34b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 731
+    },
+    {
+      "caseId": "S09-L09-C01",
+      "runId": "ece9119f-5f94-4460-b700-c3b0fb469ac8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S09-L09-C02",
+      "runId": "94584ec2-2221-45b0-a911-9f9d2f658f62",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L09-C03",
+      "runId": "3fe76145-1361-43d5-bf82-8726db2a9e17",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L09-C04",
+      "runId": "5dfa2bd4-fc6f-469f-81aa-589f184457d6",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L09-C05",
+      "runId": "5253f74c-2b60-4a53-a9e4-8ba998e503e8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 21
+    },
+    {
+      "caseId": "S09-L09-C06",
+      "runId": "ae3a2bdb-0508-4d49-a14e-ad978cafa5e0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 33
+    },
+    {
+      "caseId": "S09-L09-C07",
+      "runId": "a58d7ff4-0294-46bf-badc-5f046c7e9414",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6
+    },
+    {
+      "caseId": "S09-L09-C08",
+      "runId": "f4afbd18-43dd-4ede-bbcb-8e6631cd5af1",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9
+    },
+    {
+      "caseId": "S09-L09-C09",
+      "runId": "f544c841-6e05-42d0-a989-27c4e0b7c1af",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 3
+    },
+    {
+      "caseId": "S09-L09-C10",
+      "runId": "2263d6cf-0005-431b-8e4b-de61d85d44ac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 13
+    },
+    {
+      "caseId": "S09-L10-C01",
+      "runId": "5330986d-44af-45d2-9d22-fb3f24c699e0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C02",
+      "runId": "424a1221-3819-430b-b9a9-98e814896925",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C03",
+      "runId": "992ef8c3-5a5c-433c-8bb6-c28908bdfd18",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C04",
+      "runId": "ac3af93f-57d4-4151-8136-854858bfea06",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C05",
+      "runId": "51d843b8-4895-44ab-ac92-54c9324470d0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C06",
+      "runId": "448fc369-7b84-4698-90ca-0a7cdd45efb4",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C07",
+      "runId": "1bd28ced-9766-422e-996b-2c17dfcee96b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C08",
+      "runId": "c50538ef-a5b2-4cff-a583-5516c0ee6fa8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C09",
+      "runId": "2e4c85e4-6c7f-4c58-8222-5e6464164290",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S09-L10-C10",
+      "runId": "e6e32eb7-648f-421e-85e2-db739947d0c3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 0
+    },
+    {
+      "caseId": "S10-L01-C01",
+      "runId": "19355522-fe4a-4e10-8173-a06d9162959f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 334
+    },
+    {
+      "caseId": "S10-L01-C02",
+      "runId": "ca6556f0-8d36-446e-bad6-366d79b9ddc8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 102
+    },
+    {
+      "caseId": "S10-L01-C03",
+      "runId": "32d9e74d-ca1f-40ac-aa19-60548fbe3d21",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 39
+    },
+    {
+      "caseId": "S10-L01-C04",
+      "runId": "a459525e-e055-4a4b-bc8e-a43b30d5b555",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 11
+    },
+    {
+      "caseId": "S10-L01-C05",
+      "runId": "679e6147-0dfc-4b5f-a030-c7cf908d9d72",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 103
+    },
+    {
+      "caseId": "S10-L01-C06",
+      "runId": "110c10d5-9fab-4d25-b422-8cd6c7c372a2",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 103
+    },
+    {
+      "caseId": "S10-L01-C07",
+      "runId": "a3de211b-6a57-42a7-9bcb-63d2b0374ec3",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 102
+    },
+    {
+      "caseId": "S10-L01-C08",
+      "runId": "d2f96aeb-b16b-4750-a1ef-c4332e4dc082",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 334
+    },
+    {
+      "caseId": "S10-L01-C09",
+      "runId": "028456f0-3dc8-4455-a41e-5e3bc82865f9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 102
+    },
+    {
+      "caseId": "S10-L01-C10",
+      "runId": "c5feb1d1-60e8-45d8-85e8-2b713e64c89c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 337
+    },
+    {
+      "caseId": "S10-L02-C01",
+      "runId": "8f6762da-fa46-441f-a317-98787993531a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1111
+    },
+    {
+      "caseId": "S10-L02-C02",
+      "runId": "7c462543-0403-4fd0-91ab-b740e6031e3a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 360
+    },
+    {
+      "caseId": "S10-L02-C03",
+      "runId": "fa3ee7a1-2e42-40ff-8086-f0350c5bc89a",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 112
+    },
+    {
+      "caseId": "S10-L02-C04",
+      "runId": "93d7d4b9-d7bb-47ce-b976-5e53d30cc3d5",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 33
+    },
+    {
+      "caseId": "S10-L02-C05",
+      "runId": "7ec5f6d9-5cfd-4846-8c1a-547446fadbc9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 368
+    },
+    {
+      "caseId": "S10-L02-C06",
+      "runId": "90bdc898-97b3-4acd-8080-eac57b57380d",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 368
+    },
+    {
+      "caseId": "S10-L02-C07",
+      "runId": "6c75ff53-684a-45f4-bd86-9873d0aa7732",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 360
+    },
+    {
+      "caseId": "S10-L02-C08",
+      "runId": "07cd83fc-23ec-42c1-980e-6e94964cff2c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1111
+    },
+    {
+      "caseId": "S10-L02-C09",
+      "runId": "ff27496a-ba62-4719-9a72-f3fdd26e64f7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 183
+    },
+    {
+      "caseId": "S10-L02-C10",
+      "runId": "820460bd-7ddb-4d18-902c-e9cd8c5e1274",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1140
+    },
+    {
+      "caseId": "S10-L03-C01",
+      "runId": "66dfe6bf-1a1c-4883-8f97-95d31672eeb5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 354
+    },
+    {
+      "caseId": "S10-L03-C02",
+      "runId": "31240313-8e9e-4880-a887-4979865984fd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 100
+    },
+    {
+      "caseId": "S10-L03-C03",
+      "runId": "2398a773-d6a3-4940-b606-0ca1e0b5085a",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 0
+    },
+    {
+      "caseId": "S10-L03-C04",
+      "runId": "6e7ecf69-3f04-471f-a305-089f8c009f8b",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 0
+    },
+    {
+      "caseId": "S10-L03-C05",
+      "runId": "c67e162a-4b01-414a-884c-89a5491fef15",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 108
+    },
+    {
+      "caseId": "S10-L03-C06",
+      "runId": "bff6e6ec-3360-4f7a-b2a2-7d651beae4fd",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 108
+    },
+    {
+      "caseId": "S10-L03-C07",
+      "runId": "c6379f41-1b66-4f97-8923-bcd4ae66ecf0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 100
+    },
+    {
+      "caseId": "S10-L03-C08",
+      "runId": "379401cc-5c76-4a71-8f23-720bd314eabc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 354
+    },
+    {
+      "caseId": "S10-L03-C09",
+      "runId": "50d302e2-d178-4eb3-b030-afd6cb48e66c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 54
+    },
+    {
+      "caseId": "S10-L03-C10",
+      "runId": "1677cd8c-e5aa-4cb0-a5ea-46954e8b7607",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 366
+    },
+    {
+      "caseId": "S10-L04-C01",
+      "runId": "1ba32546-5877-475e-881c-a12206d93a34",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 367
+    },
+    {
+      "caseId": "S10-L04-C02",
+      "runId": "c9eb7b29-890b-42e7-9c6b-6742bb4ae45e",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 124
+    },
+    {
+      "caseId": "S10-L04-C03",
+      "runId": "ac3d5156-54f8-4f6a-88bc-a4179d4a2aaa",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 32
+    },
+    {
+      "caseId": "S10-L04-C04",
+      "runId": "754fac22-a573-439b-9aef-e54fc2d5fae8",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 9
+    },
+    {
+      "caseId": "S10-L04-C05",
+      "runId": "50263042-f131-431f-a890-7f47d1bf6851",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 128
+    },
+    {
+      "caseId": "S10-L04-C06",
+      "runId": "4725c7f2-2100-4ede-8080-487e4f871aae",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 128
+    },
+    {
+      "caseId": "S10-L04-C07",
+      "runId": "9fc78927-9cee-48b1-95a5-93fa693f071b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 124
+    },
+    {
+      "caseId": "S10-L04-C08",
+      "runId": "35da853a-27b1-49e6-98f3-01067aa64d6c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 367
+    },
+    {
+      "caseId": "S10-L04-C09",
+      "runId": "45a16562-e102-46d8-ac4e-a5580820938b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 119
+    },
+    {
+      "caseId": "S10-L04-C10",
+      "runId": "e7800385-4459-470f-b75a-2116b267c926",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 376
+    },
+    {
+      "caseId": "S10-L05-C01",
+      "runId": "0381537e-3d26-4d2f-931e-8dfdfe551763",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1789
+    },
+    {
+      "caseId": "S10-L05-C02",
+      "runId": "22f0e78f-9b7b-4f3e-82c1-02add56c6dd8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 567
+    },
+    {
+      "caseId": "S10-L05-C03",
+      "runId": "545ebb72-bd46-45e3-9847-c8d16c35c065",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 170
+    },
+    {
+      "caseId": "S10-L05-C04",
+      "runId": "6b74841f-1cf9-44bd-87d2-102c76ae66c2",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 57
+    },
+    {
+      "caseId": "S10-L05-C05",
+      "runId": "0fb82310-dd44-4e68-b3f8-603d2f5da361",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 580
+    },
+    {
+      "caseId": "S10-L05-C06",
+      "runId": "067602e3-915e-4eda-9e24-d1fbeba586ec",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 580
+    },
+    {
+      "caseId": "S10-L05-C07",
+      "runId": "b601e895-c845-4a1f-a1b7-f46c0ef17635",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 567
+    },
+    {
+      "caseId": "S10-L05-C08",
+      "runId": "92ae6923-d182-4f6f-bd04-a0a87dea9d41",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1789
+    },
+    {
+      "caseId": "S10-L05-C09",
+      "runId": "0bfc1a0f-e2dd-4ba6-9bcd-ae7b8f07c013",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 216
+    },
+    {
+      "caseId": "S10-L05-C10",
+      "runId": "491f9c84-9e9e-43cd-922b-bd862d9f9565",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1825
+    },
+    {
+      "caseId": "S10-L06-C01",
+      "runId": "b5359bf6-34f1-4307-a7a4-47c3202b8ef5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2200
+    },
+    {
+      "caseId": "S10-L06-C02",
+      "runId": "8b479c3b-0879-43a4-8d4a-b9578222c6f9",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 951
+    },
+    {
+      "caseId": "S10-L06-C03",
+      "runId": "132ce876-768e-40e2-a4fe-d68886fd6042",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 288
+    },
+    {
+      "caseId": "S10-L06-C04",
+      "runId": "9f2354b1-4e5d-4dff-8286-6b26ead93a8e",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 109
+    },
+    {
+      "caseId": "S10-L06-C05",
+      "runId": "9338d603-40c6-43a8-9bf4-337a6d73309a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 967
+    },
+    {
+      "caseId": "S10-L06-C06",
+      "runId": "7da6f670-b94a-4023-b94f-1f869e79d5a8",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 820
+    },
+    {
+      "caseId": "S10-L06-C07",
+      "runId": "21bb3efe-5444-42e3-afc7-045b9b6dae05",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 951
+    },
+    {
+      "caseId": "S10-L06-C08",
+      "runId": "218f70e5-bf84-438b-a169-608f7e44f232",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2200
+    },
+    {
+      "caseId": "S10-L06-C09",
+      "runId": "8b65fe33-fd77-4bff-b4a9-8ff246018ae5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 242
+    },
+    {
+      "caseId": "S10-L06-C10",
+      "runId": "41a64dd3-9efc-4ebb-a717-c2994b2500c0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2255
+    },
+    {
+      "caseId": "S10-L07-C01",
+      "runId": "1c7c8dca-d7b4-4d1a-93d6-4b210bf6b9c5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1298
+    },
+    {
+      "caseId": "S10-L07-C02",
+      "runId": "8a57e4e0-3f2e-4571-a0bd-3e2b2667bcf7",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 568
+    },
+    {
+      "caseId": "S10-L07-C03",
+      "runId": "8a20b457-0059-4616-a095-e1c14d94d06a",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 168
+    },
+    {
+      "caseId": "S10-L07-C04",
+      "runId": "c28bf79d-ad33-4f3b-923e-7d02207fa401",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 57
+    },
+    {
+      "caseId": "S10-L07-C05",
+      "runId": "2dbd4c80-8a93-4ef1-9c78-0c9af5904395",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 577
+    },
+    {
+      "caseId": "S10-L07-C06",
+      "runId": "e2a3e34b-3c1e-430f-a110-16d9eb109b33",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 577
+    },
+    {
+      "caseId": "S10-L07-C07",
+      "runId": "a781ce92-c8c1-4235-9d5e-2ac257ede5f0",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 568
+    },
+    {
+      "caseId": "S10-L07-C08",
+      "runId": "45f24631-84bc-4788-8e8f-e78bcd885512",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1298
+    },
+    {
+      "caseId": "S10-L07-C09",
+      "runId": "d7a8164c-ac5e-4b84-97b1-97aac0d713bf",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 217
+    },
+    {
+      "caseId": "S10-L07-C10",
+      "runId": "abef327e-a3bc-4b7f-9dba-0ab831bbc273",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1332
+    },
+    {
+      "caseId": "S10-L08-C01",
+      "runId": "0d47f134-bf79-4427-86dc-3124029f1014",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 6581
+    },
+    {
+      "caseId": "S10-L08-C02",
+      "runId": "da92606a-0ee9-47ac-8db7-a490c0247758",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2267
+    },
+    {
+      "caseId": "S10-L08-C03",
+      "runId": "5dd5b8be-dc4c-4824-8a5e-e98c13fe9181",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 726
+    },
+    {
+      "caseId": "S10-L08-C04",
+      "runId": "2f508e0e-cb1d-4cc5-8e73-75ab7990e6c1",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 278
+    },
+    {
+      "caseId": "S10-L08-C05",
+      "runId": "c109bfc9-bf02-4e72-8180-e85df043afac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2336
+    },
+    {
+      "caseId": "S10-L08-C06",
+      "runId": "ab5dfe85-20c9-4d68-b668-5119b64d6785",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 1287
+    },
+    {
+      "caseId": "S10-L08-C07",
+      "runId": "27a9af57-ef40-4955-8898-309f96d69c63",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 2267
+    },
+    {
+      "caseId": "S10-L08-C08",
+      "runId": "61d46516-32cf-4132-8b71-f2f6efd1580c",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 9757
+    },
+    {
+      "caseId": "S10-L08-C09",
+      "runId": "e012fd45-ffe5-49bb-9706-d8907409b711",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 258
+    },
+    {
+      "caseId": "S10-L08-C10",
+      "runId": "d7bda492-ce7c-4e00-91ea-ea14c7c37e40",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 10893
+    },
+    {
+      "caseId": "S10-L09-C01",
+      "runId": "527f78cc-bd93-4140-8d28-277792b48540",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 203
+    },
+    {
+      "caseId": "S10-L09-C02",
+      "runId": "6b5c29e2-8ae6-4220-abed-c76abd0738c5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 188
+    },
+    {
+      "caseId": "S10-L09-C03",
+      "runId": "4fe696ed-a9aa-43bd-8433-2dca0552e523",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 50
+    },
+    {
+      "caseId": "S10-L09-C04",
+      "runId": "5a0f50cb-1324-4a3c-915b-08bd67926a72",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 17
+    },
+    {
+      "caseId": "S10-L09-C05",
+      "runId": "de20fd85-38d2-41b7-954d-6c367c7e8c7b",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 192
+    },
+    {
+      "caseId": "S10-L09-C06",
+      "runId": "5d89fc37-c9f2-435b-a4b6-2f3a26c83c50",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 192
+    },
+    {
+      "caseId": "S10-L09-C07",
+      "runId": "cfc135e4-32fd-44f9-9622-8f7f7b47d641",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 188
+    },
+    {
+      "caseId": "S10-L09-C08",
+      "runId": "cbb5fda1-203b-4b85-b99e-62cc2fd626dc",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 203
+    },
+    {
+      "caseId": "S10-L09-C09",
+      "runId": "d60ef7c8-d167-418a-9f12-cfa15943c63f",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 124
+    },
+    {
+      "caseId": "S10-L09-C10",
+      "runId": "cb4c03b6-0651-40e0-9322-d4e1337b7c33",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 207
+    },
+    {
+      "caseId": "S10-L10-C01",
+      "runId": "32de1c59-2b8b-49a2-8bbb-4f8bc4571d2a",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C02",
+      "runId": "975a2249-2642-4bc3-af04-70403df946ac",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C03",
+      "runId": "7c0c33ca-fe4f-46eb-9c7f-e06f0e30fd2b",
+      "failed": 0,
+      "curvePoints": 752,
+      "trades": 4
+    },
+    {
+      "caseId": "S10-L10-C04",
+      "runId": "adbab049-5406-46e3-9862-fb1a3145439f",
+      "failed": 0,
+      "curvePoints": 251,
+      "trades": 2
+    },
+    {
+      "caseId": "S10-L10-C05",
+      "runId": "fcff2c69-1061-4007-a9a7-a015506064ee",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C06",
+      "runId": "2d93fa40-5c73-4266-8ce5-07e9b6f2e3b5",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C07",
+      "runId": "319e354e-b312-42f5-a670-4063bd018570",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C08",
+      "runId": "6cdde322-62ca-4a00-a90a-aa4f43473245",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C09",
+      "runId": "b5f63357-06f3-481e-a0b9-40b5f7c89716",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    },
+    {
+      "caseId": "S10-L10-C10",
+      "runId": "398e937f-1995-41f2-8414-6d62a9d4be78",
+      "failed": 0,
+      "curvePoints": 1500,
+      "trades": 8
+    }
+  ]
+}

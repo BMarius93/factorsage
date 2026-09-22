@@ -1,0 +1,1603 @@
+{
+  "scenario": "S07-L07-C08",
+  "index": 668,
+  "runId": "572dede0-ef3a-45e8-830f-e5575824466e",
+  "status": "PASS",
+  "inputs": {
+    "strategy": "QA-MATRIX-S07-persistent-dca-ladder",
+    "list": "QA-MATRIX-L07-mixed-eras-full",
+    "config": "QA-MATRIX-C08-maximum-capital",
+    "period": {
+      "endDate": "2026-09-21",
+      "startDate": "1996-09-22"
+    },
+    "capital": {
+      "initialCapital": 1000000000,
+      "monthlyContribution": 0
+    },
+    "maximumPositions": 20,
+    "securities": [
+      {
+        "symbol": "GOOGL",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "JNJ",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "KO",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "MRNA",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "V",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      }
+    ],
+    "executionDates": 7546,
+    "contributionDates": 0
+  },
+  "result": {
+    "finalValue": {
+      "expected": "2766189620.272327",
+      "actual": "2766189620.272327"
+    },
+    "finalCash": {
+      "expected": "2766189620.272327",
+      "actual": "2766189620.272327"
+    },
+    "investedCapital": {
+      "expected": "1000000000.000000",
+      "actual": "1000000000.000000"
+    },
+    "netProfit": {
+      "expected": "1766189620.272327",
+      "actual": "1766189620.272327"
+    },
+    "realizedPnl": {
+      "expected": "1766189620.272327",
+      "actual": "1766189620.272327"
+    },
+    "portfolioReturnPercent": {
+      "expected": 176.61896202723332,
+      "actual": "176.61896203"
+    },
+    "benchmarkReturnPercent": {
+      "expected": 1027.0581378405946,
+      "actual": "1027.05813784"
+    },
+    "alphaPercent": {
+      "expected": -850.4391758133612,
+      "actual": "-850.43917581"
+    },
+    "cagrPercent": {
+      "expected": 3.4505394310778925,
+      "actual": "3.45053943"
+    },
+    "maxDrawdownPercent": {
+      "expected": 14.254676786887444,
+      "actual": "14.25467679"
+    },
+    "benchmarkMaxDrawdownPercent": {
+      "expected": 56.47367075664621,
+      "actual": "56.47367076"
+    },
+    "trades": {
+      "expected": 15,
+      "actual": 15
+    }
+  },
+  "annualReturns": [
+    {
+      "year": "1996",
+      "simulatedThrough": "1996-12-31",
+      "returnPercent": 0.12587894455189375,
+      "partial": true
+    },
+    {
+      "year": "1997",
+      "simulatedThrough": "1997-12-31",
+      "returnPercent": 2.063293606525729,
+      "partial": false
+    },
+    {
+      "year": "1998",
+      "simulatedThrough": "1998-12-31",
+      "returnPercent": 1.4145106195958546,
+      "partial": false
+    },
+    {
+      "year": "1999",
+      "simulatedThrough": "1999-12-31",
+      "returnPercent": 0.18364499655665334,
+      "partial": false
+    },
+    {
+      "year": "2000",
+      "simulatedThrough": "2000-12-29",
+      "returnPercent": 1.06305435852323,
+      "partial": false
+    },
+    {
+      "year": "2001",
+      "simulatedThrough": "2001-12-31",
+      "returnPercent": 0.16032952453313154,
+      "partial": false
+    },
+    {
+      "year": "2002",
+      "simulatedThrough": "2002-12-31",
+      "returnPercent": -1.010626686684224,
+      "partial": false
+    },
+    {
+      "year": "2003",
+      "simulatedThrough": "2003-12-31",
+      "returnPercent": 0.10835264858575222,
+      "partial": false
+    },
+    {
+      "year": "2004",
+      "simulatedThrough": "2004-12-31",
+      "returnPercent": 1.2347075569377974,
+      "partial": false
+    },
+    {
+      "year": "2005",
+      "simulatedThrough": "2005-12-30",
+      "returnPercent": -0.5777935939472623,
+      "partial": false
+    },
+    {
+      "year": "2006",
+      "simulatedThrough": "2006-12-29",
+      "returnPercent": 1.3730900646113264,
+      "partial": false
+    },
+    {
+      "year": "2007",
+      "simulatedThrough": "2007-12-31",
+      "returnPercent": 0.8816848118841092,
+      "partial": false
+    },
+    {
+      "year": "2008",
+      "simulatedThrough": "2008-12-31",
+      "returnPercent": -3.6876757349327383,
+      "partial": false
+    },
+    {
+      "year": "2009",
+      "simulatedThrough": "2009-12-31",
+      "returnPercent": 3.5375978478854098,
+      "partial": false
+    },
+    {
+      "year": "2010",
+      "simulatedThrough": "2010-12-31",
+      "returnPercent": -0.030357487264809357,
+      "partial": false
+    },
+    {
+      "year": "2011",
+      "simulatedThrough": "2011-12-30",
+      "returnPercent": 1.1416779878730576,
+      "partial": false
+    },
+    {
+      "year": "2012",
+      "simulatedThrough": "2012-12-31",
+      "returnPercent": 2.1605996819277884,
+      "partial": false
+    },
+    {
+      "year": "2013",
+      "simulatedThrough": "2013-12-31",
+      "returnPercent": 7.7825545409238694,
+      "partial": false
+    },
+    {
+      "year": "2014",
+      "simulatedThrough": "2014-12-31",
+      "returnPercent": 2.242260160401055,
+      "partial": false
+    },
+    {
+      "year": "2015",
+      "simulatedThrough": "2015-12-31",
+      "returnPercent": 3.60111135813157,
+      "partial": false
+    },
+    {
+      "year": "2016",
+      "simulatedThrough": "2016-12-30",
+      "returnPercent": 1.613184600322115,
+      "partial": false
+    },
+    {
+      "year": "2017",
+      "simulatedThrough": "2017-12-29",
+      "returnPercent": 8.937332093193206,
+      "partial": false
+    },
+    {
+      "year": "2018",
+      "simulatedThrough": "2018-12-31",
+      "returnPercent": 0.034889332093945846,
+      "partial": false
+    },
+    {
+      "year": "2019",
+      "simulatedThrough": "2019-12-31",
+      "returnPercent": 9.32056564372401,
+      "partial": false
+    },
+    {
+      "year": "2020",
+      "simulatedThrough": "2020-12-31",
+      "returnPercent": 6.8249375840914395,
+      "partial": false
+    },
+    {
+      "year": "2021",
+      "simulatedThrough": "2021-12-31",
+      "returnPercent": 11.379256774503265,
+      "partial": false
+    },
+    {
+      "year": "2022",
+      "simulatedThrough": "2022-12-30",
+      "returnPercent": -6.6539498036382145,
+      "partial": false
+    },
+    {
+      "year": "2023",
+      "simulatedThrough": "2023-12-29",
+      "returnPercent": 6.744170346041245,
+      "partial": false
+    },
+    {
+      "year": "2024",
+      "simulatedThrough": "2024-12-31",
+      "returnPercent": 8.06829828258364,
+      "partial": false
+    },
+    {
+      "year": "2025",
+      "simulatedThrough": "2025-12-31",
+      "returnPercent": 24.58847291258479,
+      "partial": false
+    },
+    {
+      "year": "2026",
+      "simulatedThrough": "2026-09-21",
+      "returnPercent": 13.552260813309136,
+      "partial": true
+    }
+  ],
+  "comparisons": {
+    "compared": 75758,
+    "passed": 75758,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 1,
+    "byCategory": {
+      "annual-returns": {
+        "compared": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "benchmark": {
+        "compared": 15092,
+        "failed": 0,
+        "skipped": 0
+      },
+      "equity": {
+        "compared": 60369,
+        "failed": 0,
+        "skipped": 0
+      },
+      "metrics": {
+        "compared": 23,
+        "failed": 0,
+        "skipped": 0
+      },
+      "run": {
+        "compared": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "trades": {
+        "compared": 271,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "inputs": {
+      "compared": 19,
+      "passed": 19,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    },
+    "persistenceFidelity": {
+      "compared": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    }
+  },
+  "counts": {
+    "tradesExpected": 15,
+    "tradesActual": 15,
+    "tradesCompared": 15,
+    "equityRowsCompared": 7546,
+    "benchmarkRowsCompared": 7546,
+    "metricComparisons": 23,
+    "annualReturnYears": 31,
+    "invariantChecks": 45415,
+    "invariantViolations": 0,
+    "ledgerSteps": 7561,
+    "ledgerViolations": 0,
+    "liquidationChecks": 12,
+    "liquidationFailures": 0,
+    "decisionsEvaluated": 27260,
+    "ratioDoubleRoundings": 0
+  },
+  "differences": [],
+  "invariantViolations": [],
+  "ledgerViolations": [],
+  "finalLiquidation": {
+    "trades": 5,
+    "failures": []
+  },
+  "trades": [
+    {
+      "sequence": 1,
+      "date": "1996-09-23",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s07-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "25.38000000",
+        "actual": "25.38000000"
+      },
+      "cashBefore": "1000000000.000000",
+      "shares": {
+        "expected": "492513.7903861308",
+        "actual": "492513.7903861308"
+      },
+      "amount": {
+        "expected": "12500000.000000",
+        "actual": "12500000.000000"
+      },
+      "cashAfter": {
+        "expected": "987500000.000000",
+        "actual": "987500000.000000"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1000000000,
+        "fullPositionBudget": 50000000,
+        "target": 12500000,
+        "currentValue": 0,
+        "shortfall": 12500000,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 2,
+      "date": "1996-09-23",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s07-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "25.56000000",
+        "actual": "25.56000000"
+      },
+      "cashBefore": "987500000.000000",
+      "shares": {
+        "expected": "489045.3834115805",
+        "actual": "489045.3834115805"
+      },
+      "amount": {
+        "expected": "12500000.000000",
+        "actual": "12500000.000000"
+      },
+      "cashAfter": {
+        "expected": "975000000.000000",
+        "actual": "975000000.000000"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1000000000,
+        "fullPositionBudget": 50000000,
+        "target": 12500000,
+        "currentValue": 0,
+        "shortfall": 12500000,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 3,
+      "date": "1996-10-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s07-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "25.06000000",
+        "actual": "25.06000000"
+      },
+      "cashBefore": "975000000.000000",
+      "shares": {
+        "expected": "508404.8657809257",
+        "actual": "508404.8657809257"
+      },
+      "amount": {
+        "expected": "12740625.936470",
+        "actual": "12740625.936470"
+      },
+      "cashAfter": {
+        "expected": "962259374.063530",
+        "actual": "962259374.063530"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 999844129.7905641,
+        "fullPositionBudget": 49992206.48952821,
+        "target": 24996103.244764104,
+        "currentValue": 12255477.308294207,
+        "shortfall": 12740625.936469898,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 4,
+      "date": "1996-10-21",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s07-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "25.38000000",
+        "actual": "25.38000000"
+      },
+      "cashBefore": "962259374.063530",
+      "shares": {
+        "expected": "492096.0759096138",
+        "actual": "492096.0759096138"
+      },
+      "amount": {
+        "expected": "12489398.406586",
+        "actual": "12489398.406586"
+      },
+      "cashAfter": {
+        "expected": "949769975.656944",
+        "actual": "949769975.656944"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 999575936.26344,
+        "fullPositionBudget": 49978796.813172005,
+        "target": 24989398.406586003,
+        "currentValue": 12500000,
+        "shortfall": 12489398.406586003,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 5,
+      "date": "1996-10-25",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 75% level s07-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "23.63000000",
+        "actual": "23.63000000"
+      },
+      "cashBefore": "949769975.656944",
+      "shares": {
+        "expected": "599043.4071052052",
+        "actual": "599043.4071052052"
+      },
+      "amount": {
+        "expected": "14155395.709896",
+        "actual": "14155395.709896"
+      },
+      "cashAfter": {
+        "expected": "935614579.947048",
+        "actual": "935614579.947048"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 997912716.0123731,
+        "fullPositionBudget": 49895635.800618656,
+        "target": 37421726.850463994,
+        "currentValue": 23266331.140568443,
+        "shortfall": 14155395.709895551,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 6,
+      "date": "1997-08-14",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 75% level s07-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "30.03000000",
+        "actual": "30.03000000"
+      },
+      "cashBefore": "935614579.947048",
+      "shares": {
+        "expected": "266642.8857920412",
+        "actual": "266642.8857920412"
+      },
+      "amount": {
+        "expected": "8007285.860335",
+        "actual": "8007285.860335"
+      },
+      "cashAfter": {
+        "expected": "927607294.086713",
+        "actual": "927607294.086713"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1012285782.4956269,
+        "fullPositionBudget": 50614289.12478135,
+        "target": 37960716.84358601,
+        "currentValue": 29953430.98325096,
+        "shortfall": 8007285.860335052,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 7,
+      "date": "2008-06-13",
+      "symbol": "GOOGL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 75% level s07-buy3 TRUE (new position)",
+      "executionPrice": {
+        "expected": "14.30000000",
+        "actual": "14.30000000"
+      },
+      "cashBefore": "927607294.086713",
+      "shares": {
+        "expected": "2799608.4369372727",
+        "actual": "2799608.4369372727"
+      },
+      "amount": {
+        "expected": "40034400.648203",
+        "actual": "40034400.648203"
+      },
+      "cashAfter": {
+        "expected": "887572893.438510",
+        "actual": "887572893.438510"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1067584017.2854159,
+        "fullPositionBudget": 53379200.8642708,
+        "target": 40034400.648203105,
+        "currentValue": 0,
+        "shortfall": 40034400.648203105,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 8,
+      "date": "2012-01-13",
+      "symbol": "V",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s07-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "25.19000000",
+        "actual": "25.19000000"
+      },
+      "cashBefore": "887572893.438510",
+      "shares": {
+        "expected": "534465.6123641921",
+        "actual": "534465.6123641921"
+      },
+      "amount": {
+        "expected": "13463188.775454",
+        "actual": "13463188.775454"
+      },
+      "cashAfter": {
+        "expected": "874109704.663056",
+        "actual": "874109704.663056"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1077055102.036337,
+        "fullPositionBudget": 53852755.10181685,
+        "target": 13463188.775454212,
+        "currentValue": 0,
+        "shortfall": 13463188.775454212,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 9,
+      "date": "2012-05-03",
+      "symbol": "V",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s07-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "29.10000000",
+        "actual": "29.10000000"
+      },
+      "cashBefore": "874109704.663056",
+      "shares": {
+        "expected": "397570.6918061168",
+        "actual": "397570.6918061168"
+      },
+      "amount": {
+        "expected": "11569307.131558",
+        "actual": "11569307.131558"
+      },
+      "cashAfter": {
+        "expected": "862540397.531498",
+        "actual": "862540397.531498"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1084890258.054245,
+        "fullPositionBudget": 54244512.902712256,
+        "target": 27122256.451356128,
+        "currentValue": 15552949.319797993,
+        "shortfall": 11569307.131558135,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 10,
+      "date": "2022-09-30",
+      "symbol": "MRNA",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 75% level s07-buy3 TRUE (new position)",
+      "executionPrice": {
+        "expected": "118.25000000",
+        "actual": "118.25000000"
+      },
+      "cashBefore": "862540397.531498",
+      "shares": {
+        "expected": "515460.6628303424",
+        "actual": "515460.6628303424"
+      },
+      "amount": {
+        "expected": "60953223.379688",
+        "actual": "60953223.379688"
+      },
+      "cashAfter": {
+        "expected": "801587174.151810",
+        "actual": "801587174.151810"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 1625419290.125016,
+        "fullPositionBudget": 81270964.5062508,
+        "target": 60953223.3796881,
+        "currentValue": 0,
+        "shortfall": 60953223.3796881,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 11,
+      "date": "2026-09-21",
+      "symbol": "GOOGL",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "354.97000000",
+        "actual": "354.97000000"
+      },
+      "cashBefore": "801587174.151810",
+      "shares": {
+        "expected": "2799608.4369372727",
+        "actual": "2799608.4369372727"
+      },
+      "amount": {
+        "expected": "993777006.859624",
+        "actual": "993777006.859624"
+      },
+      "cashAfter": {
+        "expected": "1795364181.011434",
+        "actual": "1795364181.011434"
+      },
+      "realizedPnl": {
+        "expected": "953742606.211421",
+        "actual": "953742606.211421"
+      },
+      "match": true
+    },
+    {
+      "sequence": 12,
+      "date": "2026-09-21",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "269.47000000",
+        "actual": "269.47000000"
+      },
+      "cashBefore": "1795364181.011434",
+      "shares": {
+        "expected": "1583653.2734009498",
+        "actual": "1583653.2734009498"
+      },
+      "amount": {
+        "expected": "426747047.583354",
+        "actual": "426747047.583354"
+      },
+      "cashAfter": {
+        "expected": "2222111228.594788",
+        "actual": "2222111228.594788"
+      },
+      "realizedPnl": {
+        "expected": "387602253.466872",
+        "actual": "387602253.466872"
+      },
+      "match": true
+    },
+    {
+      "sequence": 13,
+      "date": "2026-09-21",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "87.12000000",
+        "actual": "87.12000000"
+      },
+      "cashBefore": "2222111228.594788",
+      "shares": {
+        "expected": "1264093.1349845474",
+        "actual": "1264093.1349845474"
+      },
+      "amount": {
+        "expected": "110127793.919854",
+        "actual": "110127793.919854"
+      },
+      "cashAfter": {
+        "expected": "2332239022.514642",
+        "actual": "2332239022.514642"
+      },
+      "realizedPnl": {
+        "expected": "76879882.123049",
+        "actual": "76879882.123049"
+      },
+      "match": true
+    },
+    {
+      "sequence": 14,
+      "date": "2026-09-21",
+      "symbol": "MRNA",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "172.94000000",
+        "actual": "172.94000000"
+      },
+      "cashBefore": "2332239022.514642",
+      "shares": {
+        "expected": "515460.6628303424",
+        "actual": "515460.6628303424"
+      },
+      "amount": {
+        "expected": "89143767.029879",
+        "actual": "89143767.029879"
+      },
+      "cashAfter": {
+        "expected": "2421382789.544521",
+        "actual": "2421382789.544521"
+      },
+      "realizedPnl": {
+        "expected": "28190543.650191",
+        "actual": "28190543.650191"
+      },
+      "match": true
+    },
+    {
+      "sequence": 15,
+      "date": "2026-09-21",
+      "symbol": "V",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "369.95000000",
+        "actual": "369.95000000"
+      },
+      "cashBefore": "2421382789.544521",
+      "shares": {
+        "expected": "932036.3041703089",
+        "actual": "932036.3041703089"
+      },
+      "amount": {
+        "expected": "344806830.727806",
+        "actual": "344806830.727806"
+      },
+      "cashAfter": {
+        "expected": "2766189620.272327",
+        "actual": "2766189620.272327"
+      },
+      "realizedPnl": {
+        "expected": "319774334.820794",
+        "actual": "319774334.820794"
+      },
+      "match": true
+    }
+  ],
+  "tradesTruncated": null,
+  "equityYearEnds": [
+    {
+      "date": "1996-09-23",
+      "expected": {
+        "cash": "975000000.000000",
+        "positionsValue": "25000000.000000",
+        "totalValue": "1000000000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "1000000000.000000"
+      },
+      "actual": {
+        "date": "1996-09-23",
+        "cash": "975000000.000000",
+        "positionsValue": "25000000.000000",
+        "totalValue": "1000000000.000000",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.0000000000",
+        "benchmarkValue": "1000000000.000000",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "1996-12-31",
+      "expected": {
+        "cash": "935614579.947048",
+        "positionsValue": "65644209.498471",
+        "totalValue": "1001258789.445519",
+        "returnIndex": 1.001258789445519,
+        "benchmarkValue": "1075914323.182282"
+      },
+      "actual": {
+        "date": "1996-12-31",
+        "cash": "935614579.947048",
+        "positionsValue": "65644209.498471",
+        "totalValue": "1001258789.445519",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0012587894",
+        "benchmarkIndex": "1.0759143232",
+        "benchmarkValue": "1075914323.182282",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "1997-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "94310403.946212",
+        "totalValue": "1021917698.032925",
+        "returnIndex": 1.0219176980329252,
+        "benchmarkValue": "1414250327.844966"
+      },
+      "actual": {
+        "date": "1997-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "94310403.946212",
+        "totalValue": "1021917698.032925",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0219176980",
+        "benchmarkIndex": "1.4142503278",
+        "benchmarkValue": "1414250327.844966",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "1998-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "108765538.308418",
+        "totalValue": "1036372832.395131",
+        "returnIndex": 1.0363728323951304,
+        "benchmarkValue": "1796736121.229783"
+      },
+      "actual": {
+        "date": "1998-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "108765538.308418",
+        "totalValue": "1036372832.395131",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0363728324",
+        "benchmarkIndex": "1.7967361212",
+        "benchmarkValue": "1796736121.229783",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "1999-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "110668785.160786",
+        "totalValue": "1038276079.247499",
+        "returnIndex": 1.0382760792474965,
+        "benchmarkValue": "2140171936.470931"
+      },
+      "actual": {
+        "date": "1999-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "110668785.160786",
+        "totalValue": "1038276079.247499",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0382760792",
+        "benchmarkIndex": "2.1401719365",
+        "benchmarkValue": "2140171936.470931",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2000-12-29",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "121706224.274731",
+        "totalValue": "1049313518.361444",
+        "returnIndex": 1.049313518361441,
+        "benchmarkValue": "1911554713.682063"
+      },
+      "actual": {
+        "date": "2000-12-29",
+        "cash": "927607294.086713",
+        "positionsValue": "121706224.274731",
+        "totalValue": "1049313518.361444",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0493135184",
+        "benchmarkIndex": "1.9115547137",
+        "benchmarkValue": "1911554713.682063",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2001-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "123388583.649582",
+        "totalValue": "1050995877.736295",
+        "returnIndex": 1.0509958777362918,
+        "benchmarkValue": "1665452426.052747"
+      },
+      "actual": {
+        "date": "2001-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "123388583.649582",
+        "totalValue": "1050995877.736295",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0509958777",
+        "benchmarkIndex": "1.6654524261",
+        "benchmarkValue": "1665452426.052747",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2002-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "112766938.833226",
+        "totalValue": "1040374232.919939",
+        "returnIndex": 1.0403742329199377,
+        "benchmarkValue": "1285589392.393997"
+      },
+      "actual": {
+        "date": "2002-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "112766938.833226",
+        "totalValue": "1040374232.919939",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0403742329",
+        "benchmarkIndex": "1.2855893924",
+        "benchmarkValue": "1285589392.393997",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2003-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "113894211.869801",
+        "totalValue": "1041501505.956514",
+        "returnIndex": 1.0415015059565103,
+        "benchmarkValue": "1621448346.204284"
+      },
+      "actual": {
+        "date": "2003-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "113894211.869801",
+        "totalValue": "1041501505.956514",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0415015060",
+        "benchmarkIndex": "1.6214483462",
+        "benchmarkValue": "1621448346.204284",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2004-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "126753709.669466",
+        "totalValue": "1054361003.756179",
+        "returnIndex": 1.0543610037561764,
+        "benchmarkValue": "1761183156.054204"
+      },
+      "actual": {
+        "date": "2004-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "126753709.669466",
+        "totalValue": "1054361003.756179",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0543610038",
+        "benchmarkIndex": "1.7611831561",
+        "benchmarkValue": "1761183156.054204",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2005-12-30",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "120661679.332685",
+        "totalValue": "1048268973.419398",
+        "returnIndex": 1.048268973419395,
+        "benchmarkValue": "1814221186.070232"
+      },
+      "actual": {
+        "date": "2005-12-30",
+        "cash": "927607294.086713",
+        "positionsValue": "120661679.332685",
+        "totalValue": "1048268973.419398",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0482689734",
+        "benchmarkIndex": "1.8142211861",
+        "benchmarkValue": "1814221186.070232",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2006-12-29",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "135055356.457108",
+        "totalValue": "1062662650.543821",
+        "returnIndex": 1.06266265054382,
+        "benchmarkValue": "2063529068.920297"
+      },
+      "actual": {
+        "date": "2006-12-29",
+        "cash": "927607294.086713",
+        "positionsValue": "135055356.457108",
+        "totalValue": "1062662650.543821",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0626626505",
+        "benchmarkIndex": "2.0635290689",
+        "benchmarkValue": "2063529068.920297",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2007-12-31",
+      "expected": {
+        "cash": "927607294.086713",
+        "positionsValue": "144424691.648519",
+        "totalValue": "1072031985.735232",
+        "returnIndex": 1.0720319857352298,
+        "benchmarkValue": "2130409441.935014"
+      },
+      "actual": {
+        "date": "2007-12-31",
+        "cash": "927607294.086713",
+        "positionsValue": "144424691.648519",
+        "totalValue": "1072031985.735232",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0720319857",
+        "benchmarkIndex": "2.1304094419",
+        "benchmarkValue": "2130409441.935014",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 2
+      }
+    },
+    {
+      "date": "2008-12-31",
+      "expected": {
+        "cash": "887572893.438510",
+        "positionsValue": "144926028.888046",
+        "totalValue": "1032498922.326556",
+        "returnIndex": 1.0324989223265542,
+        "benchmarkValue": "1314876876.001749"
+      },
+      "actual": {
+        "date": "2008-12-31",
+        "cash": "887572893.438510",
+        "positionsValue": "144926028.888046",
+        "totalValue": "1032498922.326556",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0324989223",
+        "benchmarkIndex": "1.3148768760",
+        "benchmarkValue": "1314876876.001749",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2009-12-31",
+      "expected": {
+        "cash": "887572893.438510",
+        "positionsValue": "181451688.543712",
+        "totalValue": "1069024581.982222",
+        "returnIndex": 1.0690245819822184,
+        "benchmarkValue": "1623779688.183010"
+      },
+      "actual": {
+        "date": "2009-12-31",
+        "cash": "887572893.438510",
+        "positionsValue": "181451688.543712",
+        "totalValue": "1069024581.982222",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0690245820",
+        "benchmarkIndex": "1.6237796882",
+        "benchmarkValue": "1623779688.183010",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2010-12-31",
+      "expected": {
+        "cash": "887572893.438510",
+        "positionsValue": "181127159.542379",
+        "totalValue": "1068700052.980889",
+        "returnIndex": 1.0687000529808854,
+        "benchmarkValue": "1832289086.405362"
+      },
+      "actual": {
+        "date": "2010-12-31",
+        "cash": "887572893.438510",
+        "positionsValue": "181127159.542379",
+        "totalValue": "1068700052.980889",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0687000530",
+        "benchmarkIndex": "1.8322890864",
+        "benchmarkValue": "1832289086.405362",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2011-12-30",
+      "expected": {
+        "cash": "887572893.438510",
+        "positionsValue": "193328272.803649",
+        "totalValue": "1080901166.242159",
+        "returnIndex": 1.080901166242156,
+        "benchmarkValue": "1828646364.563602"
+      },
+      "actual": {
+        "date": "2011-12-30",
+        "cash": "887572893.438510",
+        "positionsValue": "193328272.803649",
+        "totalValue": "1080901166.242159",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.0809011662",
+        "benchmarkIndex": "1.8286463646",
+        "benchmarkValue": "1828646364.563602",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2012-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "241714715.870442",
+        "totalValue": "1104255113.401940",
+        "returnIndex": 1.1042551134019378,
+        "benchmarkValue": "2075040069.940259"
+      },
+      "actual": {
+        "date": "2012-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "241714715.870442",
+        "totalValue": "1104255113.401940",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.1042551134",
+        "benchmarkIndex": "2.0750400699",
+        "benchmarkValue": "2075040069.940259",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2013-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "327653972.341887",
+        "totalValue": "1190194369.873385",
+        "returnIndex": 1.1901943698733843,
+        "benchmarkValue": "2691097187.818738"
+      },
+      "actual": {
+        "date": "2013-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "327653972.341887",
+        "totalValue": "1190194369.873385",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.1901943699",
+        "benchmarkIndex": "2.6910971878",
+        "benchmarkValue": "2691097187.818738",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2014-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "354341226.528895",
+        "totalValue": "1216881624.060393",
+        "returnIndex": 1.2168816240603917,
+        "benchmarkValue": "2994900189.421536"
+      },
+      "actual": {
+        "date": "2014-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "354341226.528895",
+        "totalValue": "1216881624.060393",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.2168816241",
+        "benchmarkIndex": "2.9949001894",
+        "benchmarkValue": "2994900189.421536",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2015-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "398162488.907949",
+        "totalValue": "1260702886.439447",
+        "returnIndex": 1.2607028864394463,
+        "benchmarkValue": "2970566807.518578"
+      },
+      "actual": {
+        "date": "2015-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "398162488.907949",
+        "totalValue": "1260702886.439447",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.2607028864",
+        "benchmarkIndex": "2.9705668075",
+        "benchmarkValue": "2970566807.518578",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2016-12-30",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "418499953.727805",
+        "totalValue": "1281040351.259303",
+        "returnIndex": 1.2810403512593038,
+        "benchmarkValue": "3257030453.154597"
+      },
+      "actual": {
+        "date": "2016-12-30",
+        "cash": "862540397.531498",
+        "positionsValue": "418499953.727805",
+        "totalValue": "1281040351.259303",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.2810403513",
+        "benchmarkIndex": "3.2570304532",
+        "benchmarkValue": "3257030453.154597",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2017-12-29",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "532990784.167657",
+        "totalValue": "1395531181.699155",
+        "returnIndex": 1.3955311816991567,
+        "benchmarkValue": "3888387002.768469"
+      },
+      "actual": {
+        "date": "2017-12-29",
+        "cash": "862540397.531498",
+        "positionsValue": "532990784.167657",
+        "totalValue": "1395531181.699155",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.3955311817",
+        "benchmarkIndex": "3.8883870028",
+        "benchmarkValue": "3888387002.768469",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2018-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "533477675.676114",
+        "totalValue": "1396018073.207612",
+        "returnIndex": 1.3960180732076142,
+        "benchmarkValue": "3641556170.770800"
+      },
+      "actual": {
+        "date": "2018-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "533477675.676114",
+        "totalValue": "1396018073.207612",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.3960180732",
+        "benchmarkIndex": "3.6415561708",
+        "benchmarkValue": "3641556170.770800",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2019-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "663594456.587682",
+        "totalValue": "1526134854.119180",
+        "returnIndex": 1.5261348541191808,
+        "benchmarkValue": "4689785807.955705"
+      },
+      "actual": {
+        "date": "2019-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "663594456.587682",
+        "totalValue": "1526134854.119180",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.5261348541",
+        "benchmarkIndex": "4.6897858080",
+        "benchmarkValue": "4689785807.955705",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2020-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "767752207.830379",
+        "totalValue": "1630292605.361877",
+        "returnIndex": 1.6302926053618798,
+        "benchmarkValue": "5447763368.789159"
+      },
+      "actual": {
+        "date": "2020-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "767752207.830379",
+        "totalValue": "1630292605.361877",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.6302926054",
+        "benchmarkIndex": "5.4477633688",
+        "benchmarkValue": "5447763368.789159",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2021-12-31",
+      "expected": {
+        "cash": "862540397.531498",
+        "positionsValue": "953267389.570247",
+        "totalValue": "1815807787.101745",
+        "returnIndex": 1.8158077871017473,
+        "benchmarkValue": "6920588663.849628"
+      },
+      "actual": {
+        "date": "2021-12-31",
+        "cash": "862540397.531498",
+        "positionsValue": "953267389.570247",
+        "totalValue": "1815807787.101745",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.8158077871",
+        "benchmarkIndex": "6.9205886638",
+        "benchmarkValue": "6920588663.849628",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2022-12-30",
+      "expected": {
+        "cash": "801587174.151810",
+        "positionsValue": "893397674.265630",
+        "totalValue": "1694984848.417440",
+        "returnIndex": 1.6949848484174432,
+        "benchmarkValue": "5572344455.777357"
+      },
+      "actual": {
+        "date": "2022-12-30",
+        "cash": "801587174.151810",
+        "positionsValue": "893397674.265630",
+        "totalValue": "1694984848.417440",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.6949848484",
+        "benchmarkIndex": "5.5723444558",
+        "benchmarkValue": "5572344455.777357",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2023-12-29",
+      "expected": {
+        "cash": "801587174.151810",
+        "positionsValue": "1007710339.782490",
+        "totalValue": "1809297513.934300",
+        "returnIndex": 1.8092975139343046,
+        "benchmarkValue": "6925688474.428093"
+      },
+      "actual": {
+        "date": "2023-12-29",
+        "cash": "801587174.151810",
+        "positionsValue": "1007710339.782490",
+        "totalValue": "1809297513.934300",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.8092975139",
+        "benchmarkIndex": "6.9256884744",
+        "benchmarkValue": "6925688474.428093",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2024-12-31",
+      "expected": {
+        "cash": "801587174.151810",
+        "positionsValue": "1153689860.026079",
+        "totalValue": "1955277034.177889",
+        "returnIndex": 1.9552770341778944,
+        "benchmarkValue": "8539705668.075186"
+      },
+      "actual": {
+        "date": "2024-12-31",
+        "cash": "801587174.151810",
+        "positionsValue": "1153689860.026079",
+        "totalValue": "1955277034.177889",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "1.9552770342",
+        "benchmarkIndex": "8.5397056681",
+        "benchmarkValue": "8539705668.075186",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2025-12-31",
+      "expected": {
+        "cash": "801587174.151810",
+        "positionsValue": "1634462623.940899",
+        "totalValue": "2436049798.092709",
+        "returnIndex": 2.4360497980927174,
+        "benchmarkValue": "9936179513.332362"
+      },
+      "actual": {
+        "date": "2025-12-31",
+        "cash": "801587174.151810",
+        "positionsValue": "1634462623.940899",
+        "totalValue": "2436049798.092709",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "2.4360497981",
+        "benchmarkIndex": "9.9361795133",
+        "benchmarkValue": "9936179513.332362",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2026-09-21",
+      "expected": {
+        "cash": "2766189620.272327",
+        "positionsValue": "0.000000",
+        "totalValue": "2766189620.272327",
+        "returnIndex": 2.7661896202723333,
+        "benchmarkValue": "11270581378.405945"
+      },
+      "actual": {
+        "date": "2026-09-21",
+        "cash": "2766189620.272327",
+        "positionsValue": "0.000000",
+        "totalValue": "2766189620.272327",
+        "investedCapital": "1000000000.000000",
+        "returnIndex": "2.7661896203",
+        "benchmarkIndex": "11.2705813784",
+        "benchmarkValue": "11270581378.405945",
+        "cashBaselineValue": "1000000000.000000",
+        "openPositions": 0
+      }
+    }
+  ]
+}

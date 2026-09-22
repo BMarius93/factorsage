@@ -1,0 +1,1278 @@
+{
+  "securities": 33,
+  "visibleFrom": "1996-09-09",
+  "comparisons": {
+    "compared": 3983691,
+    "passed": 3983545,
+    "failed": 146,
+    "skipped": 0,
+    "tolerancePasses": 3422520
+  },
+  "perIndicator": {
+    "sma20d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.000000039001584e-9,
+      "nullMismatches": 0
+    },
+    "sma50d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 4.0000000811613035e-9,
+      "nullMismatches": 0
+    },
+    "sma100d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.0000001639016745e-9,
+      "nullMismatches": 0
+    },
+    "sma200d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.000032388124964e-9,
+      "nullMismatches": 0
+    },
+    "ema20d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.000032388124964e-9,
+      "nullMismatches": 0
+    },
+    "ema50d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.000003966415534e-9,
+      "nullMismatches": 0
+    },
+    "ema200d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 5.000000052879372e-9,
+      "nullMismatches": 0
+    },
+    "sma20w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 5.000000039001584e-9,
+      "nullMismatches": 0
+    },
+    "sma50w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 4.000000108916879e-9,
+      "nullMismatches": 0
+    },
+    "sma100w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 5.000000080634948e-9,
+      "nullMismatches": 0
+    },
+    "sma200w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 5.000025282697607e-9,
+      "nullMismatches": 0
+    },
+    "ema20w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 4.999999990429327e-9,
+      "nullMismatches": 0
+    },
+    "ema50w": {
+      "compared": 234294,
+      "failed": 0,
+      "maxAbsDifference": 4.999893832291491e-9,
+      "nullMismatches": 0
+    },
+    "ema200w": {
+      "compared": 234294,
+      "failed": 146,
+      "maxAbsDifference": 2.1449338305501442e-8,
+      "nullMismatches": 0
+    },
+    "rsi7d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 4.999982650133461e-9,
+      "nullMismatches": 0
+    },
+    "rsi14d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 4.999989755560819e-9,
+      "nullMismatches": 0
+    },
+    "rsi21d": {
+      "compared": 234360,
+      "failed": 0,
+      "maxAbsDifference": 4.999989755560819e-9,
+      "nullMismatches": 0
+    }
+  },
+  "perSecurity": {
+    "AAPL": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "ADBE": {
+      "compared": 128456,
+      "failed": 5
+    },
+    "AMGN": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "AMZN": {
+      "compared": 125515,
+      "failed": 0
+    },
+    "AXP": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "BA": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "CAT": {
+      "compared": 128456,
+      "failed": 1
+    },
+    "CRM": {
+      "compared": 95153,
+      "failed": 0
+    },
+    "CSCO": {
+      "compared": 128456,
+      "failed": 1
+    },
+    "CVX": {
+      "compared": 128456,
+      "failed": 13
+    },
+    "DIS": {
+      "compared": 128456,
+      "failed": 8
+    },
+    "GOOGL": {
+      "compared": 94473,
+      "failed": 0
+    },
+    "GS": {
+      "compared": 117100,
+      "failed": 0
+    },
+    "HD": {
+      "compared": 128456,
+      "failed": 9
+    },
+    "HON": {
+      "compared": 109365,
+      "failed": 0
+    },
+    "IBM": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "JNJ": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "JPM": {
+      "compared": 128456,
+      "failed": 5
+    },
+    "KO": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "MCD": {
+      "compared": 128456,
+      "failed": 5
+    },
+    "MMM": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "MRK": {
+      "compared": 128456,
+      "failed": 14
+    },
+    "MRNA": {
+      "compared": 33239,
+      "failed": 0
+    },
+    "MSFT": {
+      "compared": 128456,
+      "failed": 4
+    },
+    "NKE": {
+      "compared": 128456,
+      "failed": 1
+    },
+    "NVDA": {
+      "compared": 118290,
+      "failed": 0
+    },
+    "PG": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "SHW": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "TRV": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "UNH": {
+      "compared": 128456,
+      "failed": 4
+    },
+    "V": {
+      "compared": 79156,
+      "failed": 0
+    },
+    "WMT": {
+      "compared": 128456,
+      "failed": 0
+    },
+    "XOM": {
+      "compared": 128456,
+      "failed": 6
+    }
+  },
+  "weekStartMismatches": 0,
+  "warmupRegion": {
+    "compared": 429675,
+    "failed": 0
+  },
+  "differences": [
+    {
+      "path": "ADBE 2026-08-31 ema200w",
+      "expected": 377.66537293169614,
+      "actual": 377.66537294,
+      "rule": "tolerance 5.377665372931696e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 8.303857157443417e-9
+    },
+    {
+      "path": "ADBE 2026-09-01 ema200w",
+      "expected": 377.66537293169614,
+      "actual": 377.66537294,
+      "rule": "tolerance 5.377665372931696e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 8.303857157443417e-9
+    },
+    {
+      "path": "ADBE 2026-09-02 ema200w",
+      "expected": 377.66537293169614,
+      "actual": 377.66537294,
+      "rule": "tolerance 5.377665372931696e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 8.303857157443417e-9
+    },
+    {
+      "path": "ADBE 2026-09-03 ema200w",
+      "expected": 377.66537293169614,
+      "actual": 377.66537294,
+      "rule": "tolerance 5.377665372931696e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 8.303857157443417e-9
+    },
+    {
+      "path": "ADBE 2026-09-18 ema200w",
+      "expected": 374.0645076220531,
+      "actual": 374.06450763,
+      "rule": "tolerance 5.374064507622053e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 7.946880486997543e-9
+    },
+    {
+      "path": "AMGN 2026-08-31 ema200w",
+      "expected": 302.8579394521663,
+      "actual": 302.85793944,
+      "rule": "tolerance 5.3028579394521665e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2166310625616461e-8
+    },
+    {
+      "path": "AMGN 2026-09-01 ema200w",
+      "expected": 302.8579394521663,
+      "actual": 302.85793944,
+      "rule": "tolerance 5.3028579394521665e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2166310625616461e-8
+    },
+    {
+      "path": "AMGN 2026-09-02 ema200w",
+      "expected": 302.8579394521663,
+      "actual": 302.85793944,
+      "rule": "tolerance 5.3028579394521665e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2166310625616461e-8
+    },
+    {
+      "path": "AMGN 2026-09-03 ema200w",
+      "expected": 302.8579394521663,
+      "actual": 302.85793944,
+      "rule": "tolerance 5.3028579394521665e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2166310625616461e-8
+    },
+    {
+      "path": "AMGN 2026-09-04 ema200w",
+      "expected": 304.19497488050297,
+      "actual": 304.19497487,
+      "rule": "tolerance 5.3041949748805034e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.0502958502911497e-8
+    },
+    {
+      "path": "AMGN 2026-09-08 ema200w",
+      "expected": 304.19497488050297,
+      "actual": 304.19497487,
+      "rule": "tolerance 5.3041949748805034e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.0502958502911497e-8
+    },
+    {
+      "path": "AMGN 2026-09-09 ema200w",
+      "expected": 304.19497488050297,
+      "actual": 304.19497487,
+      "rule": "tolerance 5.3041949748805034e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.0502958502911497e-8
+    },
+    {
+      "path": "AMGN 2026-09-10 ema200w",
+      "expected": 304.19497488050297,
+      "actual": 304.19497487,
+      "rule": "tolerance 5.3041949748805034e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.0502958502911497e-8
+    },
+    {
+      "path": "AMGN 2026-09-11 ema200w",
+      "expected": 304.9228855782094,
+      "actual": 304.92288557,
+      "rule": "tolerance 5.30492288557821e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.209383395296754e-9
+    },
+    {
+      "path": "AMGN 2026-09-14 ema200w",
+      "expected": 304.9228855782094,
+      "actual": 304.92288557,
+      "rule": "tolerance 5.30492288557821e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.209383395296754e-9
+    },
+    {
+      "path": "AMGN 2026-09-15 ema200w",
+      "expected": 304.9228855782094,
+      "actual": 304.92288557,
+      "rule": "tolerance 5.30492288557821e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.209383395296754e-9
+    },
+    {
+      "path": "AMGN 2026-09-16 ema200w",
+      "expected": 304.9228855782094,
+      "actual": 304.92288557,
+      "rule": "tolerance 5.30492288557821e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.209383395296754e-9
+    },
+    {
+      "path": "AMGN 2026-09-17 ema200w",
+      "expected": 304.9228855782094,
+      "actual": 304.92288557,
+      "rule": "tolerance 5.30492288557821e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.209383395296754e-9
+    },
+    {
+      "path": "AMGN 2026-09-18 ema200w",
+      "expected": 305.72614044807796,
+      "actual": 305.72614044,
+      "rule": "tolerance 5.305726140448078e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.077961410890566e-9
+    },
+    {
+      "path": "BA 2026-08-31 ema200w",
+      "expected": 205.49029198610265,
+      "actual": 205.49029197,
+      "rule": "tolerance 5.205490291986103e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.6102660538308555e-8
+    },
+    {
+      "path": "BA 2026-09-01 ema200w",
+      "expected": 205.49029198610265,
+      "actual": 205.49029197,
+      "rule": "tolerance 5.205490291986103e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.6102660538308555e-8
+    },
+    {
+      "path": "BA 2026-09-02 ema200w",
+      "expected": 205.49029198610265,
+      "actual": 205.49029197,
+      "rule": "tolerance 5.205490291986103e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.6102660538308555e-8
+    },
+    {
+      "path": "BA 2026-09-03 ema200w",
+      "expected": 205.49029198610265,
+      "actual": 205.49029197,
+      "rule": "tolerance 5.205490291986103e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.6102660538308555e-8
+    },
+    {
+      "path": "BA 2026-09-04 ema200w",
+      "expected": 205.55755276236033,
+      "actual": 205.55755275,
+      "rule": "tolerance 5.2055575527623606e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2360317214188399e-8
+    },
+    {
+      "path": "BA 2026-09-08 ema200w",
+      "expected": 205.55755276236033,
+      "actual": 205.55755275,
+      "rule": "tolerance 5.2055575527623606e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2360317214188399e-8
+    },
+    {
+      "path": "BA 2026-09-09 ema200w",
+      "expected": 205.55755276236033,
+      "actual": 205.55755275,
+      "rule": "tolerance 5.2055575527623606e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2360317214188399e-8
+    },
+    {
+      "path": "BA 2026-09-10 ema200w",
+      "expected": 205.55755276236033,
+      "actual": 205.55755275,
+      "rule": "tolerance 5.2055575527623606e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2360317214188399e-8
+    },
+    {
+      "path": "BA 2026-09-11 ema200w",
+      "expected": 205.60623382940153,
+      "actual": 205.60623382,
+      "rule": "tolerance 5.205606233829401e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.40153199735505e-9
+    },
+    {
+      "path": "BA 2026-09-14 ema200w",
+      "expected": 205.60623382940153,
+      "actual": 205.60623382,
+      "rule": "tolerance 5.205606233829401e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.40153199735505e-9
+    },
+    {
+      "path": "BA 2026-09-15 ema200w",
+      "expected": 205.60623382940153,
+      "actual": 205.60623382,
+      "rule": "tolerance 5.205606233829401e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.40153199735505e-9
+    },
+    {
+      "path": "BA 2026-09-16 ema200w",
+      "expected": 205.60623382940153,
+      "actual": 205.60623382,
+      "rule": "tolerance 5.205606233829401e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.40153199735505e-9
+    },
+    {
+      "path": "BA 2026-09-17 ema200w",
+      "expected": 205.60623382940153,
+      "actual": 205.60623382,
+      "rule": "tolerance 5.205606233829401e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.40153199735505e-9
+    },
+    {
+      "path": "BA 2026-09-18 ema200w",
+      "expected": 205.53253996045225,
+      "actual": 205.53253995,
+      "rule": "tolerance 5.205532539960452e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.0452254173287656e-8
+    },
+    {
+      "path": "CAT 2026-09-18 ema200w",
+      "expected": 484.6385073737604,
+      "actual": 484.63850738,
+      "rule": "tolerance 5.484638507373761e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 6.239645244932035e-9
+    },
+    {
+      "path": "CSCO 2026-09-18 ema200w",
+      "expected": 70.45110966511312,
+      "actual": 70.45110966,
+      "rule": "tolerance 5.070451109665113e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.113122369948542e-9
+    },
+    {
+      "path": "CVX 2026-08-31 ema200w",
+      "expected": 159.11111964565598,
+      "actual": 159.11111964,
+      "rule": "tolerance 5.159111119645656e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.655977020069258e-9
+    },
+    {
+      "path": "CVX 2026-09-01 ema200w",
+      "expected": 159.11111964565598,
+      "actual": 159.11111964,
+      "rule": "tolerance 5.159111119645656e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.655977020069258e-9
+    },
+    {
+      "path": "CVX 2026-09-02 ema200w",
+      "expected": 159.11111964565598,
+      "actual": 159.11111964,
+      "rule": "tolerance 5.159111119645656e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.655977020069258e-9
+    },
+    {
+      "path": "CVX 2026-09-03 ema200w",
+      "expected": 159.11111964565598,
+      "actual": 159.11111964,
+      "rule": "tolerance 5.159111119645656e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.655977020069258e-9
+    },
+    {
+      "path": "CVX 2026-09-04 ema200w",
+      "expected": 159.60354631584846,
+      "actual": 159.60354631,
+      "rule": "tolerance 5.159603546315849e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.848448836331954e-9
+    },
+    {
+      "path": "CVX 2026-09-08 ema200w",
+      "expected": 159.60354631584846,
+      "actual": 159.60354631,
+      "rule": "tolerance 5.159603546315849e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.848448836331954e-9
+    },
+    {
+      "path": "CVX 2026-09-09 ema200w",
+      "expected": 159.60354631584846,
+      "actual": 159.60354631,
+      "rule": "tolerance 5.159603546315849e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.848448836331954e-9
+    },
+    {
+      "path": "CVX 2026-09-10 ema200w",
+      "expected": 159.60354631584846,
+      "actual": 159.60354631,
+      "rule": "tolerance 5.159603546315849e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.848448836331954e-9
+    },
+    {
+      "path": "CVX 2026-09-11 ema200w",
+      "expected": 160.1454015763873,
+      "actual": 160.14540157,
+      "rule": "tolerance 5.1601454015763875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.387296025422984e-9
+    },
+    {
+      "path": "CVX 2026-09-14 ema200w",
+      "expected": 160.1454015763873,
+      "actual": 160.14540157,
+      "rule": "tolerance 5.1601454015763875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.387296025422984e-9
+    },
+    {
+      "path": "CVX 2026-09-15 ema200w",
+      "expected": 160.1454015763873,
+      "actual": 160.14540157,
+      "rule": "tolerance 5.1601454015763875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.387296025422984e-9
+    },
+    {
+      "path": "CVX 2026-09-16 ema200w",
+      "expected": 160.1454015763873,
+      "actual": 160.14540157,
+      "rule": "tolerance 5.1601454015763875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.387296025422984e-9
+    },
+    {
+      "path": "CVX 2026-09-17 ema200w",
+      "expected": 160.1454015763873,
+      "actual": 160.14540157,
+      "rule": "tolerance 5.1601454015763875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.387296025422984e-9
+    },
+    {
+      "path": "DIS 2026-08-31 ema200w",
+      "expected": 107.71265061418696,
+      "actual": 107.71265062,
+      "rule": "tolerance 5.107712650614187e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 5.813049597236386e-9
+    },
+    {
+      "path": "DIS 2026-09-01 ema200w",
+      "expected": 107.71265061418696,
+      "actual": 107.71265062,
+      "rule": "tolerance 5.107712650614187e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 5.813049597236386e-9
+    },
+    {
+      "path": "DIS 2026-09-02 ema200w",
+      "expected": 107.71265061418696,
+      "actual": 107.71265062,
+      "rule": "tolerance 5.107712650614187e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 5.813049597236386e-9
+    },
+    {
+      "path": "DIS 2026-09-03 ema200w",
+      "expected": 107.71265061418696,
+      "actual": 107.71265062,
+      "rule": "tolerance 5.107712650614187e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 5.813049597236386e-9
+    },
+    {
+      "path": "DIS 2026-09-04 ema200w",
+      "expected": 107.68874364290151,
+      "actual": 107.68874365,
+      "rule": "tolerance 5.107688743642901e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 7.098492460499983e-9
+    },
+    {
+      "path": "DIS 2026-09-08 ema200w",
+      "expected": 107.68874364290151,
+      "actual": 107.68874365,
+      "rule": "tolerance 5.107688743642901e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 7.098492460499983e-9
+    },
+    {
+      "path": "DIS 2026-09-09 ema200w",
+      "expected": 107.68874364290151,
+      "actual": 107.68874365,
+      "rule": "tolerance 5.107688743642901e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 7.098492460499983e-9
+    },
+    {
+      "path": "DIS 2026-09-10 ema200w",
+      "expected": 107.68874364290151,
+      "actual": 107.68874365,
+      "rule": "tolerance 5.107688743642901e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 7.098492460499983e-9
+    },
+    {
+      "path": "HD 2026-09-04 ema200w",
+      "expected": 344.7607296365555,
+      "actual": 344.76072963,
+      "rule": "tolerance 5.344760729636555e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.555467280122684e-9
+    },
+    {
+      "path": "HD 2026-09-08 ema200w",
+      "expected": 344.7607296365555,
+      "actual": 344.76072963,
+      "rule": "tolerance 5.344760729636555e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.555467280122684e-9
+    },
+    {
+      "path": "HD 2026-09-09 ema200w",
+      "expected": 344.7607296365555,
+      "actual": 344.76072963,
+      "rule": "tolerance 5.344760729636555e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.555467280122684e-9
+    },
+    {
+      "path": "HD 2026-09-10 ema200w",
+      "expected": 344.7607296365555,
+      "actual": 344.76072963,
+      "rule": "tolerance 5.344760729636555e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.555467280122684e-9
+    },
+    {
+      "path": "HD 2026-09-11 ema200w",
+      "expected": 344.40231441629123,
+      "actual": 344.40231441,
+      "rule": "tolerance 5.344402314416291e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.291259069257649e-9
+    },
+    {
+      "path": "HD 2026-09-14 ema200w",
+      "expected": 344.40231441629123,
+      "actual": 344.40231441,
+      "rule": "tolerance 5.344402314416291e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.291259069257649e-9
+    },
+    {
+      "path": "HD 2026-09-15 ema200w",
+      "expected": 344.40231441629123,
+      "actual": 344.40231441,
+      "rule": "tolerance 5.344402314416291e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.291259069257649e-9
+    },
+    {
+      "path": "HD 2026-09-16 ema200w",
+      "expected": 344.40231441629123,
+      "actual": 344.40231441,
+      "rule": "tolerance 5.344402314416291e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.291259069257649e-9
+    },
+    {
+      "path": "HD 2026-09-17 ema200w",
+      "expected": 344.40231441629123,
+      "actual": 344.40231441,
+      "rule": "tolerance 5.344402314416291e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.291259069257649e-9
+    },
+    {
+      "path": "IBM 2026-08-31 ema200w",
+      "expected": 219.23204120698233,
+      "actual": 219.23204119,
+      "rule": "tolerance 5.219232041206982e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.698234086688899e-8
+    },
+    {
+      "path": "IBM 2026-09-01 ema200w",
+      "expected": 219.23204120698233,
+      "actual": 219.23204119,
+      "rule": "tolerance 5.219232041206982e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.698234086688899e-8
+    },
+    {
+      "path": "IBM 2026-09-02 ema200w",
+      "expected": 219.23204120698233,
+      "actual": 219.23204119,
+      "rule": "tolerance 5.219232041206982e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.698234086688899e-8
+    },
+    {
+      "path": "IBM 2026-09-03 ema200w",
+      "expected": 219.23204120698233,
+      "actual": 219.23204119,
+      "rule": "tolerance 5.219232041206982e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.698234086688899e-8
+    },
+    {
+      "path": "IBM 2026-09-04 ema200w",
+      "expected": 219.38784179198748,
+      "actual": 219.38784178,
+      "rule": "tolerance 5.2193878417919875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1987481229880359e-8
+    },
+    {
+      "path": "IBM 2026-09-08 ema200w",
+      "expected": 219.38784179198748,
+      "actual": 219.38784178,
+      "rule": "tolerance 5.2193878417919875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1987481229880359e-8
+    },
+    {
+      "path": "IBM 2026-09-09 ema200w",
+      "expected": 219.38784179198748,
+      "actual": 219.38784178,
+      "rule": "tolerance 5.2193878417919875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1987481229880359e-8
+    },
+    {
+      "path": "IBM 2026-09-10 ema200w",
+      "expected": 219.38784179198748,
+      "actual": 219.38784178,
+      "rule": "tolerance 5.2193878417919875e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1987481229880359e-8
+    },
+    {
+      "path": "IBM 2026-09-11 ema200w",
+      "expected": 219.62567421196772,
+      "actual": 219.6256742,
+      "rule": "tolerance 5.219625674211968e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1967728141826228e-8
+    },
+    {
+      "path": "IBM 2026-09-14 ema200w",
+      "expected": 219.62567421196772,
+      "actual": 219.6256742,
+      "rule": "tolerance 5.219625674211968e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1967728141826228e-8
+    },
+    {
+      "path": "IBM 2026-09-15 ema200w",
+      "expected": 219.62567421196772,
+      "actual": 219.6256742,
+      "rule": "tolerance 5.219625674211968e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1967728141826228e-8
+    },
+    {
+      "path": "IBM 2026-09-16 ema200w",
+      "expected": 219.62567421196772,
+      "actual": 219.6256742,
+      "rule": "tolerance 5.219625674211968e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1967728141826228e-8
+    },
+    {
+      "path": "IBM 2026-09-17 ema200w",
+      "expected": 219.62567421196772,
+      "actual": 219.6256742,
+      "rule": "tolerance 5.219625674211968e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1967728141826228e-8
+    },
+    {
+      "path": "IBM 2026-09-18 ema200w",
+      "expected": 219.7244237222964,
+      "actual": 219.72442371,
+      "rule": "tolerance 5.219724423722296e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.229639678967942e-8
+    },
+    {
+      "path": "JNJ 2026-08-31 ema200w",
+      "expected": 186.38338955164,
+      "actual": 186.38338954,
+      "rule": "tolerance 5.18638338955164e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.163999741038424e-8
+    },
+    {
+      "path": "JNJ 2026-09-01 ema200w",
+      "expected": 186.38338955164,
+      "actual": 186.38338954,
+      "rule": "tolerance 5.18638338955164e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.163999741038424e-8
+    },
+    {
+      "path": "JNJ 2026-09-02 ema200w",
+      "expected": 186.38338955164,
+      "actual": 186.38338954,
+      "rule": "tolerance 5.18638338955164e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.163999741038424e-8
+    },
+    {
+      "path": "JNJ 2026-09-03 ema200w",
+      "expected": 186.38338955164,
+      "actual": 186.38338954,
+      "rule": "tolerance 5.18638338955164e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.163999741038424e-8
+    },
+    {
+      "path": "JNJ 2026-09-04 ema200w",
+      "expected": 187.26743542674805,
+      "actual": 187.26743542,
+      "rule": "tolerance 5.187267435426748e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.748052783223102e-9
+    },
+    {
+      "path": "JNJ 2026-09-08 ema200w",
+      "expected": 187.26743542674805,
+      "actual": 187.26743542,
+      "rule": "tolerance 5.187267435426748e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.748052783223102e-9
+    },
+    {
+      "path": "JNJ 2026-09-09 ema200w",
+      "expected": 187.26743542674805,
+      "actual": 187.26743542,
+      "rule": "tolerance 5.187267435426748e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.748052783223102e-9
+    },
+    {
+      "path": "JNJ 2026-09-10 ema200w",
+      "expected": 187.26743542674805,
+      "actual": 187.26743542,
+      "rule": "tolerance 5.187267435426748e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.748052783223102e-9
+    },
+    {
+      "path": "JNJ 2026-09-11 ema200w",
+      "expected": 188.04666492498936,
+      "actual": 188.04666491,
+      "rule": "tolerance 5.188046664924989e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.49893537582102e-8
+    },
+    {
+      "path": "JNJ 2026-09-14 ema200w",
+      "expected": 188.04666492498936,
+      "actual": 188.04666491,
+      "rule": "tolerance 5.188046664924989e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.49893537582102e-8
+    },
+    {
+      "path": "JNJ 2026-09-15 ema200w",
+      "expected": 188.04666492498936,
+      "actual": 188.04666491,
+      "rule": "tolerance 5.188046664924989e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.49893537582102e-8
+    },
+    {
+      "path": "JNJ 2026-09-16 ema200w",
+      "expected": 188.04666492498936,
+      "actual": 188.04666491,
+      "rule": "tolerance 5.188046664924989e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.49893537582102e-8
+    },
+    {
+      "path": "JNJ 2026-09-17 ema200w",
+      "expected": 188.04666492498936,
+      "actual": 188.04666491,
+      "rule": "tolerance 5.188046664924989e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.49893537582102e-8
+    },
+    {
+      "path": "JNJ 2026-09-18 ema200w",
+      "expected": 188.8620214928999,
+      "actual": 188.86202148,
+      "rule": "tolerance 5.1888620214929e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.2899903367724619e-8
+    },
+    {
+      "path": "JPM 2026-09-04 ema200w",
+      "expected": 245.04834070638339,
+      "actual": 245.0483407,
+      "rule": "tolerance 5.245048340706383e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.383373829521588e-9
+    },
+    {
+      "path": "JPM 2026-09-08 ema200w",
+      "expected": 245.04834070638339,
+      "actual": 245.0483407,
+      "rule": "tolerance 5.245048340706383e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.383373829521588e-9
+    },
+    {
+      "path": "JPM 2026-09-09 ema200w",
+      "expected": 245.04834070638339,
+      "actual": 245.0483407,
+      "rule": "tolerance 5.245048340706383e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.383373829521588e-9
+    },
+    {
+      "path": "JPM 2026-09-10 ema200w",
+      "expected": 245.04834070638339,
+      "actual": 245.0483407,
+      "rule": "tolerance 5.245048340706383e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.383373829521588e-9
+    },
+    {
+      "path": "JPM 2026-09-18 ema200w",
+      "expected": 247.18462959613595,
+      "actual": 247.18462959,
+      "rule": "tolerance 5.247184629596136e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.135962848929921e-9
+    },
+    {
+      "path": "KO 2026-08-31 ema200w",
+      "expected": 68.55805419536723,
+      "actual": 68.55805418,
+      "rule": "tolerance 5.068558054195367e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.5367234595942136e-8
+    },
+    {
+      "path": "KO 2026-09-01 ema200w",
+      "expected": 68.55805419536723,
+      "actual": 68.55805418,
+      "rule": "tolerance 5.068558054195367e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.5367234595942136e-8
+    },
+    {
+      "path": "KO 2026-09-02 ema200w",
+      "expected": 68.55805419536723,
+      "actual": 68.55805418,
+      "rule": "tolerance 5.068558054195367e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.5367234595942136e-8
+    },
+    {
+      "path": "KO 2026-09-03 ema200w",
+      "expected": 68.55805419536723,
+      "actual": 68.55805418,
+      "rule": "tolerance 5.068558054195367e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.5367234595942136e-8
+    },
+    {
+      "path": "KO 2026-09-04 ema200w",
+      "expected": 68.75220290984119,
+      "actual": 68.7522029,
+      "rule": "tolerance 5.068752202909841e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.84118742053397e-9
+    },
+    {
+      "path": "KO 2026-09-08 ema200w",
+      "expected": 68.75220290984119,
+      "actual": 68.7522029,
+      "rule": "tolerance 5.068752202909841e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.84118742053397e-9
+    },
+    {
+      "path": "KO 2026-09-09 ema200w",
+      "expected": 68.75220290984119,
+      "actual": 68.7522029,
+      "rule": "tolerance 5.068752202909841e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.84118742053397e-9
+    },
+    {
+      "path": "KO 2026-09-10 ema200w",
+      "expected": 68.75220290984119,
+      "actual": 68.7522029,
+      "rule": "tolerance 5.068752202909841e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -9.84118742053397e-9
+    },
+    {
+      "path": "KO 2026-09-11 ema200w",
+      "expected": 68.9466088510368,
+      "actual": 68.94660884,
+      "rule": "tolerance 5.068946608851037e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1036803471142775e-8
+    },
+    {
+      "path": "KO 2026-09-14 ema200w",
+      "expected": 68.9466088510368,
+      "actual": 68.94660884,
+      "rule": "tolerance 5.068946608851037e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1036803471142775e-8
+    },
+    {
+      "path": "KO 2026-09-15 ema200w",
+      "expected": 68.9466088510368,
+      "actual": 68.94660884,
+      "rule": "tolerance 5.068946608851037e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1036803471142775e-8
+    },
+    {
+      "path": "KO 2026-09-16 ema200w",
+      "expected": 68.9466088510368,
+      "actual": 68.94660884,
+      "rule": "tolerance 5.068946608851037e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1036803471142775e-8
+    },
+    {
+      "path": "KO 2026-09-17 ema200w",
+      "expected": 68.9466088510368,
+      "actual": 68.94660884,
+      "rule": "tolerance 5.068946608851037e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.1036803471142775e-8
+    },
+    {
+      "path": "KO 2026-09-18 ema200w",
+      "expected": 69.13868239480757,
+      "actual": 69.13868238,
+      "rule": "tolerance 5.0691386823948074e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.4807568504693336e-8
+    },
+    {
+      "path": "MCD 2026-08-31 ema200w",
+      "expected": 283.16481197683277,
+      "actual": 283.16481197,
+      "rule": "tolerance 5.283164811976833e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.832749477325706e-9
+    },
+    {
+      "path": "MCD 2026-09-01 ema200w",
+      "expected": 283.16481197683277,
+      "actual": 283.16481197,
+      "rule": "tolerance 5.283164811976833e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.832749477325706e-9
+    },
+    {
+      "path": "MCD 2026-09-02 ema200w",
+      "expected": 283.16481197683277,
+      "actual": 283.16481197,
+      "rule": "tolerance 5.283164811976833e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.832749477325706e-9
+    },
+    {
+      "path": "MCD 2026-09-03 ema200w",
+      "expected": 283.16481197683277,
+      "actual": 283.16481197,
+      "rule": "tolerance 5.283164811976833e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.832749477325706e-9
+    },
+    {
+      "path": "MCD 2026-09-18 ema200w",
+      "expected": 282.24754262644063,
+      "actual": 282.24754262,
+      "rule": "tolerance 5.282247542626441e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.440643574023852e-9
+    },
+    {
+      "path": "MRK 2026-08-31 ema200w",
+      "expected": 103.74223831367496,
+      "actual": 103.7422383,
+      "rule": "tolerance 5.103742238313675e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.3674963383891736e-8
+    },
+    {
+      "path": "MRK 2026-09-01 ema200w",
+      "expected": 103.74223831367496,
+      "actual": 103.7422383,
+      "rule": "tolerance 5.103742238313675e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.3674963383891736e-8
+    },
+    {
+      "path": "MRK 2026-09-02 ema200w",
+      "expected": 103.74223831367496,
+      "actual": 103.7422383,
+      "rule": "tolerance 5.103742238313675e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.3674963383891736e-8
+    },
+    {
+      "path": "MRK 2026-09-03 ema200w",
+      "expected": 103.74223831367496,
+      "actual": 103.7422383,
+      "rule": "tolerance 5.103742238313675e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.3674963383891736e-8
+    },
+    {
+      "path": "MRK 2026-09-04 ema200w",
+      "expected": 104.20579813144934,
+      "actual": 104.20579811,
+      "rule": "tolerance 5.1042057981314495e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -2.1449338305501442e-8
+    },
+    {
+      "path": "MRK 2026-09-08 ema200w",
+      "expected": 104.20579813144934,
+      "actual": 104.20579811,
+      "rule": "tolerance 5.1042057981314495e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -2.1449338305501442e-8
+    },
+    {
+      "path": "MRK 2026-09-09 ema200w",
+      "expected": 104.20579813144934,
+      "actual": 104.20579811,
+      "rule": "tolerance 5.1042057981314495e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -2.1449338305501442e-8
+    },
+    {
+      "path": "MRK 2026-09-10 ema200w",
+      "expected": 104.20579813144934,
+      "actual": 104.20579811,
+      "rule": "tolerance 5.1042057981314495e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -2.1449338305501442e-8
+    },
+    {
+      "path": "MRK 2026-09-11 ema200w",
+      "expected": 104.60106382168368,
+      "actual": 104.60106381,
+      "rule": "tolerance 5.104601063821684e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.168368157777877e-8
+    },
+    {
+      "path": "MRK 2026-09-14 ema200w",
+      "expected": 104.60106382168368,
+      "actual": 104.60106381,
+      "rule": "tolerance 5.104601063821684e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.168368157777877e-8
+    },
+    {
+      "path": "MRK 2026-09-15 ema200w",
+      "expected": 104.60106382168368,
+      "actual": 104.60106381,
+      "rule": "tolerance 5.104601063821684e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.168368157777877e-8
+    },
+    {
+      "path": "MRK 2026-09-16 ema200w",
+      "expected": 104.60106382168368,
+      "actual": 104.60106381,
+      "rule": "tolerance 5.104601063821684e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.168368157777877e-8
+    },
+    {
+      "path": "MRK 2026-09-17 ema200w",
+      "expected": 104.60106382168368,
+      "actual": 104.60106381,
+      "rule": "tolerance 5.104601063821684e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -1.168368157777877e-8
+    },
+    {
+      "path": "MRK 2026-09-18 ema200w",
+      "expected": 105.02165025131868,
+      "actual": 105.02165023,
+      "rule": "tolerance 5.1050216502513185e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -2.131866949639516e-8
+    },
+    {
+      "path": "MSFT 2026-08-31 ema200w",
+      "expected": 395.74632330689514,
+      "actual": 395.7463233,
+      "rule": "tolerance 5.395746323306895e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.895163551234873e-9
+    },
+    {
+      "path": "MSFT 2026-09-01 ema200w",
+      "expected": 395.74632330689514,
+      "actual": 395.7463233,
+      "rule": "tolerance 5.395746323306895e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.895163551234873e-9
+    },
+    {
+      "path": "MSFT 2026-09-02 ema200w",
+      "expected": 395.74632330689514,
+      "actual": 395.7463233,
+      "rule": "tolerance 5.395746323306895e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.895163551234873e-9
+    },
+    {
+      "path": "MSFT 2026-09-03 ema200w",
+      "expected": 395.74632330689514,
+      "actual": 395.7463233,
+      "rule": "tolerance 5.395746323306895e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -6.895163551234873e-9
+    },
+    {
+      "path": "NKE 2026-09-18 ema200w",
+      "expected": 75.45784140787065,
+      "actual": 75.4578414,
+      "rule": "tolerance 5.075457841407871e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -7.870639251450484e-9
+    },
+    {
+      "path": "UNH 2026-09-04 ema200w",
+      "expected": 412.90529010311,
+      "actual": 412.90529011,
+      "rule": "tolerance 5.41290529010311e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 6.8899908001185395e-9
+    },
+    {
+      "path": "UNH 2026-09-08 ema200w",
+      "expected": 412.90529010311,
+      "actual": 412.90529011,
+      "rule": "tolerance 5.41290529010311e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 6.8899908001185395e-9
+    },
+    {
+      "path": "UNH 2026-09-09 ema200w",
+      "expected": 412.90529010311,
+      "actual": 412.90529011,
+      "rule": "tolerance 5.41290529010311e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 6.8899908001185395e-9
+    },
+    {
+      "path": "UNH 2026-09-10 ema200w",
+      "expected": 412.90529010311,
+      "actual": 412.90529011,
+      "rule": "tolerance 5.41290529010311e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": 6.8899908001185395e-9
+    },
+    {
+      "path": "XOM 2026-09-11 ema200w",
+      "expected": 118.09978500534014,
+      "actual": 118.099785,
+      "rule": "tolerance 5.11809978500534e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.340140774023894e-9
+    },
+    {
+      "path": "XOM 2026-09-14 ema200w",
+      "expected": 118.09978500534014,
+      "actual": 118.099785,
+      "rule": "tolerance 5.11809978500534e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.340140774023894e-9
+    },
+    {
+      "path": "XOM 2026-09-15 ema200w",
+      "expected": 118.09978500534014,
+      "actual": 118.099785,
+      "rule": "tolerance 5.11809978500534e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.340140774023894e-9
+    },
+    {
+      "path": "XOM 2026-09-16 ema200w",
+      "expected": 118.09978500534014,
+      "actual": 118.099785,
+      "rule": "tolerance 5.11809978500534e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.340140774023894e-9
+    },
+    {
+      "path": "XOM 2026-09-17 ema200w",
+      "expected": 118.09978500534014,
+      "actual": 118.099785,
+      "rule": "tolerance 5.11809978500534e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -5.340140774023894e-9
+    },
+    {
+      "path": "XOM 2026-09-18 ema200w",
+      "expected": 118.55192644807308,
+      "actual": 118.55192644,
+      "rule": "tolerance 5.118551926448073e-9 (Decimal(20,8) storage quantization + float64 accumulation)",
+      "difference": -8.073072876868537e-9
+    }
+  ]
+}

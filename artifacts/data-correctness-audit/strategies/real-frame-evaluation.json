@@ -1,0 +1,531 @@
+{
+  "description": "Production buildStrategyGates versus the reference evaluator, every level x security x simulated date of the C01 (30-year) matrix runs.",
+  "cases": 100,
+  "comparisons": 17748544,
+  "failed": 0,
+  "trueDays": 5931719,
+  "notEvaluableDays": 331302,
+  "differences": [],
+  "traces": [
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-14",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22545,
+        "previousClose": 0.21652,
+        "series:SMA_200D": 0.2237021,
+        "previous series:SMA_200D": 0.22399785
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-15",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22545,
+        "previousClose": 0.22545,
+        "series:SMA_200D": 0.2233952,
+        "previous series:SMA_200D": 0.2237021
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-16",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22991,
+        "previousClose": 0.22545,
+        "series:SMA_200D": 0.2231106,
+        "previous series:SMA_200D": 0.2233952
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-17",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23549,
+        "previousClose": 0.22991,
+        "series:SMA_200D": 0.222879,
+        "previous series:SMA_200D": 0.2231106
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-18",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23717,
+        "previousClose": 0.23549,
+        "series:SMA_200D": 0.22253585,
+        "previous series:SMA_200D": 0.222879
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-21",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22879,
+        "previousClose": 0.23717,
+        "series:SMA_200D": 0.22213405,
+        "previous series:SMA_200D": 0.22253585
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-22",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.2221,
+        "previousClose": 0.22879,
+        "series:SMA_200D": 0.2217825,
+        "previous series:SMA_200D": 0.22213405
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-10-24",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22098,
+        "previousClose": 0.22098,
+        "series:SMA_200D": 0.2209008,
+        "previous series:SMA_200D": 0.2213584
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-05",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22712,
+        "previousClose": 0.21763,
+        "series:SMA_200D": 0.21785115,
+        "previous series:SMA_200D": 0.2181274
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-06",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22768,
+        "previousClose": 0.22712,
+        "series:SMA_200D": 0.2175498,
+        "previous series:SMA_200D": 0.21785115
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-07",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23103,
+        "previousClose": 0.22768,
+        "series:SMA_200D": 0.2173545,
+        "previous series:SMA_200D": 0.2175498
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-08",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23438,
+        "previousClose": 0.23103,
+        "series:SMA_200D": 0.2171592,
+        "previous series:SMA_200D": 0.2173545
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-11",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23214,
+        "previousClose": 0.23438,
+        "series:SMA_200D": 0.2170197,
+        "previous series:SMA_200D": 0.2171592
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-12",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22545,
+        "previousClose": 0.23214,
+        "series:SMA_200D": 0.21692765,
+        "previous series:SMA_200D": 0.2170197
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-13",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22824,
+        "previousClose": 0.22545,
+        "series:SMA_200D": 0.2168356,
+        "previous series:SMA_200D": 0.21692765
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-14",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22879,
+        "previousClose": 0.22824,
+        "series:SMA_200D": 0.2167128,
+        "previous series:SMA_200D": 0.2168356
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-15",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.22879,
+        "series:SMA_200D": 0.21652305,
+        "previous series:SMA_200D": 0.2167128
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-18",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22098,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.21632215,
+        "previous series:SMA_200D": 0.21652305
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-19",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.2221,
+        "previousClose": 0.22098,
+        "series:SMA_200D": 0.2161101,
+        "previous series:SMA_200D": 0.21632215
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-20",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.2221,
+        "series:SMA_200D": 0.215965,
+        "previous series:SMA_200D": 0.2161101
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-21",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.21875,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.21581435,
+        "previous series:SMA_200D": 0.215965
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-22",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22545,
+        "previousClose": 0.21875,
+        "series:SMA_200D": 0.21570275,
+        "previous series:SMA_200D": 0.21581435
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-25",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.22545,
+        "series:SMA_200D": 0.21555205,
+        "previous series:SMA_200D": 0.21570275
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-26",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.21652,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.21537905,
+        "previous series:SMA_200D": 0.21555205
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-27",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.21875,
+        "previousClose": 0.21652,
+        "series:SMA_200D": 0.21523955,
+        "previous series:SMA_200D": 0.21537905
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-11-29",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.2154,
+        "previousClose": 0.21875,
+        "series:SMA_200D": 0.21506655,
+        "previous series:SMA_200D": 0.21523955
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-02",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22433,
+        "previousClose": 0.2154,
+        "series:SMA_200D": 0.2149605,
+        "previous series:SMA_200D": 0.21506655
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-03",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22433,
+        "previousClose": 0.22433,
+        "series:SMA_200D": 0.2147875,
+        "previous series:SMA_200D": 0.2149605
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-04",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.22433,
+        "series:SMA_200D": 0.214581,
+        "previous series:SMA_200D": 0.2147875
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-05",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.21436335,
+        "previous series:SMA_200D": 0.214581
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-06",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22433,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.2141513,
+        "previous series:SMA_200D": 0.21436335
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-09",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.22321,
+        "previousClose": 0.22433,
+        "series:SMA_200D": 0.2139504,
+        "previous series:SMA_200D": 0.2141513
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-10",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.21875,
+        "previousClose": 0.22321,
+        "series:SMA_200D": 0.21376625,
+        "previous series:SMA_200D": 0.2139504
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-12-11",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.21429,
+        "previousClose": 0.21875,
+        "series:SMA_200D": 0.21359885,
+        "previous series:SMA_200D": 0.21376625
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-01",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.17132,
+        "previousClose": 0.15625,
+        "series:SMA_200D": 0.1676776,
+        "previous series:SMA_200D": 0.16797055
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-04",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.17634,
+        "previousClose": 0.17132,
+        "series:SMA_200D": 0.16738185,
+        "previous series:SMA_200D": 0.1676776
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-05",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.17634,
+        "previousClose": 0.17634,
+        "series:SMA_200D": 0.1670777,
+        "previous series:SMA_200D": 0.16738185
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-06",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.23493,
+        "previousClose": 0.17634,
+        "series:SMA_200D": 0.1671084,
+        "previous series:SMA_200D": 0.1670777
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-07",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.2606,
+        "previousClose": 0.23493,
+        "series:SMA_200D": 0.1673009,
+        "previous series:SMA_200D": 0.1671084
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1997-08-08",
+      "level": "BUY 100% s01-buy1",
+      "inputs": {
+        "close": 0.2394,
+        "previousClose": 0.2606,
+        "series:SMA_200D": 0.167393,
+        "previous series:SMA_200D": 0.1673009
+      },
+      "expected": "TRUE",
+      "actual": "TRUE"
+    }
+  ]
+}

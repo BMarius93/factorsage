@@ -1,0 +1,1690 @@
+{
+  "runs": [
+    {
+      "caseId": "S01-L01-C04",
+      "runId": "177ad4c9-dd89-4f2e-998f-65f974449977",
+      "summary": {
+        "portfolioReturnPercent": 3.2372696,
+        "benchmarkReturnPercent": 15.99484134,
+        "alphaPercent": -12.75757174,
+        "finalValue": 103237.269603,
+        "netProfit": 3237.269603,
+        "maxDrawdownPercent": 1.52867263,
+        "totalTrades": 2,
+        "portfolioCagrPercent": 3.24856525
+      },
+      "annualReturns": [
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 0.6162136799999995,
+          "partial": true
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 2.6050035318721187,
+          "partial": true
+        }
+      ],
+      "tradeCount": 2,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "AAPL",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 39.0502967822,
+          "price": 338.98,
+          "amount": 13237.269603,
+          "realizedPnl": 3237.269603,
+          "realizedPnlPercent": 32.37269603
+        },
+        {
+          "date": "2025-09-22",
+          "symbol": "AAPL",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 100,
+          "shares": 39.0502967822,
+          "price": 256.08,
+          "amount": 10000,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2025-09-21"
+        },
+        "initialCapital": 100000,
+        "monthlyContribution": 0,
+        "maximumPositions": 10,
+        "securities": 1,
+        "equityRows": 251,
+        "firstDate": "2025-09-22",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S04-L05-C05",
+      "runId": "f745f7c1-0745-4054-8a19-7d1f632b667c",
+      "summary": {
+        "portfolioReturnPercent": 38.95174879,
+        "benchmarkReturnPercent": 258.40051895,
+        "alphaPercent": -219.44877016,
+        "finalValue": 86227.503471,
+        "netProfit": 16227.503471,
+        "maxDrawdownPercent": 7.71499946,
+        "totalTrades": 151,
+        "portfolioCagrPercent": 3.34473541
+      },
+      "annualReturns": [
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 0.2350161799999917,
+          "partial": true
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 1.8604639187678407,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 1.8754446880200337,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 5.8307630162247825,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 4.327763317301669,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 4.690652487279023,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": -1.6800173596333456,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 4.448033458117817,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 4.167738072586236,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 4.066347456882324,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 3.8159417479258106,
+          "partial": true
+        }
+      ],
+      "tradeCount": 151,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "MSFT",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 8.2786201927,
+          "price": 501.61,
+          "amount": 4152.638675,
+          "realizedPnl": 199.904611,
+          "realizedPnlPercent": 5.05737567
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "KO",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 13.0703677702,
+          "price": 87.12,
+          "amount": 1138.69044,
+          "realizedPnl": 145.7346,
+          "realizedPnlPercent": 14.67684605
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "JNJ",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 8.9453236123,
+          "price": 269.47,
+          "amount": 2410.496354,
+          "realizedPnl": 351.366734,
+          "realizedPnlPercent": 17.0638473
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "HD",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 23.1589277543,
+          "price": 297.2,
+          "amount": 6882.833329,
+          "realizedPnl": -1012.342832,
+          "realizedPnlPercent": -12.82229568
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "AAPL",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 32.2245323337,
+          "price": 338.98,
+          "amount": 10923.47197,
+          "realizedPnl": 3111.229772,
+          "realizedPnlPercent": 39.82505525
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2016-09-21"
+        },
+        "initialCapital": 10000,
+        "monthlyContribution": 500,
+        "maximumPositions": 10,
+        "securities": 8,
+        "equityRows": 2513,
+        "firstDate": "2016-09-21",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S10-L08-C09",
+      "runId": "e012fd45-ffe5-49bb-9706-d8907409b711",
+      "summary": {
+        "portfolioReturnPercent": 370.04664082,
+        "benchmarkReturnPercent": 258.40051895,
+        "alphaPercent": 111.64612187,
+        "finalValue": 470046.640823,
+        "netProfit": 370046.640823,
+        "maxDrawdownPercent": 48.6698221,
+        "totalTrades": 258,
+        "portfolioCagrPercent": 16.74097004
+      },
+      "annualReturns": [
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 6.918797739999993,
+          "partial": true
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 13.698655624258427,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 8.277114774652873,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 51.36492348042143,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": -16.336654472417457,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 17.630277197616984,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": 5.259364229575314,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 17.609625535122465,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 18.186199131206138,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 35.24405872405762,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 21.150920367751368,
+          "partial": true
+        }
+      ],
+      "tradeCount": 258,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "CAT",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 423.9696222745,
+          "price": 816.5,
+          "amount": 346171.196587,
+          "realizedPnl": 14325.933536,
+          "realizedPnlPercent": 4.31705229
+        },
+        {
+          "date": "2026-08-04",
+          "symbol": "CAT",
+          "action": "SELL",
+          "source": "STRATEGY",
+          "levelPercentage": 25,
+          "shares": 141.3232074248,
+          "price": 876.54,
+          "amount": 123875.444236,
+          "realizedPnl": 13260.356553,
+          "realizedPnlPercent": 11.98783713
+        },
+        {
+          "date": "2026-07-29",
+          "symbol": "CAT",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 100,
+          "shares": 565.2928296993,
+          "price": 782.71,
+          "amount": 442460.350734,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        },
+        {
+          "date": "2026-07-28",
+          "symbol": "BA",
+          "action": "FINAL_EXIT",
+          "source": "STRATEGY",
+          "levelPercentage": null,
+          "shares": 509.6940993828,
+          "price": 221.56,
+          "amount": 112927.824659,
+          "realizedPnl": 3083.649301,
+          "realizedPnlPercent": 2.80729432
+        },
+        {
+          "date": "2026-07-13",
+          "symbol": "BA",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 25,
+          "shares": 509.6940993828,
+          "price": 215.51,
+          "amount": 109844.175358,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2016-09-21"
+        },
+        "initialCapital": 100000,
+        "monthlyContribution": 0,
+        "maximumPositions": 1,
+        "securities": 30,
+        "equityRows": 2513,
+        "firstDate": "2016-09-21",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S05-L02-C07",
+      "runId": "b07ab125-bc76-4ca9-9e0d-decd27eb0454",
+      "summary": {
+        "portfolioReturnPercent": 14.7391,
+        "benchmarkReturnPercent": 258.40051895,
+        "alphaPercent": -243.66141895,
+        "finalValue": 1.147391,
+        "netProfit": 0.147391,
+        "maxDrawdownPercent": 11.34095742,
+        "totalTrades": 315,
+        "portfolioCagrPercent": 1.38459285
+      },
+      "annualReturns": [
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 1.3956999999999997,
+          "partial": true
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 2.75238496307042,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 0.15376272357741083,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 3.107046030205085,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": -3.7901714676620624,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 0.42836027088908324,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": 5.028550980045088,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": -2.3891344528117253,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": -0.7641688865785423,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 5.534380558042873,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 2.801759667419268,
+          "partial": true
+        }
+      ],
+      "tradeCount": 315,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "XOM",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 0.0007248199,
+          "price": 158.3,
+          "amount": 0.114739,
+          "realizedPnl": 0,
+          "realizedPnlPercent": 0
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "XOM",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 100,
+          "shares": 0.0007248199,
+          "price": 158.3,
+          "amount": 0.114739,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        },
+        {
+          "date": "2026-09-11",
+          "symbol": "XOM",
+          "action": "FINAL_EXIT",
+          "source": "STRATEGY",
+          "levelPercentage": null,
+          "shares": 0.0005468662,
+          "price": 165.99,
+          "amount": 0.090774,
+          "realizedPnl": 0.005222,
+          "realizedPnlPercent": 6.10389003
+        },
+        {
+          "date": "2026-09-01",
+          "symbol": "XOM",
+          "action": "SELL",
+          "source": "STRATEGY",
+          "levelPercentage": 25,
+          "shares": 0.0001822887,
+          "price": 164.55,
+          "amount": 0.029996,
+          "realizedPnl": 0.001479,
+          "realizedPnlPercent": 5.18638005
+        },
+        {
+          "date": "2026-08-27",
+          "symbol": "XOM",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 100,
+          "shares": 0.0007291549,
+          "price": 156.44,
+          "amount": 0.114069,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2016-09-21"
+        },
+        "initialCapital": 1,
+        "monthlyContribution": 0,
+        "maximumPositions": 10,
+        "securities": 3,
+        "equityRows": 2513,
+        "firstDate": "2016-09-21",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S08-L06-C06",
+      "runId": "e9cb91b6-e932-4d1c-ae5c-a9a0a3fb73fd",
+      "summary": {
+        "portfolioReturnPercent": 240.16079527,
+        "benchmarkReturnPercent": 258.40051895,
+        "alphaPercent": -18.23972368,
+        "finalValue": 6688251.843437,
+        "netProfit": 3687251.843437,
+        "maxDrawdownPercent": 39.43709727,
+        "totalTrades": 64,
+        "portfolioCagrPercent": 13.02530956
+      },
+      "annualReturns": [
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 5.275791340000002,
+          "partial": true
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 8.56453298069313,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": -5.736479323639221,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 22.082731815218647,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 25.770419507787157,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 19.029812557880454,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": -34.860759133158744,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 29.87304537857476,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 33.296457889058615,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 36.294346877025994,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 12.402883273864894,
+          "partial": true
+        }
+      ],
+      "tradeCount": 64,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "V",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 3080.2792907603,
+          "price": 369.95,
+          "amount": 1139549.323617,
+          "realizedPnl": 443009.66198,
+          "realizedPnlPercent": 63.60149843
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "NVDA",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 6904.9349011247,
+          "price": 227.38,
+          "amount": 1570044.097818,
+          "realizedPnl": 1028116.040973,
+          "realizedPnlPercent": 189.71448848
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "GS",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 1278.111065253,
+          "price": 959.39,
+          "amount": 1226206.974893,
+          "realizedPnl": 761346.762047,
+          "realizedPnlPercent": 163.77972152
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "GOOGL",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 4240.3574028915,
+          "price": 354.97,
+          "amount": 1505199.667304,
+          "realizedPnl": 1046320.497612,
+          "realizedPnlPercent": 228.01656007
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "AMZN",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 3858.5868825879,
+          "price": 258.45,
+          "amount": 997251.779805,
+          "realizedPnl": 501487.360678,
+          "realizedPnlPercent": 101.15436714
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2016-09-21"
+        },
+        "initialCapital": 1000,
+        "monthlyContribution": 25000,
+        "maximumPositions": 5,
+        "securities": 8,
+        "equityRows": 2513,
+        "firstDate": "2016-09-21",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S02-L10-C03",
+      "runId": "166c72fb-6920-40d4-ab80-a2d8f7fd923b",
+      "summary": {
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 79.30410997,
+        "alphaPercent": -79.30410997,
+        "finalValue": 100000,
+        "netProfit": 0,
+        "maxDrawdownPercent": 0,
+        "totalTrades": 0,
+        "portfolioCagrPercent": 0
+      },
+      "annualReturns": [
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 0,
+          "partial": true
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 0,
+          "partial": true
+        }
+      ],
+      "tradeCount": 0,
+      "newestTrades": [],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2023-09-21"
+        },
+        "initialCapital": 100000,
+        "monthlyContribution": 0,
+        "maximumPositions": 10,
+        "securities": 6,
+        "equityRows": 752,
+        "firstDate": "2023-09-21",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S09-L08-C01",
+      "runId": "ad7da84b-dfc6-4ea4-a8a4-7ac3f6532187",
+      "summary": {
+        "portfolioReturnPercent": 676.82019359,
+        "benchmarkReturnPercent": 1027.05813784,
+        "alphaPercent": -350.23794425,
+        "finalValue": 776820.193593,
+        "netProfit": 676820.193593,
+        "maxDrawdownPercent": 32.16626319,
+        "totalTrades": 228,
+        "portfolioCagrPercent": 7.0740236
+      },
+      "annualReturns": [
+        {
+          "year": "1996",
+          "simulatedThrough": "1996-12-31",
+          "returnPercent": 2.9711400000000054,
+          "partial": true
+        },
+        {
+          "year": "1997",
+          "simulatedThrough": "1997-12-31",
+          "returnPercent": 10.553603271751655,
+          "partial": false
+        },
+        {
+          "year": "1998",
+          "simulatedThrough": "1998-12-31",
+          "returnPercent": 12.066142787002265,
+          "partial": false
+        },
+        {
+          "year": "1999",
+          "simulatedThrough": "1999-12-31",
+          "returnPercent": 8.655203093140207,
+          "partial": false
+        },
+        {
+          "year": "2000",
+          "simulatedThrough": "2000-12-29",
+          "returnPercent": 7.256805106787856,
+          "partial": false
+        },
+        {
+          "year": "2001",
+          "simulatedThrough": "2001-12-31",
+          "returnPercent": -1.35693223454173,
+          "partial": false
+        },
+        {
+          "year": "2002",
+          "simulatedThrough": "2002-12-31",
+          "returnPercent": -5.721804172000066,
+          "partial": false
+        },
+        {
+          "year": "2003",
+          "simulatedThrough": "2003-12-31",
+          "returnPercent": 17.759481852124146,
+          "partial": false
+        },
+        {
+          "year": "2004",
+          "simulatedThrough": "2004-12-31",
+          "returnPercent": 7.406195549624162,
+          "partial": false
+        },
+        {
+          "year": "2005",
+          "simulatedThrough": "2005-12-30",
+          "returnPercent": 7.354987314590988,
+          "partial": false
+        },
+        {
+          "year": "2006",
+          "simulatedThrough": "2006-12-29",
+          "returnPercent": 9.53966354769289,
+          "partial": false
+        },
+        {
+          "year": "2007",
+          "simulatedThrough": "2007-12-31",
+          "returnPercent": 4.5876985861526,
+          "partial": false
+        },
+        {
+          "year": "2008",
+          "simulatedThrough": "2008-12-31",
+          "returnPercent": -20.76326895659174,
+          "partial": false
+        },
+        {
+          "year": "2009",
+          "simulatedThrough": "2009-12-31",
+          "returnPercent": 17.675355564796025,
+          "partial": false
+        },
+        {
+          "year": "2010",
+          "simulatedThrough": "2010-12-31",
+          "returnPercent": 5.725457993417393,
+          "partial": false
+        },
+        {
+          "year": "2011",
+          "simulatedThrough": "2011-12-30",
+          "returnPercent": 2.2584169626420847,
+          "partial": false
+        },
+        {
+          "year": "2012",
+          "simulatedThrough": "2012-12-31",
+          "returnPercent": 11.189065807407728,
+          "partial": false
+        },
+        {
+          "year": "2013",
+          "simulatedThrough": "2013-12-31",
+          "returnPercent": 17.344613654772555,
+          "partial": false
+        },
+        {
+          "year": "2014",
+          "simulatedThrough": "2014-12-31",
+          "returnPercent": 10.790946371768984,
+          "partial": false
+        },
+        {
+          "year": "2015",
+          "simulatedThrough": "2015-12-31",
+          "returnPercent": -0.3776710657939386,
+          "partial": false
+        },
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 6.013633519851447,
+          "partial": false
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 19.948228330990283,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": -2.8333998996649123,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 23.789129706094947,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 3.089669158091213,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 8.175551646642809,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": 2.636522204951741,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 10.67899472763807,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 10.746645926659326,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 10.54633189082599,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 4.8785524223670995,
+          "partial": true
+        }
+      ],
+      "tradeCount": 228,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "XOM",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 254.032748597,
+          "price": 158.3,
+          "amount": 40213.384103,
+          "realizedPnl": 1102.502129,
+          "realizedPnlPercent": 2.818914
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "UNH",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 112.0708983912,
+          "price": 377.56,
+          "amount": 42313.488397,
+          "realizedPnl": 7829.272962,
+          "realizedPnlPercent": 22.7039324
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "TRV",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 254.5592093581,
+          "price": 371.13,
+          "amount": 94474.559369,
+          "realizedPnl": 73318.937885,
+          "realizedPnlPercent": 346.56952971
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "JPM",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 178.8013513148,
+          "price": 352.04,
+          "amount": 62945.227717,
+          "realizedPnl": 36359.25479,
+          "realizedPnlPercent": 136.76104647
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "GS",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 41.0211481461,
+          "price": 959.39,
+          "amount": 39355.27932,
+          "realizedPnl": 2302.106834,
+          "realizedPnlPercent": 6.21298172
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "1996-09-22"
+        },
+        "initialCapital": 100000,
+        "monthlyContribution": 0,
+        "maximumPositions": 10,
+        "securities": 30,
+        "equityRows": 7546,
+        "firstDate": "1996-09-23",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S03-L09-C10",
+      "runId": "3623d790-eecd-4688-aae5-4c5f7c3f6393",
+      "summary": {
+        "portfolioReturnPercent": 50.10503285,
+        "benchmarkReturnPercent": 1027.05813784,
+        "alphaPercent": -976.95310499,
+        "finalValue": 883855.217607,
+        "netProfit": 273855.217607,
+        "maxDrawdownPercent": 10.57417192,
+        "totalTrades": 33,
+        "portfolioCagrPercent": 1.36340329
+      },
+      "annualReturns": [
+        {
+          "year": "1996",
+          "simulatedThrough": "1996-12-31",
+          "returnPercent": 0,
+          "partial": true
+        },
+        {
+          "year": "1997",
+          "simulatedThrough": "1997-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "1998",
+          "simulatedThrough": "1998-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "1999",
+          "simulatedThrough": "1999-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2000",
+          "simulatedThrough": "2000-12-29",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2001",
+          "simulatedThrough": "2001-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2002",
+          "simulatedThrough": "2002-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2003",
+          "simulatedThrough": "2003-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2004",
+          "simulatedThrough": "2004-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2005",
+          "simulatedThrough": "2005-12-30",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2006",
+          "simulatedThrough": "2006-12-29",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2007",
+          "simulatedThrough": "2007-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2008",
+          "simulatedThrough": "2008-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2009",
+          "simulatedThrough": "2009-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2010",
+          "simulatedThrough": "2010-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2011",
+          "simulatedThrough": "2011-12-30",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2012",
+          "simulatedThrough": "2012-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2013",
+          "simulatedThrough": "2013-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2014",
+          "simulatedThrough": "2014-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2015",
+          "simulatedThrough": "2015-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 0.573176700000011,
+          "partial": false
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 3.9197300009317315,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 0.8308996652099054,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 6.901853047457229,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 8.789623170732064,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 10.85272632522123,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": -8.005101069445997,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 3.1117663533228646,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 11.343040327821807,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 2.0050027993376407,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 2.5523999537180764,
+          "partial": true
+        }
+      ],
+      "tradeCount": 33,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "NVDA",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 435.4101244768,
+          "price": 227.38,
+          "amount": 99003.554104,
+          "realizedPnl": 87351.979173,
+          "realizedPnlPercent": 749.70104634
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "AMZN",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 149.7486461578,
+          "price": 258.45,
+          "amount": 38702.537599,
+          "realizedPnl": 15453.505394,
+          "realizedPnlPercent": 66.4694567
+        },
+        {
+          "date": "2025-02-03",
+          "symbol": "NVDA",
+          "action": "SELL",
+          "source": "STRATEGY",
+          "levelPercentage": 50,
+          "shares": 435.4101244768,
+          "price": 116.66,
+          "amount": 50794.945121,
+          "realizedPnl": 39143.37019,
+          "realizedPnlPercent": 335.94917787
+        },
+        {
+          "date": "2024-09-03",
+          "symbol": "AMZN",
+          "action": "BUY",
+          "source": "STRATEGY",
+          "levelPercentage": 100,
+          "shares": 62.2700053787,
+          "price": 176.25,
+          "amount": 10975.088448,
+          "realizedPnl": null,
+          "realizedPnlPercent": null
+        },
+        {
+          "date": "2024-08-05",
+          "symbol": "AMZN",
+          "action": "SELL",
+          "source": "STRATEGY",
+          "levelPercentage": 50,
+          "shares": 87.478640779,
+          "price": 161.02,
+          "amount": 14085.810738,
+          "realizedPnl": 1811.866982,
+          "realizedPnlPercent": 14.76189738
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "1996-09-22"
+        },
+        "initialCapital": 250000,
+        "monthlyContribution": 1000,
+        "maximumPositions": 30,
+        "securities": 6,
+        "equityRows": 7546,
+        "firstDate": "1996-09-23",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S07-L07-C08",
+      "runId": "572dede0-ef3a-45e8-830f-e5575824466e",
+      "summary": {
+        "portfolioReturnPercent": 176.61896203,
+        "benchmarkReturnPercent": 1027.05813784,
+        "alphaPercent": -850.43917581,
+        "finalValue": 2766189620.272327,
+        "netProfit": 1766189620.272327,
+        "maxDrawdownPercent": 14.25467679,
+        "totalTrades": 15,
+        "portfolioCagrPercent": 3.45053943
+      },
+      "annualReturns": [
+        {
+          "year": "1996",
+          "simulatedThrough": "1996-12-31",
+          "returnPercent": 0.12587894000000155,
+          "partial": true
+        },
+        {
+          "year": "1997",
+          "simulatedThrough": "1997-12-31",
+          "returnPercent": 2.0632936078773145,
+          "partial": false
+        },
+        {
+          "year": "1998",
+          "simulatedThrough": "1998-12-31",
+          "returnPercent": 1.4145106233398597,
+          "partial": false
+        },
+        {
+          "year": "1999",
+          "simulatedThrough": "1999-12-31",
+          "returnPercent": 0.18364499150296254,
+          "partial": false
+        },
+        {
+          "year": "2000",
+          "simulatedThrough": "2000-12-29",
+          "returnPercent": 1.0630543668601389,
+          "partial": false
+        },
+        {
+          "year": "2001",
+          "simulatedThrough": "2001-12-31",
+          "returnPercent": 0.1603295173939312,
+          "partial": false
+        },
+        {
+          "year": "2002",
+          "simulatedThrough": "2002-12-31",
+          "returnPercent": -1.0106266851630519,
+          "partial": false
+        },
+        {
+          "year": "2003",
+          "simulatedThrough": "2003-12-31",
+          "returnPercent": 0.10835265468442934,
+          "partial": false
+        },
+        {
+          "year": "2004",
+          "simulatedThrough": "2004-12-31",
+          "returnPercent": 1.2347075569183241,
+          "partial": false
+        },
+        {
+          "year": "2005",
+          "simulatedThrough": "2005-12-30",
+          "returnPercent": -0.5777935999191852,
+          "partial": false
+        },
+        {
+          "year": "2006",
+          "simulatedThrough": "2006-12-29",
+          "returnPercent": 1.3730900623067255,
+          "partial": false
+        },
+        {
+          "year": "2007",
+          "simulatedThrough": "2007-12-31",
+          "returnPercent": 0.8816848127288113,
+          "partial": false
+        },
+        {
+          "year": "2008",
+          "simulatedThrough": "2008-12-31",
+          "returnPercent": -3.6876757342446442,
+          "partial": false
+        },
+        {
+          "year": "2009",
+          "simulatedThrough": "2009-12-31",
+          "returnPercent": 3.5375978522704132,
+          "partial": false
+        },
+        {
+          "year": "2010",
+          "simulatedThrough": "2010-12-31",
+          "returnPercent": -0.03035748713962061,
+          "partial": false
+        },
+        {
+          "year": "2011",
+          "simulatedThrough": "2011-12-30",
+          "returnPercent": 1.1416779821194822,
+          "partial": false
+        },
+        {
+          "year": "2012",
+          "simulatedThrough": "2012-12-31",
+          "returnPercent": 2.1605996857328558,
+          "partial": false
+        },
+        {
+          "year": "2013",
+          "simulatedThrough": "2013-12-31",
+          "returnPercent": 7.782554543523279,
+          "partial": false
+        },
+        {
+          "year": "2014",
+          "simulatedThrough": "2014-12-31",
+          "returnPercent": 2.2422601614425552,
+          "partial": false
+        },
+        {
+          "year": "2015",
+          "simulatedThrough": "2015-12-31",
+          "returnPercent": 3.6011113515178605,
+          "partial": false
+        },
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 1.6131846067295452,
+          "partial": false
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 8.937332089798321,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 0.0348893314878751,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 9.320565642946278,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 6.824937587931856,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 11.379256771791768,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": -6.653949804509018,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 6.744170345115874,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 8.068298285854404,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 24.58847291154871,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 13.55226081410541,
+          "partial": true
+        }
+      ],
+      "tradeCount": 15,
+      "newestTrades": [
+        {
+          "date": "2026-09-21",
+          "symbol": "V",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 932036.3041703089,
+          "price": 369.95,
+          "amount": 344806830.727806,
+          "realizedPnl": 319774334.820794,
+          "realizedPnlPercent": 1277.43688048
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "MRNA",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 515460.6628303424,
+          "price": 172.94,
+          "amount": 89143767.029879,
+          "realizedPnl": 28190543.650191,
+          "realizedPnlPercent": 46.24947146
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "KO",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 1264093.1349845475,
+          "price": 87.12,
+          "amount": 110127793.919854,
+          "realizedPnl": 76879882.123049,
+          "realizedPnlPercent": 231.2322127
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "JNJ",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 1583653.2734009498,
+          "price": 269.47,
+          "amount": 426747047.583354,
+          "realizedPnl": 387602253.466872,
+          "realizedPnlPercent": 990.17573656
+        },
+        {
+          "date": "2026-09-21",
+          "symbol": "GOOGL",
+          "action": "SELL",
+          "source": "END_OF_BACKTEST",
+          "levelPercentage": null,
+          "shares": 2799608.4369372725,
+          "price": 354.97,
+          "amount": 993777006.859624,
+          "realizedPnl": 953742606.211421,
+          "realizedPnlPercent": 2382.30769231
+        }
+      ],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "1996-09-22"
+        },
+        "initialCapital": 1000000000,
+        "monthlyContribution": 0,
+        "maximumPositions": 20,
+        "securities": 5,
+        "equityRows": 7546,
+        "firstDate": "1996-09-23",
+        "lastDate": "2026-09-21"
+      }
+    },
+    {
+      "caseId": "S06-L04-C02",
+      "runId": "285334bf-7613-4177-bae1-16d42d787daf",
+      "summary": {
+        "portfolioReturnPercent": 0,
+        "benchmarkReturnPercent": 258.40051895,
+        "alphaPercent": -258.40051895,
+        "finalValue": 100000,
+        "netProfit": 0,
+        "maxDrawdownPercent": 0,
+        "totalTrades": 0,
+        "portfolioCagrPercent": 0
+      },
+      "annualReturns": [
+        {
+          "year": "2016",
+          "simulatedThrough": "2016-12-30",
+          "returnPercent": 0,
+          "partial": true
+        },
+        {
+          "year": "2017",
+          "simulatedThrough": "2017-12-29",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2018",
+          "simulatedThrough": "2018-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2019",
+          "simulatedThrough": "2019-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2020",
+          "simulatedThrough": "2020-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2021",
+          "simulatedThrough": "2021-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2022",
+          "simulatedThrough": "2022-12-30",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2023",
+          "simulatedThrough": "2023-12-29",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2024",
+          "simulatedThrough": "2024-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2025",
+          "simulatedThrough": "2025-12-31",
+          "returnPercent": 0,
+          "partial": false
+        },
+        {
+          "year": "2026",
+          "simulatedThrough": "2026-09-21",
+          "returnPercent": 0,
+          "partial": true
+        }
+      ],
+      "tradeCount": 0,
+      "newestTrades": [],
+      "configuration": {
+        "period": {
+          "endDate": "2026-09-21",
+          "startDate": "2016-09-21"
+        },
+        "initialCapital": 100000,
+        "monthlyContribution": 0,
+        "maximumPositions": 10,
+        "securities": 4,
+        "equityRows": 2513,
+        "firstDate": "2016-09-21",
+        "lastDate": "2026-09-21"
+      }
+    }
+  ]
+}

@@ -1,0 +1,1534 @@
+{
+  "assumption": "statements whose provider filing date is on or before the fiscal period end made available no earlier than fiscalDate + 40 days (quarters) / + 60 days (fiscal year, Q4)",
+  "securitiesAffected": [
+    "AAPL",
+    "ADBE",
+    "AMGN",
+    "AMZN",
+    "AXP",
+    "BA",
+    "CAT",
+    "CRM",
+    "CSCO",
+    "CVX",
+    "DIS",
+    "GOOGL",
+    "GS",
+    "HD",
+    "HON",
+    "IBM",
+    "JNJ",
+    "JPM",
+    "KO",
+    "MCD",
+    "MMM",
+    "MRK",
+    "MRNA",
+    "MSFT",
+    "NKE",
+    "NVDA",
+    "PG",
+    "SHW",
+    "TRV",
+    "UNH",
+    "V",
+    "WMT",
+    "XOM"
+  ],
+  "s09Cases": 100,
+  "casesWithDifferentTrades": 9,
+  "tradesPersisted": 3441,
+  "tradesCorrected": 3465,
+  "perCase": [
+    {
+      "caseId": "S09-L08-C10",
+      "tradesPersisted": 731,
+      "tradesCorrected": 746,
+      "tradesOnlyWithLookAhead": 15,
+      "tradesOnlyWithoutLookAhead": 30,
+      "finalValuePersisted": 1712476.070241,
+      "finalValueCorrected": 1713695.912619,
+      "finalValueChangePercent": 0.07123266708353826,
+      "examples": {
+        "onlyWithLookAhead": [
+          "1996-11-11|DIS|SELL",
+          "1999-01-04|DIS|FINAL_EXIT",
+          "1999-10-01|DIS|BUY",
+          "1999-11-01|DIS|BUY",
+          "2000-12-01|GS|BUY"
+        ],
+        "onlyWithoutLookAhead": [
+          "1996-11-29|DIS|SELL",
+          "1999-02-09|DIS|FINAL_EXIT",
+          "1999-11-29|DIS|BUY",
+          "1999-12-01|DIS|BUY",
+          "2000-12-01|DIS|BUY"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L08-C08",
+      "tradesPersisted": 299,
+      "tradesCorrected": 301,
+      "tradesOnlyWithLookAhead": 12,
+      "tradesOnlyWithoutLookAhead": 14,
+      "finalValuePersisted": 3887443578.397292,
+      "finalValueCorrected": 3891112834.719406,
+      "finalValueChangePercent": 0.09438738461708412,
+      "examples": {
+        "onlyWithLookAhead": [
+          "1996-11-11|DIS|SELL",
+          "1999-01-04|DIS|FINAL_EXIT",
+          "1999-10-01|DIS|BUY",
+          "2000-12-01|GS|BUY",
+          "2001-01-03|GS|BUY"
+        ],
+        "onlyWithoutLookAhead": [
+          "1996-11-29|DIS|SELL",
+          "1999-02-09|DIS|FINAL_EXIT",
+          "1999-11-29|DIS|BUY",
+          "2001-01-29|GS|BUY",
+          "2001-08-09|DIS|FINAL_EXIT"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L08-C01",
+      "tradesPersisted": 228,
+      "tradesCorrected": 228,
+      "tradesOnlyWithLookAhead": 8,
+      "tradesOnlyWithoutLookAhead": 8,
+      "finalValuePersisted": 776820.193593,
+      "finalValueCorrected": 811548.542477,
+      "finalValueChangePercent": 4.470577512071648,
+      "examples": {
+        "onlyWithLookAhead": [
+          "1996-11-11|DIS|SELL",
+          "1999-01-04|DIS|FINAL_EXIT",
+          "1999-10-01|DIS|BUY",
+          "2000-12-01|GS|BUY",
+          "2001-01-03|GS|BUY"
+        ],
+        "onlyWithoutLookAhead": [
+          "1996-11-29|DIS|SELL",
+          "1999-02-09|DIS|FINAL_EXIT",
+          "1999-11-29|DIS|BUY",
+          "2001-01-18|XOM|BUY",
+          "2001-08-09|DIS|FINAL_EXIT"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L06-C10",
+      "tradesPersisted": 146,
+      "tradesCorrected": 153,
+      "tradesOnlyWithLookAhead": 6,
+      "tradesOnlyWithoutLookAhead": 13,
+      "finalValuePersisted": 856408.299833,
+      "finalValueCorrected": 857407.09338,
+      "finalValueChangePercent": 0.1166258602578567,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2000-12-01|GS|BUY",
+          "2001-01-03|GS|BUY",
+          "2008-10-01|GOOGL|BUY",
+          "2008-11-03|NVDA|FINAL_EXIT",
+          "2008-11-03|GOOGL|BUY"
+        ],
+        "onlyWithoutLookAhead": [
+          "2001-01-29|GS|BUY",
+          "2007-08-27|NVDA|SELL",
+          "2007-10-01|NVDA|BUY",
+          "2007-11-01|NVDA|BUY",
+          "2007-12-03|NVDA|BUY"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L06-C01",
+      "tradesPersisted": 71,
+      "tradesCorrected": 71,
+      "tradesOnlyWithLookAhead": 5,
+      "tradesOnlyWithoutLookAhead": 5,
+      "finalValuePersisted": 237905.700937,
+      "finalValueCorrected": 244478.916855,
+      "finalValueChangePercent": 2.762950148782126,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2000-12-01|GS|BUY",
+          "2001-01-03|GS|BUY",
+          "2008-10-01|GOOGL|BUY",
+          "2008-11-03|NVDA|FINAL_EXIT",
+          "2014-01-14|GOOGL|SELL"
+        ],
+        "onlyWithoutLookAhead": [
+          "2001-01-29|GS|BUY",
+          "2007-08-27|NVDA|SELL",
+          "2008-10-07|GOOGL|BUY",
+          "2008-12-10|NVDA|FINAL_EXIT",
+          "2014-01-31|GOOGL|SELL"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L06-C08",
+      "tradesPersisted": 71,
+      "tradesCorrected": 71,
+      "tradesOnlyWithLookAhead": 5,
+      "tradesOnlyWithoutLookAhead": 5,
+      "finalValuePersisted": 1642261186.357665,
+      "finalValueCorrected": 1675642291.995074,
+      "finalValueChangePercent": 2.0326307358846,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2000-12-01|GS|BUY",
+          "2001-01-03|GS|BUY",
+          "2008-10-01|GOOGL|BUY",
+          "2008-11-03|NVDA|FINAL_EXIT",
+          "2014-01-14|GOOGL|SELL"
+        ],
+        "onlyWithoutLookAhead": [
+          "2001-01-29|GS|BUY",
+          "2007-08-27|NVDA|SELL",
+          "2008-10-07|GOOGL|BUY",
+          "2008-12-10|NVDA|FINAL_EXIT",
+          "2014-01-31|GOOGL|SELL"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L07-C01",
+      "tradesPersisted": 27,
+      "tradesCorrected": 27,
+      "tradesOnlyWithLookAhead": 2,
+      "tradesOnlyWithoutLookAhead": 2,
+      "finalValuePersisted": 146948.208411,
+      "finalValueCorrected": 153640.374355,
+      "finalValueChangePercent": 4.554098356396877,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2008-10-01|GOOGL|BUY",
+          "2014-01-14|GOOGL|SELL"
+        ],
+        "onlyWithoutLookAhead": [
+          "2008-10-07|GOOGL|BUY",
+          "2014-01-31|GOOGL|SELL"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L07-C08",
+      "tradesPersisted": 27,
+      "tradesCorrected": 27,
+      "tradesOnlyWithLookAhead": 2,
+      "tradesOnlyWithoutLookAhead": 2,
+      "finalValuePersisted": 1226735008.476148,
+      "finalValueCorrected": 1259153508.266772,
+      "finalValueChangePercent": 2.642665250981502,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2008-10-01|GOOGL|BUY",
+          "2014-01-14|GOOGL|SELL"
+        ],
+        "onlyWithoutLookAhead": [
+          "2008-10-07|GOOGL|BUY",
+          "2014-01-31|GOOGL|SELL"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L07-C10",
+      "tradesPersisted": 50,
+      "tradesCorrected": 50,
+      "tradesOnlyWithLookAhead": 2,
+      "tradesOnlyWithoutLookAhead": 2,
+      "finalValuePersisted": 693489.588654,
+      "finalValueCorrected": 695154.720328,
+      "finalValueChangePercent": 0.2401091092415577,
+      "examples": {
+        "onlyWithLookAhead": [
+          "2008-10-01|GOOGL|BUY",
+          "2014-01-14|GOOGL|SELL"
+        ],
+        "onlyWithoutLookAhead": [
+          "2008-10-07|GOOGL|BUY",
+          "2014-01-31|GOOGL|SELL"
+        ]
+      }
+    },
+    {
+      "caseId": "S09-L01-C01",
+      "tradesPersisted": 16,
+      "tradesCorrected": 16,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 174046.375719,
+      "finalValueCorrected": 174046.375719,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C02",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 108375.356866,
+      "finalValueCorrected": 108375.356866,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C05",
+      "tradesPersisted": 15,
+      "tradesCorrected": 15,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 71826.289814,
+      "finalValueCorrected": 71826.289814,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C06",
+      "tradesPersisted": 23,
+      "tradesCorrected": 23,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3115425.462726,
+      "finalValueCorrected": 3115425.462726,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C07",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.083754,
+      "finalValueCorrected": 1.083754,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C08",
+      "tradesPersisted": 16,
+      "tradesCorrected": 16,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1359044584.05048,
+      "finalValueCorrected": 1359044584.05048,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C09",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 192396.159383,
+      "finalValueCorrected": 192396.159383,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L01-C10",
+      "tradesPersisted": 33,
+      "tradesCorrected": 33,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 759991.371593,
+      "finalValueCorrected": 759991.371593,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C01",
+      "tradesPersisted": 17,
+      "tradesCorrected": 17,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 110594.374241,
+      "finalValueCorrected": 110594.374241,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C02",
+      "tradesPersisted": 5,
+      "tradesCorrected": 5,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 103088.696163,
+      "finalValueCorrected": 103088.696163,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C03",
+      "tradesPersisted": 5,
+      "tradesCorrected": 5,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100388.113032,
+      "finalValueCorrected": 100388.113032,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C04",
+      "tradesPersisted": 2,
+      "tradesCorrected": 2,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100140.9457,
+      "finalValueCorrected": 100140.9457,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C05",
+      "tradesPersisted": 5,
+      "tradesCorrected": 5,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 71350.751209,
+      "finalValueCorrected": 71350.751209,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C06",
+      "tradesPersisted": 8,
+      "tradesCorrected": 8,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3106901.653585,
+      "finalValueCorrected": 3106901.653585,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C07",
+      "tradesPersisted": 5,
+      "tradesCorrected": 5,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.030887,
+      "finalValueCorrected": 1.030887,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C08",
+      "tradesPersisted": 17,
+      "tradesCorrected": 17,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1052270460.624154,
+      "finalValueCorrected": 1052270460.624154,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C09",
+      "tradesPersisted": 5,
+      "tradesCorrected": 5,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 131260.360819,
+      "finalValueCorrected": 131260.360819,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L02-C10",
+      "tradesPersisted": 25,
+      "tradesCorrected": 25,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 625351.928832,
+      "finalValueCorrected": 625351.928832,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C01",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 106585.665794,
+      "finalValueCorrected": 106585.665794,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C02",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C05",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 70000,
+      "finalValueCorrected": 70000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C06",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3001000,
+      "finalValueCorrected": 3001000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C07",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1,
+      "finalValueCorrected": 1,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C08",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1032928328.968283,
+      "finalValueCorrected": 1032928328.968283,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C09",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L03-C10",
+      "tradesPersisted": 13,
+      "tradesCorrected": 13,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 623065.549854,
+      "finalValueCorrected": 623065.549854,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C01",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 102085.984249,
+      "finalValueCorrected": 102085.984249,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C02",
+      "tradesPersisted": 3,
+      "tradesCorrected": 3,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100592.04647,
+      "finalValueCorrected": 100592.04647,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C05",
+      "tradesPersisted": 4,
+      "tradesCorrected": 4,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 70075.406546,
+      "finalValueCorrected": 70075.406546,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C06",
+      "tradesPersisted": 4,
+      "tradesCorrected": 4,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3002546.226311,
+      "finalValueCorrected": 3002546.226311,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C07",
+      "tradesPersisted": 3,
+      "tradesCorrected": 3,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.005921,
+      "finalValueCorrected": 1.005921,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C08",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1010407939.369966,
+      "finalValueCorrected": 1010407939.369966,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C09",
+      "tradesPersisted": 3,
+      "tradesCorrected": 3,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 105920.464701,
+      "finalValueCorrected": 105920.464701,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L04-C10",
+      "tradesPersisted": 8,
+      "tradesCorrected": 8,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 613229.070903,
+      "finalValueCorrected": 613229.070903,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C01",
+      "tradesPersisted": 40,
+      "tradesCorrected": 40,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 206217.262883,
+      "finalValueCorrected": 206217.262883,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C02",
+      "tradesPersisted": 9,
+      "tradesCorrected": 9,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 109943.047386,
+      "finalValueCorrected": 109943.047386,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C05",
+      "tradesPersisted": 18,
+      "tradesCorrected": 18,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 72526.962848,
+      "finalValueCorrected": 72526.962848,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C06",
+      "tradesPersisted": 26,
+      "tradesCorrected": 26,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3170997.670448,
+      "finalValueCorrected": 3170997.670448,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C07",
+      "tradesPersisted": 9,
+      "tradesCorrected": 9,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.09943,
+      "finalValueCorrected": 1.09943,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C08",
+      "tradesPersisted": 40,
+      "tradesCorrected": 40,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1489213709.3104,
+      "finalValueCorrected": 1489213709.3104,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C09",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 193633.711665,
+      "finalValueCorrected": 193633.711665,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L05-C10",
+      "tradesPersisted": 85,
+      "tradesCorrected": 85,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 809615.04195,
+      "finalValueCorrected": 809615.04195,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C02",
+      "tradesPersisted": 29,
+      "tradesCorrected": 29,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 139106.267749,
+      "finalValueCorrected": 139106.267749,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C03",
+      "tradesPersisted": 11,
+      "tradesCorrected": 11,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 114377.305498,
+      "finalValueCorrected": 114377.305498,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C04",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100809.480471,
+      "finalValueCorrected": 100809.480471,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C05",
+      "tradesPersisted": 84,
+      "tradesCorrected": 84,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 86603.774601,
+      "finalValueCorrected": 86603.774601,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C06",
+      "tradesPersisted": 94,
+      "tradesCorrected": 94,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 4241976.985601,
+      "finalValueCorrected": 4241976.985601,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C07",
+      "tradesPersisted": 29,
+      "tradesCorrected": 29,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.391064,
+      "finalValueCorrected": 1.391064,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L06-C09",
+      "tradesPersisted": 7,
+      "tradesCorrected": 7,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 336642.350249,
+      "finalValueCorrected": 336642.350249,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C02",
+      "tradesPersisted": 13,
+      "tradesCorrected": 13,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 110249.506932,
+      "finalValueCorrected": 110249.506932,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C03",
+      "tradesPersisted": 4,
+      "tradesCorrected": 4,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 103697.34275,
+      "finalValueCorrected": 103697.34275,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C05",
+      "tradesPersisted": 39,
+      "tradesCorrected": 39,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 74319.438801,
+      "finalValueCorrected": 74319.438801,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C06",
+      "tradesPersisted": 44,
+      "tradesCorrected": 44,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3326658.915727,
+      "finalValueCorrected": 3326658.915727,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C07",
+      "tradesPersisted": 13,
+      "tradesCorrected": 13,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.102494,
+      "finalValueCorrected": 1.102494,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L07-C09",
+      "tradesPersisted": 13,
+      "tradesCorrected": 13,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 270878.550909,
+      "finalValueCorrected": 270878.550909,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C02",
+      "tradesPersisted": 92,
+      "tradesCorrected": 92,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 228248.959689,
+      "finalValueCorrected": 228248.959689,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C03",
+      "tradesPersisted": 42,
+      "tradesCorrected": 42,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 142023.977271,
+      "finalValueCorrected": 142023.977271,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C04",
+      "tradesPersisted": 23,
+      "tradesCorrected": 23,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 105600.648386,
+      "finalValueCorrected": 105600.648386,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C05",
+      "tradesPersisted": 304,
+      "tradesCorrected": 304,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 119690.929757,
+      "finalValueCorrected": 119690.929757,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C06",
+      "tradesPersisted": 240,
+      "tradesCorrected": 240,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 5220108.696158,
+      "finalValueCorrected": 5220108.696158,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C07",
+      "tradesPersisted": 92,
+      "tradesCorrected": 92,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 2.282489,
+      "finalValueCorrected": 2.282489,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L08-C09",
+      "tradesPersisted": 2,
+      "tradesCorrected": 2,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 320132.838782,
+      "finalValueCorrected": 320132.838782,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C01",
+      "tradesPersisted": 9,
+      "tradesCorrected": 9,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 114136.346436,
+      "finalValueCorrected": 114136.346436,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C02",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 111457.765053,
+      "finalValueCorrected": 111457.765053,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C05",
+      "tradesPersisted": 21,
+      "tradesCorrected": 21,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 72594.045055,
+      "finalValueCorrected": 72594.045055,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C06",
+      "tradesPersisted": 33,
+      "tradesCorrected": 33,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3144217.362298,
+      "finalValueCorrected": 3144217.362298,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C07",
+      "tradesPersisted": 6,
+      "tradesCorrected": 6,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1.114578,
+      "finalValueCorrected": 1.114578,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C08",
+      "tradesPersisted": 9,
+      "tradesCorrected": 9,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1070586930.823635,
+      "finalValueCorrected": 1070586930.823635,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C09",
+      "tradesPersisted": 3,
+      "tradesCorrected": 3,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 168844.663614,
+      "finalValueCorrected": 168844.663614,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L09-C10",
+      "tradesPersisted": 13,
+      "tradesCorrected": 13,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 641378.412527,
+      "finalValueCorrected": 641378.412527,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C01",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C02",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C03",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C04",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C05",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 70000,
+      "finalValueCorrected": 70000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C06",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 3001000,
+      "finalValueCorrected": 3001000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C07",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1,
+      "finalValueCorrected": 1,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C08",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 1000000000,
+      "finalValueCorrected": 1000000000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C09",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 100000,
+      "finalValueCorrected": 100000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    },
+    {
+      "caseId": "S09-L10-C10",
+      "tradesPersisted": 0,
+      "tradesCorrected": 0,
+      "tradesOnlyWithLookAhead": 0,
+      "tradesOnlyWithoutLookAhead": 0,
+      "finalValuePersisted": 610000,
+      "finalValueCorrected": 610000,
+      "finalValueChangePercent": 0,
+      "examples": {
+        "onlyWithLookAhead": [],
+        "onlyWithoutLookAhead": []
+      }
+    }
+  ]
+}
