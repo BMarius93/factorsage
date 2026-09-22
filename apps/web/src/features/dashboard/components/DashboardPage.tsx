@@ -118,35 +118,46 @@ function FoldedRelationships({ row }: { readonly row: DashboardRowResponse }) {
 }
 
 /**
- * Strategy, List and Monitor as one row of pills at the foot of a phone card, in that order.
+ * Strategy, List and Monitor at the foot of a phone card, in that order, each pill under a small
+ * label naming it.
  *
- * Three labelled rows — `STRATEGY`, `LIST`, `MONITOR`, a pill beside each — spent a third of the
- * card's height saying what three pills say on one line, and their colour already tells a list from
- * the other two. The three columns are desktop-only (`cardRole: "hidden"`), so each reference is
- * displayed once at every width. The visible labels are gone; each pill keeps an accessible one,
- * because the column header that used to name it no longer does.
+ * The desktop table names the three with its column headers; a card has none, and three pills in
+ * a row left a first-time reader guessing which was which. Each label sits above its pill rather
+ * than beside it, so the three still share lines the way the pills alone did and the card grows by
+ * one label line, not by a labelled row each. Monitor's label is a step darker than the other two:
+ * the signal belongs to the Monitor, and the Strategy and List are what that Monitor is made of.
+ * The three columns are desktop-only (`cardRole: "hidden"`), so each reference is displayed once at
+ * every width.
  */
 function CardRelationships({ row }: { readonly row: DashboardRowResponse }) {
   return (
     <CardLinks testId="dashboard-card-relationships">
-      <span className={styles.srOnly}>Strategy: </span>
-      <EntityReferenceChip
-        kind="strategy"
-        name={row.strategy.name}
-        href={`/strategies/${row.strategy.id}`}
-      />
-      <span className={styles.srOnly}>List: </span>
-      <EntityReferenceChip
-        kind="list"
-        name={row.stockList.name}
-        href={`/lists/${row.stockList.id}`}
-      />
-      <span className={styles.srOnly}>Monitor: </span>
-      <EntityReferenceChip
-        kind="monitor"
-        name={row.monitor.name}
-        href={`/monitors/${row.monitor.id}`}
-      />
+      <span className={styles.origin}>
+        <span className={styles.originItem}>
+          <span className={styles.originLabel}>Strategy</span>
+          <EntityReferenceChip
+            kind="strategy"
+            name={row.strategy.name}
+            href={`/strategies/${row.strategy.id}`}
+          />
+        </span>
+        <span className={styles.originItem}>
+          <span className={styles.originLabel}>List</span>
+          <EntityReferenceChip
+            kind="list"
+            name={row.stockList.name}
+            href={`/lists/${row.stockList.id}`}
+          />
+        </span>
+        <span className={styles.originItem} data-primary="true">
+          <span className={styles.originLabel}>Monitor</span>
+          <EntityReferenceChip
+            kind="monitor"
+            name={row.monitor.name}
+            href={`/monitors/${row.monitor.id}`}
+          />
+        </span>
+      </span>
     </CardLinks>
   );
 }
@@ -236,8 +247,8 @@ const RELATIONSHIP_COLUMN_WIDTH = "14%";
  * three different pages, and collapsing them into one cell made the row's most useful fact — which
  * strategy said this — something the reader had to go looking for. Each is an ordinary entity
  * reference, so the same chip means the same thing here as on a Monitor's own page. They are
- * desktop columns only: a phone card carries the same three pills as one unlabelled row under the
- * reason (`CardRelationships`).
+ * desktop columns only: a phone card carries the same three pills, each under a small label, below
+ * the reason (`CardRelationships`).
  *
  * There is deliberately no per-row Backtest button: it repeated one call to action on every row of
  * a table whose job is to report, and the same backtest is one click away from the Strategy, the
@@ -340,7 +351,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "strategy",
     foldIntermediate: true,
     header: "Strategy",
-    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
     cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
     // row from another by; the pill wraps inside it rather than the column narrowing past it.
@@ -360,7 +371,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "list",
     foldIntermediate: true,
     header: "List",
-    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
     cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
     // row from another by; the pill wraps inside it rather than the column narrowing past it.
@@ -380,7 +391,7 @@ const COLUMNS: readonly DataTableColumn<DashboardRowResponse>[] = [
     key: "monitor",
     foldIntermediate: true,
     header: "Monitor",
-    // Desktop only: a phone card shows the three as one row of pills (`CardRelationships`).
+    // Desktop only: a phone card shows the three as labelled pills (`CardRelationships`).
     cardRole: "hidden",
     // A floor under the name, because these three columns are what the reader distinguishes one
     // row from another by; the pill wraps inside it rather than the column narrowing past it.
@@ -453,10 +464,14 @@ export function DashboardPage() {
 
         {guest && status === "ready" ? (
           <div className={styles.guestNotice} data-testid="dashboard-guest-notice">
+            {/* The concept first, in one sentence, for a first-time reader: every row below
+                belongs to a Monitor, and the Strategy and List beside it are what it is made
+                of. The three names are set in the emphasis weight and nothing louder. */}
             <p>
-              You are viewing FactorSage&apos;s built-in monitors. Sign in to
-              choose which ones appear here, create your own, and backtest any
-              of them.
+              A <b>Monitor</b> watches a <b>List</b> using a <b>Strategy</b>.
+              You&apos;re viewing FactorSage&apos;s built-in monitors. Sign in
+              to choose which ones appear here, create your own, and backtest
+              any of them.
             </p>
             <Link className={forms.tintedButton} href={signInHref()}>
               Sign in

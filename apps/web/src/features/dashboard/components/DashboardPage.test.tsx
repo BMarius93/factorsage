@@ -410,6 +410,13 @@ describe("DashboardPage", () => {
     render(<DashboardPage />);
 
     const notice = await screen.findByTestId("dashboard-guest-notice");
+    // The concept comes first, with its three terms emphasised and nothing else.
+    expect(notice.textContent).toMatch(
+      /^A Monitor watches a List using a Strategy\. You're viewing FactorSage's built-in monitors\./,
+    );
+    expect(
+      Array.from(notice.querySelectorAll("b")).map((term) => term.textContent),
+    ).toEqual(["Monitor", "List", "Strategy"]);
     expect(
       within(notice).getByRole("link", { name: "Sign in" }).getAttribute("href"),
     ).toBe("/login");
@@ -652,8 +659,8 @@ describe("DashboardPage", () => {
     expect(why.textContent).toMatch(/Margin of Safety/);
     expect(why.textContent).not.toMatch(/^Why/);
 
-    // … and the origin is one unlabelled row of pills under it, Strategy, List, Monitor: the three
-    // desktop columns leave the card rather than taking a labelled row each.
+    // … and the origin sits under it, Strategy, List, Monitor, each pill under a small label: the
+    // three desktop columns leave the card rather than taking a labelled row each.
     expect(row.querySelectorAll('td[data-card="links"]')).toHaveLength(0);
     expect(row.querySelectorAll('td[data-card="hidden"]')).toHaveLength(3);
     const origin = within(why).getByTestId("dashboard-card-relationships");
@@ -666,9 +673,9 @@ describe("DashboardPage", () => {
       ["list", "S&P 500 Growth Leaders"],
       ["monitor", "S&P Value & Trend"],
     ]);
-    // The only labels left are for assistive technology, which lost the column headers with them.
+    // A card has no column headers, so each pill carries a visible label naming what it is.
     expect(origin.textContent).toBe(
-      "Strategy: Value & TrendList: S&P 500 Growth LeadersMonitor: S&P Value & Trend",
+      "StrategyValue & TrendListS&P 500 Growth LeadersMonitorS&P Value & Trend",
     );
 
     // Everything the card has to carry is still on it, once each.

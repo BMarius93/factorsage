@@ -285,11 +285,12 @@ test.describe("guest dashboard", () => {
     );
     expect(summaryTops[0]).toBe(summaryTops[1]);
 
-    // The origin is one unlabelled row of pills — Strategy, List, Monitor — not three labelled
-    // rows: left-aligned under the reason, sharing a line while they fit.
+    // The origin is Strategy, List, Monitor, each pill under a small label naming it — not three
+    // labelled rows: left-aligned under the reason, sharing a line while they fit.
     await expect(card.locator('td[data-card="links"]')).toHaveCount(0);
     const origin = card.getByTestId("dashboard-card-relationships");
     await expect(origin).toBeVisible();
+    await expect(origin).toHaveText(/^Strategy.+List.+Monitor.+$/i);
     const pills = await origin.evaluate((row) => {
       const left = row.getBoundingClientRect().left;
       return Array.from(row.querySelectorAll<HTMLElement>("[data-kind]")).map(
