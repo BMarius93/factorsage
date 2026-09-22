@@ -101,7 +101,14 @@ export type DashboardRowResponse = {
   price?: number;
   /** The exchange session the state began on. */
   observationDate?: string;
-  /** When the state began. */
+  /**
+   * When the state began, as an instant: the close of {@link observationDate}'s session, or the
+   * scan that observed it when that session had not closed yet.
+   *
+   * It is a statement about the observation, not about when the row was written — a historically
+   * reconstructed match is dated to the session it happened on however much later the scan that
+   * found it ran.
+   */
   since: string;
   /** True when historical reconstruction, not a live scan, established the state. */
   reconstructed: boolean;

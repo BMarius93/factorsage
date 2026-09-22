@@ -778,8 +778,11 @@ describe("built-in content", () => {
       state: "ACTIVE" | "PENDING_TRIGGER" | "RESOLVED" | "INACTIVE";
       date: string;
       price: number;
-    }): Promise<void> {
-      const since = new Date(`${input.date}T15:00:00.000Z`);
+      /** When the scan persisted the state; 11:00 New York on its own observation by default. */
+      writtenAt?: Date;
+      reconstructed?: boolean;
+    }): Promise<string | null> {
+      const since = input.writtenAt ?? new Date(`${input.date}T15:00:00.000Z`);
       const signal =
         input.state === "ACTIVE"
           ? await prisma.monitorSignal.create({
@@ -793,6 +796,7 @@ describe("built-in content", () => {
                 observationDate: new Date(`${input.date}T00:00:00.000Z`),
                 observationPrice: input.price,
                 detectedAt: since,
+                reconstructed: input.reconstructed ?? false,
               },
             })
           : null;
@@ -823,6 +827,7 @@ describe("built-in content", () => {
           activeSignalId: signal?.id ?? null,
         },
       });
+      return signal?.id ?? null;
     }
 
     beforeAll(async () => {
@@ -945,6 +950,82 @@ describe("built-in content", () => {
         activeCount: 1,
         pendingCount: 1,
       });
+    });
+
+    it("dates a reconstructed match at its own session, not at the scan (AUD-05)", async () => {
+      // A Monitor that reconstructs history discovers a match whose session closed weeks earlier.
+      // "Since" is a statement about the match, so the scan's clock must not appear in it.
+      const signalId = await seedState({
+        monitorId: ids.monitorA,
+        securityId: securityIds[0]!,
+        levelId: levelExit,
+        levelKind: "FINAL_EXIT",
+        state: "ACTIVE",
+        date: "2026-07-30",
+        price: 91,
+        writtenAt: new Date("2026-09-17T13:02:11.000Z"),
+        reconstructed: true,
+      });
+      try {
+        const body = (await guest.get("/dashboard").expect(200))
+          .body as DashboardResponse;
+        const row = testRows(body).find(
+          (candidate) => candidate.signalId === signalId,
+        );
+        expect(row).toMatchObject({
+          observationDate: "2026-07-30",
+          reconstructed: true,
+          // 16:00 New York on the observed session, not 2026-09-17.
+          since: "2026-07-30T20:00:00.000Z",
+        });
+        expect(
+          await prisma.monitorSignalState.findFirstOrThrow({
+            where: { monitorId: ids.monitorA, levelId: levelExit },
+            select: { lifecycleSince: true },
+          }),
+        ).toEqual({ lifecycleSince: new Date("2026-09-17T13:02:11.000Z") });
+      } finally {
+        await prisma.monitorSignalState.deleteMany({
+          where: { monitorId: ids.monitorA, levelId: levelExit },
+        });
+        await prisma.monitorSignal.deleteMany({
+          where: { monitorId: ids.monitorA, levelId: levelExit },
+        });
+      }
+    });
+
+    it("dates a match found during its own session at the scan that found it", async () => {
+      // The mirror case: the session has not closed, so the scan's instant is the earliest truth
+      // available and "since" must not run ahead of the clock.
+      const scan = new Date("2026-09-17T17:35:00.000Z");
+      const signalId = await seedState({
+        monitorId: ids.monitorA,
+        securityId: securityIds[0]!,
+        levelId: levelExit,
+        levelKind: "FINAL_EXIT",
+        state: "ACTIVE",
+        date: "2026-09-17",
+        price: 91,
+        writtenAt: scan,
+      });
+      try {
+        const body = (await guest.get("/dashboard").expect(200))
+          .body as DashboardResponse;
+        const row = testRows(body).find(
+          (candidate) => candidate.signalId === signalId,
+        );
+        expect(row).toMatchObject({
+          observationDate: "2026-09-17",
+          since: scan.toISOString(),
+        });
+      } finally {
+        await prisma.monitorSignalState.deleteMany({
+          where: { monitorId: ids.monitorA, levelId: levelExit },
+        });
+        await prisma.monitorSignal.deleteMany({
+          where: { monitorId: ids.monitorA, levelId: levelExit },
+        });
+      }
     });
 
     it("asks a Guest to sign in rather than storing a preference", async () => {

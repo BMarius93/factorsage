@@ -5,6 +5,7 @@ import {
   SUPPORTED_EXCHANGE_CODES,
   SUPPORTED_EXCHANGE_CURRENCIES,
   SUPPORTED_EXCHANGE_TIMEZONE,
+  tradingSessionCloseInstant,
   tradingSessionDate,
   type SecurityListingCandidate,
 } from "./security-universe.js";
@@ -110,6 +111,55 @@ describe("tradingSessionDate", () => {
     const instant = new Date("2026-03-02T18:00:00.000Z");
     expect(tradingSessionDate(instant)).toBe(tradingSessionDate(instant));
     expect(instant.toISOString()).toBe("2026-03-02T18:00:00.000Z");
+  });
+});
+
+describe("tradingSessionCloseInstant", () => {
+  it("closes at 16:00 New York in both offsets", () => {
+    // Summer (EDT, UTC-4) and winter (EST, UTC-5). The instant is what a "2 days ago" label needs;
+    // the date alone cannot produce one.
+    expect(tradingSessionCloseInstant("2026-09-15").toISOString()).toBe(
+      "2026-09-15T20:00:00.000Z",
+    );
+    expect(tradingSessionCloseInstant("2026-01-15").toISOString()).toBe(
+      "2026-01-15T21:00:00.000Z",
+    );
+  });
+
+  it("is exact on the daylight-saving transition days", () => {
+    // Both transitions happen at 02:00 local, long before the close, so the close is on the new
+    // offset on both days: EDT from 2026-03-08, EST from 2026-11-01.
+    expect(tradingSessionCloseInstant("2026-03-08").toISOString()).toBe(
+      "2026-03-08T20:00:00.000Z",
+    );
+    expect(tradingSessionCloseInstant("2026-03-07").toISOString()).toBe(
+      "2026-03-07T21:00:00.000Z",
+    );
+    expect(tradingSessionCloseInstant("2026-11-01").toISOString()).toBe(
+      "2026-11-01T21:00:00.000Z",
+    );
+    expect(tradingSessionCloseInstant("2026-10-31").toISOString()).toBe(
+      "2026-10-31T20:00:00.000Z",
+    );
+  });
+
+  it("round-trips through tradingSessionDate for a decade of dates", () => {
+    // The two functions are inverses at the close, which is what makes a stored observation date
+    // and a rendered instant describe the same session.
+    for (
+      let day = new Date("2016-01-01T00:00:00.000Z");
+      day < new Date("2026-01-01T00:00:00.000Z");
+      day = new Date(day.valueOf() + 86_400_000)
+    ) {
+      const date = day.toISOString().slice(0, 10);
+      expect(tradingSessionDate(tradingSessionCloseInstant(date))).toBe(date);
+    }
+  });
+
+  it("refuses a value that is not a product date", () => {
+    expect(() => tradingSessionCloseInstant("2026-13-45" as never)).toThrow(
+      /canonical YYYY-MM-DD/,
+    );
   });
 });
 

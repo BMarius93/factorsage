@@ -206,7 +206,10 @@ export type MonitorMatchedLevelResponse = {
 export type MonitorWaitingLevelResponse = {
   levelId: string;
   levelKind: MonitorLevelKind;
-  /** When the setup began. */
+  /**
+   * When the setup began: the close of the session it was observed on, or the scan that observed
+   * it while that session was still open. Not when the row was written.
+   */
   since: string;
 };
 
