@@ -57,23 +57,44 @@ export function sharesText(value: Dec): string {
 }
 
 /**
- * How a JS float ratio lands in a `numeric(p, scale)` column through Prisma 6.
+ * How a JS float ratio lands in a `numeric(p, scale)` column.
  *
- * Measured, not assumed (audit finding AUD-01): Prisma converts a `number` bound to a Decimal
- * field to **16 significant digits** before PostgreSQL rounds it half away from zero at the column
- * scale. The model matched 289,728 of 289,728 persisted ratios in the first 40 matrix runs; the
- * float's own correctly-rounded value matched 289,474. The difference — a double rounding — is at
- * most one unit in the column's last place.
+ * The write path renders a ratio as a decimal literal at the column's scale, so PostgreSQL rounds
+ * it exactly once — the float's own correctly rounded value. That is the model the comparisons use.
+ *
+ * It was not always so, which is why the second model below still exists. Audit finding AUD-01
+ * measured the previous binding: Prisma 6 converted a bound `number` to **16 significant digits**
+ * and PostgreSQL rounded *that* at the column scale. The two-step model matched 289,728 of 289,728
+ * persisted ratios sampled in the first 40 matrix runs, and single rounding matched 289,474 of
+ * them — the 254 that differed did so by one unit in the last place.
  */
 export function storedAtScale(value: number, scale: number): string {
-  return new D(value.toPrecision(16))
+  return correctlyRoundedAtScale(value, scale);
+}
+
+/**
+ * The float correctly rounded at `scale`.
+ *
+ * The float is expanded to 100 decimals first, which is its exact binary value at these magnitudes
+ * rather than the shortest decimal that round-trips to it. The distinction is the whole point: the
+ * shortest form of one audited ratio is `8.84411177645`, which rounds *up* at ten places, while the
+ * double it names is below that midpoint and rounds down. A model built on the shortest form would
+ * disagree with PostgreSQL on exactly the values this function exists to check.
+ */
+export function correctlyRoundedAtScale(value: number, scale: number): string {
+  return new D(value.toFixed(100))
     .toDecimalPlaces(scale, Decimal.ROUND_HALF_UP)
     .toFixed(scale);
 }
 
-/** The float correctly rounded at `scale` (what a string-bound write would store). */
-export function correctlyRoundedAtScale(value: number, scale: number): string {
-  return new D(value)
+/**
+ * What the pre-AUD-01 float binding stored: 16 significant digits, then the column's scale.
+ *
+ * Kept so the audit can still say how many rows the old path would have stored differently, and so
+ * a forensic archive produced before the fix can be read with the model that was true for it.
+ */
+export function prismaFloatBoundAtScale(value: number, scale: number): string {
+  return new D(value.toPrecision(16))
     .toDecimalPlaces(scale, Decimal.ROUND_HALF_UP)
     .toFixed(scale);
 }

@@ -18,6 +18,12 @@ import {
 } from "@intrinsic/contracts";
 import type { LocalDate } from "@intrinsic/domain";
 import type { BacktestResult } from "@intrinsic/strategy";
+import {
+  INDEX_SCALE,
+  PERCENT_SCALE,
+  ratioAtScale,
+  ratioAtScaleOrNull,
+} from "./ratio-binding.js";
 
 /**
  * The durable queue, as the worker sees it.
@@ -621,12 +627,31 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
             finalPositionsValue: summary.finalPositionsValue,
             finalValue: summary.finalValue,
             netProfit: summary.netProfit,
-            portfolioReturnPercent: summary.portfolioReturnPercent,
-            benchmarkReturnPercent: summary.benchmarkReturnPercent,
-            alphaPercent: summary.alphaPercent,
-            portfolioCagrPercent: summary.portfolioCagrPercent,
-            maxDrawdownPercent: summary.maxDrawdownPercent,
-            benchmarkMaxDrawdownPercent: summary.benchmarkMaxDrawdownPercent,
+            // Ratios are rendered at the column's scale so PostgreSQL rounds them once (AUD-01).
+            portfolioReturnPercent: ratioAtScale(
+              summary.portfolioReturnPercent,
+              PERCENT_SCALE,
+            ),
+            benchmarkReturnPercent: ratioAtScaleOrNull(
+              summary.benchmarkReturnPercent,
+              PERCENT_SCALE,
+            ),
+            alphaPercent: ratioAtScaleOrNull(
+              summary.alphaPercent,
+              PERCENT_SCALE,
+            ),
+            portfolioCagrPercent: ratioAtScaleOrNull(
+              summary.portfolioCagrPercent,
+              PERCENT_SCALE,
+            ),
+            maxDrawdownPercent: ratioAtScale(
+              summary.maxDrawdownPercent,
+              PERCENT_SCALE,
+            ),
+            benchmarkMaxDrawdownPercent: ratioAtScaleOrNull(
+              summary.benchmarkMaxDrawdownPercent,
+              PERCENT_SCALE,
+            ),
             realizedPnl: summary.realizedPnl,
             unrealizedPnl: summary.unrealizedPnl,
             totalTrades: summary.totalTrades,
@@ -648,8 +673,11 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
               positionsValue: point.positionsValue,
               totalValue: point.totalValue,
               investedCapital: point.investedCapital,
-              returnIndex: point.returnIndex,
-              benchmarkIndex: point.benchmarkIndex,
+              returnIndex: ratioAtScale(point.returnIndex, INDEX_SCALE),
+              benchmarkIndex: ratioAtScaleOrNull(
+                point.benchmarkIndex,
+                INDEX_SCALE,
+              ),
               benchmarkValue: point.benchmarkValue,
               cashBaselineValue: point.cashBaselineValue,
               openPositions: point.openPositions,
@@ -676,7 +704,10 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
               amount: trade.amount,
               fees: trade.fees,
               realizedPnl: trade.realizedPnl,
-              realizedPnlPercent: trade.realizedPnlPercent,
+              realizedPnlPercent: ratioAtScaleOrNull(
+                trade.realizedPnlPercent,
+                PERCENT_SCALE,
+              ),
               cashAfter: trade.cashAfter,
               sharesAfter: trade.sharesAfter,
               averageCostAfter: trade.averageCostAfter,
@@ -698,8 +729,14 @@ export class PrismaBacktestJobRepository implements BacktestJobRepository {
               lastPriceDate: toDate(position.lastPriceDate),
               marketValue: position.marketValue,
               unrealizedPnl: position.unrealizedPnl,
-              unrealizedPnlPercent: position.unrealizedPnlPercent,
-              allocationPercent: position.allocationPercent,
+              unrealizedPnlPercent: ratioAtScale(
+                position.unrealizedPnlPercent,
+                PERCENT_SCALE,
+              ),
+              allocationPercent: ratioAtScale(
+                position.allocationPercent,
+                PERCENT_SCALE,
+              ),
             })),
           });
         }

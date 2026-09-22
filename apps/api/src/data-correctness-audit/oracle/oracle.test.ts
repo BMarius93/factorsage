@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { storedAtScale } from "./decimal";
+import { prismaFloatBoundAtScale, storedAtScale } from "./decimal";
 import {
   exponentialMovingAverage,
   isoWeekStart,
@@ -22,12 +22,26 @@ import {
   referenceAnnualReturns,
   runReferenceBacktest,
 } from "./reference-backtester";
+import { oracleSessionClose } from "./sessions";
 import { parseOracleStrategy } from "./strategy-model";
 
 /**
  * The oracle is only worth something if it is right on its own terms. Every expectation here is
  * hand-computed or published outside this repository — none is produced by production code.
  */
+
+describe("reference session clock", () => {
+  it("closes a session at 16:00 New York, in both offsets", () => {
+    // Published exchange hours: 09:30-16:00 Eastern. EDT is UTC-4, EST is UTC-5.
+    expect(oracleSessionClose("2026-09-15")).toBe("2026-09-15T20:00:00.000Z");
+    expect(oracleSessionClose("2026-01-15")).toBe("2026-01-15T21:00:00.000Z");
+    // The 2026 transitions: 8 March and 1 November, both at 02:00 local.
+    expect(oracleSessionClose("2026-03-07")).toBe("2026-03-07T21:00:00.000Z");
+    expect(oracleSessionClose("2026-03-08")).toBe("2026-03-08T20:00:00.000Z");
+    expect(oracleSessionClose("2026-10-31")).toBe("2026-10-31T20:00:00.000Z");
+    expect(oracleSessionClose("2026-11-01")).toBe("2026-11-01T21:00:00.000Z");
+  });
+});
 
 describe("reference predicates (ai/product/strategies.md)", () => {
   it("is above / is below are strict", () => {
@@ -398,8 +412,18 @@ describe("reference backtester on a hand-computed run", () => {
     expect(compoundAnnualGrowth(2, "2020-01-01", "2020-01-01")).toBeNull();
   });
 
-  it("models the Prisma 16-significant-digit write of a float ratio (AUD-01)", () => {
-    expect(storedAtScale(1.0009891328499996, 10)).toBe("1.0009891329");
+  it("models a stored ratio as one rounding, and the old binding as two (AUD-01)", () => {
+    // The write path renders the ratio at the column's scale, so the stored value is the float's
+    // own correctly rounded value.
+    expect(storedAtScale(1.0009891328499996, 10)).toBe("1.0009891328");
     expect(storedAtScale(8.8441117764499992, 10)).toBe("8.8441117764");
+    // What the same two floats were stored as before the fix. The first is the one the audit found
+    // in the matrix database; the second rounds the same way under both models.
+    expect(prismaFloatBoundAtScale(1.0009891328499996, 10)).toBe(
+      "1.0009891329",
+    );
+    expect(prismaFloatBoundAtScale(8.8441117764499992, 10)).toBe(
+      "8.8441117764",
+    );
   });
 });

@@ -21,6 +21,7 @@ import {
   type RuleState,
 } from "../oracle/monitor-lifecycle";
 import type { MarketRow } from "../oracle/predicates";
+import { oracleSessionClose } from "../oracle/sessions";
 import {
   isPositionMetric,
   parseOracleStrategy,
@@ -608,26 +609,48 @@ export async function runSignalsSection(input: {
           "exact-number",
         );
       }
-      // "Since" is the wall-clock instant the state was written; for a state reconstructed from
-      // history the activation session can be months earlier (see the report).
-      const reconstructedSinceGaps = rows
-        .filter((row) => row.reconstructed && row.observationDate)
+      // "Since" is a statement about the observation the state began on: the close of that session,
+      // or the scan's own instant while that session is still open (AUD-05). So it may never be
+      // later than the session's close, and for a reconstructed row — one whose activation a scan
+      // found after the fact — it must be exactly that close.
+      const sinceGaps = rows
+        .filter((row) => row.observationDate)
         .map((row) => ({
           symbol: row.security.symbol,
+          reconstructed: row.reconstructed,
           observationDate: row.observationDate!,
           since: row.since,
+          close: oracleSessionClose(row.observationDate!),
           days: Math.round(
             (Date.parse(row.since) -
-              Date.parse(`${row.observationDate}T20:00:00Z`)) /
+              Date.parse(oracleSessionClose(row.observationDate!))) /
               86_400_000,
           ),
-        }))
-        .filter((entry) => entry.days > 1);
+        }));
+      for (const entry of sinceGaps) {
+        ledger.check(
+          "dashboard",
+          `${phase} since not after its session ${entry.symbol} ${entry.observationDate}`,
+          true,
+          Date.parse(entry.since) <= Date.parse(entry.close),
+          "exact-number",
+        );
+        if (entry.reconstructed) {
+          ledger.check(
+            "dashboard",
+            `${phase} reconstructed since is its session close ${entry.symbol} ${entry.observationDate}`,
+            entry.close,
+            entry.since,
+            "exact-text",
+          );
+        }
+      }
       sinceEvidence.push({
         phase,
         reconstructedRows: rows.filter((row) => row.reconstructed).length,
-        sinceLaterThanActivation: reconstructedSinceGaps.length,
-        examples: reconstructedSinceGaps.slice(0, 5),
+        sinceLaterThanActivation: sinceGaps.filter((entry) => entry.days > 0)
+          .length,
+        examples: sinceGaps.slice(0, 5),
       });
       let absentChecked = 0;
       for (const entry of expected) {

@@ -1,6 +1,7 @@
 import { ComparisonLedger } from "../comparison";
 import {
   correctlyRoundedAtScale,
+  prismaFloatBoundAtScale,
   dec,
   money,
   price,
@@ -364,9 +365,12 @@ export function auditCase(input: {
     const path = `equity[${expected.date}]`;
     equityRowsCompared += 1;
     if (
-      storedAtScale(expected.returnIndex, 10) !==
+      prismaFloatBoundAtScale(expected.returnIndex, 10) !==
       correctlyRoundedAtScale(expected.returnIndex, 10)
     ) {
+      // Rows the pre-AUD-01 float binding would have stored one unit in the last place away from
+      // the float's own value. The comparisons below require the stored value to be the correct
+      // one, so a non-zero count here is evidence the fix is doing something, not a failure.
       ratioDoubleRoundings += 1;
     }
     ledger.check(
