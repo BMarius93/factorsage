@@ -19,7 +19,10 @@ QA_MATRIX_AS_OF_DATE=$(date +%F) pnpm audit:data-correctness -- --run-matrix
 
 `--run-matrix` first runs the 1,000-case matrix with every case archived, using
 `pnpm qa:matrix:run --archive-all`. That takes about 40 minutes and writes about 650 MB to
-`.debug/qa-matrix/`. It then runs every audit section against that sweep.
+`.debug/qa-matrix/`. It then runs every audit section against that sweep. The sweep is spawned with
+the development `DATABASE_URL` and `REDIS_URL` restored: the audit process itself points at the
+matrix database, and a child that inherited that would see the matrix connections as the
+development ones and refuse to start.
 
 If you leave out `--run-matrix`, the audit uses the newest sweep that has archives. You can also
 choose a sweep with `--sweep=<dir>`.

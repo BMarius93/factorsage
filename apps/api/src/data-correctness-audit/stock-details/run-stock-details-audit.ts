@@ -327,10 +327,35 @@ export async function runStockDetailsSection(input: {
       }
     }
 
-    // What the page must show, derived from the persisted bars (never from the API response).
+    // What the page must show, derived from the persisted rows (never from the API response).
     const latest = bars[bars.length - 1];
     const previous = bars[bars.length - 2];
-    const lastTechnical = reference.dates.lastIndexOf(latest?.date ?? "");
+    // The moving averages the page renders come from the **stored** row for that session, not from
+    // the reference recomputation. The two agree within this section's stated tolerance — that is
+    // what the 42,670 comparisons above establish — but a display expectation has no tolerance: at
+    // a rounding midpoint, 1.4e-14 becomes a whole cent. DIS held `sma20d` 106.48500000 on
+    // 2026-09-22, which is $106.49; the reference's own 106.48499999999999 formats as $106.48, and
+    // the mismatch would have been read as the page showing the wrong number. The question the UI
+    // stage asks is whether the page shows the value FactorSage holds; whether that value is right
+    // is asked, independently, above.
+    const storedTechnicals =
+      latest === undefined
+        ? undefined
+        : (
+            await prisma.$queryRawUnsafe<Record<string, string | null>[]>(
+              `select ${INDICATORS.filter(
+                (indicator) => indicator.kind !== "RSI",
+              )
+                .map(
+                  (indicator) =>
+                    `"${indicator.column}"::text as "${indicator.column}"`,
+                )
+                .join(", ")}
+                 from "DailyDerivedState" where "securityId" = $1 and date = $2::date`,
+              security.id,
+              latest.date,
+            )
+          )[0];
     uiExpectations.push({
       symbol,
       currency: security.currency,
@@ -360,13 +385,10 @@ export async function runStockDetailsSection(input: {
       blends: latestBlend,
       movingAverages: Object.fromEntries(
         INDICATORS.filter((indicator) => indicator.kind !== "RSI").map(
-          (indicator) => [
-            indicator.column,
-            lastTechnical < 0
-              ? null
-              : (reference.values.get(indicator.column)![lastTechnical] ??
-                null),
-          ],
+          (indicator) => {
+            const stored = storedTechnicals?.[indicator.column] ?? null;
+            return [indicator.column, stored === null ? null : Number(stored)];
+          },
         ),
       ),
     });

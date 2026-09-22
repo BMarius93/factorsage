@@ -102,6 +102,16 @@ function section(
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   loadRootEnv();
+  // Captured before the override below: `useMatrixDatabase` points this process at the matrix
+  // database and Redis index by rewriting `DATABASE_URL` and `REDIS_URL`, and a child that
+  // inherited those would see the matrix connections *as* the development ones — which is exactly
+  // the mistake the matrix runner refuses to start on ("names the development database", "shares
+  // the development Redis"). The sweep is spawned with both restored, so it resolves its own
+  // environment the way a direct `pnpm qa:matrix:run` does.
+  const developmentEnvironment = {
+    DATABASE_URL: process.env.DATABASE_URL,
+    REDIS_URL: process.env.REDIS_URL,
+  };
   const environment = useMatrixDatabase();
   const root = repositoryRoot();
   const writer = new AuditWriter(
@@ -130,7 +140,14 @@ async function main(): Promise<void> {
     const run = spawnSync("pnpm", ["qa:matrix:run", "--archive-all"], {
       cwd: root,
       stdio: "inherit",
-      env: process.env,
+      env: {
+        ...process.env,
+        ...Object.fromEntries(
+          Object.entries(developmentEnvironment).filter(
+            ([, value]) => value !== undefined,
+          ),
+        ),
+      },
     });
     if (run.status !== 0) {
       throw new Error(
@@ -252,7 +269,7 @@ async function main(): Promise<void> {
           failures:
             result.pit.violations + result.pit.availabilityRuleViolations,
           notes: [
-            `${result.pit.implausibleFilingDates} statements carry a provider filing date on or before their fiscal period end (look-ahead finding AUD-03).`,
+            `${result.pit.implausibleFilingDates} statements carry a provider filing date on or before their fiscal period end; their availability is derived from the statutory deadline instead (AUD-03).`,
           ],
         }),
       );
@@ -342,12 +359,31 @@ async function main(): Promise<void> {
       log("\n== look-ahead");
       const sweep = flag(args, "sweep") ?? latestMatrixSweep(root);
       const ledger = new ComparisonLedger(50);
+      // The audit's own bound, written in SQL and deliberately *weaker* than the rule the product
+      // applies: a statement the provider leaves undated may not be available before the deadline
+      // a large accelerated filer is bound by — 40 days after a quarter, 60 after a fiscal year.
+      // Counting the provider's undated filings instead, as this check used to, measured the
+      // provider rather than FactorSage: 2,391 of them are undated whatever FactorSage does with
+      // them, and the defect was never the count but the availability derived from it.
       const pitRows = await prisma.$queryRawUnsafe<
-        { statements: bigint; implausible: bigint; early: bigint }[]
+        {
+          statements: bigint;
+          implausible: bigint;
+          early: bigint;
+          tooEarly: bigint;
+        }[]
       >(
         `select count(*) as statements,
                 count(*) filter (where "filingDate" <= "fiscalDate") as implausible,
-                count(*) filter (where "availableFromDate" <= "filingDate") as early
+                count(*) filter (where "availableFromDate" <= "filingDate") as early,
+                count(*) filter (
+                  where "filingDate" <= "fiscalDate"
+                    and "availableFromDate" < "fiscalDate" + (
+                          case when period in ('FY', 'Q4')
+                               then interval '60 days'
+                               else interval '40 days'
+                          end)
+                ) as "tooEarly"
            from "FinancialStatement"`,
       );
       const pit = pitRows[0]!;
@@ -360,9 +396,9 @@ async function main(): Promise<void> {
       );
       ledger.check(
         "look-ahead",
-        "statements whose provider filing date is on or before the fiscal period end (availability derived from it is look-ahead)",
+        "undated filings available before the earliest deadline a filer is bound by (40 days after a quarter, 60 after a fiscal year)",
         0,
-        Number(pit.implausible),
+        Number(pit.tooEarly),
         "exact-number",
       );
       const impact = await runFilingDateImpact({ prisma, writer, sweep, log });

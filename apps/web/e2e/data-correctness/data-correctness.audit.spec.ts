@@ -582,4 +582,72 @@ test("backtest results, stock details and dashboard show the audited values", as
       contains("dashboard", `${id} price`, match.text, money(expected.price));
     }
   }
+
+  // ---- Dashboard on a phone -------------------------------------------------------------------
+  // The same rows, the same states and the same prices at 390x844. The Dashboard changes layout
+  // below 880px, and a signal that survives the desktop check but loses its price or its state in
+  // the narrow layout is a reconciliation failure like any other.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(page.getByTestId("dashboard-signals")).toBeVisible({
+    timeout: 60_000,
+  });
+  const mobileRows = page.getByTestId("dashboard-signal-row");
+  const mobile: { text: string; level: string | null; state: string | null }[] =
+    [];
+  for (let index = 0; index < (await mobileRows.count()); index += 1) {
+    const row = mobileRows.nth(index);
+    mobile.push({
+      text: await row.innerText(),
+      level: await row
+        .locator("[data-level]")
+        .first()
+        .getAttribute("data-level"),
+      state: await row
+        .locator("[data-state]")
+        .first()
+        .getAttribute("data-state"),
+    });
+  }
+  const mobileAudit = mobile.filter((row) => row.text.includes("DCA-AUDIT-"));
+  record(
+    "dashboard-mobile",
+    "audit monitor rows shown at 390x844",
+    String(dashboard.rows.length),
+    String(mobileAudit.length),
+  );
+  for (const expected of dashboard.rows) {
+    const label =
+      expected.levelPercentage === null
+        ? LEVEL_LABELS[expected.levelKind]!
+        : `${LEVEL_LABELS[expected.levelKind]} ${expected.levelPercentage}%`;
+    const id = `${expected.monitor} ${expected.symbol} ${label}`;
+    const match = mobileAudit.find(
+      (row) =>
+        row.text.includes(expected.monitor) &&
+        new RegExp(`(^|\\s)${expected.symbol}(\\s|$)`).test(row.text) &&
+        row.level === expected.levelKind &&
+        row.text.includes(label) &&
+        row.state === expected.state,
+    );
+    record(
+      "dashboard-mobile",
+      `${id} present with state ${expected.state}`,
+      "true",
+      match ? "true" : "false",
+    );
+    if (match && expected.price !== null) {
+      contains(
+        "dashboard-mobile",
+        `${id} price`,
+        match.text,
+        money(expected.price),
+      );
+    }
+  }
+  // Nothing may scroll sideways on a phone.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  );
+  record("dashboard-mobile", "no horizontal overflow", "0", String(overflow));
 });
