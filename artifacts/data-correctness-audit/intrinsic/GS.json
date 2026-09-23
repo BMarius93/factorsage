@@ -1,0 +1,7314 @@
+{
+  "symbol": "GS",
+  "compared": 69373,
+  "failed": 0,
+  "valuesPresent": {
+    "RESIDUAL_INCOME": 6494,
+    "DDM": 6690,
+    "GRAHAM": 5689,
+    "DCF_FCFF": 2277
+  },
+  "valuesAbsent": {
+    "DCF_FCFF": 4612,
+    "RESIDUAL_INCOME": 395,
+    "DDM": 199,
+    "GRAHAM": 1200
+  },
+  "unavailableReasons": {
+    "DCF_FCFF": {
+      "MISSING_TTM_WINDOW": 199,
+      "NON_POSITIVE_FCFF": 3087,
+      "NON_POSITIVE_EQUITY_VALUE": 1326
+    },
+    "RESIDUAL_INCOME": {
+      "MISSING_TTM_WINDOW": 199,
+      "NON_POSITIVE_EQUITY_VALUE": 196
+    },
+    "DDM": {
+      "MISSING_TTM_WINDOW": 199
+    },
+    "GRAHAM": {
+      "MISSING_TTM_WINDOW": 199,
+      "NON_POSITIVE_MULTIPLIER": 1001
+    }
+  },
+  "pitViolations": 0,
+  "implausibleFilingDates": 56,
+  "availabilityRuleViolations": 0,
+  "mismatches": [],
+  "quarterlyHistory": [
+    {
+      "effectiveFrom": "1999-05-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "MISSING_TTM_WINDOW"
+        },
+        "RESIDUAL_INCOME": {
+          "unavailable": "MISSING_TTM_WINDOW"
+        },
+        "DDM": {
+          "unavailable": "MISSING_TTM_WINDOW"
+        },
+        "GRAHAM": {
+          "unavailable": "MISSING_TTM_WINDOW"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "DDM": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2000-02-15",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 77.52403139881919,
+          "sourceAsOf": "2000-02-15",
+          "inputs": {
+            "netIncome": 2708000000,
+            "bookValue": 10145000000,
+            "shares": 489000000,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 1.5092024539877296,
+          "sourceAsOf": "2000-02-15",
+          "inputs": {
+            "dps": 0.11042944785276074
+          }
+        },
+        "GRAHAM": {
+          "value": 106.74499999999999,
+          "sourceAsOf": "2000-02-15",
+          "inputs": {
+            "eps": 5.77,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "77.52403140",
+          "sourceAsOf": "2000-02-15"
+        },
+        "DDM": {
+          "value": "1.50920245",
+          "sourceAsOf": "2000-02-15"
+        },
+        "GRAHAM": {
+          "value": "106.74500000",
+          "sourceAsOf": "2000-02-15"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2000-04-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 69.914284920418,
+          "sourceAsOf": "2000-04-08",
+          "inputs": {
+            "netIncome": 2588000000,
+            "bookValue": 11096000000,
+            "shares": 505387038,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 2.9694694266440407,
+          "sourceAsOf": "2000-04-08",
+          "inputs": {
+            "dps": 0.2172782507300518
+          }
+        },
+        "GRAHAM": {
+          "value": 97.495,
+          "sourceAsOf": "2000-04-08",
+          "inputs": {
+            "eps": 5.2700000000000005,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "69.91428492",
+          "sourceAsOf": "2000-04-08"
+        },
+        "DDM": {
+          "value": "2.96946943",
+          "sourceAsOf": "2000-04-08"
+        },
+        "GRAHAM": {
+          "value": "97.49500000",
+          "sourceAsOf": "2000-04-08"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2000-07-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 81.56623397694324,
+          "sourceAsOf": "2000-07-06",
+          "inputs": {
+            "netIncome": 3003000000,
+            "bookValue": 11905000000,
+            "shares": 510262721,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 4.415783197232035,
+          "sourceAsOf": "2000-07-06",
+          "inputs": {
+            "dps": 0.3231060876023441
+          }
+        },
+        "GRAHAM": {
+          "value": 111.73999999999998,
+          "sourceAsOf": "2000-07-06",
+          "inputs": {
+            "eps": 6.039999999999999,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "81.56623398",
+          "sourceAsOf": "2000-07-06"
+        },
+        "DDM": {
+          "value": "4.41578320",
+          "sourceAsOf": "2000-07-06"
+        },
+        "GRAHAM": {
+          "value": "111.74000000",
+          "sourceAsOf": "2000-07-06"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2000-10-11",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 86.78753122741018,
+          "sourceAsOf": "2000-10-11",
+          "inputs": {
+            "netIncome": 3189000000,
+            "bookValue": 12693000000,
+            "shares": 508894639,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.89284074325713,
+          "sourceAsOf": "2000-10-11",
+          "inputs": {
+            "dps": 0.4311834690188145
+          }
+        },
+        "GRAHAM": {
+          "value": 117.29000000000002,
+          "sourceAsOf": "2000-10-11",
+          "inputs": {
+            "eps": 6.340000000000001,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "86.78753123",
+          "sourceAsOf": "2000-10-11"
+        },
+        "DDM": {
+          "value": "5.89284074",
+          "sourceAsOf": "2000-10-11"
+        },
+        "GRAHAM": {
+          "value": "117.29000000",
+          "sourceAsOf": "2000-10-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2001-03-01",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 386.6368657611089,
+          "sourceAsOf": "2001-03-01",
+          "inputs": {
+            "ocf": 11135000000,
+            "capex": -3540000000,
+            "interest": 16410000000,
+            "cash": 41194000000,
+            "debt": 177971000000,
+            "shares": 518000000,
+            "growthUsed": 0.05
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 76.66401790013364,
+          "sourceAsOf": "2001-03-01",
+          "inputs": {
+            "netIncome": 3067000000,
+            "bookValue": 16530000000,
+            "shares": 518000000,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.808348713979824,
+          "sourceAsOf": "2001-03-01",
+          "inputs": {
+            "dps": 0.425001125413158
+          }
+        },
+        "GRAHAM": {
+          "value": 111.37,
+          "sourceAsOf": "2001-03-01",
+          "inputs": {
+            "eps": 6.0200000000000005,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "386.63686576",
+          "sourceAsOf": "2001-03-01"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "76.66401790",
+          "sourceAsOf": "2001-03-01"
+        },
+        "DDM": {
+          "value": "5.80834871",
+          "sourceAsOf": "2001-03-01"
+        },
+        "GRAHAM": {
+          "value": "111.37000000",
+          "sourceAsOf": "2001-03-01"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 238.59163825059454,
+          "actual": "238.59163825"
+        },
+        "CONSERVATIVE": {
+          "expected": 211.06495167448367,
+          "actual": "211.06495167"
+        },
+        "DIVIDEND": {
+          "expected": 172.31088937006223,
+          "actual": "172.31088937"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2001-04-09",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 553.0543661185849,
+          "sourceAsOf": "2001-04-07",
+          "inputs": {
+            "ocf": 12604000000,
+            "capex": -3746000000,
+            "interest": 17708000000,
+            "cash": 44250000000,
+            "debt": 115417000000,
+            "shares": 548599994,
+            "growthUsed": 0.05
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 67.77319552129141,
+          "sourceAsOf": "2001-04-07",
+          "inputs": {
+            "netIncome": 2948000000,
+            "bookValue": 17438000000,
+            "shares": 548599994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.79297178021525,
+          "sourceAsOf": "2001-04-07",
+          "inputs": {
+            "dps": 0.42387598391818915
+          }
+        },
+        "GRAHAM": {
+          "value": 104.71000000000001,
+          "sourceAsOf": "2001-04-07",
+          "inputs": {
+            "eps": 5.66,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "553.05436612",
+          "sourceAsOf": "2001-04-07"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "67.77319552",
+          "sourceAsOf": "2001-04-07"
+        },
+        "DDM": {
+          "value": "5.79297178",
+          "sourceAsOf": "2001-04-07"
+        },
+        "GRAHAM": {
+          "value": "104.71000000",
+          "sourceAsOf": "2001-04-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 317.8011417156799,
+          "actual": "317.80114172"
+        },
+        "CONSERVATIVE": {
+          "expected": 272.96670510382137,
+          "actual": "272.96670510"
+        },
+        "DIVIDEND": {
+          "expected": 237.09357426377835,
+          "actual": "237.09357426"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2001-07-03",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 323.13634640876404,
+          "sourceAsOf": "2001-07-03",
+          "inputs": {
+            "ocf": 5788000000,
+            "capex": -3802000000,
+            "interest": 17835000000,
+            "cash": 28339000000,
+            "debt": 115525000000,
+            "shares": 545799994,
+            "growthUsed": 0.05
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 62.096974845193365,
+          "sourceAsOf": "2001-07-03",
+          "inputs": {
+            "netIncome": 2770000000,
+            "bookValue": 18016000000,
+            "shares": 545799994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.798960456275261,
+          "sourceAsOf": "2001-07-03",
+          "inputs": {
+            "dps": 0.4243141797274582
+          }
+        },
+        "GRAHAM": {
+          "value": 96.94,
+          "sourceAsOf": "2001-07-03",
+          "inputs": {
+            "eps": 5.24,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "323.13634641",
+          "sourceAsOf": "2001-07-03"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "62.09697485",
+          "sourceAsOf": "2001-07-03"
+        },
+        "DDM": {
+          "value": "5.79896046",
+          "sourceAsOf": "2001-07-03"
+        },
+        "GRAHAM": {
+          "value": "96.94000000",
+          "sourceAsOf": "2001-07-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 199.58526565794003,
+          "actual": "199.58526566"
+        },
+        "CONSERVATIVE": {
+          "expected": 176.96563101706363,
+          "actual": "176.96563102"
+        },
+        "DIVIDEND": {
+          "expected": 143.99351771505442,
+          "actual": "143.99351772"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2001-10-11",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 375.9971808954479,
+          "sourceAsOf": "2001-10-11",
+          "inputs": {
+            "ocf": 11097000000,
+            "capex": -3686000000,
+            "interest": 17210000000,
+            "cash": 42538000000,
+            "debt": 184012000000,
+            "shares": 539699994,
+            "growthUsed": 0.05
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 52.053253038498035,
+          "sourceAsOf": "2001-10-11",
+          "inputs": {
+            "netIncome": 2414000000,
+            "bookValue": 17958000000,
+            "shares": 539699994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.7906201151398635,
+          "sourceAsOf": "2001-10-11",
+          "inputs": {
+            "dps": 0.42370391086389253
+          }
+        },
+        "GRAHAM": {
+          "value": 83.06499999999998,
+          "sourceAsOf": "2001-10-11",
+          "inputs": {
+            "eps": 4.489999999999999,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "375.99718090",
+          "sourceAsOf": "2001-10-11"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "52.05325304",
+          "sourceAsOf": "2001-10-11"
+        },
+        "DDM": {
+          "value": "5.79062012",
+          "sourceAsOf": "2001-10-11"
+        },
+        "GRAHAM": {
+          "value": "83.06500000",
+          "sourceAsOf": "2001-10-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 220.22756635927337,
+          "actual": "220.22756636"
+        },
+        "CONSERVATIVE": {
+          "expected": 190.9343482697286,
+          "actual": "190.93434827"
+        },
+        "DIVIDEND": {
+          "expected": 163.12577101193472,
+          "actual": "163.12577101"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2002-03-01",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 49.089006859531864,
+          "sourceAsOf": "2002-03-01",
+          "inputs": {
+            "netIncome": 2310000000,
+            "bookValue": 18231000000,
+            "shares": 534000000,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.824711188556779,
+          "sourceAsOf": "2002-03-01",
+          "inputs": {
+            "dps": 0.4261983796504961
+          }
+        },
+        "GRAHAM": {
+          "value": 78.81,
+          "sourceAsOf": "2002-03-01",
+          "inputs": {
+            "eps": 4.26,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "49.08900686",
+          "sourceAsOf": "2002-03-01"
+        },
+        "DDM": {
+          "value": "5.82471119",
+          "sourceAsOf": "2002-03-01"
+        },
+        "GRAHAM": {
+          "value": "78.81000000",
+          "sourceAsOf": "2002-03-01"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2002-04-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 41.25080589186477,
+          "sourceAsOf": "2002-04-05",
+          "inputs": {
+            "netIncome": 2066000000,
+            "bookValue": 18495000000,
+            "shares": 534399994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.837530746869866,
+          "sourceAsOf": "2002-04-05",
+          "inputs": {
+            "dps": 0.42713639611242926
+          }
+        },
+        "GRAHAM": {
+          "value": 71.04,
+          "sourceAsOf": "2002-04-05",
+          "inputs": {
+            "eps": 3.8400000000000003,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "41.25080589",
+          "sourceAsOf": "2002-04-05"
+        },
+        "DDM": {
+          "value": "5.83753075",
+          "sourceAsOf": "2002-04-05"
+        },
+        "GRAHAM": {
+          "value": "71.04000000",
+          "sourceAsOf": "2002-04-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2002-07-16",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 40.64554123586294,
+          "sourceAsOf": "2002-07-16",
+          "inputs": {
+            "netIncome": 2052000000,
+            "bookValue": 18858000000,
+            "shares": 530999994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.826534028999954,
+          "sourceAsOf": "2002-07-16",
+          "inputs": {
+            "dps": 0.42633175821950897
+          }
+        },
+        "GRAHAM": {
+          "value": 71.04,
+          "sourceAsOf": "2002-07-16",
+          "inputs": {
+            "eps": 3.8400000000000003,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "40.64554124",
+          "sourceAsOf": "2002-07-16"
+        },
+        "DDM": {
+          "value": "5.82653403",
+          "sourceAsOf": "2002-07-16"
+        },
+        "GRAHAM": {
+          "value": "71.04000000",
+          "sourceAsOf": "2002-07-16"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2002-10-14",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 43.191858433854314,
+          "sourceAsOf": "2002-10-12",
+          "inputs": {
+            "netIncome": 2106000000,
+            "bookValue": 18844000000,
+            "shares": 520399994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.881004133498785,
+          "sourceAsOf": "2002-10-12",
+          "inputs": {
+            "dps": 0.43031737562186245
+          }
+        },
+        "GRAHAM": {
+          "value": 73.44500000000001,
+          "sourceAsOf": "2002-10-12",
+          "inputs": {
+            "eps": 3.97,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "43.19185843",
+          "sourceAsOf": "2002-10-12"
+        },
+        "DDM": {
+          "value": "5.88100413",
+          "sourceAsOf": "2002-10-12"
+        },
+        "GRAHAM": {
+          "value": "73.44500000",
+          "sourceAsOf": "2002-10-12"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2003-02-28",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 43.70199135398296,
+          "sourceAsOf": "2003-02-28",
+          "inputs": {
+            "netIncome": 2114000000,
+            "bookValue": 19003000000,
+            "shares": 515000000,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.934823994594746,
+          "sourceAsOf": "2003-02-28",
+          "inputs": {
+            "dps": 0.43425541423864006
+          }
+        },
+        "GRAHAM": {
+          "value": 74.36999999999999,
+          "sourceAsOf": "2003-02-28",
+          "inputs": {
+            "eps": 4.02,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "43.70199135",
+          "sourceAsOf": "2003-02-28"
+        },
+        "DDM": {
+          "value": "5.93482399",
+          "sourceAsOf": "2003-02-28"
+        },
+        "GRAHAM": {
+          "value": "74.37000000",
+          "sourceAsOf": "2003-02-28"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2003-04-15",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 47.73870387014245,
+          "sourceAsOf": "2003-04-15",
+          "inputs": {
+            "netIncome": 2252000000,
+            "bookValue": 19514000000,
+            "shares": 511999994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 5.998598790219817,
+          "sourceAsOf": "2003-04-15",
+          "inputs": {
+            "dps": 0.4389218626990111
+          }
+        },
+        "GRAHAM": {
+          "value": 80.105,
+          "sourceAsOf": "2003-04-15",
+          "inputs": {
+            "eps": 4.33,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "47.73870387",
+          "sourceAsOf": "2003-04-15"
+        },
+        "DDM": {
+          "value": "5.99859879",
+          "sourceAsOf": "2003-04-15"
+        },
+        "GRAHAM": {
+          "value": "80.10500000",
+          "sourceAsOf": "2003-04-15"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2003-07-14",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 51.487002251694264,
+          "sourceAsOf": "2003-07-12",
+          "inputs": {
+            "netIncome": 2384000000,
+            "bookValue": 20042000000,
+            "shares": 510199994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 6.057358412938638,
+          "sourceAsOf": "2003-07-12",
+          "inputs": {
+            "dps": 0.4432213472881931
+          }
+        },
+        "GRAHAM": {
+          "value": 85.655,
+          "sourceAsOf": "2003-07-12",
+          "inputs": {
+            "eps": 4.63,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "51.48700225",
+          "sourceAsOf": "2003-07-12"
+        },
+        "DDM": {
+          "value": "6.05735841",
+          "sourceAsOf": "2003-07-12"
+        },
+        "GRAHAM": {
+          "value": "85.65500000",
+          "sourceAsOf": "2003-07-12"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2003-10-13",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 55.807319053106404,
+          "sourceAsOf": "2003-10-11",
+          "inputs": {
+            "netIncome": 2539000000,
+            "bookValue": 20438000000,
+            "shares": 511699994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 7.685757356386115,
+          "sourceAsOf": "2003-10-11",
+          "inputs": {
+            "dps": 0.5623724894916671
+          }
+        },
+        "GRAHAM": {
+          "value": 91.575,
+          "sourceAsOf": "2003-10-11",
+          "inputs": {
+            "eps": 4.95,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "55.80731905",
+          "sourceAsOf": "2003-10-11"
+        },
+        "DDM": {
+          "value": "7.68575736",
+          "sourceAsOf": "2003-10-11"
+        },
+        "GRAHAM": {
+          "value": "91.57500000",
+          "sourceAsOf": "2003-10-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2004-02-25",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 69.07012167243774,
+          "sourceAsOf": "2004-02-25",
+          "inputs": {
+            "netIncome": 3005000000,
+            "bookValue": 21632000000,
+            "shares": 513000000,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 9.343376413017262,
+          "sourceAsOf": "2004-02-25",
+          "inputs": {
+            "dps": 0.6836616887573609
+          }
+        },
+        "GRAHAM": {
+          "value": 108.41000000000001,
+          "sourceAsOf": "2004-02-25",
+          "inputs": {
+            "eps": 5.86,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "69.07012167",
+          "sourceAsOf": "2004-02-25"
+        },
+        "DDM": {
+          "value": "9.34337641",
+          "sourceAsOf": "2004-02-25"
+        },
+        "GRAHAM": {
+          "value": "108.41000000",
+          "sourceAsOf": "2004-02-25"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2004-04-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 87.78257571510856,
+          "sourceAsOf": "2004-04-07",
+          "inputs": {
+            "netIncome": 3636000000,
+            "bookValue": 22235000000,
+            "shares": 517099994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 11.12557284237924,
+          "sourceAsOf": "2004-04-07",
+          "inputs": {
+            "dps": 0.8140663055399446
+          }
+        },
+        "GRAHAM": {
+          "value": 130.79500000000002,
+          "sourceAsOf": "2004-04-07",
+          "inputs": {
+            "eps": 7.07,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "87.78257572",
+          "sourceAsOf": "2004-04-07"
+        },
+        "DDM": {
+          "value": "11.12557284",
+          "sourceAsOf": "2004-04-07"
+        },
+        "GRAHAM": {
+          "value": "130.79500000",
+          "sourceAsOf": "2004-04-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2004-07-12",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 102.96422100860651,
+          "sourceAsOf": "2004-07-10",
+          "inputs": {
+            "netIncome": 4128000000,
+            "bookValue": 23152000000,
+            "shares": 513499994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 12.899119992618793,
+          "sourceAsOf": "2004-07-10",
+          "inputs": {
+            "dps": 0.9438380482403997
+          }
+        },
+        "GRAHAM": {
+          "value": 148.37,
+          "sourceAsOf": "2004-07-10",
+          "inputs": {
+            "eps": 8.02,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "102.96422101",
+          "sourceAsOf": "2004-07-10"
+        },
+        "DDM": {
+          "value": "12.89911999",
+          "sourceAsOf": "2004-07-10"
+        },
+        "GRAHAM": {
+          "value": "148.37000000",
+          "sourceAsOf": "2004-07-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2004-10-11",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 110.79673633300851,
+          "sourceAsOf": "2004-10-09",
+          "inputs": {
+            "netIncome": 4330000000,
+            "bookValue": 23514000000,
+            "shares": 504999994,
+            "growthUsed": 0.05
+          }
+        },
+        "DDM": {
+          "value": 13.103309357211145,
+          "sourceAsOf": "2004-10-09",
+          "inputs": {
+            "dps": 0.9587787334544742
+          }
+        },
+        "GRAHAM": {
+          "value": 156.14,
+          "sourceAsOf": "2004-10-09",
+          "inputs": {
+            "eps": 8.44,
+            "growthUsed": 0.05
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "110.79673633",
+          "sourceAsOf": "2004-10-09"
+        },
+        "DDM": {
+          "value": "13.10330936",
+          "sourceAsOf": "2004-10-09"
+        },
+        "GRAHAM": {
+          "value": "156.14000000",
+          "sourceAsOf": "2004-10-09"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2005-02-09",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 108.1188043120607,
+          "sourceAsOf": "2005-02-09",
+          "inputs": {
+            "netIncome": 4553000000,
+            "bookValue": 25079000000,
+            "shares": 506000000,
+            "growthUsed": 0.033039026014370254
+          }
+        },
+        "DDM": {
+          "value": 13.309221774031265,
+          "sourceAsOf": "2005-02-09",
+          "inputs": {
+            "dps": 0.9738454956608246
+          }
+        },
+        "GRAHAM": {
+          "value": 134.6105443576078,
+          "sourceAsOf": "2005-02-09",
+          "inputs": {
+            "eps": 8.91,
+            "growthUsed": 0.033039026014370254
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "108.11880431",
+          "sourceAsOf": "2005-02-09"
+        },
+        "DDM": {
+          "value": "13.30922177",
+          "sourceAsOf": "2005-02-09"
+        },
+        "GRAHAM": {
+          "value": "134.61054436",
+          "sourceAsOf": "2005-02-09"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2005-04-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 111.50061288447154,
+          "sourceAsOf": "2005-04-07",
+          "inputs": {
+            "netIncome": 4772000000,
+            "bookValue": 26075000000,
+            "shares": 515099994,
+            "growthUsed": 0.033039026014370254
+          }
+        },
+        "DDM": {
+          "value": 13.40164530771196,
+          "sourceAsOf": "2005-04-07",
+          "inputs": {
+            "dps": 0.9806081932472167
+          }
+        },
+        "GRAHAM": {
+          "value": 141.25797864687237,
+          "sourceAsOf": "2005-04-07",
+          "inputs": {
+            "eps": 9.35,
+            "growthUsed": 0.033039026014370254
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "111.50061288",
+          "sourceAsOf": "2005-04-07"
+        },
+        "DDM": {
+          "value": "13.40164531",
+          "sourceAsOf": "2005-04-07"
+        },
+        "GRAHAM": {
+          "value": "141.25797865",
+          "sourceAsOf": "2005-04-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2005-07-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 103.96140756714797,
+          "sourceAsOf": "2005-07-06",
+          "inputs": {
+            "netIncome": 4450000000,
+            "bookValue": 26395000000,
+            "shares": 506199994,
+            "growthUsed": 0.033039026014370254
+          }
+        },
+        "DDM": {
+          "value": 13.529850309750493,
+          "sourceAsOf": "2005-07-06",
+          "inputs": {
+            "dps": 0.9899890470549144
+          }
+        },
+        "GRAHAM": {
+          "value": 132.19329552514793,
+          "sourceAsOf": "2005-07-06",
+          "inputs": {
+            "eps": 8.75,
+            "growthUsed": 0.033039026014370254
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "103.96140757",
+          "sourceAsOf": "2005-07-06"
+        },
+        "DDM": {
+          "value": "13.52985031",
+          "sourceAsOf": "2005-07-06"
+        },
+        "GRAHAM": {
+          "value": "132.19329553",
+          "sourceAsOf": "2005-07-06"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2005-10-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 127.92828802955263,
+          "sourceAsOf": "2005-10-06",
+          "inputs": {
+            "netIncome": 5188000000,
+            "bookValue": 26607000000,
+            "shares": 494199995,
+            "growthUsed": 0.033039026014370254
+          }
+        },
+        "DDM": {
+          "value": 13.796764598122994,
+          "sourceAsOf": "2005-10-06",
+          "inputs": {
+            "dps": 1.009519360838268
+          }
+        },
+        "GRAHAM": {
+          "value": 155.30823748554522,
+          "sourceAsOf": "2005-10-06",
+          "inputs": {
+            "eps": 10.28,
+            "growthUsed": 0.033039026014370254
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "127.92828803",
+          "sourceAsOf": "2005-10-06"
+        },
+        "DDM": {
+          "value": "13.79676460",
+          "sourceAsOf": "2005-10-06"
+        },
+        "GRAHAM": {
+          "value": "155.30823749",
+          "sourceAsOf": "2005-10-06"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2006-02-08",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 157.74389279034892,
+          "sourceAsOf": "2006-02-08",
+          "inputs": {
+            "netIncome": 5626000000,
+            "bookValue": 28002000000,
+            "shares": 485000000,
+            "growthUsed": 0.05627534743471352
+          }
+        },
+        "DDM": {
+          "value": 13.971127229365944,
+          "sourceAsOf": "2006-02-08",
+          "inputs": {
+            "dps": 1.0222776021487279
+          }
+        },
+        "GRAHAM": {
+          "value": 222.83718381271368,
+          "sourceAsOf": "2006-02-08",
+          "inputs": {
+            "eps": 11.28,
+            "growthUsed": 0.05627534743471352
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "157.74389279",
+          "sourceAsOf": "2006-02-08"
+        },
+        "DDM": {
+          "value": "13.97112723",
+          "sourceAsOf": "2006-02-08"
+        },
+        "GRAHAM": {
+          "value": "222.83718381",
+          "sourceAsOf": "2006-02-08"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2006-04-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 191.28874029283043,
+          "sourceAsOf": "2006-04-06",
+          "inputs": {
+            "netIncome": 6593000000,
+            "bookValue": 28915000000,
+            "shares": 483299995,
+            "growthUsed": 0.05627534743471352
+          }
+        },
+        "DDM": {
+          "value": 14.760139131702044,
+          "sourceAsOf": "2006-04-06",
+          "inputs": {
+            "dps": 1.0800101803684425
+          }
+        },
+        "GRAHAM": {
+          "value": 266.10078598911815,
+          "sourceAsOf": "2006-04-06",
+          "inputs": {
+            "eps": 13.469999999999999,
+            "growthUsed": 0.05627534743471352
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "191.28874029",
+          "sourceAsOf": "2006-04-06"
+        },
+        "DDM": {
+          "value": "14.76013913",
+          "sourceAsOf": "2006-04-06"
+        },
+        "GRAHAM": {
+          "value": "266.10078599",
+          "sourceAsOf": "2006-04-06"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2006-07-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 240.89496690868546,
+          "sourceAsOf": "2006-07-04",
+          "inputs": {
+            "netIncome": 8040000000,
+            "bookValue": 31800000000,
+            "shares": 478299995,
+            "growthUsed": 0.05627534743471352
+          }
+        },
+        "DDM": {
+          "value": 16.84441827737401,
+          "sourceAsOf": "2006-07-04",
+          "inputs": {
+            "dps": 1.232518410539562
+          }
+        },
+        "GRAHAM": {
+          "value": 327.7366027883794,
+          "sourceAsOf": "2006-07-04",
+          "inputs": {
+            "eps": 16.59,
+            "growthUsed": 0.05627534743471352
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "240.89496691",
+          "sourceAsOf": "2006-07-04"
+        },
+        "DDM": {
+          "value": "16.84441828",
+          "sourceAsOf": "2006-07-04"
+        },
+        "GRAHAM": {
+          "value": "327.73660279",
+          "sourceAsOf": "2006-07-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2006-10-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 237.98136972080195,
+          "sourceAsOf": "2006-10-05",
+          "inputs": {
+            "netIncome": 8017000000,
+            "bookValue": 33493000000,
+            "shares": 477399995,
+            "growthUsed": 0.05627534743471352
+          }
+        },
+        "DDM": {
+          "value": 19.033067630873592,
+          "sourceAsOf": "2006-10-05",
+          "inputs": {
+            "dps": 1.392663485185873
+          }
+        },
+        "GRAHAM": {
+          "value": 329.1194576524654,
+          "sourceAsOf": "2006-10-05",
+          "inputs": {
+            "eps": 16.66,
+            "growthUsed": 0.05627534743471352
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "237.98136972",
+          "sourceAsOf": "2006-10-05"
+        },
+        "DDM": {
+          "value": "19.03306763",
+          "sourceAsOf": "2006-10-05"
+        },
+        "GRAHAM": {
+          "value": "329.11945765",
+          "sourceAsOf": "2006-10-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2007-02-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 508.50522363364666,
+          "sourceAsOf": "2007-02-07",
+          "inputs": {
+            "netIncome": 9537000000,
+            "bookValue": 35786000000,
+            "shares": 471000000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 21.604986703403338,
+          "sourceAsOf": "2007-02-07",
+          "inputs": {
+            "dps": 1.5808526856148788
+          }
+        },
+        "GRAHAM": {
+          "value": 769.6150000000001,
+          "sourceAsOf": "2007-02-07",
+          "inputs": {
+            "eps": 19.990000000000002,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "508.50522363",
+          "sourceAsOf": "2007-02-07"
+        },
+        "DDM": {
+          "value": "21.60498670",
+          "sourceAsOf": "2007-02-07"
+        },
+        "GRAHAM": {
+          "value": "769.61500000",
+          "sourceAsOf": "2007-02-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2007-04-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 553.8458309448471,
+          "sourceAsOf": "2007-04-05",
+          "inputs": {
+            "netIncome": 10255000000,
+            "bookValue": 36900000000,
+            "shares": 471899995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 23.559589377239444,
+          "sourceAsOf": "2007-04-05",
+          "inputs": {
+            "dps": 1.723872393456545
+          }
+        },
+        "GRAHAM": {
+          "value": 832.755,
+          "sourceAsOf": "2007-04-05",
+          "inputs": {
+            "eps": 21.63,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "553.84583094",
+          "sourceAsOf": "2007-04-05"
+        },
+        "DDM": {
+          "value": "23.55958938",
+          "sourceAsOf": "2007-04-05"
+        },
+        "GRAHAM": {
+          "value": "832.75500000",
+          "sourceAsOf": "2007-04-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2007-07-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 556.5752324312933,
+          "sourceAsOf": "2007-07-04",
+          "inputs": {
+            "netIncome": 10276000000,
+            "bookValue": 38459000000,
+            "shares": 464099995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.16916183030992,
+          "sourceAsOf": "2007-07-04",
+          "inputs": {
+            "dps": 1.7684752558763361
+          }
+        },
+        "GRAHAM": {
+          "value": 840.455,
+          "sourceAsOf": "2007-07-04",
+          "inputs": {
+            "eps": 21.830000000000002,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "556.57523243",
+          "sourceAsOf": "2007-07-04"
+        },
+        "DDM": {
+          "value": "24.16916183",
+          "sourceAsOf": "2007-07-04"
+        },
+        "GRAHAM": {
+          "value": "840.45500000",
+          "sourceAsOf": "2007-07-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2007-10-11",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 655.4269756265152,
+          "sourceAsOf": "2007-10-11",
+          "inputs": {
+            "netIncome": 11536000000,
+            "bookValue": 39118000000,
+            "shares": 457399995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.483023046069977,
+          "sourceAsOf": "2007-10-11",
+          "inputs": {
+            "dps": 1.7914407106880477
+          }
+        },
+        "GRAHAM": {
+          "value": 952.1050000000001,
+          "sourceAsOf": "2007-10-11",
+          "inputs": {
+            "eps": 24.730000000000004,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "655.42697563",
+          "sourceAsOf": "2007-10-11"
+        },
+        "DDM": {
+          "value": "24.48302305",
+          "sourceAsOf": "2007-10-11"
+        },
+        "GRAHAM": {
+          "value": "952.10500000",
+          "sourceAsOf": "2007-10-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2008-02-29",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 677.0780762275656,
+          "sourceAsOf": "2008-02-29",
+          "inputs": {
+            "netIncome": 11599000000,
+            "bookValue": 42800000000,
+            "shares": 432800000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.897094979123622,
+          "sourceAsOf": "2008-02-29",
+          "inputs": {
+            "dps": 1.8217386570090461
+          }
+        },
+        "GRAHAM": {
+          "value": 980.5949999999999,
+          "sourceAsOf": "2008-02-29",
+          "inputs": {
+            "eps": 25.47,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "677.07807623",
+          "sourceAsOf": "2008-02-29"
+        },
+        "DDM": {
+          "value": "24.89709498",
+          "sourceAsOf": "2008-02-29"
+        },
+        "GRAHAM": {
+          "value": "980.59500000",
+          "sourceAsOf": "2008-02-29"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2008-04-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 519.9736907830226,
+          "sourceAsOf": "2008-04-10",
+          "inputs": {
+            "netIncome": 9913000000,
+            "bookValue": 42629000000,
+            "shares": 453499995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.814707977148668,
+          "sourceAsOf": "2008-04-10",
+          "inputs": {
+            "dps": 1.8157103397913663
+          }
+        },
+        "GRAHAM": {
+          "value": 848.1550000000001,
+          "sourceAsOf": "2008-04-10",
+          "inputs": {
+            "eps": 22.03,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "519.97369078",
+          "sourceAsOf": "2008-04-10"
+        },
+        "DDM": {
+          "value": "24.81470798",
+          "sourceAsOf": "2008-04-10"
+        },
+        "GRAHAM": {
+          "value": "848.15500000",
+          "sourceAsOf": "2008-04-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2008-07-08",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 496.4281649072258,
+          "sourceAsOf": "2008-07-08",
+          "inputs": {
+            "netIncome": 9667000000,
+            "bookValue": 44818000000,
+            "shares": 447399995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.58403670504023,
+          "sourceAsOf": "2008-07-08",
+          "inputs": {
+            "dps": 1.7988319540273343
+          }
+        },
+        "GRAHAM": {
+          "value": 833.91,
+          "sourceAsOf": "2008-07-08",
+          "inputs": {
+            "eps": 21.66,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "496.42816491",
+          "sourceAsOf": "2008-07-08"
+        },
+        "DDM": {
+          "value": "24.58403671",
+          "sourceAsOf": "2008-07-08"
+        },
+        "GRAHAM": {
+          "value": "833.91000000",
+          "sourceAsOf": "2008-07-08"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2008-10-09",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 337.99736346306776,
+          "sourceAsOf": "2008-10-09",
+          "inputs": {
+            "netIncome": 7658000000,
+            "bookValue": 45599000000,
+            "shares": 448299995,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 24.373030659835425,
+          "sourceAsOf": "2008-10-09",
+          "inputs": {
+            "dps": 1.7833924873050317
+          }
+        },
+        "GRAHAM": {
+          "value": 666.0500000000001,
+          "sourceAsOf": "2008-10-09",
+          "inputs": {
+            "eps": 17.3,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "337.99736346",
+          "sourceAsOf": "2008-10-09"
+        },
+        "DDM": {
+          "value": "24.37303066",
+          "sourceAsOf": "2008-10-09"
+        },
+        "GRAHAM": {
+          "value": "666.05000000",
+          "sourceAsOf": "2008-10-09"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2009-01-28",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2165.818242959625,
+          "sourceAsOf": "2009-01-28",
+          "inputs": {
+            "ocf": 1894000000,
+            "capex": -2027000000,
+            "interest": 31357000000,
+            "cash": 476086000000,
+            "debt": 322444000000,
+            "shares": 459899995,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "DDM": {
+          "value": 25.65199140583933,
+          "sourceAsOf": "2009-01-28",
+          "inputs": {
+            "dps": 1.8769749809150733
+          }
+        },
+        "GRAHAM": {
+          "value": 202.51000000000002,
+          "sourceAsOf": "2009-01-28",
+          "inputs": {
+            "eps": 5.260000000000001,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2165.81824296",
+          "sourceAsOf": "2009-01-28"
+        },
+        "RESIDUAL_INCOME": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "DDM": {
+          "value": "25.65199141",
+          "sourceAsOf": "2009-01-28"
+        },
+        "GRAHAM": {
+          "value": "202.51000000",
+          "sourceAsOf": "2009-01-28"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2009-05-07",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 3574.058980565069,
+          "sourceAsOf": "2009-05-07",
+          "inputs": {
+            "ocf": 27740000000,
+            "capex": -1944000000,
+            "interest": 23518000000,
+            "cash": 597749000000,
+            "debt": 366525000000,
+            "shares": 489199995,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "DDM": {
+          "value": 34.820197925199246,
+          "sourceAsOf": "2009-05-07",
+          "inputs": {
+            "dps": 2.547819360380433
+          }
+        },
+        "GRAHAM": {
+          "value": 217.14,
+          "sourceAsOf": "2009-05-07",
+          "inputs": {
+            "eps": 5.64,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "3574.05898057",
+          "sourceAsOf": "2009-05-07"
+        },
+        "RESIDUAL_INCOME": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "DDM": {
+          "value": "34.82019793",
+          "sourceAsOf": "2009-05-07"
+        },
+        "GRAHAM": {
+          "value": "217.14000000",
+          "sourceAsOf": "2009-05-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2009-08-06",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 3268.7888511355723,
+          "sourceAsOf": "2009-08-06",
+          "inputs": {
+            "ocf": 31131000000,
+            "capex": -1702000000,
+            "interest": 16725000000,
+            "cash": 569580000000,
+            "debt": 226415000000,
+            "shares": 550999994,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "DDM": {
+          "value": 52.51841874218161,
+          "sourceAsOf": "2009-08-06",
+          "inputs": {
+            "dps": 3.842811127476704
+          }
+        },
+        "GRAHAM": {
+          "value": 277.585,
+          "sourceAsOf": "2009-08-06",
+          "inputs": {
+            "eps": 7.21,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "3268.78885114",
+          "sourceAsOf": "2009-08-06"
+        },
+        "RESIDUAL_INCOME": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "DDM": {
+          "value": "52.51841874",
+          "sourceAsOf": "2009-08-06"
+        },
+        "GRAHAM": {
+          "value": "277.58500000",
+          "sourceAsOf": "2009-08-06"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2009-11-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2872.700085665768,
+          "sourceAsOf": "2009-11-05",
+          "inputs": {
+            "ocf": 35850000000,
+            "capex": -1645000000,
+            "interest": 10453000000,
+            "cash": 560753000000,
+            "debt": 355314000000,
+            "shares": 576899994,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 100.28190539878089,
+          "sourceAsOf": "2009-11-05",
+          "inputs": {
+            "netIncome": 6316000000,
+            "bookValue": 65354000000,
+            "shares": 576899994,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 55.0141163510259,
+          "sourceAsOf": "2009-11-05",
+          "inputs": {
+            "dps": 4.025423147636042
+          }
+        },
+        "GRAHAM": {
+          "value": 418.10999999999996,
+          "sourceAsOf": "2009-11-05",
+          "inputs": {
+            "eps": 10.86,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2872.70008567",
+          "sourceAsOf": "2009-11-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "100.28190540",
+          "sourceAsOf": "2009-11-05"
+        },
+        "DDM": {
+          "value": "55.01411635",
+          "sourceAsOf": "2009-11-05"
+        },
+        "GRAHAM": {
+          "value": "418.11000000",
+          "sourceAsOf": "2009-11-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1550.0566144525183,
+          "actual": "1550.05661445"
+        },
+        "CONSERVATIVE": {
+          "expected": 1304.5976058859414,
+          "actual": "1304.59760589"
+        },
+        "DIVIDEND": {
+          "expected": 1191.1420618864738,
+          "actual": "1191.14206189"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2010-04-01",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2649.5608590681823,
+          "sourceAsOf": "2010-04-01",
+          "inputs": {
+            "ocf": 48875000000,
+            "capex": -1556000000,
+            "interest": 6500000000,
+            "cash": 524972000000,
+            "debt": 375095000000,
+            "shares": 583999994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 409.1085203303177,
+          "sourceAsOf": "2010-04-01",
+          "inputs": {
+            "netIncome": 13385000000,
+            "bookValue": 70714000000,
+            "shares": 583999994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "DDM": {
+          "value": 55.50629762270011,
+          "sourceAsOf": "2010-04-01",
+          "inputs": {
+            "dps": 4.061436411417082
+          }
+        },
+        "GRAHAM": {
+          "value": 759.2878894466586,
+          "sourceAsOf": "2010-04-01",
+          "inputs": {
+            "eps": 23.940000000000005,
+            "growthUsed": 0.11608143054441489
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2649.56085907",
+          "sourceAsOf": "2010-04-01"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "409.10852033",
+          "sourceAsOf": "2010-04-01"
+        },
+        "DDM": {
+          "value": "55.50629762",
+          "sourceAsOf": "2010-04-01"
+        },
+        "GRAHAM": {
+          "value": "759.28788945",
+          "sourceAsOf": "2010-04-01"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1599.370563522518,
+          "actual": "1599.37056352"
+        },
+        "CONSERVATIVE": {
+          "expected": 1410.343266560366,
+          "actual": "1410.34326656"
+        },
+        "DIVIDEND": {
+          "expected": 1163.8485667424168,
+          "actual": "1163.84856674"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2010-05-11",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2195.2968920075054,
+          "sourceAsOf": "2010-05-11",
+          "inputs": {
+            "ocf": 38174000000,
+            "capex": -1556000000,
+            "interest": 5628000000,
+            "cash": 575920000000,
+            "debt": 374715000000,
+            "shares": 589999994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 472.8034307442165,
+          "sourceAsOf": "2010-05-11",
+          "inputs": {
+            "netIncome": 15027000000,
+            "bookValue": 72944000000,
+            "shares": 589999994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "DDM": {
+          "value": 48.689233835051475,
+          "sourceAsOf": "2010-05-11",
+          "inputs": {
+            "dps": 3.562626865979377
+          }
+        },
+        "GRAHAM": {
+          "value": 827.4779045807569,
+          "sourceAsOf": "2010-05-11",
+          "inputs": {
+            "eps": 26.090000000000003,
+            "growthUsed": 0.11608143054441489
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2195.29689201",
+          "sourceAsOf": "2010-05-11"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "472.80343074",
+          "sourceAsOf": "2010-05-11"
+        },
+        "DDM": {
+          "value": "48.68923384",
+          "sourceAsOf": "2010-05-11"
+        },
+        "GRAHAM": {
+          "value": "827.47790458",
+          "sourceAsOf": "2010-05-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1404.985056143169,
+          "actual": "1404.98505614"
+        },
+        "CONSERVATIVE": {
+          "expected": 1268.2031574004943,
+          "actual": "1268.20315740"
+        },
+        "DIVIDEND": {
+          "expected": 992.1551364858661,
+          "actual": "992.15513649"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2010-08-10",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2418.5704847576135,
+          "sourceAsOf": "2010-08-10",
+          "inputs": {
+            "ocf": 35304000000,
+            "capex": -1355000000,
+            "interest": 5883000000,
+            "cash": 593163000000,
+            "debt": 217705000000,
+            "shares": 580399994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 348.5782947402044,
+          "sourceAsOf": "2010-08-10",
+          "inputs": {
+            "netIncome": 12205000000,
+            "bookValue": 73819000000,
+            "shares": 580399994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "DDM": {
+          "value": 33.579380770109324,
+          "sourceAsOf": "2010-08-10",
+          "inputs": {
+            "dps": 2.457027861227512
+          }
+        },
+        "GRAHAM": {
+          "value": 663.5047053978318,
+          "sourceAsOf": "2010-08-10",
+          "inputs": {
+            "eps": 20.919999999999998,
+            "growthUsed": 0.11608143054441489
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2418.57048476",
+          "sourceAsOf": "2010-08-10"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "348.57829474",
+          "sourceAsOf": "2010-08-10"
+        },
+        "DDM": {
+          "value": "33.57938077",
+          "sourceAsOf": "2010-08-10"
+        },
+        "GRAHAM": {
+          "value": "663.50470540",
+          "sourceAsOf": "2010-08-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1446.5596718804343,
+          "actual": "1446.55967188"
+        },
+        "CONSERVATIVE": {
+          "expected": 1271.0530939444561,
+          "actual": "1271.05309394"
+        },
+        "DIVIDEND": {
+          "expected": 1050.5756051591302,
+          "actual": "1050.57560516"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2010-11-10",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2145.1835991184616,
+          "sourceAsOf": "2010-11-10",
+          "inputs": {
+            "ocf": 28648000000,
+            "capex": -1378000000,
+            "interest": 6382000000,
+            "cash": 618225000000,
+            "debt": 229069000000,
+            "shares": 582699994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 282.972757697973,
+          "sourceAsOf": "2010-11-10",
+          "inputs": {
+            "netIncome": 10915000000,
+            "bookValue": 75657000000,
+            "shares": 582699994,
+            "growthUsed": 0.11608143054441489
+          }
+        },
+        "DDM": {
+          "value": 33.63639574611349,
+          "sourceAsOf": "2010-11-10",
+          "inputs": {
+            "dps": 2.4611996887400123
+          }
+        },
+        "GRAHAM": {
+          "value": 591.5087359306675,
+          "sourceAsOf": "2010-11-10",
+          "inputs": {
+            "eps": 18.650000000000002,
+            "growthUsed": 0.11608143054441489
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2145.18359912",
+          "sourceAsOf": "2010-11-10"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "282.97275770",
+          "sourceAsOf": "2010-11-10"
+        },
+        "DDM": {
+          "value": "33.63639575",
+          "sourceAsOf": "2010-11-10"
+        },
+        "GRAHAM": {
+          "value": "591.50873593",
+          "sourceAsOf": "2010-11-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1275.7853740547562,
+          "actual": "1275.78537405"
+        },
+        "CONSERVATIVE": {
+          "expected": 1120.4178877359768,
+          "actual": "1120.41788774"
+        },
+        "DIVIDEND": {
+          "expected": 928.1225494854247,
+          "actual": "928.12254949"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2011-04-01",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 144.72773663447566,
+          "sourceAsOf": "2011-04-01",
+          "inputs": {
+            "netIncome": 8354000000,
+            "bookValue": 77356000000,
+            "shares": 587499994,
+            "growthUsed": 0.011601117280131357
+          }
+        },
+        "DDM": {
+          "value": 33.70321542956733,
+          "sourceAsOf": "2011-04-01",
+          "inputs": {
+            "dps": 2.4660889338707808
+          }
+        },
+        "GRAHAM": {
+          "value": 154.0799820138141,
+          "sourceAsOf": "2011-04-01",
+          "inputs": {
+            "eps": 14.239999999999998,
+            "growthUsed": 0.011601117280131357
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "144.72773663",
+          "sourceAsOf": "2011-04-01"
+        },
+        "DDM": {
+          "value": "33.70321543",
+          "sourceAsOf": "2011-04-01"
+        },
+        "GRAHAM": {
+          "value": "154.07998201",
+          "sourceAsOf": "2011-04-01"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2011-05-11",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 132.5193033597294,
+          "sourceAsOf": "2011-05-11",
+          "inputs": {
+            "netIncome": 7633000000,
+            "bookValue": 72469000000,
+            "shares": 582999994,
+            "growthUsed": 0.011601117280131357
+          }
+        },
+        "DDM": {
+          "value": 33.68696498222879,
+          "sourceAsOf": "2011-05-11",
+          "inputs": {
+            "dps": 2.4648998767484485
+          }
+        },
+        "GRAHAM": {
+          "value": 141.42032057026336,
+          "sourceAsOf": "2011-05-11",
+          "inputs": {
+            "eps": 13.07,
+            "growthUsed": 0.011601117280131357
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "132.51930336",
+          "sourceAsOf": "2011-05-11"
+        },
+        "DDM": {
+          "value": "33.68696498",
+          "sourceAsOf": "2011-05-11"
+        },
+        "GRAHAM": {
+          "value": "141.42032057",
+          "sourceAsOf": "2011-05-11"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2011-08-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 146.03359070968145,
+          "sourceAsOf": "2011-08-10",
+          "inputs": {
+            "netIncome": 8107000000,
+            "bookValue": 72356000000,
+            "shares": 569499994,
+            "growthUsed": 0.011601117280131357
+          }
+        },
+        "DDM": {
+          "value": 72.46099234686359,
+          "sourceAsOf": "2011-08-10",
+          "inputs": {
+            "dps": 5.302023830258313
+          }
+        },
+        "GRAHAM": {
+          "value": 150.6175105078857,
+          "sourceAsOf": "2011-08-10",
+          "inputs": {
+            "eps": 13.92,
+            "growthUsed": 0.011601117280131357
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "146.03359071",
+          "sourceAsOf": "2011-08-10"
+        },
+        "DDM": {
+          "value": "72.46099235",
+          "sourceAsOf": "2011-08-10"
+        },
+        "GRAHAM": {
+          "value": "150.61751051",
+          "sourceAsOf": "2011-08-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2011-11-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 106.69770867691933,
+          "sourceAsOf": "2011-11-10",
+          "inputs": {
+            "netIncome": 5816000000,
+            "bookValue": 70088000000,
+            "shares": 518199994,
+            "growthUsed": 0.011601117280131357
+          }
+        },
+        "DDM": {
+          "value": 69.8753410287133,
+          "sourceAsOf": "2011-11-10",
+          "inputs": {
+            "dps": 5.112829831369266
+          }
+        },
+        "GRAHAM": {
+          "value": 107.12021221466009,
+          "sourceAsOf": "2011-11-10",
+          "inputs": {
+            "eps": 9.9,
+            "growthUsed": 0.011601117280131357
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "106.69770868",
+          "sourceAsOf": "2011-11-10"
+        },
+        "DDM": {
+          "value": "69.87534103",
+          "sourceAsOf": "2011-11-10"
+        },
+        "GRAHAM": {
+          "value": "107.12021221",
+          "sourceAsOf": "2011-11-10"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2012-02-29",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 107.60340852975901,
+          "sourceAsOf": "2012-02-29",
+          "inputs": {
+            "netIncome": 4442000000,
+            "bookValue": 70379000000,
+            "shares": 531799994,
+            "growthUsed": -0.11907286092668468
+          }
+        },
+        "DDM": {
+          "value": 67.20602523534804,
+          "sourceAsOf": "2012-02-29",
+          "inputs": {
+            "dps": 4.917514041610833
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "107.60340853",
+          "sourceAsOf": "2012-02-29"
+        },
+        "DDM": {
+          "value": "67.20602524",
+          "sourceAsOf": "2012-02-29"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2012-05-16",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 103.32745660860233,
+          "sourceAsOf": "2012-05-16",
+          "inputs": {
+            "netIncome": 3816000000,
+            "bookValue": 71656000000,
+            "shares": 529199994,
+            "growthUsed": -0.11907286092668468
+          }
+        },
+        "DDM": {
+          "value": 64.49533295732999,
+          "sourceAsOf": "2012-05-16",
+          "inputs": {
+            "dps": 4.7191707041948785
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "103.32745661",
+          "sourceAsOf": "2012-05-16"
+        },
+        "DDM": {
+          "value": "64.49533296",
+          "sourceAsOf": "2012-05-16"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2012-08-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 105.0140020454028,
+          "sourceAsOf": "2012-08-10",
+          "inputs": {
+            "netIncome": 3691000000,
+            "bookValue": 72855000000,
+            "shares": 520299994,
+            "growthUsed": -0.11907286092668468
+          }
+        },
+        "DDM": {
+          "value": 24.438803056613793,
+          "sourceAsOf": "2012-08-10",
+          "inputs": {
+            "dps": 1.7882051017034486
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "105.01400205",
+          "sourceAsOf": "2012-08-10"
+        },
+        "DDM": {
+          "value": "24.43880306",
+          "sourceAsOf": "2012-08-10"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2012-11-09",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 126.64573815501818,
+          "sourceAsOf": "2012-11-09",
+          "inputs": {
+            "netIncome": 5596000000,
+            "bookValue": 73687000000,
+            "shares": 510899994,
+            "growthUsed": -0.11907286092668468
+          }
+        },
+        "DDM": {
+          "value": 26.20809876458133,
+          "sourceAsOf": "2012-11-09",
+          "inputs": {
+            "dps": 1.917665763262049
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "126.64573816",
+          "sourceAsOf": "2012-11-09"
+        },
+        "DDM": {
+          "value": "26.20809876",
+          "sourceAsOf": "2012-11-09"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2013-03-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 148.8995913577604,
+          "sourceAsOf": "2013-03-02",
+          "inputs": {
+            "netIncome": 7475000000,
+            "bookValue": 75716000000,
+            "shares": 505599994,
+            "growthUsed": -0.13883325854646378
+          }
+        },
+        "DDM": {
+          "value": 28.80133783600244,
+          "sourceAsOf": "2013-03-02",
+          "inputs": {
+            "dps": 2.1074149636099353
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "148.89959136",
+          "sourceAsOf": "2013-03-02"
+        },
+        "DDM": {
+          "value": "28.80133784",
+          "sourceAsOf": "2013-03-02"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2013-05-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 150.63699142819647,
+          "sourceAsOf": "2013-05-10",
+          "inputs": {
+            "netIncome": 7626000000,
+            "bookValue": 77228000000,
+            "shares": 509799994,
+            "growthUsed": -0.13883325854646378
+          }
+        },
+        "DDM": {
+          "value": 31.671525628838378,
+          "sourceAsOf": "2013-05-10",
+          "inputs": {
+            "dps": 2.31742870454915
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "150.63699143",
+          "sourceAsOf": "2013-05-10"
+        },
+        "DDM": {
+          "value": "31.67152563",
+          "sourceAsOf": "2013-05-10"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2013-08-09",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 162.02990820913135,
+          "sourceAsOf": "2013-08-09",
+          "inputs": {
+            "netIncome": 8595000000,
+            "bookValue": 78043000000,
+            "shares": 503499994,
+            "growthUsed": -0.13883325854646378
+          }
+        },
+        "DDM": {
+          "value": 32.96938165061815,
+          "sourceAsOf": "2013-08-09",
+          "inputs": {
+            "dps": 2.4123937793135237
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "162.02990821",
+          "sourceAsOf": "2013-08-09"
+        },
+        "DDM": {
+          "value": "32.96938165",
+          "sourceAsOf": "2013-08-09"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2013-11-08",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 163.91731843215402,
+          "sourceAsOf": "2013-11-08",
+          "inputs": {
+            "netIncome": 8600000000,
+            "bookValue": 77616000000,
+            "shares": 496399995,
+            "growthUsed": -0.13883325854646378
+          }
+        },
+        "DDM": {
+          "value": 34.266587521289054,
+          "sourceAsOf": "2013-11-08",
+          "inputs": {
+            "dps": 2.507311282045541
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "163.91731843",
+          "sourceAsOf": "2013-11-08"
+        },
+        "DDM": {
+          "value": "34.26658752",
+          "sourceAsOf": "2013-11-08"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2014-04-01",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 163.67894661399973,
+          "sourceAsOf": "2014-04-01",
+          "inputs": {
+            "netIncome": 8040000000,
+            "bookValue": 78467000000,
+            "shares": 488699995,
+            "growthUsed": -0.0526935215205081
+          }
+        },
+        "DDM": {
+          "value": 35.6442073577379,
+          "sourceAsOf": "2014-04-01",
+          "inputs": {
+            "dps": 2.6081127334930176
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "163.67894661",
+          "sourceAsOf": "2014-04-01"
+        },
+        "DDM": {
+          "value": "35.64420736",
+          "sourceAsOf": "2014-04-01"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2014-05-12",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 161.64998143826014,
+          "sourceAsOf": "2014-05-10",
+          "inputs": {
+            "netIncome": 7813000000,
+            "bookValue": 79099000000,
+            "shares": 484599995,
+            "growthUsed": -0.0526935215205081
+          }
+        },
+        "DDM": {
+          "value": 36.90676754814602,
+          "sourceAsOf": "2014-05-10",
+          "inputs": {
+            "dps": 2.7004951864497095
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "161.64998144",
+          "sourceAsOf": "2014-05-10"
+        },
+        "DDM": {
+          "value": "36.90676755",
+          "sourceAsOf": "2014-05-10"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2014-08-08",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 167.48781660191574,
+          "sourceAsOf": "2014-08-08",
+          "inputs": {
+            "netIncome": 7919000000,
+            "bookValue": 81629000000,
+            "shares": 475899995,
+            "growthUsed": -0.0526935215205081
+          }
+        },
+        "DDM": {
+          "value": 38.28815714971309,
+          "sourceAsOf": "2014-08-08",
+          "inputs": {
+            "dps": 2.8015724743692516
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "167.48781660",
+          "sourceAsOf": "2014-08-08"
+        },
+        "DDM": {
+          "value": "38.28815715",
+          "sourceAsOf": "2014-08-08"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2014-11-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 182.32840644366667,
+          "sourceAsOf": "2014-11-06",
+          "inputs": {
+            "netIncome": 8643000000,
+            "bookValue": 82275000000,
+            "shares": 469199995,
+            "growthUsed": -0.0526935215205081
+          }
+        },
+        "DDM": {
+          "value": 39.65156792984016,
+          "sourceAsOf": "2014-11-06",
+          "inputs": {
+            "dps": 2.901334238768793
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "182.32840644",
+          "sourceAsOf": "2014-11-06"
+        },
+        "DDM": {
+          "value": "39.65156793",
+          "sourceAsOf": "2014-11-06"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2015-04-01",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 182.10150036788227,
+          "sourceAsOf": "2015-04-01",
+          "inputs": {
+            "netIncome": 8477000000,
+            "bookValue": 82797000000,
+            "shares": 463399995,
+            "growthUsed": -0.0495185567384544
+          }
+        },
+        "DDM": {
+          "value": 42.037849970076216,
+          "sourceAsOf": "2015-04-01",
+          "inputs": {
+            "dps": 3.0759402417128947
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "182.10150037",
+          "sourceAsOf": "2015-04-01"
+        },
+        "DDM": {
+          "value": "42.03784997",
+          "sourceAsOf": "2015-04-01"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2015-05-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 197.3869157804728,
+          "sourceAsOf": "2015-05-06",
+          "inputs": {
+            "netIncome": 9288000000,
+            "bookValue": 85127000000,
+            "shares": 462899995,
+            "growthUsed": -0.0495185567384544
+          }
+        },
+        "DDM": {
+          "value": 43.23602786360476,
+          "sourceAsOf": "2015-05-06",
+          "inputs": {
+            "dps": 3.16361179489791
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "197.38691578",
+          "sourceAsOf": "2015-05-06"
+        },
+        "DDM": {
+          "value": "43.23602786",
+          "sourceAsOf": "2015-05-06"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2015-08-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 181.75505847366395,
+          "sourceAsOf": "2015-08-04",
+          "inputs": {
+            "netIncome": 8299000000,
+            "bookValue": 87654000000,
+            "shares": 461599995,
+            "growthUsed": -0.0495185567384544
+          }
+        },
+        "DDM": {
+          "value": 46.146606796006154,
+          "sourceAsOf": "2015-08-04",
+          "inputs": {
+            "dps": 3.3765809850736215
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "181.75505847",
+          "sourceAsOf": "2015-08-04"
+        },
+        "DDM": {
+          "value": "46.14660680",
+          "sourceAsOf": "2015-08-04"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2015-11-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 168.65366997390743,
+          "sourceAsOf": "2015-11-04",
+          "inputs": {
+            "netIncome": 7484000000,
+            "bookValue": 87703000000,
+            "shares": 458600000,
+            "growthUsed": -0.0495185567384544
+          }
+        },
+        "DDM": {
+          "value": 47.547170096988594,
+          "sourceAsOf": "2015-11-04",
+          "inputs": {
+            "dps": 3.479061226608922
+          }
+        },
+        "GRAHAM": {
+          "unavailable": "NON_POSITIVE_MULTIPLIER"
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "168.65366997",
+          "sourceAsOf": "2015-11-04"
+        },
+        "DDM": {
+          "value": "47.54717010",
+          "sourceAsOf": "2015-11-04"
+        },
+        "GRAHAM": {
+          "value": null,
+          "sourceAsOf": null
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2016-02-23",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 139.59158781271756,
+          "sourceAsOf": "2016-02-23",
+          "inputs": {
+            "netIncome": 6083000000,
+            "bookValue": 86728000000,
+            "shares": 451899995,
+            "growthUsed": -0.03147607884482628
+          }
+        },
+        "DDM": {
+          "value": 50.12233359802336,
+          "sourceAsOf": "2016-02-23",
+          "inputs": {
+            "dps": 3.6674878242456126
+          }
+        },
+        "GRAHAM": {
+          "value": 27.096798199416995,
+          "sourceAsOf": "2016-02-23",
+          "inputs": {
+            "eps": 12.29,
+            "growthUsed": -0.03147607884482628
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "139.59158781",
+          "sourceAsOf": "2016-02-23"
+        },
+        "DDM": {
+          "value": "50.12233360",
+          "sourceAsOf": "2016-02-23"
+        },
+        "GRAHAM": {
+          "value": "27.09679820",
+          "sourceAsOf": "2016-02-23"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2016-05-09",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 106.1390918975513,
+          "sourceAsOf": "2016-05-07",
+          "inputs": {
+            "netIncome": 4374000000,
+            "bookValue": 86837000000,
+            "shares": 447400000,
+            "growthUsed": -0.03147607884482628
+          }
+        },
+        "DDM": {
+          "value": 50.93151190462952,
+          "sourceAsOf": "2016-05-07",
+          "inputs": {
+            "dps": 3.726695993021673
+          }
+        },
+        "GRAHAM": {
+          "value": 19.468244760036786,
+          "sourceAsOf": "2016-05-07",
+          "inputs": {
+            "eps": 8.83,
+            "growthUsed": -0.03147607884482628
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "106.13909190",
+          "sourceAsOf": "2016-05-07"
+        },
+        "DDM": {
+          "value": "50.93151190",
+          "sourceAsOf": "2016-05-07"
+        },
+        "GRAHAM": {
+          "value": "19.46824476",
+          "sourceAsOf": "2016-05-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2016-08-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 62.117564677712004,
+          "sourceAsOf": "2016-08-05",
+          "inputs": {
+            "ocf": 13766000000,
+            "capex": -2377000000,
+            "interest": 5966000000,
+            "cash": 210468000000,
+            "debt": 330209000000,
+            "shares": 439200000,
+            "growthUsed": -0.03147607884482628
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 124.14771016153466,
+          "sourceAsOf": "2016-08-05",
+          "inputs": {
+            "netIncome": 5148000000,
+            "bookValue": 86514000000,
+            "shares": 439200000,
+            "growthUsed": -0.03147607884482628
+          }
+        },
+        "DDM": {
+          "value": 52.889251746350745,
+          "sourceAsOf": "2016-08-05",
+          "inputs": {
+            "dps": 3.8699452497329823
+          }
+        },
+        "GRAHAM": {
+          "value": 23.30456932203724,
+          "sourceAsOf": "2016-08-05",
+          "inputs": {
+            "eps": 10.57,
+            "growthUsed": -0.03147607884482628
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "62.11756468",
+          "sourceAsOf": "2016-08-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "124.14771016",
+          "sourceAsOf": "2016-08-05"
+        },
+        "DDM": {
+          "value": "52.88925175",
+          "sourceAsOf": "2016-08-05"
+        },
+        "GRAHAM": {
+          "value": "23.30456932",
+          "sourceAsOf": "2016-08-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 72.96400925172385,
+          "actual": "72.96400925"
+        },
+        "CONSERVATIVE": {
+          "expected": 69.08270971615637,
+          "actual": "69.08270972"
+        },
+        "DIVIDEND": {
+          "expected": 70.83226860193204,
+          "actual": "70.83226860"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2016-11-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 141.04315108020162,
+          "sourceAsOf": "2016-11-04",
+          "inputs": {
+            "netIncome": 5816000000,
+            "bookValue": 87110000000,
+            "shares": 430199995,
+            "growthUsed": -0.03147607884482628
+          }
+        },
+        "DDM": {
+          "value": 53.18588873045305,
+          "sourceAsOf": "2016-11-04",
+          "inputs": {
+            "dps": 3.8916503949112
+          }
+        },
+        "GRAHAM": {
+          "value": 27.647994257175682,
+          "sourceAsOf": "2016-11-04",
+          "inputs": {
+            "eps": 12.54,
+            "growthUsed": -0.03147607884482628
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "141.04315108",
+          "sourceAsOf": "2016-11-04"
+        },
+        "DDM": {
+          "value": "53.18588873",
+          "sourceAsOf": "2016-11-04"
+        },
+        "GRAHAM": {
+          "value": "27.64799426",
+          "sourceAsOf": "2016-11-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2017-02-28",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 36.06522375858557,
+          "sourceAsOf": "2017-02-28",
+          "inputs": {
+            "ocf": 5570000000,
+            "capex": -2876000000,
+            "interest": 7104000000,
+            "cash": 238636000000,
+            "debt": 322274000000,
+            "shares": 423500000,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 168.86873445717288,
+          "sourceAsOf": "2017-02-28",
+          "inputs": {
+            "netIncome": 7398000000,
+            "bookValue": 86893000000,
+            "shares": 423500000,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "DDM": {
+          "value": 53.6511473703965,
+          "sourceAsOf": "2017-02-28",
+          "inputs": {
+            "dps": 3.9256937100290132
+          }
+        },
+        "GRAHAM": {
+          "value": 158.3152758543142,
+          "sourceAsOf": "2017-02-28",
+          "inputs": {
+            "eps": 16.35,
+            "growthUsed": 0.005914457447802501
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "36.06522376",
+          "sourceAsOf": "2017-02-28"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "168.86873446",
+          "sourceAsOf": "2017-02-28"
+        },
+        "DDM": {
+          "value": "53.65114737",
+          "sourceAsOf": "2017-02-28"
+        },
+        "GRAHAM": {
+          "value": "158.31527585",
+          "sourceAsOf": "2017-02-28"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 100.35628738730748,
+          "actual": "100.35628739"
+        },
+        "CONSERVATIVE": {
+          "expected": 112.58129259688033,
+          "actual": "112.58129260"
+        },
+        "DIVIDEND": {
+          "expected": 69.6602953430274,
+          "actual": "69.66029534"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2017-05-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 7.444775680065744,
+          "sourceAsOf": "2017-05-05",
+          "inputs": {
+            "ocf": 6138000000,
+            "capex": -3141000000,
+            "interest": 7869000000,
+            "cash": 240313000000,
+            "debt": 346902000000,
+            "shares": 420099995,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 201.97225023889234,
+          "sourceAsOf": "2017-05-05",
+          "inputs": {
+            "netIncome": 8518000000,
+            "bookValue": 86917000000,
+            "shares": 420099995,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "DDM": {
+          "value": 53.7362002759049,
+          "sourceAsOf": "2017-05-05",
+          "inputs": {
+            "dps": 3.9319170933588956
+          }
+        },
+        "GRAHAM": {
+          "value": 184.36225396123191,
+          "sourceAsOf": "2017-05-05",
+          "inputs": {
+            "eps": 19.04,
+            "growthUsed": 0.005914457447802501
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "7.44477568",
+          "sourceAsOf": "2017-05-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "201.97225024",
+          "sourceAsOf": "2017-05-05"
+        },
+        "DDM": {
+          "value": "53.73620028",
+          "sourceAsOf": "2017-05-05"
+        },
+        "GRAHAM": {
+          "value": "184.36225396",
+          "sourceAsOf": "2017-05-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 101.18651370394696,
+          "actual": "101.18651370"
+        },
+        "CONSERVATIVE": {
+          "expected": 118.87826153206358,
+          "actual": "118.87826153"
+        },
+        "DIVIDEND": {
+          "expected": 64.86684043016673,
+          "actual": "64.86684043"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2017-08-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 205.66633047636145,
+          "sourceAsOf": "2017-08-05",
+          "inputs": {
+            "netIncome": 8527000000,
+            "bookValue": 86675000000,
+            "shares": 413300000,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "DDM": {
+          "value": 55.88203607910366,
+          "sourceAsOf": "2017-08-05",
+          "inputs": {
+            "dps": 4.088929469202708
+          }
+        },
+        "GRAHAM": {
+          "value": 186.58931900383084,
+          "sourceAsOf": "2017-08-05",
+          "inputs": {
+            "eps": 19.27,
+            "growthUsed": 0.005914457447802501
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "205.66633048",
+          "sourceAsOf": "2017-08-05"
+        },
+        "DDM": {
+          "value": "55.88203608",
+          "sourceAsOf": "2017-08-05"
+        },
+        "GRAHAM": {
+          "value": "186.58931900",
+          "sourceAsOf": "2017-08-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2017-11-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 210.69721495612472,
+          "sourceAsOf": "2017-11-04",
+          "inputs": {
+            "netIncome": 8561000000,
+            "bookValue": 86292000000,
+            "shares": 405699995,
+            "growthUsed": 0.005914457447802501
+          }
+        },
+        "DDM": {
+          "value": 57.17988760526214,
+          "sourceAsOf": "2017-11-04",
+          "inputs": {
+            "dps": 4.183894215019182
+          }
+        },
+        "GRAHAM": {
+          "value": 190.26881776986383,
+          "sourceAsOf": "2017-11-04",
+          "inputs": {
+            "eps": 19.65,
+            "growthUsed": 0.005914457447802501
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "210.69721496",
+          "sourceAsOf": "2017-11-04"
+        },
+        "DDM": {
+          "value": "57.17988761",
+          "sourceAsOf": "2017-11-04"
+        },
+        "GRAHAM": {
+          "value": "190.26881777",
+          "sourceAsOf": "2017-11-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2018-02-27",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 91.1347838827807,
+          "sourceAsOf": "2018-02-27",
+          "inputs": {
+            "netIncome": 4286000000,
+            "bookValue": 82243000000,
+            "shares": 389799996,
+            "growthUsed": 0.005380535384092999
+          }
+        },
+        "DDM": {
+          "value": 59.537408336552545,
+          "sourceAsOf": "2018-02-27",
+          "inputs": {
+            "dps": 4.35639573194287
+          }
+        },
+        "GRAHAM": {
+          "value": 92.12215007899493,
+          "sourceAsOf": "2018-02-27",
+          "inputs": {
+            "eps": 9.620000000000001,
+            "growthUsed": 0.005380535384092999
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "91.13478388",
+          "sourceAsOf": "2018-02-27"
+        },
+        "DDM": {
+          "value": "59.53740834",
+          "sourceAsOf": "2018-02-27"
+        },
+        "GRAHAM": {
+          "value": "92.12215008",
+          "sourceAsOf": "2018-02-27"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2018-05-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 106.9584468760522,
+          "sourceAsOf": "2018-05-05",
+          "inputs": {
+            "netIncome": 4863000000,
+            "bookValue": 83579000000,
+            "shares": 393799996,
+            "growthUsed": 0.005380535384092999
+          }
+        },
+        "DDM": {
+          "value": 60.67964444801678,
+          "sourceAsOf": "2018-05-05",
+          "inputs": {
+            "dps": 4.439973984001229
+          }
+        },
+        "GRAHAM": {
+          "value": 109.55066495880477,
+          "sourceAsOf": "2018-05-05",
+          "inputs": {
+            "eps": 11.44,
+            "growthUsed": 0.005380535384092999
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "106.95844688",
+          "sourceAsOf": "2018-05-05"
+        },
+        "DDM": {
+          "value": "60.67964445",
+          "sourceAsOf": "2018-05-05"
+        },
+        "GRAHAM": {
+          "value": "109.55066496",
+          "sourceAsOf": "2018-05-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2018-08-06",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 128.03081848764265,
+          "sourceAsOf": "2018-08-04",
+          "inputs": {
+            "netIncome": 5597000000,
+            "bookValue": 86599000000,
+            "shares": 392600000,
+            "growthUsed": 0.005380535384092999
+          }
+        },
+        "DDM": {
+          "value": 62.299843758290976,
+          "sourceAsOf": "2018-08-04",
+          "inputs": {
+            "dps": 4.558525153045682
+          }
+        },
+        "GRAHAM": {
+          "value": 128.99016232474654,
+          "sourceAsOf": "2018-08-04",
+          "inputs": {
+            "eps": 13.47,
+            "growthUsed": 0.005380535384092999
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "128.03081849",
+          "sourceAsOf": "2018-08-04"
+        },
+        "DDM": {
+          "value": "62.29984376",
+          "sourceAsOf": "2018-08-04"
+        },
+        "GRAHAM": {
+          "value": "128.99016232",
+          "sourceAsOf": "2018-08-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2018-11-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_EQUITY_VALUE"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 140.6713107896975,
+          "sourceAsOf": "2018-11-03",
+          "inputs": {
+            "netIncome": 5993000000,
+            "bookValue": 86762000000,
+            "shares": 390499996,
+            "growthUsed": 0.005380535384092999
+          }
+        },
+        "DDM": {
+          "value": 62.36280883447721,
+          "sourceAsOf": "2018-11-03",
+          "inputs": {
+            "dps": 4.563132353742236
+          }
+        },
+        "GRAHAM": {
+          "value": 140.57725188769703,
+          "sourceAsOf": "2018-11-03",
+          "inputs": {
+            "eps": 14.68,
+            "growthUsed": 0.005380535384092999
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "140.67131079",
+          "sourceAsOf": "2018-11-03"
+        },
+        "DDM": {
+          "value": "62.36280883",
+          "sourceAsOf": "2018-11-03"
+        },
+        "GRAHAM": {
+          "value": "140.57725189",
+          "sourceAsOf": "2018-11-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2019-02-27",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1438.4566218917887,
+          "sourceAsOf": "2019-02-27",
+          "inputs": {
+            "ocf": 20421000000,
+            "capex": -7982000000,
+            "interest": 15912000000,
+            "cash": 505154000000,
+            "debt": 364807000000,
+            "shares": 384300000,
+            "growthUsed": 0.0508089653642807
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 296.49094160989205,
+          "sourceAsOf": "2019-02-27",
+          "inputs": {
+            "netIncome": 10459000000,
+            "bookValue": 90185000000,
+            "shares": 384300000,
+            "growthUsed": 0.0508089653642807
+          }
+        },
+        "DDM": {
+          "value": 63.430632312435634,
+          "sourceAsOf": "2019-02-27",
+          "inputs": {
+            "dps": 4.641265778958706
+          }
+        },
+        "GRAHAM": {
+          "value": 479.04822818021717,
+          "sourceAsOf": "2019-02-27",
+          "inputs": {
+            "eps": 25.67,
+            "growthUsed": 0.0508089653642807
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1438.45662189",
+          "sourceAsOf": "2019-02-27"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "296.49094161",
+          "sourceAsOf": "2019-02-27"
+        },
+        "DDM": {
+          "value": "63.43063231",
+          "sourceAsOf": "2019-02-27"
+        },
+        "GRAHAM": {
+          "value": "479.04822818",
+          "sourceAsOf": "2019-02-27"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 903.9852390649054,
+          "actual": "903.98523906"
+        },
+        "CONSERVATIVE": {
+          "expected": 808.0443996937482,
+          "actual": "808.04439969"
+        },
+        "DIVIDEND": {
+          "expected": 660.0530900036682,
+          "actual": "660.05309000"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2019-05-07",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 272.7578285437638,
+          "sourceAsOf": "2019-05-07",
+          "inputs": {
+            "netIncome": 9878000000,
+            "bookValue": 90273000000,
+            "shares": 382399996,
+            "growthUsed": 0.0508089653642807
+          }
+        },
+        "DDM": {
+          "value": 63.783903968569696,
+          "sourceAsOf": "2019-05-07",
+          "inputs": {
+            "dps": 4.667114924529491
+          }
+        },
+        "GRAHAM": {
+          "value": 454.7878971855042,
+          "sourceAsOf": "2019-05-07",
+          "inputs": {
+            "eps": 24.37,
+            "growthUsed": 0.0508089653642807
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "272.75782854",
+          "sourceAsOf": "2019-05-07"
+        },
+        "DDM": {
+          "value": "63.78390397",
+          "sourceAsOf": "2019-05-07"
+        },
+        "GRAHAM": {
+          "value": "454.78789719",
+          "sourceAsOf": "2019-05-07"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2019-08-15",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 268.5871071393998,
+          "sourceAsOf": "2019-08-15",
+          "inputs": {
+            "netIncome": 9734000000,
+            "bookValue": 90892000000,
+            "shares": 378000000,
+            "growthUsed": 0.0508089653642807
+          }
+        },
+        "DDM": {
+          "value": 64.64247492095963,
+          "sourceAsOf": "2019-08-15",
+          "inputs": {
+            "dps": 4.729937189338511
+          }
+        },
+        "GRAHAM": {
+          "value": 451.61539236311864,
+          "sourceAsOf": "2019-08-15",
+          "inputs": {
+            "eps": 24.2,
+            "growthUsed": 0.0508089653642807
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "268.58710714",
+          "sourceAsOf": "2019-08-15"
+        },
+        "DDM": {
+          "value": "64.64247492",
+          "sourceAsOf": "2019-08-15"
+        },
+        "GRAHAM": {
+          "value": "451.61539236",
+          "sourceAsOf": "2019-08-15"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2019-11-04",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 240.79250587408026,
+          "sourceAsOf": "2019-11-02",
+          "inputs": {
+            "netIncome": 9087000000,
+            "bookValue": 92012000000,
+            "shares": 374299996,
+            "growthUsed": 0.0508089653642807
+          }
+        },
+        "DDM": {
+          "value": 71.35522090793135,
+          "sourceAsOf": "2019-11-02",
+          "inputs": {
+            "dps": 5.2211137249705875
+          }
+        },
+        "GRAHAM": {
+          "value": 424.5557924074772,
+          "sourceAsOf": "2019-11-02",
+          "inputs": {
+            "eps": 22.75,
+            "growthUsed": 0.0508089653642807
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "240.79250587",
+          "sourceAsOf": "2019-11-02"
+        },
+        "DDM": {
+          "value": "71.35522091",
+          "sourceAsOf": "2019-11-02"
+        },
+        "GRAHAM": {
+          "value": "424.55579241",
+          "sourceAsOf": "2019-11-02"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2020-02-24",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1776.8948750563748,
+          "sourceAsOf": "2020-02-22",
+          "inputs": {
+            "ocf": 23868000000,
+            "capex": -8443000000,
+            "interest": 17376000000,
+            "cash": 529348000000,
+            "debt": 394781000000,
+            "shares": 367300000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 218.63289569062658,
+          "sourceAsOf": "2020-02-22",
+          "inputs": {
+            "netIncome": 8466000000,
+            "bookValue": 90265000000,
+            "shares": 367300000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "DDM": {
+          "value": 76.78940826019166,
+          "sourceAsOf": "2020-02-22",
+          "inputs": {
+            "dps": 5.618737189770123
+          }
+        },
+        "GRAHAM": {
+          "value": 443.07634941055886,
+          "sourceAsOf": "2020-02-22",
+          "inputs": {
+            "eps": 21.400000000000002,
+            "growthUsed": 0.061022511544523095
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1776.89487506",
+          "sourceAsOf": "2020-02-22"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "218.63289569",
+          "sourceAsOf": "2020-02-22"
+        },
+        "DDM": {
+          "value": "76.78940826",
+          "sourceAsOf": "2020-02-22"
+        },
+        "GRAHAM": {
+          "value": "443.07634941",
+          "sourceAsOf": "2020-02-22"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1042.6525761174871,
+          "actual": "1042.65257612"
+        },
+        "CONSERVATIVE": {
+          "expected": 909.2707235529056,
+          "actual": "909.27072355"
+        },
+        "DIVIDEND": {
+          "expected": 785.2002924647519,
+          "actual": "785.20029246"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2020-05-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1357.7507649036438,
+          "sourceAsOf": "2020-05-02",
+          "inputs": {
+            "ocf": 15843000000,
+            "capex": -9158000000,
+            "interest": 16434000000,
+            "cash": 538722000000,
+            "debt": 397973000000,
+            "shares": 361100000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 166.75070250216137,
+          "sourceAsOf": "2020-05-02",
+          "inputs": {
+            "netIncome": 7428000000,
+            "bookValue": 92379000000,
+            "shares": 361100000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "DDM": {
+          "value": 83.74906875519821,
+          "sourceAsOf": "2020-05-02",
+          "inputs": {
+            "dps": 6.12798064062426
+          }
+        },
+        "GRAHAM": {
+          "value": 385.517832991804,
+          "sourceAsOf": "2020-05-02",
+          "inputs": {
+            "eps": 18.62,
+            "growthUsed": 0.061022511544523095
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1357.75076490",
+          "sourceAsOf": "2020-05-02"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "166.75070250",
+          "sourceAsOf": "2020-05-02"
+        },
+        "DDM": {
+          "value": "83.74906876",
+          "sourceAsOf": "2020-05-02"
+        },
+        "GRAHAM": {
+          "value": "385.51783299",
+          "sourceAsOf": "2020-05-02"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 806.0041598008311,
+          "actual": "806.00415980"
+        },
+        "CONSERVATIVE": {
+          "expected": 708.7808666096472,
+          "actual": "708.78086661"
+        },
+        "DIVIDEND": {
+          "expected": 609.9500739639692,
+          "actual": "609.95007396"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2020-08-10",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 71.40981568376625,
+          "sourceAsOf": "2020-08-08",
+          "inputs": {
+            "netIncome": 5380000000,
+            "bookValue": 90029000000,
+            "shares": 359099996,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "DDM": {
+          "value": 88.23041126507707,
+          "sourceAsOf": "2020-08-08",
+          "inputs": {
+            "dps": 6.455883751103201
+          }
+        },
+        "GRAHAM": {
+          "value": 286.7573569783289,
+          "sourceAsOf": "2020-08-08",
+          "inputs": {
+            "eps": 13.849999999999998,
+            "growthUsed": 0.061022511544523095
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "71.40981568",
+          "sourceAsOf": "2020-08-08"
+        },
+        "DDM": {
+          "value": "88.23041127",
+          "sourceAsOf": "2020-08-08"
+        },
+        "GRAHAM": {
+          "value": "286.75735698",
+          "sourceAsOf": "2020-08-08"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2020-11-03",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1739.49223898517,
+          "sourceAsOf": "2020-11-03",
+          "inputs": {
+            "ocf": 21609000000,
+            "capex": -6952000000,
+            "interest": 11232000000,
+            "cash": 598358000000,
+            "debt": 390492000000,
+            "shares": 359900000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 139.16741614600218,
+          "sourceAsOf": "2020-11-03",
+          "inputs": {
+            "netIncome": 6870000000,
+            "bookValue": 92650000000,
+            "shares": 359900000,
+            "growthUsed": 0.061022511544523095
+          }
+        },
+        "DDM": {
+          "value": 90.17311680845093,
+          "sourceAsOf": "2020-11-03",
+          "inputs": {
+            "dps": 6.598032937203728
+          }
+        },
+        "GRAHAM": {
+          "value": 368.9542311446803,
+          "sourceAsOf": "2020-11-03",
+          "inputs": {
+            "eps": 17.82,
+            "growthUsed": 0.061022511544523095
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1739.49223899",
+          "sourceAsOf": "2020-11-03"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "139.16741615",
+          "sourceAsOf": "2020-11-03"
+        },
+        "DDM": {
+          "value": "90.17311681",
+          "sourceAsOf": "2020-11-03"
+        },
+        "GRAHAM": {
+          "value": "368.95423114",
+          "sourceAsOf": "2020-11-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 985.2871905653217,
+          "actual": "985.28719057"
+        },
+        "CONSERVATIVE": {
+          "expected": 848.2333897812728,
+          "actual": "848.23338978"
+        },
+        "DIVIDEND": {
+          "expected": 759.6996255466488,
+          "actual": "759.69962555"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2021-02-23",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 258.9720936441998,
+          "sourceAsOf": "2021-02-23",
+          "inputs": {
+            "netIncome": 9459000000,
+            "bookValue": 95932000000,
+            "shares": 360999996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "DDM": {
+          "value": 88.62268905015767,
+          "sourceAsOf": "2021-02-23",
+          "inputs": {
+            "dps": 6.484587003670075
+          }
+        },
+        "GRAHAM": {
+          "value": 547.057713535895,
+          "sourceAsOf": "2021-02-23",
+          "inputs": {
+            "eps": 25.61,
+            "growthUsed": 0.06430548878092446
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "258.97209364",
+          "sourceAsOf": "2021-02-23"
+        },
+        "DDM": {
+          "value": "88.62268905",
+          "sourceAsOf": "2021-02-23"
+        },
+        "GRAHAM": {
+          "value": "547.05771354",
+          "sourceAsOf": "2021-02-23"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2021-05-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2328.1444763325026,
+          "sourceAsOf": "2021-05-05",
+          "inputs": {
+            "ocf": 34120000000,
+            "capex": -4778000000,
+            "interest": 7073000000,
+            "cash": 642443000000,
+            "debt": 438101000000,
+            "shares": 360899996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 538.7450355637735,
+          "sourceAsOf": "2021-05-05",
+          "inputs": {
+            "netIncome": 15082000000,
+            "bookValue": 97664000000,
+            "shares": 360899996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "DDM": {
+          "value": 89.12626101354357,
+          "sourceAsOf": "2021-05-05",
+          "inputs": {
+            "dps": 6.521433732698311
+          }
+        },
+        "GRAHAM": {
+          "value": 885.2038910163018,
+          "sourceAsOf": "2021-05-05",
+          "inputs": {
+            "eps": 41.44,
+            "growthUsed": 0.06430548878092446
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2328.14447633",
+          "sourceAsOf": "2021-05-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "538.74503556",
+          "sourceAsOf": "2021-05-05"
+        },
+        "DDM": {
+          "value": "89.12626101",
+          "sourceAsOf": "2021-05-05"
+        },
+        "GRAHAM": {
+          "value": "885.20389102",
+          "sourceAsOf": "2021-05-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1502.7365270386435,
+          "actual": "1502.73652704"
+        },
+        "CONSERVATIVE": {
+          "expected": 1358.4424685070235,
+          "actual": "1358.44246851"
+        },
+        "DIVIDEND": {
+          "expected": 1074.6573020511732,
+          "actual": "1074.65730205"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2021-08-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 4006.372018430549,
+          "sourceAsOf": "2021-08-05",
+          "inputs": {
+            "ocf": 66234000000,
+            "capex": -5066000000,
+            "interest": 6293000000,
+            "cash": 704503000000,
+            "debt": 482286000000,
+            "shares": 355999996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 797.883612899755,
+          "sourceAsOf": "2021-08-05",
+          "inputs": {
+            "netIncome": 20195000000,
+            "bookValue": 101890000000,
+            "shares": 355999996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "DDM": {
+          "value": 86.80001257634049,
+          "sourceAsOf": "2021-08-05",
+          "inputs": {
+            "dps": 6.351220432415159
+          }
+        },
+        "GRAHAM": {
+          "value": 1192.1628657726787,
+          "sourceAsOf": "2021-08-05",
+          "inputs": {
+            "eps": 55.81,
+            "growthUsed": 0.06430548878092446
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "4006.37201843",
+          "sourceAsOf": "2021-08-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "797.88361290",
+          "sourceAsOf": "2021-08-05"
+        },
+        "DDM": {
+          "value": "86.80001258",
+          "sourceAsOf": "2021-08-05"
+        },
+        "GRAHAM": {
+          "value": "1192.16286577",
+          "sourceAsOf": "2021-08-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 2480.983666239737,
+          "actual": "2480.98366624"
+        },
+        "CONSERVATIVE": {
+          "expected": 2199.5627509739497,
+          "actual": "2199.56275097"
+        },
+        "DIVIDEND": {
+          "expected": 1796.8455349827068,
+          "actual": "1796.84553498"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2021-11-02",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 895.847582753347,
+          "sourceAsOf": "2021-11-02",
+          "inputs": {
+            "netIncome": 22206000000,
+            "bookValue": 106297000000,
+            "shares": 353899996,
+            "growthUsed": 0.06430548878092446
+          }
+        },
+        "DDM": {
+          "value": 95.36028744074157,
+          "sourceAsOf": "2021-11-02",
+          "inputs": {
+            "dps": 6.977582007859141
+          }
+        },
+        "GRAHAM": {
+          "value": 1325.0288938161486,
+          "sourceAsOf": "2021-11-02",
+          "inputs": {
+            "eps": 62.03,
+            "growthUsed": 0.06430548878092446
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "895.84758275",
+          "sourceAsOf": "2021-11-02"
+        },
+        "DDM": {
+          "value": "95.36028744",
+          "sourceAsOf": "2021-11-02"
+        },
+        "GRAHAM": {
+          "value": "1325.02889382",
+          "sourceAsOf": "2021-11-02"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2022-02-28",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 879.2835795896782,
+          "sourceAsOf": "2022-02-26",
+          "inputs": {
+            "ocf": 921000000,
+            "capex": -4667000000,
+            "interest": 5650000000,
+            "cash": 778720000000,
+            "debt": 487762000000,
+            "shares": 352299996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 1104.1183088216294,
+          "sourceAsOf": "2022-02-26",
+          "inputs": {
+            "netIncome": 21635000000,
+            "bookValue": 109926000000,
+            "shares": 352299996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "DDM": {
+          "value": 104.83606433225924,
+          "sourceAsOf": "2022-02-26",
+          "inputs": {
+            "dps": 7.670931536506776
+          }
+        },
+        "GRAHAM": {
+          "value": 1899.5607150162261,
+          "sourceAsOf": "2022-02-26",
+          "inputs": {
+            "eps": 60.72,
+            "growthUsed": 0.11391968997169188
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "879.28357959",
+          "sourceAsOf": "2022-02-26"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "1104.11830882",
+          "sourceAsOf": "2022-02-26"
+        },
+        "DDM": {
+          "value": "104.83606433",
+          "sourceAsOf": "2022-02-26"
+        },
+        "GRAHAM": {
+          "value": "1899.56071502",
+          "sourceAsOf": "2022-02-26"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1150.7894254445732,
+          "actual": "1150.78942544"
+        },
+        "CONSERVATIVE": {
+          "expected": 1252.817138987228,
+          "actual": "1252.81713899"
+        },
+        "DIVIDEND": {
+          "expected": 614.4715193331009,
+          "actual": "614.47151933"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2022-05-03",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 855.2971680276621,
+          "sourceAsOf": "2022-05-03",
+          "inputs": {
+            "netIncome": 18738000000,
+            "bookValue": 115239000000,
+            "shares": 355899996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "DDM": {
+          "value": 115.26687969606867,
+          "sourceAsOf": "2022-05-03",
+          "inputs": {
+            "dps": 8.434161928980636
+          }
+        },
+        "GRAHAM": {
+          "value": 1643.6581022225382,
+          "sourceAsOf": "2022-05-03",
+          "inputs": {
+            "eps": 52.54,
+            "growthUsed": 0.11391968997169188
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "855.29716803",
+          "sourceAsOf": "2022-05-03"
+        },
+        "DDM": {
+          "value": "115.26687970",
+          "sourceAsOf": "2022-05-03"
+        },
+        "GRAHAM": {
+          "value": "1643.65810222",
+          "sourceAsOf": "2022-05-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2022-08-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1872.2030964026408,
+          "sourceAsOf": "2022-08-05",
+          "inputs": {
+            "ocf": 11497000000,
+            "capex": -4006000000,
+            "interest": 7270000000,
+            "cash": 828196000000,
+            "debt": 500284000000,
+            "shares": 360499996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 646.4111540809096,
+          "sourceAsOf": "2022-08-05",
+          "inputs": {
+            "netIncome": 16179000000,
+            "bookValue": 117871000000,
+            "shares": 360499996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "DDM": {
+          "value": 126.25788793419167,
+          "sourceAsOf": "2022-08-05",
+          "inputs": {
+            "dps": 9.238382043965245
+          }
+        },
+        "GRAHAM": {
+          "value": 1403.3974584260195,
+          "sourceAsOf": "2022-08-05",
+          "inputs": {
+            "eps": 44.86,
+            "growthUsed": 0.11391968997169188
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1872.20309640",
+          "sourceAsOf": "2022-08-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "646.41115408",
+          "sourceAsOf": "2022-08-05"
+        },
+        "DDM": {
+          "value": "126.25788793",
+          "sourceAsOf": "2022-08-05"
+        },
+        "GRAHAM": {
+          "value": "1403.39745843",
+          "sourceAsOf": "2022-08-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1410.704386110797,
+          "actual": "1410.70438611"
+        },
+        "CONSERVATIVE": {
+          "expected": 1363.823822313135,
+          "actual": "1363.82382231"
+        },
+        "DIVIDEND": {
+          "expected": 928.6666245509149,
+          "actual": "928.66662455"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2022-11-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 6140.685246637767,
+          "sourceAsOf": "2022-11-04",
+          "inputs": {
+            "ocf": 66767000000,
+            "capex": -4113000000,
+            "interest": 12224000000,
+            "cash": 778822000000,
+            "debt": 469157000000,
+            "shares": 359199996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 473.78912880977185,
+          "sourceAsOf": "2022-11-04",
+          "inputs": {
+            "netIncome": 13870000000,
+            "bookValue": 119290000000,
+            "shares": 359199996,
+            "growthUsed": 0.11391968997169188
+          }
+        },
+        "DDM": {
+          "value": 133.60634747197503,
+          "sourceAsOf": "2022-11-04",
+          "inputs": {
+            "dps": 9.776074205266466
+          }
+        },
+        "GRAHAM": {
+          "value": 1185.9740893653677,
+          "sourceAsOf": "2022-11-04",
+          "inputs": {
+            "eps": 37.91,
+            "growthUsed": 0.11391968997169188
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "6140.68524664",
+          "sourceAsOf": "2022-11-04"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "473.78912881",
+          "sourceAsOf": "2022-11-04"
+        },
+        "DDM": {
+          "value": "133.60634747",
+          "sourceAsOf": "2022-11-04"
+        },
+        "GRAHAM": {
+          "value": "1185.97408937",
+          "sourceAsOf": "2022-11-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 3449.6741798348885,
+          "actual": "3449.67417983"
+        },
+        "CONSERVATIVE": {
+          "expected": 2954.2030641076485,
+          "actual": "2954.20306411"
+        },
+        "DIVIDEND": {
+          "expected": 2604.474463405851,
+          "actual": "2604.47446341"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2023-02-27",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2246.4191702109556,
+          "sourceAsOf": "2023-02-25",
+          "inputs": {
+            "ocf": 8708000000,
+            "capex": -3748000000,
+            "interest": 21346000000,
+            "cash": 721954000000,
+            "debt": 434548000000,
+            "shares": 356700000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 298.30799232320277,
+          "sourceAsOf": "2023-02-25",
+          "inputs": {
+            "netIncome": 11261000000,
+            "bookValue": 117189000000,
+            "shares": 356700000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "DDM": {
+          "value": 140.53101184728808,
+          "sourceAsOf": "2023-02-25",
+          "inputs": {
+            "dps": 10.282756964435716
+          }
+        },
+        "GRAHAM": {
+          "value": 852.5983935845942,
+          "sourceAsOf": "2023-02-25",
+          "inputs": {
+            "eps": 30.060000000000002,
+            "growthUsed": 0.09931610006397107
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2246.41917021",
+          "sourceAsOf": "2023-02-25"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "298.30799232",
+          "sourceAsOf": "2023-02-25"
+        },
+        "DDM": {
+          "value": "140.53101185",
+          "sourceAsOf": "2023-02-25"
+        },
+        "GRAHAM": {
+          "value": "852.59839358",
+          "sourceAsOf": "2023-02-25"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1383.2216615193574,
+          "actual": "1383.22166152"
+        },
+        "CONSERVATIVE": {
+          "expected": 1243.8395838567212,
+          "actual": "1243.83958386"
+        },
+        "DIVIDEND": {
+          "expected": 1014.441671287938,
+          "actual": "1014.44167129"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2023-05-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 4864.713388695055,
+          "sourceAsOf": "2023-05-05",
+          "inputs": {
+            "ocf": 37646000000,
+            "capex": -3392000000,
+            "interest": 33118000000,
+            "cash": 809705000000,
+            "debt": 523424000000,
+            "shares": 351300000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 254.4028745173007,
+          "sourceAsOf": "2023-05-05",
+          "inputs": {
+            "netIncome": 10556000000,
+            "bookValue": 117509000000,
+            "shares": 351300000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "DDM": {
+          "value": 148.6436295530795,
+          "sourceAsOf": "2023-05-05",
+          "inputs": {
+            "dps": 10.87636313803021
+          }
+        },
+        "GRAHAM": {
+          "value": 796.7228501593895,
+          "sourceAsOf": "2023-05-05",
+          "inputs": {
+            "eps": 28.09,
+            "growthUsed": 0.09931610006397107
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "4864.71338870",
+          "sourceAsOf": "2023-05-05"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "254.40287452",
+          "sourceAsOf": "2023-05-05"
+        },
+        "DDM": {
+          "value": "148.64362955",
+          "sourceAsOf": "2023-05-05"
+        },
+        "GRAHAM": {
+          "value": "796.72285016",
+          "sourceAsOf": "2023-05-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 2668.0221267345955,
+          "actual": "2668.02212673"
+        },
+        "CONSERVATIVE": {
+          "expected": 2261.223072881029,
+          "actual": "2261.22307288"
+        },
+        "DIVIDEND": {
+          "expected": 2056.223382202714,
+          "actual": "2056.22338220"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2023-08-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 4750.419008584284,
+          "sourceAsOf": "2023-08-04",
+          "inputs": {
+            "ocf": 24153000000,
+            "capex": -3007000000,
+            "interest": 45153000000,
+            "cash": 850841000000,
+            "debt": 539408000000,
+            "shares": 347200000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 145.3280390594714,
+          "sourceAsOf": "2023-08-04",
+          "inputs": {
+            "netIncome": 8845000000,
+            "bookValue": 116493000000,
+            "shares": 347200000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "DDM": {
+          "value": 155.9893631642242,
+          "sourceAsOf": "2023-08-04",
+          "inputs": {
+            "dps": 11.413855841284699
+          }
+        },
+        "GRAHAM": {
+          "value": 664.8338770998963,
+          "sourceAsOf": "2023-08-04",
+          "inputs": {
+            "eps": 23.439999999999998,
+            "growthUsed": 0.09931610006397107
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "4750.41900858",
+          "sourceAsOf": "2023-08-04"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "145.32803906",
+          "sourceAsOf": "2023-08-04"
+        },
+        "DDM": {
+          "value": "155.98936316",
+          "sourceAsOf": "2023-08-04"
+        },
+        "GRAHAM": {
+          "value": "664.83387710",
+          "sourceAsOf": "2023-08-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 2551.7746914299623,
+          "actual": "2551.77469143"
+        },
+        "CONSERVATIVE": {
+          "expected": 2143.2161782815238,
+          "actual": "2143.21617828"
+        },
+        "DIVIDEND": {
+          "expected": 1991.6289565112975,
+          "actual": "1991.62895651"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2023-11-06",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 2600.032379303122,
+          "sourceAsOf": "2023-11-04",
+          "inputs": {
+            "ocf": -17391000000,
+            "capex": -2524000000,
+            "interest": 55356000000,
+            "cash": 869993000000,
+            "debt": 536662000000,
+            "shares": 343900000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 74.40802043964851,
+          "sourceAsOf": "2023-11-04",
+          "inputs": {
+            "netIncome": 7834000000,
+            "bookValue": 117277000000,
+            "shares": 343900000,
+            "growthUsed": 0.09931610006397107
+          }
+        },
+        "DDM": {
+          "value": 155.13363113744785,
+          "sourceAsOf": "2023-11-04",
+          "inputs": {
+            "dps": 11.351241302740089
+          }
+        },
+        "GRAHAM": {
+          "value": 585.9841254643285,
+          "sourceAsOf": "2023-11-04",
+          "inputs": {
+            "eps": 20.66,
+            "growthUsed": 0.09931610006397107
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "2600.03237930",
+          "sourceAsOf": "2023-11-04"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "74.40802044",
+          "sourceAsOf": "2023-11-04"
+        },
+        "DDM": {
+          "value": "155.13363114",
+          "sourceAsOf": "2023-11-04"
+        },
+        "GRAHAM": {
+          "value": "585.98412546",
+          "sourceAsOf": "2023-11-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1439.5354208763213,
+          "actual": "1439.53542088"
+        },
+        "CONSERVATIVE": {
+          "expected": 1238.130595492442,
+          "actual": "1238.13059549"
+        },
+        "DIVIDEND": {
+          "expected": 1116.9480082641576,
+          "actual": "1116.94800826"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2024-02-29",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 4370.576303335322,
+          "sourceAsOf": "2024-02-29",
+          "inputs": {
+            "ocf": -12587000000,
+            "capex": -2316000000,
+            "interest": 62164000000,
+            "cash": 924945000000,
+            "debt": 583135000000,
+            "shares": 345800000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 24.197913868436974,
+          "sourceAsOf": "2024-02-29",
+          "inputs": {
+            "netIncome": 8516000000,
+            "bookValue": 116905000000,
+            "shares": 345800000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 158.4121745339586,
+          "sourceAsOf": "2024-02-29",
+          "inputs": {
+            "dps": 11.591134721996973
+          }
+        },
+        "GRAHAM": {
+          "value": 880.4950000000001,
+          "sourceAsOf": "2024-02-29",
+          "inputs": {
+            "eps": 22.870000000000005,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "4370.57630334",
+          "sourceAsOf": "2024-02-29"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "24.19791387",
+          "sourceAsOf": "2024-02-29"
+        },
+        "DDM": {
+          "value": "158.41217453",
+          "sourceAsOf": "2024-02-29"
+        },
+        "GRAHAM": {
+          "value": "880.49500000",
+          "sourceAsOf": "2024-02-29"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 2368.6465258281924,
+          "actual": "2368.64652583"
+        },
+        "CONSERVATIVE": {
+          "expected": 2019.63839549466,
+          "actual": "2019.63839549"
+        },
+        "DIVIDEND": {
+          "expected": 1816.4349739214,
+          "actual": "1816.43497392"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2024-05-06",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1053.9156570165164,
+          "sourceAsOf": "2024-05-04",
+          "inputs": {
+            "ocf": -50029000000,
+            "capex": -2216000000,
+            "interest": 67188000000,
+            "cash": 926519000000,
+            "debt": 597213000000,
+            "shares": 339500000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 103.3901576285165,
+          "sourceAsOf": "2024-05-04",
+          "inputs": {
+            "netIncome": 9414000000,
+            "bookValue": 118546000000,
+            "shares": 339500000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 164.2099886980822,
+          "sourceAsOf": "2024-05-04",
+          "inputs": {
+            "dps": 12.015365026688947
+          }
+        },
+        "GRAHAM": {
+          "value": 987.9100000000002,
+          "sourceAsOf": "2024-05-04",
+          "inputs": {
+            "eps": 25.660000000000004,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1053.91565702",
+          "sourceAsOf": "2024-05-04"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "103.39015763",
+          "sourceAsOf": "2024-05-04"
+        },
+        "DDM": {
+          "value": "164.20998870",
+          "sourceAsOf": "2024-05-04"
+        },
+        "GRAHAM": {
+          "value": "987.91000000",
+          "sourceAsOf": "2024-05-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 755.5568757968133,
+          "actual": "755.55687580"
+        },
+        "CONSERVATIVE": {
+          "expected": 748.9563100951616,
+          "actual": "748.95631010"
+        },
+        "DIVIDEND": {
+          "expected": 507.92828981154275,
+          "actual": "507.92828981"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2024-08-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 284.19828604916097,
+          "sourceAsOf": "2024-08-03",
+          "inputs": {
+            "netIncome": 11241000000,
+            "bookValue": 119463000000,
+            "shares": 335500000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 167.22857182480925,
+          "sourceAsOf": "2024-08-03",
+          "inputs": {
+            "dps": 12.236236962790922
+          }
+        },
+        "GRAHAM": {
+          "value": 1201.2,
+          "sourceAsOf": "2024-08-03",
+          "inputs": {
+            "eps": 31.200000000000003,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "284.19828605",
+          "sourceAsOf": "2024-08-03"
+        },
+        "DDM": {
+          "value": "167.22857182",
+          "sourceAsOf": "2024-08-03"
+        },
+        "GRAHAM": {
+          "value": "1201.20000000",
+          "sourceAsOf": "2024-08-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2024-11-05",
+      "expected": {
+        "DCF_FCFF": {
+          "unavailable": "NON_POSITIVE_FCFF"
+        },
+        "RESIDUAL_INCOME": {
+          "value": 371.86242485260095,
+          "sourceAsOf": "2024-11-05",
+          "inputs": {
+            "netIncome": 12173000000,
+            "bookValue": 121200000000,
+            "shares": 330800000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 170.5146975873507,
+          "sourceAsOf": "2024-11-05",
+          "inputs": {
+            "dps": 12.476685189318346
+          }
+        },
+        "GRAHAM": {
+          "value": 1314.005,
+          "sourceAsOf": "2024-11-05",
+          "inputs": {
+            "eps": 34.13,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": null,
+          "sourceAsOf": null
+        },
+        "RESIDUAL_INCOME": {
+          "value": "371.86242485",
+          "sourceAsOf": "2024-11-05"
+        },
+        "DDM": {
+          "value": "170.51469759",
+          "sourceAsOf": "2024-11-05"
+        },
+        "GRAHAM": {
+          "value": "1314.00500000",
+          "sourceAsOf": "2024-11-05"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": null,
+          "actual": null
+        },
+        "CONSERVATIVE": {
+          "expected": null,
+          "actual": null
+        },
+        "DIVIDEND": {
+          "expected": null,
+          "actual": null
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2025-02-28",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 5407.358195591436,
+          "sourceAsOf": "2025-02-28",
+          "inputs": {
+            "ocf": -13212000000,
+            "capex": -2091000000,
+            "interest": 73827000000,
+            "cash": 921830000000,
+            "debt": 616935000000,
+            "shares": 328400000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 587.6641445815928,
+          "sourceAsOf": "2025-02-28",
+          "inputs": {
+            "netIncome": 14276000000,
+            "bookValue": 121996000000,
+            "shares": 328400000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 176.40704428375534,
+          "sourceAsOf": "2025-02-28",
+          "inputs": {
+            "dps": 12.907832508567466
+          }
+        },
+        "GRAHAM": {
+          "value": 1561.175,
+          "sourceAsOf": "2025-02-28",
+          "inputs": {
+            "eps": 40.55,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "5407.35819559",
+          "sourceAsOf": "2025-02-28"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "587.66414458",
+          "sourceAsOf": "2025-02-28"
+        },
+        "DDM": {
+          "value": "176.40704428",
+          "sourceAsOf": "2025-02-28"
+        },
+        "GRAHAM": {
+          "value": "1561.17500000",
+          "sourceAsOf": "2025-02-28"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 3192.213341170196,
+          "actual": "3192.21334117"
+        },
+        "CONSERVATIVE": {
+          "expected": 2807.5950216110523,
+          "actual": "2807.59502161"
+        },
+        "DIVIDEND": {
+          "expected": 2351.038924866395,
+          "actual": "2351.03892487"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2025-05-05",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 4394.3096145675,
+          "sourceAsOf": "2025-05-03",
+          "inputs": {
+            "ocf": -22404000000,
+            "capex": -2093000000,
+            "interest": 72134000000,
+            "cash": 924884000000,
+            "debt": 609737000000,
+            "shares": 324500000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 641.4015772492618,
+          "sourceAsOf": "2025-05-03",
+          "inputs": {
+            "netIncome": 14882000000,
+            "bookValue": 124300000000,
+            "shares": 324500000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 178.15979255476327,
+          "sourceAsOf": "2025-05-03",
+          "inputs": {
+            "dps": 13.03608238205585
+          }
+        },
+        "GRAHAM": {
+          "value": 1658.965,
+          "sourceAsOf": "2025-05-03",
+          "inputs": {
+            "eps": 43.089999999999996,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "4394.30961457",
+          "sourceAsOf": "2025-05-03"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "641.40157725",
+          "sourceAsOf": "2025-05-03"
+        },
+        "DDM": {
+          "value": "178.15979255",
+          "sourceAsOf": "2025-05-03"
+        },
+        "GRAHAM": {
+          "value": "1658.96500000",
+          "sourceAsOf": "2025-05-03"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 2721.3682804585287,
+          "actual": "2721.36828046"
+        },
+        "CONSERVATIVE": {
+          "expected": 2447.8338190017785,
+          "actual": "2447.83381900"
+        },
+        "DIVIDEND": {
+          "expected": 1957.268078298758,
+          "actual": "1957.26807830"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2025-08-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1927.7360614909867,
+          "sourceAsOf": "2025-08-02",
+          "inputs": {
+            "ocf": -22852000000,
+            "capex": -2027000000,
+            "interest": 70369000000,
+            "cash": 166720000000,
+            "debt": 603194000000,
+            "shares": 318300000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 728.488074099206,
+          "sourceAsOf": "2025-08-02",
+          "inputs": {
+            "netIncome": 15562000000,
+            "bookValue": 124096000000,
+            "shares": 318300000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 187.81759771971448,
+          "sourceAsOf": "2025-08-02",
+          "inputs": {
+            "dps": 13.742751052662038
+          }
+        },
+        "GRAHAM": {
+          "value": 1748.67,
+          "sourceAsOf": "2025-08-02",
+          "inputs": {
+            "eps": 45.42,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1927.73606149",
+          "sourceAsOf": "2025-08-02"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "728.48807410",
+          "sourceAsOf": "2025-08-02"
+        },
+        "DDM": {
+          "value": "187.81759772",
+          "sourceAsOf": "2025-08-02"
+        },
+        "GRAHAM": {
+          "value": "1748.67000000",
+          "sourceAsOf": "2025-08-02"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1532.1484529752552,
+          "actual": "1532.14845298"
+        },
+        "CONSERVATIVE": {
+          "expected": 1514.2418468261565,
+          "actual": "1514.24184683"
+        },
+        "DIVIDEND": {
+          "expected": 991.9190785041217,
+          "actual": "991.91907850"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2025-11-03",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 7113.456073519336,
+          "sourceAsOf": "2025-11-01",
+          "inputs": {
+            "ocf": 17888000000,
+            "capex": -2119000000,
+            "interest": 68514000000,
+            "cash": 516000000000,
+            "debt": 665000000000,
+            "shares": 315000000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 857.1203895235969,
+          "sourceAsOf": "2025-11-01",
+          "inputs": {
+            "netIncome": 16670000000,
+            "bookValue": 124000000000,
+            "shares": 315000000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 211.49192834676577,
+          "sourceAsOf": "2025-11-01",
+          "inputs": {
+            "dps": 15.475019147324328
+          }
+        },
+        "GRAHAM": {
+          "value": 1896.8949999999998,
+          "sourceAsOf": "2025-11-01",
+          "inputs": {
+            "eps": 49.269999999999996,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "7113.45607352",
+          "sourceAsOf": "2025-11-01"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "857.12038952",
+          "sourceAsOf": "2025-11-01"
+        },
+        "DDM": {
+          "value": "211.49192835",
+          "sourceAsOf": "2025-11-01"
+        },
+        "GRAHAM": {
+          "value": "1896.89500000",
+          "sourceAsOf": "2025-11-01"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 4193.243153616747,
+          "actual": "4193.24315362"
+        },
+        "CONSERVATIVE": {
+          "expected": 3671.587046264814,
+          "actual": "3671.58704626"
+        },
+        "DIVIDEND": {
+          "expected": 3101.4032786511607,
+          "actual": "3101.40327865"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2026-02-26",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 646.2988547010139,
+          "sourceAsOf": "2026-02-26",
+          "inputs": {
+            "ocf": -45154000000,
+            "capex": -2064000000,
+            "interest": 66814000000,
+            "cash": 624527000000,
+            "debt": 609534000000,
+            "shares": 317600000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 897.1723868183262,
+          "sourceAsOf": "2026-02-26",
+          "inputs": {
+            "netIncome": 17176000000,
+            "bookValue": 124972000000,
+            "shares": 317600000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 226.46322775943347,
+          "sourceAsOf": "2026-02-26",
+          "inputs": {
+            "dps": 16.57048007995855
+          }
+        },
+        "GRAHAM": {
+          "value": 1975.82,
+          "sourceAsOf": "2026-02-26",
+          "inputs": {
+            "eps": 51.32,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "646.29885470",
+          "sourceAsOf": "2026-02-26"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "897.17238682",
+          "sourceAsOf": "2026-02-26"
+        },
+        "DDM": {
+          "value": "226.46322776",
+          "sourceAsOf": "2026-02-26"
+        },
+        "GRAHAM": {
+          "value": "1975.82000000",
+          "sourceAsOf": "2026-02-26"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 987.4651433960048,
+          "actual": "987.46514340"
+        },
+        "CONSERVATIVE": {
+          "expected": 1120.4172579259034,
+          "actual": "1120.41725793"
+        },
+        "DIVIDEND": {
+          "expected": 528.5393103478442,
+          "actual": "528.53931035"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2026-05-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1298.3082681388616,
+          "sourceAsOf": "2026-05-02",
+          "inputs": {
+            "ocf": -39792000000,
+            "capex": -2130000000,
+            "interest": 67408000000,
+            "cash": 706680000000,
+            "debt": 694189000000,
+            "shares": 308000000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 1041.3553969464342,
+          "sourceAsOf": "2026-05-02",
+          "inputs": {
+            "netIncome": 18068000000,
+            "bookValue": 122782000000,
+            "shares": 308000000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 249.967006466602,
+          "sourceAsOf": "2026-05-02",
+          "inputs": {
+            "dps": 18.29026876584893
+          }
+        },
+        "GRAHAM": {
+          "value": 2107.875,
+          "sourceAsOf": "2026-05-02",
+          "inputs": {
+            "eps": 54.75,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1298.30826814",
+          "sourceAsOf": "2026-05-02"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "1041.35539695",
+          "sourceAsOf": "2026-05-02"
+        },
+        "DDM": {
+          "value": "249.96700647",
+          "sourceAsOf": "2026-05-02"
+        },
+        "GRAHAM": {
+          "value": "2107.87500000",
+          "sourceAsOf": "2026-05-02"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1383.135753153361,
+          "actual": "1383.13575315"
+        },
+        "CONSERVATIVE": {
+          "expected": 1464.092426339475,
+          "actual": "1464.09242634"
+        },
+        "DIVIDEND": {
+          "expected": 827.5811892314723,
+          "actual": "827.58118923"
+        }
+      }
+    },
+    {
+      "effectiveFrom": "2026-08-04",
+      "expected": {
+        "DCF_FCFF": {
+          "value": 1455.3823376973655,
+          "sourceAsOf": "2026-08-04",
+          "inputs": {
+            "ocf": -39359000000,
+            "capex": -2156000000,
+            "interest": 68816000000,
+            "cash": 746286000000,
+            "debt": 741874000000,
+            "shares": 304900000,
+            "growthUsed": 0.15
+          }
+        },
+        "RESIDUAL_INCOME": {
+          "value": 1378.0166538129965,
+          "sourceAsOf": "2026-08-04",
+          "inputs": {
+            "netIncome": 20973000000,
+            "bookValue": 122742000000,
+            "shares": 304900000,
+            "growthUsed": 0.15
+          }
+        },
+        "DDM": {
+          "value": 269.3077220678674,
+          "sourceAsOf": "2026-08-04",
+          "inputs": {
+            "dps": 19.705443078136646
+          }
+        },
+        "GRAHAM": {
+          "value": 2494.03,
+          "sourceAsOf": "2026-08-04",
+          "inputs": {
+            "eps": 64.78,
+            "growthUsed": 0.15
+          }
+        }
+      },
+      "actual": {
+        "DCF_FCFF": {
+          "value": "1455.38233770",
+          "sourceAsOf": "2026-08-04"
+        },
+        "RESIDUAL_INCOME": {
+          "value": "1378.01665381",
+          "sourceAsOf": "2026-08-04"
+        },
+        "DDM": {
+          "value": "269.30772207",
+          "sourceAsOf": "2026-08-04"
+        },
+        "GRAHAM": {
+          "value": "2494.03000000",
+          "sourceAsOf": "2026-08-04"
+        }
+      },
+      "blends": {
+        "BALANCED": {
+          "expected": 1639.9021649925817,
+          "actual": "1639.90216499"
+        },
+        "CONSERVATIVE": {
+          "expected": 1743.7669312228452,
+          "actual": "1743.76693122"
+        },
+        "DIVIDEND": {
+          "expected": 965.4793546686926,
+          "actual": "965.47935467"
+        }
+      }
+    }
+  ]
+}

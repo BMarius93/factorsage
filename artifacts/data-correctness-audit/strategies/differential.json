@@ -1,0 +1,39 @@
+{
+  "description": "Production operators, Signals and FINAL EXIT composition against the reference evaluator on constructed boundary and random inputs.",
+  "comparisons": {
+    "compared": 13041,
+    "passed": 13041,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "strategy-final-exit-or": {
+      "compared": 81,
+      "failed": 0,
+      "skipped": 0
+    },
+    "strategy-operators": {
+      "compared": 960,
+      "failed": 0,
+      "skipped": 0
+    },
+    "strategy-signals": {
+      "compared": 12000,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "differences": [],
+  "traces": [
+    {
+      "kind": "condition",
+      "operator": "IS_ABOVE",
+      "metric": -100,
+      "value": -100,
+      "expected": "FALSE",
+      "actual": "FALSE",
+      "result": "PASS"
+    }
+  ]
+}

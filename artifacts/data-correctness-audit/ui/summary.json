@@ -1,0 +1,28 @@
+{
+  "playwrightExitCode": 0,
+  "comparisons": {
+    "compared": 1318,
+    "passed": 1318,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "ui-backtests": {
+      "compared": 729,
+      "failed": 0,
+      "skipped": 0
+    },
+    "ui-dashboard": {
+      "compared": 123,
+      "failed": 0,
+      "skipped": 0
+    },
+    "ui-stock-details": {
+      "compared": 466,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "differences": []
+}

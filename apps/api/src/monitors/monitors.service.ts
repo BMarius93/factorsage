@@ -27,6 +27,7 @@ import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
 import { crossMonitorConfigurationBoundary } from "./monitor-configuration-boundary";
 import { MONITORS_LOGGER } from "./monitors.tokens";
+import { monitorStateSince } from "./signal-since";
 import {
   BUILT_IN_MONITOR_KEYS,
   type ParsedUpdateMonitorRequest,
@@ -429,6 +430,7 @@ export class MonitorsService {
           lastOutcomeAt: true,
           lifecycleState: true,
           lifecycleSince: true,
+          lifecycleSinceDate: true,
           activeSignal: {
             select: {
               id: true,
@@ -480,11 +482,17 @@ export class MonitorsService {
         .map((row) => ({
           levelId: row.levelId,
           levelKind: row.levelKind,
-          since: row.lifecycleSince.toISOString(),
+          // The session the setup began on, not the scan that recorded it (AUD-05).
+          since: monitorStateSince({
+            observationDate: row.lifecycleSinceDate,
+            enteredAt: row.lifecycleSince,
+          }),
         }));
       const statusSince = rows.reduce<Date | null>((newest, row) => {
         const changed =
-          row.lifecycleSince > row.lastOutcomeAt ? row.lifecycleSince : row.lastOutcomeAt;
+          row.lifecycleSince > row.lastOutcomeAt
+            ? row.lifecycleSince
+            : row.lastOutcomeAt;
         return newest === null || changed > newest ? changed : newest;
       }, null);
       return {

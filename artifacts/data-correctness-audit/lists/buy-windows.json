@@ -1,0 +1,23 @@
+{
+  "description": "Production normalizeBuyWindowRanges / isBuyWindowEligible against a date-set reference (leap, month and year boundaries, overlap, adjacency, nesting, open ends), plus the matrix's persisted trades in CUSTOM-window lists.",
+  "rangeSets": 1508,
+  "probeDaysPerSet": 93,
+  "comparisons": {
+    "compared": 283598,
+    "passed": 283598,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "differences": [],
+  "matrixEvidence": {
+    "tradesInCustomWindowLists": 69118,
+    "buysInsideWindow": 19886,
+    "buysOutsideWindow": 0,
+    "buysOnWindowStart": 423,
+    "buysOnWindowEnd": 117,
+    "sellsOutsideWindow": 135,
+    "finalExitsOutsideWindow": 676,
+    "liquidationsOutsideWindow": 335
+  }
+}

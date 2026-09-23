@@ -1,0 +1,531 @@
+{
+  "scenario": "S06-L04-C02",
+  "index": 532,
+  "runId": "8dc6ac8f-9ba2-4293-bce6-283c9ea8bd0d",
+  "status": "PASS",
+  "inputs": {
+    "strategy": "QA-MATRIX-S06-sparse-confluence",
+    "list": "QA-MATRIX-L04-small-custom-divergent",
+    "config": "QA-MATRIX-C02-ten-year-baseline",
+    "period": {
+      "endDate": "2026-09-22",
+      "startDate": "2016-09-22"
+    },
+    "capital": {
+      "initialCapital": 100000,
+      "monthlyContribution": 0
+    },
+    "maximumPositions": 10,
+    "securities": [
+      {
+        "symbol": "CAT",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "2025-03-31",
+            "startDate": "2025-03-03"
+          }
+        ]
+      },
+      {
+        "symbol": "MMM",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "2004-12-31",
+            "startDate": "2000-01-01"
+          },
+          {
+            "endDate": "2016-12-31",
+            "startDate": "2012-01-01"
+          }
+        ]
+      },
+      {
+        "symbol": "PG",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "2005-12-31",
+            "startDate": "1996-01-01"
+          }
+        ]
+      },
+      {
+        "symbol": "WMT",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": null,
+            "startDate": "2015-06-01"
+          }
+        ]
+      }
+    ],
+    "executionDates": 2513,
+    "contributionDates": 0
+  },
+  "result": {
+    "finalValue": {
+      "expected": "100000.000000",
+      "actual": "100000.000000"
+    },
+    "finalCash": {
+      "expected": "100000.000000",
+      "actual": "100000.000000"
+    },
+    "investedCapital": {
+      "expected": "100000.000000",
+      "actual": "100000.000000"
+    },
+    "netProfit": {
+      "expected": "0.000000",
+      "actual": "0.000000"
+    },
+    "realizedPnl": {
+      "expected": "0.000000",
+      "actual": "0.000000"
+    },
+    "portfolioReturnPercent": {
+      "expected": 0,
+      "actual": "0.00000000"
+    },
+    "benchmarkReturnPercent": {
+      "expected": 256.10093010406115,
+      "actual": "256.10093010"
+    },
+    "alphaPercent": {
+      "expected": -256.10093010406115,
+      "actual": "-256.10093010"
+    },
+    "cagrPercent": {
+      "expected": 0,
+      "actual": "0.00000000"
+    },
+    "maxDrawdownPercent": {
+      "expected": 0,
+      "actual": "0.00000000"
+    },
+    "benchmarkMaxDrawdownPercent": {
+      "expected": 34.10474670449843,
+      "actual": "34.10474670"
+    },
+    "trades": {
+      "expected": 0,
+      "actual": 0
+    }
+  },
+  "annualReturns": [
+    {
+      "year": "2016",
+      "simulatedThrough": "2016-12-30",
+      "returnPercent": 0,
+      "partial": true
+    },
+    {
+      "year": "2017",
+      "simulatedThrough": "2017-12-29",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2018",
+      "simulatedThrough": "2018-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2019",
+      "simulatedThrough": "2019-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2020",
+      "simulatedThrough": "2020-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2021",
+      "simulatedThrough": "2021-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2022",
+      "simulatedThrough": "2022-12-30",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2023",
+      "simulatedThrough": "2023-12-29",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2024",
+      "simulatedThrough": "2024-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2025",
+      "simulatedThrough": "2025-12-31",
+      "returnPercent": 0,
+      "partial": false
+    },
+    {
+      "year": "2026",
+      "simulatedThrough": "2026-09-22",
+      "returnPercent": 0,
+      "partial": true
+    }
+  ],
+  "comparisons": {
+    "compared": 25158,
+    "passed": 25158,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0,
+    "byCategory": {
+      "annual-returns": {
+        "compared": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "benchmark": {
+        "compared": 5026,
+        "failed": 0,
+        "skipped": 0
+      },
+      "equity": {
+        "compared": 20105,
+        "failed": 0,
+        "skipped": 0
+      },
+      "metrics": {
+        "compared": 23,
+        "failed": 0,
+        "skipped": 0
+      },
+      "run": {
+        "compared": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "trades": {
+        "compared": 1,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "inputs": {
+      "compared": 16,
+      "passed": 16,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    },
+    "persistenceFidelity": {
+      "compared": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    }
+  },
+  "counts": {
+    "tradesExpected": 0,
+    "tradesActual": 0,
+    "tradesCompared": 0,
+    "equityRowsCompared": 2513,
+    "benchmarkRowsCompared": 2513,
+    "metricComparisons": 23,
+    "annualReturnYears": 11,
+    "invariantChecks": 15077,
+    "invariantViolations": 0,
+    "ledgerSteps": 2513,
+    "ledgerViolations": 0,
+    "liquidationChecks": 12,
+    "liquidationFailures": 0,
+    "decisionsEvaluated": 2604,
+    "ratioDoubleRoundings": 0
+  },
+  "differences": [],
+  "invariantViolations": [],
+  "ledgerViolations": [],
+  "finalLiquidation": {
+    "trades": 0,
+    "failures": []
+  },
+  "trades": [],
+  "tradesTruncated": null,
+  "equityYearEnds": [
+    {
+      "date": "2016-09-22",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "100000.000000"
+      },
+      "actual": {
+        "date": "2016-09-22",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.0000000000",
+        "benchmarkValue": "100000.000000",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2016-12-30",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "102923.841974"
+      },
+      "actual": {
+        "date": "2016-12-30",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.0292384197",
+        "benchmarkValue": "102923.841974",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2017-12-29",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "122875.034534"
+      },
+      "actual": {
+        "date": "2017-12-29",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.2287503453",
+        "benchmarkValue": "122875.034534",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2018-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "115075.052951"
+      },
+      "actual": {
+        "date": "2018-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.1507505295",
+        "benchmarkValue": "115075.052951",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2019-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "148199.650060"
+      },
+      "actual": {
+        "date": "2019-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.4819965006",
+        "benchmarkValue": "148199.650060",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2020-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "172152.131872"
+      },
+      "actual": {
+        "date": "2020-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.7215213187",
+        "benchmarkValue": "172152.131872",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2021-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "218694.170734"
+      },
+      "actual": {
+        "date": "2021-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "2.1869417073",
+        "benchmarkValue": "218694.170734",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2022-12-30",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "176088.958468"
+      },
+      "actual": {
+        "date": "2022-12-30",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.7608895847",
+        "benchmarkValue": "176088.958468",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2023-12-29",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "218855.327378"
+      },
+      "actual": {
+        "date": "2023-12-29",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "2.1885532738",
+        "benchmarkValue": "218855.327378",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2024-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "269859.103048"
+      },
+      "actual": {
+        "date": "2024-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "2.6985910305",
+        "benchmarkValue": "269859.103048",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2025-12-31",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "313988.396722"
+      },
+      "actual": {
+        "date": "2025-12-31",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "3.1398839672",
+        "benchmarkValue": "313988.396722",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2026-09-22",
+      "expected": {
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "356100.930104"
+      },
+      "actual": {
+        "date": "2026-09-22",
+        "cash": "100000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "100000.000000",
+        "investedCapital": "100000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "3.5610093010",
+        "benchmarkValue": "356100.930104",
+        "cashBaselineValue": "100000.000000",
+        "openPositions": 0
+      }
+    }
+  ]
+}

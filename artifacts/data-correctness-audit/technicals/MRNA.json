@@ -1,0 +1,154 @@
+{
+  "symbol": "MRNA",
+  "securityId": "6ad3be0e-a56a-4724-8d1d-a7fd5a371f70",
+  "priceRows": 1957,
+  "derivedRows": 1957,
+  "visibleFrom": "1996-09-10",
+  "compared": 33256,
+  "failed": 0,
+  "samples": [
+    {
+      "date": "2018-12-07",
+      "sma20d": {
+        "expected": null,
+        "actual": null
+      },
+      "sma50d": {
+        "expected": null,
+        "actual": null
+      },
+      "sma100d": {
+        "expected": null,
+        "actual": null
+      },
+      "sma200d": {
+        "expected": null,
+        "actual": null
+      },
+      "ema20d": {
+        "expected": null,
+        "actual": null
+      },
+      "ema50d": {
+        "expected": null,
+        "actual": null
+      },
+      "ema200d": {
+        "expected": null,
+        "actual": null
+      },
+      "sma20w": {
+        "expected": null,
+        "actual": null
+      },
+      "sma50w": {
+        "expected": null,
+        "actual": null
+      },
+      "sma100w": {
+        "expected": null,
+        "actual": null
+      },
+      "sma200w": {
+        "expected": null,
+        "actual": null
+      },
+      "ema20w": {
+        "expected": null,
+        "actual": null
+      },
+      "ema50w": {
+        "expected": null,
+        "actual": null
+      },
+      "ema200w": {
+        "expected": null,
+        "actual": null
+      },
+      "rsi7d": {
+        "expected": null,
+        "actual": null
+      },
+      "rsi14d": {
+        "expected": null,
+        "actual": null
+      },
+      "rsi21d": {
+        "expected": null,
+        "actual": null
+      }
+    },
+    {
+      "date": "2024-11-22",
+      "sma20d": {
+        "expected": 46.378,
+        "actual": "46.37800000"
+      },
+      "sma50d": {
+        "expected": 54.957399999999986,
+        "actual": "54.95740000"
+      },
+      "sma100d": {
+        "expected": 75.41890000000001,
+        "actual": "75.41890000"
+      },
+      "sma200d": {
+        "expected": 96.10705000000003,
+        "actual": "96.10705000"
+      },
+      "ema20d": {
+        "expected": 44.92288482990059,
+        "actual": "44.92288483"
+      },
+      "ema50d": {
+        "expected": 55.708535621022115,
+        "actual": "55.70853562"
+      },
+      "ema200d": {
+        "expected": 86.21126440993059,
+        "actual": "86.21126441"
+      },
+      "sma20w": {
+        "expected": 73.03049999999999,
+        "actual": "73.03050000"
+      },
+      "sma50w": {
+        "expected": 96.12980000000002,
+        "actual": "96.12980000"
+      },
+      "sma100w": {
+        "expected": 111.20370000000003,
+        "actual": "111.20370000"
+      },
+      "sma200w": {
+        "expected": 158.00924999999998,
+        "actual": "158.00925000"
+      },
+      "ema20w": {
+        "expected": 69.07113660697267,
+        "actual": "69.07113661"
+      },
+      "ema50w": {
+        "expected": 89.82261949171847,
+        "actual": "89.82261949"
+      },
+      "ema200w": {
+        "expected": 110.75301300835902,
+        "actual": "110.75301301"
+      },
+      "rsi7d": {
+        "expected": 45.115679893999555,
+        "actual": "45.11567989"
+      },
+      "rsi14d": {
+        "expected": 34.85734125268367,
+        "actual": "34.85734125"
+      },
+      "rsi21d": {
+        "expected": 31.988071713743704,
+        "actual": "31.98807171"
+      }
+    }
+  ],
+  "mismatches": []
+}

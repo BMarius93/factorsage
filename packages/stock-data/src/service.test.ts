@@ -2396,6 +2396,191 @@ describe("canonical full-stock hydration", () => {
   });
 });
 
+/**
+ * A provider bar that did not exist when a range was fetched must still be fetched later.
+ *
+ * Found by the data-correctness audit (`docs/data-correctness-audit/`, AUD-04): real sessions were
+ * missing from `DailyPrice` while coverage claimed them — MRNA, GOOG and BRK-A on 2026-09-04, ADBE
+ * and AAL on 2026-09-16 — and an in-session bar (MRNA 2026-09-09, close 137.395 against a final
+ * 135.61) was never replaced by the final one.
+ */
+/**
+ * The stored derived series must be a pure function of the stored prices (audit finding AUD-02).
+ *
+ * EMA and Wilder's RSI carry their seed forever, so a rebuild that calculated over the caller's
+ * load window produced neighbouring rows from different series starts as the retention horizon
+ * moved with the clock: `ema200w` differed by up to 2.1e-8 between rows of one stored history.
+ */
+describe("derived-state determinism", () => {
+  const sessions = (from: string, count: number): string[] => {
+    const dates: string[] = [];
+    let date = from;
+    while (dates.length < count) {
+      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      if (weekday !== 0 && weekday !== 6) {
+        dates.push(date);
+      }
+      date = addDays(date, 1);
+    }
+    return dates;
+  };
+
+  async function rebuiltWith(
+    window: Required<DateRange>,
+    history: DailyPrice[],
+  ) {
+    const store = new FakeStore();
+    const provider = new FakeProvider();
+    const cache = new MemoryCache();
+    store.prices = history;
+    // Prices are complete and fresh; only the derived state is missing, so the rebuild is the
+    // whole of what this read does.
+    store.coverage.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, [RETENTION_RANGE]);
+    store.states.set(`DAILY_PRICE:${DAILY_PRICE_VARIANT}`, {
+      securityId: security.id,
+      dataset: "DAILY_PRICE",
+      variant: DAILY_PRICE_VARIANT,
+      earliestDate: history[0]!.date,
+      latestDate: history.at(-1)!.date,
+      lastSyncedAt: NOW,
+    });
+    setTailFreshness(store);
+    setFundamentalsStates(store);
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+    );
+
+    await loader.getDailyDerivedState("AAPL", window);
+
+    return new Map(store.dailyState.map((row) => [row.date, row]));
+  }
+
+  it("gives one stored value per date whatever window the rebuild was asked for", async () => {
+    // Thirty years of sessions whose closes vary, so every recursive series has something to
+    // remember, and two reads whose load windows start decades apart: the whole horizon, and a
+    // recent window whose own warm-up still starts long after the history does.
+    const history = sessions("1996-01-02", 7_600).map((date, index) =>
+      price(date, 100 + (index % 37) * 1.5 + index * 0.01),
+    );
+    const whole = await rebuiltWith(
+      { from: "1996-09-01", to: CANONICAL_RANGE.to },
+      history,
+    );
+    const recent = await rebuiltWith(
+      { from: "2020-01-02", to: CANONICAL_RANGE.to },
+      history,
+    );
+
+    const overlapping = [...recent.keys()].filter((date) => whole.has(date));
+    expect(overlapping.length).toBeGreaterThan(1_000);
+    for (const date of overlapping) {
+      expect(recent.get(date)).toEqual(whole.get(date));
+    }
+  });
+});
+
+describe("the leading edge of price coverage", () => {
+  class MarketProvider extends FakeProvider {
+    market: DailyPrice[] = [];
+    override async getDailyPrices(
+      _symbol: string,
+      _securityId: string,
+      range: DateRange,
+    ) {
+      if (!range.from || !range.to) throw new Error("Expected bounded range");
+      this.ranges.push({ from: range.from, to: range.to });
+      return this.market.filter(
+        (row) => row.date >= range.from! && row.date <= range.to!,
+      );
+    }
+  }
+  const sessions = (from: string, to: string): string[] => {
+    const dates: string[] = [];
+    for (let date = from; date <= to; date = addDays(date, 1)) {
+      const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      if (weekday !== 0 && weekday !== 6 && date !== "2026-09-07") {
+        dates.push(date);
+      }
+    }
+    return dates;
+  };
+
+  it("fetches a session later when it was not yet published at the earlier fetch", async () => {
+    const store = new FakeStore();
+    const provider = new MarketProvider();
+    const cache = new MemoryCache();
+    let now = new Date("2026-09-04T01:00:00.000Z"); // Thursday 2026-09-03, 21:00 in New York
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => now,
+    );
+    provider.market = sessions("2026-08-03", "2026-09-03").map((date) =>
+      price(date, 100),
+    );
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-24",
+      to: "2026-09-03",
+    });
+
+    // Eleven days later the provider has every session; the Friday was never fetched before.
+    now = new Date("2026-09-15T15:00:00.000Z");
+    provider.market = sessions("2026-08-03", "2026-09-15").map((date) =>
+      price(date, 100),
+    );
+    const rows = await loader.getDailyPrices("AAPL", {
+      from: "2026-09-01",
+      to: "2026-09-15",
+    });
+
+    expect(rows.map((row) => row.date)).toEqual(
+      sessions("2026-09-01", "2026-09-15"),
+    );
+  });
+
+  it("replaces an in-session bar with the final one however long the next read takes", async () => {
+    const store = new FakeStore();
+    const provider = new MarketProvider();
+    const cache = new MemoryCache();
+    let now = new Date("2026-09-09T15:00:00.000Z"); // 11:00 in New York: the session is open
+    const loader = createService(
+      store,
+      provider,
+      cache,
+      new InMemoryLoadCoordinator(),
+      () => now,
+    );
+    provider.market = [
+      ...sessions("2026-08-03", "2026-09-08").map((date) => price(date, 100)),
+      price("2026-09-09", 137.395),
+    ];
+    await loader.getDailyPrices("AAPL", {
+      from: "2026-08-24",
+      to: "2026-09-09",
+    });
+
+    // The session closed at 135.61. The next read comes thirteen days later, when 09-09 is already
+    // outside the ten-day tail behind the new day.
+    now = new Date("2026-09-22T15:00:00.000Z");
+    provider.market = [
+      ...sessions("2026-08-03", "2026-09-08").map((date) => price(date, 100)),
+      price("2026-09-09", 135.61),
+      ...sessions("2026-09-10", "2026-09-22").map((date) => price(date, 100)),
+    ];
+    const rows = await loader.getDailyPrices("AAPL", {
+      from: "2026-09-01",
+      to: "2026-09-22",
+    });
+
+    expect(rows.find((row) => row.date === "2026-09-09")?.close).toBe(135.61);
+  });
+});
+
 describe("daily materialized intrinsic projections", () => {
   function withDailyState(rows: DailyDerivedState[]) {
     const store = new FakeStore();
@@ -3134,13 +3319,15 @@ describe("intrinsic values in the derived-state lifecycle", () => {
 describe("derived-state revision and valuation warm-up retention", () => {
   const WARMUP = VALUATION_FUNDAMENTALS_WARMUP_YEARS;
 
-  it("materializes weekly technicals, intrinsic values and daily oscillators under revision 4", () => {
-    // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values and r3 rows no
-    // daily RSI oscillators, so none reads as current: their coverage and manifests must go stale
-    // and rebuild. The revision is deliberately one global number, so this single r3 -> r4 bump
-    // covers the whole RSI family and invalidates every series of every security at once.
-    expect(DERIVED_STATE_REVISION).toBe(4);
-    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r4");
+  it("materializes one canonical calculation anchor and point-in-time availability under revision 5", () => {
+    // r1 rows carry no intrinsic state, r2 rows no weekly moving-average values, r3 rows no daily
+    // RSI oscillators, and r4 rows were calculated over whichever load window the caller asked for
+    // and from statement availability derived from a provider filing date that is sometimes the
+    // fiscal period end. None of them reads as current: their coverage and manifests must go stale
+    // and rebuild. The revision is deliberately one global number, so a single bump invalidates
+    // every series of every security at once.
+    expect(DERIVED_STATE_REVISION).toBe(5);
+    expect(DAILY_DERIVED_STATE_VARIANT).toBe("daily-derived-state:r5");
   });
 
   it("treats an existing r1 READY stock as stale and rebuilds the canonical history", async () => {

@@ -1,0 +1,1077 @@
+{
+  "comparisons": {
+    "compared": 2459197,
+    "passed": 2459197,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 1325129
+  },
+  "byCategory": {
+    "intrinsic": {
+      "compared": 1640352,
+      "failed": 0,
+      "skipped": 0
+    },
+    "intrinsic-provenance": {
+      "compared": 818845,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "perModel": {
+    "DCF_FCFF": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 211922,
+      "absent": 22414,
+      "maxAbsDifference": 4.999890279577812e-9
+    },
+    "RESIDUAL_INCOME": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 210579,
+      "absent": 23757,
+      "maxAbsDifference": 4.999449743081641e-9
+    },
+    "DDM": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 183850,
+      "absent": 50486,
+      "maxAbsDifference": 4.999591851628793e-9
+    },
+    "GRAHAM": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 212494,
+      "absent": 21842,
+      "maxAbsDifference": 4.999999969612645e-9
+    },
+    "BALANCED": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 187886,
+      "absent": 46450,
+      "maxAbsDifference": 4.9967496806857525e-9
+    },
+    "CONSERVATIVE": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 187886,
+      "absent": 46450,
+      "maxAbsDifference": 4.996463687234609e-9
+    },
+    "DIVIDEND": {
+      "compared": 234336,
+      "failed": 0,
+      "present": 160039,
+      "absent": 74297,
+      "maxAbsDifference": 4.999506586500502e-9
+    }
+  },
+  "pit": {
+    "checks": 921895,
+    "violations": 0,
+    "implausibleFilingDates": 2391,
+    "availabilityRuleViolations": 0,
+    "statements": 16793
+  },
+  "perSecurity": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "compared": 76837,
+      "failed": 0,
+      "valuesPresent": {
+        "DDM": 3662,
+        "DCF_FCFF": 7329,
+        "RESIDUAL_INCOME": 7038,
+        "GRAHAM": 5916
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 227,
+        "RESIDUAL_INCOME": 518,
+        "GRAHAM": 1640,
+        "DDM": 3894
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 227
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 518
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 671,
+          "NON_POSITIVE_MULTIPLIER": 969
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 3894
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 68,
+      "availabilityRuleViolations": 0
+    },
+    "ADBE": {
+      "symbol": "ADBE",
+      "compared": 78070,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7448,
+        "DDM": 2618,
+        "GRAHAM": 7556
+      },
+      "valuesAbsent": {
+        "DDM": 4938,
+        "RESIDUAL_INCOME": 108
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 4938
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 108
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 75,
+      "availabilityRuleViolations": 0
+    },
+    "AMGN": {
+      "symbol": "AMGN",
+      "compared": 78803,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7308,
+        "GRAHAM": 7308,
+        "DDM": 3739
+      },
+      "valuesAbsent": {
+        "DDM": 3817,
+        "RESIDUAL_INCOME": 248,
+        "GRAHAM": 248
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 3817
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 248
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 248
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 66,
+      "availabilityRuleViolations": 0
+    },
+    "AMZN": {
+      "symbol": "AMZN",
+      "compared": 66659,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 5601,
+        "GRAHAM": 5183,
+        "RESIDUAL_INCOME": 4187
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 1783,
+        "RESIDUAL_INCOME": 3197,
+        "DDM": 7384,
+        "GRAHAM": 2201
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 220,
+          "NON_POSITIVE_FCFF": 1563
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 1881,
+          "NON_POSITIVE_BOOK_VALUE": 1316
+        },
+        "DDM": {
+          "MISSING_TTM_WINDOW": 220,
+          "NON_POSITIVE_DIVIDEND": 7164
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 2201
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 11,
+      "availabilityRuleViolations": 0
+    },
+    "AXP": {
+      "symbol": "AXP",
+      "compared": 82407,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7491,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 6912
+      },
+      "valuesAbsent": {
+        "GRAHAM": 644,
+        "DCF_FCFF": 65
+      },
+      "unavailableReasons": {
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 644
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 65
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 60,
+      "availabilityRuleViolations": 0
+    },
+    "BA": {
+      "symbol": "BA",
+      "compared": 76015,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 5785,
+        "RESIDUAL_INCOME": 4981,
+        "DDM": 6555,
+        "GRAHAM": 5802
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 2575,
+        "GRAHAM": 1754,
+        "DCF_FCFF": 1771,
+        "DDM": 1001
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 549,
+          "NON_POSITIVE_BOOK_VALUE": 2026
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 1754
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 1458,
+          "NON_POSITIVE_EQUITY_VALUE": 313
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 1001
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "CAT": {
+      "symbol": "CAT",
+      "compared": 79914,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 5885,
+        "RESIDUAL_INCOME": 7213,
+        "DDM": 7213,
+        "GRAHAM": 6711
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 1671,
+        "RESIDUAL_INCOME": 343,
+        "DDM": 343,
+        "GRAHAM": 845
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 343,
+          "NON_POSITIVE_FCFF": 633,
+          "NON_POSITIVE_EQUITY_VALUE": 695
+        },
+        "RESIDUAL_INCOME": {
+          "MISSING_TTM_WINDOW": 343
+        },
+        "DDM": {
+          "MISSING_TTM_WINDOW": 343
+        },
+        "GRAHAM": {
+          "MISSING_TTM_WINDOW": 343,
+          "NON_POSITIVE_EPS": 116,
+          "NON_POSITIVE_MULTIPLIER": 386
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "CRM": {
+      "symbol": "CRM",
+      "compared": 50972,
+      "failed": 0,
+      "valuesPresent": {
+        "GRAHAM": 4325,
+        "DCF_FCFF": 5387,
+        "RESIDUAL_INCOME": 1495,
+        "DDM": 579
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 211,
+        "RESIDUAL_INCOME": 4103,
+        "DDM": 5019,
+        "GRAHAM": 1273
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 211
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_BOOK_VALUE": 45,
+          "NON_POSITIVE_EQUITY_VALUE": 4038,
+          "MISSING_TTM_WINDOW": 20
+        },
+        "DDM": {
+          "MISSING_TTM_WINDOW": 211,
+          "NON_POSITIVE_DIVIDEND": 4808
+        },
+        "GRAHAM": {
+          "MISSING_TTM_WINDOW": 20,
+          "NON_POSITIVE_EPS": 1253
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 18,
+      "availabilityRuleViolations": 0
+    },
+    "CSCO": {
+      "symbol": "CSCO",
+      "compared": 78471,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 6996,
+        "GRAHAM": 7174,
+        "DDM": 3853
+      },
+      "valuesAbsent": {
+        "DDM": 3703,
+        "RESIDUAL_INCOME": 560,
+        "GRAHAM": 382
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 3703
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 560
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 382
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 84,
+      "availabilityRuleViolations": 0
+    },
+    "CVX": {
+      "symbol": "CVX",
+      "compared": 78877,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 5525,
+        "RESIDUAL_INCOME": 6943,
+        "DDM": 7556,
+        "GRAHAM": 5961
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 2031,
+        "RESIDUAL_INCOME": 613,
+        "GRAHAM": 1595
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 765,
+          "NON_POSITIVE_FCFF": 1266
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 613
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 524,
+          "NON_POSITIVE_MULTIPLIER": 1071
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 8,
+      "availabilityRuleViolations": 0
+    },
+    "DIS": {
+      "symbol": "DIS",
+      "compared": 77449,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7134,
+        "DDM": 4288,
+        "GRAHAM": 7267,
+        "RESIDUAL_INCOME": 5868
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 1688,
+        "DCF_FCFF": 422,
+        "DDM": 3268,
+        "GRAHAM": 289
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 1688
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 94,
+          "NON_POSITIVE_EQUITY_VALUE": 328
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 3268
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 289
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 443,
+      "availabilityRuleViolations": 0
+    },
+    "GOOGL": {
+      "symbol": "GOOGL",
+      "compared": 56122,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 5558,
+        "RESIDUAL_INCOME": 5558,
+        "GRAHAM": 5558,
+        "DDM": 542
+      },
+      "valuesAbsent": {
+        "DDM": 5016
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 5016
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 195,
+      "availabilityRuleViolations": 0
+    },
+    "GS": {
+      "symbol": "GS",
+      "compared": 69373,
+      "failed": 0,
+      "valuesPresent": {
+        "RESIDUAL_INCOME": 6494,
+        "DDM": 6690,
+        "GRAHAM": 5689,
+        "DCF_FCFF": 2277
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 4612,
+        "RESIDUAL_INCOME": 395,
+        "DDM": 199,
+        "GRAHAM": 1200
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 199,
+          "NON_POSITIVE_FCFF": 3087,
+          "NON_POSITIVE_EQUITY_VALUE": 1326
+        },
+        "RESIDUAL_INCOME": {
+          "MISSING_TTM_WINDOW": 199,
+          "NON_POSITIVE_EQUITY_VALUE": 196
+        },
+        "DDM": {
+          "MISSING_TTM_WINDOW": 199
+        },
+        "GRAHAM": {
+          "MISSING_TTM_WINDOW": 199,
+          "NON_POSITIVE_MULTIPLIER": 1001
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 56,
+      "availabilityRuleViolations": 0
+    },
+    "HD": {
+      "symbol": "HD",
+      "compared": 81491,
+      "failed": 0,
+      "valuesPresent": {
+        "RESIDUAL_INCOME": 7031,
+        "DDM": 7556,
+        "GRAHAM": 7556,
+        "DCF_FCFF": 6456
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 1100,
+        "RESIDUAL_INCOME": 525
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 1032,
+          "NON_POSITIVE_EQUITY_VALUE": 68
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_BOOK_VALUE": 525
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 62,
+      "availabilityRuleViolations": 0
+    },
+    "HON": {
+      "symbol": "HON",
+      "compared": 69807,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 6434,
+        "RESIDUAL_INCOME": 6001,
+        "DDM": 6434,
+        "GRAHAM": 5900
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 433,
+        "GRAHAM": 534
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 433
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 285,
+          "NON_POSITIVE_MULTIPLIER": 249
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 62,
+      "availabilityRuleViolations": 0
+    },
+    "IBM": {
+      "symbol": "IBM",
+      "compared": 81358,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 5798
+      },
+      "valuesAbsent": {
+        "GRAHAM": 1758
+      },
+      "unavailableReasons": {
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 1758
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "JNJ": {
+      "symbol": "JNJ",
+      "compared": 82707,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7397,
+        "RESIDUAL_INCOME": 7306,
+        "DDM": 7556,
+        "GRAHAM": 7556
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 159,
+        "RESIDUAL_INCOME": 250
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 159
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 250
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 56,
+      "availabilityRuleViolations": 0
+    },
+    "JPM": {
+      "symbol": "JPM",
+      "compared": 79588,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 4779,
+        "RESIDUAL_INCOME": 6805,
+        "DDM": 7556,
+        "GRAHAM": 7556
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 2777,
+        "RESIDUAL_INCOME": 751
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 2425,
+          "NON_POSITIVE_EQUITY_VALUE": 352
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 751
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 60,
+      "availabilityRuleViolations": 0
+    },
+    "KO": {
+      "symbol": "KO",
+      "compared": 82243,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7435,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 6804
+      },
+      "valuesAbsent": {
+        "GRAHAM": 752,
+        "DCF_FCFF": 121
+      },
+      "unavailableReasons": {
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 752
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 121
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "MCD": {
+      "symbol": "MCD",
+      "compared": 78385,
+      "failed": 0,
+      "valuesPresent": {
+        "RESIDUAL_INCOME": 5075,
+        "DDM": 7265,
+        "GRAHAM": 6798,
+        "DCF_FCFF": 6355
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 1201,
+        "DDM": 291,
+        "RESIDUAL_INCOME": 2481,
+        "GRAHAM": 758
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 1103,
+          "NON_POSITIVE_FCFF": 98
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 291
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_BOOK_VALUE": 2481
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 758
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "MMM": {
+      "symbol": "MMM",
+      "compared": 81811,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7297,
+        "RESIDUAL_INCOME": 7303,
+        "DDM": 7556,
+        "GRAHAM": 6763
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 259,
+        "RESIDUAL_INCOME": 253,
+        "GRAHAM": 793
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 193,
+          "NON_POSITIVE_FCFF": 66
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 253
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 253,
+          "NON_POSITIVE_MULTIPLIER": 540
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 56,
+      "availabilityRuleViolations": 0
+    },
+    "MRK": {
+      "symbol": "MRK",
+      "compared": 82410,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7331,
+        "DDM": 7556,
+        "GRAHAM": 7075
+      },
+      "valuesAbsent": {
+        "GRAHAM": 481,
+        "RESIDUAL_INCOME": 225
+      },
+      "unavailableReasons": {
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 481
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 225
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 62,
+      "availabilityRuleViolations": 0
+    },
+    "MRNA": {
+      "symbol": "MRNA",
+      "compared": 15901,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 692,
+        "DDM": 252,
+        "RESIDUAL_INCOME": 629,
+        "GRAHAM": 629
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 1265,
+        "RESIDUAL_INCOME": 1328,
+        "DDM": 1705,
+        "GRAHAM": 1328
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 1265
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 1328
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 1705
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 1328
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 25,
+      "availabilityRuleViolations": 0
+    },
+    "MSFT": {
+      "symbol": "MSFT",
+      "compared": 81864,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7544,
+        "RESIDUAL_INCOME": 7544,
+        "GRAHAM": 7544,
+        "DDM": 6340
+      },
+      "valuesAbsent": {
+        "DDM": 1216,
+        "DCF_FCFF": 12,
+        "RESIDUAL_INCOME": 12,
+        "GRAHAM": 12
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 1204,
+          "MISSING_TTM_WINDOW": 12
+        },
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 12
+        },
+        "RESIDUAL_INCOME": {
+          "MISSING_TTM_WINDOW": 12
+        },
+        "GRAHAM": {
+          "MISSING_TTM_WINDOW": 12
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "NKE": {
+      "symbol": "NKE",
+      "compared": 82673,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7113,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 7556
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 443
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 408,
+          "NON_POSITIVE_EQUITY_VALUE": 35
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 89,
+      "availabilityRuleViolations": 0
+    },
+    "NVDA": {
+      "symbol": "NVDA",
+      "compared": 70588,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 6065,
+        "RESIDUAL_INCOME": 6086,
+        "GRAHAM": 6371,
+        "DDM": 3353
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 894,
+        "RESIDUAL_INCOME": 873,
+        "DDM": 3606,
+        "GRAHAM": 588
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "MISSING_TTM_WINDOW": 288,
+          "NON_POSITIVE_FCFF": 606
+        },
+        "RESIDUAL_INCOME": {
+          "MISSING_TTM_WINDOW": 288,
+          "NON_POSITIVE_EQUITY_VALUE": 585
+        },
+        "DDM": {
+          "MISSING_TTM_WINDOW": 288,
+          "NON_POSITIVE_DIVIDEND": 3318
+        },
+        "GRAHAM": {
+          "MISSING_TTM_WINDOW": 288,
+          "NON_POSITIVE_EPS": 300
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 18,
+      "availabilityRuleViolations": 0
+    },
+    "PG": {
+      "symbol": "PG",
+      "compared": 82864,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 7304
+      },
+      "valuesAbsent": {
+        "GRAHAM": 252
+      },
+      "unavailableReasons": {
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 252
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 60,
+      "availabilityRuleViolations": 0
+    },
+    "SHW": {
+      "symbol": "SHW",
+      "compared": 82725,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7307,
+        "DDM": 7556,
+        "GRAHAM": 7414
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 249,
+        "GRAHAM": 142
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 249
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 142
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 63,
+      "availabilityRuleViolations": 0
+    },
+    "TRV": {
+      "symbol": "TRV",
+      "compared": 77272,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 6964,
+        "RESIDUAL_INCOME": 6671,
+        "GRAHAM": 7119,
+        "DDM": 3626
+      },
+      "valuesAbsent": {
+        "DDM": 3930,
+        "RESIDUAL_INCOME": 885,
+        "DCF_FCFF": 592,
+        "GRAHAM": 437
+      },
+      "unavailableReasons": {
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 3930
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 885
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 98,
+          "NON_POSITIVE_FCFF": 494
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 437
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 62,
+      "availabilityRuleViolations": 0
+    },
+    "UNH": {
+      "symbol": "UNH",
+      "compared": 81493,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "DDM": 6574,
+        "GRAHAM": 7305,
+        "RESIDUAL_INCOME": 7166
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 390,
+        "GRAHAM": 251,
+        "DDM": 982
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 390
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 251
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 982
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 82,
+      "availabilityRuleViolations": 0
+    },
+    "V": {
+      "symbol": "V",
+      "compared": 50242,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 4522,
+        "DDM": 4483,
+        "GRAHAM": 4483,
+        "RESIDUAL_INCOME": 4155
+      },
+      "valuesAbsent": {
+        "RESIDUAL_INCOME": 502,
+        "DDM": 174,
+        "GRAHAM": 174,
+        "DCF_FCFF": 135
+      },
+      "unavailableReasons": {
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 502
+        },
+        "DDM": {
+          "NON_POSITIVE_DIVIDEND": 174
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_EPS": 174
+        },
+        "DCF_FCFF": {
+          "NON_POSITIVE_FCFF": 135
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 23,
+      "availabilityRuleViolations": 0
+    },
+    "WMT": {
+      "symbol": "WMT",
+      "compared": 83116,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 7556,
+        "RESIDUAL_INCOME": 7556,
+        "DDM": 7556,
+        "GRAHAM": 7556
+      },
+      "valuesAbsent": {},
+      "unavailableReasons": {},
+      "pitViolations": 0,
+      "implausibleFilingDates": 84,
+      "availabilityRuleViolations": 0
+    },
+    "XOM": {
+      "symbol": "XOM",
+      "compared": 80690,
+      "failed": 0,
+      "valuesPresent": {
+        "DCF_FCFF": 6893,
+        "RESIDUAL_INCOME": 7304,
+        "DDM": 7556,
+        "GRAHAM": 6045
+      },
+      "valuesAbsent": {
+        "DCF_FCFF": 663,
+        "GRAHAM": 1511,
+        "RESIDUAL_INCOME": 252
+      },
+      "unavailableReasons": {
+        "DCF_FCFF": {
+          "NON_POSITIVE_EQUITY_VALUE": 475,
+          "NON_POSITIVE_FCFF": 188
+        },
+        "GRAHAM": {
+          "NON_POSITIVE_MULTIPLIER": 1259,
+          "NON_POSITIVE_EPS": 252
+        },
+        "RESIDUAL_INCOME": {
+          "NON_POSITIVE_EQUITY_VALUE": 252
+        }
+      },
+      "pitViolations": 0,
+      "implausibleFilingDates": 65,
+      "availabilityRuleViolations": 0
+    }
+  },
+  "differences": []
+}

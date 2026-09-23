@@ -1,0 +1,72 @@
+{
+  "comparisons": {
+    "compared": 3511665,
+    "passed": 3511665,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 2895000
+  },
+  "byKey": {
+    "series:SMA_200D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_50D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:EMA_20D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_100W": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_20W": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_50W": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:RSI_14D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:RSI_7D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:RSI_21D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_20D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:SMA_200W": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:EMA_200D": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "margin-of-safety:BALANCED": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "margin-of-safety:DCF_FCFF": {
+      "compared": 234111,
+      "failed": 0
+    },
+    "series:GRAHAM": {
+      "compared": 234111,
+      "failed": 0
+    }
+  },
+  "differences": []
+}

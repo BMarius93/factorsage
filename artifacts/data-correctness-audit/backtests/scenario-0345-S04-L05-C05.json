@@ -1,0 +1,5790 @@
+{
+  "scenario": "S04-L05-C05",
+  "index": 345,
+  "runId": "c0626dd4-3c7e-41f4-b164-2d6b46eafec8",
+  "status": "PASS",
+  "inputs": {
+    "strategy": "QA-MATRIX-S04-rsi-nested-buy-ladder",
+    "list": "QA-MATRIX-L05-mixed-modes-medium",
+    "config": "QA-MATRIX-C05-normal-contribution",
+    "period": {
+      "endDate": "2026-09-22",
+      "startDate": "2016-09-22"
+    },
+    "capital": {
+      "initialCapital": 10000,
+      "monthlyContribution": 500
+    },
+    "maximumPositions": 10,
+    "securities": [
+      {
+        "symbol": "AAPL",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "CVX",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "2019-12-31",
+            "startDate": "2010-01-01"
+          }
+        ]
+      },
+      {
+        "symbol": "HD",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": null,
+            "startDate": "2020-01-01"
+          }
+        ]
+      },
+      {
+        "symbol": "JNJ",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "KO",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "MRK",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "1999-12-31",
+            "startDate": "1996-01-01"
+          }
+        ]
+      },
+      {
+        "symbol": "MSFT",
+        "buyWindowMode": "FULL",
+        "buyWindows": []
+      },
+      {
+        "symbol": "XOM",
+        "buyWindowMode": "CUSTOM",
+        "buyWindows": [
+          {
+            "endDate": "2009-12-31",
+            "startDate": "2000-01-01"
+          }
+        ]
+      }
+    ],
+    "executionDates": 2513,
+    "contributionDates": 120
+  },
+  "result": {
+    "finalValue": {
+      "expected": "86428.145960",
+      "actual": "86428.145960"
+    },
+    "finalCash": {
+      "expected": "86428.145960",
+      "actual": "86428.145960"
+    },
+    "investedCapital": {
+      "expected": "70000.000000",
+      "actual": "70000.000000"
+    },
+    "netProfit": {
+      "expected": "16428.145960",
+      "actual": "16428.145960"
+    },
+    "realizedPnl": {
+      "expected": "16428.145960",
+      "actual": "16428.145960"
+    },
+    "portfolioReturnPercent": {
+      "expected": 39.275075149026975,
+      "actual": "39.27507515"
+    },
+    "benchmarkReturnPercent": {
+      "expected": 256.10093010406115,
+      "actual": "256.10093010"
+    },
+    "alphaPercent": {
+      "expected": -216.82585495503417,
+      "actual": "-216.82585496"
+    },
+    "cagrPercent": {
+      "expected": 3.3687608041521377,
+      "actual": "3.36876080"
+    },
+    "maxDrawdownPercent": {
+      "expected": 7.714999462505268,
+      "actual": "7.71499946"
+    },
+    "benchmarkMaxDrawdownPercent": {
+      "expected": 34.10474670449843,
+      "actual": "34.10474670"
+    },
+    "trades": {
+      "expected": 151,
+      "actual": 151
+    }
+  },
+  "annualReturns": [
+    {
+      "year": "2016",
+      "simulatedThrough": "2016-12-30",
+      "returnPercent": 0.23501617517407425,
+      "partial": true
+    },
+    {
+      "year": "2017",
+      "simulatedThrough": "2017-12-29",
+      "returnPercent": 1.860463921561406,
+      "partial": false
+    },
+    {
+      "year": "2018",
+      "simulatedThrough": "2018-12-31",
+      "returnPercent": 1.8754446864909902,
+      "partial": false
+    },
+    {
+      "year": "2019",
+      "simulatedThrough": "2019-12-31",
+      "returnPercent": 5.830763016187346,
+      "partial": false
+    },
+    {
+      "year": "2020",
+      "simulatedThrough": "2020-12-31",
+      "returnPercent": 4.327763322419909,
+      "partial": false
+    },
+    {
+      "year": "2021",
+      "simulatedThrough": "2021-12-31",
+      "returnPercent": 4.690652482065705,
+      "partial": false
+    },
+    {
+      "year": "2022",
+      "simulatedThrough": "2022-12-30",
+      "returnPercent": -1.6800173581894118,
+      "partial": false
+    },
+    {
+      "year": "2023",
+      "simulatedThrough": "2023-12-29",
+      "returnPercent": 4.448033459288259,
+      "partial": false
+    },
+    {
+      "year": "2024",
+      "simulatedThrough": "2024-12-31",
+      "returnPercent": 4.167738076902006,
+      "partial": false
+    },
+    {
+      "year": "2025",
+      "simulatedThrough": "2025-12-31",
+      "returnPercent": 4.066347456032116,
+      "partial": false
+    },
+    {
+      "year": "2026",
+      "simulatedThrough": "2026-09-22",
+      "returnPercent": 4.057510712863088,
+      "partial": true
+    }
+  ],
+  "comparisons": {
+    "compared": 27876,
+    "passed": 27876,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 1,
+    "byCategory": {
+      "annual-returns": {
+        "compared": 1,
+        "failed": 0,
+        "skipped": 0
+      },
+      "benchmark": {
+        "compared": 5026,
+        "failed": 0,
+        "skipped": 0
+      },
+      "equity": {
+        "compared": 20105,
+        "failed": 0,
+        "skipped": 0
+      },
+      "metrics": {
+        "compared": 23,
+        "failed": 0,
+        "skipped": 0
+      },
+      "run": {
+        "compared": 2,
+        "failed": 0,
+        "skipped": 0
+      },
+      "trades": {
+        "compared": 2719,
+        "failed": 0,
+        "skipped": 0
+      }
+    },
+    "inputs": {
+      "compared": 28,
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    },
+    "persistenceFidelity": {
+      "compared": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0
+    }
+  },
+  "counts": {
+    "tradesExpected": 151,
+    "tradesActual": 151,
+    "tradesCompared": 151,
+    "equityRowsCompared": 2513,
+    "benchmarkRowsCompared": 2513,
+    "metricComparisons": 23,
+    "annualReturnYears": 11,
+    "invariantChecks": 16467,
+    "invariantViolations": 0,
+    "ledgerSteps": 2664,
+    "ledgerViolations": 0,
+    "liquidationChecks": 12,
+    "liquidationFailures": 0,
+    "decisionsEvaluated": 12540,
+    "ratioDoubleRoundings": 0
+  },
+  "differences": [],
+  "invariantViolations": [],
+  "ledgerViolations": [],
+  "finalLiquidation": {
+    "trades": 5,
+    "failures": []
+  },
+  "trades": [
+    {
+      "sequence": 1,
+      "date": "2016-09-26",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "42.05000000",
+        "actual": "42.05000000"
+      },
+      "cashBefore": "10000.000000",
+      "shares": {
+        "expected": "5.9453032104",
+        "actual": "5.9453032104"
+      },
+      "amount": {
+        "expected": "250.000000",
+        "actual": "250.000000"
+      },
+      "cashAfter": {
+        "expected": "9750.000000",
+        "actual": "9750.000000"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 10000,
+        "fullPositionBudget": 1000,
+        "target": 250,
+        "currentValue": 0,
+        "shortfall": 250,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 2,
+      "date": "2016-10-18",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "115.41000000",
+        "actual": "115.41000000"
+      },
+      "cashBefore": "10250.000000",
+      "shares": {
+        "expected": "2.2743965774",
+        "actual": "2.2743965774"
+      },
+      "amount": {
+        "expected": "262.488109",
+        "actual": "262.488109"
+      },
+      "cashAfter": {
+        "expected": "9987.511891",
+        "actual": "9987.511891"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 10499.524376,
+        "fullPositionBudget": 1049.9524376,
+        "target": 262.4881094,
+        "currentValue": 0,
+        "shortfall": 262.4881094,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 3,
+      "date": "2016-11-01",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "27.87000000",
+        "actual": "27.87000000"
+      },
+      "cashBefore": "10487.511891",
+      "shares": {
+        "expected": "9.8674712594",
+        "actual": "9.8674712594"
+      },
+      "amount": {
+        "expected": "275.006424",
+        "actual": "275.006424"
+      },
+      "cashAfter": {
+        "expected": "10212.505467",
+        "actual": "10212.505467"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 11000.256963,
+        "fullPositionBudget": 1100.0256963,
+        "target": 275.006424075,
+        "currentValue": 0,
+        "shortfall": 275.006424075,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 4,
+      "date": "2016-11-04",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "27.21000000",
+        "actual": "27.21000000"
+      },
+      "cashBefore": "10212.505467",
+      "shares": {
+        "expected": "10.3285317530",
+        "actual": "10.3285317530"
+      },
+      "amount": {
+        "expected": "281.039349",
+        "actual": "281.039349"
+      },
+      "cashAfter": {
+        "expected": "9931.466118",
+        "actual": "9931.466118"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 10990.664841000002,
+        "fullPositionBudget": 1099.0664841000003,
+        "target": 549.5332420500001,
+        "currentValue": 268.493892968274,
+        "shortfall": 281.03934908172613,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 5,
+      "date": "2016-12-01",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "111.38000000",
+        "actual": "111.38000000"
+      },
+      "cashBefore": "10431.466118",
+      "shares": {
+        "expected": "0.3015541838",
+        "actual": "0.3015541838"
+      },
+      "amount": {
+        "expected": "33.587105",
+        "actual": "33.587105"
+      },
+      "cashAfter": {
+        "expected": "10397.879013",
+        "actual": "10397.879013"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 11476.375841000001,
+        "fullPositionBudget": 1147.6375841000001,
+        "target": 286.90939602500004,
+        "currentValue": 253.322290790812,
+        "shortfall": 33.587105234188044,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 6,
+      "date": "2016-12-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "40.17000000",
+        "actual": "40.17000000"
+      },
+      "cashBefore": "10397.879013",
+      "shares": {
+        "expected": "1.1970765745",
+        "actual": "1.1970765745"
+      },
+      "amount": {
+        "expected": "48.086566",
+        "actual": "48.086566"
+      },
+      "cashAfter": {
+        "expected": "10349.792447",
+        "actual": "10349.792447"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 11476.375841000001,
+        "fullPositionBudget": 1147.6375841000001,
+        "target": 286.90939602500004,
+        "currentValue": 238.822829961768,
+        "shortfall": 48.08656606323203,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 7,
+      "date": "2017-01-09",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "29.75000000",
+        "actual": "29.75000000"
+      },
+      "cashBefore": "10849.792447",
+      "shares": {
+        "expected": "10.0980015062",
+        "actual": "10.0980015062"
+      },
+      "amount": {
+        "expected": "300.415545",
+        "actual": "300.415545"
+      },
+      "cashAfter": {
+        "expected": "11150.207992",
+        "actual": "11150.207992"
+      },
+      "realizedPnl": {
+        "expected": "22.392659",
+        "actual": "22.392659"
+      },
+      "match": true
+    },
+    {
+      "sequence": 8,
+      "date": "2017-01-24",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "111.76000000",
+        "actual": "111.76000000"
+      },
+      "cashBefore": "11150.207992",
+      "shares": {
+        "expected": "2.8106817644",
+        "actual": "2.8106817644"
+      },
+      "amount": {
+        "expected": "314.121794",
+        "actual": "314.121794"
+      },
+      "cashAfter": {
+        "expected": "10836.086198",
+        "actual": "10836.086198"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 12040.201027,
+        "fullPositionBudget": 1204.0201027,
+        "target": 602.01005135,
+        "currentValue": 287.888257071712,
+        "shortfall": 314.121794278288,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 9,
+      "date": "2017-01-27",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "113.79000000",
+        "actual": "113.79000000"
+      },
+      "cashBefore": "10836.086198",
+      "shares": {
+        "expected": "2.6475881711",
+        "actual": "2.6475881711"
+      },
+      "amount": {
+        "expected": "301.269058",
+        "actual": "301.269058"
+      },
+      "cashAfter": {
+        "expected": "10534.817140",
+        "actual": "10534.817140"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 12050.762302000001,
+        "fullPositionBudget": 1205.0762302,
+        "target": 301.26905755,
+        "currentValue": 0,
+        "shortfall": 301.26905755,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 10,
+      "date": "2017-02-01",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "32.19000000",
+        "actual": "32.19000000"
+      },
+      "cashBefore": "11034.817140",
+      "shares": {
+        "expected": "10.0980015062",
+        "actual": "10.0980015062"
+      },
+      "amount": {
+        "expected": "325.054668",
+        "actual": "325.054668"
+      },
+      "cashAfter": {
+        "expected": "11359.871808",
+        "actual": "11359.871808"
+      },
+      "realizedPnl": {
+        "expected": "47.031781",
+        "actual": "47.031781"
+      },
+      "match": true
+    },
+    {
+      "sequence": 11,
+      "date": "2017-02-01",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "111.00000000",
+        "actual": "111.00000000"
+      },
+      "cashBefore": "11359.871808",
+      "shares": {
+        "expected": "3.0093384414",
+        "actual": "3.0093384414"
+      },
+      "amount": {
+        "expected": "334.036567",
+        "actual": "334.036567"
+      },
+      "cashAfter": {
+        "expected": "11025.835241",
+        "actual": "11025.835241"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 12558.377086,
+        "fullPositionBudget": 1255.8377086,
+        "target": 627.9188543,
+        "currentValue": 293.88228699210003,
+        "shortfall": 334.0365673079,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 12,
+      "date": "2017-02-16",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "118.08000000",
+        "actual": "118.08000000"
+      },
+      "cashBefore": "11025.835241",
+      "shares": {
+        "expected": "2.6933162628",
+        "actual": "2.6933162628"
+      },
+      "amount": {
+        "expected": "318.026784",
+        "actual": "318.026784"
+      },
+      "cashAfter": {
+        "expected": "11343.862025",
+        "actual": "11343.862025"
+      },
+      "realizedPnl": {
+        "expected": "12.928280",
+        "actual": "12.928280"
+      },
+      "match": true
+    },
+    {
+      "sequence": 13,
+      "date": "2017-02-23",
+      "symbol": "JNJ",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "121.70000000",
+        "actual": "121.70000000"
+      },
+      "cashBefore": "11343.862025",
+      "shares": {
+        "expected": "2.6933162628",
+        "actual": "2.6933162628"
+      },
+      "amount": {
+        "expected": "327.776589",
+        "actual": "327.776589"
+      },
+      "cashAfter": {
+        "expected": "11671.638614",
+        "actual": "11671.638614"
+      },
+      "realizedPnl": {
+        "expected": "22.678085",
+        "actual": "22.678085"
+      },
+      "match": true
+    },
+    {
+      "sequence": 14,
+      "date": "2017-04-18",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "43.48000000",
+        "actual": "43.48000000"
+      },
+      "cashBefore": "12671.638614",
+      "shares": {
+        "expected": "3.5711898924",
+        "actual": "3.5711898924"
+      },
+      "amount": {
+        "expected": "155.275337",
+        "actual": "155.275337"
+      },
+      "cashAfter": {
+        "expected": "12826.913951",
+        "actual": "12826.913951"
+      },
+      "realizedPnl": {
+        "expected": "6.232054",
+        "actual": "6.232054"
+      },
+      "match": true
+    },
+    {
+      "sequence": 15,
+      "date": "2017-04-18",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "121.82000000",
+        "actual": "121.82000000"
+      },
+      "cashBefore": "12826.913951",
+      "shares": {
+        "expected": "2.7869014283",
+        "actual": "2.7869014283"
+      },
+      "amount": {
+        "expected": "339.500332",
+        "actual": "339.500332"
+      },
+      "cashAfter": {
+        "expected": "12487.413619",
+        "actual": "12487.413619"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 13580.013292,
+        "fullPositionBudget": 1358.0013292,
+        "target": 339.5003323,
+        "currentValue": 0,
+        "shortfall": 339.5003323,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 16,
+      "date": "2017-05-16",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "127.77000000",
+        "actual": "127.77000000"
+      },
+      "cashBefore": "12987.413619",
+      "shares": {
+        "expected": "1.3934507141",
+        "actual": "1.3934507141"
+      },
+      "amount": {
+        "expected": "178.041198",
+        "actual": "178.041198"
+      },
+      "cashAfter": {
+        "expected": "13165.454817",
+        "actual": "13165.454817"
+      },
+      "realizedPnl": {
+        "expected": "8.291032",
+        "actual": "8.291032"
+      },
+      "match": true
+    },
+    {
+      "sequence": 17,
+      "date": "2017-05-25",
+      "symbol": "KO",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "45.41000000",
+        "actual": "45.41000000"
+      },
+      "cashBefore": "13165.454817",
+      "shares": {
+        "expected": "3.5711898925",
+        "actual": "3.5711898925"
+      },
+      "amount": {
+        "expected": "162.167733",
+        "actual": "162.167733"
+      },
+      "cashAfter": {
+        "expected": "13327.622550",
+        "actual": "13327.622550"
+      },
+      "realizedPnl": {
+        "expected": "13.124450",
+        "actual": "13.124450"
+      },
+      "match": true
+    },
+    {
+      "sequence": 18,
+      "date": "2017-06-12",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "36.35000000",
+        "actual": "36.35000000"
+      },
+      "cashBefore": "13827.622550",
+      "shares": {
+        "expected": "10.0567273452",
+        "actual": "10.0567273452"
+      },
+      "amount": {
+        "expected": "365.562039",
+        "actual": "365.562039"
+      },
+      "cashAfter": {
+        "expected": "13462.060511",
+        "actual": "13462.060511"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 14622.481574,
+        "fullPositionBudget": 1462.2481574,
+        "target": 365.5620393500001,
+        "currentValue": 0,
+        "shortfall": 365.5620393500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 19,
+      "date": "2017-06-14",
+      "symbol": "JNJ",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "132.77000000",
+        "actual": "132.77000000"
+      },
+      "cashBefore": "13462.060511",
+      "shares": {
+        "expected": "1.3934507142",
+        "actual": "1.3934507142"
+      },
+      "amount": {
+        "expected": "185.008451",
+        "actual": "185.008451"
+      },
+      "cashAfter": {
+        "expected": "13647.068962",
+        "actual": "13647.068962"
+      },
+      "realizedPnl": {
+        "expected": "15.258285",
+        "actual": "15.258285"
+      },
+      "match": true
+    },
+    {
+      "sequence": 20,
+      "date": "2017-07-06",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "44.40000000",
+        "actual": "44.40000000"
+      },
+      "cashBefore": "14147.068962",
+      "shares": {
+        "expected": "8.4984206756",
+        "actual": "8.4984206756"
+      },
+      "amount": {
+        "expected": "377.329878",
+        "actual": "377.329878"
+      },
+      "cashAfter": {
+        "expected": "13769.739084",
+        "actual": "13769.739084"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 15093.195114999999,
+        "fullPositionBudget": 1509.3195114999999,
+        "target": 377.32987787499997,
+        "currentValue": 0,
+        "shortfall": 377.32987787499997,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 21,
+      "date": "2017-07-27",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "46.12000000",
+        "actual": "46.12000000"
+      },
+      "cashBefore": "13769.739084",
+      "shares": {
+        "expected": "4.2492103378",
+        "actual": "4.2492103378"
+      },
+      "amount": {
+        "expected": "195.973581",
+        "actual": "195.973581"
+      },
+      "cashAfter": {
+        "expected": "13965.712665",
+        "actual": "13965.712665"
+      },
+      "realizedPnl": {
+        "expected": "7.308642",
+        "actual": "7.308642"
+      },
+      "match": true
+    },
+    {
+      "sequence": 22,
+      "date": "2017-08-01",
+      "symbol": "CVX",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "110.78000000",
+        "actual": "110.78000000"
+      },
+      "cashBefore": "14465.712665",
+      "shares": {
+        "expected": "2.8284633062",
+        "actual": "2.8284633062"
+      },
+      "amount": {
+        "expected": "313.337165",
+        "actual": "313.337165"
+      },
+      "cashAfter": {
+        "expected": "14779.049830",
+        "actual": "14779.049830"
+      },
+      "realizedPnl": {
+        "expected": "-4.315647",
+        "actual": "-4.315647"
+      },
+      "match": true
+    },
+    {
+      "sequence": 23,
+      "date": "2017-08-08",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "40.02000000",
+        "actual": "40.02000000"
+      },
+      "cashBefore": "14779.049830",
+      "shares": {
+        "expected": "5.0283636726",
+        "actual": "5.0283636726"
+      },
+      "amount": {
+        "expected": "201.235114",
+        "actual": "201.235114"
+      },
+      "cashAfter": {
+        "expected": "14980.284944",
+        "actual": "14980.284944"
+      },
+      "realizedPnl": {
+        "expected": "18.454095",
+        "actual": "18.454095"
+      },
+      "match": true
+    },
+    {
+      "sequence": 24,
+      "date": "2017-09-05",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "129.90000000",
+        "actual": "129.90000000"
+      },
+      "cashBefore": "15480.284944",
+      "shares": {
+        "expected": "3.1156091224",
+        "actual": "3.1156091224"
+      },
+      "amount": {
+        "expected": "404.717625",
+        "actual": "404.717625"
+      },
+      "cashAfter": {
+        "expected": "15075.567319",
+        "actual": "15075.567319"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 16188.705003000001,
+        "fullPositionBudget": 1618.8705003000002,
+        "target": 404.71762507500006,
+        "currentValue": 0,
+        "shortfall": 404.71762507500006,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 25,
+      "date": "2017-09-22",
+      "symbol": "CVX",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "117.29000000",
+        "actual": "117.29000000"
+      },
+      "cashBefore": "15075.567319",
+      "shares": {
+        "expected": "2.8284633063",
+        "actual": "2.8284633063"
+      },
+      "amount": {
+        "expected": "331.750461",
+        "actual": "331.750461"
+      },
+      "cashAfter": {
+        "expected": "15407.317780",
+        "actual": "15407.317780"
+      },
+      "realizedPnl": {
+        "expected": "14.097648",
+        "actual": "14.097648"
+      },
+      "match": true
+    },
+    {
+      "sequence": 26,
+      "date": "2017-10-02",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "44.80000000",
+        "actual": "44.80000000"
+      },
+      "cashBefore": "15907.317780",
+      "shares": {
+        "expected": "5.0699041741",
+        "actual": "5.0699041741"
+      },
+      "amount": {
+        "expected": "227.131707",
+        "actual": "227.131707"
+      },
+      "cashAfter": {
+        "expected": "15680.186073",
+        "actual": "15680.186073"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 16699.853215,
+        "fullPositionBudget": 1669.9853215,
+        "target": 417.496330375,
+        "currentValue": 190.36462313344,
+        "shortfall": 227.13170724156,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 27,
+      "date": "2017-10-17",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "140.79000000",
+        "actual": "140.79000000"
+      },
+      "cashBefore": "15680.186073",
+      "shares": {
+        "expected": "1.5578045612",
+        "actual": "1.5578045612"
+      },
+      "amount": {
+        "expected": "219.323304",
+        "actual": "219.323304"
+      },
+      "cashAfter": {
+        "expected": "15899.509377",
+        "actual": "15899.509377"
+      },
+      "realizedPnl": {
+        "expected": "16.964492",
+        "actual": "16.964492"
+      },
+      "match": true
+    },
+    {
+      "sequence": 28,
+      "date": "2017-10-23",
+      "symbol": "JNJ",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "143.62000000",
+        "actual": "143.62000000"
+      },
+      "cashBefore": "15899.509377",
+      "shares": {
+        "expected": "1.5578045612",
+        "actual": "1.5578045612"
+      },
+      "amount": {
+        "expected": "223.731891",
+        "actual": "223.731891"
+      },
+      "cashAfter": {
+        "expected": "16123.241268",
+        "actual": "16123.241268"
+      },
+      "realizedPnl": {
+        "expected": "21.373078",
+        "actual": "21.373078"
+      },
+      "match": true
+    },
+    {
+      "sequence": 29,
+      "date": "2017-10-27",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "113.54000000",
+        "actual": "113.54000000"
+      },
+      "cashBefore": "16123.241268",
+      "shares": {
+        "expected": "3.6897853091",
+        "actual": "3.6897853091"
+      },
+      "amount": {
+        "expected": "418.938224",
+        "actual": "418.938224"
+      },
+      "cashAfter": {
+        "expected": "15704.303044",
+        "actual": "15704.303044"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 16757.528976999998,
+        "fullPositionBudget": 1675.7528977,
+        "target": 418.938224425,
+        "currentValue": 0,
+        "shortfall": 418.938224425,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 30,
+      "date": "2017-12-21",
+      "symbol": "CVX",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "124.82000000",
+        "actual": "124.82000000"
+      },
+      "cashBefore": "16704.303044",
+      "shares": {
+        "expected": "1.8448926545",
+        "actual": "1.8448926545"
+      },
+      "amount": {
+        "expected": "230.279501",
+        "actual": "230.279501"
+      },
+      "cashAfter": {
+        "expected": "16934.582545",
+        "actual": "16934.582545"
+      },
+      "realizedPnl": {
+        "expected": "20.810389",
+        "actual": "20.810389"
+      },
+      "match": true
+    },
+    {
+      "sequence": 31,
+      "date": "2018-01-03",
+      "symbol": "CVX",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "128.51000000",
+        "actual": "128.51000000"
+      },
+      "cashBefore": "17434.582545",
+      "shares": {
+        "expected": "1.8448926546",
+        "actual": "1.8448926546"
+      },
+      "amount": {
+        "expected": "237.087155",
+        "actual": "237.087155"
+      },
+      "cashAfter": {
+        "expected": "17671.669700",
+        "actual": "17671.669700"
+      },
+      "realizedPnl": {
+        "expected": "27.618043",
+        "actual": "27.618043"
+      },
+      "match": true
+    },
+    {
+      "sequence": 32,
+      "date": "2018-01-26",
+      "symbol": "KO",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "48.53000000",
+        "actual": "48.53000000"
+      },
+      "cashBefore": "17671.669700",
+      "shares": {
+        "expected": "9.3191145119",
+        "actual": "9.3191145119"
+      },
+      "amount": {
+        "expected": "452.256627",
+        "actual": "452.256627"
+      },
+      "cashAfter": {
+        "expected": "18123.926327",
+        "actual": "18123.926327"
+      },
+      "realizedPnl": {
+        "expected": "36.459981",
+        "actual": "36.459981"
+      },
+      "match": true
+    },
+    {
+      "sequence": 33,
+      "date": "2018-01-31",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "138.19000000",
+        "actual": "138.19000000"
+      },
+      "cashBefore": "18123.926327",
+      "shares": {
+        "expected": "3.3168850206",
+        "actual": "3.3168850206"
+      },
+      "amount": {
+        "expected": "458.360341",
+        "actual": "458.360341"
+      },
+      "cashAfter": {
+        "expected": "17665.565986",
+        "actual": "17665.565986"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18334.413630000003,
+        "fullPositionBudget": 1833.4413630000004,
+        "target": 458.3603407500001,
+        "currentValue": 0,
+        "shortfall": 458.3603407500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 34,
+      "date": "2018-02-01",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "41.95000000",
+        "actual": "41.95000000"
+      },
+      "cashBefore": "18165.565986",
+      "shares": {
+        "expected": "6.1998461501",
+        "actual": "6.1998461501"
+      },
+      "amount": {
+        "expected": "260.083546",
+        "actual": "260.083546"
+      },
+      "cashAfter": {
+        "expected": "17905.482440",
+        "actual": "17905.482440"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18840.936083,
+        "fullPositionBudget": 1884.0936083000001,
+        "target": 471.02340207500004,
+        "currentValue": 210.93985606557,
+        "shortfall": 260.08354600943005,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 35,
+      "date": "2018-02-02",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "40.13000000",
+        "actual": "40.13000000"
+      },
+      "cashBefore": "17905.482440",
+      "shares": {
+        "expected": "12.2115350361",
+        "actual": "12.2115350361"
+      },
+      "amount": {
+        "expected": "490.048901",
+        "actual": "490.048901"
+      },
+      "cashAfter": {
+        "expected": "17415.433539",
+        "actual": "17415.433539"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18812.73923,
+        "fullPositionBudget": 1881.273923,
+        "target": 940.6369615,
+        "currentValue": 450.588060184951,
+        "shortfall": 490.04890131504897,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 36,
+      "date": "2018-02-02",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (new position)",
+      "executionPrice": {
+        "expected": "118.58000000",
+        "actual": "118.58000000"
+      },
+      "cashBefore": "17415.433539",
+      "shares": {
+        "expected": "7.9325093776",
+        "actual": "7.9325093776"
+      },
+      "amount": {
+        "expected": "940.636962",
+        "actual": "940.636962"
+      },
+      "cashAfter": {
+        "expected": "16474.796577",
+        "actual": "16474.796577"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18812.73923,
+        "fullPositionBudget": 1881.273923,
+        "target": 940.6369615,
+        "currentValue": 0,
+        "shortfall": 940.6369615,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 37,
+      "date": "2018-02-05",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "130.39000000",
+        "actual": "130.39000000"
+      },
+      "cashBefore": "16474.796577",
+      "shares": {
+        "expected": "3.8606620446",
+        "actual": "3.8606620446"
+      },
+      "amount": {
+        "expected": "503.391724",
+        "actual": "503.391724"
+      },
+      "cashAfter": {
+        "expected": "15971.404853",
+        "actual": "15971.404853"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18717.60724,
+        "fullPositionBudget": 1871.7607240000002,
+        "target": 935.8803620000002,
+        "currentValue": 432.48863783603394,
+        "shortfall": 503.3917241639663,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 38,
+      "date": "2018-02-05",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "44.89000000",
+        "actual": "44.89000000"
+      },
+      "cashBefore": "15971.404853",
+      "shares": {
+        "expected": "10.4241519492",
+        "actual": "10.4241519492"
+      },
+      "amount": {
+        "expected": "467.940181",
+        "actual": "467.940181"
+      },
+      "cashAfter": {
+        "expected": "15503.464672",
+        "actual": "15503.464672"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18717.60724,
+        "fullPositionBudget": 1871.7607240000002,
+        "target": 467.9401810000001,
+        "currentValue": 0,
+        "shortfall": 467.9401810000001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 39,
+      "date": "2018-02-08",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "43.10000000",
+        "actual": "43.10000000"
+      },
+      "cashBefore": "15503.464672",
+      "shares": {
+        "expected": "11.2228886310",
+        "actual": "11.2228886310"
+      },
+      "amount": {
+        "expected": "483.706500",
+        "actual": "483.706500"
+      },
+      "cashAfter": {
+        "expected": "15019.758172",
+        "actual": "15019.758172"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18659.748974000002,
+        "fullPositionBudget": 1865.9748974000004,
+        "target": 932.9874487000002,
+        "currentValue": 449.28094901052003,
+        "shortfall": 483.70649968948015,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 40,
+      "date": "2018-02-08",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "85.01000000",
+        "actual": "85.01000000"
+      },
+      "cashBefore": "15019.758172",
+      "shares": {
+        "expected": "5.4875158687",
+        "actual": "5.4875158687"
+      },
+      "amount": {
+        "expected": "466.493724",
+        "actual": "466.493724"
+      },
+      "cashAfter": {
+        "expected": "14553.264448",
+        "actual": "14553.264448"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 18659.748974000002,
+        "fullPositionBudget": 1865.9748974000004,
+        "target": 466.4937243500001,
+        "currentValue": 0,
+        "shortfall": 466.4937243500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 41,
+      "date": "2018-05-11",
+      "symbol": "CVX",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "129.84000000",
+        "actual": "129.84000000"
+      },
+      "cashBefore": "16053.264448",
+      "shares": {
+        "expected": "3.9662546888",
+        "actual": "3.9662546888"
+      },
+      "amount": {
+        "expected": "514.978509",
+        "actual": "514.978509"
+      },
+      "cashAfter": {
+        "expected": "16568.242957",
+        "actual": "16568.242957"
+      },
+      "realizedPnl": {
+        "expected": "44.660028",
+        "actual": "44.660028"
+      },
+      "match": true
+    },
+    {
+      "sequence": 42,
+      "date": "2018-06-05",
+      "symbol": "MSFT",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "102.19000000",
+        "actual": "102.19000000"
+      },
+      "cashBefore": "17068.242957",
+      "shares": {
+        "expected": "2.7437579343",
+        "actual": "2.7437579343"
+      },
+      "amount": {
+        "expected": "280.384623",
+        "actual": "280.384623"
+      },
+      "cashAfter": {
+        "expected": "17348.627580",
+        "actual": "17348.627580"
+      },
+      "realizedPnl": {
+        "expected": "47.137761",
+        "actual": "47.137761"
+      },
+      "match": true
+    },
+    {
+      "sequence": 43,
+      "date": "2018-07-25",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "46.09000000",
+        "actual": "46.09000000"
+      },
+      "cashBefore": "17848.627580",
+      "shares": {
+        "expected": "10.8235202901",
+        "actual": "10.8235202901"
+      },
+      "amount": {
+        "expected": "498.856050",
+        "actual": "498.856050"
+      },
+      "cashAfter": {
+        "expected": "18347.483630",
+        "actual": "18347.483630"
+      },
+      "realizedPnl": {
+        "expected": "23.032709",
+        "actual": "23.032709"
+      },
+      "match": true
+    },
+    {
+      "sequence": 44,
+      "date": "2018-08-17",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "54.40000000",
+        "actual": "54.40000000"
+      },
+      "cashBefore": "18847.483630",
+      "shares": {
+        "expected": "23.4397448588",
+        "actual": "23.4397448588"
+      },
+      "amount": {
+        "expected": "1275.122120",
+        "actual": "1275.122120"
+      },
+      "cashAfter": {
+        "expected": "20122.605750",
+        "actual": "20122.605750"
+      },
+      "realizedPnl": {
+        "expected": "342.208653",
+        "actual": "342.208653"
+      },
+      "match": true
+    },
+    {
+      "sequence": 45,
+      "date": "2018-08-20",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "136.88000000",
+        "actual": "136.88000000"
+      },
+      "cashBefore": "20122.605750",
+      "shares": {
+        "expected": "3.5887735326",
+        "actual": "3.5887735326"
+      },
+      "amount": {
+        "expected": "491.231321",
+        "actual": "491.231321"
+      },
+      "cashAfter": {
+        "expected": "20613.837071",
+        "actual": "20613.837071"
+      },
+      "realizedPnl": {
+        "expected": "10.355288",
+        "actual": "10.355288"
+      },
+      "match": true
+    },
+    {
+      "sequence": 46,
+      "date": "2018-09-04",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "44.76000000",
+        "actual": "44.76000000"
+      },
+      "cashBefore": "21113.837071",
+      "shares": {
+        "expected": "1.9424328641",
+        "actual": "1.9424328641"
+      },
+      "amount": {
+        "expected": "86.943295",
+        "actual": "86.943295"
+      },
+      "cashAfter": {
+        "expected": "21026.893776",
+        "actual": "21026.893776"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 22856.16253,
+        "fullPositionBudget": 2285.616253,
+        "target": 571.40406325,
+        "currentValue": 484.460768184876,
+        "shortfall": 86.94329506512406,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 47,
+      "date": "2018-11-01",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "111.17000000",
+        "actual": "111.17000000"
+      },
+      "cashBefore": "22026.893776",
+      "shares": {
+        "expected": "1.4023831699",
+        "actual": "1.4023831699"
+      },
+      "amount": {
+        "expected": "155.902937",
+        "actual": "155.902937"
+      },
+      "cashAfter": {
+        "expected": "21870.990839",
+        "actual": "21870.990839"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 23873.258843,
+        "fullPositionBudget": 2387.3258843,
+        "target": 596.831471075,
+        "currentValue": 440.928533753896,
+        "shortfall": 155.902937321104,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 48,
+      "date": "2018-11-05",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "50.40000000",
+        "actual": "50.40000000"
+      },
+      "cashBefore": "21870.990839",
+      "shares": {
+        "expected": "11.8732221626",
+        "actual": "11.8732221626"
+      },
+      "amount": {
+        "expected": "598.410397",
+        "actual": "598.410397"
+      },
+      "cashAfter": {
+        "expected": "21272.580442",
+        "actual": "21272.580442"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 23936.415897,
+        "fullPositionBudget": 2393.6415897,
+        "target": 598.410397425,
+        "currentValue": 0,
+        "shortfall": 598.410397425,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 49,
+      "date": "2018-11-20",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "44.25000000",
+        "actual": "44.25000000"
+      },
+      "cashBefore": "21272.580442",
+      "shares": {
+        "expected": "15.0830441129",
+        "actual": "15.0830441129"
+      },
+      "amount": {
+        "expected": "667.424702",
+        "actual": "667.424702"
+      },
+      "cashAfter": {
+        "expected": "20605.155740",
+        "actual": "20605.155740"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 23856.295649,
+        "fullPositionBudget": 2385.6295649,
+        "target": 1192.81478245,
+        "currentValue": 525.39008069505,
+        "shortfall": 667.42470175495,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 50,
+      "date": "2018-12-24",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "94.13000000",
+        "actual": "94.13000000"
+      },
+      "cashBefore": "21105.155740",
+      "shares": {
+        "expected": "9.9635283119",
+        "actual": "9.9635283119"
+      },
+      "amount": {
+        "expected": "937.866920",
+        "actual": "937.866920"
+      },
+      "cashAfter": {
+        "expected": "20167.288820",
+        "actual": "20167.288820"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 23922.737093999996,
+        "fullPositionBudget": 2392.2737094,
+        "target": 1196.1368547,
+        "currentValue": 258.269934365072,
+        "shortfall": 937.866920334928,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 51,
+      "date": "2019-01-02",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "127.75000000",
+        "actual": "127.75000000"
+      },
+      "cashBefore": "20667.288820",
+      "shares": {
+        "expected": "1.2386842974",
+        "actual": "1.2386842974"
+      },
+      "amount": {
+        "expected": "158.241919",
+        "actual": "158.241919"
+      },
+      "cashAfter": {
+        "expected": "20509.046901",
+        "actual": "20509.046901"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 24668.309524,
+        "fullPositionBudget": 2466.8309524,
+        "target": 616.7077381,
+        "currentValue": 458.46581878965,
+        "shortfall": 158.24191931035006,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 52,
+      "date": "2019-03-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "45.38000000",
+        "actual": "45.38000000"
+      },
+      "cashBefore": "21509.046901",
+      "shares": {
+        "expected": "1.5687744380",
+        "actual": "1.5687744380"
+      },
+      "amount": {
+        "expected": "71.190984",
+        "actual": "71.190984"
+      },
+      "cashAfter": {
+        "expected": "21437.855917",
+        "actual": "21437.855917"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 26020.397532000003,
+        "fullPositionBudget": 2602.0397532000006,
+        "target": 650.5099383000002,
+        "currentValue": 579.318954137596,
+        "shortfall": 71.1909841624041,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 53,
+      "date": "2019-03-13",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "45.43000000",
+        "actual": "45.43000000"
+      },
+      "cashBefore": "21437.855917",
+      "shares": {
+        "expected": "13.4781331377",
+        "actual": "13.4781331377"
+      },
+      "amount": {
+        "expected": "612.311588",
+        "actual": "612.311588"
+      },
+      "cashAfter": {
+        "expected": "22050.167505",
+        "actual": "22050.167505"
+      },
+      "realizedPnl": {
+        "expected": "-20.605962",
+        "actual": "-20.605962"
+      },
+      "match": true
+    },
+    {
+      "sequence": 54,
+      "date": "2019-03-21",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "48.77000000",
+        "actual": "48.77000000"
+      },
+      "cashBefore": "22050.167505",
+      "shares": {
+        "expected": "13.4781331378",
+        "actual": "13.4781331378"
+      },
+      "amount": {
+        "expected": "657.328553",
+        "actual": "657.328553"
+      },
+      "cashAfter": {
+        "expected": "22707.496058",
+        "actual": "22707.496058"
+      },
+      "realizedPnl": {
+        "expected": "24.411004",
+        "actual": "24.411004"
+      },
+      "match": true
+    },
+    {
+      "sequence": 55,
+      "date": "2019-04-25",
+      "symbol": "MSFT",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "129.15000000",
+        "actual": "129.15000000"
+      },
+      "cashBefore": "23207.496058",
+      "shares": {
+        "expected": "12.7072862463",
+        "actual": "12.7072862463"
+      },
+      "amount": {
+        "expected": "1641.146019",
+        "actual": "1641.146019"
+      },
+      "cashAfter": {
+        "expected": "24848.642077",
+        "actual": "24848.642077"
+      },
+      "realizedPnl": {
+        "expected": "470.032237",
+        "actual": "470.032237"
+      },
+      "match": true
+    },
+    {
+      "sequence": 56,
+      "date": "2019-05-13",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "46.43000000",
+        "actual": "46.43000000"
+      },
+      "cashBefore": "25348.642077",
+      "shares": {
+        "expected": "14.7245055352",
+        "actual": "14.7245055352"
+      },
+      "amount": {
+        "expected": "683.658792",
+        "actual": "683.658792"
+      },
+      "cashAfter": {
+        "expected": "24664.983285",
+        "actual": "24664.983285"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 27346.351696,
+        "fullPositionBudget": 2734.6351696,
+        "target": 683.6587924,
+        "currentValue": 0,
+        "shortfall": 683.6587924,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 57,
+      "date": "2019-05-31",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "43.77000000",
+        "actual": "43.77000000"
+      },
+      "cashBefore": "24664.983285",
+      "shares": {
+        "expected": "16.4133520904",
+        "actual": "16.4133520904"
+      },
+      "amount": {
+        "expected": "718.412421",
+        "actual": "718.412421"
+      },
+      "cashAfter": {
+        "expected": "23946.570864",
+        "actual": "23946.570864"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 27258.080573,
+        "fullPositionBudget": 2725.8080573,
+        "target": 1362.90402865,
+        "currentValue": 644.491607275704,
+        "shortfall": 718.4124213742961,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 58,
+      "date": "2019-06-03",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "43.33000000",
+        "actual": "43.33000000"
+      },
+      "cashBefore": "24446.570864",
+      "shares": {
+        "expected": "0.9062841680",
+        "actual": "0.9062841680"
+      },
+      "amount": {
+        "expected": "39.269293",
+        "actual": "39.269293"
+      },
+      "cashAfter": {
+        "expected": "24407.301571",
+        "actual": "24407.301571"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 27769.453282000002,
+        "fullPositionBudget": 2776.9453282000004,
+        "target": 1388.4726641000002,
+        "currentValue": 1349.2033709172479,
+        "shortfall": 39.269293182752335,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 59,
+      "date": "2019-06-03",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "131.44000000",
+        "actual": "131.44000000"
+      },
+      "cashBefore": "24407.301571",
+      "shares": {
+        "expected": "0.4543158475",
+        "actual": "0.4543158475"
+      },
+      "amount": {
+        "expected": "59.715275",
+        "actual": "59.715275"
+      },
+      "cashAfter": {
+        "expected": "24347.586296",
+        "actual": "24347.586296"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 27769.453282000002,
+        "fullPositionBudget": 2776.9453282000004,
+        "target": 694.2363320500001,
+        "currentValue": 634.5210571752,
+        "shortfall": 59.715274874800116,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 60,
+      "date": "2019-06-03",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "119.84000000",
+        "actual": "119.84000000"
+      },
+      "cashBefore": "24347.586296",
+      "shares": {
+        "expected": "5.7930268024",
+        "actual": "5.7930268024"
+      },
+      "amount": {
+        "expected": "694.236332",
+        "actual": "694.236332"
+      },
+      "cashAfter": {
+        "expected": "23653.349964",
+        "actual": "23653.349964"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 27769.453282000002,
+        "fullPositionBudget": 2776.9453282000004,
+        "target": 694.2363320500001,
+        "currentValue": 0,
+        "shortfall": 694.2363320500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 61,
+      "date": "2019-06-20",
+      "symbol": "MSFT",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "136.95000000",
+        "actual": "136.95000000"
+      },
+      "cashBefore": "23653.349964",
+      "shares": {
+        "expected": "2.8965134012",
+        "actual": "2.8965134012"
+      },
+      "amount": {
+        "expected": "396.677510",
+        "actual": "396.677510"
+      },
+      "cashAfter": {
+        "expected": "24050.027474",
+        "actual": "24050.027474"
+      },
+      "realizedPnl": {
+        "expected": "49.559344",
+        "actual": "49.559344"
+      },
+      "match": true
+    },
+    {
+      "sequence": 62,
+      "date": "2019-08-01",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "120.74000000",
+        "actual": "120.74000000"
+      },
+      "cashBefore": "25050.027474",
+      "shares": {
+        "expected": "0.6778148169",
+        "actual": "0.6778148169"
+      },
+      "amount": {
+        "expected": "81.839361",
+        "actual": "81.839361"
+      },
+      "cashAfter": {
+        "expected": "24968.188113",
+        "actual": "24968.188113"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 29201.947847,
+        "fullPositionBudget": 2920.1947847,
+        "target": 730.048696175,
+        "currentValue": 648.2093350594379,
+        "shortfall": 81.83936111556216,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 63,
+      "date": "2019-08-01",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "130.29000000",
+        "actual": "130.29000000"
+      },
+      "cashBefore": "24968.188113",
+      "shares": {
+        "expected": "0.3214859467",
+        "actual": "0.3214859467"
+      },
+      "amount": {
+        "expected": "41.886404",
+        "actual": "41.886404"
+      },
+      "cashAfter": {
+        "expected": "24926.301709",
+        "actual": "24926.301709"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 29201.947847,
+        "fullPositionBudget": 2920.1947847,
+        "target": 730.048696175,
+        "currentValue": 688.162292441475,
+        "shortfall": 41.88640373352507,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 64,
+      "date": "2019-10-01",
+      "symbol": "CVX",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "116.01000000",
+        "actual": "116.01000000"
+      },
+      "cashBefore": "25926.301709",
+      "shares": {
+        "expected": "0.4908749073",
+        "actual": "0.4908749073"
+      },
+      "amount": {
+        "expected": "56.946398",
+        "actual": "56.946398"
+      },
+      "cashAfter": {
+        "expected": "25869.355311",
+        "actual": "25869.355311"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 30335.81492,
+        "fullPositionBudget": 3033.5814920000003,
+        "target": 758.3953730000001,
+        "currentValue": 701.448974896356,
+        "shortfall": 56.946398103644015,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 65,
+      "date": "2019-10-21",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "60.13000000",
+        "actual": "60.13000000"
+      },
+      "cashBefore": "25869.355311",
+      "shares": {
+        "expected": "16.0220708968",
+        "actual": "16.0220708968"
+      },
+      "amount": {
+        "expected": "963.407123",
+        "actual": "963.407123"
+      },
+      "cashAfter": {
+        "expected": "26832.762434",
+        "actual": "26832.762434"
+      },
+      "realizedPnl": {
+        "expected": "242.736870",
+        "actual": "242.736870"
+      },
+      "match": true
+    },
+    {
+      "sequence": 66,
+      "date": "2019-11-13",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "66.12000000",
+        "actual": "66.12000000"
+      },
+      "cashBefore": "27332.762434",
+      "shares": {
+        "expected": "16.0220708968",
+        "actual": "16.0220708968"
+      },
+      "amount": {
+        "expected": "1059.379328",
+        "actual": "1059.379328"
+      },
+      "cashAfter": {
+        "expected": "28392.141762",
+        "actual": "28392.141762"
+      },
+      "realizedPnl": {
+        "expected": "338.709075",
+        "actual": "338.709075"
+      },
+      "match": true
+    },
+    {
+      "sequence": 67,
+      "date": "2019-12-20",
+      "symbol": "JNJ",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "146.06000000",
+        "actual": "146.06000000"
+      },
+      "cashBefore": "28892.141762",
+      "shares": {
+        "expected": "5.6032596242",
+        "actual": "5.6032596242"
+      },
+      "amount": {
+        "expected": "818.412101",
+        "actual": "818.412101"
+      },
+      "cashAfter": {
+        "expected": "29710.553863",
+        "actual": "29710.553863"
+      },
+      "realizedPnl": {
+        "expected": "77.692471",
+        "actual": "77.692471"
+      },
+      "match": true
+    },
+    {
+      "sequence": 68,
+      "date": "2020-02-10",
+      "symbol": "MSFT",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "188.70000000",
+        "actual": "188.70000000"
+      },
+      "cashBefore": "30710.553863",
+      "shares": {
+        "expected": "2.8965134012",
+        "actual": "2.8965134012"
+      },
+      "amount": {
+        "expected": "546.572079",
+        "actual": "546.572079"
+      },
+      "cashAfter": {
+        "expected": "31257.125942",
+        "actual": "31257.125942"
+      },
+      "realizedPnl": {
+        "expected": "199.453913",
+        "actual": "199.453913"
+      },
+      "match": true
+    },
+    {
+      "sequence": 69,
+      "date": "2020-02-24",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "74.55000000",
+        "actual": "74.55000000"
+      },
+      "cashBefore": "31257.125942",
+      "shares": {
+        "expected": "10.9934209523",
+        "actual": "10.9934209523"
+      },
+      "amount": {
+        "expected": "819.559532",
+        "actual": "819.559532"
+      },
+      "cashAfter": {
+        "expected": "30437.566410",
+        "actual": "30437.566410"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32782.381285999996,
+        "fullPositionBudget": 3278.2381286,
+        "target": 819.55953215,
+        "currentValue": 0,
+        "shortfall": 819.55953215,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 70,
+      "date": "2020-02-24",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "145.91000000",
+        "actual": "145.91000000"
+      },
+      "cashBefore": "30437.566410",
+      "shares": {
+        "expected": "5.6168839147",
+        "actual": "5.6168839147"
+      },
+      "amount": {
+        "expected": "819.559532",
+        "actual": "819.559532"
+      },
+      "cashAfter": {
+        "expected": "29618.006878",
+        "actual": "29618.006878"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32782.381285999996,
+        "fullPositionBudget": 3278.2381286,
+        "target": 819.55953215,
+        "currentValue": 0,
+        "shortfall": 819.55953215,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 71,
+      "date": "2020-02-25",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "168.07000000",
+        "actual": "168.07000000"
+      },
+      "cashBefore": "29618.006878",
+      "shares": {
+        "expected": "4.8654494436",
+        "actual": "4.8654494436"
+      },
+      "amount": {
+        "expected": "817.736088",
+        "actual": "817.736088"
+      },
+      "cashAfter": {
+        "expected": "28800.270790",
+        "actual": "28800.270790"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32709.443523,
+        "fullPositionBudget": 3270.9443523000004,
+        "target": 817.7360880750001,
+        "currentValue": 0,
+        "shortfall": 817.7360880750001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 72,
+      "date": "2020-02-27",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "68.38000000",
+        "actual": "68.38000000"
+      },
+      "cashBefore": "28800.270790",
+      "shares": {
+        "expected": "12.7750814126",
+        "actual": "12.7750814126"
+      },
+      "amount": {
+        "expected": "873.560067",
+        "actual": "873.560067"
+      },
+      "cashAfter": {
+        "expected": "27926.710723",
+        "actual": "27926.710723"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32505.803829999997,
+        "fullPositionBudget": 3250.580383,
+        "target": 1625.2901915,
+        "currentValue": 751.7301247182739,
+        "shortfall": 873.560066781726,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 73,
+      "date": "2020-02-27",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "139.12000000",
+        "actual": "139.12000000"
+      },
+      "cashBefore": "27926.710723",
+      "shares": {
+        "expected": "6.0657655333",
+        "actual": "6.0657655333"
+      },
+      "amount": {
+        "expected": "843.869301",
+        "actual": "843.869301"
+      },
+      "cashAfter": {
+        "expected": "27082.841422",
+        "actual": "27082.841422"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32505.803829999997,
+        "fullPositionBudget": 3250.580383,
+        "target": 1625.2901915,
+        "currentValue": 781.420890213064,
+        "shortfall": 843.869301286936,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 74,
+      "date": "2020-02-27",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "224.73000000",
+        "actual": "224.73000000"
+      },
+      "cashBefore": "27082.841422",
+      "shares": {
+        "expected": "3.6160952965",
+        "actual": "3.6160952965"
+      },
+      "amount": {
+        "expected": "812.645096",
+        "actual": "812.645096"
+      },
+      "cashAfter": {
+        "expected": "26270.196326",
+        "actual": "26270.196326"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32505.803829999997,
+        "fullPositionBudget": 3250.580383,
+        "target": 812.64509575,
+        "currentValue": 0,
+        "shortfall": 812.64509575,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 75,
+      "date": "2020-02-28",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 100% level s04-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "134.48000000",
+        "actual": "134.48000000"
+      },
+      "cashBefore": "26270.196326",
+      "shares": {
+        "expected": "12.4239529298",
+        "actual": "12.4239529298"
+      },
+      "amount": {
+        "expected": "1670.773190",
+        "actual": "1670.773190"
+      },
+      "cashAfter": {
+        "expected": "24599.423136",
+        "actual": "24599.423136"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32418.558875000002,
+        "fullPositionBudget": 3241.8558875000003,
+        "target": 3241.8558875000003,
+        "currentValue": 1571.0826977670397,
+        "shortfall": 1670.7731897329606,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 76,
+      "date": "2020-02-28",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "217.84000000",
+        "actual": "217.84000000"
+      },
+      "cashBefore": "24599.423136",
+      "shares": {
+        "expected": "3.8248152038",
+        "actual": "3.8248152038"
+      },
+      "amount": {
+        "expected": "833.197744",
+        "actual": "833.197744"
+      },
+      "cashAfter": {
+        "expected": "23766.225392",
+        "actual": "23766.225392"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32418.558875000002,
+        "fullPositionBudget": 3241.8558875000003,
+        "target": 1620.9279437500002,
+        "currentValue": 787.7301993895601,
+        "shortfall": 833.1977443604401,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 77,
+      "date": "2020-04-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "42.12000000",
+        "actual": "42.12000000"
+      },
+      "cashBefore": "24766.225392",
+      "shares": {
+        "expected": "4.9104083333",
+        "actual": "4.9104083333"
+      },
+      "amount": {
+        "expected": "206.826399",
+        "actual": "206.826399"
+      },
+      "cashAfter": {
+        "expected": "24559.398993",
+        "actual": "24559.398993"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 32424.205004,
+        "fullPositionBudget": 3242.4205004,
+        "target": 810.6051251,
+        "currentValue": 603.778726183464,
+        "shortfall": 206.82639891653605,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 78,
+      "date": "2020-06-05",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "82.88000000",
+        "actual": "82.88000000"
+      },
+      "cashBefore": "25559.398993",
+      "shares": {
+        "expected": "11.8842511824",
+        "actual": "11.8842511824"
+      },
+      "amount": {
+        "expected": "984.966738",
+        "actual": "984.966738"
+      },
+      "cashAfter": {
+        "expected": "26544.365731",
+        "actual": "26544.365731"
+      },
+      "realizedPnl": {
+        "expected": "138.406938",
+        "actual": "138.406938"
+      },
+      "match": true
+    },
+    {
+      "sequence": 79,
+      "date": "2020-06-10",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "88.21000000",
+        "actual": "88.21000000"
+      },
+      "cashBefore": "26544.365731",
+      "shares": {
+        "expected": "11.8842511825",
+        "actual": "11.8842511825"
+      },
+      "amount": {
+        "expected": "1048.309797",
+        "actual": "1048.309797"
+      },
+      "cashAfter": {
+        "expected": "27592.675528",
+        "actual": "27592.675528"
+      },
+      "realizedPnl": {
+        "expected": "201.749998",
+        "actual": "201.749998"
+      },
+      "match": true
+    },
+    {
+      "sequence": 80,
+      "date": "2020-06-10",
+      "symbol": "MSFT",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "196.84000000",
+        "actual": "196.84000000"
+      },
+      "cashBefore": "27592.675528",
+      "shares": {
+        "expected": "2.4327247218",
+        "actual": "2.4327247218"
+      },
+      "amount": {
+        "expected": "478.857534",
+        "actual": "478.857534"
+      },
+      "cashAfter": {
+        "expected": "28071.533062",
+        "actual": "28071.533062"
+      },
+      "realizedPnl": {
+        "expected": "69.989490",
+        "actual": "69.989490"
+      },
+      "match": true
+    },
+    {
+      "sequence": 81,
+      "date": "2020-07-22",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "265.17000000",
+        "actual": "265.17000000"
+      },
+      "cashBefore": "28571.533062",
+      "shares": {
+        "expected": "3.7204552501",
+        "actual": "3.7204552501"
+      },
+      "amount": {
+        "expected": "986.553119",
+        "actual": "986.553119"
+      },
+      "cashAfter": {
+        "expected": "29558.086181",
+        "actual": "29558.086181"
+      },
+      "realizedPnl": {
+        "expected": "163.631699",
+        "actual": "163.631699"
+      },
+      "match": true
+    },
+    {
+      "sequence": 82,
+      "date": "2020-08-12",
+      "symbol": "HD",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "281.58000000",
+        "actual": "281.58000000"
+      },
+      "cashBefore": "30058.086181",
+      "shares": {
+        "expected": "3.7204552502",
+        "actual": "3.7204552502"
+      },
+      "amount": {
+        "expected": "1047.605789",
+        "actual": "1047.605789"
+      },
+      "cashAfter": {
+        "expected": "31105.691970",
+        "actual": "31105.691970"
+      },
+      "realizedPnl": {
+        "expected": "224.684369",
+        "actual": "224.684369"
+      },
+      "match": true
+    },
+    {
+      "sequence": 83,
+      "date": "2020-09-08",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "269.26000000",
+        "actual": "269.26000000"
+      },
+      "cashBefore": "31605.691970",
+      "shares": {
+        "expected": "3.4468078437",
+        "actual": "3.4468078437"
+      },
+      "amount": {
+        "expected": "928.087480",
+        "actual": "928.087480"
+      },
+      "cashAfter": {
+        "expected": "30677.604490",
+        "actual": "30677.604490"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 37123.499207,
+        "fullPositionBudget": 3712.3499207000004,
+        "target": 928.0874801750001,
+        "currentValue": 0,
+        "shortfall": 928.0874801750001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 84,
+      "date": "2020-09-18",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "106.84000000",
+        "actual": "106.84000000"
+      },
+      "cashBefore": "30677.604490",
+      "shares": {
+        "expected": "8.7027446836",
+        "actual": "8.7027446836"
+      },
+      "amount": {
+        "expected": "929.801242",
+        "actual": "929.801242"
+      },
+      "cashAfter": {
+        "expected": "29747.803248",
+        "actual": "29747.803248"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 37192.049688,
+        "fullPositionBudget": 3719.2049688,
+        "target": 929.8012421999999,
+        "currentValue": 0,
+        "shortfall": 929.8012421999999,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 85,
+      "date": "2020-11-02",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "202.33000000",
+        "actual": "202.33000000"
+      },
+      "cashBefore": "30747.803248",
+      "shares": {
+        "expected": "2.2465756931",
+        "actual": "2.2465756931"
+      },
+      "amount": {
+        "expected": "454.549660",
+        "actual": "454.549660"
+      },
+      "cashAfter": {
+        "expected": "30293.253588",
+        "actual": "30293.253588"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 37870.514114,
+        "fullPositionBudget": 3787.0514114,
+        "target": 946.76285285,
+        "currentValue": 492.21319296179405,
+        "shortfall": 454.5496598882059,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 86,
+      "date": "2020-12-28",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "136.69000000",
+        "actual": "136.69000000"
+      },
+      "cashBefore": "30793.253588",
+      "shares": {
+        "expected": "4.3513723418",
+        "actual": "4.3513723418"
+      },
+      "amount": {
+        "expected": "594.789085",
+        "actual": "594.789085"
+      },
+      "cashAfter": {
+        "expected": "31388.042673",
+        "actual": "31388.042673"
+      },
+      "realizedPnl": {
+        "expected": "129.888464",
+        "actual": "129.888464"
+      },
+      "match": true
+    },
+    {
+      "sequence": 87,
+      "date": "2021-01-04",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "263.92000000",
+        "actual": "263.92000000"
+      },
+      "cashBefore": "31888.042673",
+      "shares": {
+        "expected": "0.3158196423",
+        "actual": "0.3158196423"
+      },
+      "amount": {
+        "expected": "83.351120",
+        "actual": "83.351120"
+      },
+      "cashAfter": {
+        "expected": "31804.691553",
+        "actual": "31804.691553"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 39721.305864,
+        "fullPositionBudget": 3972.1305864000005,
+        "target": 993.0326466000001,
+        "currentValue": 909.6815261093041,
+        "shortfall": 83.35112049069608,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 88,
+      "date": "2021-01-06",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "159.83000000",
+        "actual": "159.83000000"
+      },
+      "cashBefore": "31804.691553",
+      "shares": {
+        "expected": "12.0533011889",
+        "actual": "12.0533011889"
+      },
+      "amount": {
+        "expected": "1926.479129",
+        "actual": "1926.479129"
+      },
+      "cashAfter": {
+        "expected": "33731.170682",
+        "actual": "33731.170682"
+      },
+      "realizedPnl": {
+        "expected": "259.378118",
+        "actual": "259.378118"
+      },
+      "match": true
+    },
+    {
+      "sequence": 89,
+      "date": "2021-02-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "48.48000000",
+        "actual": "48.48000000"
+      },
+      "cashBefore": "34231.170682",
+      "shares": {
+        "expected": "1.5941370874",
+        "actual": "1.5941370874"
+      },
+      "amount": {
+        "expected": "77.283766",
+        "actual": "77.283766"
+      },
+      "cashAfter": {
+        "expected": "34153.886916",
+        "actual": "34153.886916"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 40411.518219000005,
+        "fullPositionBudget": 4041.151821900001,
+        "target": 1010.2879554750002,
+        "currentValue": 933.00418966824,
+        "shortfall": 77.28376580676024,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 90,
+      "date": "2021-02-25",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "120.99000000",
+        "actual": "120.99000000"
+      },
+      "cashBefore": "34153.886916",
+      "shares": {
+        "expected": "12.3395443590",
+        "actual": "12.3395443590"
+      },
+      "amount": {
+        "expected": "1492.961472",
+        "actual": "1492.961472"
+      },
+      "cashAfter": {
+        "expected": "32660.925444",
+        "actual": "32660.925444"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 40388.680231000006,
+        "fullPositionBudget": 4038.8680231000008,
+        "target": 2019.4340115500004,
+        "currentValue": 526.472539634382,
+        "shortfall": 1492.9614719156184,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 91,
+      "date": "2021-03-01",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "261.62000000",
+        "actual": "261.62000000"
+      },
+      "cashBefore": "33160.925444",
+      "shares": {
+        "expected": "0.1566347718",
+        "actual": "0.1566347718"
+      },
+      "amount": {
+        "expected": "40.978789",
+        "actual": "40.978789"
+      },
+      "cashAfter": {
+        "expected": "33119.946655",
+        "actual": "33119.946655"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 41014.29568,
+        "fullPositionBudget": 4101.4295680000005,
+        "target": 1025.3573920000001,
+        "currentValue": 984.37860288732,
+        "shortfall": 40.97878911268015,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 92,
+      "date": "2021-03-25",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "297.18000000",
+        "actual": "297.18000000"
+      },
+      "cashBefore": "33119.946655",
+      "shares": {
+        "expected": "1.9596311289",
+        "actual": "1.9596311289"
+      },
+      "amount": {
+        "expected": "582.363179",
+        "actual": "582.363179"
+      },
+      "cashAfter": {
+        "expected": "33702.309834",
+        "actual": "33702.309834"
+      },
+      "realizedPnl": {
+        "expected": "56.154484",
+        "actual": "56.154484"
+      },
+      "match": true
+    },
+    {
+      "sequence": 93,
+      "date": "2021-04-05",
+      "symbol": "HD",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "315.40000000",
+        "actual": "315.40000000"
+      },
+      "cashBefore": "34202.309834",
+      "shares": {
+        "expected": "1.9596311289",
+        "actual": "1.9596311289"
+      },
+      "amount": {
+        "expected": "618.067658",
+        "actual": "618.067658"
+      },
+      "cashAfter": {
+        "expected": "34820.377492",
+        "actual": "34820.377492"
+      },
+      "realizedPnl": {
+        "expected": "91.858964",
+        "actual": "91.858964"
+      },
+      "match": true
+    },
+    {
+      "sequence": 94,
+      "date": "2021-06-04",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "311.01000000",
+        "actual": "311.01000000"
+      },
+      "cashBefore": "35820.377492",
+      "shares": {
+        "expected": "3.4545978457",
+        "actual": "3.4545978457"
+      },
+      "amount": {
+        "expected": "1074.414476",
+        "actual": "1074.414476"
+      },
+      "cashAfter": {
+        "expected": "34745.963016",
+        "actual": "34745.963016"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 42976.579034,
+        "fullPositionBudget": 4297.657903400001,
+        "target": 1074.4144758500001,
+        "currentValue": 0,
+        "shortfall": 1074.4144758500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 95,
+      "date": "2021-07-07",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "144.57000000",
+        "actual": "144.57000000"
+      },
+      "cashBefore": "35245.963016",
+      "shares": {
+        "expected": "16.6909167008",
+        "actual": "16.6909167008"
+      },
+      "amount": {
+        "expected": "2413.005827",
+        "actual": "2413.005827"
+      },
+      "cashAfter": {
+        "expected": "37658.968843",
+        "actual": "37658.968843"
+      },
+      "realizedPnl": {
+        "expected": "455.143734",
+        "actual": "455.143734"
+      },
+      "match": true
+    },
+    {
+      "sequence": 96,
+      "date": "2021-09-20",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "142.94000000",
+        "actual": "142.94000000"
+      },
+      "cashBefore": "38658.968843",
+      "shares": {
+        "expected": "7.8531052539",
+        "actual": "7.8531052539"
+      },
+      "amount": {
+        "expected": "1122.522865",
+        "actual": "1122.522865"
+      },
+      "cashAfter": {
+        "expected": "37536.445978",
+        "actual": "37536.445978"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 44900.914582000005,
+        "fullPositionBudget": 4490.0914582000005,
+        "target": 1122.5228645500001,
+        "currentValue": 0,
+        "shortfall": 1122.5228645500001,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 97,
+      "date": "2021-10-01",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "160.47000000",
+        "actual": "160.47000000"
+      },
+      "cashBefore": "38036.445978",
+      "shares": {
+        "expected": "2.0833417087",
+        "actual": "2.0833417087"
+      },
+      "amount": {
+        "expected": "334.313844",
+        "actual": "334.313844"
+      },
+      "cashAfter": {
+        "expected": "37702.132134",
+        "actual": "37702.132134"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 45370.14172100001,
+        "fullPositionBudget": 4537.014172100001,
+        "target": 2268.5070860500005,
+        "currentValue": 1934.1932417827832,
+        "shortfall": 334.3138442672173,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 98,
+      "date": "2021-10-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "53.02000000",
+        "actual": "53.02000000"
+      },
+      "cashBefore": "37702.132134",
+      "shares": {
+        "expected": "0.5536644285",
+        "actual": "0.5536644285"
+      },
+      "amount": {
+        "expected": "29.355288",
+        "actual": "29.355288"
+      },
+      "cashAfter": {
+        "expected": "37672.776846",
+        "actual": "37672.776846"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 45370.14172100001,
+        "fullPositionBudget": 4537.014172100001,
+        "target": 1134.2535430250002,
+        "currentValue": 1104.898255143958,
+        "shortfall": 29.35528788104216,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 99,
+      "date": "2021-10-18",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "355.01000000",
+        "actual": "355.01000000"
+      },
+      "cashBefore": "37672.776846",
+      "shares": {
+        "expected": "1.7272989228",
+        "actual": "1.7272989228"
+      },
+      "amount": {
+        "expected": "613.208391",
+        "actual": "613.208391"
+      },
+      "cashAfter": {
+        "expected": "38285.985237",
+        "actual": "38285.985237"
+      },
+      "realizedPnl": {
+        "expected": "76.001153",
+        "actual": "76.001153"
+      },
+      "match": true
+    },
+    {
+      "sequence": 100,
+      "date": "2021-11-18",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "157.87000000",
+        "actual": "157.87000000"
+      },
+      "cashBefore": "38785.985237",
+      "shares": {
+        "expected": "3.9265526269",
+        "actual": "3.9265526269"
+      },
+      "amount": {
+        "expected": "619.884863",
+        "actual": "619.884863"
+      },
+      "cashAfter": {
+        "expected": "39405.870100",
+        "actual": "39405.870100"
+      },
+      "realizedPnl": {
+        "expected": "58.623431",
+        "actual": "58.623431"
+      },
+      "match": true
+    },
+    {
+      "sequence": 101,
+      "date": "2021-11-18",
+      "symbol": "HD",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "405.85000000",
+        "actual": "405.85000000"
+      },
+      "cashBefore": "39405.870100",
+      "shares": {
+        "expected": "1.7272989229",
+        "actual": "1.7272989229"
+      },
+      "amount": {
+        "expected": "701.024268",
+        "actual": "701.024268"
+      },
+      "cashAfter": {
+        "expected": "40106.894368",
+        "actual": "40106.894368"
+      },
+      "realizedPnl": {
+        "expected": "163.817030",
+        "actual": "163.817030"
+      },
+      "match": true
+    },
+    {
+      "sequence": 102,
+      "date": "2021-12-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "52.30000000",
+        "actual": "52.30000000"
+      },
+      "cashBefore": "40606.894368",
+      "shares": {
+        "expected": "1.0185451051",
+        "actual": "1.0185451051"
+      },
+      "amount": {
+        "expected": "53.269909",
+        "actual": "53.269909"
+      },
+      "cashAfter": {
+        "expected": "40553.624459",
+        "actual": "40553.624459"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 46884.821484,
+        "fullPositionBudget": 4688.4821484,
+        "target": 1172.1205371,
+        "currentValue": 1118.8506281852199,
+        "shortfall": 53.26990891478022,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 103,
+      "date": "2022-01-10",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "387.46000000",
+        "actual": "387.46000000"
+      },
+      "cashBefore": "41053.624459",
+      "shares": {
+        "expected": "3.0854426108",
+        "actual": "3.0854426108"
+      },
+      "amount": {
+        "expected": "1195.485594",
+        "actual": "1195.485594"
+      },
+      "cashAfter": {
+        "expected": "39858.138865",
+        "actual": "39858.138865"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 47819.42376,
+        "fullPositionBudget": 4781.942376,
+        "target": 1195.485594,
+        "currentValue": 0,
+        "shortfall": 1195.485594,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 104,
+      "date": "2022-01-18",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "366.72000000",
+        "actual": "366.72000000"
+      },
+      "cashBefore": "39858.138865",
+      "shares": {
+        "expected": "3.4107183627",
+        "actual": "3.4107183627"
+      },
+      "amount": {
+        "expected": "1250.778638",
+        "actual": "1250.778638"
+      },
+      "cashAfter": {
+        "expected": "38607.360227",
+        "actual": "38607.360227"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 47645.443044,
+        "fullPositionBudget": 4764.5443044,
+        "target": 2382.2721522,
+        "currentValue": 1131.493514232576,
+        "shortfall": 1250.7786379674242,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 105,
+      "date": "2022-01-25",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "288.49000000",
+        "actual": "288.49000000"
+      },
+      "cashBefore": "38607.360227",
+      "shares": {
+        "expected": "3.5521517418",
+        "actual": "3.5521517418"
+      },
+      "amount": {
+        "expected": "1024.760256",
+        "actual": "1024.760256"
+      },
+      "cashAfter": {
+        "expected": "37582.599971",
+        "actual": "37582.599971"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 47493.832647999996,
+        "fullPositionBudget": 4749.3832648,
+        "target": 2374.6916324,
+        "currentValue": 1349.931376694501,
+        "shortfall": 1024.7602557054988,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 106,
+      "date": "2022-03-04",
+      "symbol": "CVX",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "158.65000000",
+        "actual": "158.65000000"
+      },
+      "cashBefore": "38582.599971",
+      "shares": {
+        "expected": "6.5373275829",
+        "actual": "6.5373275829"
+      },
+      "amount": {
+        "expected": "1037.147021",
+        "actual": "1037.147021"
+      },
+      "cashAfter": {
+        "expected": "39619.746992",
+        "actual": "39619.746992"
+      },
+      "realizedPnl": {
+        "expected": "272.139844",
+        "actual": "272.139844"
+      },
+      "match": true
+    },
+    {
+      "sequence": 107,
+      "date": "2022-08-16",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "327.38000000",
+        "actual": "327.38000000"
+      },
+      "cashBefore": "42119.746992",
+      "shares": {
+        "expected": "3.2480804867",
+        "actual": "3.2480804867"
+      },
+      "amount": {
+        "expected": "1063.356590",
+        "actual": "1063.356590"
+      },
+      "cashAfter": {
+        "expected": "43183.103582",
+        "actual": "43183.103582"
+      },
+      "realizedPnl": {
+        "expected": "-159.775526",
+        "actual": "-159.775526"
+      },
+      "match": true
+    },
+    {
+      "sequence": 108,
+      "date": "2022-09-30",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "138.20000000",
+        "actual": "138.20000000"
+      },
+      "cashBefore": "43683.103582",
+      "shares": {
+        "expected": "14.3816915557",
+        "actual": "14.3816915557"
+      },
+      "amount": {
+        "expected": "1987.549773",
+        "actual": "1987.549773"
+      },
+      "cashAfter": {
+        "expected": "41695.553809",
+        "actual": "41695.553809"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 50603.986928000006,
+        "fullPositionBudget": 5060.398692800001,
+        "target": 2530.1993464000006,
+        "currentValue": 542.6495730513999,
+        "shortfall": 1987.5497733486009,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 109,
+      "date": "2022-10-03",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "56.65000000",
+        "actual": "56.65000000"
+      },
+      "cashBefore": "42195.553809",
+      "shares": {
+        "expected": "0.2202006001",
+        "actual": "0.2202006001"
+      },
+      "amount": {
+        "expected": "12.474364",
+        "actual": "12.474364"
+      },
+      "cashAfter": {
+        "expected": "42183.079445",
+        "actual": "42183.079445"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 51283.394025999994,
+        "fullPositionBudget": 5128.3394026,
+        "target": 1282.08485065,
+        "currentValue": 1269.610486259225,
+        "shortfall": 12.474364390775008,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 110,
+      "date": "2023-03-01",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "152.57000000",
+        "actual": "152.57000000"
+      },
+      "cashBefore": "44683.079445",
+      "shares": {
+        "expected": "3.4959349151",
+        "actual": "3.4959349151"
+      },
+      "amount": {
+        "expected": "533.374790",
+        "actual": "533.374790"
+      },
+      "cashAfter": {
+        "expected": "44149.704655",
+        "actual": "44149.704655"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 53804.047932,
+        "fullPositionBudget": 5380.4047932,
+        "target": 2690.2023966,
+        "currentValue": 2156.8276068868317,
+        "shortfall": 533.3747897131684,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 111,
+      "date": "2023-03-01",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "290.79000000",
+        "actual": "290.79000000"
+      },
+      "cashBefore": "44149.704655",
+      "shares": {
+        "expected": "1.3775985212",
+        "actual": "1.3775985212"
+      },
+      "amount": {
+        "expected": "400.591874",
+        "actual": "400.591874"
+      },
+      "cashAfter": {
+        "expected": "43749.112781",
+        "actual": "43749.112781"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 53804.047932,
+        "fullPositionBudget": 5380.4047932,
+        "target": 1345.1011983,
+        "currentValue": 944.5093247565721,
+        "shortfall": 400.59187354342794,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 112,
+      "date": "2023-03-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "58.86000000",
+        "actual": "58.86000000"
+      },
+      "cashBefore": "43749.112781",
+      "shares": {
+        "expected": "0.2208686374",
+        "actual": "0.2208686374"
+      },
+      "amount": {
+        "expected": "13.000328",
+        "actual": "13.000328"
+      },
+      "cashAfter": {
+        "expected": "43736.112453",
+        "actual": "43736.112453"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 53804.047932,
+        "fullPositionBudget": 5380.4047932,
+        "target": 1345.1011983,
+        "currentValue": 1332.100870008876,
+        "shortfall": 13.000328291124106,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 113,
+      "date": "2023-06-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "60.00000000",
+        "actual": "60.00000000"
+      },
+      "cashBefore": "45236.112453",
+      "shares": {
+        "expected": "24.3982413500",
+        "actual": "24.3982413500"
+      },
+      "amount": {
+        "expected": "1463.894481",
+        "actual": "1463.894481"
+      },
+      "cashAfter": {
+        "expected": "43772.217972",
+        "actual": "43772.217972"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 56700.951757,
+        "fullPositionBudget": 5670.0951757,
+        "target": 2835.04758785,
+        "currentValue": 1371.15310704,
+        "shortfall": 1463.8944808100002,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 114,
+      "date": "2023-10-02",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "299.83000000",
+        "actual": "299.83000000"
+      },
+      "cashBefore": "45772.217972",
+      "shares": {
+        "expected": "5.1042083447",
+        "actual": "5.1042083447"
+      },
+      "amount": {
+        "expected": "1530.394788",
+        "actual": "1530.394788"
+      },
+      "cashAfter": {
+        "expected": "44241.823184",
+        "actual": "44241.823184"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 58346.242491,
+        "fullPositionBudget": 5834.6242491,
+        "target": 2917.31212455,
+        "currentValue": 1386.9173369686398,
+        "shortfall": 1530.3947875813603,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 115,
+      "date": "2023-10-02",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "155.15000000",
+        "actual": "155.15000000"
+      },
+      "cashBefore": "44241.823184",
+      "shares": {
+        "expected": "1.1705941153",
+        "actual": "1.1705941153"
+      },
+      "amount": {
+        "expected": "181.617677",
+        "actual": "181.617677"
+      },
+      "cashAfter": {
+        "expected": "44060.205507",
+        "actual": "44060.205507"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 58346.242491,
+        "fullPositionBudget": 5834.6242491,
+        "target": 2917.31212455,
+        "currentValue": 2735.694447640405,
+        "shortfall": 181.61767690959505,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 116,
+      "date": "2023-10-02",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "55.48000000",
+        "actual": "55.48000000"
+      },
+      "cashBefore": "44060.205507",
+      "shares": {
+        "expected": "5.3323381578",
+        "actual": "5.3323381578"
+      },
+      "amount": {
+        "expected": "295.838121",
+        "actual": "295.838121"
+      },
+      "cashAfter": {
+        "expected": "43764.367386",
+        "actual": "43764.367386"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 58346.242491,
+        "fullPositionBudget": 5834.6242491,
+        "target": 2917.31212455,
+        "currentValue": 2621.4740030743196,
+        "shortfall": 295.8381214756805,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 117,
+      "date": "2023-10-03",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 100% level s04-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "54.88000000",
+        "actual": "54.88000000"
+      },
+      "cashBefore": "43764.367386",
+      "shares": {
+        "expected": "53.3708660896",
+        "actual": "53.3708660896"
+      },
+      "amount": {
+        "expected": "2928.993131",
+        "actual": "2928.993131"
+      },
+      "cashAfter": {
+        "expected": "40835.374255",
+        "actual": "40835.374255"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 58147.553759999995,
+        "fullPositionBudget": 5814.755376,
+        "target": 5814.755376,
+        "currentValue": 2885.762245293984,
+        "shortfall": 2928.993130706016,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 118,
+      "date": "2023-12-13",
+      "symbol": "HD",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "343.40000000",
+        "actual": "343.40000000"
+      },
+      "cashBefore": "41835.374255",
+      "shares": {
+        "expected": "9.7298873527",
+        "actual": "9.7298873527"
+      },
+      "amount": {
+        "expected": "3341.243317",
+        "actual": "3341.243317"
+      },
+      "cashAfter": {
+        "expected": "45176.617572",
+        "actual": "45176.617572"
+      },
+      "realizedPnl": {
+        "expected": "187.124539",
+        "actual": "187.124539"
+      },
+      "match": true
+    },
+    {
+      "sequence": 119,
+      "date": "2024-04-02",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "363.00000000",
+        "actual": "363.00000000"
+      },
+      "cashBefore": "47176.617572",
+      "shares": {
+        "expected": "4.3440634958",
+        "actual": "4.3440634958"
+      },
+      "amount": {
+        "expected": "1576.895049",
+        "actual": "1576.895049"
+      },
+      "cashAfter": {
+        "expected": "45599.722523",
+        "actual": "45599.722523"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 63075.80196700001,
+        "fullPositionBudget": 6307.580196700001,
+        "target": 1576.8950491750002,
+        "currentValue": 0,
+        "shortfall": 1576.8950491750002,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 120,
+      "date": "2024-04-12",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "342.87000000",
+        "actual": "342.87000000"
+      },
+      "cashBefore": "45599.722523",
+      "shares": {
+        "expected": "4.8056411497",
+        "actual": "4.8056411497"
+      },
+      "amount": {
+        "expected": "1647.710181",
+        "actual": "1647.710181"
+      },
+      "cashAfter": {
+        "expected": "43952.012342",
+        "actual": "43952.012342"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 62743.184639,
+        "fullPositionBudget": 6274.3184639,
+        "target": 3137.1592319499996,
+        "currentValue": 1489.4490508049462,
+        "shortfall": 1647.7101811450534,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 121,
+      "date": "2024-07-16",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "369.12000000",
+        "actual": "369.12000000"
+      },
+      "cashBefore": "45452.012342",
+      "shares": {
+        "expected": "4.5748523227",
+        "actual": "4.5748523227"
+      },
+      "amount": {
+        "expected": "1688.669489",
+        "actual": "1688.669489"
+      },
+      "cashAfter": {
+        "expected": "47140.681831",
+        "actual": "47140.681831"
+      },
+      "realizedPnl": {
+        "expected": "76.366874",
+        "actual": "76.366874"
+      },
+      "match": true
+    },
+    {
+      "sequence": 122,
+      "date": "2024-08-30",
+      "symbol": "KO",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "72.47000000",
+        "actual": "72.47000000"
+      },
+      "cashBefore": "47640.681831",
+      "shares": {
+        "expected": "105.9539973814",
+        "actual": "105.9539973814"
+      },
+      "amount": {
+        "expected": "7678.486190",
+        "actual": "7678.486190"
+      },
+      "cashAfter": {
+        "expected": "55319.168021",
+        "actual": "55319.168021"
+      },
+      "realizedPnl": {
+        "expected": "1963.592784",
+        "actual": "1963.592784"
+      },
+      "match": true
+    },
+    {
+      "sequence": 123,
+      "date": "2024-10-07",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "69.01000000",
+        "actual": "69.01000000"
+      },
+      "cashBefore": "56319.168021",
+      "shares": {
+        "expected": "24.8570916678",
+        "actual": "24.8570916678"
+      },
+      "amount": {
+        "expected": "1715.387896",
+        "actual": "1715.387896"
+      },
+      "cashAfter": {
+        "expected": "54603.780125",
+        "actual": "54603.780125"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 68615.515847,
+        "fullPositionBudget": 6861.551584700001,
+        "target": 1715.3878961750002,
+        "currentValue": 0,
+        "shortfall": 1715.3878961750002,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 124,
+      "date": "2024-10-25",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "66.92000000",
+        "actual": "66.92000000"
+      },
+      "cashBefore": "54603.780125",
+      "shares": {
+        "expected": "26.6060227734",
+        "actual": "26.6060227734"
+      },
+      "amount": {
+        "expected": "1780.475044",
+        "actual": "1780.475044"
+      },
+      "cashAfter": {
+        "expected": "52823.305081",
+        "actual": "52823.305081"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 68878.232366,
+        "fullPositionBudget": 6887.8232366,
+        "target": 3443.9116183,
+        "currentValue": 1663.436574409176,
+        "shortfall": 1780.475043890824,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 125,
+      "date": "2024-11-01",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "65.01000000",
+        "actual": "65.01000000"
+      },
+      "cashBefore": "53323.305081",
+      "shares": {
+        "expected": "1.5556111982",
+        "actual": "1.5556111982"
+      },
+      "amount": {
+        "expected": "101.130284",
+        "actual": "101.130284"
+      },
+      "cashAfter": {
+        "expected": "53222.174797",
+        "actual": "53222.174797"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 68934.947078,
+        "fullPositionBudget": 6893.4947078000005,
+        "target": 3446.7473539000002,
+        "currentValue": 3345.6170698224123,
+        "shortfall": 101.13028407758793,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 126,
+      "date": "2024-11-15",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 100% level s04-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "61.74000000",
+        "actual": "61.74000000"
+      },
+      "cashBefore": "53222.174797",
+      "shares": {
+        "expected": "58.4066229186",
+        "actual": "58.4066229186"
+      },
+      "amount": {
+        "expected": "3606.024899",
+        "actual": "3606.024899"
+      },
+      "cashAfter": {
+        "expected": "49616.149898",
+        "actual": "49616.149898"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 68794.010202,
+        "fullPositionBudget": 6879.401020200001,
+        "target": 6879.401020200001,
+        "currentValue": 3273.376120976556,
+        "shortfall": 3606.0248992234447,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 127,
+      "date": "2024-12-17",
+      "symbol": "AAPL",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "253.48000000",
+        "actual": "253.48000000"
+      },
+      "cashBefore": "50116.149898",
+      "shares": {
+        "expected": "18.3082441827",
+        "actual": "18.3082441827"
+      },
+      "amount": {
+        "expected": "4640.773735",
+        "actual": "4640.773735"
+      },
+      "cashAfter": {
+        "expected": "54756.923633",
+        "actual": "54756.923633"
+      },
+      "realizedPnl": {
+        "expected": "2091.962529",
+        "actual": "2091.962529"
+      },
+      "match": true
+    },
+    {
+      "sequence": 128,
+      "date": "2025-01-10",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "236.85000000",
+        "actual": "236.85000000"
+      },
+      "cashBefore": "55256.923633",
+      "shares": {
+        "expected": "7.3849592906",
+        "actual": "7.3849592906"
+      },
+      "amount": {
+        "expected": "1749.127608",
+        "actual": "1749.127608"
+      },
+      "cashAfter": {
+        "expected": "53507.796025",
+        "actual": "53507.796025"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 69965.104326,
+        "fullPositionBudget": 6996.5104326,
+        "target": 1749.1276081499998,
+        "currentValue": 0,
+        "shortfall": 1749.1276081499998,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 129,
+      "date": "2025-01-21",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "222.64000000",
+        "actual": "222.64000000"
+      },
+      "cashBefore": "53507.796025",
+      "shares": {
+        "expected": "8.4105572942",
+        "actual": "8.4105572942"
+      },
+      "amount": {
+        "expected": "1872.526476",
+        "actual": "1872.526476"
+      },
+      "cashAfter": {
+        "expected": "51635.269549",
+        "actual": "51635.269549"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 70334.276245,
+        "fullPositionBudget": 7033.4276245,
+        "target": 3516.71381225,
+        "currentValue": 1644.187336459184,
+        "shortfall": 1872.526475790816,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 130,
+      "date": "2025-02-11",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "67.60000000",
+        "actual": "67.60000000"
+      },
+      "cashBefore": "52135.269549",
+      "shares": {
+        "expected": "55.7126742790",
+        "actual": "55.7126742790"
+      },
+      "amount": {
+        "expected": "3766.176781",
+        "actual": "3766.176781"
+      },
+      "cashAfter": {
+        "expected": "55901.446330",
+        "actual": "55901.446330"
+      },
+      "realizedPnl": {
+        "expected": "164.667719",
+        "actual": "164.667719"
+      },
+      "match": true
+    },
+    {
+      "sequence": 131,
+      "date": "2025-07-31",
+      "symbol": "MSFT",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "533.50000000",
+        "actual": "533.50000000"
+      },
+      "cashBefore": "58401.446330",
+      "shares": {
+        "expected": "8.2314521567",
+        "actual": "8.2314521567"
+      },
+      "amount": {
+        "expected": "4391.479726",
+        "actual": "4391.479726"
+      },
+      "cashAfter": {
+        "expected": "62792.926056",
+        "actual": "62792.926056"
+      },
+      "realizedPnl": {
+        "expected": "2503.301766",
+        "actual": "2503.301766"
+      },
+      "match": true
+    },
+    {
+      "sequence": 132,
+      "date": "2025-08-08",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "229.35000000",
+        "actual": "229.35000000"
+      },
+      "cashBefore": "63292.926056",
+      "shares": {
+        "expected": "7.8977582924",
+        "actual": "7.8977582924"
+      },
+      "amount": {
+        "expected": "1811.350864",
+        "actual": "1811.350864"
+      },
+      "cashAfter": {
+        "expected": "65104.276920",
+        "actual": "65104.276920"
+      },
+      "realizedPnl": {
+        "expected": "0.523822",
+        "actual": "0.523822"
+      },
+      "match": true
+    },
+    {
+      "sequence": 133,
+      "date": "2025-09-05",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "495.00000000",
+        "actual": "495.00000000"
+      },
+      "cashBefore": "65604.276920",
+      "shares": {
+        "expected": "3.8664246606",
+        "actual": "3.8664246606"
+      },
+      "amount": {
+        "expected": "1913.880207",
+        "actual": "1913.880207"
+      },
+      "cashAfter": {
+        "expected": "63690.396713",
+        "actual": "63690.396713"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 76555.208297,
+        "fullPositionBudget": 7655.520829700001,
+        "target": 1913.8802074250002,
+        "currentValue": 0,
+        "shortfall": 1913.8802074250002,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 134,
+      "date": "2025-10-01",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "397.02000000",
+        "actual": "397.02000000"
+      },
+      "cashBefore": "64190.396713",
+      "shares": {
+        "expected": "0.2896651453",
+        "actual": "0.2896651453"
+      },
+      "amount": {
+        "expected": "115.002856",
+        "actual": "115.002856"
+      },
+      "cashAfter": {
+        "expected": "64075.393857",
+        "actual": "64075.393857"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 77252.429023,
+        "fullPositionBudget": 7725.2429023,
+        "target": 1931.310725575,
+        "currentValue": 1816.3078691980559,
+        "shortfall": 115.00285637694424,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 135,
+      "date": "2025-10-20",
+      "symbol": "JNJ",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "193.72000000",
+        "actual": "193.72000000"
+      },
+      "cashBefore": "64075.393857",
+      "shares": {
+        "expected": "18.8031719280",
+        "actual": "18.8031719280"
+      },
+      "amount": {
+        "expected": "3642.550466",
+        "actual": "3642.550466"
+      },
+      "cashAfter": {
+        "expected": "67717.944323",
+        "actual": "67717.944323"
+      },
+      "realizedPnl": {
+        "expected": "926.143143",
+        "actual": "926.143143"
+      },
+      "match": true
+    },
+    {
+      "sequence": 136,
+      "date": "2025-10-28",
+      "symbol": "MSFT",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "542.07000000",
+        "actual": "542.07000000"
+      },
+      "cashBefore": "67717.944323",
+      "shares": {
+        "expected": "1.9332123303",
+        "actual": "1.9332123303"
+      },
+      "amount": {
+        "expected": "1047.936408",
+        "actual": "1047.936408"
+      },
+      "cashAfter": {
+        "expected": "68765.880731",
+        "actual": "68765.880731"
+      },
+      "realizedPnl": {
+        "expected": "90.996305",
+        "actual": "90.996305"
+      },
+      "match": true
+    },
+    {
+      "sequence": 137,
+      "date": "2025-11-03",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (contribution-date top-up of a settled level)",
+      "executionPrice": {
+        "expected": "378.35000000",
+        "actual": "378.35000000"
+      },
+      "cashBefore": "69265.880731",
+      "shares": {
+        "expected": "0.2906022650",
+        "actual": "0.2906022650"
+      },
+      "amount": {
+        "expected": "109.949367",
+        "actual": "109.949367"
+      },
+      "cashAfter": {
+        "expected": "69155.931364",
+        "actual": "69155.931364"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 78017.582026,
+        "fullPositionBudget": 7801.758202600001,
+        "target": 1950.4395506500002,
+        "currentValue": 1840.4901840556352,
+        "shortfall": 109.94936659436507,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 138,
+      "date": "2025-11-18",
+      "symbol": "HD",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 100% level s04-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "336.48000000",
+        "actual": "336.48000000"
+      },
+      "cashBefore": "69155.931364",
+      "shares": {
+        "expected": "18.0038080212",
+        "actual": "18.0038080212"
+      },
+      "amount": {
+        "expected": "6057.921323",
+        "actual": "6057.921323"
+      },
+      "cashAfter": {
+        "expected": "63098.010041",
+        "actual": "63098.010041"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 77925.160109,
+        "fullPositionBudget": 7792.516010900001,
+        "target": 7792.516010900002,
+        "currentValue": 1734.5946877934882,
+        "shortfall": 6057.921323106513,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 139,
+      "date": "2025-11-21",
+      "symbol": "MSFT",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "472.12000000",
+        "actual": "472.12000000"
+      },
+      "cashBefore": "63098.010041",
+      "shares": {
+        "expected": "6.3454078624",
+        "actual": "6.3454078624"
+      },
+      "amount": {
+        "expected": "2995.793960",
+        "actual": "2995.793960"
+      },
+      "cashAfter": {
+        "expected": "60102.216081",
+        "actual": "60102.216081"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 78170.043311,
+        "fullPositionBudget": 7817.004331100001,
+        "target": 3908.5021655500004,
+        "currentValue": 912.708205381236,
+        "shortfall": 2995.7939601687644,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 140,
+      "date": "2026-01-20",
+      "symbol": "AAPL",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 100% level s04-buy3 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "246.70000000",
+        "actual": "246.70000000"
+      },
+      "cashBefore": "61102.216081",
+      "shares": {
+        "expected": "24.3267740413",
+        "actual": "24.3267740413"
+      },
+      "amount": {
+        "expected": "6001.415156",
+        "actual": "6001.415156"
+      },
+      "cashAfter": {
+        "expected": "55100.800925",
+        "actual": "55100.800925"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 79497.921272,
+        "fullPositionBudget": 7949.792127200001,
+        "target": 7949.7921272,
+        "currentValue": 1948.3769707350798,
+        "shortfall": 6001.41515646492,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 141,
+      "date": "2026-02-05",
+      "symbol": "KO",
+      "action": "FINAL_EXIT",
+      "source": "STRATEGY",
+      "reason": "FINAL EXIT rule 1 of 1 TRUE (rules: TRUE)",
+      "executionPrice": {
+        "expected": "78.51000000",
+        "actual": "78.51000000"
+      },
+      "cashBefore": "55600.800925",
+      "shares": {
+        "expected": "55.7126742790",
+        "actual": "55.7126742790"
+      },
+      "amount": {
+        "expected": "4374.002058",
+        "actual": "4374.002058"
+      },
+      "cashAfter": {
+        "expected": "59974.802983",
+        "actual": "59974.802983"
+      },
+      "realizedPnl": {
+        "expected": "772.492997",
+        "actual": "772.492997"
+      },
+      "match": true
+    },
+    {
+      "sequence": 142,
+      "date": "2026-03-18",
+      "symbol": "KO",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "75.97000000",
+        "actual": "75.97000000"
+      },
+      "cashBefore": "60474.802983",
+      "shares": {
+        "expected": "26.1407355403",
+        "actual": "26.1407355403"
+      },
+      "amount": {
+        "expected": "1985.911679",
+        "actual": "1985.911679"
+      },
+      "cashAfter": {
+        "expected": "58488.891304",
+        "actual": "58488.891304"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 79436.46716100001,
+        "fullPositionBudget": 7943.646716100001,
+        "target": 1985.9116790250002,
+        "currentValue": 0,
+        "shortfall": 1985.9116790250002,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 143,
+      "date": "2026-04-16",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 25% level s04-buy1 TRUE (new position)",
+      "executionPrice": {
+        "expected": "234.54000000",
+        "actual": "234.54000000"
+      },
+      "cashBefore": "58988.891304",
+      "shares": {
+        "expected": "8.6050672635",
+        "actual": "8.6050672635"
+      },
+      "amount": {
+        "expected": "2018.232476",
+        "actual": "2018.232476"
+      },
+      "cashAfter": {
+        "expected": "56970.658828",
+        "actual": "56970.658828"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 80729.29903299999,
+        "fullPositionBudget": 8072.929903299999,
+        "target": 2018.232475825,
+        "currentValue": 0,
+        "shortfall": 2018.232475825,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 144,
+      "date": "2026-04-21",
+      "symbol": "JNJ",
+      "action": "BUY",
+      "source": "STRATEGY",
+      "reason": "BUY 50% level s04-buy2 TRUE (top-up of an open position)",
+      "executionPrice": {
+        "expected": "226.16000000",
+        "actual": "226.16000000"
+      },
+      "cashBefore": "56970.658828",
+      "shares": {
+        "expected": "9.2855799610",
+        "actual": "9.2855799610"
+      },
+      "amount": {
+        "expected": "2100.026764",
+        "actual": "2100.026764"
+      },
+      "cashAfter": {
+        "expected": "54870.632064",
+        "actual": "54870.632064"
+      },
+      "realizedPnl": {
+        "expected": null,
+        "actual": null
+      },
+      "sizing": {
+        "portfolioValue": 80922.97553,
+        "fullPositionBudget": 8092.297553,
+        "target": 4046.1487765,
+        "currentValue": 1946.12201231316,
+        "shortfall": 2100.0267641868404,
+        "cashLimited": false
+      },
+      "match": true
+    },
+    {
+      "sequence": 145,
+      "date": "2026-05-19",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "81.92000000",
+        "actual": "81.92000000"
+      },
+      "cashBefore": "55370.632064",
+      "shares": {
+        "expected": "13.0703677701",
+        "actual": "13.0703677701"
+      },
+      "amount": {
+        "expected": "1070.724528",
+        "actual": "1070.724528"
+      },
+      "cashAfter": {
+        "expected": "56441.356592",
+        "actual": "56441.356592"
+      },
+      "realizedPnl": {
+        "expected": "77.768689",
+        "actual": "77.768689"
+      },
+      "match": true
+    },
+    {
+      "sequence": 146,
+      "date": "2026-06-26",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "STRATEGY",
+      "reason": "SELL 50% level s04-sell1 TRUE; sells 50% of the shares remaining",
+      "executionPrice": {
+        "expected": "254.66000000",
+        "actual": "254.66000000"
+      },
+      "cashBefore": "56941.356592",
+      "shares": {
+        "expected": "8.9453236122",
+        "actual": "8.9453236122"
+      },
+      "amount": {
+        "expected": "2278.016111",
+        "actual": "2278.016111"
+      },
+      "cashAfter": {
+        "expected": "59219.372703",
+        "actual": "59219.372703"
+      },
+      "realizedPnl": {
+        "expected": "218.886491",
+        "actual": "218.886491"
+      },
+      "match": true
+    },
+    {
+      "sequence": 147,
+      "date": "2026-09-22",
+      "symbol": "AAPL",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "339.75000000",
+        "actual": "339.75000000"
+      },
+      "cashBefore": "60719.372703",
+      "shares": {
+        "expected": "32.2245323337",
+        "actual": "32.2245323337"
+      },
+      "amount": {
+        "expected": "10948.284860",
+        "actual": "10948.284860"
+      },
+      "cashAfter": {
+        "expected": "71667.657563",
+        "actual": "71667.657563"
+      },
+      "realizedPnl": {
+        "expected": "3136.042662",
+        "actual": "3136.042662"
+      },
+      "match": true
+    },
+    {
+      "sequence": 148,
+      "date": "2026-09-22",
+      "symbol": "HD",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "305.35000000",
+        "actual": "305.35000000"
+      },
+      "cashBefore": "71667.657563",
+      "shares": {
+        "expected": "23.1589277543",
+        "actual": "23.1589277543"
+      },
+      "amount": {
+        "expected": "7071.578590",
+        "actual": "7071.578590"
+      },
+      "cashAfter": {
+        "expected": "78739.236153",
+        "actual": "78739.236153"
+      },
+      "realizedPnl": {
+        "expected": "-823.597571",
+        "actual": "-823.597571"
+      },
+      "match": true
+    },
+    {
+      "sequence": 149,
+      "date": "2026-09-22",
+      "symbol": "JNJ",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "269.19000000",
+        "actual": "269.19000000"
+      },
+      "cashBefore": "78739.236153",
+      "shares": {
+        "expected": "8.9453236123",
+        "actual": "8.9453236123"
+      },
+      "amount": {
+        "expected": "2407.991663",
+        "actual": "2407.991663"
+      },
+      "cashAfter": {
+        "expected": "81147.227816",
+        "actual": "81147.227816"
+      },
+      "realizedPnl": {
+        "expected": "348.862043",
+        "actual": "348.862043"
+      },
+      "match": true
+    },
+    {
+      "sequence": 150,
+      "date": "2026-09-22",
+      "symbol": "KO",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "88.61000000",
+        "actual": "88.61000000"
+      },
+      "cashBefore": "81147.227816",
+      "shares": {
+        "expected": "13.0703677702",
+        "actual": "13.0703677702"
+      },
+      "amount": {
+        "expected": "1158.165288",
+        "actual": "1158.165288"
+      },
+      "cashAfter": {
+        "expected": "82305.393104",
+        "actual": "82305.393104"
+      },
+      "realizedPnl": {
+        "expected": "165.209448",
+        "actual": "165.209448"
+      },
+      "match": true
+    },
+    {
+      "sequence": 151,
+      "date": "2026-09-22",
+      "symbol": "MSFT",
+      "action": "SELL",
+      "source": "END_OF_BACKTEST",
+      "reason": "final date: every open position is sold at its most recent observed close",
+      "executionPrice": {
+        "expected": "498.00000000",
+        "actual": "498.00000000"
+      },
+      "cashBefore": "82305.393104",
+      "shares": {
+        "expected": "8.2786201927",
+        "actual": "8.2786201927"
+      },
+      "amount": {
+        "expected": "4122.752856",
+        "actual": "4122.752856"
+      },
+      "cashAfter": {
+        "expected": "86428.145960",
+        "actual": "86428.145960"
+      },
+      "realizedPnl": {
+        "expected": "170.018792",
+        "actual": "170.018792"
+      },
+      "match": true
+    }
+  ],
+  "tradesTruncated": null,
+  "equityYearEnds": [
+    {
+      "date": "2016-09-22",
+      "expected": {
+        "cash": "10000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "10000.000000",
+        "returnIndex": 1,
+        "benchmarkValue": "10000.000000"
+      },
+      "actual": {
+        "date": "2016-09-22",
+        "cash": "10000.000000",
+        "positionsValue": "0.000000",
+        "totalValue": "10000.000000",
+        "investedCapital": "10000.000000",
+        "returnIndex": "1.0000000000",
+        "benchmarkIndex": "1.0000000000",
+        "benchmarkValue": "10000.000000",
+        "cashBaselineValue": "10000.000000",
+        "openPositions": 0
+      }
+    },
+    {
+      "date": "2016-12-30",
+      "expected": {
+        "cash": "10349.792447",
+        "positionsValue": "1177.774600",
+        "totalValue": "11527.567047",
+        "returnIndex": 1.0023501617517407,
+        "benchmarkValue": "11849.026769"
+      },
+      "actual": {
+        "date": "2016-12-30",
+        "cash": "10349.792447",
+        "positionsValue": "1177.774600",
+        "totalValue": "11527.567047",
+        "investedCapital": "11500.000000",
+        "returnIndex": "1.0023501618",
+        "benchmarkIndex": "1.0292384197",
+        "benchmarkValue": "11849.026769",
+        "cashBaselineValue": "11500.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2017-12-29",
+      "expected": {
+        "cash": "16934.582545",
+        "positionsValue": "871.273152",
+        "totalValue": "17805.855697",
+        "returnIndex": 1.0209985248788442,
+        "benchmarkValue": "20735.559340"
+      },
+      "actual": {
+        "date": "2017-12-29",
+        "cash": "16934.582545",
+        "positionsValue": "871.273152",
+        "totalValue": "17805.855697",
+        "investedCapital": "17500.000000",
+        "returnIndex": "1.0209985249",
+        "benchmarkIndex": "1.2287503453",
+        "benchmarkValue": "20735.559340",
+        "cashBaselineValue": "17500.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2018-12-31",
+      "expected": {
+        "cash": "20167.288820",
+        "positionsValue": "4005.487425",
+        "totalValue": "24172.776245",
+        "returnIndex": 1.0401467874628358,
+        "benchmarkValue": "24876.806287"
+      },
+      "actual": {
+        "date": "2018-12-31",
+        "cash": "20167.288820",
+        "positionsValue": "4005.487425",
+        "totalValue": "24172.776245",
+        "investedCapital": "23500.000000",
+        "returnIndex": "1.0401467875",
+        "benchmarkIndex": "1.1507505295",
+        "benchmarkValue": "24876.806287",
+        "cashBaselineValue": "23500.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2019-12-31",
+      "expected": {
+        "cash": "29710.553863",
+        "positionsValue": "2038.020682",
+        "totalValue": "31748.574545",
+        "returnIndex": 1.1007952816602797,
+        "benchmarkValue": "38785.849591"
+      },
+      "actual": {
+        "date": "2019-12-31",
+        "cash": "29710.553863",
+        "positionsValue": "2038.020682",
+        "totalValue": "31748.574545",
+        "investedCapital": "29500.000000",
+        "returnIndex": "1.1007952817",
+        "benchmarkIndex": "1.4819965006",
+        "benchmarkValue": "38785.849591",
+        "cashBaselineValue": "29500.000000",
+        "openPositions": 3
+      }
+    },
+    {
+      "date": "2020-12-31",
+      "expected": {
+        "cash": "31388.042673",
+        "positionsValue": "7935.072343",
+        "totalValue": "39323.115016",
+        "returnIndex": 1.1484350961149021,
+        "benchmarkValue": "52176.162298"
+      },
+      "actual": {
+        "date": "2020-12-31",
+        "cash": "31388.042673",
+        "positionsValue": "7935.072343",
+        "totalValue": "39323.115016",
+        "investedCapital": "35500.000000",
+        "returnIndex": "1.1484350961",
+        "benchmarkIndex": "1.7215213187",
+        "benchmarkValue": "52176.162298",
+        "cashBaselineValue": "35500.000000",
+        "openPositions": 6
+      }
+    },
+    {
+      "date": "2021-12-31",
+      "expected": {
+        "cash": "40553.624459",
+        "positionsValue": "6783.475040",
+        "totalValue": "47337.099499",
+        "returnIndex": 1.2023041954557294,
+        "benchmarkValue": "73103.775342"
+      },
+      "actual": {
+        "date": "2021-12-31",
+        "cash": "40553.624459",
+        "positionsValue": "6783.475040",
+        "totalValue": "47337.099499",
+        "investedCapital": "41500.000000",
+        "returnIndex": "1.2023041955",
+        "benchmarkIndex": "2.1869417073",
+        "benchmarkValue": "73103.775342",
+        "cashBaselineValue": "41500.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2022-12-30",
+      "expected": {
+        "cash": "43183.079445",
+        "positionsValue": "9315.635059",
+        "totalValue": "52498.714504",
+        "returnIndex": 1.1821052762738335,
+        "benchmarkValue": "64417.115983"
+      },
+      "actual": {
+        "date": "2022-12-30",
+        "cash": "43183.079445",
+        "positionsValue": "9315.635059",
+        "totalValue": "52498.714504",
+        "investedCapital": "47500.000000",
+        "returnIndex": "1.1821052763",
+        "benchmarkIndex": "1.7608895847",
+        "benchmarkValue": "64417.115983",
+        "cashBaselineValue": "47500.000000",
+        "openPositions": 5
+      }
+    },
+    {
+      "date": "2023-12-29",
+      "expected": {
+        "cash": "45176.617572",
+        "positionsValue": "15811.319755",
+        "totalValue": "60987.937327",
+        "returnIndex": 1.2346857144865055,
+        "benchmarkValue": "86799.244127"
+      },
+      "actual": {
+        "date": "2023-12-29",
+        "cash": "45176.617572",
+        "positionsValue": "15811.319755",
+        "totalValue": "60987.937327",
+        "investedCapital": "53500.000000",
+        "returnIndex": "1.2346857145",
+        "benchmarkIndex": "2.1885532738",
+        "benchmarkValue": "86799.244127",
+        "cashBaselineValue": "53500.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2024-12-31",
+      "expected": {
+        "cash": "54756.923633",
+        "positionsValue": "14905.785814",
+        "totalValue": "69662.709447",
+        "returnIndex": 1.2861441811392291,
+        "benchmarkValue": "113641.910328"
+      },
+      "actual": {
+        "date": "2024-12-31",
+        "cash": "54756.923633",
+        "positionsValue": "14905.785814",
+        "totalValue": "69662.709447",
+        "investedCapital": "59500.000000",
+        "returnIndex": "1.2861441811",
+        "benchmarkIndex": "2.6985910305",
+        "benchmarkValue": "113641.910328",
+        "cashBaselineValue": "59500.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2025-12-31",
+      "expected": {
+        "cash": "60602.216081",
+        "positionsValue": "18014.650966",
+        "totalValue": "78616.867047",
+        "returnIndex": 1.3384432723298891,
+        "benchmarkValue": "138899.900429"
+      },
+      "actual": {
+        "date": "2025-12-31",
+        "cash": "60602.216081",
+        "positionsValue": "18014.650966",
+        "totalValue": "78616.867047",
+        "investedCapital": "65500.000000",
+        "returnIndex": "1.3384432723",
+        "benchmarkIndex": "3.1398839672",
+        "benchmarkValue": "138899.900429",
+        "cashBaselineValue": "65500.000000",
+        "openPositions": 4
+      }
+    },
+    {
+      "date": "2026-09-22",
+      "expected": {
+        "cash": "86428.145960",
+        "positionsValue": "0.000000",
+        "totalValue": "86428.145960",
+        "returnIndex": 1.3927507514902697,
+        "benchmarkValue": "162387.812030"
+      },
+      "actual": {
+        "date": "2026-09-22",
+        "cash": "86428.145960",
+        "positionsValue": "0.000000",
+        "totalValue": "86428.145960",
+        "investedCapital": "70000.000000",
+        "returnIndex": "1.3927507515",
+        "benchmarkIndex": "3.5610093010",
+        "benchmarkValue": "162387.812030",
+        "cashBaselineValue": "70000.000000",
+        "openPositions": 0
+      }
+    }
+  ]
+}

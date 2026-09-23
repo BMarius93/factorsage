@@ -1,0 +1,168 @@
+{
+  "sweep": "2026-09-22-20260922-212011",
+  "scenariosExpected": 1000,
+  "scenariosExecuted": 1000,
+  "scenariosPassed": 1000,
+  "scenariosFailed": 0,
+  "scenariosSkipped": 0,
+  "tradesCompared": 184785,
+  "tradesExpected": 184785,
+  "tradesActual": 184785,
+  "tradeMismatches": 0,
+  "equityRowsCompared": 3621000,
+  "equityMismatches": 0,
+  "benchmarkRowsCompared": 3621000,
+  "benchmarkMismatches": 0,
+  "metricComparisons": 23000,
+  "metricMismatches": 0,
+  "annualReturnYears": 15400,
+  "invariantChecks": 23462808,
+  "invariantViolations": 0,
+  "ledgerSteps": 3805785,
+  "ledgerViolations": 0,
+  "liquidationChecks": 12000,
+  "liquidationFailures": 0,
+  "liquidationTrades": 2807,
+  "inputChecks": 26200,
+  "inputFailures": 0,
+  "frameIssues": 0,
+  "archiveFidelityChecks": 3000,
+  "archiveFidelityFailures": 0,
+  "zeroTradeScenarios": 106,
+  "ratioDoubleRoundings": 6488,
+  "strategyEvaluation": {
+    "cases": 100,
+    "comparisons": 17751128,
+    "failed": 0,
+    "trueDays": 5932957,
+    "notEvaluableDays": 331064
+  },
+  "lookAhead": {
+    "cases": 60,
+    "tradesCompared": 22733,
+    "equityCompared": 150930,
+    "failed": 0,
+    "cuts": [
+      "S01-L02-C05@2021-09-20",
+      "S01-L02-C10@2011-09-19",
+      "S01-L05-C05@2021-09-20",
+      "S01-L05-C10@2011-09-19",
+      "S01-L08-C05@2021-09-20",
+      "S01-L08-C10@2011-09-19",
+      "S02-L02-C05@2021-09-20",
+      "S02-L02-C10@2011-09-19",
+      "S02-L05-C05@2021-09-20",
+      "S02-L05-C10@2011-09-19",
+      "S02-L08-C05@2021-09-20",
+      "S02-L08-C10@2011-09-19",
+      "S03-L02-C05@2021-09-20",
+      "S03-L02-C10@2011-09-19",
+      "S03-L05-C05@2021-09-20",
+      "S03-L05-C10@2011-09-19",
+      "S03-L08-C05@2021-09-20",
+      "S03-L08-C10@2011-09-19",
+      "S04-L02-C05@2021-09-20",
+      "S04-L02-C10@2011-09-19",
+      "S04-L05-C05@2021-09-20",
+      "S04-L05-C10@2011-09-19",
+      "S04-L08-C05@2021-09-20",
+      "S04-L08-C10@2011-09-19",
+      "S05-L02-C05@2021-09-20",
+      "S05-L02-C10@2011-09-19",
+      "S05-L05-C05@2021-09-20",
+      "S05-L05-C10@2011-09-19",
+      "S05-L08-C05@2021-09-20",
+      "S05-L08-C10@2011-09-19",
+      "S06-L02-C05@2021-09-20",
+      "S06-L02-C10@2011-09-19",
+      "S06-L05-C05@2021-09-20",
+      "S06-L05-C10@2011-09-19",
+      "S06-L08-C05@2021-09-20",
+      "S06-L08-C10@2011-09-19",
+      "S07-L02-C05@2021-09-20",
+      "S07-L02-C10@2011-09-19",
+      "S07-L05-C05@2021-09-20",
+      "S07-L05-C10@2011-09-19",
+      "S07-L08-C05@2021-09-20",
+      "S07-L08-C10@2011-09-19",
+      "S08-L02-C05@2021-09-20",
+      "S08-L02-C10@2011-09-19",
+      "S08-L05-C05@2021-09-20",
+      "S08-L05-C10@2011-09-19",
+      "S08-L08-C05@2021-09-20",
+      "S08-L08-C10@2011-09-19",
+      "S09-L02-C05@2021-09-20",
+      "S09-L02-C10@2011-09-19",
+      "S09-L05-C05@2021-09-20",
+      "S09-L05-C10@2011-09-19",
+      "S09-L08-C05@2021-09-20",
+      "S09-L08-C10@2011-09-19",
+      "S10-L02-C05@2021-09-20",
+      "S10-L02-C10@2011-09-19",
+      "S10-L05-C05@2021-09-20",
+      "S10-L05-C10@2011-09-19",
+      "S10-L08-C05@2021-09-20",
+      "S10-L08-C10@2011-09-19"
+    ]
+  },
+  "failedScenarioIds": [],
+  "comparisons": {
+    "compared": 57518181,
+    "passed": 57518181,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 410
+  },
+  "byCategory": {
+    "annual-returns": {
+      "compared": 1000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "benchmark": {
+      "compared": 7242000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "equity": {
+      "compared": 28969000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "inputs": {
+      "compared": 26200,
+      "failed": 0,
+      "skipped": 0
+    },
+    "look-ahead": {
+      "compared": 173723,
+      "failed": 0,
+      "skipped": 0
+    },
+    "metrics": {
+      "compared": 23000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "persistence": {
+      "compared": 3000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "run": {
+      "compared": 2000,
+      "failed": 0,
+      "skipped": 0
+    },
+    "strategy-evaluation": {
+      "compared": 17751128,
+      "failed": 0,
+      "skipped": 0
+    },
+    "trades": {
+      "compared": 3327130,
+      "failed": 0,
+      "skipped": 0
+    }
+  }
+}

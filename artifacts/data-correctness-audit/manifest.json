@@ -1,0 +1,897 @@
+{
+  "generatedAt": "2026-09-23T18:36:54.381Z",
+  "git": {
+    "commit": "78c6e2c3",
+    "branch": "audit-large"
+  },
+  "durationMs": 637940,
+  "context": {
+    "database": "intrinsic_value_matrix",
+    "asOf": "2026-09-22",
+    "securities": 33,
+    "sweep": "2026-09-22-20260922-212011",
+    "matrixExecution": "2026-09-22-20260922-212011"
+  },
+  "totals": {
+    "comparisons": 69814984,
+    "passed": 69814983,
+    "failed": 1,
+    "skipped": 0,
+    "tolerancePasses": 7694254
+  },
+  "status": "FAIL",
+  "sections": [
+    {
+      "section": "source-data",
+      "status": "FAIL",
+      "comparisons": 209359,
+      "passed": 209358,
+      "failed": 1,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "byCategory": {
+          "source-benchmark": {
+            "compared": 7731,
+            "failed": 0,
+            "skipped": 0
+          },
+          "source-prices": {
+            "compared": 200896,
+            "failed": 1,
+            "skipped": 0
+          },
+          "source-splits": {
+            "compared": 12,
+            "failed": 0,
+            "skipped": 0
+          },
+          "source-statements": {
+            "compared": 720,
+            "failed": 0,
+            "skipped": 0
+          }
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "strategies",
+      "status": "PASS",
+      "comparisons": 13041,
+      "passed": 13041,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "byCategory": {
+          "strategy-final-exit-or": {
+            "compared": 81,
+            "failed": 0,
+            "skipped": 0
+          },
+          "strategy-operators": {
+            "compared": 960,
+            "failed": 0,
+            "skipped": 0
+          },
+          "strategy-signals": {
+            "compared": 12000,
+            "failed": 0,
+            "skipped": 0
+          }
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "lists-buy-windows",
+      "status": "PASS",
+      "comparisons": 283598,
+      "passed": 283598,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "matrixEvidence": {
+          "tradesInCustomWindowLists": 69118,
+          "buysInsideWindow": 19886,
+          "buysOutsideWindow": 0,
+          "buysOnWindowStart": 423,
+          "buysOnWindowEnd": 117,
+          "sellsOutsideWindow": 135,
+          "finalExitsOutsideWindow": 676,
+          "liquidationsOutsideWindow": 335
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "technicals",
+      "status": "PASS",
+      "comparisons": 3983283,
+      "passed": 3983283,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 3422392,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "perIndicator": {
+          "sma20d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.000000039001584e-9,
+            "nullMismatches": 0
+          },
+          "sma50d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 4.0000000811613035e-9,
+            "nullMismatches": 0
+          },
+          "sma100d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.0000001639016745e-9,
+            "nullMismatches": 0
+          },
+          "sma200d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.000032388124964e-9,
+            "nullMismatches": 0
+          },
+          "ema20d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.000032388124964e-9,
+            "nullMismatches": 0
+          },
+          "ema50d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.000003966415534e-9,
+            "nullMismatches": 0
+          },
+          "ema200d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 5.000000052879372e-9,
+            "nullMismatches": 0
+          },
+          "sma20w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 5.000000039001584e-9,
+            "nullMismatches": 0
+          },
+          "sma50w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 4.000000108916879e-9,
+            "nullMismatches": 0
+          },
+          "sma100w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 5.000000080634948e-9,
+            "nullMismatches": 0
+          },
+          "sma200w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 5.000025282697607e-9,
+            "nullMismatches": 0
+          },
+          "ema20w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 4.999999990429327e-9,
+            "nullMismatches": 0
+          },
+          "ema50w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 4.999893832291491e-9,
+            "nullMismatches": 0
+          },
+          "ema200w": {
+            "compared": 234270,
+            "failed": 0,
+            "maxAbsDifference": 4.999911595859885e-9,
+            "nullMismatches": 0
+          },
+          "rsi7d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 4.999982650133461e-9,
+            "nullMismatches": 0
+          },
+          "rsi14d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 4.999989755560819e-9,
+            "nullMismatches": 0
+          },
+          "rsi21d": {
+            "compared": 234336,
+            "failed": 0,
+            "maxAbsDifference": 4.999989755560819e-9,
+            "nullMismatches": 0
+          }
+        },
+        "weekStartMismatches": 0,
+        "warmupRegion": {
+          "compared": 430100,
+          "failed": 0
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "intrinsic",
+      "status": "PASS",
+      "comparisons": 2459197,
+      "passed": 2459197,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 1325129,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "perModel": {
+          "DCF_FCFF": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 211922,
+            "absent": 22414,
+            "maxAbsDifference": 4.999890279577812e-9
+          },
+          "RESIDUAL_INCOME": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 210579,
+            "absent": 23757,
+            "maxAbsDifference": 4.999449743081641e-9
+          },
+          "DDM": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 183850,
+            "absent": 50486,
+            "maxAbsDifference": 4.999591851628793e-9
+          },
+          "GRAHAM": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 212494,
+            "absent": 21842,
+            "maxAbsDifference": 4.999999969612645e-9
+          },
+          "BALANCED": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 187886,
+            "absent": 46450,
+            "maxAbsDifference": 4.9967496806857525e-9
+          },
+          "CONSERVATIVE": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 187886,
+            "absent": 46450,
+            "maxAbsDifference": 4.996463687234609e-9
+          },
+          "DIVIDEND": {
+            "compared": 234336,
+            "failed": 0,
+            "present": 160039,
+            "absent": 74297,
+            "maxAbsDifference": 4.999506586500502e-9
+          }
+        },
+        "pit": {
+          "checks": 921895,
+          "violations": 0,
+          "implausibleFilingDates": 2391,
+          "availabilityRuleViolations": 0,
+          "statements": 16793
+        }
+      },
+      "notes": [
+        "2391 statements carry a provider filing date on or before their fiscal period end; their availability is derived from the statutory deadline instead (AUD-03)."
+      ]
+    },
+    {
+      "section": "backtests",
+      "status": "PASS",
+      "comparisons": 57518181,
+      "passed": 57518181,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 410,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "sweep": "2026-09-22-20260922-212011",
+        "scenariosExpected": 1000,
+        "scenariosExecuted": 1000,
+        "scenariosPassed": 1000,
+        "scenariosFailed": 0,
+        "scenariosSkipped": 0,
+        "tradesCompared": 184785,
+        "tradesExpected": 184785,
+        "tradesActual": 184785,
+        "tradeMismatches": 0,
+        "equityRowsCompared": 3621000,
+        "equityMismatches": 0,
+        "benchmarkRowsCompared": 3621000,
+        "benchmarkMismatches": 0,
+        "metricComparisons": 23000,
+        "metricMismatches": 0,
+        "annualReturnYears": 15400,
+        "invariantChecks": 23462808,
+        "invariantViolations": 0,
+        "ledgerSteps": 3805785,
+        "ledgerViolations": 0,
+        "liquidationChecks": 12000,
+        "liquidationFailures": 0,
+        "liquidationTrades": 2807,
+        "inputChecks": 26200,
+        "inputFailures": 0,
+        "frameIssues": 0,
+        "archiveFidelityChecks": 3000,
+        "archiveFidelityFailures": 0,
+        "zeroTradeScenarios": 106,
+        "ratioDoubleRoundings": 6488,
+        "strategyEvaluation": {
+          "cases": 100,
+          "comparisons": 17751128,
+          "failed": 0,
+          "trueDays": 5932957,
+          "notEvaluableDays": 331064
+        },
+        "lookAhead": {
+          "cases": 60,
+          "tradesCompared": 22733,
+          "equityCompared": 150930,
+          "failed": 0,
+          "cuts": [
+            "S01-L02-C05@2021-09-20",
+            "S01-L02-C10@2011-09-19",
+            "S01-L05-C05@2021-09-20",
+            "S01-L05-C10@2011-09-19",
+            "S01-L08-C05@2021-09-20",
+            "S01-L08-C10@2011-09-19",
+            "S02-L02-C05@2021-09-20",
+            "S02-L02-C10@2011-09-19",
+            "S02-L05-C05@2021-09-20",
+            "S02-L05-C10@2011-09-19",
+            "S02-L08-C05@2021-09-20",
+            "S02-L08-C10@2011-09-19",
+            "S03-L02-C05@2021-09-20",
+            "S03-L02-C10@2011-09-19",
+            "S03-L05-C05@2021-09-20",
+            "S03-L05-C10@2011-09-19",
+            "S03-L08-C05@2021-09-20",
+            "S03-L08-C10@2011-09-19",
+            "S04-L02-C05@2021-09-20",
+            "S04-L02-C10@2011-09-19",
+            "S04-L05-C05@2021-09-20",
+            "S04-L05-C10@2011-09-19",
+            "S04-L08-C05@2021-09-20",
+            "S04-L08-C10@2011-09-19",
+            "S05-L02-C05@2021-09-20",
+            "S05-L02-C10@2011-09-19",
+            "S05-L05-C05@2021-09-20",
+            "S05-L05-C10@2011-09-19",
+            "S05-L08-C05@2021-09-20",
+            "S05-L08-C10@2011-09-19",
+            "S06-L02-C05@2021-09-20",
+            "S06-L02-C10@2011-09-19",
+            "S06-L05-C05@2021-09-20",
+            "S06-L05-C10@2011-09-19",
+            "S06-L08-C05@2021-09-20",
+            "S06-L08-C10@2011-09-19",
+            "S07-L02-C05@2021-09-20",
+            "S07-L02-C10@2011-09-19",
+            "S07-L05-C05@2021-09-20",
+            "S07-L05-C10@2011-09-19",
+            "S07-L08-C05@2021-09-20",
+            "S07-L08-C10@2011-09-19",
+            "S08-L02-C05@2021-09-20",
+            "S08-L02-C10@2011-09-19",
+            "S08-L05-C05@2021-09-20",
+            "S08-L05-C10@2011-09-19",
+            "S08-L08-C05@2021-09-20",
+            "S08-L08-C10@2011-09-19",
+            "S09-L02-C05@2021-09-20",
+            "S09-L02-C10@2011-09-19",
+            "S09-L05-C05@2021-09-20",
+            "S09-L05-C10@2011-09-19",
+            "S09-L08-C05@2021-09-20",
+            "S09-L08-C10@2011-09-19",
+            "S10-L02-C05@2021-09-20",
+            "S10-L02-C10@2011-09-19",
+            "S10-L05-C05@2021-09-20",
+            "S10-L05-C10@2011-09-19",
+            "S10-L08-C05@2021-09-20",
+            "S10-L08-C10@2011-09-19"
+          ]
+        },
+        "failedScenarioIds": [],
+        "comparisons": {
+          "compared": 57518181,
+          "passed": 57518181,
+          "failed": 0,
+          "skipped": 0,
+          "tolerancePasses": 410
+        },
+        "matrixGate": {
+          "green": true,
+          "completed": 1000,
+          "invariantFailures": 0,
+          "determinism": {
+            "cases": [
+              "S01-L02-C04",
+              "S02-L01-C02",
+              "S04-L05-C05",
+              "S05-L10-C03",
+              "S07-L06-C01",
+              "S10-L08-C09"
+            ],
+            "differences": []
+          }
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "frame-provenance",
+      "status": "PASS",
+      "comparisons": 3511665,
+      "passed": 3511665,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 2895000,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "byKey": {
+          "series:SMA_200D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_50D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:EMA_20D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_100W": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_20W": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_50W": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:RSI_14D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:RSI_7D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:RSI_21D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_20D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:SMA_200W": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:EMA_200D": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "margin-of-safety:BALANCED": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "margin-of-safety:DCF_FCFF": {
+            "compared": 234111,
+            "failed": 0
+          },
+          "series:GRAHAM": {
+            "compared": 234111,
+            "failed": 0
+          }
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "backtest-api",
+      "status": "PASS",
+      "comparisons": 1762271,
+      "passed": 1762271,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "runs": 1000,
+        "summaryFields": 23000,
+        "annualReturns": 15400,
+        "curvePoints": 1300400,
+        "tradesServed": 184785,
+        "maxAnnualReturnRoundingEffectPercentPoints": 2.9250486477394588e-8,
+        "failedRuns": []
+      },
+      "notes": []
+    },
+    {
+      "section": "look-ahead",
+      "status": "PASS",
+      "comparisons": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "statements": 16793,
+        "implausibleFilingDates": 2391,
+        "filingDateImpact": {
+          "assumption": "statements whose provider filing date is on or before the fiscal period end made available no earlier than fiscalDate + 40 days (quarters) / + 60 days (fiscal year, Q4)",
+          "securitiesAffected": [],
+          "s09Cases": 100,
+          "casesWithDifferentTrades": 0,
+          "tradesPersisted": 3469,
+          "tradesCorrected": 3469
+        },
+        "poisonedFutureProbe": {
+          "cases": 60,
+          "tradesCompared": 22733,
+          "equityCompared": 150930,
+          "failed": 0
+        }
+      },
+      "notes": [
+        "The provider leaves 2,391 statements undated; availability comes from the statutory deadline instead. See FINAL_DATA_CORRECTNESS_AUDIT.md AUD-03."
+      ]
+    },
+    {
+      "section": "signals-dashboard",
+      "status": "PASS",
+      "comparisons": 1636,
+      "passed": 1636,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "sessions": [
+          "2026-09-18",
+          "2026-09-21"
+        ],
+        "monitors": [
+          "DCA-AUDIT-S01xL08-conditions",
+          "DCA-AUDIT-S02xL08-triggers",
+          "DCA-AUDIT-S06xL08-conditions+trigger",
+          "DCA-AUDIT-S04xL10-windows",
+          "DCA-AUDIT-S03xL05-weekly",
+          "DCA-AUDIT-S10xL02-rsi-events"
+        ],
+        "scans": [
+          {
+            "asOf": "2026-09-18",
+            "summary": {
+              "monitors": 6,
+              "symbols": 30,
+              "evaluations": 191,
+              "signalsEmitted": 26,
+              "signalsResolved": 0,
+              "transitionsRecorded": 26,
+              "levelsReconstructed": 191,
+              "reconstructionHistoryExtensions": 3,
+              "notEvaluable": 0,
+              "symbolsWithoutCurrentData": 0,
+              "symbolsOutsideTradingSession": 0,
+              "symbolsWithoutSnapshot": 0,
+              "transitionsContended": 0,
+              "transitionsStaleConfiguration": 0,
+              "transitionsUnchanged": 0,
+              "aborted": false
+            }
+          },
+          {
+            "asOf": "2026-09-21",
+            "summary": {
+              "monitors": 6,
+              "symbols": 30,
+              "evaluations": 191,
+              "signalsEmitted": 4,
+              "signalsResolved": 0,
+              "transitionsRecorded": 4,
+              "levelsReconstructed": 0,
+              "reconstructionHistoryExtensions": 0,
+              "notEvaluable": 0,
+              "symbolsWithoutCurrentData": 0,
+              "symbolsOutsideTradingSession": 0,
+              "symbolsWithoutSnapshot": 0,
+              "transitionsContended": 0,
+              "transitionsStaleConfiguration": 0,
+              "transitionsUnchanged": 187,
+              "aborted": false
+            }
+          }
+        ],
+        "firstSession": {
+          "pairs": 191,
+          "active": 26,
+          "pending": 0,
+          "none": 165,
+          "dashboardRows": 26,
+          "absentChecked": 165
+        },
+        "secondSession": {
+          "pairs": 191,
+          "active": 30,
+          "pending": 0,
+          "none": 161,
+          "dashboardRows": 30,
+          "absentChecked": 161
+        },
+        "transitions": {
+          "continued": 26,
+          "ended": 0,
+          "opened": 4,
+          "reopenedEvents": 0
+        },
+        "markovChecked": 61,
+        "sinceEvidence": [
+          {
+            "phase": "[2026-09-18]",
+            "reconstructedRows": 26,
+            "sinceLaterThanActivation": 0,
+            "examples": [
+              {
+                "symbol": "JNJ",
+                "reconstructed": true,
+                "observationDate": "2026-09-17",
+                "since": "2026-09-17T20:00:00.000Z",
+                "close": "2026-09-17T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "GOOGL",
+                "reconstructed": true,
+                "observationDate": "2026-09-11",
+                "since": "2026-09-11T20:00:00.000Z",
+                "close": "2026-09-11T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "AAPL",
+                "reconstructed": true,
+                "observationDate": "2026-09-10",
+                "since": "2026-09-10T20:00:00.000Z",
+                "close": "2026-09-10T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "CRM",
+                "reconstructed": true,
+                "observationDate": "2026-08-19",
+                "since": "2026-08-19T20:00:00.000Z",
+                "close": "2026-08-19T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "AMZN",
+                "reconstructed": true,
+                "observationDate": "2026-07-30",
+                "since": "2026-07-30T20:00:00.000Z",
+                "close": "2026-07-30T20:00:00.000Z",
+                "days": 0
+              }
+            ]
+          },
+          {
+            "phase": "[2026-09-21]",
+            "reconstructedRows": 26,
+            "sinceLaterThanActivation": 0,
+            "examples": [
+              {
+                "symbol": "DIS",
+                "reconstructed": false,
+                "observationDate": "2026-09-21",
+                "since": "2026-09-21T20:00:00.000Z",
+                "close": "2026-09-21T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "GS",
+                "reconstructed": false,
+                "observationDate": "2026-09-21",
+                "since": "2026-09-21T20:00:00.000Z",
+                "close": "2026-09-21T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "KO",
+                "reconstructed": false,
+                "observationDate": "2026-09-21",
+                "since": "2026-09-21T20:00:00.000Z",
+                "close": "2026-09-21T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "XOM",
+                "reconstructed": false,
+                "observationDate": "2026-09-21",
+                "since": "2026-09-21T20:00:00.000Z",
+                "close": "2026-09-21T20:00:00.000Z",
+                "days": 0
+              },
+              {
+                "symbol": "JNJ",
+                "reconstructed": true,
+                "observationDate": "2026-09-17",
+                "since": "2026-09-17T20:00:00.000Z",
+                "close": "2026-09-17T20:00:00.000Z",
+                "days": 0
+              }
+            ]
+          }
+        ]
+      },
+      "notes": []
+    },
+    {
+      "section": "stock-details-api",
+      "status": "PASS",
+      "comparisons": 71433,
+      "passed": 71433,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 51323,
+      "independentOracle": true,
+      "endToEnd": false,
+      "detail": {
+        "window": {
+          "from": "2025-09-23",
+          "to": "2026-09-23"
+        },
+        "perSymbol": {
+          "KO": {
+            "why": "long-history large cap, dividend payer (DDM and the Dividend blend available)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "AAPL": {
+            "why": "split history (7:1 2014, 4:1 2020); long price history",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "NVDA": {
+            "why": "split history (4:1 2021, 10:1 2024)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "MRNA": {
+            "why": "newer listing (2018), short history, recent losses (Graham/RI unavailable)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "AMZN": {
+            "why": "no common dividend (DDM and the Dividend blend unavailable)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "DIS": {
+            "why": "provider filing dates equal to period ends before 2019 (look-ahead finding)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "V": {
+            "why": "listing inside the horizon (2008)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "GOOGL": {
+            "why": "splits and a reporting-entity change in 2015",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "CRM": {
+            "why": "initiated a dividend in 2024 (DDM availability changes)",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          },
+          "XOM": {
+            "why": "energy cyclicality: negative earnings in 2020",
+            "bars": 251,
+            "technicalValues": 4267,
+            "intrinsicPoints": 1757
+          }
+        },
+        "byCategory": {
+          "stock-details": {
+            "compared": 10,
+            "failed": 0,
+            "skipped": 0
+          },
+          "stock-details-intrinsic": {
+            "compared": 26233,
+            "failed": 0,
+            "skipped": 0
+          },
+          "stock-details-prices": {
+            "compared": 2520,
+            "failed": 0,
+            "skipped": 0
+          },
+          "stock-details-technicals": {
+            "compared": 42670,
+            "failed": 0,
+            "skipped": 0
+          }
+        }
+      },
+      "notes": []
+    },
+    {
+      "section": "ui",
+      "status": "PASS",
+      "comparisons": 1318,
+      "passed": 1318,
+      "failed": 0,
+      "skipped": 0,
+      "tolerancePasses": 0,
+      "independentOracle": true,
+      "endToEnd": true,
+      "detail": {
+        "playwrightExitCode": 0,
+        "byArea": {
+          "ui-backtests": 729,
+          "ui-stock-details": 466,
+          "ui-dashboard": 123
+        }
+      },
+      "notes": []
+    }
+  ]
+}

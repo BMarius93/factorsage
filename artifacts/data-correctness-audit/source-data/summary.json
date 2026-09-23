@@ -1,0 +1,898 @@
+{
+  "comparisons": {
+    "compared": 209359,
+    "passed": 209358,
+    "failed": 1,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "source-benchmark": {
+      "compared": 7731,
+      "failed": 0,
+      "skipped": 0
+    },
+    "source-prices": {
+      "compared": 200896,
+      "failed": 1,
+      "skipped": 0
+    },
+    "source-splits": {
+      "compared": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    "source-statements": {
+      "compared": 720,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "perSymbol": {
+    "AAPL": {
+      "rows": 8568,
+      "compared": 42840,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:03.226Z"
+    },
+    "NVDA": {
+      "rows": 6959,
+      "compared": 34795,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:04.263Z"
+    },
+    "KO": {
+      "rows": 8568,
+      "compared": 42840,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:05.237Z"
+    },
+    "MRNA": {
+      "rows": 1957,
+      "compared": 9785,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:06.597Z"
+    },
+    "DIS": {
+      "rows": 8568,
+      "compared": 42840,
+      "mismatched": 1,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:07.375Z"
+    },
+    "GOOGL": {
+      "rows": 5558,
+      "compared": 27790,
+      "mismatched": 0,
+      "missingInProvider": 0,
+      "providerOnlyDates": [],
+      "snapshotFetchedAt": "2026-09-22T22:28:08.282Z"
+    }
+  },
+  "samples": [
+    {
+      "symbol": "AAPL",
+      "date": "1992-10-13",
+      "field": "close",
+      "source": 0.40513,
+      "factorSage": 0.40513,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1992-11-13",
+      "field": "close",
+      "source": 0.50223,
+      "factorSage": 0.50223,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-01-13",
+      "field": "close",
+      "source": 0.56696,
+      "factorSage": 0.56696,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-04-13",
+      "field": "close",
+      "source": 0.43304,
+      "factorSage": 0.43304,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-05-13",
+      "field": "close",
+      "source": 0.49554,
+      "factorSage": 0.49554,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-07-13",
+      "field": "close",
+      "source": 0.33259,
+      "factorSage": 0.33259,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-08-13",
+      "field": "close",
+      "source": 0.24442,
+      "factorSage": 0.24442,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-09-13",
+      "field": "close",
+      "source": 0.22545,
+      "factorSage": 0.22545,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-10-13",
+      "field": "close",
+      "source": 0.21429,
+      "factorSage": 0.21429,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1993-12-13",
+      "field": "close",
+      "source": 0.26339,
+      "factorSage": 0.26339,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-01-13",
+      "field": "close",
+      "source": 0.27344,
+      "factorSage": 0.27344,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-04-13",
+      "field": "close",
+      "source": 0.28348,
+      "factorSage": 0.28348,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-05-13",
+      "field": "close",
+      "source": 0.26786,
+      "factorSage": 0.26786,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-06-13",
+      "field": "close",
+      "source": 0.24107,
+      "factorSage": 0.24107,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-07-13",
+      "field": "close",
+      "source": 0.26507,
+      "factorSage": 0.26507,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-09-13",
+      "field": "close",
+      "source": 0.31975,
+      "factorSage": 0.31975,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-10-13",
+      "field": "close",
+      "source": 0.36719,
+      "factorSage": 0.36719,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1994-12-13",
+      "field": "close",
+      "source": 0.32478,
+      "factorSage": 0.32478,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-01-13",
+      "field": "close",
+      "source": 0.40067,
+      "factorSage": 0.40067,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-02-13",
+      "field": "close",
+      "source": 0.39063,
+      "factorSage": 0.39063,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-03-13",
+      "field": "close",
+      "source": 0.3404,
+      "factorSage": 0.3404,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-04-13",
+      "field": "close",
+      "source": 0.34152,
+      "factorSage": 0.34152,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-06-13",
+      "field": "close",
+      "source": 0.39286,
+      "factorSage": 0.39286,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-07-13",
+      "field": "close",
+      "source": 0.42522,
+      "factorSage": 0.42522,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-09-13",
+      "field": "close",
+      "source": 0.37835,
+      "factorSage": 0.37835,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-10-13",
+      "field": "close",
+      "source": 0.32143,
+      "factorSage": 0.32143,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-11-13",
+      "field": "close",
+      "source": 0.36496,
+      "factorSage": 0.36496,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1995-12-13",
+      "field": "close",
+      "source": 0.34263,
+      "factorSage": 0.34263,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-02-13",
+      "field": "close",
+      "source": 0.25112,
+      "factorSage": 0.25112,
+      "difference": 0,
+      "result": "PASS"
+    },
+    {
+      "symbol": "AAPL",
+      "date": "1996-03-13",
+      "field": "close",
+      "source": 0.22991,
+      "factorSage": 0.22991,
+      "difference": 0,
+      "result": "PASS"
+    }
+  ],
+  "splits": [
+    {
+      "symbol": "AAPL",
+      "split": "4:1",
+      "date": "2020-08-31",
+      "closeBefore": "124.81000000",
+      "closeOn": "129.04000000",
+      "dayOverDayRatio": 1.0338915151029564,
+      "adjusted": true
+    },
+    {
+      "symbol": "AAPL",
+      "split": "7:1",
+      "date": "2014-06-09",
+      "closeBefore": "23.06000000",
+      "closeOn": "23.43000000",
+      "dayOverDayRatio": 1.0160450997398092,
+      "adjusted": true
+    },
+    {
+      "symbol": "AAPL",
+      "split": "2:1",
+      "date": "2005-02-28",
+      "closeBefore": "1.59000000",
+      "closeOn": "1.60000000",
+      "dayOverDayRatio": 1.0062893081761006,
+      "adjusted": true
+    },
+    {
+      "symbol": "AAPL",
+      "split": "2:1",
+      "date": "2000-06-21",
+      "closeBefore": "0.90402000",
+      "closeOn": "0.99330000",
+      "dayOverDayRatio": 1.098758877015995,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "10:1",
+      "date": "2024-06-10",
+      "closeBefore": "120.89000000",
+      "closeOn": "121.79000000",
+      "dayOverDayRatio": 1.0074447845148482,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "4:1",
+      "date": "2021-07-20",
+      "closeBefore": "18.78000000",
+      "closeOn": "18.61000000",
+      "dayOverDayRatio": 0.990947816826411,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "3:2",
+      "date": "2007-09-11",
+      "closeBefore": "0.84650000",
+      "closeOn": "0.86450000",
+      "dayOverDayRatio": 1.0212640283520378,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "2:1",
+      "date": "2006-04-07",
+      "closeBefore": "0.51017000",
+      "closeOn": "0.50884000",
+      "dayOverDayRatio": 0.9973930258541269,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "2:1",
+      "date": "2001-09-12",
+      "closeBefore": "0.31567000",
+      "closeOn": "0.28325000",
+      "dayOverDayRatio": 0.8972978110051636,
+      "adjusted": true
+    },
+    {
+      "symbol": "NVDA",
+      "split": "2:1",
+      "date": "2000-06-27",
+      "closeBefore": "0.34570000",
+      "closeOn": "0.29688000",
+      "dayOverDayRatio": 0.858779288400347,
+      "adjusted": true
+    },
+    {
+      "symbol": "GOOGL",
+      "split": "20:1",
+      "date": "2022-07-18",
+      "closeBefore": "111.78000000",
+      "closeOn": "109.03000000",
+      "dayOverDayRatio": 0.975398103417427,
+      "adjusted": true
+    },
+    {
+      "symbol": "GOOGL",
+      "split": "999:500",
+      "date": "2014-04-03",
+      "closeBefore": "28.41000000",
+      "closeOn": "28.58000000",
+      "dayOverDayRatio": 1.0059838085181274,
+      "adjusted": true
+    }
+  ],
+  "largeDailyMoves": [
+    {
+      "symbol": "AAPL",
+      "date": "2000-09-29",
+      "ratio": "0.48130547646960308156"
+    },
+    {
+      "symbol": "MRNA",
+      "date": "2026-08-19",
+      "ratio": "2.7696950444726811"
+    }
+  ],
+  "statements": [
+    {
+      "symbol": "KO",
+      "fiscalDate": "2026-07-03",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2026-07-29",
+        "acceptedDate": "2026-07-29 14:04:37",
+        "revenue": 13380000000,
+        "epsDiluted": 1.03
+      },
+      "factorSage": {
+        "filingDate": "2026-07-29",
+        "providerAcceptedDate": "2026-07-29 14:04:37",
+        "revenue": 13380000000,
+        "epsDiluted": 1.03
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2026-04-03",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2026-04-30",
+        "acceptedDate": "2026-04-30 15:17:45",
+        "revenue": 12472000000,
+        "epsDiluted": 0.91
+      },
+      "factorSage": {
+        "filingDate": "2026-04-30",
+        "providerAcceptedDate": "2026-04-30 15:17:45",
+        "revenue": 12472000000,
+        "epsDiluted": 0.91
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2025-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2026-02-20",
+        "acceptedDate": "2026-02-20 09:46:32",
+        "revenue": 11822000000,
+        "epsDiluted": 0.53
+      },
+      "factorSage": {
+        "filingDate": "2026-02-20",
+        "providerAcceptedDate": "2026-02-20 09:46:32",
+        "revenue": 11822000000,
+        "epsDiluted": 0.53
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2025-09-26",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2025-10-23",
+        "acceptedDate": "2025-10-23 14:39:30",
+        "revenue": 12455000000,
+        "epsDiluted": 0.86
+      },
+      "factorSage": {
+        "filingDate": "2025-10-23",
+        "providerAcceptedDate": "2025-10-23 14:39:30",
+        "revenue": 12455000000,
+        "epsDiluted": 0.86
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2025-06-27",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2025-07-24",
+        "acceptedDate": "2025-07-24 14:07:20",
+        "revenue": 12535000000,
+        "epsDiluted": 0.88
+      },
+      "factorSage": {
+        "filingDate": "2025-07-24",
+        "providerAcceptedDate": "2025-07-24 14:07:20",
+        "revenue": 12535000000,
+        "epsDiluted": 0.88
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2025-03-28",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2025-05-01",
+        "acceptedDate": "2025-05-01 15:38:52",
+        "revenue": 11129000000,
+        "epsDiluted": 0.77
+      },
+      "factorSage": {
+        "filingDate": "2025-05-01",
+        "providerAcceptedDate": "2025-05-01 15:38:52",
+        "revenue": 11129000000,
+        "epsDiluted": 0.77
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2024-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2025-02-20",
+        "acceptedDate": "2025-02-20 15:17:12",
+        "revenue": 11544000000,
+        "epsDiluted": 0.51
+      },
+      "factorSage": {
+        "filingDate": "2025-02-20",
+        "providerAcceptedDate": "2025-02-20 15:17:12",
+        "revenue": 11544000000,
+        "epsDiluted": 0.51
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2024-09-27",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2024-10-24",
+        "acceptedDate": "2024-10-24 11:55:23",
+        "revenue": 11854000000,
+        "epsDiluted": 0.66
+      },
+      "factorSage": {
+        "filingDate": "2024-10-24",
+        "providerAcceptedDate": "2024-10-24 11:55:23",
+        "revenue": 11854000000,
+        "epsDiluted": 0.66
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2024-06-28",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2024-07-29",
+        "acceptedDate": "2024-07-29 15:54:36",
+        "revenue": 12363000000,
+        "epsDiluted": 0.56
+      },
+      "factorSage": {
+        "filingDate": "2024-07-29",
+        "providerAcceptedDate": "2024-07-29 15:54:36",
+        "revenue": 12363000000,
+        "epsDiluted": 0.56
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2024-03-29",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2024-05-02",
+        "acceptedDate": "2024-05-02 13:52:06",
+        "revenue": 11300000000,
+        "epsDiluted": 0.74
+      },
+      "factorSage": {
+        "filingDate": "2024-05-02",
+        "providerAcceptedDate": "2024-05-02 13:52:06",
+        "revenue": 11300000000,
+        "epsDiluted": 0.74
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2023-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2024-02-20",
+        "acceptedDate": "2024-02-20 13:21:24",
+        "revenue": 10849000000,
+        "epsDiluted": 0.46
+      },
+      "factorSage": {
+        "filingDate": "2024-02-20",
+        "providerAcceptedDate": "2024-02-20 13:21:24",
+        "revenue": 10849000000,
+        "epsDiluted": 0.46
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2023-09-29",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2023-10-24",
+        "acceptedDate": "2023-10-24 14:46:01",
+        "revenue": 11953000000,
+        "epsDiluted": 0.71
+      },
+      "factorSage": {
+        "filingDate": "2023-10-24",
+        "providerAcceptedDate": "2023-10-24 14:46:01",
+        "revenue": 11953000000,
+        "epsDiluted": 0.71
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2023-06-30",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2023-07-27",
+        "acceptedDate": "2023-07-27 11:49:13",
+        "revenue": 11972000000,
+        "epsDiluted": 0.59
+      },
+      "factorSage": {
+        "filingDate": "2023-07-27",
+        "providerAcceptedDate": "2023-07-27 11:49:13",
+        "revenue": 11972000000,
+        "epsDiluted": 0.59
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2023-03-31",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2023-04-26",
+        "acceptedDate": "2023-04-26 15:21:27",
+        "revenue": 10980000000,
+        "epsDiluted": 0.72
+      },
+      "factorSage": {
+        "filingDate": "2023-04-26",
+        "providerAcceptedDate": "2023-04-26 15:21:27",
+        "revenue": 10980000000,
+        "epsDiluted": 0.72
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2022-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2023-02-21",
+        "acceptedDate": "2023-02-21 16:03:20",
+        "revenue": 10125000000,
+        "epsDiluted": 0.47
+      },
+      "factorSage": {
+        "filingDate": "2023-02-21",
+        "providerAcceptedDate": "2023-02-21 16:03:20",
+        "revenue": 10125000000,
+        "epsDiluted": 0.47
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2022-09-30",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2022-10-26",
+        "acceptedDate": "2022-10-26 12:06:35",
+        "revenue": 11063000000,
+        "epsDiluted": 0.65
+      },
+      "factorSage": {
+        "filingDate": "2022-10-26",
+        "providerAcceptedDate": "2022-10-26 12:06:35",
+        "revenue": 11063000000,
+        "epsDiluted": 0.65
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2022-07-01",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2022-07-27",
+        "acceptedDate": "2022-07-27 11:45:45",
+        "revenue": 11325000000,
+        "epsDiluted": 0.44
+      },
+      "factorSage": {
+        "filingDate": "2022-07-27",
+        "providerAcceptedDate": "2022-07-27 11:45:45",
+        "revenue": 11325000000,
+        "epsDiluted": 0.44
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2022-04-01",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2022-04-28",
+        "acceptedDate": "2022-04-28 10:24:51",
+        "revenue": 10491000000,
+        "epsDiluted": 0.64
+      },
+      "factorSage": {
+        "filingDate": "2022-04-28",
+        "providerAcceptedDate": "2022-04-28 10:24:51",
+        "revenue": 10491000000,
+        "epsDiluted": 0.64
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2021-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2022-02-22",
+        "acceptedDate": "2022-02-22 15:45:48",
+        "revenue": 9464000000,
+        "epsDiluted": 0.56
+      },
+      "factorSage": {
+        "filingDate": "2022-02-22",
+        "providerAcceptedDate": "2022-02-22 15:45:48",
+        "revenue": 9464000000,
+        "epsDiluted": 0.56
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2021-10-01",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2021-10-28",
+        "acceptedDate": "2021-10-28 14:29:54",
+        "revenue": 10042000000,
+        "epsDiluted": 0.57
+      },
+      "factorSage": {
+        "filingDate": "2021-10-28",
+        "providerAcceptedDate": "2021-10-28 14:29:54",
+        "revenue": 10042000000,
+        "epsDiluted": 0.57
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2021-07-02",
+      "period": "Q2",
+      "provider": {
+        "filingDate": "2021-07-26",
+        "acceptedDate": "2021-07-26 16:38:06",
+        "revenue": 10129000000,
+        "epsDiluted": 0.61
+      },
+      "factorSage": {
+        "filingDate": "2021-07-26",
+        "providerAcceptedDate": "2021-07-26 16:38:06",
+        "revenue": 10129000000,
+        "epsDiluted": 0.61
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2021-04-02",
+      "period": "Q1",
+      "provider": {
+        "filingDate": "2021-04-27",
+        "acceptedDate": "2021-04-27 11:37:51",
+        "revenue": 9020000000,
+        "epsDiluted": 0.52
+      },
+      "factorSage": {
+        "filingDate": "2021-04-27",
+        "providerAcceptedDate": "2021-04-27 11:37:51",
+        "revenue": 9020000000,
+        "epsDiluted": 0.52
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2020-12-31",
+      "period": "Q4",
+      "provider": {
+        "filingDate": "2021-02-25",
+        "acceptedDate": "2021-02-25 13:47:17",
+        "revenue": 8611000000,
+        "epsDiluted": 0.34
+      },
+      "factorSage": {
+        "filingDate": "2021-02-25",
+        "providerAcceptedDate": "2021-02-25 13:47:17",
+        "revenue": 8611000000,
+        "epsDiluted": 0.34
+      }
+    },
+    {
+      "symbol": "KO",
+      "fiscalDate": "2020-09-25",
+      "period": "Q3",
+      "provider": {
+        "filingDate": "2020-10-22",
+        "acceptedDate": "2020-10-22 14:04:36",
+        "revenue": 8652000000,
+        "epsDiluted": 0.4
+      },
+      "factorSage": {
+        "filingDate": "2020-10-22",
+        "providerAcceptedDate": "2020-10-22 14:04:36",
+        "revenue": 8652000000,
+        "epsDiluted": 0.4
+      }
+    }
+  ],
+  "benchmark": {
+    "rows": 7731,
+    "mismatches": 0
+  },
+  "differences": [
+    {
+      "path": "DIS 2026-09-22 volume",
+      "expected": "7173330",
+      "actual": "7167667",
+      "rule": "exact-decimal",
+      "difference": -5663
+    }
+  ]
+}

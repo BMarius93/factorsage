@@ -191,8 +191,16 @@ observation appear twice under different dates?
   early close is an ordinary session. A delayed feed only shifts `quotedAt` within the same session.
 - The stock-data loader's own `today()` is the **UTC** day. It bounds retention and the tail
   refresh's `to`; asking the provider through a day that has not started returns nothing extra,
-  and coverage recorded through that date is harmless because the tail is re-fetched on the
-  freshness clock regardless. The Monitor cycle's `asOf` now uses the session date instead.
+  yet coverage is recorded through that date. That is harmless only because every leading-edge
+  sync — a tail refresh or a gap fill that reaches today — also re-reads the **previous** sync's
+  own tail window (`unsettledTailStart` in the stock and benchmark loaders). Before that rule, a
+  refresh re-read only the ten days behind *today*, so a session asked for before it existed, or
+  an in-progress bar, stayed missing or provisional for good once the next sync came more than
+  ten days later: the data-correctness audit found MRNA, GOOG and BRK-A missing 2026-09-04,
+  ADBE and AAL missing 2026-09-16, and MRNA 2026-09-09 left at an in-session 137.395 against a
+  final 135.61 (`docs/data-correctness-audit/FINAL_DATA_CORRECTNESS_AUDIT.md`, AUD-04). Rows
+  already damaged that way are not repaired by the rule alone; they are re-read the next time a
+  sync reaches back over them. The Monitor cycle's `asOf` now uses the session date instead.
 
 **Invariants.** One row per `(securityId, date)` in every frame. A quote can only ever name its own
 last-trade session, so it cannot be observed under two dates. A session with no observation

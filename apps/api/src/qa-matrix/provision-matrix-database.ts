@@ -2,8 +2,15 @@ import { spawnSync } from "node:child_process";
 import { PrismaClient, type Prisma } from "@intrinsic/database";
 import { EXECUTION_CALENDAR_REFERENCE_CODE } from "@intrinsic/domain";
 import { DEFAULT_BENCHMARK_CODE } from "@intrinsic/contracts";
+import { createStockDataRedisClient } from "@intrinsic/stock-data";
 import { QA_MATRIX_SECURITIES } from "@intrinsic/testing";
 import type { MatrixEnvironment } from "./matrix-environment";
+import {
+  MIRROR_PAGE,
+  mirrorTableScope,
+  reconcileIdentityRows,
+  type MirrorResult,
+} from "./mirror-table";
 
 /**
  * Provisions the matrix database from already-durable canonical data.
@@ -20,13 +27,14 @@ import type { MatrixEnvironment } from "./matrix-environment";
  *   backtest run crosses over, so the matrix database contains only the QA account the seeders
  *   create and the market data the runs read.
  *
- * It is idempotent. Rows are inserted with `skipDuplicates`, so re-provisioning tops up whatever is
- * missing — a source that has since hydrated another year, a table that failed halfway — without
- * duplicating anything or dropping what is there.
+ * It is idempotent, and it is an **exact** copy: each market-data scope is replaced rather than
+ * topped up, so re-provisioning converges on the source whatever the matrix database held before.
+ * Inserting with `skipDuplicates` used to leave a row the source had since corrected at its old
+ * value (AUD-06). `mirror-table.ts` carries the two copy semantics and explains them.
  */
 
 /** Rows per read page and per insert batch. Sized for wide `DailyDerivedState` rows. */
-const PAGE = 2_000;
+const PAGE = MIRROR_PAGE;
 
 export type ProvisionProgress = (message: string) => void;
 
@@ -108,7 +116,18 @@ export function applyMatrixMigrations(
 
 type Copier = {
   readonly table: string;
-  copy(source: PrismaClient, target: PrismaClient): Promise<number>;
+  copy(source: PrismaClient, target: PrismaClient): Promise<CopyOutcome>;
+};
+
+type CopyOutcome = {
+  /** Rows the copy wrote into the target — the copied scope's row count afterwards. */
+  readonly inserted: number;
+  /** Rows the copy removed from the target first, stale or not. */
+  readonly deleted?: number;
+  /** Identity rows whose content the source had changed. */
+  readonly updated?: number;
+  /** Identity rows only the target has. They are kept; `mirror-table.ts` explains why. */
+  readonly extra?: number;
 };
 
 async function insertBatches<T>(
@@ -123,6 +142,54 @@ async function insertBatches<T>(
   return written;
 }
 
+/** Binds {@link mirrorTableScope} to a pair of Prisma delegates for one scope. */
+function mirrorScope<T>(
+  read: (skip: number, take: number) => Promise<T[]>,
+  remove: () => Promise<{ count: number }>,
+  insert: (rows: readonly T[]) => Promise<{ count: number }>,
+): Promise<MirrorResult> {
+  return mirrorTableScope(
+    {
+      readSourcePage: read,
+      deleteTargetScope: async () => (await remove()).count,
+      insertTarget: async (rows) => (await insert(rows)).count,
+    },
+    PAGE,
+  );
+}
+
+function totalMirrored(results: readonly MirrorResult[]): CopyOutcome {
+  return {
+    inserted: results.reduce((sum, result) => sum + result.inserted, 0),
+    deleted: results.reduce((sum, result) => sum + result.deleted, 0),
+  };
+}
+
+function describeOutcome(outcome: CopyOutcome): string {
+  const parts = [`${outcome.inserted} row(s)`];
+  if (outcome.deleted) {
+    parts.push(`replacing ${outcome.deleted}`);
+  }
+  if (outcome.updated) {
+    parts.push(`${outcome.updated} updated`);
+  }
+  if (outcome.extra) {
+    parts.push(`${outcome.extra} target-only kept`);
+  }
+  return parts.join(", ");
+}
+
+async function perSecurity(
+  securityIds: readonly string[],
+  mirror: (securityId: string) => Promise<MirrorResult>,
+): Promise<MirrorResult[]> {
+  const results: MirrorResult[] = [];
+  for (const securityId of securityIds) {
+    results.push(await mirror(securityId));
+  }
+  return results;
+}
+
 /**
  * The canonical market data the matrix depends on, and nothing else.
  *
@@ -131,71 +198,103 @@ async function insertBatches<T>(
  * differently. Everything keyed by a security is restricted to the thirty-three the fixtures name:
  * copying prices for nine thousand securities the matrix never reads would take an hour to move
  * data no run opens.
+ *
+ * The three identity tables are reconciled; every other table is mirrored scope by scope, one scope
+ * per security or per series, so the copy of one security's history never depends on what the
+ * matrix database already held for it.
  */
 function copiers(securityIds: readonly string[]): readonly Copier[] {
   const where = { securityId: { in: [...securityIds] } };
   return [
     {
       table: "Security",
-      async copy(source, target) {
-        const rows = await source.security.findMany();
-        return insertBatches(rows, (batch) =>
-          target.security.createMany({ data: batch, skipDuplicates: true }),
-        );
+      copy(source, target) {
+        return reconcileIdentityRows({
+          readSource: () => source.security.findMany(),
+          readTarget: () => target.security.findMany(),
+          insertTarget: (rows) =>
+            insertBatches(rows, (batch) =>
+              target.security.createMany({ data: batch }),
+            ),
+          updateTarget: async ({ id, updatedAt: _updatedAt, ...data }) => {
+            await target.security.update({ where: { id }, data });
+          },
+        });
       },
     },
     {
       table: "SecurityProfile",
-      async copy(source, target) {
-        const rows = await source.securityProfile.findMany({ where });
-        return insertBatches(rows, (batch) =>
-          target.securityProfile.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.securityProfile.findMany({
+              where,
+              orderBy: { securityId: "asc" },
+              skip,
+              take,
+            }),
+          () => target.securityProfile.deleteMany({ where }),
+          (rows) => target.securityProfile.createMany({ data: [...rows] }),
         );
       },
     },
     {
       table: "StockDatasetState",
-      async copy(source, target) {
-        const rows = await source.stockDatasetState.findMany({ where });
-        return insertBatches(rows, (batch) =>
-          target.stockDatasetState.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.stockDatasetState.findMany({
+              where,
+              orderBy: [
+                { securityId: "asc" },
+                { dataset: "asc" },
+                { variant: "asc" },
+              ],
+              skip,
+              take,
+            }),
+          () => target.stockDatasetState.deleteMany({ where }),
+          (rows) => target.stockDatasetState.createMany({ data: [...rows] }),
         );
       },
     },
     {
       table: "StockDatasetCoverage",
-      async copy(source, target) {
-        const rows = await source.stockDatasetCoverage.findMany({ where });
-        return insertBatches(rows, (batch) =>
-          target.stockDatasetCoverage.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.stockDatasetCoverage.findMany({
+              where,
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.stockDatasetCoverage.deleteMany({ where }),
+          (rows) => target.stockDatasetCoverage.createMany({ data: [...rows] }),
         );
       },
     },
     {
       table: "FinancialStatement",
-      async copy(source, target) {
-        const rows = await source.financialStatement.findMany({ where });
-        // `values` is `JSONB` and Prisma's read type admits `null`, which its create type does not.
-        // A statement row never actually carries JSON null, so the document is passed through as
-        // the input type rather than being reshaped.
-        return insertBatches(
-          rows.map((row) => ({
-            ...row,
-            values: row.values as Prisma.InputJsonValue,
-          })),
-          (batch) =>
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.financialStatement.findMany({
+              where,
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.financialStatement.deleteMany({ where }),
+          (rows) =>
+            // `values` is `JSONB` and Prisma's read type admits `null`, which its create type does
+            // not. A statement row never actually carries JSON null, so the document is passed
+            // through as the input type rather than being reshaped.
             target.financialStatement.createMany({
-              data: batch,
-              skipDuplicates: true,
+              data: rows.map((row) => ({
+                ...row,
+                values: row.values as Prisma.InputJsonValue,
+              })),
             }),
         );
       },
@@ -203,90 +302,98 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
     {
       table: "DailyPrice",
       async copy(source, target) {
-        let written = 0;
-        for (const securityId of securityIds) {
-          written += await copyPaged(
-            (skip) =>
-              source.dailyPrice.findMany({
-                where: { securityId },
-                orderBy: { date: "asc" },
-                skip,
-                take: PAGE,
-              }),
-            (batch) =>
-              target.dailyPrice.createMany({
-                data: batch,
-                skipDuplicates: true,
-              }),
-          );
-        }
-        return written;
+        return totalMirrored(
+          await perSecurity(securityIds, (securityId) =>
+            mirrorScope(
+              (skip, take) =>
+                source.dailyPrice.findMany({
+                  where: { securityId },
+                  orderBy: { date: "asc" },
+                  skip,
+                  take,
+                }),
+              () => target.dailyPrice.deleteMany({ where: { securityId } }),
+              (rows) => target.dailyPrice.createMany({ data: [...rows] }),
+            ),
+          ),
+        );
       },
     },
     {
       table: "WeeklyPrice",
       async copy(source, target) {
-        let written = 0;
-        for (const securityId of securityIds) {
-          written += await copyPaged(
-            (skip) =>
-              source.weeklyPrice.findMany({
-                where: { securityId },
-                orderBy: { weekStartDate: "asc" },
-                skip,
-                take: PAGE,
-              }),
-            (batch) =>
-              target.weeklyPrice.createMany({
-                data: batch,
-                skipDuplicates: true,
-              }),
-          );
-        }
-        return written;
+        return totalMirrored(
+          await perSecurity(securityIds, (securityId) =>
+            mirrorScope(
+              (skip, take) =>
+                source.weeklyPrice.findMany({
+                  where: { securityId },
+                  orderBy: { weekStartDate: "asc" },
+                  skip,
+                  take,
+                }),
+              () => target.weeklyPrice.deleteMany({ where: { securityId } }),
+              (rows) => target.weeklyPrice.createMany({ data: [...rows] }),
+            ),
+          ),
+        );
       },
     },
     {
       table: "DailyDerivedState",
       async copy(source, target) {
-        let written = 0;
-        for (const securityId of securityIds) {
-          written += await copyPaged(
-            (skip) =>
-              source.dailyDerivedState.findMany({
-                where: { securityId },
-                orderBy: { date: "asc" },
-                skip,
-                take: PAGE,
-              }),
-            (batch) =>
-              target.dailyDerivedState.createMany({
-                data: batch,
-                skipDuplicates: true,
-              }),
-          );
-        }
-        return written;
-      },
-    },
-    {
-      table: "Benchmark",
-      async copy(source, target) {
-        const rows = await source.benchmark.findMany();
-        return insertBatches(rows, (batch) =>
-          target.benchmark.createMany({ data: batch, skipDuplicates: true }),
+        return totalMirrored(
+          await perSecurity(securityIds, (securityId) =>
+            mirrorScope(
+              (skip, take) =>
+                source.dailyDerivedState.findMany({
+                  where: { securityId },
+                  orderBy: { date: "asc" },
+                  skip,
+                  take,
+                }),
+              () =>
+                target.dailyDerivedState.deleteMany({ where: { securityId } }),
+              (rows) =>
+                target.dailyDerivedState.createMany({ data: [...rows] }),
+            ),
+          ),
         );
       },
     },
     {
+      table: "Benchmark",
+      copy(source, target) {
+        return reconcileIdentityRows({
+          readSource: () => source.benchmark.findMany(),
+          readTarget: () => target.benchmark.findMany(),
+          insertTarget: (rows) =>
+            insertBatches(rows, (batch) =>
+              target.benchmark.createMany({ data: batch }),
+            ),
+          updateTarget: async ({ id, updatedAt: _updatedAt, ...data }) => {
+            await target.benchmark.update({ where: { id }, data });
+          },
+        });
+      },
+    },
+    {
       table: "BenchmarkSeries",
-      async copy(source, target) {
-        const rows = await source.benchmarkSeries.findMany();
-        return insertBatches(rows, (batch) =>
-          target.benchmarkSeries.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        // `BenchmarkSeries` has no `updatedAt`, so every one of its columns is compared.
+        return reconcileIdentityRows(
+          {
+            readSource: () => source.benchmarkSeries.findMany(),
+            readTarget: () => target.benchmarkSeries.findMany(),
+            insertTarget: (rows) =>
+              insertBatches(rows, (batch) =>
+                target.benchmarkSeries.createMany({ data: batch }),
+              ),
+            updateTarget: async ({ id, ...data }) => {
+              await target.benchmarkSeries.update({ where: { id }, data });
+            },
+          },
+          [],
         );
       },
     },
@@ -295,72 +402,66 @@ function copiers(securityIds: readonly string[]): readonly Copier[] {
       async copy(source, target) {
         const series = await source.benchmarkSeries.findMany({
           select: { id: true },
+          orderBy: { id: "asc" },
         });
-        let written = 0;
-        for (const { id } of series) {
-          written += await copyPaged(
-            (skip) =>
-              source.benchmarkDailyPrice.findMany({
-                where: { seriesId: id },
-                orderBy: { date: "asc" },
-                skip,
-                take: PAGE,
-              }),
-            (batch) =>
-              target.benchmarkDailyPrice.createMany({
-                data: batch,
-                skipDuplicates: true,
-              }),
+        const results: MirrorResult[] = [];
+        for (const { id: seriesId } of series) {
+          results.push(
+            await mirrorScope(
+              (skip, take) =>
+                source.benchmarkDailyPrice.findMany({
+                  where: { seriesId },
+                  orderBy: { date: "asc" },
+                  skip,
+                  take,
+                }),
+              () =>
+                target.benchmarkDailyPrice.deleteMany({ where: { seriesId } }),
+              (rows) =>
+                target.benchmarkDailyPrice.createMany({ data: [...rows] }),
+            ),
           );
         }
-        return written;
+        return totalMirrored(results);
       },
     },
     {
       table: "BenchmarkDatasetState",
-      async copy(source, target) {
-        const rows = await source.benchmarkDatasetState.findMany();
-        return insertBatches(rows, (batch) =>
-          target.benchmarkDatasetState.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.benchmarkDatasetState.findMany({
+              orderBy: [
+                { seriesId: "asc" },
+                { dataset: "asc" },
+                { variant: "asc" },
+              ],
+              skip,
+              take,
+            }),
+          () => target.benchmarkDatasetState.deleteMany({}),
+          (rows) =>
+            target.benchmarkDatasetState.createMany({ data: [...rows] }),
         );
       },
     },
     {
       table: "BenchmarkDatasetCoverage",
-      async copy(source, target) {
-        const rows = await source.benchmarkDatasetCoverage.findMany();
-        return insertBatches(rows, (batch) =>
-          target.benchmarkDatasetCoverage.createMany({
-            data: batch,
-            skipDuplicates: true,
-          }),
+      copy(source, target) {
+        return mirrorScope(
+          (skip, take) =>
+            source.benchmarkDatasetCoverage.findMany({
+              orderBy: { id: "asc" },
+              skip,
+              take,
+            }),
+          () => target.benchmarkDatasetCoverage.deleteMany({}),
+          (rows) =>
+            target.benchmarkDatasetCoverage.createMany({ data: [...rows] }),
         );
       },
     },
   ];
-}
-
-async function copyPaged<T>(
-  read: (skip: number) => Promise<T[]>,
-  insert: (batch: T[]) => Promise<{ count: number }>,
-): Promise<number> {
-  let skip = 0;
-  let written = 0;
-  for (;;) {
-    const page = await read(skip);
-    if (page.length === 0) {
-      return written;
-    }
-    const result = await insert(page);
-    written += result.count;
-    skip += page.length;
-    if (page.length < PAGE) {
-      return written;
-    }
-  }
 }
 
 /**
@@ -403,10 +504,12 @@ export async function copyCanonicalMarketData(
     const copied: Record<string, number> = {};
     for (const copier of copiers(securityIds)) {
       const startedAt = Date.now();
-      const count = await copier.copy(source, target);
-      copied[copier.table] = count;
+      const outcome = await copier.copy(source, target);
+      copied[copier.table] = outcome.inserted;
       progress(
-        `copied ${copier.table}: ${count} row(s) in ${Date.now() - startedAt}ms`,
+        `copied ${copier.table}: ${describeOutcome(outcome)} in ${
+          Date.now() - startedAt
+        }ms`,
       );
     }
 
@@ -448,6 +551,54 @@ async function assertCalendarCopied(target: PrismaClient): Promise<void> {
   }
 }
 
+/** The little of a Redis client this needs, so the flush can be tested without a server. */
+export type MatrixProjectionStore = {
+  flushdb(): Promise<unknown>;
+  disconnect(): void;
+};
+
+/**
+ * Discards the matrix environment's Redis projections.
+ *
+ * Redis holds *projections* of the copied data — yearly price chunks, derived-state chunks, the
+ * per-security manifest, the benchmark series. They are disposable by design and rebuilt from
+ * PostgreSQL, but nothing invalidates them when the copy underneath changes: a manifest whose
+ * dataset versions still match is trusted, so a projection built from the previous copy keeps being
+ * served. That is the same defect as AUD-06 one layer up, and it showed itself as one: after the
+ * matrix data was re-copied with a settled final bar, the runs still priced the benchmark from the
+ * cached in-session bar (SPY 2026-09-22 close 773.44 against the stored 773.38) and invariant 17
+ * failed on the final date of 494 of them.
+ *
+ * So provisioning ends by emptying the matrix Redis index. `resolveMatrixEnvironment` has already
+ * required that index to be the matrix's own and not the development one; this additionally
+ * requires the URL to name exactly the index the environment reports, because `FLUSHDB` is
+ * irreversible and a client connected to the wrong index would empty a live cache.
+ */
+export async function discardMatrixProjections(
+  environment: MatrixEnvironment,
+  progress: ProvisionProgress,
+  connect: (url: string) => MatrixProjectionStore = (url) =>
+    createStockDataRedisClient(url),
+): Promise<void> {
+  const index = Number(new URL(environment.redisUrl).pathname.slice(1));
+  if (!Number.isInteger(index) || index !== environment.redisDb) {
+    throw new Error(
+      `The matrix Redis URL names index \`${new URL(environment.redisUrl).pathname}\` while the ` +
+        `environment reports database ${environment.redisDb}. Refusing to flush: the two must ` +
+        "agree, or the flush could empty a cache that belongs to something else.",
+    );
+  }
+  const redis = connect(environment.redisUrl);
+  try {
+    await redis.flushdb();
+    progress(
+      `discarded the Redis projections in database ${index}; they rebuild from PostgreSQL on first read`,
+    );
+  } finally {
+    redis.disconnect();
+  }
+}
+
 export async function provisionMatrixDatabase(
   environment: MatrixEnvironment,
   progress: ProvisionProgress,
@@ -462,6 +613,9 @@ export async function provisionMatrixDatabase(
     environment,
     progress,
   );
+  // After the copy, not before: a projection rebuilt from the half-copied data would be exactly
+  // what this is here to prevent.
+  await discardMatrixProjections(environment, progress);
   return {
     databaseCreated,
     migrationsApplied,

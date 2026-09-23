@@ -203,7 +203,75 @@ export type FinancialStatement<T extends FinancialStatementType = FinancialState
   values: FinancialStatementValuesByType[T];
 };
 
-export type FinancialStatementDraft<T extends FinancialStatementType = FinancialStatementType> = {
+/**
+ * The regulatory deadlines FactorSage falls back on when the provider gives no usable filing date.
+ *
+ * The widest statutory deadline for each report is used on purpose. A filer's class is not in this
+ * product's data, and the widest class (non-accelerated) bounds every other one: 45 days after a
+ * quarter for a 10-Q, 90 days after a fiscal year for a 10-K. A `Q4` statement is published with
+ * the annual report rather than a fourth 10-Q, so it takes the annual deadline.
+ *
+ * Being late is safe; being early is look-ahead. See
+ * `docs/data-correctness-audit/FINAL_DATA_CORRECTNESS_AUDIT.md` (AUD-03).
+ */
+export const QUARTERLY_REPORT_DEADLINE_DAYS = 45;
+export const ANNUAL_REPORT_DEADLINE_DAYS = 90;
+
+function addCalendarDays(date: LocalDate, days: number): LocalDate {
+  return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/** Saturday and Sunday push a regulatory due date to the following Monday. */
+function nextBusinessDay(date: LocalDate): LocalDate {
+  const weekday = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return weekday === 6
+    ? addCalendarDays(date, 2)
+    : weekday === 0
+      ? addCalendarDays(date, 1)
+      : date;
+}
+
+/**
+ * The first date a statement's figures may be used by a historical calculation.
+ *
+ * **The rule.** A statement may not affect a historical decision before its information could
+ * reasonably have been public. Where the provider supplies a real filing date, that date plus one
+ * day is that boundary: the filing is public once it is filed, and the following day is the first
+ * whole session that could trade on it.
+ *
+ * **Where the provider does not.** FMP reports the fiscal period end in `filingDate` (and in
+ * `acceptedDate`) for statements whose real filing date it does not hold — it did so for 2,391 of
+ * the 16,793 statements this product had stored, including every DIS quarter before the 2019
+ * restructuring and every GOOGL quarter before Alphabet's 2015 Q3. Deriving availability from that
+ * makes a quarter's results usable the day after the quarter closed, weeks before any filing
+ * existed, which is look-ahead. Such a date is not a filing date at all, so the fallback is the
+ * latest date the report could lawfully have appeared: the statutory deadline, moved to the next
+ * business day when it lands on a weekend, plus one day.
+ *
+ * The fallback deliberately claims no precision it does not have. It can make information visible
+ * later than it really was — for a large accelerated filer by up to a month — and never earlier.
+ */
+export function statementPublicAvailabilityDate(statement: {
+  fiscalDate: LocalDate;
+  filingDate: LocalDate;
+  period: FinancialPeriod;
+}): LocalDate {
+  if (statement.filingDate > statement.fiscalDate) {
+    return addCalendarDays(statement.filingDate, 1);
+  }
+  const deadline =
+    statement.period === "FY" || statement.period === "Q4"
+      ? ANNUAL_REPORT_DEADLINE_DAYS
+      : QUARTERLY_REPORT_DEADLINE_DAYS;
+  const due = nextBusinessDay(addCalendarDays(statement.fiscalDate, deadline));
+  return addCalendarDays(due, 1);
+}
+
+export type FinancialStatementDraft<
+  T extends FinancialStatementType = FinancialStatementType,
+> = {
   securityId: SecurityId;
   statementType: T;
   fiscalDate: LocalDate;

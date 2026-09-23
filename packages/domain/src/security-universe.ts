@@ -61,6 +61,62 @@ export function tradingSessionDate(instant: Date): LocalDate {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+/** The local hour the supported venues close their regular session at. */
+const SESSION_CLOSE_LOCAL_HOUR = 16;
+
+const SESSION_WALL_CLOCK_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: SUPPORTED_EXCHANGE_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** How far the venue's wall clock is ahead of UTC at an instant, in milliseconds (negative here). */
+function venueOffsetMs(instant: Date): number {
+  const parts = SESSION_WALL_CLOCK_FORMAT.formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((candidate) => candidate.type === type)?.value ?? "0");
+  return (
+    Date.UTC(
+      part("year"),
+      part("month") - 1,
+      part("day"),
+      part("hour"),
+      part("minute"),
+      part("second"),
+    ) - instant.valueOf()
+  );
+}
+
+/**
+ * The instant a session closed, for a session named by its product date.
+ *
+ * This is the inverse of {@link tradingSessionDate} at one moment of the day: the 16:00 regular
+ * close in {@link SUPPORTED_EXCHANGE_TIMEZONE}. It exists because a product date is what an
+ * observation is recorded under, while a UI that says "2 days ago" needs an instant — and taking
+ * the instant something was *written* instead dates a historically reconstructed observation to the
+ * scan that found it (AUD-05).
+ *
+ * Pure, and exact for the supported venues: all of them close at 16:00 local, and 16:00 is never
+ * inside a daylight-saving transition, so resolving the offset once at an approximate instant and
+ * again at the corrected one is not an approximation. It is a clock, not a calendar: it says when a
+ * session would have closed, not whether the venue traded that day.
+ */
+export function tradingSessionCloseInstant(date: LocalDate): Date {
+  const wallClock = Date.parse(
+    `${date}T${String(SESSION_CLOSE_LOCAL_HOUR).padStart(2, "0")}:00:00.000Z`,
+  );
+  if (Number.isNaN(wallClock)) {
+    throw new Error(`\`${date}\` is not a canonical YYYY-MM-DD product date.`);
+  }
+  const approximate = new Date(wallClock - venueOffsetMs(new Date(wallClock)));
+  return new Date(wallClock - venueOffsetMs(approximate));
+}
+
 /**
  * A candidate row from a bulk provider universe, before this product decides whether it belongs in
  * the `Security` catalog. Deliberately structural: the domain must not depend on a provider package.

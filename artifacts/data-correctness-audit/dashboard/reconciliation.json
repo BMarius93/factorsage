@@ -1,0 +1,10 @@
+{
+  "session": "2026-09-21",
+  "expectedRows": 30,
+  "comparisons": {
+    "compared": 774,
+    "failed": 0,
+    "skipped": 0
+  },
+  "differences": []
+}

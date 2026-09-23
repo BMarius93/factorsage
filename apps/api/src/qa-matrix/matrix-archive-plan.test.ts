@@ -36,6 +36,36 @@ describe("a full 1,000-case sweep", () => {
   });
 });
 
+describe("--archive-all, the data-correctness audit mode", () => {
+  const plan = planMatrixArchives({
+    archiveRequested: true,
+    archiveAll: true,
+    selectedCases: QA_MATRIX_TOTAL_CASES,
+    goldenCases: GOLDEN,
+    determinismEnabled: true,
+  });
+
+  it("captures every one of the thousand in the sweep pool", () => {
+    expect(plan.mainPool).toBe("full");
+    expect(plan.expectedArchives).toBe(1_000);
+    expect(plan.refusal).toBeNull();
+  });
+
+  it("does not capture the golden set a second time in the rerun", () => {
+    expect(plan.rerunPool).toBe("off");
+  });
+
+  it("is never implied by --archive alone", () => {
+    const ordinary = planMatrixArchives({
+      archiveRequested: true,
+      selectedCases: QA_MATRIX_TOTAL_CASES,
+      goldenCases: GOLDEN,
+      determinismEnabled: true,
+    });
+    expect(ordinary.expectedArchives).toBe(GOLDEN);
+  });
+});
+
 describe("an explicit selection", () => {
   it("gives exactly one archive for one case", () => {
     const plan = planMatrixArchives({

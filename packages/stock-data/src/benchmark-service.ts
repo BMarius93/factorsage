@@ -170,7 +170,14 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
       BENCHMARK_DAILY_PRICE_VARIANT,
       target,
     );
-    const missing = missingCoverageRanges(target, coverage);
+    // A gap that extends the leading edge also re-reads what the previous sync fetched while it
+    // was still unsettled — the same rule as the stock loader's `unsettledTailStart` (AUD-04).
+    const unsettledFrom = await this.unsettledTailStart(series, target);
+    const missing = missingCoverageRanges(target, coverage).map((range) =>
+      unsettledFrom !== undefined && range.to >= target.to
+        ? { from: minDate(range.from, unsettledFrom), to: range.to }
+        : range,
+    );
 
     // The recent tail is mutable until a session closes, so it is re-read when the durable
     // freshness watermark has aged past the configured window — and only then. Reading it
@@ -183,7 +190,7 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
     const reachesPresent = target.to >= this.today();
     const tail =
       reachesPresent && (await this.isTailStale(series))
-        ? this.recentTailRange(target)
+        ? this.recentTailRange(target, unsettledFrom)
         : null;
     const ranges = tail ? [...missing, tail] : missing;
 
@@ -356,12 +363,42 @@ export class CanonicalBenchmarkDataService implements BenchmarkDataService {
 
   private recentTailRange(
     target: Required<DateRange>,
+    unsettledFrom: string | undefined,
   ): Required<DateRange> | null {
-    const from = maxDate(
+    const tailFrom = maxDate(
       addDays(target.to, -this.recentTailCalendarDays),
       target.from,
     );
+    const from =
+      unsettledFrom === undefined ? tailFrom : minDate(tailFrom, unsettledFrom);
     return from <= target.to ? { from, to: target.to } : null;
+  }
+
+  /**
+   * The start of the previous leading-edge sync's own tail window, or undefined.
+   *
+   * Re-reading only the tail behind today leaves a bar the previous sync fetched while it was
+   * still in progress — or a session it asked for before it existed — wrong for good once the next
+   * sync is more than `recentTailCalendarDays` later. The execution calendar is this series' own
+   * bars, so a session lost that way would disappear from every backtest.
+   */
+  private async unsettledTailStart(
+    series: BenchmarkSeries,
+    target: Required<DateRange>,
+  ): Promise<string | undefined> {
+    const state = await this.store.getDatasetState(
+      series.id,
+      "DAILY_PRICE",
+      BENCHMARK_DAILY_PRICE_FRESHNESS_VARIANT,
+    );
+    const previousTail = state?.latestDate;
+    if (previousTail === undefined || previousTail > target.to) {
+      return undefined;
+    }
+    return maxDate(
+      addDays(previousTail, -this.recentTailCalendarDays),
+      target.from,
+    );
   }
 
   private isStale(manifest: { materializedAt: string }): boolean {

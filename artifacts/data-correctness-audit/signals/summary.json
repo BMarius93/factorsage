@@ -1,0 +1,484 @@
+{
+  "sessions": [
+    "2026-09-18",
+    "2026-09-21"
+  ],
+  "monitors": [
+    "DCA-AUDIT-S01xL08-conditions",
+    "DCA-AUDIT-S02xL08-triggers",
+    "DCA-AUDIT-S06xL08-conditions+trigger",
+    "DCA-AUDIT-S04xL10-windows",
+    "DCA-AUDIT-S03xL05-weekly",
+    "DCA-AUDIT-S10xL02-rsi-events"
+  ],
+  "scans": [
+    {
+      "asOf": "2026-09-18",
+      "summary": {
+        "monitors": 6,
+        "symbols": 30,
+        "evaluations": 191,
+        "signalsEmitted": 26,
+        "signalsResolved": 0,
+        "transitionsRecorded": 26,
+        "levelsReconstructed": 191,
+        "reconstructionHistoryExtensions": 3,
+        "notEvaluable": 0,
+        "symbolsWithoutCurrentData": 0,
+        "symbolsOutsideTradingSession": 0,
+        "symbolsWithoutSnapshot": 0,
+        "transitionsContended": 0,
+        "transitionsStaleConfiguration": 0,
+        "transitionsUnchanged": 0,
+        "aborted": false
+      }
+    },
+    {
+      "asOf": "2026-09-21",
+      "summary": {
+        "monitors": 6,
+        "symbols": 30,
+        "evaluations": 191,
+        "signalsEmitted": 4,
+        "signalsResolved": 0,
+        "transitionsRecorded": 4,
+        "levelsReconstructed": 0,
+        "reconstructionHistoryExtensions": 0,
+        "notEvaluable": 0,
+        "symbolsWithoutCurrentData": 0,
+        "symbolsOutsideTradingSession": 0,
+        "symbolsWithoutSnapshot": 0,
+        "transitionsContended": 0,
+        "transitionsStaleConfiguration": 0,
+        "transitionsUnchanged": 187,
+        "aborted": false
+      }
+    }
+  ],
+  "firstSession": {
+    "pairs": 191,
+    "active": 26,
+    "pending": 0,
+    "none": 165,
+    "dashboardRows": 26,
+    "absentChecked": 165
+  },
+  "secondSession": {
+    "pairs": 191,
+    "active": 30,
+    "pending": 0,
+    "none": 161,
+    "dashboardRows": 30,
+    "absentChecked": 161
+  },
+  "transitions": {
+    "continued": 26,
+    "ended": 0,
+    "opened": 4,
+    "reopenedEvents": 0
+  },
+  "markovChecked": 61,
+  "sinceEvidence": [
+    {
+      "phase": "[2026-09-18]",
+      "reconstructedRows": 26,
+      "sinceLaterThanActivation": 0,
+      "examples": [
+        {
+          "symbol": "JNJ",
+          "reconstructed": true,
+          "observationDate": "2026-09-17",
+          "since": "2026-09-17T20:00:00.000Z",
+          "close": "2026-09-17T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "GOOGL",
+          "reconstructed": true,
+          "observationDate": "2026-09-11",
+          "since": "2026-09-11T20:00:00.000Z",
+          "close": "2026-09-11T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "AAPL",
+          "reconstructed": true,
+          "observationDate": "2026-09-10",
+          "since": "2026-09-10T20:00:00.000Z",
+          "close": "2026-09-10T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "CRM",
+          "reconstructed": true,
+          "observationDate": "2026-08-19",
+          "since": "2026-08-19T20:00:00.000Z",
+          "close": "2026-08-19T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "AMZN",
+          "reconstructed": true,
+          "observationDate": "2026-07-30",
+          "since": "2026-07-30T20:00:00.000Z",
+          "close": "2026-07-30T20:00:00.000Z",
+          "days": 0
+        }
+      ]
+    },
+    {
+      "phase": "[2026-09-21]",
+      "reconstructedRows": 26,
+      "sinceLaterThanActivation": 0,
+      "examples": [
+        {
+          "symbol": "DIS",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "GS",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "KO",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "XOM",
+          "reconstructed": false,
+          "observationDate": "2026-09-21",
+          "since": "2026-09-21T20:00:00.000Z",
+          "close": "2026-09-21T20:00:00.000Z",
+          "days": 0
+        },
+        {
+          "symbol": "JNJ",
+          "reconstructed": true,
+          "observationDate": "2026-09-17",
+          "since": "2026-09-17T20:00:00.000Z",
+          "close": "2026-09-17T20:00:00.000Z",
+          "days": 0
+        }
+      ]
+    }
+  ],
+  "comparisons": {
+    "compared": 1636,
+    "passed": 1636,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 0
+  },
+  "byCategory": {
+    "dashboard": {
+      "compared": 774,
+      "failed": 0,
+      "skipped": 0
+    },
+    "signals-persisted": {
+      "compared": 170,
+      "failed": 0,
+      "skipped": 0
+    },
+    "signals-reference": {
+      "compared": 61,
+      "failed": 0,
+      "skipped": 0
+    },
+    "signals-state": {
+      "compared": 440,
+      "failed": 0,
+      "skipped": 0
+    },
+    "signals-transitions": {
+      "compared": 191,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "differences": [],
+  "expectedRows": [
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "AAPL",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 253.79,
+      "observationDate": "2026-03-31"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "AMGN",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 338.22,
+      "observationDate": "2026-06-03"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "CAT",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 359.8,
+      "observationDate": "2025-06-18"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "CSCO",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 56.29,
+      "observationDate": "2025-04-24"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "CVX",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 174.01,
+      "observationDate": "2026-07-07"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "DIS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 104.23,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "JNJ",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 164.78,
+      "observationDate": "2025-07-16"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "JPM",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 310.89,
+      "observationDate": "2026-06-04"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "KO",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 70.51,
+      "observationDate": "2026-01-09"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "MMM",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 160.53,
+      "observationDate": "2026-07-15"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "MRK",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 84.39,
+      "observationDate": "2025-11-05"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "MSFT",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 451.1,
+      "observationDate": "2026-07-30"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "TRV",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 272.65,
+      "observationDate": "2026-01-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "UNH",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 313,
+      "observationDate": "2026-04-13"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "XOM",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 109.85,
+      "observationDate": "2025-09-08"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "AMZN",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 235.5,
+      "observationDate": "2026-07-30"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "NVDA",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 195.04,
+      "observationDate": "2026-07-30"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "GS",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 959.39,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "CRM",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 206.09,
+      "observationDate": "2026-08-19"
+    },
+    {
+      "monitor": "DCA-AUDIT-S01xL08-conditions",
+      "symbol": "GOOGL",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 338.5,
+      "observationDate": "2026-09-11"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "AAPL",
+      "levelKind": "BUY",
+      "levelPercentage": 50,
+      "state": "ACTIVE",
+      "price": 227.76,
+      "observationDate": "2025-08-22"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "AAPL",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 326.57,
+      "observationDate": "2026-09-10"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "KO",
+      "levelKind": "BUY",
+      "levelPercentage": 50,
+      "state": "ACTIVE",
+      "price": 70.51,
+      "observationDate": "2026-01-09"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "JNJ",
+      "levelKind": "BUY",
+      "levelPercentage": 50,
+      "state": "ACTIVE",
+      "price": 164.78,
+      "observationDate": "2025-07-16"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "JNJ",
+      "levelKind": "BUY",
+      "levelPercentage": 100,
+      "state": "ACTIVE",
+      "price": 270.22,
+      "observationDate": "2026-09-17"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "MSFT",
+      "levelKind": "FINAL_EXIT",
+      "levelPercentage": null,
+      "state": "ACTIVE",
+      "price": 356.77,
+      "observationDate": "2026-03-27"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "HD",
+      "levelKind": "SELL",
+      "levelPercentage": 50,
+      "state": "ACTIVE",
+      "price": 370.81,
+      "observationDate": "2026-03-02"
+    },
+    {
+      "monitor": "DCA-AUDIT-S03xL05-weekly",
+      "symbol": "HD",
+      "levelKind": "FINAL_EXIT",
+      "levelPercentage": null,
+      "state": "ACTIVE",
+      "price": 383.77,
+      "observationDate": "2026-01-23"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "KO",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 87.12,
+      "observationDate": "2026-09-21"
+    },
+    {
+      "monitor": "DCA-AUDIT-S10xL02-rsi-events",
+      "symbol": "XOM",
+      "levelKind": "BUY",
+      "levelPercentage": 25,
+      "state": "ACTIVE",
+      "price": 158.3,
+      "observationDate": "2026-09-21"
+    }
+  ]
+}

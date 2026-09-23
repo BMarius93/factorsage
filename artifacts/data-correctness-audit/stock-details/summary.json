@@ -1,0 +1,140 @@
+{
+  "window": {
+    "from": "2025-09-23",
+    "to": "2026-09-23"
+  },
+  "symbols": [
+    {
+      "symbol": "KO",
+      "why": "long-history large cap, dividend payer (DDM and the Dividend blend available)"
+    },
+    {
+      "symbol": "AAPL",
+      "why": "split history (7:1 2014, 4:1 2020); long price history"
+    },
+    {
+      "symbol": "NVDA",
+      "why": "split history (4:1 2021, 10:1 2024)"
+    },
+    {
+      "symbol": "MRNA",
+      "why": "newer listing (2018), short history, recent losses (Graham/RI unavailable)"
+    },
+    {
+      "symbol": "AMZN",
+      "why": "no common dividend (DDM and the Dividend blend unavailable)"
+    },
+    {
+      "symbol": "DIS",
+      "why": "provider filing dates equal to period ends before 2019 (look-ahead finding)"
+    },
+    {
+      "symbol": "V",
+      "why": "listing inside the horizon (2008)"
+    },
+    {
+      "symbol": "GOOGL",
+      "why": "splits and a reporting-entity change in 2015"
+    },
+    {
+      "symbol": "CRM",
+      "why": "initiated a dividend in 2024 (DDM availability changes)"
+    },
+    {
+      "symbol": "XOM",
+      "why": "energy cyclicality: negative earnings in 2020"
+    }
+  ],
+  "perSymbol": {
+    "KO": {
+      "why": "long-history large cap, dividend payer (DDM and the Dividend blend available)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "AAPL": {
+      "why": "split history (7:1 2014, 4:1 2020); long price history",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "NVDA": {
+      "why": "split history (4:1 2021, 10:1 2024)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "MRNA": {
+      "why": "newer listing (2018), short history, recent losses (Graham/RI unavailable)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "AMZN": {
+      "why": "no common dividend (DDM and the Dividend blend unavailable)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "DIS": {
+      "why": "provider filing dates equal to period ends before 2019 (look-ahead finding)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "V": {
+      "why": "listing inside the horizon (2008)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "GOOGL": {
+      "why": "splits and a reporting-entity change in 2015",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "CRM": {
+      "why": "initiated a dividend in 2024 (DDM availability changes)",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    },
+    "XOM": {
+      "why": "energy cyclicality: negative earnings in 2020",
+      "bars": 251,
+      "technicalValues": 4267,
+      "intrinsicPoints": 1757
+    }
+  },
+  "comparisons": {
+    "compared": 71433,
+    "passed": 71433,
+    "failed": 0,
+    "skipped": 0,
+    "tolerancePasses": 51323
+  },
+  "byCategory": {
+    "stock-details": {
+      "compared": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "stock-details-intrinsic": {
+      "compared": 26233,
+      "failed": 0,
+      "skipped": 0
+    },
+    "stock-details-prices": {
+      "compared": 2520,
+      "failed": 0,
+      "skipped": 0
+    },
+    "stock-details-technicals": {
+      "compared": 42670,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "differences": []
+}

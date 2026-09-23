@@ -64,6 +64,7 @@ import {
   DERIVED_STATE_REVISION,
 } from "./derived-state.js";
 import {
+  DAILY_PRICE_FRESHNESS_VARIANT,
   DAILY_PRICE_VARIANT,
   PRICE_DATASET_VERSION,
   type DailyPriceBounds,
@@ -191,6 +192,14 @@ export function priceRetentionYears(productHistoryYears: number): number {
  * Exhaustion is unaffected either way: the chart pins at the first bar it holds.
  */
 const PROVIDER_BOUNDARY_MIN_GAP_DAYS = 7;
+
+/**
+ * Lower bound for "every bar this security has", used when asking the store for its earliest one.
+ *
+ * A date rather than an unbounded query, because the store's bounds read takes a range. No equity
+ * series this product can hold starts before it.
+ */
+const EARLIEST_PERSISTED_PRICE_DATE = "1900-01-01";
 
 const FUNDAMENTALS_BACKFILL_QUARTERLY_TAIL = 8;
 const FUNDAMENTALS_BACKFILL_ANNUAL_TAIL = 2;
@@ -1054,9 +1063,15 @@ export class CanonicalStockDataService implements StockDataService {
       DAILY_PRICE_VARIANT,
       target,
     );
-    const missing = missingCoverageRanges(target, coverage).map((range) =>
-      this.requireBoundedRange(range),
-    );
+    const unsettledFrom = await this.unsettledTailStart(security, target);
+    const missing = missingCoverageRanges(target, coverage).map((range) => {
+      const bounded = this.requireBoundedRange(range);
+      // A gap that extends the leading edge also re-reads what the previous sync fetched while it
+      // was still unsettled; see `unsettledTailStart`.
+      return unsettledFrom !== undefined && bounded.to >= target.to
+        ? { from: minDate(bounded.from, unsettledFrom), to: bounded.to }
+        : bounded;
+    });
     const loaded = [];
     for (const delta of missing) {
       this.onProviderRequest({
@@ -1381,10 +1396,22 @@ export class CanonicalStockDataService implements StockDataService {
     from: string,
     lease: LoadLease,
   ): Promise<DailyDerivedState[]> {
+    // The canonical calculation window: every bar this security has, not the window the caller
+    // happened to ask for. `movingAverage` seeds an EMA from the first complete window of the
+    // series it is given and Wilder's RSI from the first `period` changes of it, so both carry the
+    // start of the series in every later value. Calculating over a load window whose start moves
+    // with the clock therefore made consecutive rebuilds disagree about rows they both wrote
+    // (AUD-02). Anchoring on the earliest persisted bar makes the stored series a pure function of
+    // the stored prices: it moves only when an earlier bar actually arrives, and the backfill that
+    // brings one reports it as the earliest changed date, which rebuilds from there.
+    const calculation = await this.calculationPrices(security, target, prices);
     const weeklyBars = aggregateCompletedWeeks(
-      prices,
+      calculation.prices,
       target.to,
-      this.weeklyHistoryContext(security, target),
+      this.weeklyHistoryContext(
+        security,
+        calculation.prices[0]?.date ?? calculation.range.from,
+      ),
     );
     // One bounded read of immutable revisions, not the latest-revision selector: the materializer
     // needs each revision's own availableFromDate as a distinct evaluation event.
@@ -1396,11 +1423,11 @@ export class CanonicalStockDataService implements StockDataService {
     });
     const intrinsicStates = materializeDailyIntrinsicValues({
       securityId: security.id,
-      tradingDates: prices.map((price) => price.date),
+      tradingDates: calculation.prices.map((price) => price.date),
       statements,
     });
     const rows = buildDailyDerivedState({
-      prices,
+      prices: calculation.prices,
       weeklyBars,
       intrinsicStates,
     }).filter((row) => row.date >= from);
@@ -1420,6 +1447,35 @@ export class CanonicalStockDataService implements StockDataService {
       assertOwned: lease.assertOwned,
     });
     return rows;
+  }
+
+  /**
+   * The bars a derived rebuild calculates from, and the range they cover.
+   *
+   * `prices` is what the caller already loaded for its own window. When the security has older
+   * persisted bars than that, they are read as well: the series' start is part of every recursive
+   * value, so it must be a property of the stored data rather than of the request that triggered
+   * the rebuild. One read of at most the retained history, on a path that is already writing
+   * thousands of rows.
+   */
+  private async calculationPrices(
+    security: Security,
+    target: Required<DateRange>,
+    prices: readonly DailyPrice[],
+  ): Promise<{ prices: readonly DailyPrice[]; range: Required<DateRange> }> {
+    const bounds = await this.store.getDailyPriceBounds(security.id, {
+      from: EARLIEST_PERSISTED_PRICE_DATE,
+      to: target.to,
+    });
+    const earliest = bounds?.firstDate;
+    if (!earliest || earliest >= target.from) {
+      return { prices, range: target };
+    }
+    const range = { from: earliest, to: target.to };
+    return {
+      prices: await this.store.getDailyPrices(security.id, range),
+      range,
+    };
   }
 
   /**
@@ -1459,11 +1515,16 @@ export class CanonicalStockDataService implements StockDataService {
     lastPriceRefreshAt: string;
     derivedRebuildStart: string;
   }> {
+    const unsettledFrom = await this.unsettledTailStart(security, target);
+    const tailFrom = maxDate(
+      addDays(target.to, -this.recentTailCalendarDays),
+      target.from,
+    );
     const refreshRange = {
-      from: maxDate(
-        addDays(target.to, -this.recentTailCalendarDays),
-        target.from,
-      ),
+      from:
+        unsettledFrom === undefined
+          ? tailFrom
+          : minDate(tailFrom, unsettledFrom),
       to: target.to,
     };
     const previousState = await this.store.getDatasetState(
@@ -2083,14 +2144,20 @@ export class CanonicalStockDataService implements StockDataService {
     );
   }
 
-  private weeklyHistoryContext(
-    security: Security,
-    target: Required<DateRange>,
-  ) {
+  /**
+   * Whether the first week of a calculation is a real trading week or one the history's start cut
+   * in half, given the earliest bar the calculation actually has.
+   *
+   * Anchored on that bar rather than on the requested range for the same reason the calculation
+   * itself is (AUD-02): a partial first week changes every later weekly average, so which week the
+   * series starts with must be a property of the stored prices and not of the read that triggered
+   * the rebuild.
+   */
+  private weeklyHistoryContext(security: Security, historyStart: LocalDate) {
     return {
-      historyStart: target.from,
+      historyStart,
       historyStartOrigin:
-        security.ipoDate && security.ipoDate >= target.from
+        security.ipoDate && security.ipoDate >= historyStart
           ? ("LISTING" as const)
           : ("HORIZON" as const),
     };
@@ -2169,6 +2236,38 @@ export class CanonicalStockDataService implements StockDataService {
       throw new StockDataValidationError("Invalid stock symbol");
     }
     return normalized;
+  }
+
+  /**
+   * Where the previous leading-edge price sync stopped being trustworthy, or undefined.
+   *
+   * The provider's EOD feed serves the current session as an in-progress bar, and a request whose
+   * `to` is the UTC day can run before the New York session of that date exists. Either way the
+   * previous sync's recent tail (`recentTailCalendarDays` behind its tail date) may hold a bar that
+   * later changed or a session that was not yet published — while coverage already claims it.
+   * Refreshing only the tail behind *today* re-reads that window only if the next sync happens
+   * within those days; after a longer pause the provisional bar or the missing session would be
+   * permanent (data-correctness audit AUD-04: MRNA 2026-09-04 missing, MRNA 2026-09-09 left at an
+   * in-session 137.395 against a final 135.61). So every leading-edge sync reaches back to the
+   * previous sync's own tail window as well: each date is fetched again once after it settles.
+   */
+  private async unsettledTailStart(
+    security: Security,
+    target: Required<DateRange>,
+  ): Promise<string | undefined> {
+    const freshness = await this.store.getDatasetState(
+      security.id,
+      "DAILY_PRICE",
+      DAILY_PRICE_FRESHNESS_VARIANT,
+    );
+    const previousTail = freshness?.latestDate;
+    if (previousTail === undefined || previousTail > target.to) {
+      return undefined;
+    }
+    return maxDate(
+      addDays(previousTail, -this.recentTailCalendarDays),
+      target.from,
+    );
   }
 
   private today(): string {

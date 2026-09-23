@@ -258,6 +258,7 @@ where six were intended. The fix is a second pool rather than a filter:
 | `--golden --archive` | **full** | off | 6 |
 | `--case S03-L07-C04 --archive` | **full** | off | 1 |
 | `--archive --no-determinism` | off | off | 0 — rerun with `--golden --archive` |
+| `pnpm qa:matrix:run --archive-all` | **full** | off | **1,000** |
 | no `--archive` | off | off | 0 |
 
 The golden combinations are re-executed for the determinism check anyway, so capturing them there
@@ -454,6 +455,7 @@ QA_MATRIX_AS_OF_DATE=2026-09-09 pnpm qa:matrix:run    # pin the clock for a repr
 | `--case <ids>`      | run only these, comma-separated; unknown ids are an error           |
 | `--golden`          | run only the golden combinations                                     |
 | `--archive`         | capture forensic archives and verify invariants 36–38 from them      |
+| `--archive-all`     | capture an archive for **every** case (≈650 MB), for the data-correctness audit's reference backtester |
 | `--concurrency <n>` | worker processes, 1–32                                               |
 | `--timeout <s>`     | per-run terminal-status deadline, default 2,700 s                    |
 | `--no-warmup`       | skip the serial warm-up                                              |

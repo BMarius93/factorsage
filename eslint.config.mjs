@@ -40,6 +40,20 @@ export default tseslint.config(
     rules: { "@typescript-eslint/no-require-imports": "off" }
   },
   {
+    // The data-correctness audit's reference implementations must stay independent of the
+    // production logic they check: an oracle that imported the engine would agree with every bug
+    // it exists to find (docs/data-correctness-audit/README.md).
+    files: ["apps/api/src/data-correctness-audit/oracle/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          group: ["@intrinsic/*", "../*", "@prisma/*"],
+          message: "Audit oracles may import only primitives (decimal.js) and each other."
+        }]
+      }]
+    }
+  },
+  {
     // Every Playwright spec runs on the shared fixtures (E2E-006): the logo stub and the provider
     // image block apply to a test only if its `test` comes from `e2e/fixtures.ts`.
     files: ["apps/web/e2e/**/*.ts"],

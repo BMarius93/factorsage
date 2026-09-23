@@ -21,6 +21,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { ContentViewer } from "../builtins/content-access";
 import { PrismaService } from "../database/prisma.service";
 import { EntitlementsService } from "../entitlements/entitlements.service";
+import { monitorStateSince } from "../monitors/signal-since";
 import { DASHBOARD_LOGGER, DASHBOARD_OPTIONS } from "./dashboard.tokens";
 
 export type DashboardOptions = {
@@ -282,7 +283,11 @@ export class DashboardService {
         ...(observationDate
           ? { observationDate: observationDate.toISOString().slice(0, 10) }
           : {}),
-        since: state.lifecycleSince.toISOString(),
+        // The session the row reports, not the scan that wrote it (AUD-05).
+        since: monitorStateSince({
+          observationDate,
+          enteredAt: state.lifecycleSince,
+        }),
         reconstructed: active ? signal!.reconstructed : false,
         ...(active ? { signalId: signal!.id } : {}),
       });
