@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { loadRootEnv } from "@intrinsic/config";
 import { PrismaClient } from "@intrinsic/database";
 import { resolveTestPersona } from "@intrinsic/testing";
@@ -351,7 +351,9 @@ async function main(): Promise<void> {
           detail: { byKey: provenance.byKey },
         }),
       );
-      context.sweep = sweep;
+      // The sweep's own directory name, not its absolute path: this artifact is committed as
+      // evidence, and a reviewer on another machine has no use for somebody's home directory.
+      context.sweep = basename(sweep);
       context.matrixExecution = matrixSummary?.matrixExecutionId ?? null;
     }
 

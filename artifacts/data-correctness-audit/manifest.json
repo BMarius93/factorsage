@@ -1,14 +1,16 @@
 {
-  "generatedAt": "2026-09-22T23:31:52.385Z",
+  "generatedAt": "2026-09-23T18:36:54.381Z",
   "git": {
-    "commit": "2f2ecc86",
+    "commit": "78c6e2c3",
     "branch": "audit-large"
   },
-  "durationMs": 32693,
+  "durationMs": 637940,
   "context": {
     "database": "intrinsic_value_matrix",
     "asOf": "2026-09-22",
-    "securities": 33
+    "securities": 33,
+    "sweep": "2026-09-22-20260922-212011",
+    "matrixExecution": "2026-09-22-20260922-212011"
   },
   "totals": {
     "comparisons": 69814984,
@@ -318,7 +320,7 @@
       "independentOracle": true,
       "endToEnd": false,
       "detail": {
-        "sweep": "/Users/bedrulemarius/Documents/projects/factorsage/.debug/qa-matrix/2026-09-22-20260922-212011",
+        "sweep": "2026-09-22-20260922-212011",
         "scenariosExpected": 1000,
         "scenariosExecuted": 1000,
         "scenariosPassed": 1000,

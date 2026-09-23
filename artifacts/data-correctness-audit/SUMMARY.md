@@ -1,6 +1,6 @@
 # Data-correctness audit — summary
 
-Generated 2026-09-22T23:31:52.385Z at `2f2ecc86` (audit-large), 1 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
+Generated 2026-09-23T18:36:54.381Z at `78c6e2c3` (audit-large), 11 min. Database `intrinsic_value_matrix`, data as of 2026-09-22.
 
 **FAIL** — 69,814,984 comparisons: 69,814,983 passed (7,694,254 of them within a stated tolerance), 1 failed, 0 skipped.
 

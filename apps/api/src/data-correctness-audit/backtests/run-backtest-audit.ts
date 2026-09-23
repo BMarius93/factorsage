@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { PrismaClient } from "@intrinsic/database";
 import { ComparisonLedger } from "../comparison";
 import { dec } from "../oracle/decimal";
@@ -370,7 +370,9 @@ export async function runBacktestSection(input: {
   );
   const overall = new ComparisonLedger(0);
   const totals: BacktestSectionTotals = {
-    sweep,
+    // The directory name only; this summary is committed evidence and an absolute path on the
+    // machine that produced it is noise a reviewer cannot use.
+    sweep: basename(sweep),
     scenariosExpected: input.only ? input.only.length : 1000,
     scenariosExecuted: 0,
     scenariosPassed: 0,
