@@ -27,6 +27,12 @@
   text-decoration: none;
 }
 
+/* Monitor, List and Strategy in the concept sentence: the product's one emphasis weight, in the
+   sentence's own ink, so they are findable without turning the banner into a glossary. */
+.guestNotice b {
+  font-weight: var(--weight-emphasis);
+}
+
 /* The primary state filter on the left, the action refinement on the right — two different
    control shapes so they never read as two competing tab bars. They stack on a phone. */
 .toolbar {
@@ -106,6 +112,38 @@
 .entityCell {
   display: block;
   min-width: 0;
+}
+
+/* Strategy, List and Monitor on a phone card (`CardRelationships`): each pill under a small label,
+   in the same quiet uppercase the product's card labels use, one size down. Monitor's label is one
+   step darker, because the signal belongs to it. */
+.origin {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 14px;
+  min-width: 0;
+}
+
+.originItem {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.originLabel {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: var(--weight-emphasis);
+  line-height: 1.2;
+  letter-spacing: var(--text-label-tracking);
+  text-transform: uppercase;
+}
+
+.originItem[data-primary="true"] .originLabel {
+  color: var(--color-text-secondary);
 }
 
 /* How long a match's state has held (UI-025). */
