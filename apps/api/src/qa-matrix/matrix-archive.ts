@@ -9,7 +9,10 @@ import type {
   TriggerOperator,
 } from "@intrinsic/contracts";
 import { IS_CLOSE_TO_TOLERANCE } from "@intrinsic/contracts";
-import { relativeVolumeOperand } from "@intrinsic/strategy";
+import {
+  alternativeDataOperand,
+  relativeVolumeOperand,
+} from "@intrinsic/strategy";
 import type { InvariantResult } from "./matrix-invariants";
 
 /**
@@ -95,13 +98,22 @@ function metricSeries(
     case "LOSS":
       // Position-dependent: not decidable from a frame, and forbidden in a BUY Signal anyway.
       return null;
-    default:
-      // The alternative-data metrics. The QA matrix's independent verifier deliberately does not
-      // reimplement their window, scope and coverage semantics: doing so would be a second
-      // implementation of the very thing it exists to check independently, and the matrix fixtures
-      // name none of them. A strategy that did would be reported as unverifiable here rather than
-      // verified against a column this function invented.
-      return null;
+    case "INSIDER_ACTIVITY":
+    case "CONGRESS_ACTIVITY":
+      // Read, never re-derived — and the distinction matters. This invariant asks whether the
+      // **evaluator** was entitled to the trade it made given the frame it consumed, so reading the
+      // projected column is exactly the right question; re-deriving the window, scope and coverage
+      // here would be a second implementation of them and would agree with a defect in the first.
+      //
+      // Whether the *column* is right is a different question with its own independent answer:
+      // `apps/api/src/data-correctness-audit/alternative-data/` rebuilds every one of these columns
+      // from the persisted disclosures with an oracle that shares no code with the engine. The two
+      // together cover what one of them cannot.
+      //
+      // Through the canonical builder for the same reason Relative Volume is: the key is a canonical
+      // signature, not `<kind>:<catalog id>`, and hand-encoding it is how a column goes silently
+      // missing and every Signal reads NOT_EVALUABLE.
+      return column(frame, alternativeDataOperand(metric));
   }
 }
 

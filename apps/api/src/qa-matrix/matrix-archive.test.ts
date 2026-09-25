@@ -1,4 +1,8 @@
 import type { BacktestRunSnapshot } from "@intrinsic/contracts";
+import {
+  alternativeDataOperand,
+  relativeVolumeOperand,
+} from "@intrinsic/strategy";
 import { describe, expect, it } from "vitest";
 import {
   verifyArchiveInvariants,
@@ -109,6 +113,147 @@ const byId = (
   id: number,
 ): InvariantResult =>
   results.find((entry) => entry.id === id) as InvariantResult;
+
+describe("invariant 36 — Relative Volume and alternative-data operands", () => {
+  // The audit strategy dimension names metrics the verifier resolves through the canonical operand
+  // builders rather than by encoding `<kind>:<catalog id>`. If one of them fell through to `null`
+  // the Signal would read NOT_EVALUABLE on every session and every BUY the engine made would be
+  // reported as unjustified — which is a false failure, not a finding.
+  const DATES = ["2024-01-02", "2024-01-03", "2024-01-04"];
+
+  function contentsFor(
+    condition: Record<string, unknown>,
+    operandKey: string,
+    columnValues: (number | null)[],
+    tradeDate = "2024-01-03",
+  ): ArchiveContents {
+    return {
+      snapshot: snapshot({ condition }),
+      frames: new Map([
+        [
+          `${SECURITY_ID}|2024`,
+          {
+            ...frame("2024", 0, {
+              dates: DATES,
+              closes: [100, 100, 100],
+            }),
+            operandKeys: [operandKey],
+            operands: { [operandKey]: columnValues },
+          },
+        ],
+      ]),
+      trades: [trade({ date: tradeDate })],
+    };
+  }
+
+  it("reads a Relative Volume Condition from the period's own column", () => {
+    const passing = verifyArchiveInvariants(
+      contentsFor(
+        {
+          id: "c1",
+          metric: { kind: "RELATIVE_VOLUME", period: 20 },
+          operator: "IS_ABOVE",
+          value: { kind: "MULTIPLE", value: 2 },
+        },
+        relativeVolumeOperand(20),
+        [1, 2.5, 1],
+      ),
+    );
+    expect(byId(passing, 36).status).toBe("PASS");
+
+    // The same Condition against the column of a *different* period must not be satisfied by it.
+    const wrongPeriod = verifyArchiveInvariants(
+      contentsFor(
+        {
+          id: "c1",
+          metric: { kind: "RELATIVE_VOLUME", period: 10 },
+          operator: "IS_ABOVE",
+          value: { kind: "MULTIPLE", value: 2 },
+        },
+        relativeVolumeOperand(20),
+        [1, 2.5, 1],
+      ),
+    );
+    expect(byId(wrongPeriod, 36).status).toBe("FAIL");
+  });
+
+  it("reads an insider Condition from its configured signature's column", () => {
+    const metric = {
+      kind: "INSIDER_ACTIVITY",
+      measure: "BUYERS",
+      lookback: 20,
+    } as const;
+    const results = verifyArchiveInvariants(
+      contentsFor(
+        {
+          id: "c1",
+          metric,
+          operator: "IS_AT_LEAST",
+          value: { kind: "NUMBER", value: 2 },
+        },
+        alternativeDataOperand(metric),
+        [0, 2, 1],
+      ),
+    );
+    expect(byId(results, 36).status).toBe("PASS");
+  });
+
+  it("reads a group-scoped congressional Condition, and treats absence as absence", () => {
+    const metric = {
+      kind: "CONGRESS_ACTIVITY",
+      measure: "PURCHASES",
+      lookback: 60,
+      scope: { kind: "GROUP", groupId: "group-1" },
+      chamber: "ANY",
+    } as const;
+    const condition = {
+      id: "c1",
+      metric,
+      operator: "IS_AT_LEAST",
+      value: { kind: "NUMBER", value: 1 },
+    };
+    expect(
+      byId(
+        verifyArchiveInvariants(
+          contentsFor(condition, alternativeDataOperand(metric), [0, 3, 0]),
+        ),
+        36,
+      ).status,
+    ).toBe("PASS");
+
+    // NOT_EVALUABLE is never a zero and is never a TRUE: a BUY on an undecidable session fails.
+    expect(
+      byId(
+        verifyArchiveInvariants(
+          contentsFor(condition, alternativeDataOperand(metric), [0, null, 0]),
+        ),
+        36,
+      ).status,
+    ).toBe("FAIL");
+  });
+
+  it("fails rather than passing when the column is missing from the archive entirely", () => {
+    const metric = {
+      kind: "INSIDER_ACTIVITY",
+      measure: "PURCHASE_VALUE",
+      lookback: 60,
+    } as const;
+    const results = verifyArchiveInvariants(
+      contentsFor(
+        {
+          id: "c1",
+          metric,
+          operator: "IS_AT_LEAST",
+          value: { kind: "MONEY", value: 1_000_000 },
+        },
+        // A key the Condition does not address: the verifier must not find a column for it.
+        "series:SMA_200D",
+        [1, 1, 1],
+      ),
+    );
+    expect(byId(results, 36).status).toBe("FAIL");
+  });
+});
 
 describe("invariant 36 — the Signal behind a BUY", () => {
   const contents = (
