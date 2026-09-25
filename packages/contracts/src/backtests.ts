@@ -1,4 +1,3 @@
-import type { AlternativeActorType } from "./alternative-data.js";
 import type { BuyWindowMode, BuyWindowRangeResponse } from "./stock-lists.js";
 import {
   describeCondition,
@@ -848,7 +847,6 @@ export type BacktestSnapshotSecurity = {
 export type BacktestSnapshotActorGroup = {
   groupId: string;
   name: string;
-  actorType: AlternativeActorType;
   members: { actorId: string; externalId: string; displayName: string }[];
 };
 

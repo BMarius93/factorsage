@@ -26,8 +26,6 @@ import {
   type InsiderActivityMetric,
   type InsiderMeasure,
   type InsiderRole,
-  type InstitutionalActivityMetric,
-  type InstitutionalMeasure,
 } from "./alternative-data.js";
 import type { ContentOwnershipResponse } from "./builtins.js";
 import {
@@ -146,8 +144,7 @@ export type StrategyMetric =
    * Condition row can hold any of them without a fourth control.
    */
   | InsiderActivityMetric
-  | CongressActivityMetric
-  | InstitutionalActivityMetric;
+  | CongressActivityMetric;
 
 export type StrategyMetricKind = StrategyMetric["kind"];
 
@@ -162,7 +159,6 @@ export const STRATEGY_METRIC_KINDS = [
   "LOSS",
   "INSIDER_ACTIVITY",
   "CONGRESS_ACTIVITY",
-  "INSTITUTIONAL_ACTIVITY",
 ] as const satisfies readonly StrategyMetricKind[];
 
 /**
@@ -365,7 +361,6 @@ export const STRATEGY_METRIC_GROUPS = [
   "POSITION",
   "INSIDER_ACTIVITY",
   "CONGRESSIONAL_TRADING",
-  "INSTITUTIONAL_ACTIVITY",
 ] as const;
 
 export type StrategyMetricGroupId = (typeof STRATEGY_METRIC_GROUPS)[number];
@@ -385,7 +380,6 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
   POSITION: "Position",
   INSIDER_ACTIVITY: "Insider activity",
   CONGRESSIONAL_TRADING: "Congressional trading",
-  INSTITUTIONAL_ACTIVITY: "Institutional activity",
 } as const satisfies Record<StrategyMetricGroupId, string>;
 
 /**
@@ -605,14 +599,14 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
     allowedIn: POSITION_LEVEL_KINDS,
   },
   /**
-   * The three alternative-data kinds.
+   * The two alternative-data kinds.
    *
-   * They declare no `parameterSeriesIds` — none of them is a catalog series — and each is
-   * instantiated once per **measure** by `instancesOf`, so the selector offers `Insider buyers`,
+   * They declare no `parameterSeriesIds` — neither is a catalog series — and each is instantiated
+   * once per **measure** by `instancesOf`, so the selector offers `Insider buyers`,
    * `Insider sellers`, `Insider purchase value` and `Insider sale value` as four ordinary options
    * inside one group. Their configuration is edited after selection and never becomes a column.
    *
-   * `triggerOperators` is empty for all three, exactly as it is for Relative Volume and for the
+   * `triggerOperators` is empty for both, exactly as it is for Relative Volume and for the
    * same reason: a disclosure count is a state, and a Monitor's own not-matched -> matched
    * transition already raises a Signal on the session `Insider buyers 20D is at least 2` first
    * holds. A `crosses above` form would be a second, differently latched way to say that.
@@ -630,15 +624,6 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
     kind: "CONGRESS_ACTIVITY",
     label: "Congressional trading",
     group: "CONGRESSIONAL_TRADING",
-    conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
-    triggerOperators: [],
-    valueSource: "ALTERNATIVE_DATA_MEASURE",
-    allowedIn: ALL_LEVEL_KINDS,
-  },
-  INSTITUTIONAL_ACTIVITY: {
-    kind: "INSTITUTIONAL_ACTIVITY",
-    label: "Institutional activity",
-    group: "INSTITUTIONAL_ACTIVITY",
     conditionOperators: ALTERNATIVE_DATA_CONDITION_OPERATORS,
     triggerOperators: [],
     valueSource: "ALTERNATIVE_DATA_MEASURE",
@@ -674,9 +659,6 @@ function alternativeDataValueSpec(
       };
     case "MONEY":
       return { kind: "MONEY", min: 0, step: 1_000 };
-    case "PERCENT":
-      // A holding cannot fall by more than all of it, and there is no ceiling on adding to one.
-      return { kind: "PERCENT", min: -100 };
   }
 }
 
@@ -888,7 +870,6 @@ function instantiateMetric(
       throw new Error("Relative Volume is not parameterized by a series id");
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
-    case "INSTITUTIONAL_ACTIVITY":
       // Parameterized by a measure plus configuration, never by a catalog id — the same situation
       // Relative Volume is in, and refused here for the same reason.
       throw new Error(
@@ -1219,8 +1200,7 @@ export function describePredicateScope(
     alternative,
     scopeNamesFor(
       alternativeDataSupportsScope(alternative.kind)
-        ? (alternative as CongressActivityMetric | InstitutionalActivityMetric)
-            .scope
+        ? (alternative as CongressActivityMetric).scope
         : undefined,
       names,
     ),
@@ -1559,19 +1539,6 @@ export const STRATEGY_METRIC_HELP: Record<
     notEvaluableWhen:
       "The full lookback window is not inside the disclosure history this product holds for the stock.",
   },
-  INSTITUTIONAL_ACTIVITY: {
-    summary:
-      "What institutional managers reported holding in this stock on their Form 13F filings, over the selected number of trading sessions.",
-    detail:
-      "A 13F reports a holding as of a quarter end, and managers file up to forty-five days after it. Every reading here is derived by comparing a manager's **consecutive filings as they became public**, which is the only comparison a reader at the time could have made. Nothing infers when inside the quarter a manager traded: a quarter-end holding is a position, not a transaction.",
-    notes: [
-      "Counts are distinct managers: new, increased, reduced and exited are states of one manager's position between two filings.",
-      "Position change is the change in shares held across the managers in scope — the total added or removed over the total previously held — so one manager adding ten shares cannot outweigh another halving a large position.",
-      "A specific institution or an institution group narrows every measure. A backtest freezes a group's membership, so editing the group later never changes a run that already exists.",
-    ],
-    notEvaluableWhen:
-      "The full lookback window is not inside the filing history this product holds for the stock, or the provider subscription does not cover Form 13F data.",
-  },
 };
 
 export const STRATEGY_OPERATOR_HELP: Record<
@@ -1843,7 +1810,6 @@ const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
     "chamber",
     "owners",
   ],
-  INSTITUTIONAL_ACTIVITY: ["kind", "measure", "lookback", "scope"],
 };
 
 const VALUE_KEYS: Record<StrategyValueKind, readonly string[]> = {
@@ -2057,15 +2023,6 @@ function parseAlternativeDataMetric(
     return undefined;
   }
 
-  if (kind === "INSTITUTIONAL_ACTIVITY") {
-    return {
-      kind,
-      measure: rawMeasure as InstitutionalMeasure,
-      lookback,
-      scope,
-    };
-  }
-
   const rawChamber = raw.chamber;
   if (
     typeof rawChamber !== "string" ||
@@ -2245,7 +2202,6 @@ function parseMetric(
     }
     case "INSIDER_ACTIVITY":
     case "CONGRESS_ACTIVITY":
-    case "INSTITUTIONAL_ACTIVITY":
       return parseAlternativeDataMetric(kind, raw, path, issues);
     default:
       break;

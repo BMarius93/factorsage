@@ -145,7 +145,7 @@ export function ActorGroupDetail({ groupId }: { readonly groupId: string }) {
     },
     {
       key: "identity",
-      header: group.actorType === "INSTITUTION" ? "CIK" : "Seat",
+      header: "Seat",
       nowrap: true,
       render: (actor) => (
         <span className={styles.memberMeta}>{actorMetaLabel(actor)}</span>
@@ -200,21 +200,16 @@ export function ActorGroupDetail({ groupId }: { readonly groupId: string }) {
 
         {group.canEdit ? (
           <SectionCard
-            title={`Add ${group.actorType === "INSTITUTION" ? "institutions" : "members"}`}
+            title="Add members"
             caption="Search the catalog and pick the actors this group holds."
           >
             <div className={styles.editor}>
               <ActorCombobox
-                actorType={group.actorType}
                 mode="multi"
                 selected={pending}
                 onChange={setPending}
                 excludedIds={memberIds}
-                label={
-                  group.actorType === "INSTITUTION"
-                    ? "Search institutions to add"
-                    : "Search members of Congress to add"
-                }
+                label="Search members of Congress to add"
                 testId="actor-group-add"
               />
               <p className={styles.editorHint}>

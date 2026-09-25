@@ -123,13 +123,10 @@ export function alternativeDataRequests(
  */
 export type AlternativeDataObservation = {
   observableFrom: LocalDate;
-  /** Stable actor identity: a reporting CIK, a bioguide id, a manager CIK. Never a display name. */
+  /** Stable actor identity: a reporting CIK, a bioguide id. Never a display name. */
   actorKey: string;
   /** The amount a `SUM_AMOUNT` measure adds. Absent where the source states none. */
   amount?: number;
-  /** Shares held now and previously, for `SHARE_WEIGHTED_CHANGE_PERCENT`. */
-  shares?: number;
-  previousShares?: number;
 };
 
 /**
@@ -233,8 +230,6 @@ export function buildAlternativeDataColumn(input: {
   const actorCounts = new Map<string, number>();
   let events = 0;
   let amountTotal = 0;
-  let sharesTotal = 0;
-  let previousSharesTotal = 0;
   let nextToEnter = 0;
   let nextToLeave = 0;
 
@@ -246,15 +241,6 @@ export function buildAlternativeDataColumn(input: {
     events += 1;
     if (observation.amount !== undefined && Number.isFinite(observation.amount)) {
       amountTotal += observation.amount;
-    }
-    if (observation.shares !== undefined && Number.isFinite(observation.shares)) {
-      sharesTotal += observation.shares;
-    }
-    if (
-      observation.previousShares !== undefined &&
-      Number.isFinite(observation.previousShares)
-    ) {
-      previousSharesTotal += observation.previousShares;
     }
   };
 
@@ -268,15 +254,6 @@ export function buildAlternativeDataColumn(input: {
     events -= 1;
     if (observation.amount !== undefined && Number.isFinite(observation.amount)) {
       amountTotal -= observation.amount;
-    }
-    if (observation.shares !== undefined && Number.isFinite(observation.shares)) {
-      sharesTotal -= observation.shares;
-    }
-    if (
-      observation.previousShares !== undefined &&
-      Number.isFinite(observation.previousShares)
-    ) {
-      previousSharesTotal -= observation.previousShares;
     }
   };
 
@@ -324,16 +301,6 @@ export function buildAlternativeDataColumn(input: {
         break;
       case "SUM_AMOUNT":
         column[index] = amountTotal;
-        break;
-      case "SHARE_WEIGHTED_CHANGE_PERCENT":
-        // The denominator is the shares the in-scope managers previously held. With no prior holding
-        // there is no percentage to report — a set of purely new positions has no base, and neither
-        // does an empty window — so it stays NOT_EVALUABLE rather than becoming a zero change or an
-        // infinite one.
-        column[index] =
-          previousSharesTotal > 0
-            ? ((sharesTotal - previousSharesTotal) / previousSharesTotal) * 100
-            : Number.NaN;
         break;
     }
   }

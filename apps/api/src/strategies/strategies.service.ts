@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import {
-  alternativeDataActorType,
   alternativeDataScope,
   collectActorGroupIds,
   collectActorIds,
@@ -164,7 +163,7 @@ export class StrategiesService {
 
   /** The Strategy a viewer asked to change: 404 when unreadable, 403 when a read-only built-in. */
   /**
-   * Every actor and actor group an alternative-data rule references must exist and be the right kind.
+   * Every actor and actor group an alternative-data rule references must exist and be readable.
    *
    * The canonical validator in `@intrinsic/contracts` is pure, so it can check that a scope is
    * *well-formed* but never that the thing it names is real — exactly as it can check a `Value` but not
@@ -189,13 +188,13 @@ export class StrategiesService {
         ? Promise.resolve([])
         : this.prisma.actorGroup.findMany({
             where: { id: { in: groupIds }, ...readableWhere(user) },
-            select: { id: true, actorType: true, name: true },
+            select: { id: true, name: true },
           }),
       actorIds.length === 0
         ? Promise.resolve([])
         : this.prisma.alternativeDataActor.findMany({
             where: { id: { in: actorIds } },
-            select: { id: true, type: true },
+            select: { id: true },
           }),
     ]);
     const groupById = new Map(groups.map((group) => [group.id, group]));
@@ -207,36 +206,21 @@ export class StrategiesService {
       if (!scope || scope.kind === "ANY") {
         continue;
       }
-      const expected = alternativeDataActorType(metric.kind);
       if (scope.kind === "GROUP") {
-        const group = groupById.get(scope.groupId);
-        if (!group) {
+        if (!groupById.has(scope.groupId)) {
           issues.push({
             code: "SCOPE_INVALID",
             path: { part: "STRATEGY" },
             message: `${strategyMetricLabel(metric)} references a group that is not available.`,
           });
-        } else if (expected && group.actorType !== expected) {
-          issues.push({
-            code: "SCOPE_INVALID",
-            path: { part: "STRATEGY" },
-            message: `The group \`${group.name}\` does not hold the kind of actor ${strategyMetricLabel(metric)} counts.`,
-          });
         }
         continue;
       }
-      const actor = actorById.get(scope.actorId);
-      if (!actor) {
+      if (!actorById.has(scope.actorId)) {
         issues.push({
           code: "SCOPE_INVALID",
           path: { part: "STRATEGY" },
           message: `${strategyMetricLabel(metric)} references an actor that is not available.`,
-        });
-      } else if (expected && actor.type !== expected) {
-        issues.push({
-          code: "SCOPE_INVALID",
-          path: { part: "STRATEGY" },
-          message: `The selected actor is not the kind ${strategyMetricLabel(metric)} counts.`,
         });
       }
     }

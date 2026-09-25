@@ -1,5 +1,4 @@
 export {
-  AlternativeActorType,
   BacktestJobStatus,
   BillingInterval,
   BillingSubscriptionStatus,
@@ -19,7 +18,6 @@ export {
   FinancialStatementType,
   InsiderRole,
   InsiderTransactionCategory,
-  InstitutionalPositionChange,
   LegalAcceptanceSurface,
   LegalDocumentKind,
   LegalRecordKind,
@@ -50,9 +48,6 @@ export type {
   CongressTrade,
   EmailVerificationToken,
   InsiderTransaction,
-  InstitutionalFiling,
-  InstitutionalHolding,
-  InstitutionalPositionEvent,
   LegalRecord,
   LegalRequest,
   Monitor,

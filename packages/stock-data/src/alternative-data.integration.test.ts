@@ -5,11 +5,9 @@ import {
 } from "@intrinsic/contracts";
 import { PrismaClient } from "@intrinsic/database";
 import type { Security } from "@intrinsic/domain";
-import {
-  FmpEntitlementError,
-  type MappedFmpCongressTrade,
-  type MappedFmpInsiderTrade,
-  type MappedFmpInstitutionalHolding,
+import type {
+  MappedFmpCongressTrade,
+  MappedFmpInsiderTrade,
 } from "@intrinsic/fmp";
 import {
   alternativeDataColumnRequest,
@@ -20,9 +18,7 @@ import { useTestDatabase } from "@intrinsic/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   CanonicalAlternativeDataService,
-  recentReportQuarters,
   type AlternativeDataProvider,
-  type AlternativeDataUnavailableEvent,
 } from "./alternative-data-service.js";
 import { PrismaAlternativeDataStore } from "./alternative-data-prisma-store.js";
 
@@ -32,11 +28,10 @@ useTestDatabase();
  * Alternative-data ingestion against real PostgreSQL.
  *
  * The provider is a fake, and deliberately so: what this suite proves is everything *downstream* of the
- * wire — that reingesting an unchanged history writes nothing, that an amendment lands beside the row it
- * supersedes rather than over it, that 13F position changes are re-derived rather than accumulated, that
- * coverage bounds the evaluable range honestly, and that a restricted dataset leaves coverage absent
- * instead of reporting zeros. The provider field names themselves are proven against captured live
- * payloads in `@intrinsic/fmp`.
+ * wire — that reingesting an unchanged history writes nothing, that a corrected disclosure lands beside
+ * the row it supersedes rather than over it, that one actor identity survives a rename, and that
+ * coverage bounds the evaluable range honestly. The provider field names themselves are proven against
+ * captured live payloads in `@intrinsic/fmp`.
  */
 describe("alternative-data ingestion", () => {
   const suffix = randomUUID();
@@ -54,8 +49,6 @@ describe("alternative-data ingestion", () => {
       SENATE: [],
       HOUSE: [],
     };
-    institutionalByQuarter = new Map<string, MappedFmpInstitutionalHolding[]>();
-    institutionalError: Error | null = null;
     insiderRequests = 0;
     congressRequests = 0;
 
@@ -72,19 +65,6 @@ describe("alternative-data ingestion", () => {
       return this.congressPages[input.chamber][input.page] ?? [];
     }
 
-    async getInstitutionalHoldings(input: {
-      year: number;
-      quarter: number;
-      page: number;
-    }) {
-      if (this.institutionalError) {
-        throw this.institutionalError;
-      }
-      if (input.page > 0) {
-        return [];
-      }
-      return this.institutionalByQuarter.get(`${input.year}Q${input.quarter}`) ?? [];
-    }
   }
 
   let provider: FakeProvider;
@@ -121,6 +101,7 @@ describe("alternative-data ingestion", () => {
       chamber: "SENATE",
       actorExternalId: `S-${suffix}`,
       actorDisplayName: "Senator Fixture",
+      actorState: "AL",
       transactionDate: "2026-01-15",
       disclosureDate: "2026-03-03",
       availableFromDate: "2026-03-04",
@@ -133,22 +114,6 @@ describe("alternative-data ingestion", () => {
       amountRangeRaw: "$15,001 - $50,000",
       amountLowerBound: 15_001,
       amountUpperBound: 50_000,
-      raw: { note: "fixture" },
-      ...overrides,
-    };
-  }
-
-  function holding(
-    overrides: Partial<MappedFmpInstitutionalHolding> = {},
-  ): MappedFmpInstitutionalHolding {
-    return {
-      providerSymbol,
-      actorExternalId: `I-${suffix}`,
-      actorDisplayName: "Manager Fixture",
-      reportPeriod: "2025-09-30",
-      filingDate: "2025-11-14",
-      availableFromDate: "2025-11-15",
-      shares: 1_000,
       raw: { note: "fixture" },
       ...overrides,
     };
@@ -186,17 +151,7 @@ describe("alternative-data ingestion", () => {
     service = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 60_000,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => now,
-    });
-    await prisma.institutionalPositionEvent.deleteMany({
-      where: { securityId: security.id },
-    });
-    await prisma.institutionalHolding.deleteMany({
-      where: { securityId: security.id },
-    });
-    await prisma.institutionalFiling.deleteMany({
-      where: { actor: { externalId: { startsWith: "I-" } } },
     });
     await prisma.insiderTransaction.deleteMany({
       where: { securityId: security.id },
@@ -222,15 +177,6 @@ describe("alternative-data ingestion", () => {
       });
       await prisma.congressTrade.deleteMany({
         where: { securityId: security.id },
-      });
-      await prisma.institutionalPositionEvent.deleteMany({
-        where: { securityId: security.id },
-      });
-      await prisma.institutionalHolding.deleteMany({
-        where: { securityId: security.id },
-      });
-      await prisma.institutionalFiling.deleteMany({
-        where: { actor: { externalId: { contains: suffix } } },
       });
       await prisma.stockDatasetState.deleteMany({
         where: { securityId: security.id },
@@ -275,7 +221,6 @@ describe("alternative-data ingestion", () => {
     const refresher = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 1,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => new Date(now.getTime() + 10 * 60_000),
     });
     await refresher.ensureIngested(security, ["INSIDER"]);
@@ -298,7 +243,6 @@ describe("alternative-data ingestion", () => {
     const refresher = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 1,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => new Date(now.getTime() + 10 * 60_000),
     });
     await refresher.ensureIngested(security, ["INSIDER"]);
@@ -341,7 +285,6 @@ describe("alternative-data ingestion", () => {
     const refresher = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 1,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => new Date(now.getTime() + 10 * 60_000),
     });
     provider.insiderRequests = 0;
@@ -360,8 +303,8 @@ describe("alternative-data ingestion", () => {
     const actor = await prisma.alternativeDataActor.findFirstOrThrow({
       where: { externalId: `S-${suffix}` },
     });
-    expect(actor.type).toBe("CONGRESS_PERSON");
     expect(actor.chamber).toBe("SENATE");
+    expect(actor.state).toBe("AL");
 
     // The provider changes the display name. The identity — and therefore every group holding it —
     // must not move.
@@ -371,7 +314,6 @@ describe("alternative-data ingestion", () => {
     const refresher = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 1,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => new Date(now.getTime() + 10 * 60_000),
     });
     await refresher.ensureIngested(security, ["CONGRESS"]);
@@ -441,131 +383,6 @@ describe("alternative-data ingestion", () => {
   });
 
   // -------------------------------------------------------------------------
-  // 13F ingestion and derivation
-  // -------------------------------------------------------------------------
-
-  it("derives position changes from consecutive available filings", async () => {
-    const quarters = recentReportQuarters(now, 4);
-    // Four quarters, newest first from the fake clock: 2026Q1 back to 2025Q2.
-    const periods = [...quarters].reverse();
-    const filedFor = (index: number) => {
-      const period = periods[index] as { year: number; quarter: number };
-      const month = period.quarter * 3;
-      const end = new Date(Date.UTC(period.year, month, 0));
-      const filing = new Date(end.getTime() + 45 * 86_400_000);
-      return {
-        reportPeriod: end.toISOString().slice(0, 10),
-        filingDate: filing.toISOString().slice(0, 10),
-        availableFromDate: new Date(filing.getTime() + 86_400_000)
-          .toISOString()
-          .slice(0, 10),
-      };
-    };
-    const shares = [1_000, 1_500, 900, 0];
-    periods.forEach((period, index) => {
-      const dates = filedFor(index);
-      provider.institutionalByQuarter.set(
-        `${period.year}Q${period.quarter}`,
-        shares[index] === 0
-          ? []
-          : [holding({ ...dates, shares: shares[index] as number })],
-      );
-    });
-
-    await service.ensureIngested(security, ["INSTITUTIONAL"]);
-
-    const events = await prisma.institutionalPositionEvent.findMany({
-      where: { securityId: security.id },
-      orderBy: { reportPeriod: "asc" },
-    });
-    expect(events.map((event) => event.change)).toEqual([
-      "NEW",
-      "INCREASED",
-      "REDUCED",
-    ]);
-    // A quarter the provider returned nothing for is not an exit: the manager simply has no filing
-    // there, and inventing one would fabricate a transaction.
-    expect(events[1]?.changePercent?.toNumber()).toBeCloseTo(50, 4);
-    expect(events[2]?.changePercent?.toNumber()).toBeCloseTo(-40, 4);
-    expect(events[0]?.changePercent).toBeNull();
-  });
-
-  it("re-derives rather than accumulates, so an amendment replaces a comparison", async () => {
-    const period = recentReportQuarters(now, 1)[0] as {
-      year: number;
-      quarter: number;
-    };
-    const key = `${period.year}Q${period.quarter}`;
-    provider.institutionalByQuarter.set(key, [
-      holding({ reportPeriod: "2025-12-31", filingDate: "2026-02-14", availableFromDate: "2026-02-15", shares: 1_000 }),
-    ]);
-    await service.ensureIngested(security, ["INSTITUTIONAL"]);
-    expect(
-      await prisma.institutionalPositionEvent.count({
-        where: { securityId: security.id },
-      }),
-    ).toBe(1);
-
-    // An amendment restating the same period. It lands as a new filing row and becomes that period's
-    // current statement; the derived events are replaced, not appended to.
-    provider.institutionalByQuarter.set(key, [
-      holding({
-        reportPeriod: "2025-12-31",
-        filingDate: "2026-03-10",
-        availableFromDate: "2026-03-11",
-        shares: 400,
-        amendmentType: "13F-HR/A",
-      }),
-    ]);
-    const refresher = new CanonicalAlternativeDataService(store, provider, {
-      freshnessMs: 1,
-      maxPagesPerIngest: 4,
-      institutionalQuarters: 1,
-      now: () => new Date(now.getTime() + 10 * 60_000),
-    });
-    await refresher.ensureIngested(security, ["INSTITUTIONAL"]);
-
-    // Both filings are on record — nothing is destructively overwritten.
-    expect(
-      await prisma.institutionalFiling.count({
-        where: { actor: { externalId: `I-${suffix}` } },
-      }),
-    ).toBe(2);
-    const events = await prisma.institutionalPositionEvent.findMany({
-      where: { securityId: security.id },
-    });
-    expect(events).toHaveLength(1);
-    expect(events[0]?.shares.toNumber()).toBe(400);
-    // Only knowable once the amendment was public.
-    expect(events[0]?.availableFromDate.toISOString().slice(0, 10)).toBe(
-      "2026-03-11",
-    );
-  });
-
-  it("reports a restricted dataset instead of recording an empty one", async () => {
-    const unavailable: AlternativeDataUnavailableEvent[] = [];
-    const restricted = new CanonicalAlternativeDataService(store, provider, {
-      freshnessMs: 60_000,
-      maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
-      now: () => now,
-      onDatasetUnavailable: (event) => unavailable.push(event),
-    });
-    provider.institutionalError = new FmpEntitlementError(402);
-
-    // It must not throw: a strategy whose other conditions are evaluable still has a backtest to run.
-    await restricted.ensureIngested(security, ["INSTITUTIONAL"]);
-
-    expect(unavailable).toHaveLength(1);
-    expect(unavailable[0]?.domain).toBe("INSTITUTIONAL");
-    expect(unavailable[0]?.statusCode).toBe(402);
-    // No coverage was recorded, so every institutional metric reads NOT_EVALUABLE rather than zero.
-    expect(
-      await store.getAlternativeDatasetState(security.id, "INSTITUTIONAL"),
-    ).toBeNull();
-  });
-
-  // -------------------------------------------------------------------------
   // Coverage and the projected column
   // -------------------------------------------------------------------------
 
@@ -610,7 +427,6 @@ describe("alternative-data ingestion", () => {
     const refresher = new CanonicalAlternativeDataService(store, provider, {
       freshnessMs: 1,
       maxPagesPerIngest: 4,
-      institutionalQuarters: 4,
       now: () => new Date(now.getTime() + 10 * 60_000),
     });
     await refresher.ensureIngested(security, ["INSIDER"]);

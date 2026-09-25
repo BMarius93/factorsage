@@ -1,5 +1,4 @@
 import {
-  ALTERNATIVE_ACTOR_TYPES,
   CONGRESS_CHAMBERS,
   CONGRESS_OWNERS,
   INSIDER_ROLES,
@@ -7,24 +6,20 @@ import {
   SELECTABLE_INSIDER_ROLES,
 } from "@intrinsic/contracts";
 import {
-  AlternativeActorType,
   CongressAssetClass,
   CongressChamber,
   CongressOwner,
   CongressTransactionKind,
   InsiderRole,
   InsiderTransactionCategory,
-  InstitutionalPositionChange,
 } from "@intrinsic/database";
 import {
-  ALTERNATIVE_ACTOR_TYPES as DOMAIN_ACTOR_TYPES,
   CONGRESS_ASSET_CLASSES,
   CONGRESS_CHAMBERS as DOMAIN_CHAMBERS,
   CONGRESS_OWNERS as DOMAIN_OWNERS,
   CONGRESS_TRANSACTION_KINDS,
   INSIDER_ROLES as DOMAIN_INSIDER_ROLES,
   INSIDER_TRANSACTION_CATEGORIES,
-  INSTITUTIONAL_POSITION_CHANGES,
 } from "@intrinsic/domain";
 import { describe, expect, it } from "vitest";
 
@@ -46,13 +41,6 @@ import { describe, expect, it } from "vitest";
  * Entirely offline: it compares constants and constructs nothing.
  */
 describe("alternative-data vocabulary", () => {
-  it("declares one actor-type vocabulary in all three packages", () => {
-    expect([...ALTERNATIVE_ACTOR_TYPES]).toEqual([...DOMAIN_ACTOR_TYPES]);
-    expect([...ALTERNATIVE_ACTOR_TYPES]).toEqual(
-      Object.values(AlternativeActorType),
-    );
-  });
-
   it("declares one chamber vocabulary in all three packages", () => {
     expect([...CONGRESS_CHAMBERS]).toEqual([...DOMAIN_CHAMBERS]);
     expect([...CONGRESS_CHAMBERS]).toEqual(Object.values(CongressChamber));
@@ -69,7 +57,7 @@ describe("alternative-data vocabulary", () => {
   });
 
   it("keeps the insider categories and congressional kinds the database can store", () => {
-    // These two have no contracts-side declaration: a strategy never names a transaction category or a
+    // These have no contracts-side declaration: a strategy never names a transaction category or a
     // transaction kind directly — a *measure* selects them — so only the domain and the schema need to
     // agree, and this is what makes that true.
     expect([...INSIDER_TRANSACTION_CATEGORIES]).toEqual(
@@ -80,9 +68,6 @@ describe("alternative-data vocabulary", () => {
     );
     expect([...CONGRESS_ASSET_CLASSES]).toEqual(
       Object.values(CongressAssetClass),
-    );
-    expect([...INSTITUTIONAL_POSITION_CHANGES]).toEqual(
-      Object.values(InstitutionalPositionChange),
     );
   });
 
@@ -96,5 +81,22 @@ describe("alternative-data vocabulary", () => {
     expect([...SELECTABLE_CONGRESS_OWNERS]).toEqual(
       CONGRESS_OWNERS.filter((owner) => owner !== "UNSPECIFIED"),
     );
+  });
+
+  it("has no institutional vocabulary at all", async () => {
+    // V1 ships Insider Activity and Congressional Trading. Form 13F is absent from every layer —
+    // there is no enum, no table and no measure to drift against — because the provider subscription
+    // does not expose it (`docs/alternative-data-signals.md`). Asserted on the module namespaces
+    // rather than on a grep, so a reintroduced symbol fails a test instead of passing review.
+    const surfaces = await Promise.all([
+      import("@intrinsic/database"),
+      import("@intrinsic/domain"),
+      import("@intrinsic/contracts"),
+    ]);
+    for (const surface of surfaces) {
+      expect(
+        Object.keys(surface).filter((name) => /institutional/i.test(name)),
+      ).toEqual([]);
+    }
   });
 });

@@ -326,7 +326,6 @@ describe("strategy metric registry", () => {
         "POSITION",
         "INSIDER_ACTIVITY",
         "CONGRESSIONAL_TRADING",
-        "INSTITUTIONAL_ACTIVITY",
       ].indexOf(option.group),
     );
     expect(groupOrder).toEqual([...groupOrder].sort((a, b) => a - b));
@@ -745,7 +744,7 @@ describe("operator compatibility", () => {
   it("keeps condition and trigger operators in separate vocabularies", () => {
     // The condition-only metrics are named here rather than counted: a new one appearing without a
     // product decision should fail this assertion rather than pass a range check. Relative Volume
-    // and the three alternative-data kinds are condition-only for the same stated reason — a
+    // and the two alternative-data kinds are condition-only for the same stated reason — a
     // Monitor's own not-matched -> matched transition already raises the event a crossing operator
     // would duplicate.
     const conditionOnly = STRATEGY_METRIC_KINDS.filter(
@@ -755,7 +754,6 @@ describe("operator compatibility", () => {
       "RELATIVE_VOLUME",
       "INSIDER_ACTIVITY",
       "CONGRESS_ACTIVITY",
-      "INSTITUTIONAL_ACTIVITY",
     ]);
 
     for (const kind of STRATEGY_METRIC_KINDS) {

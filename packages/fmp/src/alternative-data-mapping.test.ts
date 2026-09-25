@@ -1,18 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  FmpInstitutionalPayloadError,
-  mapFmpCongressTrades,
-  mapFmpInsiderTrades,
-  mapFmpInstitutionalHoldings,
-} from "./mapping.js";
+import { mapFmpCongressTrades, mapFmpInsiderTrades } from "./mapping.js";
 
 /**
  * Mapping the alternative-data provider payloads.
  *
- * The insider and congressional fixtures below are **verbatim rows captured from the live API on
- * 2026-09-25**, so this suite is what proves the field names are the provider's own rather than
- * guessed. The 13F fixture is not: that endpoint is restricted on this subscription, and the
- * corresponding tests assert the mapper's refusal behaviour rather than a verified shape.
+ * Every fixture below is a **verbatim row captured from the live API on 2026-09-25**, so this suite is
+ * what proves the field names are the provider's own rather than guessed. V1 maps only the two domains
+ * this subscription provides; Form 13F is absent because it could not be verified the same way.
  */
 
 // Captured live: `insider-trading/search?symbol=AAPL&limit=5`, first two rows.
@@ -231,73 +225,5 @@ describe("mapFmpCongressTrades", () => {
       { ...SENATE_SALE, office: "", firstName: "", lastName: "" },
     ]);
     expect(mapped?.actorDisplayName).toBe("T000278");
-  });
-});
-
-describe("mapFmpInstitutionalHoldings", () => {
-  // NOT a captured payload: every institutional-ownership endpoint answers 402 on this
-  // subscription. These field names are the provider's documented ones and are unverified.
-  const holding = {
-    symbol: "AAPL",
-    cik: "0001067983",
-    investorName: "BERKSHIRE HATHAWAY INC",
-    date: "2025-03-31",
-    filingDate: "2025-05-15",
-    formType: "13F-HR",
-    sharesNumber: 300_000_000,
-    marketValue: 66_000_000_000,
-    weight: 25.76,
-    link: "https://www.sec.gov/Archives/edgar/data/1067983/example-index.htm",
-  };
-
-  it("keeps the report period and the filing date as separate facts", () => {
-    const [mapped] = mapFmpInstitutionalHoldings([holding]);
-    expect(mapped).toMatchObject({
-      providerSymbol: "AAPL",
-      actorExternalId: "0001067983",
-      actorDisplayName: "BERKSHIRE HATHAWAY INC",
-      reportPeriod: "2025-03-31",
-      filingDate: "2025-05-15",
-      availableFromDate: "2025-05-16",
-      shares: 300_000_000,
-      marketValue: 66_000_000_000,
-      portfolioWeightPercent: 25.76,
-    });
-    expect(mapped?.amendmentType).toBeUndefined();
-  });
-
-  it("preserves an amendment marker", () => {
-    expect(
-      mapFmpInstitutionalHoldings([{ ...holding, formType: "13F-HR/A" }])[0]
-        ?.amendmentType,
-    ).toBe("13F-HR/A");
-  });
-
-  it("refuses a payload missing a field it needs, naming the field", () => {
-    // Defaulting a missing share count to zero would manufacture an EXITED position for every
-    // manager, which is why this throws rather than dropping or defaulting the row.
-    for (const [field, row] of [
-      ["symbol", { ...holding, symbol: undefined }],
-      ["cik", { ...holding, cik: "" }],
-      ["date", { ...holding, date: undefined }],
-      ["filingDate", { ...holding, filingDate: null }],
-      ["sharesNumber", { ...holding, sharesNumber: undefined }],
-    ] as const) {
-      let caught: unknown;
-      try {
-        mapFmpInstitutionalHoldings([row]);
-      } catch (error) {
-        caught = error;
-      }
-      expect(caught).toBeInstanceOf(FmpInstitutionalPayloadError);
-      expect((caught as FmpInstitutionalPayloadError).field).toBe(field);
-    }
-  });
-
-  it("maps a zero holding as zero rather than refusing it", () => {
-    // A manager can genuinely report zero shares; only a *missing* field is refused.
-    expect(
-      mapFmpInstitutionalHoldings([{ ...holding, sharesNumber: 0 }])[0]?.shares,
-    ).toBe(0);
   });
 });

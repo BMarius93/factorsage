@@ -33,7 +33,6 @@ import {
 import { RateLimit } from "../rate-limit/rate-limit.decorator";
 import {
   parseAddActorGroupMembersRequest,
-  parseAlternativeActorType,
   parseCreateActorGroupRequest,
   parseUpdateActorGroupRequest,
 } from "./actor-group-requests";
@@ -46,7 +45,7 @@ import {
 } from "./actor-groups.service";
 
 /**
- * The canonical actor catalog: institutional filers and members of Congress.
+ * The canonical actor catalog: members of Congress.
  *
  * Readable without a session, like the built-in lists: it is platform reference data grown by
  * ingestion rather than anybody's content, and the Strategy Builder needs it to label a saved rule's
@@ -62,7 +61,6 @@ export class AlternativeDataController {
   @Get("actors")
   @UseGuards(OptionalCookieAuthGuard)
   async searchActors(
-    @Query("type") type: string,
     @Query("q") term?: string,
     @Query("limit") limit?: string,
   ): Promise<AlternativeDataActorResponse[]> {
@@ -71,7 +69,6 @@ export class AlternativeDataController {
       throw new BadRequestException("Invalid request: limit must be a number");
     }
     return this.groups.searchActors({
-      type: parseAlternativeActorType(type),
       ...(term === undefined ? {} : { term }),
       ...(parsedLimit === undefined ? {} : { limit: parsedLimit }),
     });
@@ -102,7 +99,7 @@ export class AlternativeDataController {
 }
 
 /**
- * Institution and Congress groups.
+ * Congress groups.
  *
  * A separate controller because they are a collection in their own right, mounted on their own path —
  * while the *product* presents them inside the Lists area rather than as a new top-level section, which
@@ -123,12 +120,8 @@ export class ActorGroupsController {
   @UseGuards(OptionalCookieAuthGuard)
   async list(
     @Viewer() viewer: AuthUser | null,
-    @Query("actorType") actorType?: string,
   ): Promise<ActorGroupSummaryResponse[]> {
-    return this.groups.listForUser(
-      viewer,
-      actorType === undefined ? undefined : parseAlternativeActorType(actorType),
-    );
+    return this.groups.listForUser(viewer);
   }
 
   @RateLimit("mutation")

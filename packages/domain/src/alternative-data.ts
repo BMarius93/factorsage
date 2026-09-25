@@ -1,8 +1,7 @@
 import type { LocalDate, SecurityId } from "./stock-data.js";
 
 /**
- * Alternative-data domain vocabulary: insider Form 4 activity, congressional disclosures and
- * institutional 13F holdings.
+ * Alternative-data domain vocabulary: insider Form 4 activity and congressional disclosures.
  *
  * `docs/alternative-data-signals.md` is the product decision this file implements. Everything here
  * is pure normalization of provider facts into product enums, plus the one point-in-time rule the
@@ -43,7 +42,7 @@ function addCalendarDays(date: LocalDate, days: number): LocalDate {
  * evaluation frame's own date axis — the first trading session on or after this date. That is what
  * makes weekends and exchange holidays correct without this function knowing a calendar.
  *
- * @param publicationDate Form 4 `filingDate`, a congressional `disclosureDate`, or a 13F filing date.
+ * @param publicationDate a Form 4 `filingDate`, or a congressional `disclosureDate`.
  */
 export function alternativeDataAvailabilityDate(
   publicationDate: LocalDate,
@@ -55,43 +54,31 @@ export function alternativeDataAvailabilityDate(
 // Canonical actors
 // ---------------------------------------------------------------------------
 
-/**
- * The actor kinds this product gives a canonical identity to.
- *
- * Insider persons are deliberately **absent**: `docs/alternative-data-signals.md` keeps insider
- * person groups out of V1, and an insider metric counts distinct reporting CIKs straight off the
- * transaction rows. Giving them actor rows would create identities nothing selects.
- */
-export const ALTERNATIVE_ACTOR_TYPES = [
-  "INSTITUTION",
-  "CONGRESS_PERSON",
-] as const;
-
-export type AlternativeActorType = (typeof ALTERNATIVE_ACTOR_TYPES)[number];
-
 export const CONGRESS_CHAMBERS = ["HOUSE", "SENATE"] as const;
 export type CongressChamber = (typeof CONGRESS_CHAMBERS)[number];
 
 /**
- * One canonical actor.
+ * One canonical actor: in V1, a member of Congress.
  *
- * `externalId` is the identity — a manager's CIK, a member's bioguide id — and `displayName` is a
- * label. Two members can share a display name and one member's name can change; neither may move
- * a group's membership, which is why nothing in this slice keys an actor by name.
+ * `externalId` is the identity — a member's bioguide id — and `displayName` is a label. Two members
+ * can share a display name and one member's name can change; neither may move a group's membership,
+ * which is why nothing in this slice keys an actor by name.
+ *
+ * Insider persons are deliberately **not** actors: `docs/alternative-data-signals.md` keeps insider
+ * person groups out of V1, and an insider metric counts distinct reporting CIKs straight off the
+ * transaction rows. Giving them actor rows would create identities nothing selects. There is
+ * correspondingly no actor-kind discriminator: one would have exactly one value, which is a
+ * distinction the product does not yet make.
  */
 export type AlternativeDataActor = {
   id: string;
-  type: AlternativeActorType;
   externalId: string;
   displayName: string;
-  /** Congress only. */
-  chamber?: CongressChamber;
-  /** Congress only: the two-letter state, where the provider reports one. */
+  chamber: CongressChamber;
+  /** The two-letter state, where the provider reports one. */
   state?: string;
-  /** Congress only: the provider's district string, e.g. `TX17`. Senate rows carry none. */
+  /** The provider's district string, e.g. `TX17`. Senate rows carry none. */
   district?: string;
-  /** Institution only: the filer's CIK when it is not already the external id. */
-  cik?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -511,215 +498,3 @@ export type CongressTradeFact = {
   comment?: string;
   sourceUrl?: string;
 };
-
-// ---------------------------------------------------------------------------
-// Institutional activity (SEC Form 13F)
-// ---------------------------------------------------------------------------
-
-export const INSTITUTIONAL_POSITION_CHANGES = [
-  "NEW",
-  "INCREASED",
-  "REDUCED",
-  "EXITED",
-  "UNCHANGED",
-] as const;
-
-export type InstitutionalPositionChange =
-  (typeof INSTITUTIONAL_POSITION_CHANGES)[number];
-
-/**
- * One 13F filing's identity.
- *
- * `reportPeriod` (the quarter end the holdings are *as of*) and `filingDate` are separate facts and
- * neither substitutes for the other: the gap between them is routinely forty-five days, which is the
- * entire reason this domain needs point-in-time handling. `availableFromDate` is derived from the
- * filing date only.
- */
-export type InstitutionalFilingFact = {
-  actorExternalId: string;
-  actorDisplayName: string;
-  reportPeriod: LocalDate;
-  filingDate: LocalDate;
-  availableFromDate: LocalDate;
-  /** The provider's amendment marker, where it reports one. Preserved, never interpreted away. */
-  amendmentType?: string;
-  providerFilingId?: string;
-};
-
-/** One security's line inside one filing. */
-export type InstitutionalHoldingFact = {
-  securityId: SecurityId;
-  shares: number;
-  marketValue?: number;
-  /** Share of the manager's reported portfolio, where the source supports it. */
-  portfolioWeightPercent?: number;
-};
-
-/** One filing paired with the holdings it reports for the securities under consideration. */
-export type InstitutionalFilingWithHoldings = {
-  filing: InstitutionalFilingFact;
-  holdings: readonly InstitutionalHoldingFact[];
-};
-
-/**
- * One derived position change for one manager, one security and one report period.
- *
- * It is **not** a transaction. A 13F reports a holding as of a quarter end; nothing in it says when
- * inside the quarter the manager traded, and this product never guesses. `availableFromDate` is the
- * later of the two compared filings' availability dates, because the comparison itself is only
- * knowable once both are public.
- */
-export type InstitutionalPositionEventFact = {
-  securityId: SecurityId;
-  actorExternalId: string;
-  reportPeriod: LocalDate;
-  previousReportPeriod?: LocalDate;
-  availableFromDate: LocalDate;
-  change: InstitutionalPositionChange;
-  shares: number;
-  previousShares?: number;
-  /** Absent for a NEW position: there is no prior base to divide by. */
-  changePercent?: number;
-  portfolioWeightPercent?: number;
-  previousPortfolioWeightPercent?: number;
-};
-
-/**
- * Derives per-manager position changes for one security from that manager's filings.
- *
- * The comparison is between **consecutive report periods as the filings became public**, which is
- * the only comparison a point-in-time reader could have made:
- *
- * - a period with a holding and no earlier period at all is `NEW`;
- * - a period whose share count rose or fell against the previous period is `INCREASED` / `REDUCED`;
- * - a period with no line for the security, where the previous period had one, is `EXITED`;
- * - an identical share count is `UNCHANGED` and still emitted, because "the manager reported again
- *   and did not move" is a fact a reader can see, and dropping it would let a later comparison skip
- *   a period.
- *
- * Two properties make it safe to re-run:
- *
- * 1. **Deterministic.** Input is sorted by report period, and one event is produced per period.
- * 2. **Amendment-aware.** Where more than one filing describes the same report period, the one that
- *    became available **last** wins, which is what an amendment is. The superseded filing is not
- *    deleted anywhere; it simply stops being the period's current statement.
- *
- * A filing with no line for the security and no predecessor produces nothing: a manager who has
- * never held it has no position change to report.
- */
-export function deriveInstitutionalPositionEvents(input: {
-  securityId: SecurityId;
-  actorExternalId: string;
-  filings: readonly InstitutionalFilingWithHoldings[];
-}): InstitutionalPositionEventFact[] {
-  const { securityId, actorExternalId } = input;
-
-  // One current statement per report period: the latest-available filing for that period.
-  const byPeriod = new Map<LocalDate, InstitutionalFilingWithHoldings>();
-  for (const candidate of input.filings) {
-    const existing = byPeriod.get(candidate.filing.reportPeriod);
-    if (
-      !existing ||
-      candidate.filing.availableFromDate > existing.filing.availableFromDate ||
-      (candidate.filing.availableFromDate ===
-        existing.filing.availableFromDate &&
-        (candidate.filing.amendmentType ?? "") >
-          (existing.filing.amendmentType ?? ""))
-    ) {
-      byPeriod.set(candidate.filing.reportPeriod, candidate);
-    }
-  }
-
-  const periods = [...byPeriod.values()].sort((left, right) =>
-    left.filing.reportPeriod < right.filing.reportPeriod ? -1 : 1,
-  );
-
-  const events: InstitutionalPositionEventFact[] = [];
-  let previous:
-    | {
-        filing: InstitutionalFilingFact;
-        holding: InstitutionalHoldingFact | undefined;
-      }
-    | undefined;
-
-  for (const entry of periods) {
-    const holding = entry.holdings.find(
-      (line) => line.securityId === securityId,
-    );
-    const previousHolding = previous?.holding;
-    // The comparison is only public once both filings are, so the later availability governs.
-    const availableFromDate =
-      previous && previous.filing.availableFromDate > entry.filing.availableFromDate
-        ? previous.filing.availableFromDate
-        : entry.filing.availableFromDate;
-
-    if (!holding) {
-      if (previousHolding && previousHolding.shares > 0) {
-        events.push({
-          securityId,
-          actorExternalId,
-          reportPeriod: entry.filing.reportPeriod,
-          previousReportPeriod: previous?.filing.reportPeriod,
-          availableFromDate,
-          change: "EXITED",
-          shares: 0,
-          previousShares: previousHolding.shares,
-          changePercent: -100,
-          ...(previousHolding.portfolioWeightPercent === undefined
-            ? {}
-            : {
-                previousPortfolioWeightPercent:
-                  previousHolding.portfolioWeightPercent,
-              }),
-        });
-      }
-      previous = { filing: entry.filing, holding: undefined };
-      continue;
-    }
-
-    if (!previousHolding || previousHolding.shares <= 0) {
-      events.push({
-        securityId,
-        actorExternalId,
-        reportPeriod: entry.filing.reportPeriod,
-        ...(previous
-          ? { previousReportPeriod: previous.filing.reportPeriod }
-          : {}),
-        availableFromDate,
-        change: "NEW",
-        shares: holding.shares,
-        // No prior base, so no percentage. A "new position" is not a +100% change.
-        ...(holding.portfolioWeightPercent === undefined
-          ? {}
-          : { portfolioWeightPercent: holding.portfolioWeightPercent }),
-      });
-      previous = { filing: entry.filing, holding };
-      continue;
-    }
-
-    const delta = holding.shares - previousHolding.shares;
-    events.push({
-      securityId,
-      actorExternalId,
-      reportPeriod: entry.filing.reportPeriod,
-      previousReportPeriod: previous?.filing.reportPeriod,
-      availableFromDate,
-      change: delta > 0 ? "INCREASED" : delta < 0 ? "REDUCED" : "UNCHANGED",
-      shares: holding.shares,
-      previousShares: previousHolding.shares,
-      changePercent: (delta / previousHolding.shares) * 100,
-      ...(holding.portfolioWeightPercent === undefined
-        ? {}
-        : { portfolioWeightPercent: holding.portfolioWeightPercent }),
-      ...(previousHolding.portfolioWeightPercent === undefined
-        ? {}
-        : {
-            previousPortfolioWeightPercent:
-              previousHolding.portfolioWeightPercent,
-          }),
-    });
-    previous = { filing: entry.filing, holding };
-  }
-
-  return events;
-}

@@ -5,7 +5,6 @@ import {
   ACTOR_SEARCH_MIN_TERM_LENGTH,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
-  type AlternativeActorType,
   type AlternativeDataActorResponse,
   type AuthUser,
 } from "@intrinsic/contracts";
@@ -29,7 +28,7 @@ import {
 } from "./alternative-data.tokens";
 
 /**
- * Institution and Congress groups: the Lists product area's third and fourth collections.
+ * Congress groups: the Lists product area's second collection.
  *
  * It follows `StockListsService` deliberately — the same ownership helpers, the same
  * indistinguishable "missing or not yours" 404, the same administrator rule for built-in content —
@@ -51,7 +50,7 @@ export class ActorGroupNotFoundError extends Error {
   }
 }
 
-/** An actor id that is not in the canonical actor catalog, or not of the group's own kind. */
+/** An actor id that is not in the canonical actor catalog. */
 export class UnsupportedActorError extends Error {
   constructor(message = "One or more selected actors are not available") {
     super(message);
@@ -100,23 +99,19 @@ type GroupDetailRow = Prisma.ActorGroupGetPayload<{
 
 function actorResponse(actor: {
   id: string;
-  type: AlternativeActorType;
   externalId: string;
   displayName: string;
-  chamber: "HOUSE" | "SENATE" | null;
+  chamber: "HOUSE" | "SENATE";
   state: string | null;
   district: string | null;
-  cik: string | null;
 }): AlternativeDataActorResponse {
   return {
     id: actor.id,
-    type: actor.type,
     externalId: actor.externalId,
     displayName: actor.displayName,
-    ...(actor.chamber ? { chamber: actor.chamber } : {}),
+    chamber: actor.chamber,
     ...(actor.state ? { state: actor.state } : {}),
     ...(actor.district ? { district: actor.district } : {}),
-    ...(actor.cik ? { cik: actor.cik } : {}),
   };
 }
 
@@ -127,13 +122,31 @@ function detailResponse(
   return {
     ...ownershipResponse(group, viewer),
     id: group.id,
-    actorType: group.actorType,
     name: group.name,
     ...(group.description === null ? {} : { description: group.description }),
     memberCount: group.members.length,
     createdAt: group.createdAt.toISOString(),
     updatedAt: group.updatedAt.toISOString(),
     members: group.members.map((member) => actorResponse(member.actor)),
+  };
+}
+
+/** One actor as every API surface reports it. */
+function actorSummary(actor: {
+  id: string;
+  externalId: string;
+  displayName: string;
+  chamber: "HOUSE" | "SENATE";
+  state?: string;
+  district?: string;
+}): AlternativeDataActorResponse {
+  return {
+    id: actor.id,
+    externalId: actor.externalId,
+    displayName: actor.displayName,
+    chamber: actor.chamber,
+    ...(actor.state ? { state: actor.state } : {}),
+    ...(actor.district ? { district: actor.district } : {}),
   };
 }
 
@@ -154,7 +167,6 @@ export class ActorGroupsService {
    * returns the first page in name order so the picker opens on something rather than on nothing.
    */
   async searchActors(input: {
-    type: AlternativeActorType;
     term?: string;
     limit?: number;
   }): Promise<AlternativeDataActorResponse[]> {
@@ -167,59 +179,32 @@ export class ActorGroupsService {
       ACTOR_SEARCH_MAX_LIMIT,
     );
     const actors = await this.actors.searchActors({
-      type: input.type,
       ...(effective === undefined ? {} : { term: effective }),
       limit,
     });
-    return actors.map((actor) => ({
-      id: actor.id,
-      type: actor.type,
-      externalId: actor.externalId,
-      displayName: actor.displayName,
-      ...(actor.chamber ? { chamber: actor.chamber } : {}),
-      ...(actor.state ? { state: actor.state } : {}),
-      ...(actor.district ? { district: actor.district } : {}),
-      ...(actor.cik ? { cik: actor.cik } : {}),
-    }));
+    return actors.map(actorSummary);
   }
 
   /** Actors by id, so a saved strategy's scope can be labelled without a search. */
-  async findActors(ids: readonly string[]): Promise<AlternativeDataActorResponse[]> {
+  async findActors(
+    ids: readonly string[],
+  ): Promise<AlternativeDataActorResponse[]> {
     const actors = await this.actors.findActorsByIds(ids);
-    return actors.map((actor) => ({
-      id: actor.id,
-      type: actor.type,
-      externalId: actor.externalId,
-      displayName: actor.displayName,
-      ...(actor.chamber ? { chamber: actor.chamber } : {}),
-      ...(actor.state ? { state: actor.state } : {}),
-      ...(actor.district ? { district: actor.district } : {}),
-      ...(actor.cik ? { cik: actor.cik } : {}),
-    }));
+    return actors.map(actorSummary);
   }
 
-  /**
-   * The groups a viewer can use: built-ins first in operator order, then their own, newest first.
-   *
-   * Optionally narrowed to one actor kind, because the Lists area presents Institution groups and
-   * Congress groups as two collections and the Strategy Builder's picker only ever wants one.
-   */
+  /** The groups a viewer can use: built-ins first in operator order, then their own, newest first. */
   async listForUser(
     viewer: ContentViewer,
-    actorType?: AlternativeActorType,
   ): Promise<ActorGroupSummaryResponse[]> {
     const groups = await this.prisma.actorGroup.findMany({
-      where: {
-        ...readableWhere(viewer),
-        ...(actorType ? { actorType } : {}),
-      },
+      where: readableWhere(viewer),
       orderBy: [...SYSTEM_FIRST_ORDER, { createdAt: "desc" }, { id: "desc" }],
       include: { _count: { select: { members: true } } },
     });
     return groups.map((group) => ({
       ...ownershipResponse(group, viewer),
       id: group.id,
-      actorType: group.actorType,
       name: group.name,
       ...(group.description === null ? {} : { description: group.description }),
       memberCount: group._count.members,
@@ -244,23 +229,17 @@ export class ActorGroupsService {
 
   async createGroup(
     user: AuthUser,
-    input: {
-      actorType: AlternativeActorType;
-      name: string;
-      description?: string;
-      actorIds: string[];
-    },
+    input: { name: string; description?: string; actorIds: string[] },
   ): Promise<ActorGroupDetailResponse> {
     if (input.actorIds.length > ACTOR_GROUP_MAX_MEMBERS) {
       throw new ActorGroupFullError(ACTOR_GROUP_MAX_MEMBERS);
     }
-    await this.assertActorsSupported(input.actorType, input.actorIds);
+    await this.assertActorsSupported(input.actorIds);
     // Members render in the order they were added, so each gets its own creation instant.
     const createdAt = Date.now();
     const group = await this.prisma.actorGroup.create({
       data: {
         userId: user.id,
-        actorType: input.actorType,
         name: input.name,
         description: input.description ?? null,
         members: {
@@ -276,7 +255,6 @@ export class ActorGroupsService {
       event: "actor-group.created",
       actorUserId: user.id,
       groupId: group.id,
-      actorType: group.actorType,
       memberCount: group.members.length,
     });
     return detailResponse(group, user);
@@ -307,7 +285,6 @@ export class ActorGroupsService {
     return {
       ...ownershipResponse(group, user),
       id: group.id,
-      actorType: group.actorType,
       name: group.name,
       ...(group.description === null ? {} : { description: group.description }),
       memberCount: group._count.members,
@@ -354,7 +331,7 @@ export class ActorGroupsService {
     actorIds: readonly string[],
   ): Promise<ActorGroupDetailResponse> {
     const existing = await this.findMutable(user, groupId);
-    await this.assertActorsSupported(existing.actorType, actorIds);
+    await this.assertActorsSupported(actorIds);
     const group = await this.prisma.$transaction(async (tx) => {
       const current = await tx.actorGroupMember.findMany({
         where: { groupId: existing.id },
@@ -421,13 +398,7 @@ export class ActorGroupsService {
   private async findMutable(viewer: AuthUser, groupId: string) {
     const row = await this.prisma.actorGroup.findFirst({
       where: { id: groupId, ...readableWhere(viewer) },
-      select: {
-        id: true,
-        ownership: true,
-        userId: true,
-        systemKey: true,
-        actorType: true,
-      },
+      select: { id: true, ownership: true, userId: true, systemKey: true },
     });
     const group = assertMutable(row, viewer, "actor groups");
     if (!group) {
@@ -437,33 +408,23 @@ export class ActorGroupsService {
   }
 
   /**
-   * Every submitted actor must exist and be of the group's own kind.
+   * Every submitted actor must exist in the canonical catalog.
    *
-   * The kind check is the load-bearing half: a Congress group holding an institution would make a
-   * congressional metric scoped to it count nothing, silently, forever.
+   * The catalog is the identity authority, exactly as `Security` is for a stock list: the group
+   * feature never creates actor rows and never consults the provider.
    */
   private async assertActorsSupported(
-    actorType: AlternativeActorType,
     actorIds: readonly string[],
   ): Promise<void> {
     if (actorIds.length === 0) {
       return;
     }
-    const found = await this.prisma.alternativeDataActor.findMany({
-      where: { id: { in: [...new Set(actorIds)] } },
-      select: { id: true, type: true },
+    const wanted = [...new Set(actorIds)];
+    const found = await this.prisma.alternativeDataActor.count({
+      where: { id: { in: wanted } },
     });
-    const byId = new Map(found.map((actor) => [actor.id, actor.type]));
-    for (const actorId of actorIds) {
-      const type = byId.get(actorId);
-      if (type === undefined) {
-        throw new UnsupportedActorError();
-      }
-      if (type !== actorType) {
-        throw new UnsupportedActorError(
-          "One or more selected actors are not of this group's kind",
-        );
-      }
+    if (found !== wanted.length) {
+      throw new UnsupportedActorError();
     }
   }
 

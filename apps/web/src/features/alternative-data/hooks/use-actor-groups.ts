@@ -3,7 +3,6 @@
 import type {
   ActorGroupDetailResponse,
   ActorGroupSummaryResponse,
-  AlternativeActorType,
 } from "@intrinsic/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchActorGroups } from "../api/alternative-data-api";
@@ -28,7 +27,6 @@ export function actorGroupSummaryOf(
     ...(detail.systemKey === undefined ? {} : { systemKey: detail.systemKey }),
     canEdit: detail.canEdit,
     id: detail.id,
-    actorType: detail.actorType,
     name: detail.name,
     ...(detail.description === undefined
       ? {}
@@ -40,14 +38,12 @@ export function actorGroupSummaryOf(
 }
 
 /**
- * Loads the viewer's actor groups of one kind and keeps them in sync with local mutations.
+ * Loads the viewer's actor groups and keeps them in sync with local mutations.
  *
  * It mirrors `useStockLists` exactly, including never refetching blindly after a write: the API's own
  * response is what the collection applies.
  */
-export function useActorGroups(
-  actorType: AlternativeActorType,
-): ActorGroupsState {
+export function useActorGroups(): ActorGroupsState {
   const [status, setStatus] = useState<ActorGroupsStatus>("loading");
   const [groups, setGroups] = useState<readonly ActorGroupSummaryResponse[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -59,7 +55,7 @@ export function useActorGroups(
     setStatus("loading");
     const controller = new AbortController();
 
-    fetchActorGroups({ actorType }, { signal: controller.signal })
+    fetchActorGroups({ signal: controller.signal })
       .then((result) => {
         if (requestId !== latestRequestRef.current) {
           return;
@@ -78,7 +74,7 @@ export function useActorGroups(
       });
 
     return () => controller.abort();
-  }, [actorType, attempt]);
+  }, [attempt]);
 
   const applyCreated = useCallback((detail: ActorGroupDetailResponse) => {
     setGroups((current) => [actorGroupSummaryOf(detail), ...current]);

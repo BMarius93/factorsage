@@ -8,7 +8,6 @@ import {
   INSIDER_ROLE_LABELS,
   SELECTABLE_CONGRESS_OWNERS,
   SELECTABLE_INSIDER_ROLES,
-  alternativeDataActorType,
   alternativeDataLookbackLabel,
   alternativeDataMeasureDefinition,
   alternativeDataScope,
@@ -83,22 +82,21 @@ export function AlternativeDataConfigDialog({
     AlternativeDataActorResponse[]
   >([]);
 
-  const actorType = alternativeDataActorType(draft.kind);
   const scope = alternativeDataScope(draft);
   const supportsScope = alternativeDataSupportsScope(draft.kind);
 
   useEffect(() => {
-    if (!actorType) {
+    if (!supportsScope) {
       return;
     }
     const controller = new AbortController();
-    fetchActorGroups({ actorType }, { signal: controller.signal })
+    fetchActorGroups({ signal: controller.signal })
       .then(setGroups)
       // A group list that cannot be loaded leaves the picker empty rather than breaking the dialog: the
       // rest of the configuration is still editable, and the scope keeps whatever it already had.
       .catch(() => undefined);
     return () => controller.abort();
-  }, [actorType]);
+  }, [supportsScope]);
 
   const setScope = (next: ActorScope): void => {
     setDraft((current) =>
@@ -160,7 +158,7 @@ export function AlternativeDataConfigDialog({
           />
         </div>
 
-        {supportsScope && actorType ? (
+        {supportsScope ? (
           <div className={styles.field}>
             <span className={styles.fieldLabel}>Whose activity</span>
             <div className={styles.checkboxes} role="radiogroup" aria-label="Scope">
@@ -195,7 +193,6 @@ export function AlternativeDataConfigDialog({
             {scopeKind === "ACTOR" ? (
               <div className={styles.scopePicker}>
                 <ActorCombobox
-                  actorType={actorType}
                   mode="single"
                   selected={selectedActor}
                   onChange={(next) => {
@@ -205,11 +202,7 @@ export function AlternativeDataConfigDialog({
                       setScope({ kind: "ACTOR", actorId: picked.id });
                     }
                   }}
-                  label={
-                    actorType === "INSTITUTION"
-                      ? "Search institutions"
-                      : "Search members of Congress"
-                  }
+                  label="Search members of Congress"
                   testId="alt-actor-picker"
                 />
                 <p className={styles.fieldHint}>

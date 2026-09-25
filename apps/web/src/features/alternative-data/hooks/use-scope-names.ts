@@ -59,7 +59,7 @@ export function useStrategyScopeNames(
       // the two share a browser cache entry instead of issuing two shapes of request.
       wantedGroups.length === 0
         ? Promise.resolve([])
-        : fetchActorGroups({}, { signal: controller.signal }),
+        : fetchActorGroups({ signal: controller.signal }),
     ])
       .then(([actors, groups]) => {
         const resolved: StrategyScopeNames = {};

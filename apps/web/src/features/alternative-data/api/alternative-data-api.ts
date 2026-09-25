@@ -2,7 +2,6 @@ import type {
   ActorGroupDetailResponse,
   ActorGroupSummaryResponse,
   AddActorGroupMembersRequest,
-  AlternativeActorType,
   AlternativeDataActorResponse,
   CreateActorGroupRequest,
   UpdateActorGroupRequest,
@@ -16,10 +15,10 @@ import {
 
 /** The canonical actor catalog, for the searchable pickers. */
 export function searchActors(
-  input: { type: AlternativeActorType; term?: string; limit?: number },
+  input: { term?: string; limit?: number } = {},
   options: { signal?: AbortSignal } = {},
 ) {
-  const query = new URLSearchParams({ type: input.type });
+  const query = new URLSearchParams();
   if (input.term) {
     query.set("q", input.term);
   }
@@ -52,19 +51,8 @@ export function resolveActors(
   );
 }
 
-export function fetchActorGroups(
-  input: { actorType?: AlternativeActorType } = {},
-  options: { signal?: AbortSignal } = {},
-) {
-  const query = new URLSearchParams();
-  if (input.actorType) {
-    query.set("actorType", input.actorType);
-  }
-  const suffix = query.toString();
-  return apiGet<ActorGroupSummaryResponse[]>(
-    suffix ? `/actor-groups?${suffix}` : "/actor-groups",
-    options,
-  );
+export function fetchActorGroups(options: { signal?: AbortSignal } = {}) {
+  return apiGet<ActorGroupSummaryResponse[]>("/actor-groups", options);
 }
 
 export function fetchActorGroup(

@@ -990,12 +990,12 @@ export function getStockDataConfig(env: Environment = process.env) {
 }
 
 /**
- * Alternative-data ingestion (insider activity, congressional trading, institutional 13F).
+ * Alternative-data ingestion (insider activity and congressional trading).
  *
  * Its own configuration rather than more fields on `getStockDataConfig`, because the cadences are
- * genuinely different: a Form 4 is public within two business days, a congressional disclosure within
- * forty-five days, and a 13F filing once a quarter. Refreshing all three as often as a price tail
- * would spend the shared provider budget on datasets that cannot have changed.
+ * genuinely different: a Form 4 is public within two business days and a congressional disclosure
+ * within forty-five. Refreshing either as often as a price tail would spend the shared provider budget
+ * on a dataset that cannot have changed.
  *
  * `ALT_DATA_MAX_PAGES_PER_INGEST` is a loop bound, not a limit on history: at the providers' page caps
  * (1000 insider rows, 250 congressional rows) twelve pages reach twelve thousand Form 4 filings and
@@ -1012,14 +1012,6 @@ export function getAlternativeDataConfig(env: Environment = process.env) {
       12 * 60 * 60 * 1000,
     ),
     maxPagesPerIngest: integer(env, ["ALT_DATA_MAX_PAGES_PER_INGEST"], 12),
-    /**
-     * Report quarters of 13F history one ingest reads.
-     *
-     * Twenty is five years, which is enough for the longest supported lookback to sit inside coverage
-     * for any period a user is likely to backtest. It costs one request per quarter per symbol and only
-     * on a cold ingest.
-     */
-    institutionalQuarters: integer(env, ["ALT_DATA_13F_QUARTERS"], 20),
   } as const;
 }
 

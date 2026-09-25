@@ -8,7 +8,6 @@ import {
   defaultAlternativeDataMetric,
   describeAlternativeDataConfiguration,
   INSIDER_MEASURES,
-  INSTITUTIONAL_MEASURES,
   parseAlternativeDataMetricSignature,
   type AlternativeDataMetric,
 } from "./alternative-data.js";
@@ -70,20 +69,6 @@ function congress(
   };
 }
 
-function institutional(
-  overrides: Partial<
-    Extract<AlternativeDataMetric, { kind: "INSTITUTIONAL_ACTIVITY" }>
-  > = {},
-): StrategyMetric {
-  return {
-    kind: "INSTITUTIONAL_ACTIVITY",
-    measure: "BUYERS",
-    lookback: 60,
-    scope: { kind: "ANY" },
-    ...overrides,
-  };
-}
-
 function definitionWith(condition: StrategyCondition): StrategyDefinition {
   return {
     schemaVersion: STRATEGY_SCHEMA_VERSION,
@@ -125,18 +110,18 @@ describe("the alternative-data metric catalog", () => {
         "Congress sellers 30D",
         "Congress minimum disclosed purchase value 30D",
       ]);
-      expect(
-        options
-          .filter((option) => option.group === "INSTITUTIONAL_ACTIVITY")
-          .map((option) => option.label),
-      ).toEqual([
-        "Institutional buyers 60D",
-        "Institutional reducers 60D",
-        "Institutional new positions 60D",
-        "Institutional exits 60D",
-        "Institutional position change 60D",
-      ]);
     }
+  });
+
+  it("offers no institutional option at all", () => {
+    // V1 ships Insider Activity and Congressional Trading only: the provider subscription does not
+    // cover Form 13F, so no institutional measure, group or selector section exists to be selected.
+    const groups = new Set(
+      strategyMetricOptions("BUY").map((option) => option.group),
+    );
+    expect(groups.has("INSIDER_ACTIVITY")).toBe(true);
+    expect(groups.has("CONGRESSIONAL_TRADING")).toBe(true);
+    expect([...groups]).not.toContain("INSTITUTIONAL_ACTIVITY");
   });
 
   it("offers none of them as a Trigger", () => {
@@ -148,16 +133,11 @@ describe("the alternative-data metric catalog", () => {
       );
       expect(kinds.has("INSIDER_ACTIVITY")).toBe(false);
       expect(kinds.has("CONGRESS_ACTIVITY")).toBe(false);
-      expect(kinds.has("INSTITUTIONAL_ACTIVITY")).toBe(false);
     }
   });
 
   it("gives the inclusive operators to these metrics and to nothing else", () => {
-    for (const kind of [
-      "INSIDER_ACTIVITY",
-      "CONGRESS_ACTIVITY",
-      "INSTITUTIONAL_ACTIVITY",
-    ] as const) {
+    for (const kind of ["INSIDER_ACTIVITY", "CONGRESS_ACTIVITY"] as const) {
       expect(STRATEGY_METRIC_DEFINITIONS[kind].conditionOperators).toEqual([
         "IS_AT_LEAST",
         "IS_AT_MOST",
@@ -207,11 +187,7 @@ describe("the alternative-data metric catalog", () => {
   });
 
   it("explains every kind", () => {
-    for (const kind of [
-      "INSIDER_ACTIVITY",
-      "CONGRESS_ACTIVITY",
-      "INSTITUTIONAL_ACTIVITY",
-    ] as const) {
+    for (const kind of ["INSIDER_ACTIVITY", "CONGRESS_ACTIVITY"] as const) {
       const help = STRATEGY_METRIC_HELP[kind];
       expect(help.summary.length).toBeGreaterThan(0);
       expect(help.notEvaluableWhen?.length ?? 0).toBeGreaterThan(0);
@@ -245,12 +221,6 @@ describe("alternative-data value domains", () => {
       kind: "MONEY",
       value: 0,
     });
-  });
-
-  it("gives position change a signed percentage floored at -100", () => {
-    expect(
-      valueSpecFor(institutional({ measure: "POSITION_CHANGE" })),
-    ).toEqual({ kind: "PERCENT", min: -100 });
   });
 
   it("renders money grouped, with no decimals", () => {
@@ -340,7 +310,6 @@ describe("alternative-data configuration validation", () => {
     for (const [kind, measures] of [
       ["INSIDER_ACTIVITY", INSIDER_MEASURES],
       ["CONGRESS_ACTIVITY", CONGRESS_MEASURES],
-      ["INSTITUTIONAL_ACTIVITY", INSTITUTIONAL_MEASURES],
     ] as const) {
       for (const measure of measures) {
         const metric = defaultAlternativeDataMetric(kind, measure);
@@ -393,29 +362,28 @@ describe("alternative-data configuration validation", () => {
     ).toEqual(["UNKNOWN_FIELD"]);
   });
 
-  it("requires a scope on the kinds that have one", () => {
+  it("requires a scope on the kind that has one", () => {
     expect(
       valid({ kind: "CONGRESS_ACTIVITY", measure: "PURCHASES", lookback: 30, chamber: "ANY" }),
-    ).toEqual(["SCOPE_INVALID"]);
-    expect(
-      valid({ kind: "INSTITUTIONAL_ACTIVITY", measure: "BUYERS", lookback: 60 }),
     ).toEqual(["SCOPE_INVALID"]);
   });
 
   it("refuses a scope missing its identifier, and one carrying the wrong one", () => {
     expect(
       valid({
-        kind: "INSTITUTIONAL_ACTIVITY",
-        measure: "BUYERS",
-        lookback: 60,
+        kind: "CONGRESS_ACTIVITY",
+        measure: "PURCHASES",
+        lookback: 30,
+        chamber: "ANY",
         scope: { kind: "GROUP" },
       }),
     ).toEqual(["SCOPE_INVALID"]);
     expect(
       valid({
-        kind: "INSTITUTIONAL_ACTIVITY",
-        measure: "BUYERS",
-        lookback: 60,
+        kind: "CONGRESS_ACTIVITY",
+        measure: "PURCHASES",
+        lookback: 30,
+        chamber: "ANY",
         scope: { kind: "GROUP", actorId: "a1" },
       }),
     ).toEqual(["UNKNOWN_FIELD", "SCOPE_INVALID"]);
@@ -555,13 +523,14 @@ describe("alternative-data normalization", () => {
     const definition = normalizeStrategyDefinition(
       definitionWith({
         id: "c1",
-        metric: institutional({
-          measure: "POSITION_CHANGE",
+        metric: congress({
+          measure: "MINIMUM_PURCHASE_VALUE",
           lookback: 90,
           scope: { kind: "ACTOR", actorId: "a1" },
+          owners: ["SELF"],
         }),
         operator: "IS_AT_LEAST",
-        value: { kind: "PERCENT", value: 25 },
+        value: { kind: "MONEY", value: 25_000 },
       }),
     );
     expect(
@@ -687,7 +656,7 @@ describe("alternative-data identity", () => {
         congress({ scope: { kind: "GROUP", groupId: "g1" } }),
         congress({ scope: { kind: "GROUP", groupId: "g2" } }),
         congress({ chamber: "SENATE" }),
-        institutional(),
+        congress({ owners: ["SELF"] }),
       ].map((metric) => strategySignalFingerprint(signalFor(metric))),
     );
     expect(fingerprints.size).toBe(9);
@@ -751,19 +720,19 @@ describe("alternative-data rendering", () => {
     expect(
       describeCondition({
         id: "c2",
-        metric: institutional({ lookback: 60 }),
+        metric: congress(),
         operator: "IS_AT_LEAST",
-        value: { kind: "NUMBER", value: 3 },
+        value: { kind: "NUMBER", value: 2 },
       }),
-    ).toBe("Institutional buyers 60D is at least 3");
+    ).toBe("Congress purchases 30D is at least 2");
     expect(
       describeCondition({
         id: "c3",
-        metric: institutional({ measure: "POSITION_CHANGE" }),
+        metric: congress({ measure: "MINIMUM_PURCHASE_VALUE" }),
         operator: "IS_AT_LEAST",
-        value: { kind: "PERCENT", value: 25 },
+        value: { kind: "MONEY", value: 50_000 },
       }),
-    ).toBe("Institutional position change 60D is at least 25%");
+    ).toBe("Congress minimum disclosed purchase value 30D is at least $50,000");
   });
 
   it("summarizes only what was actually narrowed", () => {
@@ -785,21 +754,21 @@ describe("alternative-data rendering", () => {
     ).toBe("Congress Watchlist · Senate · Self, Spouse");
     expect(
       describeAlternativeDataConfiguration(
-        institutional({
+        congress({
           scope: { kind: "GROUP", groupId: "g1" },
         }) as AlternativeDataMetric,
-        { groupName: "Superinvestors" },
+        { groupName: "Congress Watchlist" },
       ),
-    ).toBe("Superinvestors");
+    ).toBe("Congress Watchlist");
   });
 
   it("falls back to a neutral label when the name has not been resolved", () => {
     expect(
       describePredicateScope({
         id: "c1",
-        metric: institutional({ scope: { kind: "GROUP", groupId: "g1" } }),
+        metric: congress({ scope: { kind: "GROUP", groupId: "g1" } }),
         operator: "IS_AT_LEAST",
-        value: { kind: "NUMBER", value: 3 },
+        value: { kind: "NUMBER", value: 2 },
       }),
     ).toBe("Selected group");
   });
@@ -808,18 +777,18 @@ describe("alternative-data rendering", () => {
     const lines = describeStrategy(
       definitionWith({
         id: "c1",
-        metric: institutional({ scope: { kind: "GROUP", groupId: "g1" } }),
+        metric: congress({ scope: { kind: "GROUP", groupId: "g1" } }),
         operator: "IS_AT_LEAST",
-        value: { kind: "NUMBER", value: 3 },
+        value: { kind: "NUMBER", value: 2 },
       }),
-      { groups: { g1: "Superinvestors" } },
+      { groups: { g1: "Congress Watchlist" } },
     );
     expect(lines).toEqual([
       { kind: "LEVEL", levelKind: "BUY", index: 1, percentage: 100 },
       {
         kind: "CONDITION",
-        text: "Institutional buyers 60D is at least 3",
-        scope: "Superinvestors",
+        text: "Congress purchases 30D is at least 2",
+        scope: "Congress Watchlist",
       },
     ]);
   });
@@ -849,9 +818,9 @@ describe("scope reference collection", () => {
     insider({ roles: ["CEO"] }),
     congress({ scope: { kind: "GROUP", groupId: "g2" } }),
     congress({ scope: { kind: "GROUP", groupId: "g1" }, chamber: "HOUSE" }),
-    institutional({ scope: { kind: "GROUP", groupId: "g1" } }),
-    institutional({ scope: { kind: "ACTOR", actorId: "a9" } }),
-    institutional(),
+    congress({ scope: { kind: "GROUP", groupId: "g1" }, chamber: "SENATE" }),
+    congress({ scope: { kind: "ACTOR", actorId: "a9" } }),
+    congress({ owners: ["SELF"] }),
   ].map((metric) => asAlternativeDataMetric(metric) as AlternativeDataMetric);
 
   it("collects group ids deduplicated and sorted", () => {
@@ -866,7 +835,7 @@ describe("scope reference collection", () => {
     expect(collectActorGroupIds([])).toEqual([]);
     expect(
       collectActorGroupIds([
-        asAlternativeDataMetric(institutional()) as AlternativeDataMetric,
+        asAlternativeDataMetric(congress()) as AlternativeDataMetric,
       ]),
     ).toEqual([]);
   });
@@ -890,11 +859,12 @@ describe("parseAlternativeDataMetricSignature", () => {
       owners: ["SELF", "SPOUSE"],
     }) as AlternativeDataMetric,
     congress({ scope: { kind: "GROUP", groupId: "group-1" } }) as AlternativeDataMetric,
-    institutional() as AlternativeDataMetric,
-    institutional({
-      measure: "POSITION_CHANGE",
+    congress({
+      measure: "SELLERS",
       lookback: 250,
       scope: { kind: "GROUP", groupId: "group-2" },
+      chamber: "HOUSE",
+      owners: ["SELF", "SPOUSE", "JOINT"],
     }) as AlternativeDataMetric,
   ];
 
@@ -919,8 +889,8 @@ describe("parseAlternativeDataMetricSignature", () => {
       "INSIDER_ACTIVITY|BUYERS|20|-|CHIEF_VIBES",
       "CONGRESS_ACTIVITY|PURCHASES|30|any|LORDS|-",
       "CONGRESS_ACTIVITY|PURCHASES|30|group:|ANY|-",
-      "INSTITUTIONAL_ACTIVITY|BUYERS|60|any|ANY|-",
-      "INSTITUTIONAL_ACTIVITY|BUYERS|60",
+      "INSTITUTIONAL_ACTIVITY|BUYERS|60|any",
+      "CONGRESS_ACTIVITY|PURCHASES|30|any",
     ]) {
       expect(parseAlternativeDataMetricSignature(text), text).toBeUndefined();
     }

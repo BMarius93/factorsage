@@ -122,14 +122,14 @@ Strategy or Stock List — a configuration boundary, fenced against an in-flight
 `Monitor.configVersion`; `product/monitors.md` and `architecture/monitor-engine.md` own the
 semantics.
 
-For insider activity, congressional trading, institutional Form 13F, actor groups or anything that
-scopes a strategy rule to a named actor, read `../docs/alternative-data-signals.md`: it is the
-accepted product decision **and** the record of the implementation clarifications and provider
-limitations found while building it — why a lookback is measured on the session a disclosure became
-observable rather than on the transaction date, why a metric outside ingested coverage is
-`NOT_EVALUABLE` rather than zero, which FMP endpoints accept no date range, and that every
-`institutional-ownership/*` endpoint is restricted on the current subscription. Then read
-`product/strategies.md` for where the three metric families sit in the compatibility matrix, and
+For insider activity, congressional trading, actor groups or anything that scopes a strategy rule to
+a named actor, read `../docs/alternative-data-signals.md`: it is the accepted product decision **and**
+the record of the implementation clarifications and provider limitations found while building it — why
+a lookback is measured on the session a disclosure became observable rather than on the transaction
+date, why a metric outside ingested coverage is `NOT_EVALUABLE` rather than zero, which FMP endpoints
+accept no date range, and why Institutional Form 13F is out of V1 entirely (every
+`institutional-ownership/*` endpoint is restricted on the current subscription). Then read
+`product/strategies.md` for where the two metric families sit in the compatibility matrix, and
 `AGENTS.md` invariant 23 for the rules a change must not break. The groups live in the Lists product
 area rather than in new top-level navigation, and a backtest freezes a referenced group's membership
 into its snapshot.

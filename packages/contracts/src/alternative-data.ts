@@ -1,8 +1,7 @@
 import type { ContentOwnershipResponse } from "./builtins.js";
 
 /**
- * The alternative-data product vocabulary: Insider Activity, Congressional Trading and
- * Institutional Activity (SEC Form 13F).
+ * The alternative-data product vocabulary: Insider Activity and Congressional Trading.
  *
  * `docs/alternative-data-signals.md` is the product decision this file implements.
  *
@@ -36,13 +35,6 @@ import type { ContentOwnershipResponse } from "./builtins.js";
 // ---------------------------------------------------------------------------
 // Shared vocabulary — mirrored in `@intrinsic/domain`, drift-guarded by a test
 // ---------------------------------------------------------------------------
-
-export const ALTERNATIVE_ACTOR_TYPES = [
-  "INSTITUTION",
-  "CONGRESS_PERSON",
-] as const;
-
-export type AlternativeActorType = (typeof ALTERNATIVE_ACTOR_TYPES)[number];
 
 export const CONGRESS_CHAMBERS = ["HOUSE", "SENATE"] as const;
 export type CongressChamber = (typeof CONGRESS_CHAMBERS)[number];
@@ -158,9 +150,9 @@ export type ActorScopeKind = (typeof ACTOR_SCOPE_KINDS)[number];
 /**
  * Whose activity a metric counts.
  *
- * Scope is a **filter over one metric**, never a metric of its own: there is no
- * `BerkshireBuying` signal, only `Institutional buyers` scoped to Berkshire. That is what keeps the
- * catalog small and what lets a group be swapped without rewriting a strategy.
+ * Scope is a **filter over one metric**, never a metric of its own: there is no named-member signal,
+ * only `Congress buyers` scoped to one member or to a group. That is what keeps the catalog small and
+ * what lets a group be swapped without rewriting a strategy.
  *
  * `actorId` and `groupId` are this product's own identifiers, resolved at the API boundary the same
  * way a Monitor's stock-list reference is. A backtest freezes a referenced group's membership into
@@ -204,16 +196,6 @@ export const CONGRESS_MEASURES = [
 
 export type CongressMeasure = (typeof CONGRESS_MEASURES)[number];
 
-export const INSTITUTIONAL_MEASURES = [
-  "BUYERS",
-  "REDUCERS",
-  "NEW_POSITIONS",
-  "EXITS",
-  "POSITION_CHANGE",
-] as const;
-
-export type InstitutionalMeasure = (typeof INSTITUTIONAL_MEASURES)[number];
-
 /**
  * How one measure turns the observable facts inside its window into a number.
  *
@@ -221,20 +203,14 @@ export type InstitutionalMeasure = (typeof INSTITUTIONAL_MEASURES)[number];
  * the aggregation beside the measure is what stops an evaluator deciding that
  * `Insider buyers` counts rows rather than distinct people.
  *
- * - `DISTINCT_ACTORS` — how many different people/managers acted at least once.
+ * - `DISTINCT_ACTORS` — how many different people acted at least once.
  * - `EVENT_COUNT` — how many disclosures there were, however many actors made them.
  * - `SUM_AMOUNT` — the total of each fact's own amount; facts with no amount contribute nothing.
- * - `SHARE_WEIGHTED_CHANGE_PERCENT` — the aggregate percentage change in shares held across the
- *   in-scope managers: `sum(shares - previousShares) / sum(previousShares) * 100`. Summing the
- *   numerator and denominator separately is what makes a group's reading the change in the group's
- *   *holding* rather than the average of per-manager percentages, where one manager adding 10 shares
- *   to a position of 10 would swamp another halving a position of a million.
  */
 export const ALTERNATIVE_DATA_AGGREGATIONS = [
   "DISTINCT_ACTORS",
   "EVENT_COUNT",
   "SUM_AMOUNT",
-  "SHARE_WEIGHTED_CHANGE_PERCENT",
 ] as const;
 
 export type AlternativeDataAggregation =
@@ -252,11 +228,6 @@ export const ALTERNATIVE_DATA_FACT_FILTERS = [
   "INSIDER_OPEN_MARKET_SALE",
   "CONGRESS_PURCHASE",
   "CONGRESS_SALE",
-  "INSTITUTIONAL_ACQUIRING",
-  "INSTITUTIONAL_REDUCING",
-  "INSTITUTIONAL_NEW",
-  "INSTITUTIONAL_EXITED",
-  "INSTITUTIONAL_ANY_CHANGE",
 ] as const;
 
 export type AlternativeDataFactFilter =
@@ -265,16 +236,15 @@ export type AlternativeDataFactFilter =
 /**
  * The largest threshold a count metric may name.
  *
- * A product bound rather than a data one: no security sees a thousand distinct insiders, a thousand
- * congressional disclosures or a thousand institutional buyers inside a single lookback window, so
- * this rejects nothing a user could mean while keeping the validator's message readable and the
- * control's range finite. The *reading* itself is never clamped — only the threshold a rule may ask
+ * A product bound rather than a data one: no security sees a thousand distinct insiders or a thousand
+ * congressional disclosures inside a single lookback window, so this rejects nothing a user could mean
+ * while keeping the validator's message readable and the control's range finite. The *reading* itself is never clamped — only the threshold a rule may ask
  * for.
  */
 export const ALTERNATIVE_DATA_COUNT_MAX = 1_000;
 
 /** The unit a measure reads in, which decides its permitted `StrategyValue`. */
-export const ALTERNATIVE_DATA_UNITS = ["COUNT", "MONEY", "PERCENT"] as const;
+export const ALTERNATIVE_DATA_UNITS = ["COUNT", "MONEY"] as const;
 export type AlternativeDataUnit = (typeof ALTERNATIVE_DATA_UNITS)[number];
 
 export type AlternativeDataMeasureDefinition = {
@@ -373,55 +343,8 @@ export const CONGRESS_MEASURE_DEFINITIONS = {
   },
 } as const satisfies Record<CongressMeasure, AlternativeDataMeasureDefinition>;
 
-/**
- * Institutional measures.
- *
- * Sixty sessions — about a quarter — is the default, because 13F is a quarterly disclosure: a
- * shorter window would report whether a filing season happened rather than what managers did.
- */
-export const INSTITUTIONAL_MEASURE_DEFINITIONS = {
-  BUYERS: {
-    label: "Institutional buyers",
-    filter: "INSTITUTIONAL_ACQUIRING",
-    aggregation: "DISTINCT_ACTORS",
-    unit: "COUNT",
-    defaultLookback: 60,
-  },
-  REDUCERS: {
-    label: "Institutional reducers",
-    filter: "INSTITUTIONAL_REDUCING",
-    aggregation: "DISTINCT_ACTORS",
-    unit: "COUNT",
-    defaultLookback: 60,
-  },
-  NEW_POSITIONS: {
-    label: "Institutional new positions",
-    filter: "INSTITUTIONAL_NEW",
-    aggregation: "DISTINCT_ACTORS",
-    unit: "COUNT",
-    defaultLookback: 60,
-  },
-  EXITS: {
-    label: "Institutional exits",
-    filter: "INSTITUTIONAL_EXITED",
-    aggregation: "DISTINCT_ACTORS",
-    unit: "COUNT",
-    defaultLookback: 60,
-  },
-  POSITION_CHANGE: {
-    label: "Institutional position change",
-    filter: "INSTITUTIONAL_ANY_CHANGE",
-    aggregation: "SHARE_WEIGHTED_CHANGE_PERCENT",
-    unit: "PERCENT",
-    defaultLookback: 60,
-  },
-} as const satisfies Record<
-  InstitutionalMeasure,
-  AlternativeDataMeasureDefinition
->;
-
 // ---------------------------------------------------------------------------
-// The three metric shapes
+// The two metric shapes
 // ---------------------------------------------------------------------------
 
 /**
@@ -450,24 +373,15 @@ export type CongressActivityMetric = {
   owners?: readonly CongressOwner[];
 };
 
-export type InstitutionalActivityMetric = {
-  kind: "INSTITUTIONAL_ACTIVITY";
-  measure: InstitutionalMeasure;
-  lookback: AlternativeDataLookback;
-  scope: ActorScope;
-};
-
 export type AlternativeDataMetric =
   | InsiderActivityMetric
-  | CongressActivityMetric
-  | InstitutionalActivityMetric;
+  | CongressActivityMetric;
 
 export type AlternativeDataMetricKind = AlternativeDataMetric["kind"];
 
 export const ALTERNATIVE_DATA_METRIC_KINDS = [
   "INSIDER_ACTIVITY",
   "CONGRESS_ACTIVITY",
-  "INSTITUTIONAL_ACTIVITY",
 ] as const satisfies readonly AlternativeDataMetricKind[];
 
 export function isAlternativeDataMetricKind(
@@ -485,8 +399,6 @@ export function alternativeDataMeasures(
       return INSIDER_MEASURES;
     case "CONGRESS_ACTIVITY":
       return CONGRESS_MEASURES;
-    case "INSTITUTIONAL_ACTIVITY":
-      return INSTITUTIONAL_MEASURES;
   }
 }
 
@@ -499,8 +411,6 @@ export function alternativeDataMeasureDefinition(
       return INSIDER_MEASURE_DEFINITIONS[metric.measure];
     case "CONGRESS_ACTIVITY":
       return CONGRESS_MEASURE_DEFINITIONS[metric.measure];
-    case "INSTITUTIONAL_ACTIVITY":
-      return INSTITUTIONAL_MEASURE_DEFINITIONS[metric.measure];
   }
 }
 
@@ -512,9 +422,7 @@ export function findAlternativeDataMeasure(
   const table: Record<string, AlternativeDataMeasureDefinition> =
     kind === "INSIDER_ACTIVITY"
       ? INSIDER_MEASURE_DEFINITIONS
-      : kind === "CONGRESS_ACTIVITY"
-        ? CONGRESS_MEASURE_DEFINITIONS
-        : INSTITUTIONAL_MEASURE_DEFINITIONS;
+      : CONGRESS_MEASURE_DEFINITIONS;
   return table[measure];
 }
 
@@ -523,20 +431,6 @@ export function alternativeDataSupportsScope(
   kind: AlternativeDataMetricKind,
 ): boolean {
   return kind !== "INSIDER_ACTIVITY";
-}
-
-/** The actor type a scoped kind selects from. */
-export function alternativeDataActorType(
-  kind: AlternativeDataMetricKind,
-): AlternativeActorType | undefined {
-  switch (kind) {
-    case "CONGRESS_ACTIVITY":
-      return "CONGRESS_PERSON";
-    case "INSTITUTIONAL_ACTIVITY":
-      return "INSTITUTION";
-    case "INSIDER_ACTIVITY":
-      return undefined;
-  }
 }
 
 /** A fresh instance of one measure, with every configurable field at its default. */
@@ -563,13 +457,6 @@ export function defaultAlternativeDataMetric(
         lookback,
         scope: { kind: "ANY" },
         chamber: "ANY",
-      };
-    case "INSTITUTIONAL_ACTIVITY":
-      return {
-        kind,
-        measure: measure as InstitutionalMeasure,
-        lookback,
-        scope: { kind: "ANY" },
       };
   }
 }
@@ -756,17 +643,6 @@ export function parseAlternativeDataMetricSignature(
     return undefined;
   }
 
-  if (rawKind === "INSTITUTIONAL_ACTIVITY") {
-    return parts.length === 4
-      ? {
-          kind: rawKind,
-          measure: measure as InstitutionalMeasure,
-          lookback: lookback as AlternativeDataLookback,
-          scope,
-        }
-      : undefined;
-  }
-
   if (parts.length !== 6) {
     return undefined;
   }
@@ -836,13 +712,6 @@ export function buildAlternativeDataMetric(
                 metric.owners?.includes(owner),
               ),
             }),
-      };
-    case "INSTITUTIONAL_ACTIVITY":
-      return {
-        kind: "INSTITUTIONAL_ACTIVITY",
-        measure: metric.measure,
-        lookback: metric.lookback,
-        scope: scope(metric.scope),
       };
   }
 }
@@ -923,17 +792,21 @@ export function describeAlternativeDataConfiguration(
 // Actor and actor-group API contracts
 // ---------------------------------------------------------------------------
 
-/** One row of the searchable actor picker. */
+/**
+ * One row of the searchable actor picker: a member of Congress.
+ *
+ * There is no actor-kind discriminator. V1 has exactly one kind of canonical actor — insider persons
+ * are deliberately not actors — and a field with one possible value is a distinction the product does
+ * not make.
+ */
 export type AlternativeDataActorResponse = {
   id: string;
-  type: AlternativeActorType;
-  /** The provider/regulator identifier this actor's identity is: a CIK, a bioguide id. */
+  /** The identifier this actor's identity **is**: the member's bioguide id. */
   externalId: string;
   displayName: string;
-  chamber?: CongressChamber;
+  chamber: CongressChamber;
   state?: string;
   district?: string;
-  cik?: string;
 };
 
 export const ACTOR_SEARCH_MIN_TERM_LENGTH = 2;
@@ -955,7 +828,6 @@ export const ACTOR_GROUP_MAX_MEMBERS_PER_ADD = 100;
 
 export type ActorGroupSummaryResponse = ContentOwnershipResponse & {
   id: string;
-  actorType: AlternativeActorType;
   name: string;
   description?: string;
   memberCount: number;
@@ -968,7 +840,6 @@ export type ActorGroupDetailResponse = ActorGroupSummaryResponse & {
 };
 
 export type CreateActorGroupRequest = {
-  actorType: AlternativeActorType;
   name: string;
   description?: string;
   actorIds?: string[];
@@ -984,14 +855,9 @@ export type AddActorGroupMembersRequest = {
   actorIds: string[];
 };
 
-/** The product label for an actor type, used for the Lists area's own sections. */
-export const ALTERNATIVE_ACTOR_TYPE_LABELS = {
-  INSTITUTION: "Institution",
-  CONGRESS_PERSON: "Congress person",
-} as const satisfies Record<AlternativeActorType, string>;
-
-/** The plural product label, used as a collection heading. */
-export const ACTOR_GROUP_COLLECTION_LABELS = {
-  INSTITUTION: "Institution groups",
-  CONGRESS_PERSON: "Congress groups",
-} as const satisfies Record<AlternativeActorType, string>;
+/**
+ * The one product label for the actor-group collection, used as the Lists area's section heading.
+ *
+ * A constant rather than a per-kind map: V1 has one kind of group.
+ */
+export const ACTOR_GROUP_COLLECTION_LABEL = "Congress groups" as const;

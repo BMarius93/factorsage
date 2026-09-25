@@ -1,21 +1,15 @@
 import {
-  AlternativeActorType as AlternativeActorTypeEnum,
   CongressAssetClass as CongressAssetClassEnum,
   CongressChamber as CongressChamberEnum,
   CongressOwner as CongressOwnerEnum,
   CongressTransactionKind as CongressTransactionKindEnum,
   InsiderRole as InsiderRoleEnum,
   InsiderTransactionCategory as InsiderTransactionCategoryEnum,
-  InstitutionalPositionChange as InstitutionalPositionChangeEnum,
   type Prisma,
   PrismaClient,
   StockDataset,
 } from "@intrinsic/database";
-import type {
-  AlternativeActorType,
-  LocalDate,
-  SecurityId,
-} from "@intrinsic/domain";
+import type { CongressChamber, LocalDate, SecurityId } from "@intrinsic/domain";
 import {
   ALTERNATIVE_DATA_DATASETS,
   type AlternativeDataActorUpsert,
@@ -29,10 +23,6 @@ import {
   type InsiderObservationQuery,
   type InsiderObservationRow,
   type InsiderTransactionWrite,
-  type InstitutionalFilingWrite,
-  type InstitutionalObservationQuery,
-  type InstitutionalObservationRow,
-  type InstitutionalPositionEventWrite,
   type PersistedAlternativeDataActor,
 } from "./alternative-data-ports.js";
 
@@ -70,10 +60,6 @@ function decimalToNumber(value: DecimalLike | null): number | null {
   return value === null ? null : value.toNumber();
 }
 
-function actorKeyOf(type: AlternativeActorType, externalId: string): string {
-  return `${type}:${externalId}`;
-}
-
 function chunk<T>(rows: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < rows.length; index += size) {
@@ -101,7 +87,7 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
   ): Promise<Map<string, string>> {
     const unique = new Map<string, AlternativeDataActorUpsert>();
     for (const actor of actors) {
-      unique.set(actorKeyOf(actor.type, actor.externalId), actor);
+      unique.set(actor.externalId, actor);
     }
     if (unique.size === 0) {
       return new Map();
@@ -110,66 +96,50 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
 
     await this.prisma.alternativeDataActor.createMany({
       data: wanted.map((actor) => ({
-        type: AlternativeActorTypeEnum[actor.type],
         externalId: actor.externalId,
         displayName: actor.displayName,
-        ...(actor.chamber
-          ? { chamber: CongressChamberEnum[actor.chamber] }
-          : {}),
+        chamber: CongressChamberEnum[actor.chamber],
         ...(actor.state ? { state: actor.state } : {}),
         ...(actor.district ? { district: actor.district } : {}),
-        ...(actor.cik ? { cik: actor.cik } : {}),
       })),
       skipDuplicates: true,
     });
 
     const rows = await this.prisma.alternativeDataActor.findMany({
-      where: {
-        OR: wanted.map((actor) => ({
-          type: AlternativeActorTypeEnum[actor.type],
-          externalId: actor.externalId,
-        })),
-      },
+      where: { externalId: { in: wanted.map((actor) => actor.externalId) } },
       select: {
         id: true,
-        type: true,
         externalId: true,
         displayName: true,
         chamber: true,
         state: true,
         district: true,
-        cik: true,
       },
     });
 
     const ids = new Map<string, string>();
     const refreshes: Promise<unknown>[] = [];
     for (const row of rows) {
-      const key = actorKeyOf(row.type, row.externalId);
-      ids.set(key, row.id);
-      const observed = unique.get(key);
+      ids.set(row.externalId, row.id);
+      const observed = unique.get(row.externalId);
       if (!observed) {
         continue;
       }
       // Only the presentational fields are refreshed, and only when one of them actually moved.
       const changed =
         observed.displayName !== row.displayName ||
-        (observed.chamber ?? null) !== row.chamber ||
+        observed.chamber !== row.chamber ||
         (observed.state ?? null) !== row.state ||
-        (observed.district ?? null) !== row.district ||
-        (observed.cik ?? null) !== row.cik;
+        (observed.district ?? null) !== row.district;
       if (changed) {
         refreshes.push(
           this.prisma.alternativeDataActor.update({
             where: { id: row.id },
             data: {
               displayName: observed.displayName,
-              chamber: observed.chamber
-                ? CongressChamberEnum[observed.chamber]
-                : null,
+              chamber: CongressChamberEnum[observed.chamber],
               state: observed.state ?? null,
               district: observed.district ?? null,
-              cik: observed.cik ?? null,
             },
           }),
         );
@@ -180,23 +150,19 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
   }
 
   async searchActors(input: {
-    type: AlternativeActorType;
     term?: string;
     limit: number;
   }): Promise<PersistedAlternativeDataActor[]> {
     const term = input.term?.trim();
     const rows = await this.prisma.alternativeDataActor.findMany({
-      where: {
-        type: AlternativeActorTypeEnum[input.type],
-        ...(term
-          ? {
-              OR: [
-                { displayName: { contains: term, mode: "insensitive" } },
-                { externalId: { startsWith: term, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
+      where: term
+        ? {
+            OR: [
+              { displayName: { contains: term, mode: "insensitive" } },
+              { externalId: { startsWith: term, mode: "insensitive" } },
+            ],
+          }
+        : {},
       orderBy: [{ displayName: "asc" }, { externalId: "asc" }],
       take: input.limit,
     });
@@ -377,129 +343,6 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
     return { inserted, unchanged: rows.length - inserted };
   }
 
-  /**
-   * Persists 13F filings and their holdings.
-   *
-   * A filing and its holdings are written together in one transaction: a filing row with no holdings
-   * would read as "this manager reported nothing", which is exactly the shape the derivation treats as
-   * an exit. `skipDuplicates` on the filing makes reingestion a no-op, and the holdings are only
-   * written for a filing this call actually created.
-   */
-  async saveInstitutionalFilings(
-    filings: readonly InstitutionalFilingWrite[],
-  ): Promise<AlternativeDataWriteResult> {
-    let inserted = 0;
-    for (const filing of filings) {
-      const created = await this.prisma.$transaction(async (tx) => {
-        const existing = await tx.institutionalFiling.findUnique({
-          where: {
-            actorId_reportPeriod_contentHash: {
-              actorId: filing.actorId,
-              reportPeriod: toDatabaseDate(filing.reportPeriod),
-              contentHash: filing.contentHash,
-            },
-          },
-          select: { id: true },
-        });
-        if (existing) {
-          return false;
-        }
-        await tx.institutionalFiling.create({
-          data: {
-            actorId: filing.actorId,
-            reportPeriod: toDatabaseDate(filing.reportPeriod),
-            filingDate: toDatabaseDate(filing.filingDate),
-            availableFromDate: toDatabaseDate(filing.availableFromDate),
-            amendmentType: filing.amendmentType ?? null,
-            providerFilingId: filing.providerFilingId ?? null,
-            raw: filing.raw as Prisma.InputJsonValue,
-            contentHash: filing.contentHash,
-            holdings: {
-              create: filing.holdings.map((holding) => ({
-                securityId: holding.securityId,
-                shares: holding.shares,
-                marketValue: holding.marketValue ?? null,
-                portfolioWeightPercent: holding.portfolioWeightPercent ?? null,
-                raw: holding.raw as Prisma.InputJsonValue,
-              })),
-            },
-          },
-        });
-        return true;
-      });
-      if (created) {
-        inserted += 1;
-      }
-    }
-    return { inserted, unchanged: filings.length - inserted };
-  }
-
-  async getInstitutionalFilingsForSecurity(input: {
-    securityId: SecurityId;
-    actorId?: string;
-  }) {
-    const rows = await this.prisma.institutionalFiling.findMany({
-      where: input.actorId ? { actorId: input.actorId } : {},
-      orderBy: [{ actorId: "asc" }, { reportPeriod: "asc" }],
-      select: {
-        actorId: true,
-        reportPeriod: true,
-        filingDate: true,
-        availableFromDate: true,
-        amendmentType: true,
-        holdings: {
-          where: { securityId: input.securityId },
-          select: { shares: true, portfolioWeightPercent: true },
-        },
-      },
-    });
-    return rows.map((row) => {
-      const holding = row.holdings[0];
-      return {
-        actorId: row.actorId,
-        reportPeriod: fromDatabaseDate(row.reportPeriod),
-        filingDate: fromDatabaseDate(row.filingDate),
-        availableFromDate: fromDatabaseDate(row.availableFromDate),
-        ...(row.amendmentType ? { amendmentType: row.amendmentType } : {}),
-        shares: holding ? holding.shares.toNumber() : null,
-        portfolioWeightPercent: holding
-          ? decimalToNumber(holding.portfolioWeightPercent)
-          : null,
-      };
-    });
-  }
-
-  async replaceInstitutionalPositionEvents(input: {
-    securityId: SecurityId;
-    events: readonly InstitutionalPositionEventWrite[];
-  }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      await tx.institutionalPositionEvent.deleteMany({
-        where: { securityId: input.securityId },
-      });
-      for (const page of chunk(input.events, WRITE_CHUNK)) {
-        await tx.institutionalPositionEvent.createMany({
-          data: page.map((event) => ({
-            securityId: event.securityId,
-            actorId: event.actorId,
-            reportPeriod: toDatabaseDate(event.reportPeriod),
-            previousReportPeriod: event.previousReportPeriod
-              ? toDatabaseDate(event.previousReportPeriod)
-              : null,
-            availableFromDate: toDatabaseDate(event.availableFromDate),
-            change: InstitutionalPositionChangeEnum[event.change],
-            shares: event.shares,
-            previousShares: event.previousShares ?? null,
-            changePercent: event.changePercent ?? null,
-            portfolioWeightPercent: event.portfolioWeightPercent ?? null,
-            previousPortfolioWeightPercent:
-              event.previousPortfolioWeightPercent ?? null,
-          })),
-        });
-      }
-    });
-  }
-
   async getInsiderObservations(
     query: InsiderObservationQuery,
   ): Promise<InsiderObservationRow[]> {
@@ -580,64 +423,22 @@ export class PrismaAlternativeDataStore implements AlternativeDataStore {
     }));
   }
 
-  async getInstitutionalObservations(
-    query: InstitutionalObservationQuery,
-  ): Promise<InstitutionalObservationRow[]> {
-    if (query.actorIds && query.actorIds.length === 0) {
-      return [];
-    }
-    if (query.changes.length === 0) {
-      return [];
-    }
-    const rows = await this.prisma.institutionalPositionEvent.findMany({
-      where: {
-        securityId: query.securityId,
-        change: {
-          in: query.changes.map(
-            (change) => InstitutionalPositionChangeEnum[change],
-          ),
-        },
-        availableFromDate: {
-          gte: toDatabaseDate(query.from),
-          lte: toDatabaseDate(query.to),
-        },
-        ...(query.actorIds ? { actorId: { in: [...query.actorIds] } } : {}),
-      },
-      orderBy: { availableFromDate: "asc" },
-      select: {
-        availableFromDate: true,
-        actorId: true,
-        shares: true,
-        previousShares: true,
-      },
-    });
-    return rows.map((row) => ({
-      availableFromDate: fromDatabaseDate(row.availableFromDate),
-      actorKey: row.actorId,
-      shares: row.shares.toNumber(),
-      previousShares: decimalToNumber(row.previousShares),
-    }));
-  }
 }
 
 function actorResponse(row: {
   id: string;
-  type: AlternativeActorTypeEnum;
   externalId: string;
   displayName: string;
-  chamber: CongressChamberEnum | null;
+  chamber: CongressChamberEnum;
   state: string | null;
   district: string | null;
-  cik: string | null;
 }): PersistedAlternativeDataActor {
   return {
     id: row.id,
-    type: row.type,
     externalId: row.externalId,
     displayName: row.displayName,
-    ...(row.chamber ? { chamber: row.chamber } : {}),
+    chamber: row.chamber as CongressChamber,
     ...(row.state ? { state: row.state } : {}),
     ...(row.district ? { district: row.district } : {}),
-    ...(row.cik ? { cik: row.cik } : {}),
   };
 }

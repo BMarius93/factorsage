@@ -4,23 +4,24 @@
 
 Implementation target: `feat/alternative-data-signals`
 
-This document freezes the product decisions for adding Insider Activity, Congressional Trading, and Institutional / 13F activity to FactorSage. The implementation should reuse existing strategy, backtest, monitor, Lists, FMP, caching, and UI patterns rather than introducing a parallel subsystem.
+This document freezes the product decisions for adding Insider Activity and Congressional Trading to FactorSage. The implementation should reuse existing strategy, backtest, monitor, Lists, FMP, caching, and UI patterns rather than introducing a parallel subsystem.
 
 ## Goals
 
-Add three new alternative-data domains that can be used consistently in Strategies, Backtests, and Monitors:
+Add two new alternative-data domains that can be used consistently in Strategies, Backtests, and Monitors:
 
 1. Insider Activity
 2. Congressional Trading (House + Senate)
-3. Institutional Activity based on SEC Form 13F
 
 The core requirement is point-in-time correctness: a backtest must only see information after it was publicly observable.
+
+Institutional Activity based on SEC Form 13F was specified alongside these two and is **out of V1**; see [Institutional Activity / 13F is out of V1](#institutional-activity--13f-is-out-of-v1).
 
 ## Non-goals for V1
 
 - No AI / smart-money scoring.
 - No historical dynamic membership such as “all senators at that historical date”.
-- No attempt to infer the actual trade date inside a 13F quarter.
+- No Institutional Activity / Form 13F, and therefore no institution groups.
 - No new alternative-data-specific strategy builder.
 - No redesign of the current Strategy page.
 - No insider person groups in V1.
@@ -33,7 +34,6 @@ Examples:
 
 - Insider: transaction date != Form 4 filing/publication date.
 - Congress: transaction date != disclosure date.
-- 13F: quarter end / report period != filing date.
 
 Backtest evaluation must use the public availability boundary, never the underlying transaction/period date when disclosure came later.
 
@@ -49,7 +49,6 @@ Recommended conceptual split:
 
 - raw insider filings / transactions
 - raw congressional disclosures
-- raw 13F filings / holdings
 - canonical actors
 - normalized alternative-data events / derived metrics
 
@@ -64,7 +63,6 @@ Conceptually:
 ```ts
 Actor {
   id
-  type: INSTITUTION | CONGRESS_PERSON
   externalId
   displayName
   metadata
@@ -73,15 +71,11 @@ Actor {
 
 Examples of metadata:
 
-- Institution: CIK, provider identifiers, aliases.
 - Congress person: provider/member identifier, chamber, state/district where available.
 
 ## Actor groups
 
-Add reusable user-defined groups for:
-
-- Institutions
-- Congress people
+Add reusable user-defined groups for Congress people.
 
 Do not add insider groups in V1.
 
@@ -92,7 +86,6 @@ ActorGroup {
   id
   userId
   name
-  actorType: INSTITUTION | CONGRESS_PERSON
 }
 
 ActorGroupMember {
@@ -112,7 +105,6 @@ Integrate group management into the existing `Lists` product area rather than ad
 Preferred structure:
 
 - Stock Lists
-- Institution Groups
 - Congress Groups
 
 Keep the current FactorSage desktop table / mobile card conventions.
@@ -158,9 +150,8 @@ Examples:
 
 ```text
 Insider buyers 20D       | is at least | 2
-Institutional buyers 60D | is at least | 3
 Congress purchases 30D   | is at least | 2
-Institutional position change | is at least | 25%
+Congress buyers 30D      | is at least | 2
 ```
 
 ### First-operand selector
@@ -169,7 +160,6 @@ Add grouped sections to the existing large selector, matching the current visual
 
 - Insider Activity
 - Congressional Trading
-- Institutional Activity
 
 Do not create a separate “Alternative Data” strategy-builder page.
 
@@ -183,7 +173,6 @@ Possible configuration:
 
 - lookback in trading sessions
 - scope: Any / Specific actor / Actor group
-- institution / institution group
 - Congress person / Congress group
 - chamber
 - owner
@@ -191,7 +180,7 @@ Possible configuration:
 
 After configuration, keep the condition row compact and optionally render a subtle secondary summary below the first operand, e.g.:
 
-- `Superinvestors`
+- `Congress Watchlist`
 - `Congress Watchlist · Any owner · Any chamber`
 - `CEO, CFO, Director`
 
@@ -202,8 +191,8 @@ Render readable natural-language summaries using the same semantics as the condi
 Examples:
 
 - `Insider buyers 20D is at least 2`
-- `Institutional buyers 60D is at least 3 — Superinvestors`
 - `Congress purchases 30D is at least 2 — Congress Watchlist`
+- `Congress buyers 30D is at least 2 — House leadership`
 
 Do not make the sidebar noisy.
 
@@ -249,42 +238,9 @@ Useful V1 metrics include:
 
 Disclosed amounts may be ranges. Store range bounds and do not invent an exact value or midpoint as if it were factual.
 
-## Institutional Activity / 13F
-
-Use institutional naming in the product/domain rather than implying all 13F filers are hedge funds.
-
-Preserve separately:
-
-- report/quarter period
-- filing date / public availability
-- manager identity (CIK or canonical equivalent)
-- security identity
-- shares / value / portfolio weight when available
-- amendment/revision identity
-
-Derive position changes by comparing publicly available filings only.
-
-V1 derived states/metrics can include:
-
-- New position
-- Position increased
-- Position reduced
-- Position exited
-- Position change %
-- Portfolio weight / weight change when source data supports it
-- Institutional buyers / increasing managers count over an appropriate lookback
-
-Do not infer when during the quarter the manager traded. A quarter-end holding is not a transaction event.
-
 ## Scope semantics
 
 For configurable alternative-data metrics, support:
-
-### Institutions
-
-- Any institution
-- Specific institution
-- Institution group
 
 ### Congress
 
@@ -316,7 +272,6 @@ Relevant domains/endpoints include:
 - Insider trades / Form 4 data
 - House disclosures
 - Senate disclosures
-- Form 13F institutional holdings / filing dates / positions
 
 Keep provider limitations explicit. If licensing, plan level, historical coverage, or endpoint semantics block a requirement, report the limitation rather than silently changing the product semantics.
 
@@ -339,14 +294,6 @@ The exact naming should follow the existing series catalog conventions after ins
 - Congress sellers (ND)
 - Congress purchase value / minimum disclosed value (ND), only if semantics remain defensible with amount ranges
 
-### Institutional Activity
-
-- Institutional buyers (ND)
-- Institutional sellers / reducers (ND)
-- Institutional new positions (ND)
-- Institutional exits (ND)
-- Institutional position change (%)
-
 Do not add signals merely to inflate the catalog. Prefer a small explainable V1.
 
 ## Testing requirements
@@ -356,7 +303,6 @@ Add focused unit/integration/e2e coverage for at least:
 - no look-ahead across transaction date vs filing/disclosure date
 - next-session observability boundary
 - weekends/market holidays using existing calendar utilities
-- 13F new/increase/reduce/exit comparisons
 - amendments/reingestion/idempotency
 - insider transaction-type classification
 - Congress amount ranges
@@ -417,7 +363,7 @@ second calendar.
 
 ### Coverage has a floor, and outside it a metric is NOT_EVALUABLE
 
-None of the three provider endpoints accepts a date range, so a bounded historical read is
+None of the provider endpoints accepts a date range, so a bounded historical read is
 impossible and there is no coverage statement to read. The earliest availability date actually
 ingested is therefore the earliest date a metric may report for, and before it the column is
 NOT_EVALUABLE — never zero. "The provider had no filing" and "the dataset does not reach that far"
@@ -442,14 +388,14 @@ The upper bound is the date of the last successful ingest. Past it the product k
   bound is `0..1000` — a product bound no real disclosure count reaches, which keeps the validator's
   message readable and the control's range finite.
 - **The lookback is a closed preset list** — 5, 10, 20, 30, 60, 90, 120, 180 and 250 trading sessions,
-  defaulting to 20 for insiders, 30 for Congress and 60 for institutions. Presets rather than a
+  defaulting to 20 for insiders and 30 for Congress. Presets rather than a
   user-entered window, exactly as `RELATIVE_VOLUME_PERIODS` is: an arbitrary window would be a
   parameter nothing validates and a label nothing can render consistently. A value outside the list is
   refused rather than rounded to a supported one.
 
 ### The alternative-data metrics are Condition-only
 
-None of the three offers a Trigger, exactly as Relative Volume does not and for the same stated
+Neither offers a Trigger, exactly as Relative Volume does not and for the same stated
 reason: a disclosure count is a state, and a Monitor's own not-matched -> matched transition already
 raises a Signal on the session a Condition first holds. A `crosses above` form would be a second,
 differently latched way to say the same thing.
@@ -467,27 +413,26 @@ differently latched way to say the same thing.
   actor with identical size, price and amount band **collapse into one row**. Collapsing is the
   deterministic choice; the alternative is a row count that grows on every reingest.
 
-### Provider limitation: Form 13F is not available on the current subscription
+### Institutional Activity / 13F is out of V1
 
 Every `institutional-ownership/*` endpoint answers **HTTP 402 "Restricted Endpoint: This endpoint is
 not available under your current subscription"**: `extract`, `extract-analytics/holder`,
 `symbol-positions-summary`, `latest` and `holder-performance-summary`. The legacy
-`api/v4/institutional-ownership/portfolio-holdings` answers 403 "Legacy Endpoint".
+`api/v4/institutional-ownership/portfolio-holdings` answers 403 "Legacy Endpoint". Verified live on
+2026-09-25.
 
-The consequences are deliberate and contained:
+Form 13F is therefore **removed from V1 altogether** rather than shipped dormant. An integration that
+has never seen a real payload cannot be validated: the field names would come from the provider's
+documentation alone, and the derivation of new/increased/reduced/exited positions from consecutive
+filings is exactly the kind of logic a wrong field name breaks silently. Unverified production code
+behind a flag would still have to be read, migrated and maintained by everyone touching this area, so
+none of it is kept: there are no institutional tables, enums, ports, metrics, scopes, groups or
+settings in the schema or the code, and no surface carries a placeholder for them.
 
-- The Institutional Activity domain is implemented end to end — schema, availability semantics,
-  amendment handling, the new/increased/reduced/exited derivation from consecutive available
-  filings, the signals, the scope, the group snapshot and the UI — and is exercised by tests against
-  fixtures.
-- Ingestion surfaces the refusal as a non-retryable provider-entitlement error, logs
-  `alternative-data.dataset.unavailable`, and **records no coverage**. Every institutional metric is
-  therefore NOT_EVALUABLE rather than zero, so no strategy can act on absent data and no backtest
-  fails because of it.
-- The 13F response **field names are unverified**: they come from the provider's published
-  documentation and have never been seen in a response here. The mapper requires each field it maps
-  and refuses a payload that does not carry one, naming the field, rather than defaulting it —
-  defaulting a missing share count to zero would manufacture an `EXITED` position for every manager.
-
-Raising the subscription is the only change needed; nothing above the provider adapter is waiting on
-product decisions.
+The 13F product decisions are out of this document rather than rewritten as a deferred appendix: they
+are recoverable from the branch's history, and a specification that still described a domain the
+product does not have would be the same dormant liability in prose. Reintroducing the domain is a
+feature in its own right — a provider port and mapper verified against live payloads, an actor kind,
+a third selector section and institution groups — and the abstractions the shipping V1 does keep are
+the ones Insider and Congress genuinely need: the availability-date convention, the coverage
+floor/ceiling, the content-addressed ingest, the actor catalog and the group snapshot.

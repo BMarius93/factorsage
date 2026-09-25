@@ -410,69 +410,6 @@ describe("aggregations", () => {
       column({ lookbackSessions: 3, aggregation: "SUM_AMOUNT", observations }),
     ).toEqual([nan, nan, 350, 400, 400, 50, 0, 0, 0, 0]);
   });
-
-  it("weights a position change by shares rather than averaging percentages", () => {
-    // One manager adds 10 to a position of 10 (+100%); another cuts 500,000 of 1,000,000 (-50%).
-    // Averaging the percentages would read +25%; the group's holding actually fell by about half.
-    const values = column({
-      lookbackSessions: 3,
-      aggregation: "SHARE_WEIGHTED_CHANGE_PERCENT",
-      observations: [
-        {
-          observableFrom: "2026-03-04",
-          actorKey: "small",
-          shares: 20,
-          previousShares: 10,
-        },
-        {
-          observableFrom: "2026-03-04",
-          actorKey: "large",
-          shares: 500_000,
-          previousShares: 1_000_000,
-        },
-      ],
-    });
-    expect(values[2]).toBeCloseTo(
-      ((500_020 - 1_000_010) / 1_000_010) * 100,
-      10,
-    );
-    expect(values[2]).toBeLessThan(0);
-  });
-
-  it("reports no position change where there is no prior holding to divide by", () => {
-    // Purely new positions have no base, and neither does an empty window: NOT_EVALUABLE, not 0%
-    // and not infinity.
-    const newOnly = column({
-      lookbackSessions: 3,
-      aggregation: "SHARE_WEIGHTED_CHANGE_PERCENT",
-      observations: [
-        { observableFrom: "2026-03-04", actorKey: "m1", shares: 1_000 },
-      ],
-    });
-    expect(newOnly[2]).toBeNaN();
-    expect(
-      column({
-        lookbackSessions: 3,
-        aggregation: "SHARE_WEIGHTED_CHANGE_PERCENT",
-      })[9],
-    ).toBeNaN();
-  });
-
-  it("reports an exit as the whole holding leaving", () => {
-    const values = column({
-      lookbackSessions: 3,
-      aggregation: "SHARE_WEIGHTED_CHANGE_PERCENT",
-      observations: [
-        {
-          observableFrom: "2026-03-04",
-          actorKey: "m1",
-          shares: 0,
-          previousShares: 400,
-        },
-      ],
-    });
-    expect(values[2]).toBeCloseTo(-100, 10);
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -132,8 +132,6 @@ enum StockDataset {
   INSIDER_TRADE
   /// House and Senate periodic transaction reports naming one security.
   CONGRESS_TRADE
-  /// Form 13F institutional holdings naming one security.
-  INSTITUTIONAL_HOLDING
 }
 
 enum FinancialStatementType {
@@ -326,43 +324,41 @@ model LegalRequest {
 }
 
 model Security {
-  id                          String                       @id @default(uuid())
-  providerSymbol              String                       @unique
-  symbol                      String
-  name                        String
-  exchangeCode                String
-  exchangeName                String?
-  currency                    String
-  cik                         String?
-  isin                        String?
-  cusip                       String?
-  country                     String?
-  sector                      String?
-  industry                    String?
-  ipoDate                     DateTime?                    @db.Date
-  type                        SecurityType
-  isAdr                       Boolean
-  isActivelyTrading           Boolean
-  createdAt                   DateTime                     @default(now())
-  updatedAt                   DateTime                     @updatedAt
-  profile                     SecurityProfile?
-  datasetStates               StockDatasetState[]
-  datasetCoverage             StockDatasetCoverage[]
-  dailyPrices                 DailyPrice[]
-  weeklyPrices                WeeklyPrice[]
-  dailyDerivedState           DailyDerivedState[]
-  financialStatements         FinancialStatement[]
-  stockListItems              StockListItem[]
-  backtestTrades              BacktestTrade[]
-  backtestPositions           BacktestPosition[]
-  monitorSignalStates         MonitorSignalState[]
-  monitorSignals              MonitorSignal[]
-  monitorTransitions          MonitorStateTransition[]
-  recentViews                 RecentSecurityView[]
-  insiderTransactions         InsiderTransaction[]
-  congressTrades              CongressTrade[]
-  institutionalHoldings       InstitutionalHolding[]
-  institutionalPositionEvents InstitutionalPositionEvent[]
+  id                  String                   @id @default(uuid())
+  providerSymbol      String                   @unique
+  symbol              String
+  name                String
+  exchangeCode        String
+  exchangeName        String?
+  currency            String
+  cik                 String?
+  isin                String?
+  cusip               String?
+  country             String?
+  sector              String?
+  industry            String?
+  ipoDate             DateTime?                @db.Date
+  type                SecurityType
+  isAdr               Boolean
+  isActivelyTrading   Boolean
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  profile             SecurityProfile?
+  datasetStates       StockDatasetState[]
+  datasetCoverage     StockDatasetCoverage[]
+  dailyPrices         DailyPrice[]
+  weeklyPrices        WeeklyPrice[]
+  dailyDerivedState   DailyDerivedState[]
+  financialStatements FinancialStatement[]
+  stockListItems      StockListItem[]
+  backtestTrades      BacktestTrade[]
+  backtestPositions   BacktestPosition[]
+  monitorSignalStates MonitorSignalState[]
+  monitorSignals      MonitorSignal[]
+  monitorTransitions  MonitorStateTransition[]
+  recentViews         RecentSecurityView[]
+  insiderTransactions InsiderTransaction[]
+  congressTrades      CongressTrade[]
 
   @@unique([symbol, exchangeCode])
   @@index([symbol])
@@ -1579,29 +1575,20 @@ model StripeWebhookEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Alternative data: insider activity, congressional trading, institutional 13F
+// Alternative data: insider activity and congressional trading
 //
 // `docs/alternative-data-signals.md` is the product decision these tables implement. Three rules
 // shape all of them:
 //
-// 1. **Two dates, always.** Every row keeps the economic date (a trade, a report period) *and* the
-//    date the information became public, plus the derived `availableFromDate` a strategy reads.
-//    Nothing substitutes one for the other.
+// 1. **Two dates, always.** Every row keeps the economic date (the trade) *and* the date the
+//    information became public, plus the derived `availableFromDate` a strategy reads. Nothing
+//    substitutes one for the other.
 // 2. **Raw beside normalized.** `raw` holds the provider's own row and the `*Raw` columns hold its
 //    own strings, so a normalized enum can never be mistaken for a statement the source made — and a
 //    historical signal can be audited back to the disclosure that produced it.
 // 3. **Content-addressed, never overwritten.** A `contentHash` over the provider's meaningful fields
 //    makes reingestion idempotent and makes an amendment a new row rather than a destructive update.
 // ---------------------------------------------------------------------------
-
-/// The actor kinds this product gives a canonical identity to.
-///
-/// Insider persons are deliberately absent: V1 has no insider person groups, and an insider metric
-/// counts distinct reporting CIKs straight off `InsiderTransaction`.
-enum AlternativeActorType {
-  INSTITUTION
-  CONGRESS_PERSON
-}
 
 enum CongressChamber {
   HOUSE
@@ -1664,75 +1651,59 @@ enum CongressAssetClass {
   OTHER
 }
 
-/// One manager's position change between consecutive publicly available 13F filings. It is never a
-/// transaction: a quarter-end holding says nothing about when inside the quarter the manager traded.
-enum InstitutionalPositionChange {
-  NEW
-  INCREASED
-  REDUCED
-  EXITED
-  UNCHANGED
-}
-
-/// A canonical actor a user may select or group: an institutional filer, or a member of Congress.
+/// A canonical actor a user may select or group: in V1, a member of Congress.
 ///
-/// `externalId` is the identity — a CIK, a bioguide id — and `displayName` is a label. Two members
-/// can share a display name and a filer can be renamed; neither may move a group's membership, which
-/// is why `(type, externalId)` is the unique key and the name is not unique at all.
+/// `externalId` is the identity — the member's bioguide id — and `displayName` is a label. Two members
+/// can share a display name and a member can be renamed; neither may move a group's membership, which
+/// is why `externalId` is the unique key and the name is not unique at all.
+///
+/// There is deliberately **no actor-kind discriminator**. Insider persons are not actors — V1 has no
+/// insider person groups, and an insider metric counts distinct reporting CIKs straight off
+/// `InsiderTransaction` — so a discriminator would have exactly one value, which is a distinction the
+/// product does not make. A second kind adds the column back.
 model AlternativeDataActor {
-  id              String                       @id @default(uuid())
-  type            AlternativeActorType
-  externalId      String
+  id              String             @id @default(uuid())
+  externalId      String             @unique
   displayName     String
-  /// Congress only.
-  chamber         CongressChamber?
-  /// Congress only: the two-letter state, where the provider reports one.
+  chamber         CongressChamber
+  /// The two-letter state, where the provider reports one.
   state           String?
-  /// Congress only: the provider's district string, e.g. `TX17`. Senate rows carry none.
+  /// The provider's district string, e.g. `TX17`. Senate rows carry none.
   district        String?
-  /// Institution only: the filer's CIK where it is not already the external id.
-  cik             String?
   /// Provider fields worth keeping that no column claims. Never read by a query.
   metadata        Json?
-  firstObservedAt DateTime                     @default(now())
-  updatedAt       DateTime                     @updatedAt
+  firstObservedAt DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
   groupMembers    ActorGroupMember[]
   congressTrades  CongressTrade[]
-  filings         InstitutionalFiling[]
-  positionEvents  InstitutionalPositionEvent[]
 
-  @@unique([type, externalId])
-  /// Backs the searchable actor picker: by type, then by name.
-  @@index([type, displayName])
+  /// Backs the searchable actor picker.
+  @@index([displayName])
 }
 
 /// A reusable, explicit collection of actors, owned by a user or by the system (built-in).
 ///
-/// It is the Lists product area's third and fourth collection, not a new top-level concept, and it
-/// follows `StockList`'s ownership model exactly — including the CHECK constraint pairing `ownership`
-/// with `userId`/`systemKey`. Membership is explicit: V1 has no semantic or historical group such as
+/// It is the Lists product area's second collection, not a new top-level concept, and it follows
+/// `StockList`'s ownership model exactly — including the CHECK constraint pairing `ownership` with
+/// `userId`/`systemKey`. Membership is explicit: V1 has no semantic or historical group such as
 /// "current senators".
 model ActorGroup {
-  id              String               @id @default(uuid())
-  ownership       ContentOwnership     @default(USER)
+  id              String             @id @default(uuid())
+  ownership       ContentOwnership   @default(USER)
   userId          String?
-  systemKey       String?              @unique
-  /// Which actor kind this group holds. A group never mixes institutions and members of Congress,
-  /// and a strategy scope may only reference a group of the kind its metric selects from.
-  actorType       AlternativeActorType
+  systemKey       String?            @unique
   name            String
   description     String?
   displayOrder    Int?
   updatedByUserId String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  user            User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  updatedBy       User?                @relation("ActorGroupUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  user            User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedBy       User?              @relation("ActorGroupUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   members         ActorGroupMember[]
 
   @@index([userId])
   @@index([ownership])
-  @@index([userId, actorType])
 }
 
 /// Membership of one canonical actor in one group.
@@ -1842,81 +1813,5 @@ model CongressTrade {
   @@unique([securityId, contentHash])
   @@index([securityId, availableFromDate])
   @@index([securityId, kind, availableFromDate])
-  @@index([actorId, availableFromDate])
-}
-
-/// One Form 13F filing's identity.
-///
-/// `reportPeriod` (the quarter end the holdings are as of) and `filingDate` are separate columns
-/// because the gap between them is the whole reason this domain needs point-in-time handling. An
-/// amendment is a new row for the same `(actor, reportPeriod)`, distinguished by `contentHash`, and
-/// the derivation treats the latest-available one as that period's current statement without deleting
-/// the one it supersedes.
-model InstitutionalFiling {
-  id                String                 @id @default(uuid())
-  actorId           String
-  reportPeriod      DateTime               @db.Date
-  filingDate        DateTime               @db.Date
-  availableFromDate DateTime               @db.Date
-  /// The provider's amendment marker, e.g. `13F-HR/A`. Preserved, never interpreted away.
-  amendmentType     String?
-  providerFilingId  String?
-  raw               Json
-  contentHash       String
-  observedAt        DateTime               @default(now())
-  actor             AlternativeDataActor   @relation(fields: [actorId], references: [id], onDelete: Cascade)
-  holdings          InstitutionalHolding[]
-
-  @@unique([actorId, reportPeriod, contentHash])
-  @@index([actorId, availableFromDate])
-  @@index([reportPeriod])
-}
-
-/// One security's line inside one 13F filing. It is a **holding**, not a transaction.
-model InstitutionalHolding {
-  id                     String              @id @default(uuid())
-  filingId               String
-  securityId             String
-  shares                 Decimal             @db.Decimal(24, 6)
-  marketValue            Decimal?            @db.Decimal(24, 2)
-  /// Share of the manager's reported portfolio, where the source supports it.
-  portfolioWeightPercent Decimal?            @db.Decimal(12, 6)
-  raw                    Json
-  filing                 InstitutionalFiling @relation(fields: [filingId], references: [id], onDelete: Cascade)
-  security               Security            @relation(fields: [securityId], references: [id], onDelete: Cascade)
-
-  @@unique([filingId, securityId])
-  @@index([securityId])
-}
-
-/// One derived position change: one manager, one security, one report period.
-///
-/// Derived by comparing consecutive **publicly available** filings, so `availableFromDate` is the
-/// later of the two filings' availability dates — the comparison is only knowable once both are
-/// public. `changePercent` is absent for a `NEW` position: there is no prior base, and a new position
-/// is not a +100% change.
-///
-/// It is recomputed from the filings rather than accumulated, so re-deriving is idempotent: one row
-/// per `(security, actor, reportPeriod)`.
-model InstitutionalPositionEvent {
-  id                             String                      @id @default(uuid())
-  securityId                     String
-  actorId                        String
-  reportPeriod                   DateTime                    @db.Date
-  previousReportPeriod           DateTime?                   @db.Date
-  availableFromDate              DateTime                    @db.Date
-  change                         InstitutionalPositionChange
-  shares                         Decimal                     @db.Decimal(24, 6)
-  previousShares                 Decimal?                    @db.Decimal(24, 6)
-  changePercent                  Decimal?                    @db.Decimal(18, 6)
-  portfolioWeightPercent         Decimal?                    @db.Decimal(12, 6)
-  previousPortfolioWeightPercent Decimal?                    @db.Decimal(12, 6)
-  derivedAt                      DateTime                    @default(now())
-  security                       Security                    @relation(fields: [securityId], references: [id], onDelete: Cascade)
-  actor                          AlternativeDataActor        @relation(fields: [actorId], references: [id], onDelete: Cascade)
-
-  @@unique([securityId, actorId, reportPeriod])
-  @@index([securityId, availableFromDate])
-  @@index([securityId, change, availableFromDate])
   @@index([actorId, availableFromDate])
 }

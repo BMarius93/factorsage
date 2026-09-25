@@ -197,10 +197,13 @@ Read `ai/README.md` before substantial work.
     nothing optional is read or written before a choice. Nothing in this slice writes
     `User.plan`, calculates a refund, or decides a legal outcome.
 
-23. Alternative data — insider activity, congressional trading and institutional Form 13F — is three
-    ordinary Strategy metric families over point-in-time disclosure history, never a parallel
-    subsystem. `docs/alternative-data-signals.md` is the source of truth for every product decision
-    and for the implementation clarifications and provider limitations found while building it.
+23. Alternative data — insider activity and congressional trading — is two ordinary Strategy metric
+    families over point-in-time disclosure history, never a parallel subsystem.
+    `docs/alternative-data-signals.md` is the source of truth for every product decision and for the
+    implementation clarifications and provider limitations found while building it. Institutional
+    Form 13F is **out of V1** and has no schema, code, metric or setting: the provider subscription
+    refuses every `institutional-ownership/*` endpoint, so nothing could be validated against a real
+    payload. Do not reintroduce it as dormant or flagged code.
     **Every row keeps two dates**: the economic one (a trade, a report period) and the one the
     information became public, plus the derived `availableFromDate` — publication plus one day, the
     same convention `statementPublicAvailabilityDate` applies — which is the **only** date a query or
@@ -210,15 +213,14 @@ Read `ai/README.md` before substantial work.
     date, which is what makes weekends and holidays correct without a second calendar. Outside the
     ingested coverage interval a metric is `NOT_EVALUABLE`, never zero: absence of data and absence of
     activity are different statements. Provider rows are content-addressed and never destructively
-    overwritten, so reingestion is idempotent and an amendment is a new row; a 13F position change is
-    **derived** by comparing consecutive publicly available filings and nothing ever infers a trade
-    date inside a quarter. Actors are identified by stable external ids (a CIK, a bioguide id) and
-    never by display name, and `ActorGroup` follows `StockList`'s ownership model exactly. A Strategy
+    overwritten, so reingestion is idempotent and an amendment is a new row. Actors are identified by
+    stable external ids (a bioguide id) and never by display name, and `ActorGroup` follows
+    `StockList`'s ownership model exactly. A Strategy
     referencing an actor group has that group's **membership frozen into the backtest snapshot**, so
     editing or deleting the group can never change a run that already exists — the worker resolves a
     group scope from the snapshot and never from the database. Do not add insider person groups, a
-    semantic or historical group, an inferred intra-quarter trade date, or a second FMP gate: ingestion
-    goes through the one `RedisFmpRequestGate` like every other provider read.
+    semantic or historical group, or a second FMP gate: ingestion goes through the one
+    `RedisFmpRequestGate` like every other provider read.
 
 ## Dependency rules
 

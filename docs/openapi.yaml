@@ -202,9 +202,9 @@ tags:
       change.
   - name: Alternative data
     description: |
-      Insider activity, congressional trading and institutional 13F activity: the canonical actor
-      catalog these domains identify, and the reusable groups a strategy scopes a rule to. The product
-      presents the groups inside the Lists area rather than as a new top-level section.
+      Insider activity and congressional trading: the canonical actor catalog these domains identify,
+      and the reusable groups a strategy scopes a rule to. The product presents the groups inside the
+      Lists area rather than as a new top-level section.
   - name: Strategies
     description: |
       Strategy definitions — ordered BUY/SELL levels and an optional final exit: the caller's own,
@@ -2333,19 +2333,14 @@ paths:
       operationId: searchAlternativeDataActors
       summary: Search the canonical actor catalog.
       description: |
-        Institutional 13F filers and members of Congress, matched on display name or on the external
-        identifier they are identified by (a CIK, a bioguide id). Readable without a session: the
-        catalog is platform reference data grown by ingestion, not anybody's content, and the Strategy
-        Builder needs it to label a saved rule's scope.
+        Members of Congress, matched on display name or on the bioguide id they are identified by.
+        Readable without a session: the catalog is platform reference data grown by ingestion, not
+        anybody's content, and the Strategy Builder needs it to label a saved rule's scope.
 
         A term shorter than two characters is treated as no term rather than as an error, and returns
         the first page in name order so the picker opens on something.
       x-rate-limit: { policy: stock-search }
       parameters:
-        - name: type
-          in: query
-          required: true
-          schema: { $ref: "#/components/schemas/AlternativeActorType" }
         - name: q
           in: query
           description: Search term. Matched against the display name and the external identifier.
@@ -2398,14 +2393,9 @@ paths:
       operationId: listActorGroups
       summary: The built-in actor groups, then the caller's own.
       description: |
-        Readable without a session: a Guest receives the built-in (`SYSTEM`) groups only. Optionally
-        narrowed to one actor kind, because the product presents Institution groups and Congress groups
-        as two collections inside the Lists area.
+        Readable without a session: a Guest receives the built-in (`SYSTEM`) groups only. The product
+        presents them as the Congress groups collection inside the Lists area.
       x-rate-limit: { policy: standard-read }
-      parameters:
-        - name: actorType
-          in: query
-          schema: { $ref: "#/components/schemas/AlternativeActorType" }
       responses:
         "200":
           description: The groups the caller can use.
@@ -2424,8 +2414,8 @@ paths:
       operationId: createActorGroup
       summary: Create an actor group.
       description: |
-        A group holds one kind of actor and never mixes them: `actorType` is fixed at creation, because
-        a strategy scope may only reference a group of the kind its metric selects from.
+        A group is an explicit list of members of Congress. Membership is never inferred from a
+        committee or a ranking, and a backtest freezes it at submission.
       security: [{ cookieAuth: [] }]
       x-rate-limit: { policy: mutation }
       requestBody:
@@ -2434,11 +2424,10 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/CreateActorGroupRequest" }
             examples:
-              superinvestors:
+              houseLeadership:
                 value:
-                  actorType: INSTITUTION
-                  name: "Superinvestors"
-                  description: "Managers whose 13F changes are worth watching"
+                  name: "House leadership"
+                  description: "Members whose disclosures are worth watching"
                   actorIds: ["6f1b0a1e-8a6c-4c1a-9f0e-2b6c4d8e1a33"]
       responses:
         "201":
@@ -3662,43 +3651,35 @@ components:
               type: string
               enum: [SYSTEM_CONTENT_READ_ONLY, SYSTEM_CONTENT_PROTECTED]
 
-    AlternativeActorType:
-      type: string
-      enum: [INSTITUTION, CONGRESS_PERSON]
-      description: |
-        The actor kinds the product gives a canonical identity to. Insider persons are deliberately
-        absent: V1 has no insider person groups, and insider metrics count distinct reporting CIKs
-        straight off the disclosures.
-
     CongressChamber:
       type: string
       enum: [HOUSE, SENATE]
 
     AlternativeDataActor:
       type: object
-      required: [id, type, externalId, displayName]
+      required: [id, externalId, displayName, chamber]
+      description: |
+        A member of Congress. Insider persons are deliberately absent from the catalog: V1 has no
+        insider groups, and insider metrics count distinct reporting owners straight off the
+        disclosures.
       properties:
         id: { type: string, format: uuid }
-        type: { $ref: "#/components/schemas/AlternativeActorType" }
         externalId:
           type: string
           description: |
-            The regulator or provider identifier this actor **is**: a filer's CIK, a member's bioguide
-            id. Identity, not a label — two members may share a display name and a filer may be
-            renamed, and neither moves a group's membership.
+            The provider identifier this actor **is**: the member's bioguide id. Identity, not a label
+            — two members may share a display name, and a rename never moves a group's membership.
         displayName: { type: string }
         chamber: { $ref: "#/components/schemas/CongressChamber" }
-        state: { type: string, maxLength: 8, description: Congress only. }
+        state: { type: string, maxLength: 8, description: Where the provider reports one. }
         district:
           type: string
           maxLength: 16
-          description: Congress only. `TX17` for a House member; Senate rows carry none.
-        cik: { type: string, description: Institution only. }
+          description: "`TX17` for a House member; Senate rows carry none."
 
     ActorGroupSummary:
       type: object
-      required:
-        [id, actorType, name, memberCount, createdAt, updatedAt, ownership, canEdit]
+      required: [id, name, memberCount, createdAt, updatedAt, ownership, canEdit]
       properties:
         ownership: { $ref: "#/components/schemas/ContentOwnership" }
         systemKey: { type: string, description: The immutable identity of a built-in. }
@@ -3706,7 +3687,6 @@ components:
           type: boolean
           description: Whether the caller may change it. Presentation only; the API authorizes every change.
         id: { type: string, format: uuid }
-        actorType: { $ref: "#/components/schemas/AlternativeActorType" }
         name: { type: string, maxLength: 120 }
         description: { type: string, maxLength: 500 }
         memberCount: { type: integer, minimum: 0 }
@@ -3726,10 +3706,9 @@ components:
 
     CreateActorGroupRequest:
       type: object
-      required: [actorType, name]
+      required: [name]
       additionalProperties: false
       properties:
-        actorType: { $ref: "#/components/schemas/AlternativeActorType" }
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 500 }
         actorIds:

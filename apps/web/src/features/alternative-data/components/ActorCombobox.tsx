@@ -2,7 +2,6 @@
 
 import {
   ACTOR_SEARCH_DEFAULT_LIMIT,
-  type AlternativeActorType,
   type AlternativeDataActorResponse,
 } from "@intrinsic/contracts";
 import {
@@ -20,10 +19,10 @@ import styles from "./ActorCombobox.module.css";
  * A searchable combobox over the canonical actor catalog.
  *
  * `docs/alternative-data-signals.md` asks for this rather than a giant native select, and the reason is
- * the data: the institutional catalog runs to thousands of filers and the congressional one to hundreds
- * of members, so an `<option>` list is unusable on any device and unbearable on a phone. It is the same
- * interaction the stock pickers already use — type, arrow, Enter — and it only ever yields a real
- * catalog row: free text is never turned into a selection.
+ * the data: the catalog runs to hundreds of members of Congress, so an `<option>` list is unwieldy on
+ * any device and unbearable on a phone. It is the same interaction the stock pickers already use —
+ * type, arrow, Enter — and it only ever yields a real catalog row: free text is never turned into a
+ * selection.
  *
  * `mode` decides what picking means. `single` replaces the selection, which is what a "specific actor"
  * scope needs; `multi` toggles, which is what building a group's membership needs.
@@ -32,7 +31,6 @@ import styles from "./ActorCombobox.module.css";
 const SEARCH_DEBOUNCE_MS = 200;
 
 export type ActorComboboxProps = {
-  readonly actorType: AlternativeActorType;
   readonly mode: "single" | "multi";
   readonly selected: readonly AlternativeDataActorResponse[];
   readonly onChange: (next: AlternativeDataActorResponse[]) => void;
@@ -43,23 +41,17 @@ export type ActorComboboxProps = {
   readonly testId?: string;
 };
 
-/** How an actor reads in a list row: name, then the identity or seat behind it. */
-export function actorMetaLabel(
-  actor: AlternativeDataActorResponse,
-): string {
-  if (actor.type === "CONGRESS_PERSON") {
-    return [
-      actor.chamber === "SENATE" ? "Senate" : actor.chamber === "HOUSE" ? "House" : null,
-      actor.district ?? actor.state ?? null,
-    ]
-      .filter((part) => part)
-      .join(" · ");
-  }
-  return actor.cik ?? actor.externalId;
+/** How an actor reads in a list row: the seat behind the name. */
+export function actorMetaLabel(actor: AlternativeDataActorResponse): string {
+  return [
+    actor.chamber === "SENATE" ? "Senate" : "House",
+    actor.district ?? actor.state ?? null,
+  ]
+    .filter((part) => part)
+    .join(" · ");
 }
 
 export function ActorCombobox({
-  actorType,
   mode,
   selected,
   onChange,
@@ -93,7 +85,6 @@ export function ActorCombobox({
     const timer = setTimeout(() => {
       searchActors(
         {
-          type: actorType,
           ...(term.trim() ? { term: term.trim() } : {}),
           limit: ACTOR_SEARCH_DEFAULT_LIMIT,
         },
@@ -121,7 +112,7 @@ export function ActorCombobox({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [actorType, open, term]);
+  }, [open, term]);
 
   // A click outside closes the list. Pointer-down rather than click, so it fires before a button
   // inside the surrounding dialog receives its own click.

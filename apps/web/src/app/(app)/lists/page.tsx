@@ -7,9 +7,9 @@ export const metadata: Metadata = { title: "Lists · FactorSage" };
 /**
  * Thin route boundary; everything lives in the lists feature.
  *
- * The page reads `?view=` to choose between its three collections — stock lists, institution groups and
- * congress groups — which needs a suspense boundary under the App Router, exactly as the new-backtest
- * form's prefill does.
+ * The page reads `?view=` to choose between its two collections — stock lists and congress groups —
+ * which needs a suspense boundary under the App Router, exactly as the new-backtest form's prefill
+ * does.
  */
 export default function ListsRoute() {
   return (

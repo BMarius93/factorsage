@@ -3,10 +3,8 @@
 import {
   ACTOR_GROUP_DESCRIPTION_MAX_LENGTH,
   ACTOR_GROUP_NAME_MAX_LENGTH,
-  ALTERNATIVE_ACTOR_TYPE_LABELS,
   type ActorGroupDetailResponse,
   type ActorGroupSummaryResponse,
-  type AlternativeActorType,
   type AlternativeDataActorResponse,
 } from "@intrinsic/contracts";
 import { useState } from "react";
@@ -22,15 +20,12 @@ import { ActorCombobox } from "./ActorCombobox";
  * Create or rename an actor group.
  *
  * One dialog for both, like `ListFormDialog`: the fields are the same and the only difference is
- * whether members can be chosen at the same time. The actor kind is fixed at creation and is never
- * offered on a rename, because changing it would leave every member of the wrong kind and silently
- * make every rule scoped to the group count nothing.
+ * whether members can be chosen at the same time.
  */
 
 type ActorGroupFormDialogProps =
   | {
       readonly mode: "create";
-      readonly actorType: AlternativeActorType;
       readonly onClose: () => void;
       readonly onCreated: (detail: ActorGroupDetailResponse) => void;
     }
@@ -43,7 +38,6 @@ type ActorGroupFormDialogProps =
 
 export function ActorGroupFormDialog(props: ActorGroupFormDialogProps) {
   const creating = props.mode === "create";
-  const actorType = creating ? props.actorType : props.group.actorType;
   const [name, setName] = useState(creating ? "" : props.group.name);
   const [description, setDescription] = useState(
     creating ? "" : (props.group.description ?? ""),
@@ -63,7 +57,6 @@ export function ActorGroupFormDialog(props: ActorGroupFormDialogProps) {
     try {
       if (props.mode === "create") {
         const detail = await createActorGroup({
-          actorType,
           name: trimmed,
           ...(description.trim() ? { description: description.trim() } : {}),
           ...(members.length > 0
@@ -87,11 +80,9 @@ export function ActorGroupFormDialog(props: ActorGroupFormDialogProps) {
     }
   };
 
-  const kindLabel = ALTERNATIVE_ACTOR_TYPE_LABELS[actorType].toLowerCase();
-
   return (
     <Modal
-      title={creating ? `New ${kindLabel} group` : `Rename ${props.mode === "rename" ? props.group.name : ""}`}
+      title={creating ? "New congress group" : `Rename ${props.mode === "rename" ? props.group.name : ""}`}
       onClose={props.onClose}
       testId="actor-group-form"
     >
@@ -128,19 +119,12 @@ export function ActorGroupFormDialog(props: ActorGroupFormDialogProps) {
 
         {creating ? (
           <div className={forms.field}>
-            <span className={forms.label}>
-              {actorType === "INSTITUTION" ? "Institutions" : "Members"}
-            </span>
+            <span className={forms.label}>Members</span>
             <ActorCombobox
-              actorType={actorType}
               mode="multi"
               selected={members}
               onChange={setMembers}
-              label={
-                actorType === "INSTITUTION"
-                  ? "Search institutions to add"
-                  : "Search members of Congress to add"
-              }
+              label="Search members of Congress to add"
               placeholder="Search…"
               testId="actor-group-members"
             />

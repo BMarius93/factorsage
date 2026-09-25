@@ -1,26 +1,27 @@
--- Alternative Data Signals — Insider Activity, Congressional Trading and Institutional 13F.
+-- Alternative Data Signals — Insider Activity and Congressional Trading.
 --
 -- Migration note
 -- ==============
--- Purely additive. Eight new tables, eight new enums and three new `StockDataset` values; no
--- existing column, constraint or row is altered or removed, so it applies to a populated database
--- without touching market history, strategies, backtest runs or monitors.
+-- Purely additive. Five new tables, six new enums and two new `StockDataset` values; no existing
+-- column, constraint or row is altered or removed, so it applies to a populated database without
+-- touching market history, strategies, backtest runs or monitors.
 --
--- `StockDataset` gains `INSIDER_TRADE`, `CONGRESS_TRADE` and `INSTITUTIONAL_HOLDING` so the three
--- new domains reuse the existing `StockDatasetState` / `StockDatasetCoverage` freshness and coverage
--- bookkeeping rather than growing a parallel one. The new values are added but never used by DDL in
--- this migration, which is what keeps the `ALTER TYPE ... ADD VALUE` statements safe inside Prisma's
--- transaction.
+-- `StockDataset` gains `INSIDER_TRADE` and `CONGRESS_TRADE` so both domains reuse the existing
+-- `StockDatasetState` / `StockDatasetCoverage` freshness and coverage bookkeeping rather than growing
+-- a parallel one. The new values are added but never used by DDL in this migration, which is what
+-- keeps the `ALTER TYPE ... ADD VALUE` statements safe inside Prisma's transaction.
 --
 -- `ActorGroup` follows `StockList`'s ownership model exactly, including the CHECK constraint at the
 -- end of this file: ownership is an invariant of the row, not a convention.
 --
--- Nothing here backfills. The three domains are ingested lazily on the first read that needs them,
--- under the same coverage rules every other provider dataset follows, so an empty table simply means
--- "not ingested yet" and every alternative-data metric reads NOT_EVALUABLE until it is.
-
--- CreateEnum
-CREATE TYPE "AlternativeActorType" AS ENUM ('INSTITUTION', 'CONGRESS_PERSON');
+-- `AlternativeDataActor` carries **no actor-kind discriminator**. V1 has one kind of canonical actor,
+-- a member of Congress: insider persons are deliberately not actors, and Form 13F is not part of V1
+-- because the provider subscription does not expose it (`docs/alternative-data-signals.md`). A second
+-- kind adds the column back rather than this schema carrying one with a single value.
+--
+-- Nothing here backfills. Both domains are ingested lazily on the first read that needs them, under
+-- the same coverage rules every other provider dataset follows, so an empty table simply means "not
+-- ingested yet" and every alternative-data metric reads NOT_EVALUABLE until it is.
 
 -- CreateEnum
 CREATE TYPE "CongressChamber" AS ENUM ('HOUSE', 'SENATE');
@@ -40,9 +41,6 @@ CREATE TYPE "CongressOwner" AS ENUM ('SELF', 'SPOUSE', 'JOINT', 'CHILD', 'DEPEND
 -- CreateEnum
 CREATE TYPE "CongressAssetClass" AS ENUM ('STOCK', 'STOCK_OPTION', 'BOND', 'FUND', 'CRYPTO', 'OTHER');
 
--- CreateEnum
-CREATE TYPE "InstitutionalPositionChange" AS ENUM ('NEW', 'INCREASED', 'REDUCED', 'EXITED', 'UNCHANGED');
-
 -- AlterEnum
 -- This migration adds more than one value to an enum.
 -- With PostgreSQL versions 11 and earlier, this is not possible
@@ -53,18 +51,15 @@ CREATE TYPE "InstitutionalPositionChange" AS ENUM ('NEW', 'INCREASED', 'REDUCED'
 
 ALTER TYPE "StockDataset" ADD VALUE 'INSIDER_TRADE';
 ALTER TYPE "StockDataset" ADD VALUE 'CONGRESS_TRADE';
-ALTER TYPE "StockDataset" ADD VALUE 'INSTITUTIONAL_HOLDING';
 
 -- CreateTable
 CREATE TABLE "AlternativeDataActor" (
     "id" TEXT NOT NULL,
-    "type" "AlternativeActorType" NOT NULL,
     "externalId" TEXT NOT NULL,
     "displayName" TEXT NOT NULL,
-    "chamber" "CongressChamber",
+    "chamber" "CongressChamber" NOT NULL,
     "state" TEXT,
     "district" TEXT,
-    "cik" TEXT,
     "metadata" JSONB,
     "firstObservedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -78,7 +73,6 @@ CREATE TABLE "ActorGroup" (
     "ownership" "ContentOwnership" NOT NULL DEFAULT 'USER',
     "userId" TEXT,
     "systemKey" TEXT,
-    "actorType" "AlternativeActorType" NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
     "displayOrder" INTEGER,
@@ -158,59 +152,11 @@ CREATE TABLE "CongressTrade" (
     CONSTRAINT "CongressTrade_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
-CREATE TABLE "InstitutionalFiling" (
-    "id" TEXT NOT NULL,
-    "actorId" TEXT NOT NULL,
-    "reportPeriod" DATE NOT NULL,
-    "filingDate" DATE NOT NULL,
-    "availableFromDate" DATE NOT NULL,
-    "amendmentType" TEXT,
-    "providerFilingId" TEXT,
-    "raw" JSONB NOT NULL,
-    "contentHash" TEXT NOT NULL,
-    "observedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "InstitutionalFiling_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "InstitutionalHolding" (
-    "id" TEXT NOT NULL,
-    "filingId" TEXT NOT NULL,
-    "securityId" TEXT NOT NULL,
-    "shares" DECIMAL(24,6) NOT NULL,
-    "marketValue" DECIMAL(24,2),
-    "portfolioWeightPercent" DECIMAL(12,6),
-    "raw" JSONB NOT NULL,
-
-    CONSTRAINT "InstitutionalHolding_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "InstitutionalPositionEvent" (
-    "id" TEXT NOT NULL,
-    "securityId" TEXT NOT NULL,
-    "actorId" TEXT NOT NULL,
-    "reportPeriod" DATE NOT NULL,
-    "previousReportPeriod" DATE,
-    "availableFromDate" DATE NOT NULL,
-    "change" "InstitutionalPositionChange" NOT NULL,
-    "shares" DECIMAL(24,6) NOT NULL,
-    "previousShares" DECIMAL(24,6),
-    "changePercent" DECIMAL(18,6),
-    "portfolioWeightPercent" DECIMAL(12,6),
-    "previousPortfolioWeightPercent" DECIMAL(12,6),
-    "derivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "InstitutionalPositionEvent_pkey" PRIMARY KEY ("id")
-);
+-- CreateIndex
+CREATE UNIQUE INDEX "AlternativeDataActor_externalId_key" ON "AlternativeDataActor"("externalId");
 
 -- CreateIndex
-CREATE INDEX "AlternativeDataActor_type_displayName_idx" ON "AlternativeDataActor"("type", "displayName");
-
--- CreateIndex
-CREATE UNIQUE INDEX "AlternativeDataActor_type_externalId_key" ON "AlternativeDataActor"("type", "externalId");
+CREATE INDEX "AlternativeDataActor_displayName_idx" ON "AlternativeDataActor"("displayName");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "ActorGroup_systemKey_key" ON "ActorGroup"("systemKey");
@@ -220,9 +166,6 @@ CREATE INDEX "ActorGroup_userId_idx" ON "ActorGroup"("userId");
 
 -- CreateIndex
 CREATE INDEX "ActorGroup_ownership_idx" ON "ActorGroup"("ownership");
-
--- CreateIndex
-CREATE INDEX "ActorGroup_userId_actorType_idx" ON "ActorGroup"("userId", "actorType");
 
 -- CreateIndex
 CREATE INDEX "ActorGroupMember_actorId_idx" ON "ActorGroupMember"("actorId");
@@ -251,33 +194,6 @@ CREATE INDEX "CongressTrade_actorId_availableFromDate_idx" ON "CongressTrade"("a
 -- CreateIndex
 CREATE UNIQUE INDEX "CongressTrade_securityId_contentHash_key" ON "CongressTrade"("securityId", "contentHash");
 
--- CreateIndex
-CREATE INDEX "InstitutionalFiling_actorId_availableFromDate_idx" ON "InstitutionalFiling"("actorId", "availableFromDate");
-
--- CreateIndex
-CREATE INDEX "InstitutionalFiling_reportPeriod_idx" ON "InstitutionalFiling"("reportPeriod");
-
--- CreateIndex
-CREATE UNIQUE INDEX "InstitutionalFiling_actorId_reportPeriod_contentHash_key" ON "InstitutionalFiling"("actorId", "reportPeriod", "contentHash");
-
--- CreateIndex
-CREATE INDEX "InstitutionalHolding_securityId_idx" ON "InstitutionalHolding"("securityId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "InstitutionalHolding_filingId_securityId_key" ON "InstitutionalHolding"("filingId", "securityId");
-
--- CreateIndex
-CREATE INDEX "InstitutionalPositionEvent_securityId_availableFromDate_idx" ON "InstitutionalPositionEvent"("securityId", "availableFromDate");
-
--- CreateIndex
-CREATE INDEX "InstitutionalPositionEvent_securityId_change_availableFromD_idx" ON "InstitutionalPositionEvent"("securityId", "change", "availableFromDate");
-
--- CreateIndex
-CREATE INDEX "InstitutionalPositionEvent_actorId_availableFromDate_idx" ON "InstitutionalPositionEvent"("actorId", "availableFromDate");
-
--- CreateIndex
-CREATE UNIQUE INDEX "InstitutionalPositionEvent_securityId_actorId_reportPeriod_key" ON "InstitutionalPositionEvent"("securityId", "actorId", "reportPeriod");
-
 -- AddForeignKey
 ALTER TABLE "ActorGroup" ADD CONSTRAINT "ActorGroup_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -298,21 +214,6 @@ ALTER TABLE "CongressTrade" ADD CONSTRAINT "CongressTrade_securityId_fkey" FOREI
 
 -- AddForeignKey
 ALTER TABLE "CongressTrade" ADD CONSTRAINT "CongressTrade_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "AlternativeDataActor"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InstitutionalFiling" ADD CONSTRAINT "InstitutionalFiling_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "AlternativeDataActor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InstitutionalHolding" ADD CONSTRAINT "InstitutionalHolding_filingId_fkey" FOREIGN KEY ("filingId") REFERENCES "InstitutionalFiling"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InstitutionalHolding" ADD CONSTRAINT "InstitutionalHolding_securityId_fkey" FOREIGN KEY ("securityId") REFERENCES "Security"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InstitutionalPositionEvent" ADD CONSTRAINT "InstitutionalPositionEvent_securityId_fkey" FOREIGN KEY ("securityId") REFERENCES "Security"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "InstitutionalPositionEvent" ADD CONSTRAINT "InstitutionalPositionEvent_actorId_fkey" FOREIGN KEY ("actorId") REFERENCES "AlternativeDataActor"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
 -- Ownership is an invariant of the row, not a convention: a USER group has an owner and no system

@@ -153,19 +153,10 @@ class StockDataRedisLifecycle implements OnApplicationShutdown {
         return new CanonicalAlternativeDataService(store, provider, {
           freshnessMs: config.freshnessMs,
           maxPagesPerIngest: config.maxPagesPerIngest,
-          institutionalQuarters: config.institutionalQuarters,
           onProviderRequest: (request) => {
             logger.debug({
               event: "alternative-data.provider.request",
               ...request,
-            });
-          },
-          // A dataset this subscription cannot read is a limitation to surface, not a failure to
-          // absorb silently: its metrics stay NOT_EVALUABLE and this is what says so.
-          onDatasetUnavailable: (event) => {
-            logger.warn({
-              event: "alternative-data.dataset.unavailable",
-              ...event,
             });
           },
         });

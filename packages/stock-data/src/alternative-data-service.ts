@@ -8,25 +8,18 @@ import {
   alternativeDataScope,
 } from "@intrinsic/contracts";
 import {
-  deriveInstitutionalPositionEvents,
   isCongressTradeStrategyEligible,
   type CongressChamber,
-  type InstitutionalFilingWithHoldings,
-  type InstitutionalPositionChange,
   type LocalDate,
   type Security,
 } from "@intrinsic/domain";
 import {
   FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
   FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
-  FMP_INSTITUTIONAL_MAX_PAGE_SIZE,
-  FmpEntitlementError,
   type FmpCongressTradingPort,
   type FmpInsiderTradingPort,
-  type FmpInstitutionalOwnershipPort,
   type MappedFmpCongressTrade,
   type MappedFmpInsiderTrade,
-  type MappedFmpInstitutionalHolding,
 } from "@intrinsic/fmp";
 import {
   alternativeDataRequests,
@@ -40,11 +33,10 @@ import {
   type AlternativeDataStore,
   type CongressTradeWrite,
   type InsiderTransactionWrite,
-  type InstitutionalFilingWrite,
 } from "./alternative-data-ports.js";
 
 /**
- * Loading and ingesting the alternative-data domains.
+ * Loading and ingesting the alternative-data domains: insider activity and congressional trading.
  *
  * It sits beside `CanonicalStockDataService` rather than inside it, and is composed into it, for the
  * same reason `CanonicalBenchmarkDataService` is separate: it reads different tables from a different
@@ -54,10 +46,10 @@ import {
  *
  * ## What ingestion can and cannot promise
  *
- * None of the three provider endpoints accepts a date range (verified live on 2026-09-25: `from` and
- * `to` are silently ignored by `insider-trading/search`, and the congressional endpoints take no such
- * parameter at all). A bounded historical read is therefore impossible: history is reached by paging
- * backwards from the newest row. That has three consequences the whole slice is built around:
+ * Neither provider endpoint accepts a date range (verified live on 2026-09-25: `from` and `to` are
+ * silently ignored by `insider-trading/search`, and the congressional endpoints take no such parameter
+ * at all). A bounded historical read is therefore impossible: history is reached by paging backwards
+ * from the newest row. That has three consequences the whole slice is built around:
  *
  * 1. **Coverage has a floor, not a beginning of time.** The earliest availability date actually
  *    ingested is the earliest date a metric may report for. Before it the column is NOT_EVALUABLE,
@@ -74,8 +66,7 @@ import {
  */
 
 export type AlternativeDataProvider = FmpInsiderTradingPort &
-  FmpCongressTradingPort &
-  FmpInstitutionalOwnershipPort;
+  FmpCongressTradingPort;
 
 /** Why an ingest reached the provider, for the same structured log every other loader writes. */
 export type AlternativeDataRequestEvent = {
@@ -84,21 +75,6 @@ export type AlternativeDataRequestEvent = {
   reason: "COLD" | "STALE";
   page: number;
   rows: number;
-};
-
-/**
- * A dataset this subscription cannot read.
- *
- * Reported rather than thrown: an unavailable domain leaves its coverage absent, so every metric that
- * reads it is NOT_EVALUABLE and no strategy can act on it. Failing the caller instead would take down
- * a backtest whose other conditions are perfectly evaluable, and returning an empty result would be
- * worse still — it would read as "no institution bought".
- */
-export type AlternativeDataUnavailableEvent = {
-  domain: AlternativeDataDomain;
-  symbol: string;
-  statusCode?: number;
-  message: string;
 };
 
 export type AlternativeDataServiceOptions = {
@@ -112,11 +88,8 @@ export type AlternativeDataServiceOptions = {
    * endpoint cannot spend the whole provider allowance in a loop.
    */
   maxPagesPerIngest: number;
-  /** Report quarters of 13F history one ingest reads, newest first. */
-  institutionalQuarters: number;
   now?: () => Date;
   onProviderRequest?: (event: AlternativeDataRequestEvent) => void;
-  onDatasetUnavailable?: (event: AlternativeDataUnavailableEvent) => void;
 };
 
 /**
@@ -148,8 +121,6 @@ export function alternativeDataDomainOf(
       return "INSIDER";
     case "CONGRESS_ACTIVITY":
       return "CONGRESS";
-    case "INSTITUTIONAL_ACTIVITY":
-      return "INSTITUTIONAL";
   }
 }
 
@@ -163,25 +134,6 @@ export function alternativeDataDomainsFor(
   }
   return ALTERNATIVE_DATA_DOMAINS.filter((domain) => domains.has(domain));
 }
-
-/** The position-change states one institutional fact filter selects. */
-const INSTITUTIONAL_CHANGES: Readonly<
-  Partial<
-    Record<AlternativeDataFactFilter, readonly InstitutionalPositionChange[]>
-  >
-> = {
-  INSTITUTIONAL_ACQUIRING: ["NEW", "INCREASED"],
-  INSTITUTIONAL_REDUCING: ["REDUCED", "EXITED"],
-  INSTITUTIONAL_NEW: ["NEW"],
-  INSTITUTIONAL_EXITED: ["EXITED"],
-  INSTITUTIONAL_ANY_CHANGE: [
-    "NEW",
-    "INCREASED",
-    "REDUCED",
-    "EXITED",
-    "UNCHANGED",
-  ],
-};
 
 /**
  * Field separator for a content digest: ASCII unit separator, which no provider text carries.
@@ -241,30 +193,6 @@ function congressContentHash(row: MappedFmpCongressTrade): string {
   ]);
 }
 
-/**
- * The identity of one 13F filing.
- *
- * It covers the holdings as well as the filing header, because an amendment restating a share count is
- * a different statement about the same period and must be a new row rather than a silent no-op.
- */
-function institutionalFilingContentHash(
-  actorExternalId: string,
-  reportPeriod: LocalDate,
-  filingDate: LocalDate,
-  amendmentType: string | undefined,
-  holdings: readonly { securityId: string; shares: number }[],
-): string {
-  return digest([
-    actorExternalId,
-    reportPeriod,
-    filingDate,
-    amendmentType,
-    ...[...holdings]
-      .sort((left, right) => left.securityId.localeCompare(right.securityId))
-      .flatMap((holding) => [holding.securityId, holding.shares]),
-  ]);
-}
-
 export class CanonicalAlternativeDataService {
   private readonly now: () => Date;
 
@@ -303,27 +231,10 @@ export class CanonicalAlternativeDataService {
         continue;
       }
       const reason = lastSync === null ? "COLD" : "STALE";
-      try {
-        if (domain === "INSIDER") {
-          await this.ingestInsider(security, reason);
-        } else if (domain === "CONGRESS") {
-          await this.ingestCongress(security, reason);
-        } else {
-          await this.ingestInstitutional(security, reason);
-        }
-      } catch (error) {
-        if (error instanceof FmpEntitlementError) {
-          this.options.onDatasetUnavailable?.({
-            domain,
-            symbol: security.symbol,
-            ...(error.statusCode === undefined
-              ? {}
-              : { statusCode: error.statusCode }),
-            message: error.message,
-          });
-          continue;
-        }
-        throw error;
+      if (domain === "INSIDER") {
+        await this.ingestInsider(security, reason);
+      } else {
+        await this.ingestCongress(security, reason);
       }
     }
   }
@@ -439,7 +350,7 @@ export class CanonicalAlternativeDataService {
       }));
     }
 
-    if (filter === "CONGRESS_PURCHASE" || filter === "CONGRESS_SALE") {
+    {
       const chamber =
         metric.kind === "CONGRESS_ACTIVITY" && metric.chamber !== "ANY"
           ? (metric.chamber as CongressChamber)
@@ -465,23 +376,6 @@ export class CanonicalAlternativeDataService {
           : { amount: row.amountLowerBound }),
       }));
     }
-
-    const changes = INSTITUTIONAL_CHANGES[filter] ?? [];
-    const rows = await this.store.getInstitutionalObservations({
-      securityId,
-      from,
-      to,
-      changes,
-      ...(input.actorIds === undefined ? {} : { actorIds: input.actorIds }),
-    });
-    return rows.map((row) => ({
-      observableFrom: row.availableFromDate,
-      actorKey: row.actorKey,
-      shares: row.shares,
-      ...(row.previousShares === null
-        ? {}
-        : { previousShares: row.previousShares }),
-    }));
   }
 
   // -------------------------------------------------------------------------
@@ -611,7 +505,6 @@ export class CanonicalAlternativeDataService {
         // select it. The canonical id then replaces the bioguide id on every trade row.
         const actorIds = await this.store.upsertActors(
           rows.map((row) => ({
-            type: "CONGRESS_PERSON" as const,
             externalId: row.actorExternalId,
             displayName: row.actorDisplayName,
             chamber: row.chamber,
@@ -621,9 +514,7 @@ export class CanonicalAlternativeDataService {
         );
         const writes: CongressTradeWrite[] = [];
         for (const row of rows) {
-          const actorId = actorIds.get(
-            `CONGRESS_PERSON:${row.actorExternalId}`,
-          );
+          const actorId = actorIds.get(row.actorExternalId);
           if (!actorId) {
             continue;
           }
@@ -686,202 +577,6 @@ export class CanonicalAlternativeDataService {
     });
   }
 
-  /**
-   * Ingests 13F holdings quarter by quarter, then re-derives this security's position events.
-   *
-   * The derivation is deliberately a **replacement** rather than an append: the events are a pure
-   * function of the filings, so an amendment changes an existing period's comparison and appending
-   * would leave the superseded one beside it. That also makes reingestion idempotent.
-   *
-   * Report quarters are walked newest-first from the last quarter that can plausibly have been filed.
-   * A quarter the provider has nothing for is simply empty; it is not an error, and it does not stop
-   * the walk, because a manager can miss a quarter.
-   */
-  private async ingestInstitutional(
-    security: Security,
-    reason: "COLD" | "STALE",
-  ): Promise<void> {
-    const syncedAt = this.now().toISOString();
-    const window = new AvailabilityWindow();
-    let sawAnyRow = false;
-
-    const quarters = recentReportQuarters(
-      this.now(),
-      this.options.institutionalQuarters,
-    );
-    for (const { year, quarter } of quarters) {
-      const holdings: MappedFmpInstitutionalHolding[] = [];
-      for (let page = 0; page < this.options.maxPagesPerIngest; page += 1) {
-        const rows = await this.provider.getInstitutionalHoldings({
-          symbol: security.symbol,
-          year,
-          quarter,
-          page,
-          limit: FMP_INSTITUTIONAL_MAX_PAGE_SIZE,
-        });
-        this.options.onProviderRequest?.({
-          domain: "INSTITUTIONAL",
-          symbol: security.symbol,
-          reason,
-          page,
-          rows: rows.length,
-        });
-        holdings.push(...rows);
-        if (rows.length < FMP_INSTITUTIONAL_MAX_PAGE_SIZE) {
-          break;
-        }
-      }
-      if (holdings.length === 0) {
-        continue;
-      }
-      sawAnyRow = true;
-
-      const actorIds = await this.store.upsertActors(
-        holdings.map((holding) => ({
-          type: "INSTITUTION" as const,
-          externalId: holding.actorExternalId,
-          displayName: holding.actorDisplayName,
-          cik: holding.actorExternalId,
-        })),
-      );
-
-      const filings: InstitutionalFilingWrite[] = [];
-      for (const holding of holdings) {
-        const actorId = actorIds.get(`INSTITUTION:${holding.actorExternalId}`);
-        if (!actorId) {
-          continue;
-        }
-        const lines = [
-          {
-            securityId: security.id,
-            shares: holding.shares,
-            ...(holding.marketValue === undefined
-              ? {}
-              : { marketValue: holding.marketValue }),
-            ...(holding.portfolioWeightPercent === undefined
-              ? {}
-              : { portfolioWeightPercent: holding.portfolioWeightPercent }),
-            raw: holding.raw,
-          },
-        ];
-        filings.push({
-          actorId,
-          reportPeriod: holding.reportPeriod,
-          filingDate: holding.filingDate,
-          availableFromDate: holding.availableFromDate,
-          ...(holding.amendmentType === undefined
-            ? {}
-            : { amendmentType: holding.amendmentType }),
-          ...(holding.providerFilingId === undefined
-            ? {}
-            : { providerFilingId: holding.providerFilingId }),
-          raw: holding.raw,
-          contentHash: institutionalFilingContentHash(
-            holding.actorExternalId,
-            holding.reportPeriod,
-            holding.filingDate,
-            holding.amendmentType,
-            lines,
-          ),
-          holdings: lines,
-        });
-      }
-      await this.store.saveInstitutionalFilings(filings);
-      window.observe(holdings);
-    }
-
-    if (sawAnyRow) {
-      await this.deriveInstitutionalPositions(security);
-    }
-
-    await this.store.recordAlternativeDatasetSync({
-      securityId: security.id,
-      domain: "INSTITUTIONAL",
-      ...window.asRecord(),
-      syncedAt,
-    });
-  }
-
-  /**
-   * Re-derives every manager's position changes for one security from the filings on record.
-   *
-   * The derivation itself lives in `@intrinsic/domain` and is pure; this only groups the filings per
-   * manager and writes the result. Nothing here infers a trade date inside a quarter.
-   */
-  async deriveInstitutionalPositions(security: Security): Promise<void> {
-    const rows = await this.store.getInstitutionalFilingsForSecurity({
-      securityId: security.id,
-    });
-    const byActor = new Map<string, InstitutionalFilingWithHoldings[]>();
-    for (const row of rows) {
-      const list = byActor.get(row.actorId) ?? [];
-      list.push({
-        filing: {
-          // The canonical actor id stands in for the external one here: the derivation only needs a
-          // stable key to group by, and the id is the identity everything downstream is keyed by.
-          actorExternalId: row.actorId,
-          actorDisplayName: row.actorId,
-          reportPeriod: row.reportPeriod,
-          filingDate: row.filingDate,
-          availableFromDate: row.availableFromDate,
-          ...(row.amendmentType === undefined
-            ? {}
-            : { amendmentType: row.amendmentType }),
-        },
-        holdings:
-          row.shares === null
-            ? []
-            : [
-                {
-                  securityId: security.id,
-                  shares: row.shares,
-                  ...(row.portfolioWeightPercent === null
-                    ? {}
-                    : { portfolioWeightPercent: row.portfolioWeightPercent }),
-                },
-              ],
-      });
-      byActor.set(row.actorId, list);
-    }
-
-    const events = [...byActor.entries()].flatMap(([actorId, filings]) =>
-      deriveInstitutionalPositionEvents({
-        securityId: security.id,
-        actorExternalId: actorId,
-        filings,
-      }).map((event) => ({
-        securityId: event.securityId,
-        actorId,
-        reportPeriod: event.reportPeriod,
-        ...(event.previousReportPeriod === undefined
-          ? {}
-          : { previousReportPeriod: event.previousReportPeriod }),
-        availableFromDate: event.availableFromDate,
-        change: event.change,
-        shares: event.shares,
-        ...(event.previousShares === undefined
-          ? {}
-          : { previousShares: event.previousShares }),
-        ...(event.changePercent === undefined
-          ? {}
-          : { changePercent: event.changePercent }),
-        ...(event.portfolioWeightPercent === undefined
-          ? {}
-          : { portfolioWeightPercent: event.portfolioWeightPercent }),
-        ...(event.previousPortfolioWeightPercent === undefined
-          ? {}
-          : {
-              previousPortfolioWeightPercent:
-                event.previousPortfolioWeightPercent,
-            }),
-      })),
-    );
-
-    await this.store.replaceInstitutionalPositionEvents({
-      securityId: security.id,
-      events,
-    });
-  }
 }
 
 /**
@@ -916,30 +611,6 @@ class AvailabilityWindow {
       ...(this.latest === undefined ? {} : { latestAvailableDate: this.latest }),
     };
   }
-}
-
-/**
- * The report quarters a 13F ingest reads, newest first.
- *
- * It starts from the **previous** calendar quarter rather than the current one: a quarter's holdings
- * cannot be reported until it has ended, so asking for the one in progress is guaranteed to be empty.
- */
-export function recentReportQuarters(
-  now: Date,
-  count: number,
-): { year: number; quarter: 1 | 2 | 3 | 4 }[] {
-  const quarters: { year: number; quarter: 1 | 2 | 3 | 4 }[] = [];
-  let year = now.getUTCFullYear();
-  let quarter = Math.floor(now.getUTCMonth() / 3) + 1;
-  for (let index = 0; index < Math.max(0, count); index += 1) {
-    quarter -= 1;
-    if (quarter < 1) {
-      quarter = 4;
-      year -= 1;
-    }
-    quarters.push({ year, quarter: quarter as 1 | 2 | 3 | 4 });
-  }
-  return quarters;
 }
 
 /** Whether one normalized congressional disclosure may feed a V1 metric. Re-exported for callers. */

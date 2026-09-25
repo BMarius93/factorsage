@@ -548,7 +548,6 @@ above is what the metric means and does not depend on that answer.
 | Loss                                            | `is above`, `is below`                | `crosses above`, `crosses below` | percentage `0..100`, decimals allowed                                                   | SELL, FINAL EXIT      |
 | Insider Activity · 4 measures                   | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
 | Congressional Trading · 5 measures              | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a money amount `>= 0`                             | BUY, SELL, FINAL EXIT |
-| Institutional Activity · 5 measures             | `is at least`, `is at most`, `is above`, `is below` | **none — condition only**        | whole count `0..1000`, or a percentage `>= -100`                            | BUY, SELL, FINAL EXIT |
 
 **Relative Volume is the one Condition-only metric**, and the empty Trigger column is a product
 decision rather than an omission. A Trigger is a crossing event; the Monitor's existing
@@ -561,8 +560,8 @@ deliberately not offered: each period is a persisted column, not a parameter eva
 Scope is Volume and these three periods; no average volume, dollar volume, volume change, OBV or
 volume oscillator is part of it.
 
-The three **alternative-data** kinds — Insider Activity, Congressional Trading and Institutional
-Activity — are the second family of condition-only metrics, for the reason Relative Volume is: a
+The two **alternative-data** kinds — Insider Activity and Congressional Trading — are the second
+family of condition-only metrics, for the reason Relative Volume is: a
 disclosure count is a state, and the Monitor's not-matched -> matched transition already raises a
 Signal on the session a Condition first holds. They are the only metrics that offer the inclusive
 `is at least` / `is at most` pair, because they count discrete events and

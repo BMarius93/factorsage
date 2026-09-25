@@ -9,11 +9,9 @@ import type {
 import {
   FMP_CONGRESS_TRADING_MAX_PAGE_SIZE,
   FMP_INSIDER_TRADING_MAX_PAGE_SIZE,
-  FMP_INSTITUTIONAL_MAX_PAGE_SIZE,
   mapFmpCongressTrades,
   mapFmpDailyPrices,
   mapFmpInsiderTrades,
-  mapFmpInstitutionalHoldings,
   mapFmpBenchmarkDailyPrices,
   mapFmpFinancialStatements,
   financialStatementPath,
@@ -30,11 +28,8 @@ import {
   type FmpExchangeHolidayDto,
   type FmpInsiderTradeDto,
   type FmpInsiderTradingPort,
-  type FmpInstitutionalHoldingDto,
-  type FmpInstitutionalOwnershipPort,
   type MappedFmpCongressTrade,
   type MappedFmpInsiderTrade,
-  type MappedFmpInstitutionalHolding,
   type FmpDailyPriceDto,
   type FmpProfileDto,
   type FmpQuoteDto,
@@ -87,27 +82,6 @@ export class FmpUnauthorizedError extends FmpProviderError {
   constructor(statusCode: 401 | 403) {
     super("Stock data provider authentication failed", statusCode);
     this.name = "FmpUnauthorizedError";
-  }
-}
-
-/**
- * The provider refused the request because this subscription does not include the dataset.
- *
- * Its own class, and deliberately **not** retryable: a plan boundary is not a transient failure, and
- * retrying it spends the shared provider allowance on a request that can never succeed. It is also
- * not a data error — the caller records the dataset as unavailable and reports the limitation rather
- * than treating it as an empty result, which would look like "this security has no filings".
- *
- * Verified against the live API on 2026-09-25: every `institutional-ownership/*` endpoint answers
- * `402` with "Restricted Endpoint: This endpoint is not available under your current subscription".
- */
-export class FmpEntitlementError extends FmpProviderError {
-  constructor(statusCode: number) {
-    super(
-      "Stock data provider subscription does not include this dataset",
-      statusCode,
-    );
-    this.name = "FmpEntitlementError";
   }
 }
 
@@ -180,8 +154,7 @@ export class FmpClient
     FmpCurrentQuoteProviderPort,
     FmpExchangeCalendarPort,
     FmpInsiderTradingPort,
-    FmpCongressTradingPort,
-    FmpInstitutionalOwnershipPort
+    FmpCongressTradingPort
 {
   private readonly gate: FmpRequestGate;
   private readonly sleep: (delayMs: number) => Promise<void>;
@@ -446,40 +419,6 @@ export class FmpClient
     return mapFmpCongressTrades(input.chamber, payload);
   }
 
-  /**
-   * One page of Form 13F holdings naming one symbol, for one report quarter.
-   *
-   * **Restricted on this subscription.** Verified live on 2026-09-25: this endpoint answers `402`
-   * "Restricted Endpoint", which `classifyResponse` turns into a non-retryable
-   * {@link FmpEntitlementError}. The request and the mapping are implemented so that the domain above
-   * is complete and the limitation is a plan boundary rather than missing code, but the response shape
-   * has never been observed here — see `mapFmpInstitutionalHoldings`.
-   */
-  async getInstitutionalHoldings(input: {
-    symbol: string;
-    year: number;
-    quarter: 1 | 2 | 3 | 4;
-    page: number;
-    limit: number;
-  }): Promise<MappedFmpInstitutionalHolding[]> {
-    const payload = await this.request<FmpInstitutionalHoldingDto[]>(
-      "institutional-ownership/extract-analytics/holder",
-      {
-        symbol: input.symbol.trim().toUpperCase(),
-        year: String(input.year),
-        quarter: String(input.quarter),
-        page: String(Math.max(0, Math.trunc(input.page))),
-        limit: String(
-          Math.min(
-            Math.max(1, Math.trunc(input.limit)),
-            FMP_INSTITUTIONAL_MAX_PAGE_SIZE,
-          ),
-        ),
-      },
-    );
-    return mapFmpInstitutionalHoldings(payload);
-  }
-
   private async request<T>(
     path: string,
     query: Record<string, string>,
@@ -563,9 +502,6 @@ export class FmpClient
       return new FmpRateLimitError(
         parseRetryAfter(response.headers.get("retry-after"), this.now()),
       );
-    }
-    if (response.status === 402) {
-      return new FmpEntitlementError(response.status);
     }
     if (response.status === 401 || response.status === 403) {
       return new FmpUnauthorizedError(response.status);

@@ -89,14 +89,8 @@ export function createMonitorRuntime(logger: StructuredLogger): MonitorRuntime {
     {
       freshnessMs: alternativeDataConfig.freshnessMs,
       maxPagesPerIngest: alternativeDataConfig.maxPagesPerIngest,
-      institutionalQuarters: alternativeDataConfig.institutionalQuarters,
       onProviderRequest: (request) => {
         logger.debug({ event: "alternative-data.provider.request", ...request });
-      },
-      // A dataset this subscription cannot read is a limitation to surface, not a failure to absorb
-      // silently: the metrics that read it stay NOT_EVALUABLE, and this is the only place that says so.
-      onDatasetUnavailable: (event) => {
-        logger.warn({ event: "alternative-data.dataset.unavailable", ...event });
       },
     },
   );

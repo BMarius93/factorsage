@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  alternativeDataActorType,
   alternativeDataScope,
   collectActorGroupIds,
   collectAlternativeDataMetrics,
@@ -1120,12 +1119,9 @@ export class BacktestsService {
    * Three rules, and each is a refusal rather than a degradation:
    *
    * 1. **A group that no longer exists, or belongs to someone else, refuses the submission.** A run
-   *    that silently treated it as empty would execute a strategy that reads "any institution" while
-   *    its author wrote "Superinvestors", and would report a result nobody could explain.
-   * 2. **A group of the wrong actor type refuses it too.** A congressional metric scoped to an
-   *    institution group is meaningless, and it can only arise from a stale client or a hand-edited
-   *    document.
-   * 3. **An empty group is accepted.** It is a legitimate state — a group being built — and it counts
+   *    that silently treated it as empty would execute a strategy that reads "any member of Congress"
+   *    while its author wrote "Congress Watchlist", and would report a result nobody could explain.
+   * 2. **An empty group is accepted.** It is a legitimate state — a group being built — and it counts
    *    nothing, which is honest and what the evaluator already does.
    *
    * Members are frozen in the group's own order, and each carries its identity and its label so a
@@ -1166,19 +1162,12 @@ export class BacktestsService {
           "This strategy references an actor group that no longer exists; edit the strategy before running it",
         );
       }
-      const expected = alternativeDataActorType(metric.kind);
-      if (expected && group.actorType !== expected) {
-        throw new BacktestConfigurationError(
-          `The group \`${group.name}\` does not hold the kind of actor this strategy's rule counts`,
-        );
-      }
       if (frozen.some((entry) => entry.groupId === group.id)) {
         continue;
       }
       frozen.push({
         groupId: group.id,
         name: group.name,
-        actorType: group.actorType,
         members: group.members.map((member) => ({
           actorId: member.actor.id,
           externalId: member.actor.externalId,

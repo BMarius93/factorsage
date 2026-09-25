@@ -1,11 +1,9 @@
 import type {
-  AlternativeActorType,
   CongressChamber,
   CongressOwner,
   CongressTransactionKind,
   InsiderRole,
   InsiderTransactionCategory,
-  InstitutionalPositionChange,
   LocalDate,
   SecurityId,
 } from "@intrinsic/domain";
@@ -34,18 +32,11 @@ import type {
  * - insider v1: `insider-trading/search`, paged to exhaustion, availability = filing date + 1 day.
  * - congress v1: `senate-trades` + `house-trades`, paged to exhaustion, availability = disclosure
  *   date + 1 day.
- * - institutional v1: `institutional-ownership/extract-analytics/holder` per report quarter,
- *   availability = filing date + 1 day, position changes derived from consecutive available filings.
  */
 export const INSIDER_TRADE_VARIANT = "form4-insider-search:v1";
 export const CONGRESS_TRADE_VARIANT = "congress-periodic-transactions:v1";
-export const INSTITUTIONAL_HOLDING_VARIANT = "form13f-holder-extract:v1";
 
-export const ALTERNATIVE_DATA_DOMAINS = [
-  "INSIDER",
-  "CONGRESS",
-  "INSTITUTIONAL",
-] as const;
+export const ALTERNATIVE_DATA_DOMAINS = ["INSIDER", "CONGRESS"] as const;
 
 export type AlternativeDataDomain = (typeof ALTERNATIVE_DATA_DOMAINS)[number];
 
@@ -53,10 +44,6 @@ export type AlternativeDataDomain = (typeof ALTERNATIVE_DATA_DOMAINS)[number];
 export const ALTERNATIVE_DATA_DATASETS = {
   INSIDER: { dataset: "INSIDER_TRADE", variant: INSIDER_TRADE_VARIANT },
   CONGRESS: { dataset: "CONGRESS_TRADE", variant: CONGRESS_TRADE_VARIANT },
-  INSTITUTIONAL: {
-    dataset: "INSTITUTIONAL_HOLDING",
-    variant: INSTITUTIONAL_HOLDING_VARIANT,
-  },
 } as const satisfies Record<
   AlternativeDataDomain,
   { dataset: string; variant: string }
@@ -81,27 +68,23 @@ export type AlternativeDataDatasetState = {
   lastSuccessfulSyncAt: string | null;
 };
 
-/** One canonical actor as the store persists and returns it. */
+/** One canonical actor as the store persists and returns it: a member of Congress. */
 export type PersistedAlternativeDataActor = {
   id: string;
-  type: AlternativeActorType;
   externalId: string;
   displayName: string;
-  chamber?: CongressChamber;
+  chamber: CongressChamber;
   state?: string;
   district?: string;
-  cik?: string;
 };
 
 /** An actor the ingest observed: created on first sight, refreshed on every later one. */
 export type AlternativeDataActorUpsert = {
-  type: AlternativeActorType;
   externalId: string;
   displayName: string;
-  chamber?: CongressChamber;
+  chamber: CongressChamber;
   state?: string;
   district?: string;
-  cik?: string;
 };
 
 /** One insider transaction as the ingest writes it. `securityId` binds it to the catalog. */
@@ -161,38 +144,6 @@ export type CongressTradeWrite = {
   contentHash: string;
 };
 
-export type InstitutionalFilingWrite = {
-  actorId: string;
-  reportPeriod: LocalDate;
-  filingDate: LocalDate;
-  availableFromDate: LocalDate;
-  amendmentType?: string;
-  providerFilingId?: string;
-  raw: Record<string, unknown>;
-  contentHash: string;
-  holdings: readonly {
-    securityId: SecurityId;
-    shares: number;
-    marketValue?: number;
-    portfolioWeightPercent?: number;
-    raw: Record<string, unknown>;
-  }[];
-};
-
-export type InstitutionalPositionEventWrite = {
-  securityId: SecurityId;
-  actorId: string;
-  reportPeriod: LocalDate;
-  previousReportPeriod?: LocalDate;
-  availableFromDate: LocalDate;
-  change: InstitutionalPositionChange;
-  shares: number;
-  previousShares?: number;
-  changePercent?: number;
-  portfolioWeightPercent?: number;
-  previousPortfolioWeightPercent?: number;
-};
-
 /** How many rows a write actually changed, so an ingest can report itself honestly. */
 export type AlternativeDataWriteResult = {
   inserted: number;
@@ -221,13 +172,6 @@ export type CongressObservationRow = {
   amountLowerBound: number | null;
 };
 
-export type InstitutionalObservationRow = {
-  availableFromDate: LocalDate;
-  actorKey: string;
-  shares: number;
-  previousShares: number | null;
-};
-
 /** The insider rows one configured metric selects. */
 export type InsiderObservationQuery = {
   securityId: SecurityId;
@@ -249,14 +193,6 @@ export type CongressObservationQuery = {
   owners?: readonly CongressOwner[];
 };
 
-export type InstitutionalObservationQuery = {
-  securityId: SecurityId;
-  from: LocalDate;
-  to: LocalDate;
-  changes: readonly InstitutionalPositionChange[];
-  actorIds?: readonly string[];
-};
-
 /**
  * Persistence for the alternative-data slice.
  *
@@ -266,10 +202,10 @@ export type InstitutionalObservationQuery = {
 export interface AlternativeDataStore {
   /**
    * Creates actors on first sight and refreshes their labels afterwards, returning the canonical id
-   * of every actor in the batch keyed by `type:externalId`.
+   * of every actor in the batch keyed by `externalId`.
    *
-   * Idempotent, and it never renames an identity: `(type, externalId)` is the key, so a member whose
-   * display name changes keeps the same row — and every group that holds them keeps holding them.
+   * Idempotent, and it never renames an identity: `externalId` is the key, so a member whose display
+   * name changes keeps the same row — and every group that holds them keeps holding them.
    */
   upsertActors(
     actors: readonly AlternativeDataActorUpsert[],
@@ -277,7 +213,6 @@ export interface AlternativeDataStore {
 
   /** Canonical actors matching a search term, for the searchable picker. */
   searchActors(input: {
-    type: AlternativeActorType;
     term?: string;
     limit: number;
   }): Promise<PersistedAlternativeDataActor[]>;
@@ -316,43 +251,6 @@ export interface AlternativeDataStore {
     rows: readonly CongressTradeWrite[],
   ): Promise<AlternativeDataWriteResult>;
 
-  saveInstitutionalFilings(
-    filings: readonly InstitutionalFilingWrite[],
-  ): Promise<AlternativeDataWriteResult>;
-
-  /**
-   * Every filing that names one security, for one manager, with that security's holding line.
-   *
-   * The input to the derivation, and it includes the periods where the manager filed but held nothing
-   * — those are what make an exit visible.
-   */
-  getInstitutionalFilingsForSecurity(input: {
-    securityId: SecurityId;
-    actorId?: string;
-  }): Promise<
-    {
-      actorId: string;
-      reportPeriod: LocalDate;
-      filingDate: LocalDate;
-      availableFromDate: LocalDate;
-      amendmentType?: string;
-      shares: number | null;
-      portfolioWeightPercent: number | null;
-    }[]
-  >;
-
-  /**
-   * Replaces the derived position events for one security, or for one security and manager.
-   *
-   * A replacement rather than an append, because the events are a pure function of the filings: an
-   * amendment changes an existing period's comparison, and appending would leave the superseded one
-   * beside it.
-   */
-  replaceInstitutionalPositionEvents(input: {
-    securityId: SecurityId;
-    events: readonly InstitutionalPositionEventWrite[];
-  }): Promise<void>;
-
   getInsiderObservations(
     query: InsiderObservationQuery,
   ): Promise<InsiderObservationRow[]>;
@@ -360,8 +258,4 @@ export interface AlternativeDataStore {
   getCongressObservations(
     query: CongressObservationQuery,
   ): Promise<CongressObservationRow[]>;
-
-  getInstitutionalObservations(
-    query: InstitutionalObservationQuery,
-  ): Promise<InstitutionalObservationRow[]>;
 }

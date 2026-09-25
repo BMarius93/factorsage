@@ -42,7 +42,7 @@ describe("backtest snapshots freeze actor group membership", () => {
   const password = "Local-test-password-42";
   const ownerEmail = `altbt-owner-${suffix}@example.test`;
   const providerSymbol = `ABT-${suffix}`;
-  const externalIds = [`ABTI-A-${suffix}`, `ABTI-B-${suffix}`, `ABTI-C-${suffix}`];
+  const externalIds = [`ABTC-A-${suffix}`, `ABTC-B-${suffix}`, `ABTC-C-${suffix}`];
 
   let app: INestApplication;
   let prisma: PrismaService;
@@ -63,10 +63,11 @@ describe("backtest snapshots freeze actor group membership", () => {
               {
                 id: "condition-1",
                 metric: {
-                  kind: "INSTITUTIONAL_ACTIVITY",
-                  measure: "BUYERS",
-                  lookback: 60,
+                  kind: "CONGRESS_ACTIVITY",
+                  measure: "PURCHASES",
+                  lookback: 30,
                   scope: { kind: "GROUP", groupId },
+                  chamber: "ANY",
                 },
                 operator: "IS_AT_LEAST",
                 value: { kind: "NUMBER", value: 2 },
@@ -83,7 +84,7 @@ describe("backtest snapshots freeze actor group membership", () => {
     const strategy = await prisma.strategy.create({
       data: {
         userId: ownerUserId,
-        name: `Institutional ${randomUUID().slice(0, 8)}`,
+        name: `Congressional ${randomUUID().slice(0, 8)}`,
         versions: {
           create: {
             versionNumber: 1,
@@ -182,10 +183,9 @@ describe("backtest snapshots freeze actor group membership", () => {
 
     await prisma.alternativeDataActor.createMany({
       data: externalIds.map((externalId, index) => ({
-        type: "INSTITUTION" as const,
         externalId,
-        displayName: `Manager ${index} ${suffix}`,
-        cik: externalId,
+        displayName: `Member ${index} ${suffix}`,
+        chamber: "HOUSE" as const,
       })),
     });
     actorIds = (
@@ -229,8 +229,7 @@ describe("backtest snapshots freeze actor group membership", () => {
       await owner
         .post("/actor-groups")
         .send({
-          actorType: "INSTITUTION",
-          name: "Superinvestors",
+          name: "Congress Watchlist",
           actorIds: [actorIds[0], actorIds[1]],
         })
         .expect(201)
@@ -243,15 +242,14 @@ describe("backtest snapshots freeze actor group membership", () => {
     expect(snapshot.actorGroups).toHaveLength(1);
     const frozen = snapshot.actorGroups?.[0];
     expect(frozen?.groupId).toBe(group.id);
-    expect(frozen?.name).toBe("Superinvestors");
-    expect(frozen?.actorType).toBe("INSTITUTION");
+    expect(frozen?.name).toBe("Congress Watchlist");
     expect(frozen?.members.map((member) => member.actorId)).toEqual([
       actorIds[0],
       actorIds[1],
     ]);
     // The label travels with the identity, so a completed run can still name what it counted.
     expect(frozen?.members[0]?.externalId).toBe(externalIds[0]);
-    expect(frozen?.members[0]?.displayName).toContain("Manager 0");
+    expect(frozen?.members[0]?.displayName).toContain("Member 0");
 
     await owner.delete(`/actor-groups/${group.id}`).catch(() => undefined);
   });
@@ -260,11 +258,7 @@ describe("backtest snapshots freeze actor group membership", () => {
     const group = (
       await owner
         .post("/actor-groups")
-        .send({
-          actorType: "INSTITUTION",
-          name: "Before",
-          actorIds: [actorIds[0]],
-        })
+        .send({ name: "Before", actorIds: [actorIds[0]] })
         .expect(201)
     ).body as { id: string };
     const strategyId = await createStrategy(definitionFor(group.id));
@@ -308,11 +302,7 @@ describe("backtest snapshots freeze actor group membership", () => {
     const group = (
       await owner
         .post("/actor-groups")
-        .send({
-          actorType: "INSTITUTION",
-          name: "Doomed",
-          actorIds: [actorIds[0], actorIds[2]],
-        })
+        .send({ name: "Doomed", actorIds: [actorIds[0], actorIds[2]] })
         .expect(201)
     ).body as { id: string };
     const strategyId = await createStrategy(definitionFor(group.id));
@@ -390,11 +380,7 @@ describe("backtest snapshots freeze actor group membership", () => {
 
   it("refuses a submission whose strategy references a group that has gone", async () => {
     const group = await prisma.actorGroup.create({
-      data: {
-        userId: ownerUserId,
-        actorType: "INSTITUTION",
-        name: `Vanishing ${suffix}`,
-      },
+      data: { userId: ownerUserId, name: `Vanishing ${suffix}` },
     });
     const strategyId = await createStrategy(definitionFor(group.id));
     // Deleted straight through Prisma, past the route's referencing guard, which is exactly the state
@@ -415,7 +401,7 @@ describe("backtest snapshots freeze actor group membership", () => {
       .expect(400);
     expect(String(refusal.body.message)).toContain("no longer exists");
     // Refused rather than silently executed with an empty group, which would have counted every
-    // institution instead of the curated set.
+    // member of Congress instead of the curated set.
     expect(
       await prisma.backtestRun.count({ where: { userId: ownerUserId } }),
     ).toBe(0);
@@ -425,7 +411,7 @@ describe("backtest snapshots freeze actor group membership", () => {
     const group = (
       await owner
         .post("/actor-groups")
-        .send({ actorType: "INSTITUTION", name: "Being built" })
+        .send({ name: "Being built" })
         .expect(201)
     ).body as { id: string };
     const strategyId = await createStrategy(definitionFor(group.id));

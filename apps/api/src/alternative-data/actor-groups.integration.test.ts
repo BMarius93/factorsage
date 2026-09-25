@@ -28,8 +28,8 @@ useTestDatabase();
 /**
  * HTTP -> Nest -> ActorGroupsService -> real PostgreSQL.
  *
- * It exercises the rules that cannot be proven in a unit test: ownership scoping, the actor-kind
- * guard, the structural member bound under a concurrent add, and the refusal to delete a group a
+ * It exercises the rules that cannot be proven in a unit test: ownership scoping, the catalog guard on
+ * membership, the structural member bound under a concurrent add, and the refusal to delete a group a
  * strategy still references. `StrategiesModule` is compiled alongside so the last one is exercised
  * through the real strategy write path rather than against a hand-written definition row.
  */
@@ -44,14 +44,14 @@ describe("actor groups", () => {
   let owner: ReturnType<typeof request.agent>;
   let other: ReturnType<typeof request.agent>;
   let guest: ReturnType<typeof request.agent>;
-  /** Two institutions and two members of Congress, created by this suite. */
-  let institutionIds: string[] = [];
+  /** Three members of Congress, created by this suite. */
   let congressIds: string[] = [];
 
-  const externalIds = {
-    institutions: [`INST-A-${suffix}`, `INST-B-${suffix}`],
-    congress: [`CONG-A-${suffix}`, `CONG-B-${suffix}`],
-  };
+  const externalIds = [
+    `CONG-A-${suffix}`,
+    `CONG-B-${suffix}`,
+    `CONG-C-${suffix}`,
+  ];
 
   async function createGroup(
     agent: ReturnType<typeof request.agent>,
@@ -61,7 +61,7 @@ describe("actor groups", () => {
     return response.body as ActorGroupDetailResponse;
   }
 
-  function institutionalStrategy(groupId: string): StrategyDefinition {
+  function congressStrategy(groupId: string): StrategyDefinition {
     return {
       schemaVersion: 2,
       buyLevels: [
@@ -73,13 +73,14 @@ describe("actor groups", () => {
               {
                 id: randomUUID(),
                 metric: {
-                  kind: "INSTITUTIONAL_ACTIVITY",
-                  measure: "BUYERS",
-                  lookback: 60,
+                  kind: "CONGRESS_ACTIVITY",
+                  measure: "PURCHASES",
+                  lookback: 30,
                   scope: { kind: "GROUP", groupId },
+                  chamber: "ANY",
                 },
                 operator: "IS_AT_LEAST",
-                value: { kind: "NUMBER", value: 3 },
+                value: { kind: "NUMBER", value: 2 },
               },
             ],
           },
@@ -122,44 +123,30 @@ describe("actor groups", () => {
     await prisma.alternativeDataActor.createMany({
       data: [
         {
-          type: "INSTITUTION",
-          externalId: externalIds.institutions[0] as string,
-          displayName: `Alpha Capital ${suffix}`,
-          cik: externalIds.institutions[0] as string,
-        },
-        {
-          type: "INSTITUTION",
-          externalId: externalIds.institutions[1] as string,
-          displayName: `Beta Partners ${suffix}`,
-          cik: externalIds.institutions[1] as string,
-        },
-        {
-          type: "CONGRESS_PERSON",
-          externalId: externalIds.congress[0] as string,
+          externalId: externalIds[0] as string,
           displayName: `Rep Example ${suffix}`,
           chamber: "HOUSE",
           state: "TX",
           district: "TX17",
         },
         {
-          type: "CONGRESS_PERSON",
-          externalId: externalIds.congress[1] as string,
+          externalId: externalIds[1] as string,
           displayName: `Sen Example ${suffix}`,
           chamber: "SENATE",
           state: "AL",
         },
+        {
+          externalId: externalIds[2] as string,
+          displayName: `Rep Second ${suffix}`,
+          chamber: "HOUSE",
+          state: "CA",
+          district: "CA12",
+        },
       ],
     });
-    institutionIds = (
-      await prisma.alternativeDataActor.findMany({
-        where: { externalId: { in: externalIds.institutions } },
-        orderBy: { externalId: "asc" },
-        select: { id: true },
-      })
-    ).map((row) => row.id);
     congressIds = (
       await prisma.alternativeDataActor.findMany({
-        where: { externalId: { in: externalIds.congress } },
+        where: { externalId: { in: externalIds } },
         orderBy: { externalId: "asc" },
         select: { id: true },
       })
@@ -186,11 +173,7 @@ describe("actor groups", () => {
         where: { email: { in: [ownerEmail, otherEmail] } },
       });
       await prisma.alternativeDataActor.deleteMany({
-        where: {
-          externalId: {
-            in: [...externalIds.institutions, ...externalIds.congress],
-          },
-        },
+        where: { externalId: { in: externalIds } },
       });
     }
     if (app) {
@@ -205,27 +188,18 @@ describe("actor groups", () => {
   it("searches the actor catalog without a session", async () => {
     const response = await guest
       .get("/alternative-data/actors")
-      .query({ type: "INSTITUTION", q: `Alpha Capital ${suffix}` })
+      .query({ q: `Rep Example ${suffix}` })
       .expect(200);
     const actors = response.body as AlternativeDataActorResponse[];
-    expect(actors.map((actor) => actor.externalId)).toEqual([
-      externalIds.institutions[0],
-    ]);
-    expect(actors[0]?.type).toBe("INSTITUTION");
-  });
-
-  it("never returns an actor of another kind", async () => {
-    const response = await guest
-      .get("/alternative-data/actors")
-      .query({ type: "CONGRESS_PERSON", q: `Alpha Capital ${suffix}` })
-      .expect(200);
-    expect(response.body).toEqual([]);
+    expect(actors.map((actor) => actor.externalId)).toEqual([externalIds[0]]);
+    expect(actors[0]?.chamber).toBe("HOUSE");
+    expect(actors[0]?.district).toBe("TX17");
   });
 
   it("matches on the external identifier as well as the name", async () => {
     const response = await guest
       .get("/alternative-data/actors")
-      .query({ type: "CONGRESS_PERSON", q: externalIds.congress[1] as string })
+      .query({ q: externalIds[1] as string })
       .expect(200);
     const actors = response.body as AlternativeDataActorResponse[];
     expect(actors[0]?.chamber).toBe("SENATE");
@@ -235,18 +209,11 @@ describe("actor groups", () => {
   it("resolves actors by id so a saved scope can be labelled", async () => {
     const response = await guest
       .get("/alternative-data/actors/resolve")
-      .query({ ids: `${institutionIds[0]},${randomUUID()}` })
+      .query({ ids: `${congressIds[0]},${randomUUID()}` })
       .expect(200);
     const actors = response.body as AlternativeDataActorResponse[];
     // An unknown id is absent rather than an error: ids are opaque and a stale one must not break a page.
-    expect(actors.map((actor) => actor.id)).toEqual([institutionIds[0]]);
-  });
-
-  it("refuses an unknown actor type", async () => {
-    await guest
-      .get("/alternative-data/actors")
-      .query({ type: "INSIDER_PERSON" })
-      .expect(400);
+    expect(actors.map((actor) => actor.id)).toEqual([congressIds[0]]);
   });
 
   // -------------------------------------------------------------------------
@@ -254,21 +221,22 @@ describe("actor groups", () => {
   // -------------------------------------------------------------------------
 
   it("creates, reads, renames and deletes a group", async () => {
+    const members = [congressIds[0] as string, congressIds[1] as string];
     const created = await createGroup(owner, {
-      actorType: "INSTITUTION",
-      name: "Superinvestors",
+      name: "Congress Watchlist",
       description: "Worth watching",
-      actorIds: institutionIds,
+      actorIds: members,
     });
-    expect(created.actorType).toBe("INSTITUTION");
     expect(created.memberCount).toBe(2);
     expect(created.canEdit).toBe(true);
     expect(created.ownership).toBe("USER");
     // Members render in the order they were added.
-    expect(created.members.map((member) => member.id)).toEqual(institutionIds);
+    expect(created.members.map((member) => member.id)).toEqual(members);
 
     const read = await owner.get(`/actor-groups/${created.id}`).expect(200);
-    expect((read.body as ActorGroupDetailResponse).name).toBe("Superinvestors");
+    expect((read.body as ActorGroupDetailResponse).name).toBe(
+      "Congress Watchlist",
+    );
 
     const renamed = await owner
       .patch(`/actor-groups/${created.id}`)
@@ -283,48 +251,29 @@ describe("actor groups", () => {
     await owner.get(`/actor-groups/${created.id}`).expect(404);
   });
 
-  it("lists built-ins first, then the caller's own, and narrows by actor kind", async () => {
-    const institution = await createGroup(owner, {
-      actorType: "INSTITUTION",
-      name: "Institutions only",
-    });
-    const congress = await createGroup(owner, {
-      actorType: "CONGRESS_PERSON",
-      name: "Congress only",
-    });
+  it("lists the caller's own groups", async () => {
+    const first = await createGroup(owner, { name: "Watchlist A" });
+    const second = await createGroup(owner, { name: "Watchlist B" });
 
     const all = await owner.get("/actor-groups").expect(200);
     const ids = (all.body as ActorGroupSummaryResponse[]).map(
       (group) => group.id,
     );
-    expect(ids).toContain(institution.id);
-    expect(ids).toContain(congress.id);
+    expect(ids).toContain(first.id);
+    expect(ids).toContain(second.id);
 
-    const narrowed = await owner
-      .get("/actor-groups")
-      .query({ actorType: "CONGRESS_PERSON" })
-      .expect(200);
-    const narrowedIds = (narrowed.body as ActorGroupSummaryResponse[]).map(
-      (group) => group.id,
-    );
-    expect(narrowedIds).toContain(congress.id);
-    expect(narrowedIds).not.toContain(institution.id);
-
-    await owner.delete(`/actor-groups/${institution.id}`).expect(204);
-    await owner.delete(`/actor-groups/${congress.id}`).expect(204);
+    await owner.delete(`/actor-groups/${first.id}`).expect(204);
+    await owner.delete(`/actor-groups/${second.id}`).expect(204);
   });
 
   it("hides another customer's group behind the same 404 a missing one gets", async () => {
-    const group = await createGroup(owner, {
-      actorType: "INSTITUTION",
-      name: "Private",
-    });
+    const group = await createGroup(owner, { name: "Private" });
     await other.get(`/actor-groups/${group.id}`).expect(404);
     await other.patch(`/actor-groups/${group.id}`).send({ name: "x" }).expect(404);
     await other.delete(`/actor-groups/${group.id}`).expect(404);
     await other
       .post(`/actor-groups/${group.id}/members`)
-      .send({ actorIds: institutionIds })
+      .send({ actorIds: [congressIds[0] as string] })
       .expect(404);
     // Still intact.
     expect((await owner.get(`/actor-groups/${group.id}`).expect(200)).body).toMatchObject({
@@ -334,10 +283,7 @@ describe("actor groups", () => {
   });
 
   it("requires a session to write and allows a guest to read built-ins only", async () => {
-    await guest
-      .post("/actor-groups")
-      .send({ actorType: "INSTITUTION", name: "Nope" })
-      .expect(401);
+    await guest.post("/actor-groups").send({ name: "Nope" }).expect(401);
     const listing = await guest.get("/actor-groups").expect(200);
     // No built-ins are seeded in V1, so a Guest legitimately sees an empty collection.
     expect(Array.isArray(listing.body)).toBe(true);
@@ -348,31 +294,31 @@ describe("actor groups", () => {
   // -------------------------------------------------------------------------
 
   it("adds members idempotently and removes them", async () => {
+    const pair = [congressIds[0] as string, congressIds[1] as string];
     const group = await createGroup(owner, {
-      actorType: "INSTITUTION",
       name: "Growing",
-      actorIds: [institutionIds[0] as string],
+      actorIds: [pair[0] as string],
     });
 
     const added = await owner
       .post(`/actor-groups/${group.id}/members`)
-      .send({ actorIds: institutionIds })
+      .send({ actorIds: pair })
       .expect(200);
     expect((added.body as ActorGroupDetailResponse).memberCount).toBe(2);
 
     // Adding the same actors again changes nothing.
     const again = await owner
       .post(`/actor-groups/${group.id}/members`)
-      .send({ actorIds: institutionIds })
+      .send({ actorIds: pair })
       .expect(200);
     expect((again.body as ActorGroupDetailResponse).memberCount).toBe(2);
 
     await owner
-      .delete(`/actor-groups/${group.id}/members/${institutionIds[1]}`)
+      .delete(`/actor-groups/${group.id}/members/${pair[1]}`)
       .expect(204);
     // Removing a non-member is a no-op, so a retry is harmless.
     await owner
-      .delete(`/actor-groups/${group.id}/members/${institutionIds[1]}`)
+      .delete(`/actor-groups/${group.id}/members/${pair[1]}`)
       .expect(204);
     expect(
       (
@@ -384,37 +330,18 @@ describe("actor groups", () => {
     await owner.delete(`/actor-groups/${group.id}`).expect(204);
   });
 
-  it("refuses an actor of the wrong kind, on create and on add", async () => {
+  it("refuses an actor that is not in the catalog, on create and on add", async () => {
     await owner
       .post("/actor-groups")
-      .send({
-        actorType: "INSTITUTION",
-        name: "Mixed",
-        actorIds: [congressIds[0]],
-      })
+      .send({ name: "Ghosts", actorIds: [randomUUID()] })
       .expect(400);
 
-    const group = await createGroup(owner, {
-      actorType: "CONGRESS_PERSON",
-      name: "Congress watchlist",
-    });
-    const refusal = await owner
+    const group = await createGroup(owner, { name: "Congress watchlist" });
+    await owner
       .post(`/actor-groups/${group.id}/members`)
-      .send({ actorIds: [institutionIds[0]] })
+      .send({ actorIds: [randomUUID()] })
       .expect(400);
-    expect(String(refusal.body.message)).toContain("kind");
     await owner.delete(`/actor-groups/${group.id}`).expect(204);
-  });
-
-  it("refuses an actor that is not in the catalog", async () => {
-    await owner
-      .post("/actor-groups")
-      .send({
-        actorType: "INSTITUTION",
-        name: "Ghosts",
-        actorIds: [randomUUID()],
-      })
-      .expect(400);
   });
 
   it("enforces the member bound inside the writing transaction", async () => {
@@ -425,17 +352,13 @@ describe("actor groups", () => {
       where: { email: ownerEmail },
     });
     const group = await prisma.actorGroup.create({
-      data: {
-        userId: ownerRow.id,
-        actorType: "INSTITUTION",
-        name: `Full group ${suffix}`,
-      },
+      data: { userId: ownerRow.id, name: `Full group ${suffix}` },
     });
     // Fill it to exactly the bound with placeholder actors, then try to add one more.
     const filler = Array.from({ length: ACTOR_GROUP_MAX_MEMBERS }, (_, index) => ({
-      type: "INSTITUTION" as const,
       externalId: `FILL-${index}-${suffix}`,
       displayName: `Filler ${index}`,
+      chamber: "HOUSE" as const,
     }));
     await prisma.alternativeDataActor.createMany({ data: filler });
     const fillerIds = (
@@ -452,7 +375,7 @@ describe("actor groups", () => {
       service.addMembers(
         { id: ownerRow.id, email: ownerEmail, role: "USER", plan: "PRO" },
         group.id,
-        [institutionIds[0] as string],
+        [congressIds[0] as string],
       ),
     ).rejects.toThrow(/at most/);
 
@@ -468,23 +391,22 @@ describe("actor groups", () => {
 
   it("refuses to delete a group a strategy still references", async () => {
     const group = await createGroup(owner, {
-      actorType: "INSTITUTION",
       name: "Referenced",
-      actorIds: institutionIds,
+      actorIds: [congressIds[0] as string],
     });
     const strategy = (
       await owner
         .post("/strategies")
         .send({
-          name: `Institutional strategy ${suffix}`,
-          definition: institutionalStrategy(group.id),
+          name: `Congressional strategy ${suffix}`,
+          definition: congressStrategy(group.id),
         })
         .expect(201)
     ).body as StrategyDetailResponse;
 
     const refusal = await owner.delete(`/actor-groups/${group.id}`).expect(409);
     expect(String(refusal.body.message)).toContain(
-      `Institutional strategy ${suffix}`,
+      `Congressional strategy ${suffix}`,
     );
 
     // Once the strategy stops referencing it the group deletes normally.
@@ -518,17 +440,14 @@ describe("actor groups", () => {
   });
 
   it("refuses a strategy that references a group the caller cannot use", async () => {
-    const mine = await createGroup(owner, {
-      actorType: "INSTITUTION",
-      name: "Mine",
-    });
+    const mine = await createGroup(owner, { name: "Mine" });
     // Another customer's group is not resolvable, so the strategy is invalid rather than silently
-    // counting every institution.
+    // counting every member of Congress.
     const refusal = await other
       .post("/strategies")
       .send({
         name: `Borrowed group ${suffix}`,
-        definition: institutionalStrategy(mine.id),
+        definition: congressStrategy(mine.id),
       })
       .expect(400);
     expect(refusal.body.code).toBe("STRATEGY_INVALID");
@@ -538,22 +457,16 @@ describe("actor groups", () => {
     await owner.delete(`/actor-groups/${mine.id}`).expect(204);
   });
 
-  it("refuses a strategy whose scope names a group of the wrong actor kind", async () => {
-    const congressGroup = await createGroup(owner, {
-      actorType: "CONGRESS_PERSON",
-      name: "Congress",
-    });
+  it("refuses a strategy whose scope names an actor that does not exist", async () => {
     const refusal = await owner
       .post("/strategies")
       .send({
-        name: `Wrong kind ${suffix}`,
-        // An institutional metric scoped to a Congress group is meaningless.
-        definition: institutionalStrategy(congressGroup.id),
+        name: `Missing actor ${suffix}`,
+        definition: congressStrategy(randomUUID()),
       })
       .expect(400);
     expect(
       (refusal.body.issues as { message: string }[])[0]?.message,
-    ).toContain("does not hold the kind of actor");
-    await owner.delete(`/actor-groups/${congressGroup.id}`).expect(204);
+    ).toContain("references a group that is not available");
   });
 });

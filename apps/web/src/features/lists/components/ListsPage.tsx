@@ -105,16 +105,15 @@ const LIST_SORTS: readonly CollectionSort<StockListSummaryResponse>[] = [
 ];
 
 /**
- * The three collections the Lists area holds.
+ * The collections the Lists area holds.
  *
- * `docs/alternative-data-signals.md` asks for Stock Lists, Institution Groups and Congress Groups
- * inside this one area rather than as new top-level navigation, so they are views of this page. The
- * choice is in the URL (`?view=`) so a view is linkable and survives a reload, and it is a
- * `SegmentedControl` — the product's one component for "narrow what this page shows".
+ * `docs/alternative-data-signals.md` asks for Stock Lists and Congress Groups inside this one area
+ * rather than as new top-level navigation, so they are views of this page. The choice is in the URL
+ * (`?view=`) so a view is linkable and survives a reload, and it is a `SegmentedControl` — the
+ * product's one component for "narrow what this page shows".
  */
 const LIST_VIEWS = [
   { value: "stocks", label: "Stock lists" },
-  { value: "institutions", label: "Institution groups" },
   { value: "congress", label: "Congress groups" },
 ] as const;
 
@@ -314,12 +313,7 @@ export function ListsPage() {
           }
         />
 
-        {view === "institutions" ? (
-          <ActorGroupsCollection actorType="INSTITUTION" />
-        ) : null}
-        {view === "congress" ? (
-          <ActorGroupsCollection actorType="CONGRESS_PERSON" />
-        ) : null}
+        {view === "congress" ? <ActorGroupsCollection /> : null}
 
         {view === "stocks" && status === "ready" && gate.signedIn ? (
           <ListComplianceNotice own={own} />

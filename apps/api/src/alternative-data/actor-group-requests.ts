@@ -2,8 +2,6 @@ import {
   ACTOR_GROUP_DESCRIPTION_MAX_LENGTH,
   ACTOR_GROUP_MAX_MEMBERS_PER_ADD,
   ACTOR_GROUP_NAME_MAX_LENGTH,
-  ALTERNATIVE_ACTOR_TYPES,
-  type AlternativeActorType,
 } from "@intrinsic/contracts";
 import { BadRequestException } from "@nestjs/common";
 
@@ -22,18 +20,6 @@ function asRecord(body: unknown): Record<string, unknown> {
     throw new BadRequestException("Invalid request body");
   }
   return body as Record<string, unknown>;
-}
-
-export function parseAlternativeActorType(value: unknown): AlternativeActorType {
-  if (
-    typeof value !== "string" ||
-    !(ALTERNATIVE_ACTOR_TYPES as readonly string[]).includes(value)
-  ) {
-    throw new BadRequestException(
-      `Invalid request: actorType must be one of ${ALTERNATIVE_ACTOR_TYPES.join(", ")}`,
-    );
-  }
-  return value as AlternativeActorType;
 }
 
 function parseName(value: unknown): string {
@@ -105,7 +91,6 @@ function parseActorIds(value: unknown, required: boolean): string[] {
 }
 
 export type ParsedCreateActorGroupRequest = {
-  actorType: AlternativeActorType;
   name: string;
   description?: string;
   actorIds: string[];
@@ -117,7 +102,6 @@ export function parseCreateActorGroupRequest(
   const raw = asRecord(body);
   const description = parseDescription(raw.description ?? null);
   return {
-    actorType: parseAlternativeActorType(raw.actorType),
     name: parseName(raw.name),
     ...(description === null ? {} : { description }),
     actorIds: parseActorIds(raw.actorIds, false),

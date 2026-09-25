@@ -56,32 +56,32 @@ const searchActorsMock = vi.mocked(searchActors);
 const resolveActorsMock = vi.mocked(resolveActors);
 const fetchActorGroupsMock = vi.mocked(fetchActorGroups);
 
-const SUPERINVESTORS: ActorGroupSummaryResponse = {
+const LEADERSHIP: ActorGroupSummaryResponse = {
   ownership: "USER",
   canEdit: true,
   id: "group-1",
-  actorType: "INSTITUTION",
-  name: "Superinvestors",
+  name: "House leadership",
   memberCount: 4,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const BERKSHIRE: AlternativeDataActorResponse = {
+const PELOSI: AlternativeDataActorResponse = {
   id: "actor-1",
-  type: "INSTITUTION",
-  externalId: "0001067983",
-  displayName: "Berkshire Hathaway Inc",
-  cik: "0001067983",
+  externalId: "P000197",
+  displayName: "Nancy Pelosi",
+  chamber: "HOUSE",
+  state: "CA",
+  district: "CA11",
 };
 
-/** A saved strategy whose only condition is an institutional one scoped to a group. */
-function institutionalStrategy(): StrategyDetailResponse {
+/** A saved strategy whose only condition is a congressional one scoped to a group. */
+function congressStrategy(): StrategyDetailResponse {
   return {
     ownership: "USER",
     canEdit: true,
     id: "s1",
-    name: "Follow the managers",
+    name: "Follow the Hill",
     buyLevelCount: 1,
     sellLevelCount: 0,
     hasFinalExit: false,
@@ -99,10 +99,11 @@ function institutionalStrategy(): StrategyDetailResponse {
               {
                 id: "c1",
                 metric: {
-                  kind: "INSTITUTIONAL_ACTIVITY",
+                  kind: "CONGRESS_ACTIVITY",
                   measure: "BUYERS",
                   lookback: 60,
                   scope: { kind: "GROUP", groupId: "group-1" },
+                  chamber: "ANY",
                 },
                 operator: "IS_AT_LEAST",
                 value: { kind: "NUMBER", value: 3 },
@@ -118,7 +119,7 @@ function institutionalStrategy(): StrategyDetailResponse {
 
 /** An insider strategy, which has no actor scope at all in V1. */
 function insiderStrategy(): StrategyDetailResponse {
-  const base = institutionalStrategy();
+  const base = congressStrategy();
   return {
     ...base,
     name: "Insiders buying",
@@ -149,11 +150,11 @@ function insiderStrategy(): StrategyDetailResponse {
 }
 
 beforeEach(() => {
-  searchActorsMock.mockResolvedValue([BERKSHIRE]);
+  searchActorsMock.mockResolvedValue([PELOSI]);
   resolveActorsMock.mockResolvedValue([]);
-  fetchActorGroupsMock.mockResolvedValue([SUPERINVESTORS]);
+  fetchActorGroupsMock.mockResolvedValue([LEADERSHIP]);
   replaceDefinitionMock.mockImplementation(async (_id, definition) => ({
-    ...institutionalStrategy(),
+    ...congressStrategy(),
     definition,
   }));
 });
@@ -164,7 +165,7 @@ afterEach(() => {
 
 describe("the alternative-data condition row", () => {
   it("keeps the row at three controls and puts configuration on its own line", async () => {
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
 
     // Exactly the product's grammar: metric, condition, value — and no fourth control.
@@ -175,11 +176,11 @@ describe("the alternative-data condition row", () => {
   });
 
   it("reads the metric, operator and value as the product's own example", async () => {
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
     expect(
       within(row).getByLabelText("Metric").getAttribute("title"),
-    ).toBe("Institutional buyers 60D");
+    ).toBe("Congress buyers 60D");
     expect(
       (within(row).getByLabelText("Condition") as HTMLSelectElement).value,
     ).toBe("IS_AT_LEAST");
@@ -189,23 +190,23 @@ describe("the alternative-data condition row", () => {
   });
 
   it("names the group in the row's summary and in the Strategy Logic line", async () => {
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     await waitFor(() =>
       expect(screen.getByTestId("operand-scope-summary").textContent).toBe(
-        "Superinvestors",
+        "House leadership",
       ),
     );
     const preview = screen.getByTestId("logic-preview");
     expect(preview.textContent).toContain(
-      "Institutional buyers 60D is at least 3",
+      "Congress buyers 60D is at least 3",
     );
-    expect(preview.textContent).toContain("— Superinvestors");
+    expect(preview.textContent).toContain("— House leadership");
   });
 
   it("falls back to a neutral label when the group's name cannot be resolved", async () => {
     // A deleted group, or a failed request: the identifier is the identity and nothing invents a name.
     fetchActorGroupsMock.mockRejectedValue(new Error("offline"));
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     await waitFor(() =>
       expect(screen.getByTestId("operand-scope-summary").textContent).toBe(
         "Selected group",
@@ -256,7 +257,7 @@ describe("the alternative-data condition row", () => {
 describe("the configuration surface", () => {
   it("edits the lookback and carries it into the label, the preview and the save", async () => {
     const user = userEvent.setup();
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
 
     await user.click(within(row).getByTestId("operand-config-button"));
@@ -267,26 +268,27 @@ describe("the configuration surface", () => {
     await waitFor(() =>
       expect(
         screen.getByLabelText("Metric").getAttribute("title"),
-      ).toBe("Institutional buyers 90D"),
+      ).toBe("Congress buyers 90D"),
     );
     expect(screen.getByTestId("logic-preview").textContent).toContain(
-      "Institutional buyers 90D is at least 3",
+      "Congress buyers 90D is at least 3",
     );
 
     await user.click(screen.getByTestId("save-strategy"));
     await waitFor(() => expect(replaceDefinitionMock).toHaveBeenCalled());
     const saved = replaceDefinitionMock.mock.calls[0]?.[1];
     expect(saved?.buyLevels[0]?.signal.conditions[0]?.metric).toEqual({
-      kind: "INSTITUTIONAL_ACTIVITY",
+      kind: "CONGRESS_ACTIVITY",
       measure: "BUYERS",
       lookback: 90,
       scope: { kind: "GROUP", groupId: "group-1" },
+      chamber: "ANY",
     });
   });
 
   it("abandoning the dialog changes nothing", async () => {
     const user = userEvent.setup();
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
     await user.click(within(row).getByTestId("operand-config-button"));
     const dialog = await screen.findByTestId("alternative-data-config");
@@ -294,13 +296,13 @@ describe("the configuration surface", () => {
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
     expect(screen.getByLabelText("Metric").getAttribute("title")).toBe(
-      "Institutional buyers 60D",
+      "Congress buyers 60D",
     );
   });
 
-  it("switches a scope from a group to a specific institution through the combobox", async () => {
+  it("switches a scope from a group to a specific member through the combobox", async () => {
     const user = userEvent.setup();
-    render(<StrategyBuilder strategy={institutionalStrategy()} />);
+    render(<StrategyBuilder strategy={congressStrategy()} />);
     const row = await screen.findByTestId("predicate-row");
     await user.click(within(row).getByTestId("operand-config-button"));
     const dialog = await screen.findByTestId("alternative-data-config");
@@ -316,10 +318,10 @@ describe("the configuration surface", () => {
     ).toBe(true);
 
     await user.type(
-      within(dialog).getByLabelText("Search institutions"),
-      "Berk",
+      within(dialog).getByLabelText("Search members of Congress"),
+      "Pelo",
     );
-    await user.click(await within(dialog).findByText("Berkshire Hathaway Inc"));
+    await user.click(await within(dialog).findByText("Nancy Pelosi"));
     await user.click(within(dialog).getByTestId("alternative-data-config-apply"));
 
     await user.click(screen.getByTestId("save-strategy"));
@@ -430,7 +432,7 @@ describe("the configuration surface", () => {
 });
 
 describe("the metric selector", () => {
-  it("offers the three new groups beside the existing ones", async () => {
+  it("offers the two new groups beside the existing ones", async () => {
     render(<StrategyBuilder strategy={insiderStrategy()} />);
     const select = await screen.findByLabelText("Metric");
     const groups = [...select.querySelectorAll("optgroup")].map((group) =>
@@ -444,7 +446,6 @@ describe("the metric selector", () => {
       "Valuation",
       "Insider activity",
       "Congressional trading",
-      "Institutional activity",
     ]);
   });
 
@@ -456,7 +457,6 @@ describe("the metric selector", () => {
     );
     expect(labels).toContain("Insider buyers 20D");
     expect(labels).toContain("Congress purchases 30D");
-    expect(labels).toContain("Institutional position change 60D");
   });
 
   it("keeps the metric selected after a lookback change", async () => {

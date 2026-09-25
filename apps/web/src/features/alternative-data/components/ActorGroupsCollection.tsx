@@ -1,9 +1,8 @@
 "use client";
 
 import {
-  ACTOR_GROUP_COLLECTION_LABELS,
+  ACTOR_GROUP_COLLECTION_LABEL,
   type ActorGroupSummaryResponse,
-  type AlternativeActorType,
 } from "@intrinsic/contracts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -29,12 +28,12 @@ import { ActorGroupFormDialog } from "./ActorGroupFormDialog";
 import styles from "./ActorGroupsCollection.module.css";
 
 /**
- * One kind of actor group as a collection, inside the Lists area.
+ * Congress groups as a collection, inside the Lists area.
  *
- * `docs/alternative-data-signals.md` puts Institution groups and Congress groups **under Lists**
- * rather than in a new top-level section, and this is that: the same `CollectionSection`, the same
- * own-then-built-in split, the same desktop table and phone cards a Stock List collection uses. What
- * differs is only what a row means.
+ * `docs/alternative-data-signals.md` puts Congress groups **under Lists** rather than in a new
+ * top-level section, and this is that: the same `CollectionSection`, the same own-then-built-in
+ * split, the same desktop table and phone cards a Stock List collection uses. What differs is only
+ * what a row means.
  */
 
 const GROUP_SORTS: readonly CollectionSort<ActorGroupSummaryResponse>[] = [
@@ -62,24 +61,19 @@ function memberCountLabel(count: number): string {
   return `${count} ${count === 1 ? "member" : "members"}`;
 }
 
-export function ActorGroupsCollection({
-  actorType,
-}: {
-  readonly actorType: AlternativeActorType;
-}) {
+export function ActorGroupsCollection() {
   const router = useRouter();
   const { status, groups, retry, applyCreated, applyUpdated, applyDeleted } =
-    useActorGroups(actorType);
+    useActorGroups();
   const gate = useSignInPrompt();
   const [dialog, setDialog] = useState<DialogState>({ kind: "closed" });
 
-  const noun = actorType === "INSTITUTION" ? "institution" : "congress";
-  const collectionLabel = ACTOR_GROUP_COLLECTION_LABELS[actorType];
+  const collectionLabel = ACTOR_GROUP_COLLECTION_LABEL;
   const closeDialog = () => setDialog({ kind: "closed" });
   const create = () =>
     gate.attempt(
       {
-        title: `Sign in to create a ${noun} group`,
+        title: "Sign in to create a congress group",
         body: "A group is saved to your account, so creating one needs somewhere to keep it.",
       },
       () => setDialog({ kind: "create" }),
@@ -167,17 +161,16 @@ export function ActorGroupsCollection({
   ];
 
   return (
-    <div className={styles.collection} data-testid={`${noun}-groups`}>
+    <div className={styles.collection} data-testid="congress-groups">
       <div className={styles.header}>
         <p className={styles.lead}>
-          {actorType === "INSTITUTION"
-            ? "Reusable sets of institutional filers, for scoping an institutional rule in a strategy."
-            : "Reusable sets of members of Congress, for scoping a congressional rule in a strategy."}
+          Reusable sets of members of Congress, for scoping a congressional rule
+          in a strategy.
         </p>
         <button
           type="button"
           className={forms.tintedButton}
-          data-testid={`new-${noun}-group-button`}
+          data-testid="new-congress-group-button"
           disabled={!gate.resolved}
           onClick={create}
         >
@@ -213,10 +206,10 @@ export function ActorGroupsCollection({
           title={`Your ${collectionLabel.toLowerCase()}`}
           label={`Your ${collectionLabel.toLowerCase()}`}
           noun="groups"
-          testId={`your-${noun}-groups`}
-          tableTestId={`${noun}-groups-grid`}
+          testId="your-congress-groups"
+          tableTestId="congress-groups-grid"
           rowTestId="actor-group-row"
-          footerTestId={`${noun}-groups-footer`}
+          footerTestId="congress-groups-footer"
           columns={columns}
           rows={own}
           getRowKey={(group) => group.id}
@@ -226,16 +219,13 @@ export function ActorGroupsCollection({
           emptyState={
             <EmptyState
               variant="compact"
-              testId={`${noun}-groups-empty`}
+              testId="congress-groups-empty"
               title={`You haven't created any ${collectionLabel.toLowerCase()} yet`}
               body={
                 <p>
-                  Group the{" "}
-                  {actorType === "INSTITUTION"
-                    ? "institutional filers"
-                    : "members of Congress"}{" "}
-                  you care about, then scope a strategy rule to the group instead
-                  of to everyone. Start with <strong>New group</strong> above.
+                  Group the members of Congress you care about, then scope a
+                  strategy rule to the group instead of to everyone. Start with{" "}
+                  <strong>New group</strong> above.
                 </p>
               }
             />
@@ -249,10 +239,10 @@ export function ActorGroupsCollection({
           caption="FactorSage's own groups. Everyone can read and use them; only FactorSage changes them."
           label={`Built-in ${collectionLabel.toLowerCase()}`}
           noun="groups"
-          testId={`built-in-${noun}-groups`}
-          tableTestId={`built-in-${noun}-groups-grid`}
+          testId="built-in-congress-groups"
+          tableTestId="built-in-congress-groups-grid"
           rowTestId="actor-group-row"
-          footerTestId={`built-in-${noun}-groups-footer`}
+          footerTestId="built-in-congress-groups-footer"
           columns={columns}
           rows={builtIn}
           getRowKey={(group) => group.id}
@@ -266,7 +256,6 @@ export function ActorGroupsCollection({
       {dialog.kind === "create" ? (
         <ActorGroupFormDialog
           mode="create"
-          actorType={actorType}
           onClose={closeDialog}
           onCreated={(detail) => {
             applyCreated(detail);

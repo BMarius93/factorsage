@@ -671,7 +671,7 @@ export type FmpStockProviderPort = {
 };
 
 // ---------------------------------------------------------------------------
-// Alternative data: insider activity, congressional trading, institutional 13F
+// Alternative data: insider activity and congressional trading
 //
 // Provider facts verified live against `https://financialmodelingprep.com/stable/` on 2026-09-25.
 // They are recorded here because they are provider knowledge and nothing above this layer may
@@ -686,12 +686,11 @@ export type FmpStockProviderPort = {
 //   Rows come newest-first by `disclosureDate`, and **ordering within one disclosure date is not
 //   stable between calls**, which is why ingestion is keyed by content digest rather than by
 //   position. Both chambers return the member's bioguide id in a field named `senateID`.
-// - Every `institutional-ownership/*` endpoint answered **HTTP 402 "Restricted Endpoint"** on this
-//   account: `extract`, `extract-analytics/holder`, `symbol-positions-summary`, `latest` and
-//   `holder-performance-summary`. The legacy `api/v4/institutional-ownership/portfolio-holdings`
-//   answered 403 "Legacy Endpoint". The 13F response shape below is therefore **not verified against
-//   a live response**, and its mapper refuses a payload that does not carry the fields it needs
-//   rather than defaulting them — see {@link mapFmpInstitutionalHoldings}.
+//
+// Form 13F is deliberately absent. Every `institutional-ownership/*` endpoint answered **HTTP 402
+// "Restricted Endpoint"** on this account, so an institutional integration could never have been
+// verified against a real payload; V1 ships the two domains this subscription actually provides
+// rather than dormant unverified code (`docs/alternative-data-signals.md`).
 // ---------------------------------------------------------------------------
 
 /** Symbols per insider-trading page. Verified cap: a larger `limit` still returns 1000 rows. */
@@ -699,9 +698,6 @@ export const FMP_INSIDER_TRADING_MAX_PAGE_SIZE = 1000;
 
 /** Rows per congressional-trading page. Verified cap: a larger `limit` still returns 250 rows. */
 export const FMP_CONGRESS_TRADING_MAX_PAGE_SIZE = 250;
-
-/** Rows per 13F page. Unverified: the endpoint is not available on this subscription. */
-export const FMP_INSTITUTIONAL_MAX_PAGE_SIZE = 1000;
 
 /** One row of `insider-trading/search`. */
 export type FmpInsiderTradeDto = {
@@ -746,32 +742,6 @@ export type FmpCongressTradeDto = {
   amount?: unknown;
   capitalGainsOver200USD?: unknown;
   comment?: unknown;
-  link?: unknown;
-};
-
-/**
- * One row of a 13F holdings extract.
- *
- * **Unverified shape.** Every institutional-ownership endpoint is restricted on this subscription, so
- * these field names come from the provider's published documentation and have never been seen in a
- * response here. The mapper below requires the fields it maps and refuses the payload otherwise, so a
- * shape that differs fails loudly with the field it could not read instead of silently producing
- * zeroed holdings.
- */
-export type FmpInstitutionalHoldingDto = {
-  symbol?: unknown;
-  cik?: unknown;
-  investorName?: unknown;
-  /** The report period the holding is as of: a quarter end. */
-  date?: unknown;
-  filingDate?: unknown;
-  /** The filed form type, e.g. `13F-HR` or `13F-HR/A`. */
-  formType?: unknown;
-  sharesNumber?: unknown;
-  marketValue?: unknown;
-  /** Share of the manager's reported portfolio, as a percentage. */
-  weight?: unknown;
-  acceptedDate?: unknown;
   link?: unknown;
 };
 
@@ -831,21 +801,6 @@ export type MappedFmpCongressTrade = {
   capitalGainsOver200Usd?: boolean;
   comment?: string;
   sourceUrl?: string;
-  raw: Record<string, unknown>;
-};
-
-export type MappedFmpInstitutionalHolding = {
-  providerSymbol: string;
-  actorExternalId: string;
-  actorDisplayName: string;
-  reportPeriod: string;
-  filingDate: string;
-  availableFromDate: string;
-  amendmentType?: string;
-  providerFilingId?: string;
-  shares: number;
-  marketValue?: number;
-  portfolioWeightPercent?: number;
   raw: Record<string, unknown>;
 };
 
@@ -1040,82 +995,6 @@ export function mapFmpCongressTrades(
 }
 
 /**
- * Raised when a 13F payload does not carry a field the domain needs.
- *
- * It exists because this mapping is **unverified**: the endpoint is restricted on this subscription,
- * so the first real response this code ever sees will be in production. Defaulting a missing
- * `sharesNumber` to zero would silently manufacture an `EXITED` position for every manager; refusing
- * the payload and naming the field is the only honest behaviour.
- */
-export class FmpInstitutionalPayloadError extends Error {
-  constructor(readonly field: string) {
-    super(
-      `Form 13F payload is missing the \`${field}\` field this product requires. ` +
-        "The institutional-ownership response shape has not been verified against a live response " +
-        "because the endpoint is restricted on this subscription.",
-    );
-    this.name = "FmpInstitutionalPayloadError";
-  }
-}
-
-/**
- * Normalizes one page of 13F holdings.
- *
- * `date` is the **report period** — the quarter end the holding is as of — and `filingDate` is when
- * the form reached the SEC. Both are required, and neither is derived from the other: the gap between
- * them is what makes this domain a point-in-time problem, and inferring one would erase it.
- *
- * A row with no share count, no report period, no filing date or no manager CIK throws rather than
- * being dropped, for the reason {@link FmpInstitutionalPayloadError} explains.
- */
-export function mapFmpInstitutionalHoldings(
-  rows: readonly FmpInstitutionalHoldingDto[],
-): MappedFmpInstitutionalHolding[] {
-  return rows.map((row) => {
-    const providerSymbol = optionalString(row.symbol)?.toUpperCase();
-    if (!providerSymbol) {
-      throw new FmpInstitutionalPayloadError("symbol");
-    }
-    const actorExternalId = optionalString(row.cik);
-    if (!actorExternalId) {
-      throw new FmpInstitutionalPayloadError("cik");
-    }
-    const reportPeriod = optionalLocalDate(row.date);
-    if (!reportPeriod) {
-      throw new FmpInstitutionalPayloadError("date");
-    }
-    const filingDate = optionalLocalDate(row.filingDate);
-    if (!filingDate) {
-      throw new FmpInstitutionalPayloadError("filingDate");
-    }
-    const shares = optionalFiniteNumber(row.sharesNumber);
-    if (shares === undefined) {
-      throw new FmpInstitutionalPayloadError("sharesNumber");
-    }
-    const marketValue = optionalFiniteNumber(row.marketValue);
-    const weight = optionalFiniteNumber(row.weight);
-    const formType = optionalString(row.formType);
-    const providerFilingId = optionalString(row.link);
-    return {
-      providerSymbol,
-      actorExternalId,
-      actorDisplayName: optionalString(row.investorName) ?? actorExternalId,
-      reportPeriod,
-      filingDate,
-      availableFromDate: alternativeDataAvailabilityDate(filingDate),
-      // An amendment marker is preserved exactly as filed; the derivation uses it only to break a tie
-      // between two filings that became available on the same date.
-      ...(formType && formType.includes("/A") ? { amendmentType: formType } : {}),
-      ...(providerFilingId ? { providerFilingId } : {}),
-      shares,
-      ...(marketValue === undefined ? {} : { marketValue }),
-      ...(weight === undefined ? {} : { portfolioWeightPercent: weight }),
-      raw: { ...(row as Record<string, unknown>) },
-    };
-  });
-}
-
-/**
  * Insider Form 4 activity, kept as its own port.
  *
  * One request per symbol and page. The caller decides how far back to page, because only it knows
@@ -1137,15 +1016,4 @@ export type FmpCongressTradingPort = {
     page: number;
     limit: number;
   }): Promise<MappedFmpCongressTrade[]>;
-};
-
-/** Form 13F institutional holdings, kept as its own port. */
-export type FmpInstitutionalOwnershipPort = {
-  getInstitutionalHoldings(input: {
-    symbol: string;
-    year: number;
-    quarter: 1 | 2 | 3 | 4;
-    page: number;
-    limit: number;
-  }): Promise<MappedFmpInstitutionalHolding[]>;
 };
