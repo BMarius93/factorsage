@@ -5,10 +5,18 @@ import { BACKTEST_DATA_REVISIONS } from "@intrinsic/stock-data";
 import { BACKTEST_METHODOLOGY } from "@intrinsic/strategy";
 import {
   currentAsOfDate,
+  qaMatrixAuditStrategies,
   qaMatrixFixtures,
+  QA_MATRIX_STRATEGY_SETS,
+  resolveAllTestPersonas,
   resolveTestPersona,
+  type QaMatrixStrategySet,
 } from "@intrinsic/testing";
-import { loadQaMatrixExecutionCalendar } from "./qa-matrix/seed-qa-matrix";
+import {
+  loadQaMatrixExecutionCalendar,
+  resolveQaMatrixActorScopes,
+  resolveQaMatrixOwner,
+} from "./qa-matrix/seed-qa-matrix";
 import {
   qaMatrixCases,
   qaMatrixGoldenCases,
@@ -36,7 +44,10 @@ import {
   type MatrixGateVerdict,
   type MatrixPhaseProviderTraffic,
 } from "./qa-matrix/matrix-gate";
-import { cleanupMatrixRuns } from "./qa-matrix/matrix-cleanup";
+import {
+  cleanupMatrixRuns,
+  reclaimMatrixResultTables,
+} from "./qa-matrix/matrix-cleanup";
 import { resolveMatrixConcurrency } from "./qa-matrix/matrix-concurrency";
 import { useMatrixDatabase } from "./qa-matrix/matrix-environment";
 import {
@@ -88,6 +99,8 @@ import { MatrixWorkerPool } from "./qa-matrix/matrix-worker-pool";
 
 type Flags = {
   readonly cases: readonly string[];
+  /** Which strategy dimension runs: the historical core set, or the audit variant. */
+  readonly strategySet: QaMatrixStrategySet;
   readonly concurrency: string | undefined;
   readonly archive: boolean;
   readonly archiveAll: boolean;
@@ -100,6 +113,7 @@ type Flags = {
 
 function parseFlags(argv: readonly string[]): Flags {
   const cases: string[] = [];
+  let strategySet: QaMatrixStrategySet = "CORE";
   let concurrency: string | undefined;
   let archive = false;
   let archiveAll = false;
@@ -131,6 +145,19 @@ function parseFlags(argv: readonly string[]): Flags {
       case "--concurrency":
         concurrency = next();
         break;
+      case "--strategies": {
+        // `core` is `S01` … `S10`, the historical baseline; `audit` is `A01` … `A10`, the Relative
+        // Volume and alternative-data variant. Both are 1,000 runs against the same Lists and
+        // configurations, and neither changes the other's fixtures.
+        const value = next().trim().toUpperCase();
+        if (!(QA_MATRIX_STRATEGY_SETS as readonly string[]).includes(value)) {
+          throw new Error(
+            `\`--strategies\` must be one of ${QA_MATRIX_STRATEGY_SETS.join(", ").toLowerCase()}; received \`${value.toLowerCase()}\``,
+          );
+        }
+        strategySet = value as QaMatrixStrategySet;
+        break;
+      }
       case "--archive":
         archive = true;
         break;
@@ -166,6 +193,7 @@ function parseFlags(argv: readonly string[]): Flags {
   }
   return {
     cases,
+    strategySet,
     concurrency,
     archive,
     archiveAll,
@@ -298,7 +326,29 @@ async function main(): Promise<void> {
     // boundary dates nobody chose. The top-level handler reports the loader's own message and
     // exits non-zero.
     const calendarDates = await loadQaMatrixExecutionCalendar(prisma);
-    const fixtures = qaMatrixFixtures(asOfDate, calendarDates);
+    // The audit variant's actor scopes are canonical ids, so they are resolved from the database the
+    // sweep will execute in — the same resolution the seeder performed, against the same rows, which
+    // is what makes the fixture the preflight compares against the one that was persisted.
+    const auditScopes =
+      flags.strategySet === "AUDIT"
+        ? await resolveQaMatrixActorScopes(
+            prisma,
+            await resolveQaMatrixOwner(prisma, ownerEmail),
+          )
+        : null;
+    if (flags.strategySet === "AUDIT" && !auditScopes) {
+      throw new Error(
+        "Refusing to run the audit strategy variant: this database's actor catalog does not carry " +
+          "the congressional members the audit fixtures scope to, so `A08` and `A09` could not be " +
+          "resolved. Ingest alternative-data history into the provisioning source " +
+          "(`pnpm data:alt-data:ingest --matrix`), re-provision, and re-seed.",
+      );
+    }
+    const fixtures = qaMatrixFixtures(
+      asOfDate,
+      calendarDates,
+      auditScopes ? qaMatrixAuditStrategies(auditScopes) : undefined,
+    );
 
     // ---- Preflight. Nothing is submitted if it is not green. -------------------------------
     const preflight = await runQaMatrixPreflight({
@@ -430,9 +480,32 @@ async function main(): Promise<void> {
     // After the warm-up, so its runs — which are not this sweep's output — are removed with the
     // previous sweep's rather than lingering in the QA account.
     if (flags.cleanup) {
-      const cleaned = await cleanupMatrixRuns(prisma, ids.ownerUserId);
+      // Every test persona, not only the account that owns the fixtures today: the fixtures changed
+      // owner once, and a predicate pinned to the current one cannot see the sweeps that ran under
+      // the previous one. See `matrix-cleanup.ts`.
+      const personaIds = (
+        await prisma.user.findMany({
+          where: {
+            email: {
+              in: resolveAllTestPersonas().map((persona) =>
+                persona.email.trim().toLowerCase(),
+              ),
+            },
+          },
+          select: { id: true },
+        })
+      ).map((row) => row.id);
+      const cleaned = await cleanupMatrixRuns(prisma, personaIds);
       console.log(
-        `Cleaned ${cleaned.deleted} previous QA-MATRIX run(s) from the QA account.\n`,
+        `Cleaned ${cleaned.deleted} previous QA-MATRIX run(s) from ${personaIds.length} QA account(s).`,
+      );
+      // Reclaimed before the timed sweep: the deletes above leave dead tuples that would otherwise
+      // make this sweep's own inserts — several million equity rows — contend with space autovacuum
+      // has not returned yet, which is what starts expiring progress-checkpoint transactions.
+      const reclaimStartedAt = Date.now();
+      const reclaimed = await reclaimMatrixResultTables(prisma);
+      console.log(
+        `Reclaimed ${reclaimed.length} result table(s) in ${Date.now() - reclaimStartedAt}ms.\n`,
       );
     }
 

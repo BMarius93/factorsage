@@ -120,9 +120,9 @@ describe("matrix run retention", () => {
     );
     const otherUsersMatrixRun = await createRun(otherUserId, runNames.matrix);
 
-    expect(await countMatrixRuns(prisma, qaUserId)).toBe(1);
+    expect(await countMatrixRuns(prisma, [qaUserId])).toBe(1);
 
-    const result = await cleanupMatrixRuns(prisma, qaUserId);
+    const result = await cleanupMatrixRuns(prisma, [qaUserId]);
     expect(result.deleted).toBe(1);
 
     const survivors = await prisma.backtestRun.findMany({
@@ -145,7 +145,7 @@ describe("matrix run retention", () => {
     const keep = await createRun(qaUserId, runNames.matrix);
     const drop = await createRun(qaUserId, runNames.matrix);
 
-    const result = await cleanupMatrixRuns(prisma, qaUserId, [keep]);
+    const result = await cleanupMatrixRuns(prisma, [qaUserId], [keep]);
     expect(result.deleted).toBe(1);
     expect(
       await prisma.backtestRun.findUnique({
@@ -180,7 +180,7 @@ describe("matrix run retention", () => {
       });
     }
 
-    await cleanupMatrixRuns(prisma, qaUserId);
+    await cleanupMatrixRuns(prisma, [qaUserId]);
     expect(await prisma.backtestDailyEquity.count({ where: { runId } })).toBe(
       0,
     );
@@ -196,7 +196,7 @@ describe("matrix run retention", () => {
     });
     try {
       await createRun(bystander.id, runNames.ordinary);
-      expect(await cleanupMatrixRuns(prisma, bystander.id)).toEqual({
+      expect(await cleanupMatrixRuns(prisma, [bystander.id])).toEqual({
         deleted: 0,
         retained: 0,
       });
@@ -206,10 +206,46 @@ describe("matrix run retention", () => {
     }
   });
 
-  it("scopes its predicate by owner and by both reserved prefixes", () => {
-    const filter = matrixRunFilter("user-1");
-    expect(filter.userId).toBe("user-1");
-    expect(filter.strategyName.startsWith).toBe("QA-MATRIX-S");
+  it("scopes its predicate by a set of owners and by both reserved prefixes", () => {
+    // A set rather than one account: the fixtures changed owner once, and a predicate pinned to the
+    // current owner left 1,006 runs of an earlier sweep resident forever.
+    const filter = matrixRunFilter(["user-1", "user-2"]);
+    expect(filter.userId).toEqual({ in: ["user-1", "user-2"] });
+    // The whole reserved prefix, so the audit strategy variant (`QA-MATRIX-A01` …) is retained too.
+    expect(filter.strategyName.startsWith).toBe("QA-MATRIX-");
     expect(filter.stockListName.startsWith).toBe("QA-MATRIX-L");
+  });
+
+  it("selects a run of the audit strategy variant", async () => {
+    // `QA-MATRIX-A01` … `A10` share the reserved namespace, so a sweep of the audit dimension is
+    // retained by the same rule. Under the old `QA-MATRIX-S` prefix it would have been immortal.
+    const run = await createRun(qaUserId, {
+      strategyName: "QA-MATRIX-A02-rvol-multi-period-ladder",
+      stockListName: "QA-MATRIX-L02-small-old-full",
+    });
+    const result = await cleanupMatrixRuns(prisma, [qaUserId]);
+    expect(result.deleted).toBeGreaterThanOrEqual(1);
+    expect(
+      await prisma.backtestRun.findUnique({ where: { id: run } }),
+    ).toBeNull();
+  });
+
+  it("selects a run owned by any test persona, not only the current fixture owner", async () => {
+    // The real defect: the fixtures moved from `QA_USER` to `ADMIN_USER`, and a predicate pinned to
+    // the current owner left every earlier sweep's runs resident — 1,006 of them, 3.5 million equity
+    // rows — which is what began expiring progress-checkpoint transactions mid-sweep.
+    const previousOwnersRun = await createRun(otherUserId, runNames.matrix);
+    const survives = async (): Promise<boolean> =>
+      (await prisma.backtestRun.findUnique({
+        where: { id: previousOwnersRun },
+      })) !== null;
+
+    // Scoped to the current fixture owner alone, the earlier owner's run is not even a candidate.
+    await cleanupMatrixRuns(prisma, [qaUserId]);
+    expect(await survives()).toBe(true);
+
+    // Named among the owners, it is selected and removed.
+    await cleanupMatrixRuns(prisma, [qaUserId, otherUserId]);
+    expect(await survives()).toBe(false);
   });
 });

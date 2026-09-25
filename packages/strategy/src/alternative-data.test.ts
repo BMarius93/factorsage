@@ -465,3 +465,160 @@ describe("determinism", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Chunked execution: a calendar-year window must read what the whole period reads
+// ---------------------------------------------------------------------------
+
+/**
+ * The invariant the annual execution window depends on.
+ *
+ * A backtest does not project its whole period at once: it reads one calendar year at a time, each
+ * widened by leading context, and the day loop consumes the windows in order. So every column the
+ * engine evaluates inside year *N* is built from a frame that begins shortly before year *N*, not
+ * from the run's first session — and if that widening is not at least the metric's own lookback, the
+ * first sessions of **every year after the first** report NOT_EVALUABLE instead of a count.
+ *
+ * That failure is close to invisible: the run completes, the numbers look plausible, and a strategy
+ * naming a 90-session insider window simply never fires in January. These cases state the property
+ * directly — a windowed read agrees with a whole-period read, session for session — and then show
+ * what happens when the widening is one session short, so the test cannot pass for the wrong reason.
+ */
+describe("chunked windows agree with the whole period", () => {
+  /** Three years of weekday sessions, which is enough for two year boundaries. */
+  const SESSIONS: readonly string[] = (() => {
+    const dates: string[] = [];
+    for (
+      let day = Date.UTC(2024, 0, 1);
+      day <= Date.UTC(2026, 11, 31);
+      day += 86_400_000
+    ) {
+      const date = new Date(day);
+      const weekday = date.getUTCDay();
+      if (weekday !== 0 && weekday !== 6) {
+        dates.push(date.toISOString().slice(0, 10));
+      }
+    }
+    return dates;
+  })();
+
+  /** One disclosure every eleven sessions, by rotating actors, across the whole axis. */
+  const OBSERVATIONS: readonly AlternativeDataObservation[] = SESSIONS.filter(
+    (_, index) => index % 11 === 0,
+  ).map((date, index) => ({
+    observableFrom: date,
+    actorKey: `actor-${index % 4}`,
+    amount: 1_000 * (index + 1),
+  }));
+
+  const COVERAGE = {
+    from: SESSIONS[0] as string,
+    to: SESSIONS[SESSIONS.length - 1] as string,
+  };
+
+  const build = (
+    dates: readonly string[],
+    lookbackSessions: number,
+    aggregation: Parameters<
+      typeof buildAlternativeDataColumn
+    >[0]["request"]["aggregation"],
+  ): number[] => [
+    ...buildAlternativeDataColumn({
+      dates,
+      request: { lookbackSessions, aggregation },
+      facts: { coverage: COVERAGE, observations: OBSERVATIONS },
+    }),
+  ];
+
+  /** The sessions of one calendar year, plus `leading` sessions of context before it. */
+  function windowFor(
+    year: number,
+    leading: number,
+  ): { dates: readonly string[]; firstEvaluated: number } {
+    const start = SESSIONS.findIndex((date) => date.startsWith(`${year}-`));
+    const endExclusive =
+      SESSIONS.findIndex((date) => date > `${year}-12-31`) === -1
+        ? SESSIONS.length
+        : SESSIONS.findIndex((date) => date > `${year}-12-31`);
+    const from = Math.max(0, start - leading);
+    return {
+      dates: SESSIONS.slice(from, endExclusive),
+      firstEvaluated: start - from,
+    };
+  }
+
+  for (const aggregation of [
+    "DISTINCT_ACTORS",
+    "EVENT_COUNT",
+    "SUM_AMOUNT",
+  ] as const) {
+    for (const lookback of [20, 90, 250]) {
+      it(`reads ${aggregation} ${lookback}D identically in every year when widened by its lookback`, () => {
+        const whole = build(SESSIONS, lookback, aggregation);
+        for (const year of [2025, 2026]) {
+          // `requiredAlternativeDataLeadingSessions` is what the loader widens by, so the widening
+          // under test is the product's own answer rather than a number this test chose.
+          const leading = requiredAlternativeDataLeadingSessions([
+            alternativeDataOperand({
+              kind: "INSIDER_ACTIVITY",
+              measure: "BUYERS",
+              lookback: lookback as 20 | 90 | 250,
+            }),
+          ]);
+          expect(leading).toBe(lookback);
+          const window = windowFor(year, leading);
+          const chunk = build(window.dates, lookback, aggregation);
+          const offset = SESSIONS.indexOf(window.dates[0] as string);
+          for (
+            let index = window.firstEvaluated;
+            index < window.dates.length;
+            index += 1
+          ) {
+            expect(chunk[index]).toBe(whole[offset + index]);
+          }
+        }
+      });
+    }
+  }
+
+  it("reports NOT_EVALUABLE in year two when the widening is too short", () => {
+    // The counterpart, so the agreement above is a property of the widening rather than of the data.
+    // A window of `lookback` sessions ending on the year's first evaluated session needs
+    // `lookback - 1` sessions of context; the product widens by `lookback`, which is that plus one
+    // session of margin. At `lookback - 2` the window no longer fits and the session is undecidable —
+    // which is exactly the silent January-shaped hole a too-narrow widening would produce.
+    const lookback = 90;
+    const window = windowFor(2025, lookback - 2);
+    const chunk = build(window.dates, lookback, "EVENT_COUNT");
+    expect(chunk[window.firstEvaluated]).toBeNaN();
+    const whole = build(SESSIONS, lookback, "EVENT_COUNT");
+    const offset = SESSIONS.indexOf(window.dates[0] as string);
+    expect(whole[offset + window.firstEvaluated]).not.toBeNaN();
+  });
+
+  it("counts a disclosure once, never twice, when consecutive windows overlap", () => {
+    // Consecutive years share their leading context, so one disclosure appears in two frames. It
+    // must still be one event in each — a window that accumulated across chunks would double it.
+    const lookback = 20;
+    const first = windowFor(2025, lookback);
+    const second = windowFor(2026, lookback);
+    const overlap = first.dates.filter((date) => second.dates.includes(date));
+    expect(overlap.length).toBeGreaterThan(0);
+    const firstColumn = build(first.dates, lookback, "EVENT_COUNT");
+    const secondColumn = build(second.dates, lookback, "EVENT_COUNT");
+    for (const date of overlap) {
+      const inFirst = firstColumn[first.dates.indexOf(date)];
+      const inSecond = secondColumn[second.dates.indexOf(date)];
+      // Both frames physically contain the whole window for a shared session only where the second
+      // frame's own leading context reaches back far enough; where it does, the counts must agree.
+      if (
+        inFirst !== undefined &&
+        inSecond !== undefined &&
+        !Number.isNaN(inFirst) &&
+        !Number.isNaN(inSecond)
+      ) {
+        expect(inSecond).toBe(inFirst);
+      }
+    }
+  });
+});

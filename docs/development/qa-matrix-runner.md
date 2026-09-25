@@ -11,6 +11,11 @@ configurations. This documents the machine that runs them.
                 identified as  QA-MATRIX-Sxx-Lxx-Cxx
 ```
 
+There are **two** strategy dimensions and one is chosen per sweep: the historical core set
+(`S01` … `S10`, the default) and the audit variant (`A01` … `A10`, Relative Volume and alternative
+data), documented in `qa-matrix-fixtures.md`. Either is 1,000 runs against the same Lists and
+configurations; `--strategies audit` selects the second.
+
 | Command                    | What it does                                                          |
 | -------------------------- | --------------------------------------------------------------------- |
 | `pnpm qa:matrix:provision` | creates and populates the dedicated matrix environment                |
@@ -64,6 +69,8 @@ development database              →  intrinsic_value_matrix
   DailyPrice / WeeklyPrice             34 years, four beyond the product horizon, per retention
   DailyDerivedState                    every moving average, oscillator and materialized IV
   Benchmark / Series / DailyPrice      the SP500 execution calendar and comparison series
+  AlternativeDataActor                 the congressional actor catalog an actor scope resolves against
+  InsiderTransaction / CongressTrade   the disclosure history the alternative-data metrics read
 ```
 
 The source is only ever read — every call is a `findMany` — so the development database is never
@@ -82,8 +89,11 @@ all but name.
 The matrix database is a copy, so its freshness watermarks are as old as the copy. Under the
 ordinary six-hour freshness window the loader would decide the recent tail of every security is
 stale and refresh thirty-three of them from FMP in the middle of a timed sweep. The matrix worker
-therefore runs with `STOCK_RECENT_PRICE_FRESHNESS_MS` and `STOCK_FUNDAMENTALS_FRESHNESS_MS` set to
-ten years.
+therefore runs with `STOCK_RECENT_PRICE_FRESHNESS_MS`, `STOCK_FUNDAMENTALS_FRESHNESS_MS` and
+`ALT_DATA_FRESHNESS_MS` set to ten years. The last one matters most: the alternative-data freshness
+window is twelve hours, so without it **every** run of a sweep would re-ingest insider and
+congressional history from FMP — traffic the gate refuses, and which would also move
+`syncedThroughDate`, the ceiling of the evaluable range, between two executions of the same case.
 
 That is configuration the product already exposes, and it decides whether to *ask* for a newer tail
 — never how an existing bar is interpreted. Coverage gaps still reach the provider, which is why the
@@ -172,7 +182,7 @@ race itself either, and by `--no-warmup`.
 Strategies and Stock Lists are persistent fixtures; their runs are not. Cleanup deletes runs
 matching **both** halves of one narrow predicate:
 
-- the QA persona's `userId` — another account's rows are never selected, not merely spared;
+- the `userId` of a **test persona** — another account's rows are never selected, not merely spared;
 - the run's own denormalized `strategyName` **and** `stockListName`, both in the reserved
   `QA-MATRIX-` namespace.
 
@@ -180,6 +190,22 @@ Those two columns are the right key because they survive everything: a run's sna
 and `strategyId` / `stockListId` are nulled when a fixture is deleted, so neither foreign key can
 identify an old matrix run. Requiring both names means an ordinary backtest can never match — and
 neither can a developer's own run that used a matrix Strategy against a personal list.
+
+The owner half is the **set** of personas rather than the one account that owns the fixtures today,
+and that is a correction. The fixtures moved from `QA_USER` to `ADMIN_USER` when the runner began
+submitting through the real entitlement-enforcing service, and a predicate pinned to the current
+owner could not see the sweeps that ran under the previous one. 1,006 such runs were still resident,
+carrying 3.5 million equity rows; with their deleted predecessors' dead tuples that was 1,982 MB in
+`BacktestDailyEquity` alone. A sweep then inserts several million rows into a table autovacuum cannot
+keep up with, the five-second interactive transaction that writes a progress checkpoint begins to
+expire, and runs that computed everything correctly fail in `RUNNING` with a Prisma transaction
+timeout. Every persona comes from one registry, so naming the set keeps the "never selects a real
+user's data" property exactly as strong.
+
+Cleanup is followed by `VACUUM (ANALYZE)` on the eight result tables, for the same reason: `DELETE`
+leaves dead tuples behind, and the sweep's own inserts would otherwise contend with space autovacuum
+has not returned yet. It costs about ninety seconds once, before the timed sweep, and makes the
+measurement a measurement of the engine rather than of table bloat.
 
 Cleanup runs **before** execution and never after, so a failed sweep stays inspectable until its
 report is written.
@@ -444,6 +470,7 @@ pnpm qa:matrix:provision                    # once; idempotent
 pnpm qa:matrix:preflight                    # must be green
 pnpm qa:matrix:run                          # all 1,000
 
+pnpm qa:matrix:run --strategies audit       # the RVOL / insider / congress dimension, 1,000 runs
 pnpm qa:matrix:run --case S03-L07-C04       # reproduce exactly one
 pnpm qa:matrix:run --golden --archive       # the golden set, with forensic capture
 pnpm qa:matrix:run --concurrency 2          # override the machine-derived default
@@ -453,6 +480,7 @@ QA_MATRIX_AS_OF_DATE=2026-09-09 pnpm qa:matrix:run    # pin the clock for a repr
 | Flag                | Effect                                                              |
 | ------------------- | ------------------------------------------------------------------- |
 | `--case <ids>`      | run only these, comma-separated; unknown ids are an error           |
+| `--strategies <set>` | `core` (default, `S01` … `S10`) or `audit` (`A01` … `A10`, the Relative Volume and alternative-data variant) |
 | `--golden`          | run only the golden combinations                                     |
 | `--archive`         | capture forensic archives and verify invariants 36–38 from them      |
 | `--archive-all`     | capture an archive for **every** case (≈650 MB), for the data-correctness audit's reference backtester |

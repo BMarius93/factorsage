@@ -32,9 +32,19 @@ import type {
  * - insider v1: `insider-trading/search`, paged to exhaustion, availability = filing date + 1 day.
  * - congress v1: `senate-trades` + `house-trades`, paged to exhaustion, availability = disclosure
  *   date + 1 day.
+ * - v2 (both): the page walk decides it has reached the end from the **provider's** own page size
+ *   rather than from the mapped row count. Under v1 a full page containing rows the mapper drops —
+ *   `insider-trading/search` returns Form 3 initial-holdings rows with an empty `transactionType`,
+ *   sixteen of them in AAPL's newest thousand — looked short, so every cold ingest stopped after one
+ *   page and recorded a coverage floor years later than the provider could supply. A v1 state row is
+ *   therefore a statement about coverage that is **wrong**, not merely old, and a refresh cannot
+ *   repair it: the refresh rule correctly stops at the first page that inserts nothing new, which is
+ *   page 0. Bumping the variant is the repair — the v1 state becomes invisible, the next read
+ *   re-ingests cold and pages properly, and because rows are content-addressed nothing already
+ *   persisted is duplicated or lost.
  */
-export const INSIDER_TRADE_VARIANT = "form4-insider-search:v1";
-export const CONGRESS_TRADE_VARIANT = "congress-periodic-transactions:v1";
+export const INSIDER_TRADE_VARIANT = "form4-insider-search:v2";
+export const CONGRESS_TRADE_VARIANT = "congress-periodic-transactions:v2";
 
 export const ALTERNATIVE_DATA_DOMAINS = ["INSIDER", "CONGRESS"] as const;
 

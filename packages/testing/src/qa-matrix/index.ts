@@ -13,6 +13,18 @@ import {
   type QaMatrixStrategyFixture,
 } from "./strategies.js";
 
+/**
+ * Which strategy dimension a sweep runs.
+ *
+ * `CORE` is `S01` … `S10`, the historical Backtest V1 baseline, and is the default everywhere.
+ * `AUDIT` is `A01` … `A10` (`audit-strategies.ts`), the Relative Volume and alternative-data
+ * variant. Both run against the same ten Lists and ten configurations, so either is 1,000 runs; the
+ * set is named in the run label's `Sxx` / `Axx` element, so no two sweeps' case identities collide.
+ */
+export const QA_MATRIX_STRATEGY_SETS = ["CORE", "AUDIT"] as const;
+export type QaMatrixStrategySet = (typeof QA_MATRIX_STRATEGY_SETS)[number];
+
+export * from "./audit-strategies.js";
 export * from "./captured-execution-calendar.js";
 export * from "./clock.js";
 export * from "./configs.js";
@@ -70,13 +82,22 @@ export type QaMatrixFixtures = {
 export function qaMatrixFixtures(
   asOfDate: string = currentAsOfDate(),
   executionCalendarDates: readonly string[] = CAPTURED_EXECUTION_CALENDAR_DATES,
+  /**
+   * The strategy dimension, which defaults to the historical core set.
+   *
+   * Passed as resolved fixtures rather than as a set name because the audit set's actor scopes are
+   * canonical ids that only exist in a database — `qaMatrixAuditStrategies` takes them, and the
+   * seeder is what resolves them. Keeping the resolution outside this pure function is what stops it
+   * needing a database.
+   */
+  strategies: readonly QaMatrixStrategyFixture[] = QA_MATRIX_STRATEGIES,
 ): QaMatrixFixtures {
   const calendar = new ExecutionCalendar(executionCalendarDates);
   const periods = qaMatrixPeriods(asOfDate, calendar);
   return {
     periods,
     calendar,
-    strategies: QA_MATRIX_STRATEGIES,
+    strategies,
     lists: qaMatrixLists(periods, calendar),
     configs: qaMatrixConfigs(periods),
   };
@@ -140,7 +161,10 @@ export function isQaMatrixRun(run: {
   readonly stockListName: string;
 }): boolean {
   return (
-    run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}S`) &&
+    (run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}S`) ||
+      // The audit variant shares the reserved namespace and the same retention rule; without it a
+      // sweep of `A01` … `A10` would leave its runs behind for the next one to trip over.
+      run.strategyName.startsWith(`${QA_MATRIX_NAME_PREFIX}A`)) &&
     run.stockListName.startsWith(`${QA_MATRIX_NAME_PREFIX}L`)
   );
 }

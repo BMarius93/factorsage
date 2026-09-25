@@ -35,26 +35,52 @@ useTestDatabase();
  */
 describe("alternative-data ingestion", () => {
   const suffix = randomUUID();
+  /** The catalog row's own provider identifier, which is not what these endpoints echo. */
   const providerSymbol = `ALT-${suffix}`;
   const symbol = `ALT${suffix.slice(0, 6).toUpperCase()}`;
+  /**
+   * The symbol the disclosure endpoints echo back.
+   *
+   * They are asked with `Security.symbol`, and they answer with the symbol they were asked for — so
+   * that, not the catalog's `providerSymbol` column, is what a mapped row carries and what the
+   * ingest's binding check compares against.
+   */
+  const echoedSymbol = symbol;
 
   let prisma: PrismaClient;
   let store: PrismaAlternativeDataStore;
   let security: Security;
 
-  /** A scripted provider: each domain answers from a page list this suite sets per test. */
+  /**
+   * A scripted provider: each domain answers from a page list this suite sets per test.
+   *
+   * `providerRowCounts` scripts how many rows the *payload* carried, independently of how many
+   * survived normalization. They are normally the same and default to the mapped length; a test that
+   * sets them apart is reproducing the real endpoint behaviour where a full page contains rows the
+   * mapper drops.
+   */
   class FakeProvider implements AlternativeDataProvider {
     insiderPages: MappedFmpInsiderTrade[][] = [];
     congressPages: Record<"SENATE" | "HOUSE", MappedFmpCongressTrade[][]> = {
       SENATE: [],
       HOUSE: [],
     };
+    insiderProviderRowCounts: (number | undefined)[] = [];
+    congressProviderRowCounts: Record<
+      "SENATE" | "HOUSE",
+      (number | undefined)[]
+    > = { SENATE: [], HOUSE: [] };
     insiderRequests = 0;
     congressRequests = 0;
 
     async getInsiderTrades(input: { page: number }) {
       this.insiderRequests += 1;
-      return this.insiderPages[input.page] ?? [];
+      const rows = this.insiderPages[input.page] ?? [];
+      return {
+        providerRowCount:
+          this.insiderProviderRowCounts[input.page] ?? rows.length,
+        rows,
+      };
     }
 
     async getCongressTrades(input: {
@@ -62,9 +88,14 @@ describe("alternative-data ingestion", () => {
       page: number;
     }) {
       this.congressRequests += 1;
-      return this.congressPages[input.chamber][input.page] ?? [];
+      const rows = this.congressPages[input.chamber][input.page] ?? [];
+      return {
+        providerRowCount:
+          this.congressProviderRowCounts[input.chamber][input.page] ??
+          rows.length,
+        rows,
+      };
     }
-
   }
 
   let provider: FakeProvider;
@@ -75,7 +106,7 @@ describe("alternative-data ingestion", () => {
     overrides: Partial<MappedFmpInsiderTrade> = {},
   ): MappedFmpInsiderTrade {
     return {
-      providerSymbol,
+      providerSymbol: echoedSymbol,
       transactionDate: "2026-03-02",
       filingDate: "2026-03-03",
       availableFromDate: "2026-03-04",
@@ -97,7 +128,7 @@ describe("alternative-data ingestion", () => {
     overrides: Partial<MappedFmpCongressTrade> = {},
   ): MappedFmpCongressTrade {
     return {
-      providerSymbol,
+      providerSymbol: echoedSymbol,
       chamber: "SENATE",
       actorExternalId: `S-${suffix}`,
       actorDisplayName: "Senator Fixture",
@@ -291,6 +322,102 @@ describe("alternative-data ingestion", () => {
     await refresher.ensureIngested(security, ["INSIDER"]);
     // The first page inserted nothing new, so the walk stops there instead of re-reading history.
     expect(provider.insiderRequests).toBe(1);
+  });
+
+  it("keeps paging when a full provider page contains rows the mapper drops", async () => {
+    // The real defect this pins, observed live on AAPL: `insider-trading/search` returned a full
+    // 1,000-row page of which sixteen were Form 3 initial-holdings statements with an empty
+    // `transactionType`. The mapper drops those — correctly, they are not transactions — so the page
+    // arrived as 984 mapped rows, the walk read that as "shorter than the cap, therefore the last
+    // page", and stopped. Eight years of filings the provider holds were never ingested, and the
+    // coverage floor was set to the oldest row of page 0, which makes every earlier session
+    // NOT_EVALUABLE for a reason that has nothing to do with the data.
+    const page = (marker: string, size: number): MappedFmpInsiderTrade[] =>
+      Array.from({ length: size }, (_, index) =>
+        insider({
+          reportingCik: `${marker}-${index}`,
+          transactionDate: "2026-02-02",
+          filingDate: "2026-02-03",
+          availableFromDate: "2026-02-04",
+        }),
+      );
+    provider.insiderPages = [page("A", 984), page("B", 1000), page("C", 5)];
+    // Page 0 and page 1 were both full payloads; page 0 simply had sixteen unmappable rows.
+    provider.insiderProviderRowCounts = [1000, 1000, 5];
+
+    await service.ensureIngested(security, ["INSIDER"]);
+
+    expect(provider.insiderRequests).toBe(3);
+    expect(
+      await prisma.insiderTransaction.count({
+        where: { securityId: security.id },
+      }),
+    ).toBe(984 + 1000 + 5);
+  });
+
+  it("stops on a genuinely short provider page", async () => {
+    // The counterpart: a payload the provider itself cut short still ends the walk on the first page,
+    // so the fix above did not turn every ingest into `maxPagesPerIngest` requests.
+    provider.insiderPages = [[insider({ reportingCik: "ONLY" })]];
+    provider.insiderProviderRowCounts = [1];
+    await service.ensureIngested(security, ["INSIDER"]);
+    expect(provider.insiderRequests).toBe(1);
+  });
+
+  it("keeps paging congressional disclosures when a full page has unmappable rows", async () => {
+    const page = (marker: string, size: number): MappedFmpCongressTrade[] =>
+      Array.from({ length: size }, (_, index) =>
+        congress({ actorExternalId: `${marker}-${index}-${suffix}` }),
+      );
+    provider.congressPages.SENATE = [page("S0", 248), page("S1", 3)];
+    provider.congressProviderRowCounts.SENATE = [250, 3];
+    await service.ensureIngested(security, ["CONGRESS"]);
+    // Two SENATE pages plus the single HOUSE page the fake answers empty.
+    expect(provider.congressRequests).toBe(3);
+    expect(
+      await prisma.congressTrade.count({ where: { securityId: security.id } }),
+    ).toBe(251);
+  });
+
+  it("never binds a row the provider returned for another symbol to this security", async () => {
+    // Every persisted row takes `securityId` from the security that was *asked* for. If a page ever
+    // carried a foreign symbol — a provider-side filter change, a paging bug — those rows would
+    // become this security's insider history and its metrics would count them. They are dropped,
+    // reported, and excluded from the coverage window, which is what keeps the coverage floor a
+    // statement about this security.
+    const foreign: string[] = [];
+    const guarded = new CanonicalAlternativeDataService(store, provider, {
+      freshnessMs: 60_000,
+      maxPagesPerIngest: 4,
+      now: () => now,
+      onForeignRows: (event) => foreign.push(`${event.domain}:${event.rows}`),
+    });
+    provider.insiderPages = [
+      [
+        insider({ reportingCik: "MINE" }),
+        insider({
+          reportingCik: "THEIRS",
+          providerSymbol: "SOMEONE-ELSE",
+          filingDate: "2020-01-02",
+          availableFromDate: "2020-01-03",
+        }),
+      ],
+    ];
+    await guarded.ensureIngested(security, ["INSIDER"]);
+
+    const rows = await prisma.insiderTransaction.findMany({
+      where: { securityId: security.id },
+      select: { reportingCik: true },
+    });
+    expect(rows.map((row) => row.reportingCik)).toEqual(["MINE"]);
+    expect(foreign).toEqual(["INSIDER:1"]);
+
+    // And the foreign row's much earlier availability date did not drag the coverage floor down.
+    const state = await prisma.stockDatasetState.findFirst({
+      where: { securityId: security.id, dataset: "INSIDER_TRADE" },
+      select: { earliestDate: true },
+    });
+    expect(state?.earliestDate?.toISOString().slice(0, 10)).toBe("2026-03-04");
   });
 
   // -------------------------------------------------------------------------

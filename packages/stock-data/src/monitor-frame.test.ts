@@ -606,6 +606,58 @@ describe("relative volume in a monitor cycle", () => {
     ).toBe(1);
   });
 
+  it("carries all three periods as separate columns, each equal to its own canonical value", () => {
+    // The period-identity case, in the Monitor frame. `RVOL 10`, `RVOL 20` and `RVOL 50` once shared
+    // one semantic identity, so a frame holding all three is where a column serving another period's
+    // number would show. Each is compared with the canonical materialization of *its own* period, and
+    // the three are required to differ — on this series they genuinely do, so three equal columns
+    // would mean one value had been broadcast to all of them.
+    const volumes = Array.from({ length: 80 }, (_unused, index) =>
+      Math.round(1_000 + index * 137 + (index % 7) * 410),
+    );
+    const prices = closedHistory(
+      Array.from({ length: 80 }, () => 100),
+      volumes,
+    );
+    const canonical = calculateDailyRelativeVolumes(prices);
+    const operands = [10, 20, 50].map((period) =>
+      relativeVolumeOperand(period as 10 | 20 | 50),
+    );
+    const frame = projectMonitorEvaluationFrame({
+      security: SECURITY,
+      prices,
+      derived: [],
+      operands: [PRICE_OPERAND, ...operands],
+      observation: { price: 100, volume: 12_000 },
+      observationDate: nextTradingDate(prices),
+    });
+
+    expect(frame).not.toBeNull();
+    const closedIndex = frame!.observationIndex - 1;
+    const newest = canonical.at(-1)!;
+    const read = (period: 10 | 20 | 50): number =>
+      readOperand(frame!.frame, relativeVolumeOperand(period), closedIndex);
+
+    expect(read(10)).toBeCloseTo(newest.rvol10!, 12);
+    expect(read(20)).toBeCloseTo(newest.rvol20!, 12);
+    expect(read(50)).toBeCloseTo(newest.rvol50!, 12);
+    expect(new Set([read(10), read(20), read(50)]).size).toBe(3);
+
+    // And on the provisional session, where the Monitor is the only thing that computes a value at
+    // all: the same three baselines, measured against the live volume.
+    const mean = (period: number): number =>
+      volumes.slice(volumes.length - period).reduce((a, b) => a + b, 0) / period;
+    for (const period of [10, 20, 50] as const) {
+      expect(
+        readOperand(
+          frame!.frame,
+          relativeVolumeOperand(period),
+          frame!.observationIndex,
+        ),
+      ).toBeCloseTo(12_000 / mean(period), 10);
+    }
+  });
+
   it("agrees with the canonical materialized value for a closed session", () => {
     // The Monitor recomputes over a bounded window; ingestion computes over the whole history.
     // For a non-recursive series the two must be identical, not merely close.

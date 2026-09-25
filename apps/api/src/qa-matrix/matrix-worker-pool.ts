@@ -54,6 +54,8 @@ export type WorkerPoolOptions = {
  * — traffic the matrix is explicitly designed not to depend on, and which would make two sweeps of
  * the same clock read different data.
  *
+ * The same applies to the two alternative-data domains, whose ordinary window is twelve hours.
+ *
  * Widening the freshness window is configuration the product already exposes, not a change to what
  * a backtest computes: it decides whether to *ask* for a newer tail, never how an existing bar is
  * interpreted. Coverage gaps still reach the provider, which is why the preflight proves there are
@@ -163,6 +165,13 @@ export class MatrixWorkerPool {
       LOG_LEVEL: "debug",
       STOCK_RECENT_PRICE_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
       STOCK_FUNDAMENTALS_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
+      // The alternative-data domains are pinned for exactly the same reason, and they need it more:
+      // their ordinary window is twelve hours, so *every* run of a sweep would re-ingest insider and
+      // congressional history from FMP. That is provider traffic the gate refuses, and it would also
+      // move `syncedThroughDate` — the ceiling of the evaluable range — between two executions of the
+      // same case, which is a determinism difference the runner would correctly report and nobody
+      // could reproduce.
+      ALT_DATA_FRESHNESS_MS: PINNED_DATASET_FRESHNESS_MS,
       BACKTEST_DEBUG_ARCHIVE: this.options.debugArchive,
       ...(this.options.debugArchiveDir
         ? { BACKTEST_DEBUG_ARCHIVE_DIR: this.options.debugArchiveDir }

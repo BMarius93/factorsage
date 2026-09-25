@@ -136,7 +136,7 @@ export interface BacktestBenchmarkLoader {
  *
  * Asynchronous to match the resolver the live path uses, so one loader signature serves both.
  */
-function frozenActorGroupResolver(
+export function frozenActorGroupResolver(
   snapshot: BacktestRunSnapshot,
 ): (groupId: string) => Promise<readonly string[]> {
   const byId = new Map(

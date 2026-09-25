@@ -432,10 +432,17 @@ async function checkStrategyFixtures(
   ownerUserId: string,
 ): Promise<PreflightCheck> {
   const problems: string[] = [];
+  // The namespace of the **selected** strategy dimension, derived from the fixtures rather than
+  // written down twice: the core set is `QA-MATRIX-S…` and the audit variant `QA-MATRIX-A…`. Both
+  // may be seeded in one database, so a check that read the whole reserved namespace would report
+  // the other set's rows as undefined fixtures.
+  const namespace = `${QA_MATRIX_NAME_PREFIX}${
+    input.fixtures.strategies[0]?.id.charAt(0) ?? "S"
+  }`;
   const rows = await input.prisma.strategy.findMany({
     where: {
       userId: ownerUserId,
-      name: { startsWith: `${QA_MATRIX_NAME_PREFIX}S` },
+      name: { startsWith: namespace },
     },
     include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
   });

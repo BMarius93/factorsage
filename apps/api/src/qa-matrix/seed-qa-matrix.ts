@@ -10,11 +10,17 @@ import {
   normalizeBuyWindowConfiguration,
 } from "@intrinsic/domain";
 import {
+  QA_MATRIX_ACTOR_GROUP_MEMBERS,
+  QA_MATRIX_ACTOR_GROUP_NAME,
+  QA_MATRIX_AUDIT_ACTOR,
   QA_MATRIX_NAME_PREFIX,
   QA_MATRIX_SECURITIES,
   QA_MATRIX_STRATEGIES,
+  qaMatrixAuditStrategies,
+  type QaMatrixActorScopes,
   type QaMatrixFixtures,
   type QaMatrixListFixture,
+  type QaMatrixStrategyFixture,
 } from "@intrinsic/testing";
 import { normalizeEmail } from "../auth/email";
 import {
@@ -59,6 +65,8 @@ export const MISSING_QA_MATRIX_OWNER_MESSAGE =
 
 /** Reserved namespaces. A delete is only ever issued against rows matching one of these. */
 const STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}S`;
+/** The audit variant's own namespace, pruned independently so neither set can delete the other. */
+const AUDIT_STRATEGY_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}A`;
 const LIST_NAME_PREFIX = `${QA_MATRIX_NAME_PREFIX}L`;
 
 /**
@@ -89,6 +97,10 @@ export type QaMatrixSeedResult = {
   readonly securitiesCreated: number;
   readonly strategiesCreated: number;
   readonly strategiesUpdated: number;
+  /** False when the actor catalog could not supply the audit set's scopes; see the resolver. */
+  readonly auditStrategiesSeeded: boolean;
+  readonly auditStrategiesCreated: number;
+  readonly auditStrategiesUpdated: number;
   readonly listsCreated: number;
   readonly listsUpdated: number;
   readonly staleRemoved: number;
@@ -243,16 +255,18 @@ async function pruneNamespace<Row extends { id: string; name: string }>(
 async function seedMatrixStrategies(
   prisma: PrismaClient,
   userId: string,
+  fixtures: readonly QaMatrixStrategyFixture[],
+  namePrefix: string,
 ): Promise<{ created: number; updated: number; removed: number }> {
   const rows = await prisma.strategy.findMany({
-    where: { userId, name: { startsWith: STRATEGY_NAME_PREFIX } },
+    where: { userId, name: { startsWith: namePrefix } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     include: { versions: { orderBy: { versionNumber: "desc" }, take: 1 } },
   });
 
   const { survivors, removed } = await pruneNamespace(
     rows,
-    new Set(QA_MATRIX_STRATEGIES.map((fixture) => fixture.name)),
+    new Set(fixtures.map((fixture) => fixture.name)),
     (ids) =>
       prisma.strategy.deleteMany({
         // Ownership and namespace are re-asserted on the delete itself, not only on the read that
@@ -260,7 +274,7 @@ async function seedMatrixStrategies(
         where: {
           id: { in: [...ids] },
           userId,
-          name: { startsWith: STRATEGY_NAME_PREFIX },
+          name: { startsWith: namePrefix },
         },
       }),
   );
@@ -268,7 +282,7 @@ async function seedMatrixStrategies(
   let created = 0;
   let updated = 0;
 
-  for (const fixture of QA_MATRIX_STRATEGIES) {
+  for (const fixture of fixtures) {
     // The canonical normalizer, so a fixture is persisted through exactly the path a saved
     // strategy takes and an invalid one fails here rather than reaching the Builder.
     const definition = normalizeStrategyDefinition(fixture.definition);
@@ -325,6 +339,91 @@ async function seedMatrixStrategies(
   }
 
   return { created, updated, removed };
+}
+
+/**
+ * Resolves the canonical ids the audit strategies' actor scopes name, creating the group if needed.
+ *
+ * The fixtures hold stable **external** identities — bioguide ids and a reserved group name — because
+ * this product's own ids are generated when a row is created and could not live in the repository.
+ * This is where the two meet, and it is deliberately the only place: a strategy definition that
+ * named a display name instead would follow a member through a rename into somebody else's trades.
+ *
+ * Returns `null` when the actor catalog does not carry the named members. That is the ordinary state
+ * of a lightweight test database, which holds no ingested disclosure history, and it means the audit
+ * strategy set is simply not seeded there — reported, never silently substituted with a different
+ * scope, which would produce a fixture that looked seeded and measured something else.
+ */
+export async function resolveQaMatrixActorScopes(
+  prisma: PrismaClient,
+  userId: string,
+  /**
+   * Whether a missing group may be created and a drifted one reconciled.
+   *
+   * The seeder says yes; the runner and the preflight say no, so neither writes to the database it
+   * is about to validate — and an unseeded environment is reported as "the audit set is not seeded"
+   * rather than being quietly seeded by the thing checking it.
+   */
+  options: { readonly write?: boolean } = {},
+): Promise<QaMatrixActorScopes | null> {
+  const actors = await prisma.alternativeDataActor.findMany({
+    where: { externalId: { in: [...QA_MATRIX_ACTOR_GROUP_MEMBERS] } },
+    select: { id: true, externalId: true },
+  });
+  const idByExternalId = new Map(
+    actors.map((actor) => [actor.externalId, actor.id]),
+  );
+  const actorId = idByExternalId.get(QA_MATRIX_AUDIT_ACTOR.externalId);
+  const memberIds = QA_MATRIX_ACTOR_GROUP_MEMBERS.map((externalId) =>
+    idByExternalId.get(externalId),
+  );
+  if (!actorId || memberIds.some((id) => id === undefined)) {
+    return null;
+  }
+
+  const existing = await prisma.actorGroup.findFirst({
+    where: { userId, name: QA_MATRIX_ACTOR_GROUP_NAME },
+    include: { members: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!existing) {
+    if (!options.write) {
+      return null;
+    }
+    const created = await prisma.actorGroup.create({
+      data: {
+        userId,
+        name: QA_MATRIX_ACTOR_GROUP_NAME,
+        members: {
+          create: memberIds.map((id) => ({ actorId: id as string })),
+        },
+      },
+      select: { id: true },
+    });
+    return { actorId, groupId: created.id };
+  }
+
+  // Membership is reconciled rather than assumed: an earlier sweep may have been left mid-edit by a
+  // group-mutation test, and a run that resolved a different membership than the fixture describes
+  // would be comparing two different strategies.
+  const wanted = new Set(memberIds as string[]);
+  const held = new Set(existing.members.map((member) => member.actorId));
+  const missing = [...wanted].filter((id) => !held.has(id));
+  const extra = [...held].filter((id) => !wanted.has(id));
+  if (!options.write) {
+    return { actorId, groupId: existing.id };
+  }
+  if (extra.length > 0) {
+    await prisma.actorGroupMember.deleteMany({
+      where: { groupId: existing.id, actorId: { in: extra } },
+    });
+  }
+  if (missing.length > 0) {
+    await prisma.actorGroupMember.createMany({
+      data: missing.map((id) => ({ groupId: existing.id, actorId: id })),
+      skipDuplicates: true,
+    });
+  }
+  return { actorId, groupId: existing.id };
 }
 
 /** The canonical persisted window set of one fixture member, as `YYYY-MM-DD` pairs. */
@@ -545,7 +644,25 @@ export async function seedQaMatrixFixtures(
   assertQaMatrixSeedingAllowed();
 
   const securities = await seedMatrixSecurities(prisma);
-  const strategies = await seedMatrixStrategies(prisma, ownerUserId);
+  const strategies = await seedMatrixStrategies(
+    prisma,
+    ownerUserId,
+    QA_MATRIX_STRATEGIES,
+    STRATEGY_NAME_PREFIX,
+  );
+  // The audit variant is seeded beside the core set rather than instead of it, so one database can
+  // serve either sweep and neither can prune the other's rows.
+  const scopes = await resolveQaMatrixActorScopes(prisma, ownerUserId, {
+    write: true,
+  });
+  const auditStrategies = scopes
+    ? await seedMatrixStrategies(
+        prisma,
+        ownerUserId,
+        qaMatrixAuditStrategies(scopes),
+        AUDIT_STRATEGY_NAME_PREFIX,
+      )
+    : { created: 0, updated: 0, removed: 0 };
   const lists = await seedMatrixLists(
     prisma,
     ownerUserId,
@@ -564,9 +681,13 @@ export async function seedQaMatrixFixtures(
     securitiesCreated: securities.created,
     strategiesCreated: strategies.created,
     strategiesUpdated: strategies.updated,
+    auditStrategiesSeeded: scopes !== null,
+    auditStrategiesCreated: auditStrategies.created,
+    auditStrategiesUpdated: auditStrategies.updated,
     listsCreated: lists.created,
     listsUpdated: lists.updated,
-    staleRemoved: strategies.removed + lists.removed,
+    staleRemoved:
+      strategies.removed + auditStrategies.removed + lists.removed,
   };
 }
 
@@ -580,6 +701,9 @@ export function describeQaMatrixSeed(
     `execution calendar ${result.executionCalendar.dates} dates ` +
       `(${result.executionCalendar.from} to ${result.executionCalendar.to})`,
     `${fixtures.strategies.length} strategies (${result.strategiesCreated} created, ${result.strategiesUpdated} updated)`,
+    result.auditStrategiesSeeded
+      ? `audit strategies (${result.auditStrategiesCreated} created, ${result.auditStrategiesUpdated} updated)`
+      : "audit strategies skipped (actor catalog has no congressional members)",
     `${fixtures.lists.length} lists (${result.listsCreated} created, ${result.listsUpdated} updated)`,
     `${QA_MATRIX_SECURITIES.length} securities (${result.securitiesCreated} created)`,
     `${result.staleRemoved} stale fixture(s) removed`,
