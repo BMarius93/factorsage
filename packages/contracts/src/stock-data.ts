@@ -92,8 +92,27 @@ export type OscillatorValuesResponse = {
   rsi21d?: number;
 };
 
+/**
+ * Relative Volume values riding on the same daily technical row.
+ *
+ * This session's volume divided by the mean volume of the previous N sessions, one field per
+ * supported period (10, 20, 50). The session being measured is never part of its own baseline.
+ * Values are unitless multiples — `2` means twice the baseline — and are omitted, never zeroed,
+ * while the full lookback has not accumulated or its baseline is unusable.
+ *
+ * Relative Volume is deliberately **not** a selectable-series catalog entry: it is not a chart
+ * overlay, is never a Strategy `Value`, and is not addressable through the `series=` filter. It is
+ * served here because it is materialized on the same daily derived row.
+ */
+export type RelativeVolumeValuesResponse = {
+  rvol10?: number;
+  rvol20?: number;
+  rvol50?: number;
+};
+
 export type DailyTechnicalResponse = { date: string } & MovingAverageValuesResponse &
-  OscillatorValuesResponse;
+  OscillatorValuesResponse &
+  RelativeVolumeValuesResponse;
 
 /**
  * Field on `DailyTechnicalResponse` that carries a moving average.
@@ -107,7 +126,13 @@ export type MovingAverageFieldResponse = keyof MovingAverageValuesResponse;
 /** Field on `DailyTechnicalResponse` that carries a daily oscillator. */
 export type OscillatorFieldResponse = keyof OscillatorValuesResponse;
 
-/** Any value field the daily technical endpoint serves. */
+/** Field on `DailyTechnicalResponse` that carries a Relative Volume value. */
+export type RelativeVolumeFieldResponse = keyof RelativeVolumeValuesResponse;
+
+/**
+ * Any **catalog** series field the daily technical endpoint serves, and the set `series=`
+ * addresses. Relative Volume is not a catalog series and is therefore not part of this union.
+ */
 export type TechnicalSeriesFieldResponse =
   | MovingAverageFieldResponse
   | OscillatorFieldResponse;

@@ -89,7 +89,10 @@ export function ValueControl({
   }
 
   const numeric = value.kind === "SERIES" ? "" : String(value.value);
-  const isPercent = spec.kind === "PERCENT";
+  // The unit is the spec's, so the control cannot print a suffix the validator does not enforce:
+  // a percentage reads `25%`, a multiple reads `2x`, a bare threshold reads as itself.
+  const unitSuffix =
+    spec.kind === "PERCENT" ? "%" : spec.kind === "MULTIPLE" ? "x" : null;
 
   return (
     <div className={styles.numberField}>
@@ -103,22 +106,24 @@ export function ValueControl({
         {...(describedBy ? { "aria-describedby": describedBy } : {})}
         {...(spec.min === undefined ? {} : { min: spec.min })}
         {...(spec.max === undefined ? {} : { max: spec.max })}
-        {...(spec.kind === "NUMBER" ? { step: spec.step } : { step: "any" })}
+        {...(spec.kind === "NUMBER" || spec.kind === "MULTIPLE"
+          ? { step: spec.step }
+          : { step: "any" })}
         value={numeric}
         onBlur={onBlur}
         onChange={(event) => {
           const next = Number(event.target.value);
           onChange({
-            kind: isPercent ? "PERCENT" : "NUMBER",
+            kind: spec.kind,
             // An empty or partial input is NaN; the validator reports it rather than the control
             // silently substituting a number the user did not type.
             value: event.target.value === "" ? Number.NaN : next,
           });
         }}
       />
-      {isPercent ? (
+      {unitSuffix ? (
         <span className={styles.numberSuffix} aria-hidden="true">
-          %
+          {unitSuffix}
         </span>
       ) : null}
     </div>

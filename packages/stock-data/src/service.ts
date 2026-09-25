@@ -3,10 +3,11 @@ import type { EvaluationFrame, OperandKey } from "@intrinsic/strategy";
 import {
   DAILY_MOVING_AVERAGES,
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
   FINANCIAL_STATEMENT_TYPES,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
-  TECHNICAL_SERIES_FIELDS,
+  DAILY_TECHNICAL_PROJECTION_FIELDS,
   WEEKLY_MOVING_AVERAGES,
   type DailyDerivedState,
   type DailyPrice,
@@ -126,9 +127,9 @@ const DERIVED_SERIES_WARMUP_MARGIN_WEEKS = 8;
  * catalog derived series is already warmed up on its first trading day.
  *
  * The bound is derived from the canonical registries rather than a second copy of the period
- * list: daily moving averages and oscillators count trading days, weekly moving averages count
- * completed weeks, so both are expressed in weeks and the wider one wins. Today that is
- * `SMA(200, 1W)` / `EMA(200, 1W)` at two hundred completed weeks.
+ * list: daily moving averages, oscillators and Relative Volume count trading days, weekly moving
+ * averages count completed weeks, so both are expressed in weeks and the wider one wins. Today
+ * that is `SMA(200, 1W)` / `EMA(200, 1W)` at two hundred completed weeks.
  *
  * This is the only history Stock Details pulls in beyond what the caller asked for. It exists for
  * calculation correctness, not as a retention policy: the configured product horizon stays the
@@ -140,6 +141,9 @@ export const DERIVED_SERIES_WARMUP_DAYS =
       Math.max(
         ...DAILY_MOVING_AVERAGES.map((average) => average.period),
         ...DAILY_OSCILLATORS.map((oscillator) => oscillator.period),
+        // `+ 1`: an RVOL period counts the sessions *before* the one being measured, so its first
+        // value needs one observation more than its period.
+        ...DAILY_RELATIVE_VOLUMES.map((entry) => entry.period + 1),
       ) / TRADING_DAYS_PER_WEEK,
     ),
     ...WEEKLY_MOVING_AVERAGES.map((average) => average.period),
@@ -2284,13 +2288,13 @@ export class CanonicalStockDataService implements StockDataService {
  *
  * Weekly values are read straight off the daily row: the materializer already carried the latest
  * completed week forward, so this projection never recalculates, interpolates or looks ahead.
- * Every technical family — both moving-average timeframes and the daily oscillators — is copied
- * through the same canonical field list, so an unavailable value stays absent instead of becoming
- * zero and a registered series cannot go missing from the projection.
+ * Every daily family — both moving-average timeframes, the daily oscillators and Relative Volume —
+ * is copied through the same canonical field list, so an unavailable value stays absent instead of
+ * becoming zero and a registered series cannot go missing from the projection.
  */
 function toDailyTechnical(row: DailyDerivedState): DailyTechnical {
   const values = Object.fromEntries(
-    TECHNICAL_SERIES_FIELDS.flatMap((field) => {
+    DAILY_TECHNICAL_PROJECTION_FIELDS.flatMap((field) => {
       const value = row[field];
       return value === undefined ? [] : [[field, value] as const];
     }),

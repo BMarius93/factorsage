@@ -16,6 +16,7 @@ provenance rules by `../../docs/decisions/stock-data-foundation.md` and
 flowchart LR
   DP[("DailyPrice<br/>PostgreSQL")] --> DT["calculateDailyTechnicals<br/>technicals.ts"]
   DP --> DO["calculateDailyOscillators<br/>oscillators.ts"]
+  DP --> RV["calculateDailyRelativeVolumes<br/>relative-volume.ts"]
   DP --> AW["aggregateCompletedWeeks<br/>weekly.ts"]
   AW --> WP[("WeeklyPrice<br/>completed-week OHLCV")]
   AW --> WV["calculateWeeklyTechnicalValues<br/>weekly.ts"]
@@ -23,6 +24,7 @@ flowchart LR
   IM --> EV["evaluateIntrinsicValues<br/>+ @intrinsic/valuation"]
   DT --> BD["buildDailyDerivedState<br/>derived-state.ts"]
   DO --> BD
+  RV --> BD
   WV --> BD
   EV --> BD
   BD --> ST["dailyDerivedStateToRow<br/>prisma-store.ts"]
@@ -91,11 +93,16 @@ flowchart TD
 - `DAILY_OSCILLATORS` — three `{type: "RSI", period, timeframe: "1D", field}` entries (7/14/21),
   plus `RSI_VALUE_RANGE` (`{min: 0, max: 100}`), the fixed unit range the shared pane renders and
   future Strategy thresholds compare against.
-- `TECHNICAL_SERIES_FIELDS` — every technical field in canonical wire order: moving averages
-  (daily, then weekly) first, oscillators after them. The daily technical projection and the API
-  both iterate this one list.
-- `DailyMovingAverageField` / `WeeklyMovingAverageField` / `DailyOscillatorField` — the field-name
-  types that make an unregistered field a compile error.
+- `DAILY_RELATIVE_VOLUMES` — three `{period, timeframe: "1D", field}` entries (10/20/50), plus
+  `RELATIVE_VOLUME_PERIODS`, `RELATIVE_VOLUME_FIELDS` and `relativeVolumeDefinition(period)`, the
+  one lookup from a product period to its column. It is **not** a catalog family.
+- `TECHNICAL_SERIES_FIELDS` — every *catalog* technical field in canonical wire order: moving
+  averages (daily, then weekly) first, oscillators after them. It is the set the `series=` filter
+  addresses. `DAILY_TECHNICAL_PROJECTION_FIELDS` appends Relative Volume to it, and is what the
+  daily technical projection and the API iterate.
+- `DailyMovingAverageField` / `WeeklyMovingAverageField` / `DailyOscillatorField` /
+  `DailyRelativeVolumeField` — the field-name types that make an unregistered field a compile
+  error.
 - `INTRINSIC_VALUE_MODELS`, `INTRINSIC_VALUE_BLEND_IDS`, `INTRINSIC_VALUE_BLENDS` (weights,
   versioned).
 
@@ -184,6 +191,32 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 - `WeeklyPrice` is persisted as completed-week OHLCV **source data**, not a derived-series value.
   It has no read port: every rebuild re-aggregates from canonical `DailyPrice`.
 
+## Relative Volume — one window methodology
+
+`packages/stock-data/src/relative-volume.ts`:
+
+- `calculateRelativeVolume(volumes, period)` is the one parameterized kernel; there is no
+  per-period formula. `calculateDailyRelativeVolumes(prices)` iterates `DAILY_RELATIVE_VOLUMES`
+  over the **volume column of the same canonical daily bars** the moving averages read their closes
+  from, so a period added to the registry is materialized without editing either function. **No FMP
+  request is involved**: volume has always been part of the historical EOD payload and of
+  `DailyPrice`.
+- **Formula, locked by `relative-volume.test.ts`:**
+  `RVOL(p)(t) = volume(t) / mean(volume(t - p) … volume(t - 1))`. The session being measured is
+  **never part of its own baseline**, and the full lookback is required — `rvol10` first appears on
+  the eleventh session, `rvol20` on the twenty-first, `rvol50` on the fifty-first.
+- **Edge cases:** a zero baseline leaves the value absent, because the ratio is undefined there and
+  an infinity would satisfy every threshold a Strategy could name. A session whose volume is not a
+  finite number has no value of its own and none of the later sessions whose window contains it
+  does either. `RVOL = 0` is a real reading — a session that traded nothing — and is never a
+  stand-in for absence.
+- **Trading observations are counted, not calendar days**, and the calculation is linear: one
+  rolling sum plus a rolling count of unusable observations inside the window, per period.
+- It is **not** a selectable-series catalog entry. It is never a chart overlay and never a Strategy
+  `Value`, so it is addressed by *period* — the same choice `Price`, `Gain` and `Loss` make in
+  being metrics without catalog ids. `apps/api/src/stocks/selectable-series-catalog.test.ts` pins
+  the contracts period list against the domain registry.
+
 ## Intrinsic-value models and blends
 
 `packages/stock-data/src/intrinsic-value-materializer.ts` and `intrinsic-value-evaluator.ts`:
@@ -218,9 +251,9 @@ Rules, all test-locked in `packages/stock-data/src/weekly-technicals.test.ts`:
 
 - Primary key `(securityId, date)`; **no secondary index** — the composite key already serves the
   only historical access pattern, `securityId + date range ascending`.
-- 24 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 3 daily RSI oscillators,
-  4 intrinsic models, 3 blends. Plus `weeklySourceWeekStart`, four provenance timestamps and
-  `intrinsicCurrency`.
+- 27 nullable `DECIMAL(20,8)` value columns: 7 daily MAs, 7 weekly MAs, 3 daily RSI oscillators,
+  3 Relative Volume periods, 4 intrinsic models, 3 blends. Plus `weeklySourceWeekStart`, four
+  provenance timestamps and `intrinsicCurrency`.
 - No calculation-version column, ever.
 
 `packages/stock-data/src/prisma-store.ts` maps in three hand-written places —
@@ -232,11 +265,18 @@ inside one transaction under a per-security advisory lock: replace, never versio
 
 ## Revision and lazy rebuild
 
-`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **4**) is a
+`DERIVED_STATE_REVISION` (`packages/stock-data/src/derived-state.ts`, currently **6**) is a
 methodology rebuild trigger, never a row-identity or history dimension. It is recorded only in the
-dataset-state/coverage variant (`daily-derived-state:r4`) and in the Redis manifest. r4 added the
+dataset-state/coverage variant (`daily-derived-state:r6`) and in the Redis manifest. r4 added the
 daily RSI family — one bump for all three periods, because an r3 row's NULL oscillator columns are
-indistinguishable from warm-up.
+indistinguishable from warm-up. r6 added the Relative Volume family for the same reason.
+
+**A corrected historical volume needs no separate mechanism.** Changing `volume` at session `T`
+moves every later session whose baseline window contains `T` — the next 10, 20 or 50 sessions
+depending on the period. The existing rebuild already spans exactly that: `rebuildDailyDerivedState`
+recalculates from the security's earliest persisted bar and *replaces* the affected days, and a
+backfill reports the earliest changed date, which is where the rebuild starts. There is no RVOL
+correction path, and there must not be one.
 
 Bumping it makes previous-variant coverage and manifests report nothing, so
 `CanonicalStockDataService` recalculates and **replaces** the affected rows on next access. It is
@@ -271,8 +311,10 @@ deferred.
 | `GET /stocks/:symbol/intrinsic-values`       | long-form points; `models=`, `asOf=`                              |
 | `GET /stocks/:symbol/intrinsic-value-blends` | long-form points; `blendIds=`, `asOf=`                            |
 
-- `technicalResponse` projects `TECHNICAL_SERIES_FIELDS` — every moving average and every daily
-  oscillator — so a registered series cannot go missing from the API.
+- `technicalResponse` projects `DAILY_TECHNICAL_PROJECTION_FIELDS` — every moving average, every
+  daily oscillator and every Relative Volume period — so a registered series cannot go missing from
+  the API. `TECHNICAL_SERIES_FIELDS` remains the catalog-backed subset `series=` addresses;
+  Relative Volume has no catalog id and so cannot be named there.
 - `technicalFields` resolves `series=` against the catalog via `findSelectableSeries` and rejects
   anything that is not a moving-average or oscillator entry (`TECHNICAL_SERIES` is the addressable
   set the validation error names). Filtering happens **after** retrieval, on the full daily row.
@@ -367,7 +409,9 @@ persisted is a deferred decision recorded in the storage ADR.
 
 Not implemented; noted so the boundary is not accidentally crossed:
 
-- Strategy conditions will reference **catalog IDs** (`SelectableSeriesId`) as stable operands.
+- Strategy conditions reference **catalog IDs** (`SelectableSeriesId`) as stable operands where the
+  metric is catalog-backed; `Relative Volume` is parameterized by period instead and carries its own
+  `relative-volume:<period>` operand key.
   `comparableMovingAverages` already encodes the same-timeframe, not-itself rule.
 - `apps/worker` is a foundation process with no job processors. When backtests land they must
   consume `@intrinsic/stock-data`, not reimplement loading.

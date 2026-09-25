@@ -257,3 +257,16 @@ one alternative.
 **No index was added.** The paginated trade log
 (`GET /backtests/{runId}/trades`) orders by `sequence` within a run and counts within a run, and
 `@@unique([runId, sequence])` already covers both.
+
+Migration `20260925090000_add_relative_volume_derived_state` adds `rvol10`, `rvol20` and `rvol50` to
+`DailyDerivedState` — three nullable `DECIMAL(20,8)` columns, additive, leaving every existing row
+`NULL`. Nothing is back-filled in SQL: the canonical rebuild is the only calculation path for a
+derived series, and `DERIVED_STATE_REVISION` moves to **6** in the same change so existing coverage
+rows and Redis manifests report nothing for the current variant and the affected history is
+recalculated and replaced on next access. Without that bump the columns would read `NULL`
+indefinitely, which is indistinguishable from warm-up.
+
+No price migration accompanies it. `DailyPrice.volume` already exists as a non-null `BigInt` and is
+already populated from the same FMP historical EOD payload the OHLC values come from, so Relative
+Volume needed a derived-state change and nothing else — no new column on the price table, and no new
+provider request.

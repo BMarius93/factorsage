@@ -19,6 +19,12 @@ export const CHART_COLORS = {
    */
   oscillatorReference: "#b9c6e8",
   /**
+   * The daily volume histogram. A desaturated slate rather than the brand blue or a financial
+   * state colour: volume is context for the price, and colouring bars by the session's direction
+   * would state a correlation the product does not claim.
+   */
+  volume: "#c3cbdd",
+  /**
    * The segment that would otherwise bridge a gap in an overlay.
    *
    * Lightweight Charts drops whitespace rows before rendering a line, so whitespace alone extends

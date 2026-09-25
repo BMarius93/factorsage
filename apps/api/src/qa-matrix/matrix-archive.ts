@@ -9,6 +9,7 @@ import type {
   TriggerOperator,
 } from "@intrinsic/contracts";
 import { IS_CLOSE_TO_TOLERANCE } from "@intrinsic/contracts";
+import { relativeVolumeOperand } from "@intrinsic/strategy";
 import type { InvariantResult } from "./matrix-invariants";
 
 /**
@@ -84,6 +85,10 @@ function metricSeries(
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return column(frame, `series:${metric.seriesId}`);
+    case "RELATIVE_VOLUME":
+      // Through the canonical builder: this metric's key is not "<kind>:<catalog id>", and
+      // hand-encoding it here is exactly how an archive column goes silently missing.
+      return column(frame, relativeVolumeOperand(metric.period));
     case "MARGIN_OF_SAFETY":
       return column(frame, `margin-of-safety:${metric.sourceId}`);
     case "GAIN":

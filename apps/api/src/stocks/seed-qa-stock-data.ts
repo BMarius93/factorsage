@@ -168,6 +168,21 @@ export function seedHistoryStart(today: string): string {
 }
 
 /**
+ * Session volume of the `index`-th seeded trading day.
+ *
+ * Deliberately not a flat or monotone series. A fixture whose volume barely moves makes every
+ * Relative Volume reading land on 1.00x, which renders as a flat histogram and proves nothing
+ * about the chart, the legend or a Strategy threshold. This has a steady base, a weekly rhythm and
+ * a periodic spike, so the seeded history contains readings comfortably above and below 1x while
+ * staying fully deterministic.
+ */
+function qaVolumeAt(index: number): number {
+  const weekly = (index % 5) * 120_000;
+  const spike = index % 37 === 0 ? 4_500_000 : 0;
+  return 1_000_000 + weekly + spike;
+}
+
+/**
  * Monday-Friday trading days from `seedHistoryStart(today)` up to the last completed week.
  *
  * The current, still-running week is deliberately excluded: it is not a completed week, and its
@@ -186,7 +201,7 @@ export function qaTradingDays(securityId: string, today: string): DailyPrice[] {
         high: close + 1.5,
         low: close - 1.5,
         close,
-        volume: 1_000_000 + rows.length,
+        volume: qaVolumeAt(rows.length),
       });
     }
   }

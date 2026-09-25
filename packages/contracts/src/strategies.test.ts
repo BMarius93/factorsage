@@ -227,7 +227,9 @@ describe("strategy metric registry", () => {
       const definition = STRATEGY_METRIC_DEFINITIONS[kind];
       expect(definition.kind).toBe(kind);
       expect(definition.conditionOperators.length).toBeGreaterThan(0);
-      expect(definition.triggerOperators.length).toBeGreaterThan(0);
+      // Every metric is usable as a Condition. Being usable as a Trigger is a per-metric product
+      // decision, and an empty list is the registry's way of saying "condition only" — asserted
+      // by name below rather than as a blanket rule, so a metric cannot lose its Trigger silently.
       expect(definition.allowedIn.length).toBeGreaterThan(0);
       // Either a static value spec, or per-instance resolution — never neither, never both.
       expect(
@@ -319,6 +321,7 @@ describe("strategy metric registry", () => {
         "PRICE",
         "MOVING_AVERAGES",
         "OSCILLATORS",
+        "VOLUME",
         "VALUATION",
         "POSITION",
       ].indexOf(option.group),
@@ -737,12 +740,18 @@ describe("operator compatibility", () => {
   });
 
   it("keeps condition and trigger operators in separate vocabularies", () => {
+    // Exactly one metric is condition-only, and it is named here: a second one appearing without
+    // a product decision should fail this assertion rather than pass a "0 or 2" range check.
+    const conditionOnly = STRATEGY_METRIC_KINDS.filter(
+      (kind) => STRATEGY_METRIC_DEFINITIONS[kind].triggerOperators.length === 0,
+    );
+    expect(conditionOnly).toEqual(["RELATIVE_VOLUME"]);
+
     for (const kind of STRATEGY_METRIC_KINDS) {
       const definition = STRATEGY_METRIC_DEFINITIONS[kind];
-      expect(definition.triggerOperators).toEqual([
-        "CROSSES_ABOVE",
-        "CROSSES_BELOW",
-      ]);
+      expect(definition.triggerOperators).toEqual(
+        conditionOnly.includes(kind) ? [] : ["CROSSES_ABOVE", "CROSSES_BELOW"],
+      );
       for (const operator of definition.conditionOperators) {
         expect(CONDITION_OPERATORS).toContain(operator);
       }

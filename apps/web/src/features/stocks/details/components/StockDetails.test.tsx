@@ -67,6 +67,18 @@ vi.mock("./StockPriceChart", () => ({
       data-overlay-panes={props.overlays
         .map((overlay) => overlay.placement)
         .join(",")}
+      // Volume and the precomputed Relative Volume readings, recorded the same way the overlays
+      // are: this is what proves the page hands the chart the values the backend materialized
+      // rather than calculating anything of its own.
+      data-volume={props.volume
+        .map((point) => `${point.date}:${point.value}`)
+        .join(",")}
+      data-relative-volume={[...props.relativeVolume.entries()]
+        .map(
+          ([date, readings]) =>
+            `${date}:${readings.rvol10 ?? "-"}/${readings.rvol20 ?? "-"}/${readings.rvol50 ?? "-"}`,
+        )
+        .join(",")}
       data-loading={props.loading ? "true" : "false"}
       data-fit-key={props.fitKey}
       data-frame-from={props.frameFrom}
@@ -120,7 +132,9 @@ function bar(date: string, close: number): DailyPriceResponse {
     high: close + 2,
     low: close - 2,
     close,
-    volume: 41_237_500,
+    // Distinct per bar, so an assertion cannot pass on a chart fed the same number everywhere.
+    // Anchored so the newest bar (close 232) keeps the exact 41,237,500 the metrics panel reads.
+    volume: 41_237_500 + (Math.round(close) - 232) * 1_000,
   };
 }
 
@@ -164,6 +178,11 @@ function detailsFixture(): StockDetailsResponse {
         ema50w: 208,
         rsi7d: 66.8,
         rsi14d: 58.4,
+        // The newest session has all three readings; 2026-08-27 has none, which is the warm-up
+        // state the chart must show as "no rows" rather than as 1.00x.
+        rvol10: 2.31,
+        rvol20: 1.94,
+        rvol50: 1.67,
       },
     ],
     intrinsicValues: [
@@ -251,6 +270,31 @@ describe("StockDetails", () => {
       0,
     );
     expect(chart().dataset.pointCount).toBe("6");
+  });
+
+  it("hands the chart the daily volume and the precomputed Relative Volume readings", async () => {
+    fetchStockDetailsMock.mockResolvedValue(detailsFixture());
+
+    render(<StockDetails symbol="AAPL" />);
+    await screen.findByRole("heading", { level: 1, name: /AAPL/ });
+
+    // One volume bar per session, on the price series' own axis and in the same order.
+    expect(chart().dataset.volume).toBe(
+      [
+        "2025-09-02:41155500",
+        "2026-03-02:41185500",
+        "2026-06-02:41195500",
+        "2026-07-30:41200500",
+        "2026-08-27:41205500",
+        "2026-08-28:41237500",
+      ].join(","),
+    );
+
+    // The readings arrive exactly as the backend materialized them: the newest session has all
+    // three, and the warm-up session before it has none — never a substituted 1.00x.
+    expect(chart().dataset.relativeVolume).toBe(
+      ["2026-08-27:-/-/-", "2026-08-28:2.31/1.94/1.67"].join(","),
+    );
   });
 
   it("opens with a compact quote header instead of an introduction", async () => {

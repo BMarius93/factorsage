@@ -277,6 +277,81 @@ describe("StrategyBuilder", () => {
     expect(sellMetrics).toContain("Loss");
   });
 
+  it("offers Relative Volume in a Signal's conditions, at the three fixed periods", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+
+    const options = within(screen.getByTestId("metric-select"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(options).toContain("RVOL 10");
+    expect(options).toContain("RVOL 20");
+    expect(options).toContain("RVOL 50");
+    // Exactly three, under one heading: no custom window, and no second volume indicator.
+    expect(options.filter((label) => label?.startsWith("RVOL "))).toHaveLength(
+      3,
+    );
+    expect(
+      within(screen.getByTestId("metric-select"))
+        .getAllByRole("group")
+        .map((group) => group.getAttribute("label")),
+    ).toContain("Volume");
+  });
+
+  it("authors an RVOL condition as a multiple, and describes it that way", async () => {
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.selectOptions(
+      screen.getByTestId("metric-select"),
+      "RELATIVE_VOLUME:20",
+    );
+
+    // The value control is a number carrying the multiple's own domain and unit.
+    const value = screen.getByTestId("value-control");
+    expect(value.getAttribute("type")).toBe("number");
+    expect(value.getAttribute("min")).toBe("0");
+    expect(value.getAttribute("max")).toBeNull();
+    expect((value as HTMLInputElement).value).toBe("1");
+
+    await user.clear(value);
+    await user.type(value, "2");
+    expect(
+      within(screen.getByTestId("logic-preview")).getByText(
+        /RVOL 20 is above 2\.0x/,
+      ),
+    ).toBeDefined();
+  });
+
+  it("never offers Relative Volume as a Trigger (regression)", async () => {
+    // RVOL is a Condition-only metric: a Monitor's not-matched -> matched transition already
+    // turns `RVOL 20 is above 2.0x` into a Signal, so a crossing operator would be a second way
+    // to say the same thing. The registry decides this; the control just follows it.
+    const user = userEvent.setup();
+    render(<StrategyBuilder />);
+    await user.click(screen.getByTestId("add-level-BUY"));
+    await user.click(screen.getByTestId("add-trigger"));
+
+    const selects = screen.getAllByTestId(
+      "metric-select",
+    ) as HTMLSelectElement[];
+    // The last row is the Trigger; the first is the Condition it was added beside.
+    const triggerOptions = within(selects.at(-1)!)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(
+      triggerOptions.some((label) => label?.startsWith("RVOL ")),
+    ).toBe(false);
+    // …and the Condition row above it still offers all three, so this is a part rule.
+    const conditionOptions = within(selects[0]!)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(
+      conditionOptions.filter((label) => label?.startsWith("RVOL ")),
+    ).toHaveLength(3);
+  });
+
   it("shows a percentage control on BUY and SELL levels and none on FINAL EXIT", async () => {
     const user = userEvent.setup();
     render(<StrategyBuilder />);

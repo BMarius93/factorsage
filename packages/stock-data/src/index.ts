@@ -12,6 +12,7 @@ export * from "./intrinsic-value-materializer.js";
 export * from "./intrinsic-values.js";
 export * from "./monitor-frame.js";
 export * from "./oscillators.js";
+export * from "./relative-volume.js";
 export * from "./ports.js";
 export * from "./prisma-store.js";
 export * from "./redis-client.js";

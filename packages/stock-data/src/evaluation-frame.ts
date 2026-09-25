@@ -2,14 +2,16 @@ import {
   findSelectableSeries,
   type SelectableSeriesId,
 } from "@intrinsic/contracts";
-import type {
-  DailyDerivedState,
-  DailyPrice,
-  LocalDate,
-  Security,
+import {
+  relativeVolumeDefinition,
+  type DailyDerivedState,
+  type DailyPrice,
+  type LocalDate,
+  type Security,
 } from "@intrinsic/domain";
 import {
   createEvaluationFrame,
+  operandRelativeVolumePeriod,
   PRICE_OPERAND,
   type EvaluationFrame,
   type OperandKey,
@@ -140,6 +142,14 @@ const MARGIN_OF_SAFETY_PREFIX = "margin-of-safety:";
 function columnReaderFor(key: OperandKey): ColumnReader {
   if (key.startsWith(SERIES_PREFIX)) {
     return seriesReader(key.slice(SERIES_PREFIX.length));
+  }
+  const relativeVolumePeriod = operandRelativeVolumePeriod(key);
+  if (relativeVolumePeriod !== null) {
+    // Read, never recalculated. The value was materialized when the derived state was prepared, so
+    // a backtest day loop and a Monitor cycle both cost one array lookup here and neither touches
+    // the raw volume history.
+    const field = relativeVolumeDefinition(relativeVolumePeriod).field;
+    return (_price, derived) => numberOrNaN(derived?.[field]);
   }
   if (key.startsWith(MARGIN_OF_SAFETY_PREFIX)) {
     const readIntrinsic = seriesReader(

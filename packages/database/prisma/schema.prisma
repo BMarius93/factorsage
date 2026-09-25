@@ -632,6 +632,15 @@ model DailyDerivedState {
   rsi7d                    Decimal?  @db.Decimal(20, 8)
   rsi14d                   Decimal?  @db.Decimal(20, 8)
   rsi21d                   Decimal?  @db.Decimal(20, 8)
+  /// Relative Volume over the canonical daily session volumes of `DailyPrice`: this session's
+  /// volume divided by the mean volume of the previous N sessions, where the session being
+  /// measured is never part of its own baseline. Unitless multiples; NULL until the full lookback
+  /// of previous sessions exists, NULL when any session in that window has no usable volume, and
+  /// NULL when the baseline mean is zero. A warm-up gap is never written as zero — zero is the
+  /// real reading of a session that traded nothing. One methodology serves all three periods.
+  rvol10                   Decimal?  @db.Decimal(20, 8)
+  rvol20                   Decimal?  @db.Decimal(20, 8)
+  rvol50                   Decimal?  @db.Decimal(20, 8)
   dcfFcff                  Decimal?  @db.Decimal(20, 8)
   residualIncome           Decimal?  @db.Decimal(20, 8)
   ddm                      Decimal?  @db.Decimal(20, 8)

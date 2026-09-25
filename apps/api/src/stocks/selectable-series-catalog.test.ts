@@ -2,10 +2,14 @@ import {
   INTRINSIC_VALUE_SERIES,
   MOVING_AVERAGE_SERIES,
   OSCILLATOR_SERIES,
+  RELATIVE_VOLUME_PERIODS,
   SELECTABLE_SERIES_CATALOG,
+  STRATEGY_METRIC_DEFINITIONS,
 } from "@intrinsic/contracts";
 import {
   DAILY_OSCILLATORS,
+  DAILY_RELATIVE_VOLUMES,
+  RELATIVE_VOLUME_PERIODS as DOMAIN_RELATIVE_VOLUME_PERIODS,
   INTRINSIC_VALUE_BLEND_IDS,
   INTRINSIC_VALUE_MODELS,
   MATERIALIZED_MOVING_AVERAGES,
@@ -67,6 +71,32 @@ describe("canonical selectable-series catalog", () => {
         field: oscillator.field,
       })),
     );
+  });
+
+  it("offers exactly the Relative Volume periods the domain materializes", () => {
+    // `@intrinsic/contracts` states the periods because it is the only package the web app may
+    // depend on; `@intrinsic/domain` owns the columns they are calculated into. Neither may move
+    // without the other — a period the Builder offers but nothing materializes would read as
+    // permanent warm-up, and a column nothing offers would never be reachable.
+    expect(DOMAIN_RELATIVE_VOLUME_PERIODS.length).toBeGreaterThan(0);
+    expect([...RELATIVE_VOLUME_PERIODS]).toEqual([
+      ...DOMAIN_RELATIVE_VOLUME_PERIODS,
+    ]);
+    expect(DAILY_RELATIVE_VOLUMES.map((entry) => entry.period)).toEqual([
+      ...RELATIVE_VOLUME_PERIODS,
+    ]);
+  });
+
+  it("keeps Relative Volume out of the selectable-series catalog", () => {
+    // It is a Strategy metric and a Stock Details reading, never a chart overlay and never a
+    // comparison Value, so it is deliberately not a catalog entry — the same choice `Price`,
+    // `Gain` and `Loss` make. A catalog entry would put it into the Indicators picker.
+    expect(
+      SELECTABLE_SERIES_CATALOG.some((entry) =>
+        entry.id.startsWith("RVOL"),
+      ),
+    ).toBe(false);
+    expect(STRATEGY_METRIC_DEFINITIONS.RELATIVE_VOLUME.parameterSeriesIds).toBeUndefined();
   });
 
   it("carries the domain's RSI unit range on every RSI catalog entry", () => {

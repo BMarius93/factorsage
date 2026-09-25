@@ -94,6 +94,9 @@ type DailyDerivedStateRow = {
   rsi7d: DecimalLike | null;
   rsi14d: DecimalLike | null;
   rsi21d: DecimalLike | null;
+  rvol10: DecimalLike | null;
+  rvol20: DecimalLike | null;
+  rvol50: DecimalLike | null;
   dcfFcff: DecimalLike | null;
   residualIncome: DecimalLike | null;
   ddm: DecimalLike | null;
@@ -167,6 +170,9 @@ function dailyDerivedStateFromRow(
     ...(row.rsi7d === null ? {} : { rsi7d: row.rsi7d.toNumber() }),
     ...(row.rsi14d === null ? {} : { rsi14d: row.rsi14d.toNumber() }),
     ...(row.rsi21d === null ? {} : { rsi21d: row.rsi21d.toNumber() }),
+    ...(row.rvol10 === null ? {} : { rvol10: row.rvol10.toNumber() }),
+    ...(row.rvol20 === null ? {} : { rvol20: row.rvol20.toNumber() }),
+    ...(row.rvol50 === null ? {} : { rvol50: row.rvol50.toNumber() }),
     ...(Object.keys(intrinsicValues).length === 0 ? {} : { intrinsicValues }),
     ...(Object.keys(intrinsicValueBlends).length === 0
       ? {}
@@ -205,6 +211,9 @@ function dailyDerivedStateToRow(
     rsi7d: row.rsi7d ?? null,
     rsi14d: row.rsi14d ?? null,
     rsi21d: row.rsi21d ?? null,
+    rvol10: row.rvol10 ?? null,
+    rvol20: row.rvol20 ?? null,
+    rvol50: row.rvol50 ?? null,
     dcfFcff: row.intrinsicValues?.DCF_FCFF ?? null,
     residualIncome: row.intrinsicValues?.RESIDUAL_INCOME ?? null,
     ddm: row.intrinsicValues?.DDM ?? null,

@@ -714,11 +714,15 @@ paths:
     get:
       tags: [Stocks]
       operationId: getDailyTechnicals
-      summary: Daily technical series — moving averages and oscillators.
+      summary: Daily technical series — moving averages, oscillators and Relative Volume.
       description: |
         Weekly moving averages are carried forward onto each trading day. A value that does not
         exist for a day — warm-up, or data the point-in-time rules make unavailable — is **omitted**
         rather than zeroed.
+
+        Relative Volume rides on the same row. It is not a catalog series, so it has no `series`
+        identifier: an unnarrowed read carries it, and a read narrowed with `series` returns
+        exactly the catalog series named.
       x-rate-limit: { policy: stock-read }
       parameters:
         - { $ref: "#/components/parameters/Symbol" }
@@ -3222,6 +3226,13 @@ components:
       description: |
         One trading day. Every series is optional: a value that does not exist for a day — warm-up,
         or unavailable under the point-in-time rules — is omitted rather than zeroed.
+
+        `rvol10` / `rvol20` / `rvol50` are **Relative Volume**: the session's traded volume divided
+        by the mean volume of the previous 10, 20 or 50 trading sessions. The session being
+        measured is never part of its own baseline, and the full lookback is required, so a value
+        is absent until it has accumulated and absent when the baseline is zero. They are unitless
+        multiples — `2` means twice the baseline — and are not selectable-series catalog entries,
+        so `series` cannot narrow to them.
       required: [date]
       properties:
         date: { type: string, format: date }
@@ -3242,6 +3253,9 @@ components:
         rsi7d: { type: number, minimum: 0, maximum: 100 }
         rsi14d: { type: number, minimum: 0, maximum: 100 }
         rsi21d: { type: number, minimum: 0, maximum: 100 }
+        rvol10: { type: number, minimum: 0 }
+        rvol20: { type: number, minimum: 0 }
+        rvol50: { type: number, minimum: 0 }
 
     IntrinsicValueModel:
       type: string

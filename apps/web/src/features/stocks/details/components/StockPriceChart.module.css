@@ -1,23 +1,27 @@
+/* Heights are the sum of the panes, not a box the panes are squeezed into. The volume pane is
+   always present and the oscillator pane comes and goes, so each height is the price pane's own
+   useful height plus whatever sits below it — which is what keeps the price chart the primary
+   chart instead of shrinking it every time something is added underneath. */
 .wrapper {
   position: relative;
   width: 100%;
-  height: 280px;
+  height: 340px;
 }
 
-/* The shared oscillator pane sits below the price pane inside the same canvas, so the wrapper
-   grows while it is present: the price pane keeps a useful height and the oscillator pane stays
-   readable, on phones included. */
+/* The shared oscillator pane sits below the volume pane inside the same canvas, so the wrapper
+   grows again while it is present: the price pane keeps a useful height and the oscillator pane
+   stays readable, on phones included. */
 .wrapper[data-oscillator-pane="true"] {
-  height: 380px;
+  height: 440px;
 }
 
 @media (min-width: 880px) {
   .wrapper {
-    height: 360px;
+    height: 440px;
   }
 
   .wrapper[data-oscillator-pane="true"] {
-    height: 480px;
+    height: 560px;
   }
 }
 

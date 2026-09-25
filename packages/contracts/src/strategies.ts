@@ -61,17 +61,50 @@ export type SellLevelPercentage = (typeof SELL_LEVEL_PERCENTAGES)[number];
 // ---------------------------------------------------------------------------
 
 /**
+ * The Relative Volume lookback periods a Strategy may name: exactly 10, 20 and 50 sessions.
+ *
+ * Product identity, stated here because `@intrinsic/contracts` is the only package the web app may
+ * depend on — the same reason the selectable-series catalog lives here rather than in
+ * `@intrinsic/domain`. The backend identities that are actually calculated and persisted stay in
+ * `DAILY_RELATIVE_VOLUMES`, and `apps/api/src/stocks/selectable-series-catalog.test.ts` is the
+ * drift guard between the two. Arbitrary or user-entered windows are deliberately not supported.
+ */
+export const RELATIVE_VOLUME_PERIODS = [10, 20, 50] as const;
+
+export type RelativeVolumePeriod = (typeof RELATIVE_VOLUME_PERIODS)[number];
+
+/**
+ * The period a freshly selected Relative Volume Metric starts from.
+ *
+ * Unlike the derived defaults elsewhere in this file this one is a product choice: 20 sessions is
+ * roughly a trading month and is the window the product presents as the ordinary reading.
+ */
+export const DEFAULT_RELATIVE_VOLUME_PERIOD: RelativeVolumePeriod = 20;
+
+/** The one product label for a Relative Volume period. No surface keeps a second map. */
+export function relativeVolumeLabel(period: RelativeVolumePeriod): string {
+  return `RVOL ${period}`;
+}
+
+/**
  * A Strategy Metric.
  *
  * `Price` is the canonical end-of-day close and is deliberately not a catalog entry, so it is its
  * own kind. Moving averages and RSI are addressed through their **catalog ids**, never a parallel
  * enum. `Margin of Safety` is a first-class metric parameterized by the intrinsic-value source it
  * reads — never a comparison operator, and never a global valuation setting on the Strategy.
+ *
+ * `Relative Volume` is parameterized by its **period**, not by a catalog id, for the same reason
+ * `Price` is not a catalog entry: it is not a selectable series. It is never drawn as a chart
+ * overlay, never comparable with another series, and never a Strategy `Value` — Stock Details
+ * reports it as a reading beside the volume bars. Its periods are the domain registry's, so the
+ * three supported windows are stated once for the whole product.
  */
 export type StrategyMetric =
   | { kind: "PRICE" }
   | { kind: "MOVING_AVERAGE"; seriesId: SelectableSeriesId }
   | { kind: "OSCILLATOR"; seriesId: SelectableSeriesId }
+  | { kind: "RELATIVE_VOLUME"; period: RelativeVolumePeriod }
   | { kind: "MARGIN_OF_SAFETY"; sourceId: SelectableSeriesId }
   | { kind: "GAIN" }
   | { kind: "LOSS" };
@@ -83,6 +116,7 @@ export const STRATEGY_METRIC_KINDS = [
   "PRICE",
   "MOVING_AVERAGE",
   "OSCILLATOR",
+  "RELATIVE_VOLUME",
   "MARGIN_OF_SAFETY",
   "GAIN",
   "LOSS",
@@ -92,14 +126,16 @@ export const STRATEGY_METRIC_KINDS = [
  * The right-hand side of a Condition or Trigger, in product vocabulary.
  *
  * `SERIES` compares against another canonical series; `NUMBER` is a plain user-entered threshold
- * (RSI); `PERCENT` is a user-entered percentage (Margin of Safety, Gain, Loss). The distinction
- * between `NUMBER` and `PERCENT` is a unit, which is what lets one renderer print `30` and `25%`
- * without a per-metric formatting rule in feature code.
+ * (RSI); `PERCENT` is a user-entered percentage (Margin of Safety, Gain, Loss); `MULTIPLE` is a
+ * user-entered multiple of a baseline (Relative Volume). The distinction between them is a unit,
+ * which is what lets one renderer print `30`, `25%` and `2x` without a per-metric formatting rule
+ * in feature code.
  */
 export type StrategyValue =
   | { kind: "SERIES"; seriesId: SelectableSeriesId }
   | { kind: "NUMBER"; value: number }
-  | { kind: "PERCENT"; value: number };
+  | { kind: "PERCENT"; value: number }
+  | { kind: "MULTIPLE"; value: number };
 
 export type StrategyValueKind = StrategyValue["kind"];
 
@@ -258,6 +294,7 @@ export const STRATEGY_METRIC_GROUPS = [
   "PRICE",
   "MOVING_AVERAGES",
   "OSCILLATORS",
+  "VOLUME",
   "VALUATION",
   "POSITION",
 ] as const;
@@ -274,6 +311,7 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
   PRICE: "Price",
   MOVING_AVERAGES: "Moving averages",
   OSCILLATORS: "Oscillators",
+  VOLUME: "Volume",
   VALUATION: "Valuation",
   POSITION: "Position",
 } as const satisfies Record<StrategyMetricGroupId, string>;
@@ -287,7 +325,8 @@ export const STRATEGY_METRIC_GROUP_LABELS = {
 export type StrategyValueSpec =
   | { kind: "SERIES"; seriesIds: readonly SelectableSeriesId[] }
   | { kind: "NUMBER"; min: number; max: number; step: number }
-  | { kind: "PERCENT"; min?: number; max?: number };
+  | { kind: "PERCENT"; min?: number; max?: number }
+  | { kind: "MULTIPLE"; min: number; max?: number; step: number };
 
 type StrategyMetricDefinitionBase = {
   kind: StrategyMetricKind;
@@ -301,7 +340,19 @@ type StrategyMetricDefinitionBase = {
    */
   parameterSeriesIds?: readonly SelectableSeriesId[];
   conditionOperators: readonly ConditionOperator[];
+  /**
+   * The Trigger operators this metric supports, or **empty** when it is not available as a Trigger
+   * at all.
+   *
+   * Empty is a deliberate product statement, not an omission: Relative Volume is a Condition-only
+   * metric. A Trigger is a crossing event, and the Monitor's own not-matched -> matched transition
+   * already turns a Condition such as `RVOL 20 is above 2` into a signal on the session it first
+   * holds — a `crosses above` operator for it would be a second, redundant way to say the same
+   * thing, latched differently. The Builder does not offer the metric in a Trigger row, and
+   * `validatePredicate` rejects a document that names it there.
+   */
   triggerOperators: readonly TriggerOperator[];
+  /** Also parameterizes an entry with something other than a catalog id; see `RELATIVE_VOLUME`. */
   allowedIn: readonly StrategyLevelKind[];
 };
 
@@ -388,6 +439,25 @@ export const STRATEGY_METRIC_DEFINITIONS: Record<
     value: { kind: "NUMBER", min: 1, max: 100, step: 1 },
     allowedIn: ALL_LEVEL_KINDS,
   },
+  /**
+   * Relative Volume: today's session volume against the mean of the previous N sessions.
+   *
+   * Parameterized by period rather than by a catalog id, so it declares no `parameterSeriesIds`;
+   * `strategyMetricOptions` instantiates one option per supported period.
+   *
+   * `triggerOperators` is empty **on purpose** — see the field's own documentation. The value is a
+   * multiple with no upper bound (a news-day RVOL of 30 is real) and a floor of zero, which is the
+   * value's own domain rather than an invented limit.
+   */
+  RELATIVE_VOLUME: {
+    kind: "RELATIVE_VOLUME",
+    label: "Relative Volume",
+    group: "VOLUME",
+    conditionOperators: COMPARISON_OPERATORS,
+    triggerOperators: [],
+    value: { kind: "MULTIPLE", min: 0, step: 0.1 },
+    allowedIn: ALL_LEVEL_KINDS,
+  },
   MARGIN_OF_SAFETY: {
     kind: "MARGIN_OF_SAFETY",
     label: "Margin of Safety",
@@ -441,6 +511,20 @@ export function strategyMetricSeriesId(
     default:
       return undefined;
   }
+}
+
+/**
+ * A Metric's stable identity as one string: kind plus whatever parameterizes it.
+ *
+ * The select control needs one scalar per option, and two options must never collide. It lives
+ * here rather than in the Builder so the encoding follows the metric union — adding a
+ * period-parameterized kind is a change to one function, not to a component that happened to
+ * assume every parameter was a catalog id.
+ */
+export function strategyMetricKey(metric: StrategyMetric): string {
+  return metric.kind === "RELATIVE_VOLUME"
+    ? `${metric.kind}:${metric.period}`
+    : `${metric.kind}:${strategyMetricSeriesId(metric) ?? ""}`;
 }
 
 /**
@@ -545,6 +629,10 @@ export function defaultValueFor(
     }
     case "PERCENT":
       return { kind: "PERCENT", value: clampToSpec(0, spec.min, spec.max) };
+    case "MULTIPLE":
+      // The neutral point of the unit itself: `1x` is a session trading exactly its own baseline.
+      // Derived from what the value means, not a product-mandated preset threshold.
+      return { kind: "MULTIPLE", value: clampToSpec(1, spec.min, spec.max) };
   }
 }
 
@@ -579,13 +667,40 @@ function instantiateMetric(
       return { kind, seriesId };
     case "MARGIN_OF_SAFETY":
       return { kind, sourceId: seriesId };
+    case "RELATIVE_VOLUME":
+      // Parameterized by period, not by a catalog id. `instancesOf` is what builds its instances;
+      // reaching here would mean a caller passed a series id to a metric that takes none.
+      throw new Error("Relative Volume is not parameterized by a series id");
     default:
       return { kind };
   }
 }
 
+/**
+ * Every instance of one metric kind, in canonical order.
+ *
+ * A kind is parameterized by a catalog id, by a period, or by nothing at all. Resolving that here
+ * is what keeps `buildMetricOptions` from switching on the kind itself.
+ */
+function instancesOf(kind: StrategyMetricKind): readonly StrategyMetric[] {
+  if (kind === "RELATIVE_VOLUME") {
+    return RELATIVE_VOLUME_PERIODS.map((period) => ({ kind, period }));
+  }
+  const definition = STRATEGY_METRIC_DEFINITIONS[kind];
+  return definition.parameterSeriesIds
+    ? definition.parameterSeriesIds.map((seriesId) =>
+        instantiateMetric(kind, seriesId),
+      )
+    : [{ kind } as StrategyMetric];
+}
+
+/** Which half of a Signal a Metric is being chosen for. */
+export const STRATEGY_PREDICATE_PARTS = ["CONDITION", "TRIGGER"] as const;
+export type StrategyPredicatePart = (typeof STRATEGY_PREDICATE_PARTS)[number];
+
 function buildMetricOptions(
   levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart,
 ): readonly StrategyMetricOption[] {
   const options: StrategyMetricOption[] = [];
   for (const group of STRATEGY_METRIC_GROUPS) {
@@ -597,12 +712,12 @@ function buildMetricOptions(
       if (!definition.allowedIn.includes(levelKind)) {
         continue;
       }
-      const metrics: StrategyMetric[] = definition.parameterSeriesIds
-        ? definition.parameterSeriesIds.map((seriesId) =>
-            instantiateMetric(kind, seriesId),
-          )
-        : [{ kind } as StrategyMetric];
-      for (const metric of metrics) {
+      // A metric with no Trigger operators is not offered as a Trigger. The registry answers it,
+      // so no component filters the list and the validator enforces the same rule on the document.
+      if (part === "TRIGGER" && definition.triggerOperators.length === 0) {
+        continue;
+      }
+      for (const metric of instancesOf(kind)) {
         options.push({ metric, label: strategyMetricLabel(metric), group });
       }
     }
@@ -612,23 +727,35 @@ function buildMetricOptions(
 
 const METRIC_OPTIONS_BY_LEVEL: Record<
   StrategyLevelKind,
-  readonly StrategyMetricOption[]
+  Record<StrategyPredicatePart, readonly StrategyMetricOption[]>
 > = {
-  BUY: buildMetricOptions("BUY"),
-  SELL: buildMetricOptions("SELL"),
-  FINAL_EXIT: buildMetricOptions("FINAL_EXIT"),
+  BUY: {
+    CONDITION: buildMetricOptions("BUY", "CONDITION"),
+    TRIGGER: buildMetricOptions("BUY", "TRIGGER"),
+  },
+  SELL: {
+    CONDITION: buildMetricOptions("SELL", "CONDITION"),
+    TRIGGER: buildMetricOptions("SELL", "TRIGGER"),
+  },
+  FINAL_EXIT: {
+    CONDITION: buildMetricOptions("FINAL_EXIT", "CONDITION"),
+    TRIGGER: buildMetricOptions("FINAL_EXIT", "TRIGGER"),
+  },
 };
 
 /**
- * Every Metric selectable in one level kind, grouped and in canonical order.
+ * Every Metric selectable in one level kind and one half of a Signal, grouped and in canonical
+ * order.
  *
  * `Gain` and `Loss` are simply absent for BUY: they are position-dependent and no position exists
- * before the first buy. No component filters this list further.
+ * before the first buy. `Relative Volume` is simply absent for `TRIGGER`: it declares no Trigger
+ * operators. No component filters this list further.
  */
 export function strategyMetricOptions(
   levelKind: StrategyLevelKind,
+  part: StrategyPredicatePart = "CONDITION",
 ): readonly StrategyMetricOption[] {
-  return METRIC_OPTIONS_BY_LEVEL[levelKind];
+  return METRIC_OPTIONS_BY_LEVEL[levelKind][part];
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +805,10 @@ export function strategyMetricLabel(metric: StrategyMetric): string {
     case "MOVING_AVERAGE":
     case "OSCILLATOR":
       return seriesLabel(metric.seriesId);
+    case "RELATIVE_VOLUME":
+      // One label for the whole product: the Strategy row, the preview and the Stock Details
+      // chart legend all read `RVOL 20`.
+      return relativeVolumeLabel(metric.period);
     case "MARGIN_OF_SAFETY":
       return `${metricBaseLabel("MARGIN_OF_SAFETY")} · ${seriesLabel(
         metric.sourceId,
@@ -695,6 +826,10 @@ export function strategyValueLabel(value: StrategyValue): string {
       return String(value.value);
     case "PERCENT":
       return `${value.value}%`;
+    case "MULTIPLE":
+      // A multiple always reads with its unit, and always with one decimal, so `2` and `2.0`
+      // cannot appear as two different-looking thresholds: `2x`, `1.5x`, `0.5x`.
+      return `${Number.isFinite(value.value) ? value.value.toFixed(1) : String(value.value)}x`;
   }
 }
 
@@ -918,6 +1053,32 @@ export const STRATEGY_METRIC_HELP: Record<
     ],
     notEvaluableWhen:
       "The selected period is still warming up, so it has no RSI value for the date yet.",
+  },
+  RELATIVE_VOLUME: {
+    summary:
+      "How this session's volume compares with the average of the sessions before it.",
+    detail:
+      "Relative Volume is a multiple, not a percentage: 2.0x means the session traded twice its recent baseline. The baseline is the average volume of the previous 10, 20 or 50 trading sessions — the session being measured is never part of its own average, and sessions are counted, not calendar days. It is a condition only; a monitor already raises a signal on the session a condition first holds, so there is no separate crossing form.",
+    formula:
+      "RVOL(period) = Volume / average Volume of the previous `period` sessions",
+    examples: [
+      {
+        given: "8.4M shares today, 3.6M average over the previous 20 sessions",
+        result: "2.3x",
+        meaning: "Unusually heavy trading for this stock.",
+      },
+      {
+        given: "1.8M shares today, 3.6M average over the previous 20 sessions",
+        result: "0.5x",
+        meaning: "A quiet session: half the usual participation.",
+      },
+    ],
+    notes: [
+      "The three periods are fixed presets. A custom window is deliberately not offered.",
+      "The baseline is this stock's own recent history, so 2.0x means the same thing for a mega-cap and for a small-cap.",
+    ],
+    notEvaluableWhen:
+      "The full lookback of previous sessions does not exist yet, one of those sessions has no volume, or their average is zero.",
   },
   MARGIN_OF_SAFETY: {
     summary:
@@ -1147,6 +1308,10 @@ export const STRATEGY_VALIDATION_CODES = [
   "PERCENTAGE_INVALID",
   "METRIC_NOT_ALLOWED_IN_LEVEL",
   "METRIC_SERIES_UNSUPPORTED",
+  /** A metric parameterized by something other than a catalog id named an unsupported parameter. */
+  "METRIC_PERIOD_UNSUPPORTED",
+  /** The metric exists, but not in the part of a Signal the document used it in. */
+  "METRIC_NOT_ALLOWED_IN_PART",
   "OPERATOR_NOT_SUPPORTED",
   "VALUE_KIND_MISMATCH",
   "VALUE_OUT_OF_DOMAIN",
@@ -1227,6 +1392,7 @@ const METRIC_KEYS: Record<StrategyMetricKind, readonly string[]> = {
   PRICE: ["kind"],
   MOVING_AVERAGE: ["kind", "seriesId"],
   OSCILLATOR: ["kind", "seriesId"],
+  RELATIVE_VOLUME: ["kind", "period"],
   MARGIN_OF_SAFETY: ["kind", "sourceId"],
   GAIN: ["kind"],
   LOSS: ["kind"],
@@ -1236,6 +1402,7 @@ const VALUE_KEYS: Record<StrategyValueKind, readonly string[]> = {
   SERIES: ["kind", "seriesId"],
   NUMBER: ["kind", "value"],
   PERCENT: ["kind", "value"],
+  MULTIPLE: ["kind", "value"],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1410,6 +1577,23 @@ function parseMetric(
       return { kind: "GAIN" };
     case "LOSS":
       return { kind: "LOSS" };
+    case "RELATIVE_VOLUME": {
+      // Parameterized by period rather than by a catalog id, and the period list is closed: an
+      // arbitrary window is refused here rather than silently rounded to a supported one.
+      const period = raw.period;
+      if (
+        typeof period !== "number" ||
+        !(RELATIVE_VOLUME_PERIODS as readonly number[]).includes(period)
+      ) {
+        issues.add(
+          "METRIC_PERIOD_UNSUPPORTED",
+          path,
+          `${metricBaseLabel("RELATIVE_VOLUME")} supports only the ${RELATIVE_VOLUME_PERIODS.join(", ")} session periods.`,
+        );
+        return undefined;
+      }
+      return { kind: "RELATIVE_VOLUME", period: period as RelativeVolumePeriod };
+    }
     default:
       break;
   }
@@ -1451,7 +1635,12 @@ function parseValue(
     return undefined;
   }
   const kind = raw.kind;
-  if (kind !== "SERIES" && kind !== "NUMBER" && kind !== "PERCENT") {
+  if (
+    kind !== "SERIES" &&
+    kind !== "NUMBER" &&
+    kind !== "PERCENT" &&
+    kind !== "MULTIPLE"
+  ) {
     issues.add(
       "SHAPE_INVALID",
       path,
@@ -1481,9 +1670,7 @@ function parseValue(
     issues.add("SHAPE_INVALID", path, "Enter a number for this rule.");
     return undefined;
   }
-  return kind === "NUMBER"
-    ? { kind: "NUMBER", value: raw.value }
-    : { kind: "PERCENT", value: raw.value };
+  return { kind, value: raw.value };
 }
 
 /**
@@ -1548,6 +1735,25 @@ export function checkStrategyValue(
           compatible: false,
           code: "VALUE_OUT_OF_DOMAIN",
           message: `${metricLabel} needs a threshold ${boundsText(spec.min, spec.max)}.`,
+        };
+  }
+
+  if (spec.kind === "MULTIPLE") {
+    if (value.kind !== "MULTIPLE") {
+      return {
+        compatible: false,
+        code: "VALUE_KIND_MISMATCH",
+        message: `${metricLabel} is compared with a multiple, such as 2.0x.`,
+      };
+    }
+    return Number.isFinite(value.value) &&
+      value.value >= spec.min &&
+      (spec.max === undefined || value.value <= spec.max)
+      ? { compatible: true }
+      : {
+          compatible: false,
+          code: "VALUE_OUT_OF_DOMAIN",
+          message: `${metricLabel} needs a multiple ${boundsText(spec.min, spec.max)}.`,
         };
   }
 
@@ -1654,6 +1860,20 @@ function validatePredicate(
 
   const metric = parseMetric(raw.metric, location, levelKind, issues);
   const value = parseValue(raw.value, location, issues);
+
+  // A metric that declares no Trigger operators is not available as a Trigger at all. It is
+  // reported against the Metric, not the operator: "Relative Volume cannot be used as a trigger"
+  // is the actual problem, where "does not support that trigger. Available: ." would name the
+  // operator and then offer nothing. Returning here also keeps the row out of duplicate detection,
+  // exactly like any other unreadable metric.
+  if (metric && location.part === "TRIGGER" && triggerOperatorsFor(metric).length === 0) {
+    issues.add(
+      "METRIC_NOT_ALLOWED_IN_PART",
+      predicatePath(location, "METRIC"),
+      `${strategyMetricLabel(metric)} cannot be used as a trigger. Use it as a condition instead.`,
+    );
+    return undefined;
+  }
 
   let operator: string | undefined;
   const operatorPath = predicatePath(location, "OPERATOR");
@@ -2149,6 +2369,8 @@ function buildMetric(metric: StrategyMetric): StrategyMetric {
       return { kind: "OSCILLATOR", seriesId: metric.seriesId };
     case "MARGIN_OF_SAFETY":
       return { kind: "MARGIN_OF_SAFETY", sourceId: metric.sourceId };
+    case "RELATIVE_VOLUME":
+      return { kind: "RELATIVE_VOLUME", period: metric.period };
     case "PRICE":
       return { kind: "PRICE" };
     case "GAIN":
@@ -2166,6 +2388,8 @@ function buildValue(value: StrategyValue): StrategyValue {
       return { kind: "NUMBER", value: value.value };
     case "PERCENT":
       return { kind: "PERCENT", value: value.value };
+    case "MULTIPLE":
+      return { kind: "MULTIPLE", value: value.value };
   }
 }
 
